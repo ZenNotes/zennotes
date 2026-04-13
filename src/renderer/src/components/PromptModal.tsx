@@ -30,6 +30,11 @@ export function PromptModal({
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
+    setValue(options.initialValue ?? '')
+    setError(null)
+  }, [options.initialValue, options.title])
+
+  useEffect(() => {
     const t = setTimeout(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
@@ -50,6 +55,7 @@ export function PromptModal({
 
   return createPortal(
     <div
+      data-prompt-modal
       className="fixed inset-0 z-[70] flex items-start justify-center bg-black/45 pt-[18vh] backdrop-blur-sm"
       onClick={onCancel}
     >
@@ -137,12 +143,14 @@ export function usePrompt(): {
     <PromptModal
       options={state.options}
       onSubmit={(v) => {
-        state.resolve(v)
+        const resolve = state.resolve
         setState(null)
+        queueMicrotask(() => resolve(v))
       }}
       onCancel={() => {
-        state.resolve(null)
+        const resolve = state.resolve
         setState(null)
+        queueMicrotask(() => resolve(null))
       }}
     />
   ) : null

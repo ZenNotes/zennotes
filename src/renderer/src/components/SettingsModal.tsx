@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
+import type { LineNumberMode } from '../store'
 import { THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
 
@@ -10,6 +11,8 @@ export function SettingsModal(): JSX.Element {
   const setVimMode = useStore((s) => s.setVimMode)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const tabsEnabled = useStore((s) => s.tabsEnabled)
+  const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const vault = useStore((s) => s.vault)
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const themeId = useStore((s) => s.themeId)
@@ -20,16 +23,14 @@ export function SettingsModal(): JSX.Element {
   const setEditorFontSize = useStore((s) => s.setEditorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const setEditorLineHeight = useStore((s) => s.setEditorLineHeight)
+  const lineNumberMode = useStore((s) => s.lineNumberMode)
+  const setLineNumberMode = useStore((s) => s.setLineNumberMode)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const setInterfaceFont = useStore((s) => s.setInterfaceFont)
   const textFont = useStore((s) => s.textFont)
   const setTextFont = useStore((s) => s.setTextFont)
   const monoFont = useStore((s) => s.monoFont)
   const setMonoFont = useStore((s) => s.setMonoFont)
-  const transparentUi = useStore((s) => s.transparentUi)
-  const setTransparentUi = useStore((s) => s.setTransparentUi)
-  const unifiedSidebar = useStore((s) => s.unifiedSidebar)
-  const setUnifiedSidebar = useStore((s) => s.setUnifiedSidebar)
   const darkSidebar = useStore((s) => s.darkSidebar)
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
 
@@ -239,6 +240,12 @@ export function SettingsModal(): JSX.Element {
                 value={livePreview}
                 onChange={setLivePreview}
               />
+              <ToggleRow
+                label="Note tabs"
+                description="Open notes in tabs and allow note-drag split view. Turn off to keep the current single-note behavior."
+                value={tabsEnabled}
+                onChange={setTabsEnabled}
+              />
             </Section>
 
             <Section title="Font">
@@ -283,26 +290,25 @@ export function SettingsModal(): JSX.Element {
                 onChange={setEditorLineHeight}
                 format={(v) => v.toFixed(2)}
               />
+              <SegmentedRow
+                label="Line numbers"
+                description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
+                value={lineNumberMode}
+                options={[
+                  { value: 'off', label: 'Off' },
+                  { value: 'absolute', label: 'Absolute' },
+                  { value: 'relative', label: 'Relative' }
+                ]}
+                onChange={(next) => setLineNumberMode(next)}
+              />
             </Section>
 
             <Section title="Appearance · Advanced">
-              <ToggleRow
-                label="Unified sidebar"
-                description="Show notes inside the sidebar tree (Obsidian File Explorer style) and hide the separate note list column."
-                value={unifiedSidebar}
-                onChange={setUnifiedSidebar}
-              />
               <ToggleRow
                 label="Dark sidebar"
                 description="Tint the sidebar one step darker than the main canvas so the chrome reads as a separate surface."
                 value={darkSidebar}
                 onChange={setDarkSidebar}
-              />
-              <ToggleRow
-                label="Translucent interface"
-                description="Blur the sidebar, note list, and editor header over the window material. Turn off for a fully opaque UI."
-                value={transparentUi}
-                onChange={setTransparentUi}
               />
             </Section>
 
@@ -723,5 +729,45 @@ function ToggleRow({
         />
       </button>
     </label>
+  )
+}
+
+function SegmentedRow<T extends string>({
+  label,
+  description,
+  value,
+  options,
+  onChange
+}: {
+  label: string
+  description?: string
+  value: T
+  options: { value: T; label: string }[]
+  onChange: (next: T) => void
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-4 px-6 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">{label}</div>
+        {description && <div className="text-xs text-ink-500">{description}</div>}
+      </div>
+      <div className="inline-flex shrink-0 rounded-md bg-paper-200/70 p-0.5">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={[
+              'rounded px-3 py-1 text-xs transition-colors',
+              value === option.value
+                ? 'bg-paper-50 text-ink-900 shadow-sm'
+                : 'text-ink-600 hover:text-ink-900'
+            ].join(' ')}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

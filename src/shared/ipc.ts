@@ -19,6 +19,7 @@ export const IPC = {
   VAULT_DUPLICATE_NOTE: 'vault:duplicate-note',
   VAULT_REVEAL_NOTE: 'vault:reveal-note',
   VAULT_MOVE_NOTE: 'vault:move-note',
+  VAULT_IMPORT_FILES: 'vault:import-files',
   VAULT_CREATE_FOLDER: 'vault:create-folder',
   VAULT_RENAME_FOLDER: 'vault:rename-folder',
   VAULT_DELETE_FOLDER: 'vault:delete-folder',
@@ -40,6 +41,8 @@ export interface NoteMeta {
   /** File name without extension. */
   title: string
   folder: NoteFolder
+  /** Zero-based order within the parent directory as read from disk. */
+  siblingOrder: number
   createdAt: number
   updatedAt: number
   size: number
@@ -56,6 +59,18 @@ export interface NoteContent extends NoteMeta {
   body: string
 }
 
+export type ImportedAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
+
+export interface ImportedAsset {
+  /** File name stored under the vault-root `_assets` directory. */
+  name: string
+  /** Vault-relative path to the imported asset, POSIX-style. */
+  path: string
+  /** Markdown snippet to insert into the note. */
+  markdown: string
+  kind: ImportedAssetKind
+}
+
 export interface VaultInfo {
   root: string
   name: string
@@ -66,6 +81,8 @@ export interface FolderEntry {
   folder: NoteFolder
   /** POSIX subpath relative to the top-level folder, "" for the top-level itself. */
   subpath: string
+  /** Zero-based order within the parent directory as read from disk. */
+  siblingOrder: number
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'

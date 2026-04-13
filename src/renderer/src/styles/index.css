@@ -924,11 +924,36 @@ textarea,
 .cm-editor .cm-vim-panel div {
   color: rgb(var(--z-fg-2));
 }
+/* Hide the "(JavaScript regexp: set pcre)" label in vim search.
+ * codemirror-vim renders a desc span with cursor:pointer as the last
+ * child of the prompt flex container. */
+.cm-editor .cm-vim-panel div[style*="flex"] > span[style*="color"] {
+  display: none;
+}
 .cm-editor .cm-activeLine {
   background: transparent;
 }
 .cm-editor .cm-gutters {
-  display: none;
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--z-fg-2) / 0.72);
+  padding-left: 12px;
+  padding-right: 6px;
+}
+.cm-editor .cm-gutter {
+  background: transparent;
+}
+.cm-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 2.5ch;
+  padding: 0 8px 0 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+}
+.cm-editor .cm-activeLineGutter {
+  color: rgb(var(--z-fg));
+  background: transparent !important;
 }
 
 /* Markdown syntax highlight inside CodeMirror.
@@ -1186,6 +1211,169 @@ textarea,
   border-radius: 8px;
 }
 
+:is(.prose-zen, .cm-editor) .local-image-embed {
+  margin: 1.35rem 0;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid theme('colors.paper.300');
+  background: color-mix(in srgb, theme('colors.paper.100') 94%, transparent);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed:hover .local-image-embed-frame {
+  border-color: color-mix(in srgb, theme('colors.accent.DEFAULT') 55%, theme('colors.paper.300'));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, theme('colors.accent.DEFAULT') 45%, transparent);
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-image {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 0;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-controls {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed:hover .local-image-embed-controls {
+  opacity: 1;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-controls-top {
+  top: 0.6rem;
+  justify-content: flex-end;
+  padding-inline: 0.6rem;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-controls-bottom {
+  bottom: 0.6rem;
+  justify-content: flex-end;
+  padding-inline: 0.6rem;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-action {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 2rem;
+  border: 1px solid rgb(0 0 0 / 0.08);
+  border-radius: 10px;
+  background: rgb(20 19 18 / 0.82);
+  color: rgb(255 255 255 / 0.94);
+  font-family: var(
+    --z-mono-font,
+    'SF Mono',
+    'SFMono-Regular',
+    ui-monospace,
+    'JetBrains Mono',
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-action:hover {
+  background: rgb(20 19 18 / 0.92);
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-action:focus-visible {
+  outline: 2px solid theme('colors.accent.DEFAULT');
+  outline-offset: 2px;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-action-open {
+  border-radius: 999px;
+  min-width: 2.1rem;
+  font-size: 1rem;
+}
+
+:is(.prose-zen, .cm-editor) .local-image-embed-caption {
+  margin-top: 0.55rem;
+  text-align: center;
+  font-size: 0.88rem;
+  color: theme('colors.ink.700');
+}
+
+.cm-editor .cm-local-image-embed {
+  display: block;
+  width: 100%;
+  max-width: min(100%, 980px);
+}
+
+.prose-zen .local-asset-embed {
+  margin: 1.25rem 0;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid theme('colors.paper.300');
+  background: color-mix(in srgb, theme('colors.paper.100') 90%, transparent);
+}
+
+.prose-zen .local-asset-embed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid theme('colors.paper.300');
+  padding: 0.65rem 0.85rem;
+}
+
+.prose-zen .local-asset-embed-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: theme('colors.ink.800');
+}
+
+.prose-zen .local-asset-embed-open {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: theme('colors.paper.200');
+  padding: 0.2rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prose-zen .local-asset-embed-frame,
+.prose-zen .local-asset-embed-video {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  border: 0;
+  background: theme('colors.paper.50');
+}
+
+.prose-zen .local-asset-embed-audio {
+  display: block;
+  width: calc(100% - 1.7rem);
+  margin: 0.85rem;
+}
+
 /* Wiki links */
 .prose-zen a.wikilink {
   background: theme('colors.paper.200');
@@ -1200,6 +1388,24 @@ textarea,
 }
 .prose-zen a.wikilink:hover {
   background: theme('colors.paper.300');
+}
+
+.prose-hover-preview {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.prose-hover-preview :is(h1, h2, h3) {
+  margin-top: 0;
+}
+
+.prose-hover-preview p:first-child,
+.prose-hover-preview :is(h1, h2, h3):first-child {
+  margin-top: 0;
+}
+
+.prose-hover-preview > :last-child {
+  margin-bottom: 0;
 }
 
 /* Inline hashtags */
@@ -1317,4 +1523,167 @@ textarea,
 }
 .zen-slider:focus {
   outline: none;
+}
+
+/* ===========================================================================
+ * Vim navigation
+ * =========================================================================*/
+
+.panel-focused {
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.3);
+}
+.vim-cursor {
+  background: rgb(var(--z-accent) / 0.15);
+  color: rgb(var(--z-ink-900));
+}
+.vim-cursor-on-active {
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.5);
+}
+.vim-cursor-on-selected {
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);
+}
+
+/* Hint mode badges */
+.vim-hint {
+  z-index: 10000;
+  background: rgb(var(--z-accent));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
+  padding: 1px 5px;
+  border-radius: 3px;
+  line-height: 1.3;
+  pointer-events: none;
+  text-transform: lowercase;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+}
+.vim-hint-dim {
+  opacity: 0.2;
+}
+.vim-hint-matched {
+  opacity: 0.55;
+}
+
+/* ==========================================================================
+ * Slash commands autocomplete
+ * =========================================================================*/
+
+.cm-tooltip-autocomplete {
+  background: rgb(var(--z-bg)) !important;
+  border: 1px solid var(--glass-stroke) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 0.25) !important;
+  overflow: hidden !important;
+  padding: 4px !important;
+  min-width: 240px;
+}
+
+.cm-tooltip-autocomplete > ul {
+  font-family: var(--z-interface-font, -apple-system, BlinkMacSystemFont, system-ui, sans-serif) !important;
+  max-height: 320px !important;
+}
+
+.cm-tooltip-autocomplete:has(.wikilink-cmd-option)::after {
+  content: 'Type | to change display text  ·  Use /path/to/note for exact links';
+  display: block;
+  padding: 10px 12px 8px;
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  font-size: 12px;
+  color: rgb(var(--z-fg-2));
+  text-align: center;
+}
+
+.cm-tooltip-autocomplete > ul > li {
+  padding: 0 !important;
+  border-radius: 6px !important;
+  overflow: hidden;
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: rgb(var(--z-accent) / 0.15) !important;
+  color: inherit !important;
+}
+
+/* Hide default completion label/detail (we use a custom renderer) */
+.cm-tooltip-autocomplete .cm-completionLabel,
+.cm-tooltip-autocomplete .cm-completionDetail,
+.cm-tooltip-autocomplete .cm-completionIcon {
+  display: none !important;
+}
+
+.cm-completionMatchedText {
+  text-decoration: none !important;
+  font-weight: 600;
+}
+
+/* Custom slash-command item layout */
+.slash-cmd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.slash-cmd-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgb(var(--z-paper-200));
+  color: rgb(var(--z-ink-700));
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
+  flex-shrink: 0;
+}
+
+.slash-cmd-label {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(var(--z-ink-900));
+}
+
+.slash-cmd-detail {
+  font-size: 12px;
+  color: rgb(var(--z-ink-400));
+  font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
+}
+
+.wikilink-cmd-item {
+  display: flex;
+  align-items: center;
+  min-width: 260px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.wikilink-cmd-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wikilink-cmd-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgb(var(--z-ink-900));
+}
+
+.wikilink-cmd-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgb(var(--z-ink-400));
+  font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
 }

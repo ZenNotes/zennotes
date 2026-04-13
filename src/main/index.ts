@@ -17,6 +17,7 @@ import {
   emptyTrash,
   ensureVaultLayout,
   folderAbsolutePath,
+  importFiles,
   listFolders,
   listNotes,
   loadConfig,
@@ -326,6 +327,14 @@ function registerIpc(): void {
     async (_e, relPath: string, targetFolder: NoteFolder, targetSubpath: string) => {
       const v = requireVault()
       return await moveNote(v.root, relPath, targetFolder, targetSubpath)
+    }
+  )
+
+  ipcMain.handle(
+    IPC.VAULT_IMPORT_FILES,
+    async (_e, notePath: string, sourcePaths: string[]) => {
+      const v = requireVault()
+      return await importFiles(v.root, notePath, sourcePaths)
     }
   )
 

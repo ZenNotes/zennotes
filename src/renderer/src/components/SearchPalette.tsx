@@ -7,6 +7,7 @@ export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -43,9 +44,13 @@ export function SearchPalette(): JSX.Element {
 
   useEffect(() => setActive(0), [query])
 
-  const open = (note: NoteMeta): void => {
-    void selectNote(note.path)
+  const open = async (note: NoteMeta): Promise<void> => {
     setSearchOpen(false)
+    await selectNote(note.path)
+    setFocusedPanel('editor')
+    requestAnimationFrame(() => {
+      useStore.getState().editorViewRef?.focus()
+    })
   }
 
   return (

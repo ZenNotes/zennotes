@@ -7,7 +7,9 @@ import { Editor } from './components/Editor'
 import { TitleBar } from './components/TitleBar'
 import { SearchPalette } from './components/SearchPalette'
 import { SettingsModal } from './components/SettingsModal'
+import { VimNav } from './components/VimNav'
 import { EmptyVault } from './components/EmptyVault'
+import { PromptHost } from './components/PromptHost'
 
 function App(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -26,7 +28,6 @@ function App(): JSX.Element {
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
-  const transparentUi = useStore((s) => s.transparentUi)
   const darkSidebar = useStore((s) => s.darkSidebar)
 
   useEffect(() => {
@@ -83,15 +84,10 @@ function App(): JSX.Element {
     )
   }, [editorFontSize, editorLineHeight, interfaceFont, textFont, monoFont])
 
-  // Transparency toggle. When off we flip an attribute on <html> that
-  // CSS reads to remove backdrop-filter and pin every glass surface to
-  // a solid theme color — the only reliable way to make the UI feel
-  // fully opaque on top of macOS vibrancy.
+  // The app now always runs fully opaque.
   useEffect(() => {
-    const html = document.documentElement
-    if (transparentUi) html.removeAttribute('data-opaque')
-    else html.setAttribute('data-opaque', '')
-  }, [transparentUi])
+    document.documentElement.setAttribute('data-opaque', '')
+  }, [])
 
   // Sidebar darken toggle: when on, the sidebar reads `--z-bg-1`
   // (one step darker than the main canvas `--z-bg`) regardless of
@@ -113,6 +109,11 @@ function App(): JSX.Element {
         setSearchOpen(!state.searchOpen)
         return
       }
+      if (e.metaKey && !e.ctrlKey && !e.altKey && key === 'w') {
+        e.preventDefault()
+        void state.closeActiveNote()
+        return
+      }
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
         return
@@ -123,10 +124,10 @@ function App(): JSX.Element {
         state.toggleSidebar()
         return
       }
-      // ⌘2 — toggle the note list
+      // ⌘2 — toggle connections
       if (mod && (e.key === '2' || e.code === 'Digit2')) {
         e.preventDefault()
-        state.toggleNoteList()
+        window.dispatchEvent(new Event('zen:toggle-connections'))
         return
       }
       // ⌘. — toggle focus mode (hide both)
@@ -166,6 +167,8 @@ function App(): JSX.Element {
       </div>
       {searchOpen && <SearchPalette />}
       {settingsOpen && <SettingsModal />}
+      <PromptHost />
+      <VimNav />
     </div>
   )
 }

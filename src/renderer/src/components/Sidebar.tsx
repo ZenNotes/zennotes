@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { extractTags } from '../lib/tags'
-import type { NoteFolder, NoteMeta } from '@shared/ipc'
+import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import type { NoteSortOrder } from '../store'
 import {
   ArchiveIcon,
@@ -29,16 +29,24 @@ import {
   type DragPayload
 } from '../lib/dnd'
 
+function escapeForAttr(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
+  return value.replace(/["\\]/g, '\\$&')
+}
+
 export function Sidebar(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
   const allFolders = useStore((s) => s.folders)
+  const focusedPanel = useStore((s) => s.focusedPanel)
+  const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex)
   const activeNote = useStore((s) => s.activeNote)
   const view = useStore((s) => s.view)
   const setView = useStore((s) => s.setView)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const createAndOpen = useStore((s) => s.createAndOpen)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const renameTag = useStore((s) => s.renameTag)
   const deleteTag = useStore((s) => s.deleteTag)
@@ -51,6 +59,8 @@ export function Sidebar(): JSX.Element {
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
   const noteSortOrder = useStore((s) => s.noteSortOrder)
   const setNoteSortOrder = useStore((s) => s.setNoteSortOrder)
+  const groupByKind = useStore((s) => s.groupByKind)
+  const setGroupByKind = useStore((s) => s.setGroupByKind)
   const autoReveal = useStore((s) => s.autoReveal)
   const setAutoReveal = useStore((s) => s.setAutoReveal)
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
@@ -116,7 +126,7 @@ export function Sidebar(): JSX.Element {
   const [noteMenu, setNoteMenu] = useState<{
     x: number
     y: number
-    note: NoteMeta
+    path: string
   } | null>(null)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const collapsedList = useStore((s) => s.collapsedFolders)
@@ -151,8 +161,10 @@ export function Sidebar(): JSX.Element {
     [notes]
   )
 
-  const treeSortComparator = useMemo(() => {
+  const treeSortComparator = useMemo<((a: NoteMeta, b: NoteMeta) => number) | null>(() => {
     switch (noteSortOrder) {
+      case 'none':
+        return null
       case 'updated-asc':
         return (a: NoteMeta, b: NoteMeta) => a.updatedAt - b.updatedAt
       case 'created-desc':
@@ -359,7 +371,8 @@ export function Sidebar(): JSX.Element {
 
   const noteMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!noteMenu) return []
-    const n = noteMenu.note
+    const n = notes.find((note) => note.path === noteMenu.path)
+    if (!n) return []
     const items: ContextMenuItem[] = [
       {
         label: 'Open',
@@ -387,7 +400,10 @@ export function Sidebar(): JSX.Element {
           if (selectedPath === n.path) {
             await renameActive(next)
           } else {
-            await window.zen.renameNote(n.path, next)
+            const meta = await window.zen.renameNote(n.path, next)
+            useStore.setState((s) => ({
+              notes: s.notes.map((note) => (note.path === n.path ? meta : note))
+            }))
             await refreshNotes()
           }
         }
@@ -478,6 +494,7 @@ export function Sidebar(): JSX.Element {
     return items
   }, [
     noteMenu,
+    notes,
     selectNote,
     selectedPath,
     refreshNotes,
@@ -551,10 +568,73 @@ export function Sidebar(): JSX.Element {
     setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath })
   }
 
+  const isSidebarFocused = focusedPanel === 'sidebar'
+  // Mutable counter reset on each render — assigns sequential data-sidebar-idx to each item.
+  const idxCounter = useRef<{ value: number }>({ value: 0 })
+  idxCounter.current.value = 0
+  const vimCursor = isSidebarFocused ? sidebarCursorIndex : -1
+  // VimNav clamps cursor position via Math.min/Math.max on each
+  // keystroke using the actual DOM element count — no extra clamping needed.
+
+  useEffect(() => {
+    if (!isSidebarFocused) return
+
+    const findTarget = (): HTMLElement | null => {
+      if (view.kind === 'tag') {
+        return document.querySelector(
+          `[data-sidebar-type="tag"][data-sidebar-tag="${escapeForAttr(view.tag)}"]`
+        ) as HTMLElement | null
+      }
+
+      if (selectedPath && unifiedSidebar) {
+        const noteEl = document.querySelector(
+          `[data-sidebar-path="${escapeForAttr(selectedPath)}"]`
+        ) as HTMLElement | null
+        if (noteEl) return noteEl
+
+        const parts = selectedPath.split('/')
+        const folder = parts[0] as NoteFolder
+        const segments = parts.slice(1, -1)
+        for (let i = segments.length; i >= 0; i--) {
+          const subpath = segments.slice(0, i).join('/')
+          const folderEl = document.querySelector(
+            `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(subpath)}"]`
+          ) as HTMLElement | null
+          if (folderEl) return folderEl
+        }
+      }
+
+      if (view.kind === 'folder') {
+        if (view.folder === 'trash') {
+          return document.querySelector('[data-sidebar-type="trash"]') as HTMLElement | null
+        }
+        return document.querySelector(
+          `[data-sidebar-type="folder"][data-sidebar-folder="${view.folder}"][data-sidebar-subpath="${escapeForAttr(view.subpath)}"]`
+        ) as HTMLElement | null
+      }
+
+      return null
+    }
+
+    const target = findTarget()
+    if (!target) return
+
+    const idx = Number(target.dataset.sidebarIdx)
+    if (Number.isFinite(idx) && idx !== sidebarCursorIndex) {
+      useStore.getState().setSidebarCursorIndex(idx)
+    }
+
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'nearest' })
+    })
+  }, [isSidebarFocused, selectedPath, unifiedSidebar, view])
+
   return (
     <aside
-      className="glass-sidebar relative flex shrink-0 flex-col pb-3 pt-3"
+      className={`glass-sidebar relative flex shrink-0 flex-col pb-3 pt-3${isSidebarFocused ? ' panel-focused' : ''}`}
       style={{ width: sidebarWidth }}
+      onMouseDownCapture={() => setFocusedPanel('sidebar')}
+      onFocusCapture={() => setFocusedPanel('sidebar')}
     >
       {/* Vault header + top-right actions */}
       <div className="flex items-center justify-between px-3 pb-3">
@@ -635,8 +715,9 @@ export function Sidebar(): JSX.Element {
           <FolderPlusIcon />
         </IconBtn>
         <IconBtn
-          title={`Sort: ${sortOrderLabel(noteSortOrder)}`}
+          title={`Sort: ${sortOrderLabel(noteSortOrder)}${groupByKind ? ', Group by kind' : ''}`}
           onClick={(e) => setSortMenu({ x: e.clientX, y: e.clientY })}
+          active={noteSortOrder !== 'none'}
         >
           <SortIcon />
         </IconBtn>
@@ -673,10 +754,14 @@ export function Sidebar(): JSX.Element {
           onSelectNote={(p) => void selectNote(p)}
           onNoteContextMenu={(e, n) => {
             e.preventDefault()
-            setNoteMenu({ x: e.clientX, y: e.clientY, note: n })
+            setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path })
           }}
           sortComparator={treeSortComparator}
           onDropOnFolder={handleDropOnFolder}
+          idxCounter={idxCounter.current}
+          vimCursor={vimCursor}
+          sidebarFocused={isSidebarFocused}
+          groupByKind={groupByKind}
         />
 
         <FolderTreeRoot
@@ -694,10 +779,14 @@ export function Sidebar(): JSX.Element {
           onSelectNote={(p) => void selectNote(p)}
           onNoteContextMenu={(e, n) => {
             e.preventDefault()
-            setNoteMenu({ x: e.clientX, y: e.clientY, note: n })
+            setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path })
           }}
           sortComparator={treeSortComparator}
           onDropOnFolder={handleDropOnFolder}
+          idxCounter={idxCounter.current}
+          vimCursor={vimCursor}
+          sidebarFocused={isSidebarFocused}
+          groupByKind={groupByKind}
         />
 
         {/* Tag pills */}
@@ -709,6 +798,8 @@ export function Sidebar(): JSX.Element {
             <div className="flex flex-wrap gap-1.5 px-1">
               {tags.map(([tag, count]) => {
                 const active = view.kind === 'tag' && view.tag === tag
+                const tagIdx = idxCounter.current.value++
+                const isVimHighlight = vimCursor === tagIdx
                 return (
                   <button
                     key={tag}
@@ -727,15 +818,24 @@ export function Sidebar(): JSX.Element {
                     className={[
                       'rounded-full px-2.5 py-1 text-xs transition-colors',
                       active
-                        ? 'bg-accent text-white'
-                        : 'bg-paper-200 text-ink-800 hover:bg-paper-300'
+                        ? isVimHighlight
+                          ? 'vim-cursor-on-active bg-accent text-white'
+                          : isSidebarFocused
+                            ? 'text-accent'
+                            : 'bg-accent text-white'
+                        : isVimHighlight
+                          ? 'vim-cursor'
+                          : 'bg-paper-200 text-ink-800 hover:bg-paper-300'
                     ].join(' ')}
+                    data-sidebar-idx={tagIdx}
+                    data-sidebar-type="tag"
+                    data-sidebar-tag={tag}
                   >
                     #{tag}
                     <span
                       className={[
                         'ml-1 text-[10px]',
-                        active ? 'text-white/80' : 'text-ink-500'
+                        active && !isSidebarFocused ? 'text-white/80' : 'text-ink-500'
                       ].join(' ')}
                     >
                       {count}
@@ -757,6 +857,10 @@ export function Sidebar(): JSX.Element {
           icon={<SettingsIcon />}
           label="Settings"
           onClick={() => setSettingsOpen(true)}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
+          sidebarFocused={isSidebarFocused}
+          sidebarData={{ type: 'settings' }}
         />
         <SidebarRow
           icon={<TrashIcon />}
@@ -764,6 +868,10 @@ export function Sidebar(): JSX.Element {
           count={trashCount}
           active={isFolderActive('trash', '')}
           onClick={() => setView({ kind: 'folder', folder: 'trash', subpath: '' })}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
+          sidebarFocused={isSidebarFocused}
+          sidebarData={{ type: 'trash' }}
         />
       </div>
 
@@ -796,8 +904,10 @@ export function Sidebar(): JSX.Element {
         <ContextMenu
           x={sortMenu.x}
           y={sortMenu.y}
-          items={(
-            [
+          items={[
+            ...(
+              [
+              ['none', 'No sorting'],
               ['updated-desc', 'Modified (newest first)'],
               ['updated-asc', 'Modified (oldest first)'],
               ['created-desc', 'Created (newest first)'],
@@ -805,10 +915,16 @@ export function Sidebar(): JSX.Element {
               ['name-asc', 'Name (A → Z)'],
               ['name-desc', 'Name (Z → A)']
             ] as const
-          ).map(([id, label]) => ({
-            label: `${noteSortOrder === id ? '✓  ' : '    '}${label}`,
-            onSelect: () => setNoteSortOrder(id as NoteSortOrder)
-          }))}
+            ).map(([id, label]) => ({
+              label: `${noteSortOrder === id ? '✓  ' : '    '}${label}`,
+              onSelect: () => setNoteSortOrder(id as NoteSortOrder)
+            })),
+            { kind: 'separator' as const },
+            {
+              label: `${groupByKind ? '✓  ' : '    '}Group by kind`,
+              onSelect: () => setGroupByKind(!groupByKind)
+            }
+          ]}
           onClose={() => setSortMenu(null)}
         />
       )}
@@ -829,23 +945,32 @@ export function Sidebar(): JSX.Element {
 interface TreeNode {
   name: string
   subpath: string
+  siblingOrder: number
   notes: NoteMeta[]
   children: TreeNode[]
 }
 
+type TreeRenderEntry =
+  | { type: 'folder'; node: TreeNode }
+  | { type: 'note'; note: NoteMeta }
+
 function buildTree(
   notes: NoteMeta[],
   topFolder: NoteFolder,
-  folders: { folder: NoteFolder; subpath: string }[]
+  folders: FolderEntry[]
 ): TreeNode {
   const root: TreeNode = {
     name: topFolder,
     subpath: '',
+    siblingOrder: -1,
     notes: [],
     children: []
   }
   const byPath = new Map<string, TreeNode>()
   byPath.set('', root)
+  const folderOrder = new Map(
+    folders.map((folder) => [folder.subpath, folder.siblingOrder] as const)
+  )
 
   const ensureFolder = (subpath: string): TreeNode => {
     const existing = byPath.get(subpath)
@@ -857,7 +982,13 @@ function buildTree(
       acc = acc ? `${acc}/${seg}` : seg
       let node = byPath.get(acc)
       if (!node) {
-        node = { name: seg, subpath: acc, notes: [], children: [] }
+        node = {
+          name: seg,
+          subpath: acc,
+          siblingOrder: folderOrder.get(acc) ?? Number.MAX_SAFE_INTEGER,
+          notes: [],
+          children: []
+        }
         byPath.set(acc, node)
         parent.children.push(node)
       }
@@ -884,16 +1015,43 @@ function buildTree(
     const parent = ensureFolder(segments.join('/'))
     parent.notes.push(n)
   }
-
-  const sortNode = (node: TreeNode): void => {
-    node.children.sort((a, b) =>
-      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-    )
-    node.notes.sort((a, b) => b.updatedAt - a.updatedAt)
-    node.children.forEach(sortNode)
-  }
-  sortNode(root)
   return root
+}
+
+function getTreeRenderEntries(
+  node: TreeNode,
+  showNotes: boolean,
+  sortComparator: ((a: NoteMeta, b: NoteMeta) => number) | null,
+  groupByKind: boolean
+): TreeRenderEntry[] {
+  if (!showNotes) {
+    return node.children.map((child) => ({ type: 'folder', node: child }))
+  }
+
+  if (sortComparator || groupByKind) {
+    return [
+      ...node.children.map((child) => ({ type: 'folder', node: child } as const)),
+      ...node.notes
+        .slice()
+        .sort(sortComparator ?? ((a, b) => a.siblingOrder - b.siblingOrder))
+        .map((note) => ({ type: 'note', note } as const))
+    ]
+  }
+
+  return [
+    ...node.children.map((child) => ({
+      type: 'folder' as const,
+      node: child,
+      siblingOrder: child.siblingOrder
+    })),
+    ...node.notes.map((note) => ({
+      type: 'note' as const,
+      note,
+      siblingOrder: note.siblingOrder
+    }))
+  ]
+    .sort((a, b) => a.siblingOrder - b.siblingOrder)
+    .map(({ siblingOrder: _siblingOrder, ...entry }) => entry)
 }
 
 function countNotesInTree(node: TreeNode): number {
@@ -901,6 +1059,9 @@ function countNotesInTree(node: TreeNode): number {
 }
 
 /* ---------- Tree rendering ---------- */
+
+/** Mutable counter threaded through tree rendering for sequential data-sidebar-idx attributes. */
+interface IdxCounter { value: number }
 
 interface TreeRenderProps {
   folder: NoteFolder
@@ -913,12 +1074,20 @@ interface TreeRenderProps {
   selectedPath: string | null
   onSelectNote: (path: string) => void
   onNoteContextMenu: (e: React.MouseEvent, n: NoteMeta) => void
-  sortComparator: (a: NoteMeta, b: NoteMeta) => number
+  sortComparator: ((a: NoteMeta, b: NoteMeta) => number) | null
   onDropOnFolder: (
     payload: DragPayload,
     targetFolder: NoteFolder,
     targetSubpath: string
   ) => void | Promise<void>
+  /** Sequential index counter for vim navigation data attributes. */
+  idxCounter: IdxCounter
+  /** The highlighted cursor index when sidebar is vim-focused (-1 if not focused). */
+  vimCursor: number
+  /** Whether the sidebar currently owns keyboard focus. */
+  sidebarFocused: boolean
+  /** Finder-style folders-first rendering toggle. */
+  groupByKind: boolean
 }
 
 function FolderTreeRoot({
@@ -936,7 +1105,11 @@ function FolderTreeRoot({
   onSelectNote,
   onNoteContextMenu,
   sortComparator,
-  onDropOnFolder
+  onDropOnFolder,
+  idxCounter,
+  vimCursor,
+  sidebarFocused,
+  groupByKind
 }: {
   label: string
   icon: JSX.Element
@@ -945,13 +1118,13 @@ function FolderTreeRoot({
   const rootKey = `${folder}:`
   const isCollapsed = collapsed.has(rootKey)
   const total = countNotesInTree(tree)
-  const hasChildren = tree.children.length > 0 || (showNotes && tree.notes.length > 0)
-  const [dragHover, setDragHover] = useState(false)
-
-  const sortedNotes = useMemo(
-    () => (showNotes ? tree.notes.slice().sort(sortComparator) : []),
-    [showNotes, tree.notes, sortComparator]
+  const entries = useMemo(
+    () => getTreeRenderEntries(tree, showNotes, sortComparator, groupByKind),
+    [tree, showNotes, sortComparator, groupByKind]
   )
+  const hasChildren = entries.length > 0
+  const [dragHover, setDragHover] = useState(false)
+  const myIdx = idxCounter.value++
 
   const handleSelect = (): void => {
     setView({ kind: 'folder', folder, subpath: '' })
@@ -987,39 +1160,56 @@ function FolderTreeRoot({
           e.preventDefault()
           void onDropOnFolder(payload, folder, '')
         }}
+        sidebarIdx={myIdx}
+        vimHighlight={vimCursor === myIdx}
+        sidebarFocused={sidebarFocused}
+        sidebarData={{ type: 'folder', folder, subpath: '', key: rootKey }}
       />
       {!isCollapsed && (
         <>
-          {tree.children.map((child) => (
-            <SubTree
-              key={child.subpath}
-              node={child}
-              depth={1}
-              folder={folder}
-              isFolderActive={isFolderActive}
-              collapsed={collapsed}
-              toggleCollapse={toggleCollapse}
-              setView={setView}
-              onContextMenu={onContextMenu}
-              showNotes={showNotes}
-              selectedPath={selectedPath}
-              onSelectNote={onSelectNote}
-              onNoteContextMenu={onNoteContextMenu}
-              sortComparator={sortComparator}
-              onDropOnFolder={onDropOnFolder}
-            />
-          ))}
-          {showNotes &&
-            sortedNotes.map((n) => (
+          {entries.map((entry) => {
+            if (entry.type === 'folder') {
+              return (
+                <SubTree
+                  key={entry.node.subpath}
+                  node={entry.node}
+                  depth={1}
+                  folder={folder}
+                  isFolderActive={isFolderActive}
+                  collapsed={collapsed}
+                  toggleCollapse={toggleCollapse}
+                  setView={setView}
+                  onContextMenu={onContextMenu}
+                  showNotes={showNotes}
+                  selectedPath={selectedPath}
+                  onSelectNote={onSelectNote}
+                  onNoteContextMenu={onNoteContextMenu}
+                  sortComparator={sortComparator}
+                  onDropOnFolder={onDropOnFolder}
+                  idxCounter={idxCounter}
+                  vimCursor={vimCursor}
+                  sidebarFocused={sidebarFocused}
+                  groupByKind={groupByKind}
+                />
+              )
+            }
+
+            const n = entry.note
+            const noteIdx = idxCounter.value++
+            return (
               <NoteLeaf
                 key={n.path}
                 note={n}
                 depth={1}
                 active={n.path === selectedPath}
+                sidebarFocused={sidebarFocused}
                 onSelect={() => onSelectNote(n.path)}
                 onContextMenu={(e) => onNoteContextMenu(e, n)}
+                sidebarIdx={noteIdx}
+                vimHighlight={vimCursor === noteIdx}
               />
-            ))}
+            )
+          })}
         </>
       )}
     </div>
@@ -1040,18 +1230,21 @@ function SubTree({
   onSelectNote,
   onNoteContextMenu,
   sortComparator,
-  onDropOnFolder
+  onDropOnFolder,
+  idxCounter,
+  vimCursor,
+  sidebarFocused,
+  groupByKind
 }: { node: TreeNode; depth: number } & TreeRenderProps): JSX.Element {
   const key = `${folder}:${node.subpath}`
   const isCollapsed = collapsed.has(key)
-  const hasChildren =
-    node.children.length > 0 || (showNotes && node.notes.length > 0)
-  const [dragHover, setDragHover] = useState(false)
-
-  const sortedNotes = useMemo(
-    () => (showNotes ? node.notes.slice().sort(sortComparator) : []),
-    [showNotes, node.notes, sortComparator]
+  const entries = useMemo(
+    () => getTreeRenderEntries(node, showNotes, sortComparator, groupByKind),
+    [node, showNotes, sortComparator, groupByKind]
   )
+  const hasChildren = entries.length > 0
+  const [dragHover, setDragHover] = useState(false)
+  const myIdx = idxCounter.value++
 
   const handleSelect = (): void => {
     setView({ kind: 'folder', folder, subpath: node.subpath })
@@ -1090,39 +1283,56 @@ function SubTree({
           e.preventDefault()
           void onDropOnFolder(payload, folder, node.subpath)
         }}
+        sidebarIdx={myIdx}
+        vimHighlight={vimCursor === myIdx}
+        sidebarFocused={sidebarFocused}
+        sidebarData={{ type: 'folder', folder, subpath: node.subpath, key }}
       />
       {!isCollapsed && (
         <>
-          {node.children.map((child) => (
-            <SubTree
-              key={child.subpath}
-              node={child}
-              depth={depth + 1}
-              folder={folder}
-              isFolderActive={isFolderActive}
-              collapsed={collapsed}
-              toggleCollapse={toggleCollapse}
-              setView={setView}
-              onContextMenu={onContextMenu}
-              showNotes={showNotes}
-              selectedPath={selectedPath}
-              onSelectNote={onSelectNote}
-              onNoteContextMenu={onNoteContextMenu}
-              sortComparator={sortComparator}
-              onDropOnFolder={onDropOnFolder}
-            />
-          ))}
-          {showNotes &&
-            sortedNotes.map((n) => (
+          {entries.map((entry) => {
+            if (entry.type === 'folder') {
+              return (
+                <SubTree
+                  key={entry.node.subpath}
+                  node={entry.node}
+                  depth={depth + 1}
+                  folder={folder}
+                  isFolderActive={isFolderActive}
+                  collapsed={collapsed}
+                  toggleCollapse={toggleCollapse}
+                  setView={setView}
+                  onContextMenu={onContextMenu}
+                  showNotes={showNotes}
+                  selectedPath={selectedPath}
+                  onSelectNote={onSelectNote}
+                  onNoteContextMenu={onNoteContextMenu}
+                  sortComparator={sortComparator}
+                  onDropOnFolder={onDropOnFolder}
+                  idxCounter={idxCounter}
+                  vimCursor={vimCursor}
+                  sidebarFocused={sidebarFocused}
+                  groupByKind={groupByKind}
+                />
+              )
+            }
+
+            const n = entry.note
+            const noteIdx = idxCounter.value++
+            return (
               <NoteLeaf
                 key={n.path}
                 note={n}
                 depth={depth + 1}
                 active={n.path === selectedPath}
+                sidebarFocused={sidebarFocused}
                 onSelect={() => onSelectNote(n.path)}
                 onContextMenu={(e) => onNoteContextMenu(e, n)}
+                sidebarIdx={noteIdx}
+                vimHighlight={vimCursor === noteIdx}
               />
-            ))}
+            )
+          })}
         </>
       )}
     </div>
@@ -1133,14 +1343,20 @@ function NoteLeaf({
   note,
   depth,
   active,
+  sidebarFocused,
   onSelect,
-  onContextMenu
+  onContextMenu,
+  sidebarIdx,
+  vimHighlight
 }: {
   note: NoteMeta
   depth: number
   active: boolean
+  sidebarFocused: boolean
   onSelect: () => void
   onContextMenu: (e: React.MouseEvent) => void
+  sidebarIdx?: number
+  vimHighlight?: boolean
 }): JSX.Element {
   return (
     <button
@@ -1149,11 +1365,24 @@ function NoteLeaf({
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}
       className={[
-        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm transition-colors',
-        active ? 'bg-accent text-white' : 'text-ink-700 hover:bg-paper-200/70'
+        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
+        active
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'text-ink-700 hover:bg-paper-200/70'
       ].join(' ')}
       style={{ paddingLeft: 4 + depth * 14 + 20 }}
-    >
+      {...(sidebarIdx != null ? {
+        'data-sidebar-idx': sidebarIdx,
+        'data-sidebar-type': 'note',
+        'data-sidebar-path': note.path
+      } : {})}
+      >
       <svg
         width="14"
         height="14"
@@ -1163,12 +1392,21 @@ function NoteLeaf({
         strokeWidth="1.75"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className={active ? 'text-white/80' : 'text-ink-400'}
+        className={
+          active
+            ? sidebarFocused && !vimHighlight
+              ? 'text-accent/80'
+              : 'text-white/80'
+            : 'text-ink-400'
+        }
       >
         <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
         <path d="M14 3v6h6" />
       </svg>
       <span className="flex-1 truncate">{note.title}</span>
+      {sidebarFocused && vimHighlight && (
+        <RowKeyHint active={active} label="menu" keyLabel="m" />
+      )}
     </button>
   )
 }
@@ -1191,7 +1429,11 @@ function TreeRow({
   onDragOver,
   onDragLeave,
   onDrop,
-  dropTarget = false
+  dropTarget = false,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false,
+  sidebarData
 }: {
   icon: JSX.Element
   label: string
@@ -1209,10 +1451,24 @@ function TreeRow({
   onDragLeave?: (e: React.DragEvent) => void
   onDrop?: (e: React.DragEvent) => void
   dropTarget?: boolean
+  sidebarIdx?: number
+  vimHighlight?: boolean
+  sidebarFocused?: boolean
+  sidebarData?: { type: string; folder: string; subpath: string; key: string }
 }): JSX.Element {
+  const strongActive = active && (!sidebarFocused || !!vimHighlight)
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onSelect()
+        }
+      }}
       onContextMenu={onContextMenu}
       draggable={draggable}
       onDragStart={onDragStart}
@@ -1220,13 +1476,26 @@ function TreeRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
-        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm transition-colors',
+        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
         active
-          ? 'bg-accent text-white'
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
           : dropTarget
             ? 'bg-accent/20 text-ink-900 ring-1 ring-accent/60'
-            : 'text-ink-800 hover:bg-paper-200/70'
+            : vimHighlight
+              ? 'vim-cursor'
+              : 'text-ink-800 hover:bg-paper-200/70'
       ].join(' ')}
+      {...(sidebarIdx != null ? {
+        'data-sidebar-idx': sidebarIdx,
+        'data-sidebar-type': sidebarData?.type ?? 'folder',
+        'data-sidebar-folder': sidebarData?.folder,
+        'data-sidebar-subpath': sidebarData?.subpath,
+        'data-sidebar-key': sidebarData?.key
+      } : {})}
       style={{ paddingLeft: 4 + depth * 14 }}
     >
       {expandable ? (
@@ -1235,9 +1504,12 @@ function TreeRow({
             e.stopPropagation()
             onToggle()
           }}
+          data-vim-hint-ignore
           className={[
             'flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
-            active ? 'text-white/80 hover:bg-white/15' : 'text-ink-500 hover:bg-paper-300/60'
+            strongActive
+              ? 'text-white/80 hover:bg-white/15'
+              : 'text-ink-500 hover:bg-paper-300/60'
           ].join(' ')}
           aria-label={collapsed ? 'Expand' : 'Collapse'}
         >
@@ -1258,21 +1530,28 @@ function TreeRow({
       ) : (
         <span className="h-5 w-5 shrink-0" />
       )}
-      <span className={active ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'}>
+      <span
+        className={
+          strongActive ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'
+        }
+      >
         {icon}
       </span>
       <span className="flex-1 truncate">{label}</span>
+      {sidebarFocused && vimHighlight && (
+        <RowKeyHint active={active} keyLabel="m" compact={typeof count === 'number' && count > 0} />
+      )}
       {typeof count === 'number' && count > 0 && (
         <span
           className={[
             'shrink-0 pr-2 text-xs',
-            active ? 'text-white/80' : 'text-ink-400'
+            strongActive ? 'text-white/80' : 'text-ink-400'
           ].join(' ')}
         >
           {count}
         </span>
       )}
-    </button>
+    </div>
   )
 }
 
@@ -1282,7 +1561,11 @@ function SidebarRow({
   count,
   trailing,
   active,
-  onClick
+  onClick,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false,
+  sidebarData
 }: {
   icon: JSX.Element
   label: string
@@ -1290,26 +1573,49 @@ function SidebarRow({
   trailing?: JSX.Element
   active?: boolean
   onClick: () => void
+  sidebarIdx?: number
+  vimHighlight?: boolean
+  sidebarFocused?: boolean
+  sidebarData?: { type: string }
 }): JSX.Element {
+  const strongActive = !!active && (!sidebarFocused || !!vimHighlight)
+
   return (
     <button
       onClick={onClick}
       className={[
-        'group flex h-8 items-center gap-2 rounded-lg px-2 text-sm transition-colors',
+        'group flex h-8 items-center gap-2 rounded-lg px-2 text-sm outline-none transition-colors focus:outline-none',
         active
-          ? 'bg-accent text-white'
-          : 'text-ink-800 hover:bg-paper-200/70'
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'text-ink-800 hover:bg-paper-200/70'
       ].join(' ')}
+      {...(sidebarIdx != null ? {
+        'data-sidebar-idx': sidebarIdx,
+        'data-sidebar-type': sidebarData?.type ?? 'settings'
+      } : {})}
     >
-      <span className={active ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'}>
+      <span
+        className={
+          strongActive ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'
+        }
+      >
         {icon}
       </span>
       <span className="flex-1 truncate text-left">{label}</span>
+      {sidebarFocused && vimHighlight && (
+        <RowKeyHint active={!!active} keyLabel="m" compact={typeof count === 'number' && count > 0} />
+      )}
       {typeof count === 'number' && count > 0 && (
         <span
           className={[
             'text-xs',
-            active ? 'text-white/80' : 'text-ink-400'
+            strongActive ? 'text-white/80' : 'text-ink-400'
           ].join(' ')}
         >
           {count}
@@ -1347,8 +1653,36 @@ function IconBtn({
   )
 }
 
+function RowKeyHint({
+  active,
+  keyLabel,
+  label,
+  compact = false
+}: {
+  active: boolean
+  keyLabel: string
+  label?: string
+  compact?: boolean
+}): JSX.Element {
+  return (
+    <span
+      className={[
+        'pointer-events-none shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] leading-none',
+        active
+          ? 'border-white/25 bg-white/12 text-white/80'
+          : 'border-paper-300/70 bg-paper-100/75 text-ink-500'
+      ].join(' ')}
+    >
+      <span className="font-mono text-[10px]">{keyLabel}</span>
+      {!compact && label ? <span className="ml-1">{label}</span> : null}
+    </span>
+  )
+}
+
 function sortOrderLabel(order: NoteSortOrder): string {
   switch (order) {
+    case 'none':
+      return 'No sorting'
     case 'updated-desc':
       return 'Modified (newest)'
     case 'updated-asc':

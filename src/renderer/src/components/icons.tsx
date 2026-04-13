@@ -89,6 +89,13 @@ export const PanelLeftIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const PanelRightIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M15 4v16" />
+  </I>
+)
+
 export const ColumnsIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="4" width="18" height="16" rx="2" />
@@ -108,6 +115,13 @@ export const MoreIcon = (p: IconProps): JSX.Element => (
     <circle cx="5" cy="12" r="1" />
     <circle cx="12" cy="12" r="1" />
     <circle cx="19" cy="12" r="1" />
+  </I>
+)
+
+export const CloseIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="m18 6-12 12" />
+    <path d="M6 6l12 12" />
   </I>
 )
 

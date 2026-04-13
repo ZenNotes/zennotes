@@ -56,7 +56,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
         onClose()
         return
       }
-      if (e.key === 'ArrowDown') {
+      if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault()
         setActiveIdx((i) => {
           let next = i
@@ -66,7 +66,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
           }
           return i
         })
-      } else if (e.key === 'ArrowUp') {
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
         e.preventDefault()
         setActiveIdx((i) => {
           let next = i
@@ -80,7 +80,8 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
         e.preventDefault()
         const item = items[activeIdx]
         if (item && item.kind !== 'separator' && !item.disabled) {
-          void Promise.resolve(item.onSelect?.()).finally(onClose)
+          onClose()
+          void Promise.resolve(item.onSelect?.())
         }
       }
     }
@@ -97,6 +98,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
   return createPortal(
     <div
       ref={ref}
+      data-ctx-menu
       className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-paper-100 p-1 shadow-float ring-1 ring-paper-300"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
@@ -113,7 +115,8 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
             onMouseEnter={() => setActiveIdx(i)}
             onClick={() => {
               if (item.disabled) return
-              void Promise.resolve(item.onSelect?.()).finally(onClose)
+              onClose()
+              void Promise.resolve(item.onSelect?.())
             }}
             className={[
               'flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors',

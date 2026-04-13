@@ -3,6 +3,8 @@ import path from 'node:path'
 import { app } from 'electron'
 import type {
   FolderEntry,
+  ImportedAsset,
+  ImportedAssetKind,
   NoteContent,
   NoteFolder,
   NoteMeta,
@@ -11,6 +13,20 @@ import type {
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'archive', 'trash']
+const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
+const IMAGE_EXTENSIONS = new Set([
+  '.apng',
+  '.avif',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp'
+])
+const PDF_EXTENSIONS = new Set(['.pdf'])
+const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
+const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
 interface PersistedConfig {
   vaultRoot: string | null
@@ -59,6 +75,10 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/')
 }
 
+function markdownDestination(p: string): string {
+  return `<${p.replace(/>/g, '%3E')}>`
+}
+
 function folderOf(root: string, absPath: string): NoteFolder | null {
   const rel = toPosix(path.relative(root, absPath))
   const top = rel.split('/')[0]
@@ -66,11 +86,16 @@ function folderOf(root: string, absPath: string): NoteFolder | null {
   return null
 }
 
+function stripCodeContent(body: string): string {
+  return body
+    // Only treat line-start triple backticks as actual fenced blocks.
+    .replace(FENCED_CODE_BLOCK_RE, '$1 ')
+    .replace(/`[^`\n]*`/g, ' ')
+}
+
 /** Pull unique `#tags` out of markdown text, ignoring fenced/inline code. */
 function extractTags(body: string): string[] {
-  const stripped = body
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`\n]*`/g, ' ')
+  const stripped = stripCodeContent(body)
   const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
   const seen = new Set<string>()
   for (const m of matches) seen.add(m.trim().slice(1))
@@ -80,9 +105,7 @@ function extractTags(body: string): string[] {
 /** Pull unique `[[wikilink]]` targets out of markdown text. Supports
  *  `[[target|label]]` by discarding the label. Ignores fenced/inline code. */
 function extractWikilinks(body: string): string[] {
-  const stripped = body
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`\n]*`/g, ' ')
+  const stripped = stripCodeContent(body)
   const re = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
   let m: RegExpExecArray | null
@@ -95,9 +118,7 @@ function extractWikilinks(body: string): string[] {
 /** Build a short plaintext preview from markdown. */
 function buildExcerpt(body: string): string {
   const withoutFront = body.replace(/^---\n[\s\S]*?\n---\n/, '')
-  const text = withoutFront
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`\n]*`/g, ' ')
+  const text = stripCodeContent(withoutFront)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
     .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
@@ -111,7 +132,8 @@ function buildExcerpt(body: string): string {
 async function readMeta(
   root: string,
   abs: string,
-  folder: NoteFolder
+  folder: NoteFolder,
+  siblingOrder?: number
 ): Promise<NoteMeta> {
   const stat = await fs.stat(abs)
   let body = ''
@@ -124,6 +146,7 @@ async function readMeta(
     path: toPosix(path.relative(root, abs)),
     title: path.basename(abs, path.extname(abs)),
     folder,
+    siblingOrder: siblingOrder ?? (await readSiblingOrder(abs)),
     createdAt: stat.birthtimeMs || stat.ctimeMs,
     updatedAt: stat.mtimeMs,
     size: stat.size,
@@ -133,23 +156,15 @@ async function readMeta(
   }
 }
 
-async function walk(dir: string): Promise<string[]> {
-  const out: string[] = []
-  let entries: Dirent[]
+async function readSiblingOrder(abs: string): Promise<number> {
   try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
+    const entries = await fs.readdir(path.dirname(abs), { withFileTypes: true })
+    const name = path.basename(abs)
+    const index = entries.findIndex((entry) => entry.name === name)
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index
   } catch {
-    return out
+    return Number.MAX_SAFE_INTEGER
   }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      out.push(...(await walk(full)))
-    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-      out.push(full)
-    }
-  }
-  return out
 }
 
 /**
@@ -169,11 +184,11 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
       } catch {
         return
       }
-      for (const e of entries) {
+      for (const [index, e] of entries.entries()) {
         if (!e.isDirectory()) continue
         if (e.name.startsWith('.')) continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
-        out.push({ folder, subpath: nextSub })
+        out.push({ folder, subpath: nextSub, siblingOrder: index })
         await walk(path.join(dirAbs, e.name), nextSub)
       }
     }
@@ -183,14 +198,30 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
 }
 
 export async function listNotes(root: string): Promise<NoteMeta[]> {
-  const files = await walk(root)
   const metas: NoteMeta[] = []
-  for (const file of files) {
-    const folder = folderOf(root, file)
-    if (!folder) continue
-    metas.push(await readMeta(root, file, folder))
+  const walkFolder = async (folder: NoteFolder, dirAbs: string): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const [index, entry] of entries.entries()) {
+      const full = path.join(dirAbs, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.')) continue
+        await walkFolder(folder, full)
+        continue
+      }
+      if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+        metas.push(await readMeta(root, full, folder, index))
+      }
+    }
   }
-  metas.sort((a, b) => b.updatedAt - a.updatedAt)
+
+  for (const folder of FOLDERS) {
+    await walkFolder(folder, path.join(root, folder))
+  }
   return metas
 }
 
@@ -234,6 +265,43 @@ async function uniqueTitle(dir: string, baseTitle: string): Promise<string> {
   }
 }
 
+async function uniqueFilename(dir: string, filename: string): Promise<string> {
+  const ext = path.extname(filename)
+  const base = path.basename(filename, ext)
+  let candidate = filename
+  let n = 2
+  while (true) {
+    try {
+      await fs.access(path.join(dir, candidate))
+      candidate = `${base} ${n}${ext}`
+      n += 1
+    } catch {
+      return candidate
+    }
+  }
+}
+
+function classifyImportedAsset(filename: string): ImportedAssetKind {
+  const ext = path.extname(filename).toLowerCase()
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  return 'file'
+}
+
+function markdownForImportedAsset(
+  relativeFromNote: string,
+  filename: string,
+  kind: ImportedAssetKind
+): string {
+  const destination = markdownDestination(relativeFromNote)
+  if (kind === 'image') {
+    return `![${path.basename(filename, path.extname(filename))}](${destination})`
+  }
+  return `[${filename}](${destination})`
+}
+
 export async function createNote(
   root: string,
   folder: NoteFolder,
@@ -265,13 +333,24 @@ export async function renameNote(
   const trimmed = nextTitle.trim() || 'Untitled'
   const target = path.join(dir, `${trimmed}.md`)
   if (target !== abs) {
+    // Check for conflicts, but allow case-only renames on case-insensitive FS
     try {
       await fs.access(target)
-      throw new Error(`A note named "${trimmed}" already exists in ${folder}`)
+      const [srcStat, dstStat] = await Promise.all([fs.stat(abs), fs.stat(target)])
+      if (srcStat.ino !== dstStat.ino) {
+        throw new Error(`A note named "${trimmed}" already exists in ${folder}`)
+      }
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
     }
-    await fs.rename(abs, target)
+    // Two-step rename for case-only changes on case-insensitive filesystems
+    if (abs.toLowerCase() === target.toLowerCase() && abs !== target) {
+      const tmp = abs + '_rename_tmp_' + Date.now()
+      await fs.rename(abs, tmp)
+      await fs.rename(tmp, target)
+    } else {
+      await fs.rename(abs, target)
+    }
   }
   return await readMeta(root, target, folder)
 }
@@ -370,15 +449,29 @@ export async function renameFolder(
   }
 
   // Refuse to overwrite a different existing folder.
+  // On case-insensitive filesystems (macOS), a case-only rename
+  // (e.g. "Work" → "work") is fine — same underlying directory.
   try {
     await fs.access(newAbs)
-    throw new Error(`A folder already exists at "${newClean}"`)
+    // Check if old and new are the same file (case-only rename)
+    const [oldStat, newStat] = await Promise.all([fs.stat(oldAbs), fs.stat(newAbs)])
+    if (oldStat.ino !== newStat.ino) {
+      throw new Error(`A folder already exists at "${newClean}"`)
+    }
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
   }
 
   await fs.mkdir(path.dirname(newAbs), { recursive: true })
-  await fs.rename(oldAbs, newAbs)
+  // On case-insensitive filesystems, a direct rename('AI','ai') may
+  // not change the case. Use a two-step rename via a temp name.
+  if (oldAbs.toLowerCase() === newAbs.toLowerCase() && oldAbs !== newAbs) {
+    const tmpAbs = oldAbs + '_rename_tmp_' + Date.now()
+    await fs.rename(oldAbs, tmpAbs)
+    await fs.rename(tmpAbs, newAbs)
+  } else {
+    await fs.rename(oldAbs, newAbs)
+  }
   return newClean
 }
 
@@ -491,6 +584,43 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const body = await fs.readFile(abs, 'utf8')
   await fs.writeFile(destAbs, body, 'utf8')
   return await readMeta(root, destAbs, folder)
+}
+
+export async function importFiles(
+  root: string,
+  noteRelPath: string,
+  sourcePaths: string[]
+): Promise<ImportedAsset[]> {
+  const assetsDir = path.join(root, '_assets')
+  await fs.mkdir(assetsDir, { recursive: true })
+
+  const noteDir = path.posix.dirname(toPosix(noteRelPath))
+  const imported: ImportedAsset[] = []
+
+  for (const sourcePath of sourcePaths) {
+    const sourceAbs = path.resolve(sourcePath)
+    const stat = await fs.stat(sourceAbs)
+    if (!stat.isFile()) continue
+
+    const finalName = await uniqueFilename(assetsDir, path.basename(sourceAbs))
+    const destAbs = path.join(assetsDir, finalName)
+    await fs.copyFile(sourceAbs, destAbs)
+
+    const vaultRelPath = toPosix(path.relative(root, destAbs))
+    const relativeFromNote = path.posix.relative(
+      noteDir === '.' ? '' : noteDir,
+      vaultRelPath
+    )
+    const kind = classifyImportedAsset(finalName)
+    imported.push({
+      name: finalName,
+      path: vaultRelPath,
+      markdown: markdownForImportedAsset(relativeFromNote, finalName, kind),
+      kind
+    })
+  }
+
+  return imported
 }
 
 /**

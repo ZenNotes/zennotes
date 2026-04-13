@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
 import {
@@ -13,6 +13,11 @@ import { ResizeHandle } from './ResizeHandle'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
 import { usePrompt } from './PromptModal'
+
+function escapeForAttr(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
+  return value.replace(/["\\]/g, '\\$&')
+}
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -38,8 +43,11 @@ export function NoteList(): JSX.Element {
   const setNoteListWidth = useStore((s) => s.setNoteListWidth)
   const noteSortOrder = useStore((s) => s.noteSortOrder)
   const renameActive = useStore((s) => s.renameActive)
+  const focusedPanel = useStore((s) => s.focusedPanel)
+  const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const { prompt, modal: promptModal } = usePrompt()
-  const [menu, setMenu] = useState<{ x: number; y: number; note: NoteMeta } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const emptyTrash = async (): Promise<void> => {
     await window.zen.emptyTrash()
     await useStore.getState().refreshNotes()
@@ -47,7 +55,8 @@ export function NoteList(): JSX.Element {
 
   const menuItems = useMemo<ContextMenuItem[]>(() => {
     if (!menu) return []
-    const n = menu.note
+    const n = notes.find((note) => note.path === menu.path)
+    if (!n) return []
     const onOpen = async (): Promise<void> => {
       await selectNote(n.path)
     }
@@ -113,7 +122,10 @@ export function NoteList(): JSX.Element {
           if (selectedPath === n.path) {
             await renameActive(next)
           } else {
-            await window.zen.renameNote(n.path, next)
+            const meta = await window.zen.renameNote(n.path, next)
+            useStore.setState((s) => ({
+              notes: s.notes.map((note) => (note.path === n.path ? meta : note))
+            }))
             await refreshNotes()
           }
         }
@@ -159,7 +171,7 @@ export function NoteList(): JSX.Element {
     }
 
     return items
-  }, [menu, refreshNotes, selectedPath, selectNote])
+  }, [menu, notes, refreshNotes, selectedPath, selectNote, prompt, renameActive])
 
   /**
    * Filter notes for the current view. For folder views we match the
@@ -200,8 +212,10 @@ export function NoteList(): JSX.Element {
   })
   const viewKey =
     view.kind === 'folder' ? `folder:${view.folder}:${view.subpath}` : `tag:${view.tag}`
-  const sortComparator = useMemo(() => {
+  const sortComparator = useMemo<((a: NoteMeta, b: NoteMeta) => number) | null>(() => {
     switch (noteSortOrder) {
+      case 'none':
+        return null
       case 'updated-asc':
         return (a: NoteMeta, b: NoteMeta) => a.updatedAt - b.updatedAt
       case 'created-desc':
@@ -221,6 +235,14 @@ export function NoteList(): JSX.Element {
   }, [noteSortOrder])
 
   const orderedFiltered = useMemo(() => {
+    if (noteSortOrder === 'none' || !sortComparator) {
+      orderRef.current = {
+        viewKey: viewKey + ':' + noteSortOrder,
+        paths: filtered.map((n) => n.path)
+      }
+      return filtered
+    }
+
     const prev = orderRef.current
     const currentSet = new Set(filtered.map((n) => n.path))
 
@@ -260,10 +282,40 @@ export function NoteList(): JSX.Element {
 
   const newTargetFolder = view.kind === 'folder' && view.folder !== 'trash' ? view.folder : 'inbox'
 
+  const isNoteListFocused = focusedPanel === 'notelist'
+
+  useEffect(() => {
+    if (!isNoteListFocused) return
+    const next =
+      orderedFiltered.length === 0 ? 0 : Math.min(noteListCursorIndex, orderedFiltered.length - 1)
+    if (next !== noteListCursorIndex) {
+      useStore.getState().setNoteListCursorIndex(next)
+    }
+  }, [isNoteListFocused, noteListCursorIndex, orderedFiltered.length])
+
+  useEffect(() => {
+    if (!isNoteListFocused || !selectedPath) return
+    const target = document.querySelector(
+      `[data-notelist-path="${escapeForAttr(selectedPath)}"]`
+    ) as HTMLElement | null
+    if (!target) return
+
+    const idx = Number(target.dataset.notelistIdx)
+    if (Number.isFinite(idx) && idx !== noteListCursorIndex) {
+      useStore.getState().setNoteListCursorIndex(idx)
+    }
+
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ block: 'nearest' })
+    })
+  }, [isNoteListFocused, selectedPath, noteListCursorIndex])
+
   return (
     <section
-      className="glass-column relative flex shrink-0 flex-col"
+      className={`glass-column relative flex shrink-0 flex-col${isNoteListFocused ? ' panel-focused' : ''}`}
       style={{ width: noteListWidth }}
+      onMouseDownCapture={() => setFocusedPanel('notelist')}
+      onFocusCapture={() => setFocusedPanel('notelist')}
     >
       <header className="glass-header flex h-12 shrink-0 items-center justify-between px-4">
         <div className="flex items-baseline gap-2">
@@ -304,7 +356,7 @@ export function NoteList(): JSX.Element {
               : 'No notes here yet.'}
           </div>
         ) : (
-          orderedFiltered.map((n) => (
+          orderedFiltered.map((n, i) => (
             <NoteRow
               key={n.path}
               note={n}
@@ -312,8 +364,10 @@ export function NoteList(): JSX.Element {
               onSelect={() => void selectNote(n.path)}
               onContextMenu={(e) => {
                 e.preventDefault()
-                setMenu({ x: e.clientX, y: e.clientY, note: n })
+                setMenu({ x: e.clientX, y: e.clientY, path: n.path })
               }}
+              noteListIdx={i}
+              vimHighlight={isNoteListFocused && noteListCursorIndex === i}
             />
           ))
         )}
@@ -343,12 +397,16 @@ function NoteRow({
   note,
   active,
   onSelect,
-  onContextMenu
+  onContextMenu,
+  noteListIdx,
+  vimHighlight
 }: {
   note: NoteMeta
   active: boolean
   onSelect: () => void
   onContextMenu: (e: React.MouseEvent) => void
+  noteListIdx?: number
+  vimHighlight?: boolean
 }): JSX.Element {
   return (
     <button
@@ -357,14 +415,28 @@ function NoteRow({
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}
       className={[
-        'list-row mb-1 flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-left',
-        active ? 'bg-paper-200' : 'hover:bg-paper-200/60'
+        'list-row mb-1 flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
+        active
+          ? `${vimHighlight ? 'vim-cursor-on-selected ' : ''}bg-paper-200`
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'hover:bg-paper-200/60'
       ].join(' ')}
       style={
         active
-          ? { boxShadow: 'inset 0 0 0 1px rgb(var(--z-accent) / 0.35)' }
-          : undefined
+          ? {
+              boxShadow: vimHighlight
+                ? 'inset 0 0 0 1px rgb(var(--z-accent) / 0.35), inset 0 0 0 2px rgb(var(--z-accent) / 0.65)'
+                : 'inset 0 0 0 1px rgb(var(--z-accent) / 0.35)'
+            }
+          : vimHighlight
+            ? { boxShadow: 'inset 0 0 0 1px rgb(var(--z-accent) / 0.35)' }
+            : undefined
       }
+      {...(noteListIdx != null ? {
+        'data-notelist-idx': noteListIdx,
+        'data-notelist-path': note.path
+      } : {})}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>

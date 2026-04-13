@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useStore } from '../store'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
+import { backlinksForNote } from '../lib/wikilinks'
 
 /**
  * Footer strip showing quick stats for the active note: backlinks,
@@ -28,16 +29,8 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
   }, [note.body])
 
   const backlinks = useMemo(() => {
-    const target = note.title.toLowerCase()
-    let count = 0
-    for (const n of notes as NoteMeta[]) {
-      if (n.path === note.path) continue
-      if (n.folder === 'trash') continue
-      if (!n.wikilinks || n.wikilinks.length === 0) continue
-      if (n.wikilinks.some((w) => w.toLowerCase() === target)) count += 1
-    }
-    return count
-  }, [note.path, note.title, notes])
+    return backlinksForNote(notes as NoteMeta[], note).length
+  }, [note, notes])
 
   return (
     <div

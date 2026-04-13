@@ -1,7 +1,10 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { IPC } from '@shared/ipc'
 import type {
   FolderEntry,
+  ImportedAsset,
   NoteContent,
   NoteFolder,
   NoteMeta,
@@ -52,6 +55,8 @@ const api = {
     targetSubpath: string
   ): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_MOVE_NOTE, relPath, targetFolder, targetSubpath),
+  importFilesToNote: (notePath: string, sourcePaths: string[]): Promise<ImportedAsset[]> =>
+    ipcRenderer.invoke(IPC.VAULT_IMPORT_FILES, notePath, sourcePaths),
   createFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_FOLDER, folder, subpath),
   renameFolder: (
@@ -66,6 +71,49 @@ const api = {
     ipcRenderer.invoke(IPC.VAULT_DUPLICATE_FOLDER, folder, subpath),
   revealFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_REVEAL_FOLDER, folder, subpath),
+  getPathForFile: (file: File): string | null => {
+    try {
+      return webUtils.getPathForFile(file) || null
+    } catch {
+      return null
+    }
+  },
+  resolveLocalAssetUrl: (vaultRoot: string, notePath: string, href: string): string | null => {
+    const trimmed = href.trim()
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
+    if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return null
+
+    const stripQueryAndHash = (value: string): string => {
+      const hashIdx = value.indexOf('#')
+      const queryIdx = value.indexOf('?')
+      const cutIdx =
+        hashIdx === -1
+          ? queryIdx
+          : queryIdx === -1
+            ? hashIdx
+            : Math.min(hashIdx, queryIdx)
+      return cutIdx === -1 ? value : value.slice(0, cutIdx)
+    }
+    const decodeHrefPath = (value: string): string => {
+      const cleaned = stripQueryAndHash(value)
+      try {
+        return decodeURIComponent(cleaned)
+      } catch {
+        return cleaned
+      }
+    }
+
+    const normalizedNotePath = notePath.split(path.sep).join('/')
+    const noteDir = path.posix.dirname(normalizedNotePath)
+    const decodedHref = decodeHrefPath(trimmed)
+    const relativeTarget = decodedHref.startsWith('/')
+      ? decodedHref.replace(/^\/+/, '')
+      : path.posix.normalize(path.posix.join(noteDir === '.' ? '' : noteDir, decodedHref))
+    const resolved = path.resolve(vaultRoot, relativeTarget.split('/').join(path.sep))
+    const rootAbs = path.resolve(vaultRoot)
+    if (resolved !== rootAbs && !resolved.startsWith(rootAbs + path.sep)) return null
+    return pathToFileURL(resolved).toString()
+  },
 
   onVaultChange: (cb: (ev: VaultChangeEvent) => void): (() => void) => {
     const listener = (_: unknown, ev: VaultChangeEvent): void => cb(ev)

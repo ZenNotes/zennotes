@@ -36,6 +36,7 @@
     "highlight.js": "^11.10.0",
     "katex": "^0.16.15",
     "mermaid": "^11.4.1",
+    "prettier": "^3.8.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "rehype-highlight": "^7.0.1",
