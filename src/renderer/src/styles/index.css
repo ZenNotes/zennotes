@@ -1925,12 +1925,17 @@ textarea,
 }
 
 /* Mermaid diagram container */
+/* Mermaid block chrome — adapts to the current theme via CSS vars so
+   the card never clashes with the active palette. The SVG itself is
+   themed at render time via `buildMermaidTheme()` in Preview.tsx. */
 .prose-zen .mermaid {
-  background: theme('colors.paper.50');
+  background: rgb(var(--z-bg-softer) / 0.6);
+  border: 1px solid rgb(var(--z-bg-3) / 0.4);
   border-radius: 10px;
-  padding: 10px;
+  padding: 14px;
   margin: 1em 0;
   text-align: center;
+  overflow-x: auto;
 }
 .prose-zen .mermaid svg {
   max-width: 100%;

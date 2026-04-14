@@ -187,7 +187,13 @@ function rehypeMermaid() {
       const replacement: HastElement = {
         type: 'element',
         tagName: 'div',
-        properties: { className: ['mermaid'] },
+        // Source is mirrored into `data-mermaid-source` so the runtime can
+        // re-render the SVG (e.g. on theme change) after its first render
+        // has replaced the div's text with the rendered output.
+        properties: {
+          className: ['mermaid'],
+          'data-mermaid-source': source
+        },
         children: [{ type: 'text', value: source }]
       }
       ;(parent as unknown as AnyParent).children[index] = replacement as unknown as AnyNode
