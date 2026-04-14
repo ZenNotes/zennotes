@@ -35,6 +35,7 @@ import {
   vaultInfo,
   writeNote
 } from './vault'
+import { scanAllTasks, scanTasksForPath } from './tasks'
 import { VaultWatcher } from './watcher'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -364,6 +365,16 @@ function registerIpc(): void {
   ipcMain.handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
     const v = requireVault()
     return await readNote(v.root, relPath)
+  })
+
+  ipcMain.handle(IPC.VAULT_SCAN_TASKS, async () => {
+    const v = requireVault()
+    return await scanAllTasks(v.root)
+  })
+
+  ipcMain.handle(IPC.VAULT_SCAN_TASKS_FOR, async (_e, relPath: string) => {
+    const v = requireVault()
+    return await scanTasksForPath(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {

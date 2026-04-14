@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useStore } from '../store'
+import { isTasksViewActive, useStore } from '../store'
 import { extractTags } from '../lib/tags'
 import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import type { NoteSortOrder } from '../store'
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
+  CheckSquareIcon,
   ExpandAllIcon,
   FolderPlusIcon,
   InboxIcon,
@@ -47,6 +48,8 @@ export function Sidebar(): JSX.Element {
   const view = useStore((s) => s.view)
   const assetFiles = useStore((s) => s.assetFiles)
   const setView = useStore((s) => s.setView)
+  const openTasksView = useStore((s) => s.openTasksView)
+  const tasksViewActive = useStore(isTasksViewActive)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const createAndOpen = useStore((s) => s.createAndOpen)
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
@@ -775,6 +778,14 @@ export function Sidebar(): JSX.Element {
 
       {/* Main scrollable tree area */}
       <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3">
+        <TaskSidebarRow
+          active={tasksViewActive}
+          onClick={() => void openTasksView()}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
+          sidebarFocused={isSidebarFocused}
+        />
+
         <FolderTreeRoot
           label="Quick Notes"
           icon={<ZapIcon />}
@@ -1676,6 +1687,63 @@ function TreeRow({
           {count}
         </span>
       )}
+    </div>
+  )
+}
+
+// Shares TreeRow's padding + chevron-slot layout so "Tasks" lines up with
+// Quick Notes / Inbox / Archive. No count, no expand button, no drag-and-
+// drop — it's a plain top-level navigation entry.
+function TaskSidebarRow({
+  active,
+  onClick,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false
+}: {
+  active: boolean
+  onClick: () => void
+  sidebarIdx?: number
+  vimHighlight?: boolean
+  sidebarFocused?: boolean
+}): JSX.Element {
+  const strongActive = active && (!sidebarFocused || !!vimHighlight)
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      className={[
+        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
+        active
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'text-ink-800 hover:bg-paper-200/70'
+      ].join(' ')}
+      style={{ paddingLeft: 4 }}
+      {...(sidebarIdx != null ? {
+        'data-sidebar-idx': sidebarIdx,
+        'data-sidebar-type': 'tasks'
+      } : {})}
+    >
+      {/* Empty slot matches FolderTreeRoot's collapse-chevron column so the
+          icon + label line up with Quick Notes / Inbox / Archive. */}
+      <span className="h-5 w-5 shrink-0" />
+      <span className={strongActive ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'}>
+        <CheckSquareIcon />
+      </span>
+      <span className="flex-1 truncate">Tasks</span>
     </div>
   )
 }

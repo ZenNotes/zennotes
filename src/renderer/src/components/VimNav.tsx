@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useStore } from '../store'
+import { isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import {
   getVisiblePanels,
@@ -134,6 +134,21 @@ export function VimNav(): JSX.Element | null {
         ctrlWPending.current = false
         if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
 
+        // <C-w>v / <C-w>s → vim-style splits. Clones the active pane's
+        // current tab into a new pane. Works for any tab, including the
+        // virtual Tasks tab (no CM editor required to fire `:vs`/`:sp`).
+        if (e.key === 'v' || e.key === 's') {
+          const activePath = state.selectedPath
+          if (activePath) {
+            void state.splitPaneWithTab({
+              targetPaneId: state.activePaneId,
+              edge: e.key === 'v' ? 'right' : 'bottom',
+              path: activePath
+            })
+          }
+          return
+        }
+
         // When focus is in the editor and we have multiple panes in the
         // split tree, try pane-internal navigation first. If a neighbor
         // pane exists in the requested direction, jump to it and stop.
@@ -160,7 +175,8 @@ export function VimNav(): JSX.Element | null {
           state.sidebarOpen,
           state.noteListOpen,
           state.unifiedSidebar,
-          document.querySelector('[data-connections-panel]') !== null
+          document.querySelector('[data-connections-panel]') !== null,
+          isTasksViewActive(state)
         )
         const direction =
           e.key === 'h' || e.key === 'k' || e.key === 'ArrowLeft' || e.key === 'ArrowUp'
@@ -176,6 +192,11 @@ export function VimNav(): JSX.Element | null {
         state.setFocusedPanel(next)
         if (next === 'editor') {
           state.editorViewRef?.focus()
+        } else if (next === 'tasks') {
+          // Tasks panel doesn't own a single focusable element — its
+          // keyboard handler fires off window keydown. Just blur whatever
+          // had DOM focus so the sidebar/notelist stop intercepting keys.
+          ;(document.activeElement as HTMLElement)?.blur()
         } else {
           // Steal focus away from the editor so it stops processing keys
           ;(document.activeElement as HTMLElement)?.blur()
@@ -222,6 +243,16 @@ export function VimNav(): JSX.Element | null {
         ctrlWPending.current = true
         if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
         ctrlWTimer.current = setTimeout(() => { ctrlWPending.current = false }, 800)
+        return
+      }
+
+      // ------- Tasks view active → defer to its own window handler -----
+      // The Tasks panel installs a capture-phase window keydown of its own
+      // that handles j/k/gg/G/Enter/o/Space/x/Esc. We bail here so VimNav
+      // doesn't swallow those keys with stale sidebar routing. Exception:
+      // let `f` (hint mode) fall through — it's a global affordance that
+      // should work anywhere, and its handler sits further down.
+      if (isTasksViewActive(state) && e.key !== 'f') {
         return
       }
 
@@ -823,6 +854,10 @@ export function VimNav(): JSX.Element | null {
     } else if (itemType === 'tag') {
       const tag = el.dataset.sidebarTag
       if (tag) state.setView({ kind: 'tag', tag })
+    } else if (itemType === 'tasks') {
+      // Tasks is a top-level sidebar row that opens the vault-wide Tasks
+      // tab in the active pane. Matches clicking the row.
+      void state.openTasksView()
     } else if (itemType === 'settings') {
       state.setSettingsOpen(true)
     } else if (itemType === 'trash') {

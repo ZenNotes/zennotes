@@ -6,18 +6,25 @@ import type { NoteFolder, NoteMeta } from '@shared/ipc'
 // Panel types & navigation
 // ---------------------------------------------------------------------------
 
-export type Panel = 'sidebar' | 'notelist' | 'editor' | 'connections' | 'hoverpreview'
+export type Panel =
+  | 'sidebar'
+  | 'notelist'
+  | 'editor'
+  | 'connections'
+  | 'hoverpreview'
+  | 'tasks'
 
 export function getVisiblePanels(
   sidebarOpen: boolean,
   noteListOpen: boolean,
   unifiedSidebar: boolean,
-  connectionsOpen: boolean
+  connectionsOpen: boolean,
+  tasksViewOpen = false
 ): Panel[] {
   const panels: Panel[] = []
   if (sidebarOpen) panels.push('sidebar')
   if (noteListOpen && !unifiedSidebar) panels.push('notelist')
-  panels.push('editor')
+  panels.push(tasksViewOpen ? 'tasks' : 'editor')
   if (connectionsOpen) panels.push('connections')
   return panels
 }

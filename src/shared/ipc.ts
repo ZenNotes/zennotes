@@ -28,6 +28,8 @@ export const IPC = {
   VAULT_DUPLICATE_FOLDER: 'vault:duplicate-folder',
   VAULT_REVEAL_FOLDER: 'vault:reveal-folder',
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
+  VAULT_SCAN_TASKS: 'vault:scan-tasks',
+  VAULT_SCAN_TASKS_FOR: 'vault:scan-tasks-for',
   APP_LIST_FONTS: 'app:list-fonts',
   VAULT_ON_CHANGE: 'vault:on-change',
   WINDOW_TOGGLE_MAXIMIZE: 'window:toggle-maximize',

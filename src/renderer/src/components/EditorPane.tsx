@@ -42,6 +42,8 @@ import { wikilinkSource } from '../lib/cm-wikilinks'
 import { Preview } from './Preview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { TasksView } from './TasksView'
+import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import { hasZenItem, readDragPayload, setDragPayload, type DragPayload } from '../lib/dnd'
 import {
   getImageBlockDropPlacement,
@@ -52,6 +54,7 @@ import {
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
+  CheckSquareIcon,
   CloseIcon,
   PanelLeftIcon,
   PanelRightIcon,
@@ -708,9 +711,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     () => {
       const pinnedSet = new Set(pinnedTabs)
       return tabs.map((path) => {
+        if (isTasksTabPath(path)) {
+          return { path, title: 'Tasks', pinned: pinnedSet.has(path), isTasks: true }
+        }
         const meta = path === content?.path ? content : notes.find((n) => n.path === path)
         const title = meta?.title ?? path.split('/').pop()?.replace(/\.md$/i, '') ?? path
-        return { path, title, pinned: pinnedSet.has(path) }
+        return { path, title, pinned: pinnedSet.has(path), isTasks: false }
       })
     },
     [tabs, pinnedTabs, content, notes]
@@ -730,6 +736,47 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // Everything that could be closed by "Close Others" — every tab
     // except this one AND any pinned tabs.
     const closableOthers = tabs.filter((t) => t !== path && !pinnedSet.has(t))
+
+    // Tasks tab gets a trimmed menu — no "Pin as Reference", "Reveal in
+    // Finder", or floating-window since those only make sense for notes.
+    if (isTasksTabPath(path)) {
+      return [
+        { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
+        {
+          label: 'Close Others',
+          disabled: closableOthers.length === 0,
+          onSelect: async () => {
+            for (const t of closableOthers) await closeTabInPane(paneId, t)
+          }
+        },
+        {
+          label: 'Close Tabs to Right',
+          disabled: closableRight.length === 0,
+          onSelect: async () => {
+            for (const t of closableRight) await closeTabInPane(paneId, t)
+          }
+        },
+        { kind: 'separator' },
+        {
+          label: 'Split Right',
+          onSelect: async () =>
+            splitPaneWithTab({ targetPaneId: paneId, edge: 'right', path })
+        },
+        {
+          label: 'Split Down',
+          onSelect: async () =>
+            splitPaneWithTab({ targetPaneId: paneId, edge: 'bottom', path })
+        },
+        { kind: 'separator' },
+        {
+          label: 'Refresh',
+          onSelect: async () => {
+            await useStore.getState().refreshTasks()
+          }
+        }
+      ]
+    }
+
     return [
       { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
       {
@@ -785,14 +832,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [tabMenu, tabs, pinnedTabs, paneId, closeTabInPane, splitPaneWithTab, toggleTabPin])
 
   const renderTab = useCallback(
-    (tab: { path: string; title: string; pinned: boolean }) => {
+    (tab: { path: string; title: string; pinned: boolean; isTasks: boolean }) => {
       const active = tab.path === activeTab
       return (
         <div
           key={tab.path}
           className="relative"
-          draggable
-          onDragStart={(e) => setDragPayload(e, { kind: 'note', path: tab.path, sourcePaneId: paneId })}
+          draggable={!tab.isTasks}
+          onDragStart={(e) => {
+            if (tab.isTasks) {
+              e.preventDefault()
+              return
+            }
+            setDragPayload(e, { kind: 'note', path: tab.path, sourcePaneId: paneId })
+          }}
           onDragOver={(e) => {
             // Chromium masks `dataTransfer.getData()` for custom MIMEs
             // during dragover, so we can't parse the payload here —
@@ -874,9 +927,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             )}
             <button
               onClick={() => void focusTabInPane(paneId, tab.path)}
-              className="min-w-0 flex-1 truncate px-1.5 text-left"
+              className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-1.5 text-left"
             >
-              {tab.title}
+              {tab.isTasks && (
+                <CheckSquareIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
             </button>
             <button
               type="button"
@@ -1058,7 +1114,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           {assetDropActive && (
             <div className="pointer-events-none absolute inset-3 z-20 rounded-xl border-2 border-dashed border-accent/55 bg-accent/8" />
           )}
-          {content ? (
+          {isTasksTabPath(activeTab) ? (
+            <TasksView />
+          ) : content ? (
             <div
               className={[
                 'min-h-0 min-w-0 flex-1 overflow-hidden',

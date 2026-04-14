@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { Vim, getCM } from '@replit/codemirror-vim'
-import { useStore } from '../store'
+import { isTasksViewActive, useStore } from '../store'
 import type { PaneLayout, PaneSplit } from '../lib/pane-layout'
 import {
   parseCreateNotePath,
@@ -78,10 +78,27 @@ function registerVimCommands(): void {
     void useStore.getState().formatActiveNote()
   })
   Vim.defineEx('quit', 'q', () => {
-    void useStore.getState().closeActiveNote()
+    const state = useStore.getState()
+    if (isTasksViewActive(state)) {
+      state.closeTasksView()
+      return
+    }
+    void state.closeActiveNote()
   })
   Vim.defineEx('wq', 'wq', () => {
-    void useStore.getState().closeActiveNote()
+    const state = useStore.getState()
+    if (isTasksViewActive(state)) {
+      state.closeTasksView()
+      return
+    }
+    void state.closeActiveNote()
+  })
+
+  // Vault-wide task view. Opens the full-surface Tasks panel that parses
+  // `- [ ]` across every note and groups them by Today/Upcoming/Waiting/Done.
+  // `:q` above knows to close the panel instead of closing a note.
+  Vim.defineEx('tasks', 'tasks', () => {
+    void useStore.getState().openTasksView()
   })
 
   // Vim-style window splits. `:split` clones the current tab into a

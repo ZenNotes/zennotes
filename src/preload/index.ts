@@ -11,6 +11,7 @@ import type {
   VaultChangeEvent,
   VaultInfo
 } from '@shared/ipc'
+import type { VaultTask } from '@shared/tasks'
 
 const api = {
   platform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke(IPC.APP_PLATFORM),
@@ -26,6 +27,9 @@ const api = {
   hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),
   readNote: (relPath: string): Promise<NoteContent> =>
     ipcRenderer.invoke(IPC.VAULT_READ_NOTE, relPath),
+  scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
+  scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
+    ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),
   writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body),
   createNote: (

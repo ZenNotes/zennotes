@@ -9,6 +9,9 @@ import type {
   VaultChangeEvent,
   VaultInfo
 } from '@shared/ipc'
+import type { VaultTask } from '@shared/tasks'
+import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
+import { toggleTaskAtIndex } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import type { Panel } from './lib/vim-nav'
@@ -604,6 +607,17 @@ export type View =
   | { kind: 'assets' }
   | { kind: 'tag'; tag: string }
 
+/** True if any pane currently has the virtual Tasks tab open. The Tasks
+ *  panel lives as a tab in the pane layout, so this is how callers detect
+ *  "user is on the Tasks view" (there's no `view.kind === 'tasks'`). */
+export function isTasksViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return leaf?.activeTab === TASKS_TAB_PATH
+}
+
 interface Store {
   vault: VaultInfo | null
   notes: NoteMeta[]
@@ -686,6 +700,14 @@ interface Store {
    *  left-align it to the pane edge. */
   contentAlign: 'center' | 'left'
 
+  /** Vault-wide Tasks view state. Populated lazily when the view is opened
+   *  and kept incrementally fresh via the chokidar watcher while the view
+   *  is visible. */
+  vaultTasks: VaultTask[]
+  tasksLoading: boolean
+  tasksFilter: string
+  taskCursorIndex: number
+
   /** Vim navigation: which panel is keyboard-focused. */
   focusedPanel: Panel | null
   sidebarCursorIndex: number
@@ -712,6 +734,22 @@ interface Store {
   setVault: (v: VaultInfo | null) => void
   setNotes: (notes: NoteMeta[]) => void
   setView: (view: View) => void
+  /** Open the Tasks panel as a tab in the active pane. If the tab is
+   *  already open elsewhere it's focused; otherwise a fresh tab is added. */
+  openTasksView: () => Promise<void>
+  /** Close the Tasks tab in every pane that has it open. */
+  closeTasksView: () => void
+  /** Force a full vault rescan for tasks. */
+  refreshTasks: () => Promise<void>
+  /** Rescan a single note's tasks and splice the result into `vaultTasks`. */
+  rescanTasksForPath: (relPath: string) => Promise<void>
+  /** Open the note containing `task` and place the cursor on that line. */
+  openTaskAt: (task: VaultTask) => Promise<void>
+  /** Flip a task's checkbox. Reuses `toggleTaskAtIndex` so the file round-
+   *  trips exactly — works whether or not the note is currently open. */
+  toggleTaskFromList: (task: VaultTask) => Promise<void>
+  setTasksFilter: (q: string) => void
+  setTaskCursorIndex: (idx: number) => void
   selectNote: (relPath: string | null) => Promise<void>
   jumpToPreviousNote: () => Promise<void>
   jumpToNextNote: () => Promise<void>
@@ -1105,6 +1143,10 @@ export const useStore = create<Store>((set, get) => {
   pinnedRefKind: loadPrefs().pinnedRefKind,
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
+  vaultTasks: [],
+  tasksLoading: false,
+  tasksFilter: '',
+  taskCursorIndex: 0,
   focusedPanel: null,
   sidebarCursorIndex: 0,
   noteListCursorIndex: 0,
@@ -1127,6 +1169,141 @@ export const useStore = create<Store>((set, get) => {
       activeDirty: false,
       pendingJumpLocation: null
     }),
+
+  openTasksView: async () => {
+    const state = get()
+    // Reset the panel's session state every time we open it — stale cursor/
+    // filter from a prior visit would feel weird.
+    set({ tasksFilter: '', taskCursorIndex: 0 })
+    // Add (or focus) the virtual Tasks tab in the currently active pane.
+    await get().openNoteInPane(state.activePaneId, TASKS_TAB_PATH)
+    // Hand keyboard focus to the Tasks panel so vim-style navigation works
+    // immediately. Blur whatever held DOM focus (sidebar button etc.) so
+    // native tab/focus rings don't fight with our panel's keydown handler.
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'tasks' })
+    // Kick off the scan lazily. First open does a cold fetch; subsequent
+    // opens reuse whatever the watcher has kept fresh.
+    if (state.vaultTasks.length === 0 || !state.tasksLoading) {
+      void get().refreshTasks()
+    }
+  },
+
+  closeTasksView: () => {
+    // Remove the Tasks tab from every pane that has it. Multiple panes
+    // showing tasks is allowed; closing should clean them all up.
+    const state = get()
+    for (const leaf of allLeaves(state.paneLayout)) {
+      if (leaf.tabs.includes(TASKS_TAB_PATH)) {
+        void get().closeTabInPane(leaf.id, TASKS_TAB_PATH)
+      }
+    }
+    set({ tasksFilter: '', taskCursorIndex: 0 })
+  },
+
+  refreshTasks: async () => {
+    set({ tasksLoading: true })
+    try {
+      const tasks = await window.zen.scanTasks()
+      set({ vaultTasks: tasks, tasksLoading: false })
+    } catch (err) {
+      console.error('scanTasks failed', err)
+      set({ tasksLoading: false })
+    }
+  },
+
+  rescanTasksForPath: async (relPath) => {
+    try {
+      const fresh = await window.zen.scanTasksForPath(relPath)
+      set((s) => ({
+        vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== relPath).concat(fresh)
+      }))
+    } catch (err) {
+      console.error('scanTasksForPath failed', err)
+    }
+  },
+
+  openTaskAt: async (task) => {
+    const state = get()
+
+    // Pull body — in-memory first, disk fallback. Used to resolve lineNumber
+    // to a char offset because the editor view may not be mounted yet.
+    let body = state.noteContents[task.sourcePath]?.body
+    if (!body) {
+      try {
+        const content = await window.zen.readNote(task.sourcePath)
+        body = content.body
+      } catch (err) {
+        console.error('openTaskAt readNote failed', err)
+        return
+      }
+    }
+    const lines = body.split('\n')
+    let offset = 0
+    for (let i = 0; i < task.lineNumber && i < lines.length; i++) {
+      offset += lines[i].length + 1
+    }
+    // Nudge cursor past indentation + list marker so it lands on the content.
+    const lineText = lines[task.lineNumber] ?? ''
+    const taskBracketMatch = lineText.match(/^\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[[ xX]\]\s*/)
+    const insideOffset = taskBracketMatch ? taskBracketMatch[0].length : 0
+    const anchor = offset + insideOffset
+
+    // Focus / open the note in the active pane. This replaces the Tasks
+    // tab's content area with the note (the Tasks tab itself stays in the
+    // strip, so the user can hop back with a click).
+    await get().openNoteInPane(state.activePaneId, task.sourcePath)
+    // Make sure the folder view is sensible in case the sidebar is visible.
+    if (state.view.kind !== 'folder' || state.view.folder !== task.noteFolder) {
+      set({ view: { kind: 'folder', folder: task.noteFolder, subpath: '' } })
+    }
+    set({
+      pendingJumpLocation: {
+        path: task.sourcePath,
+        editorSelectionAnchor: anchor,
+        editorSelectionHead: anchor,
+        editorScrollTop: 0,
+        previewScrollTop: 0
+      },
+      focusedPanel: 'editor'
+    })
+  },
+
+  toggleTaskFromList: async (task) => {
+    const state = get()
+    const path = task.sourcePath
+    const openBuffer = state.noteContents[path]
+    // Prefer the live buffer for open notes so we don't stomp unsaved edits.
+    const body = openBuffer?.body ?? (await window.zen.readNote(path)).body
+    const nextBody = toggleTaskAtIndex(body, task.taskIndex, !task.checked)
+    if (nextBody === body) return
+
+    if (openBuffer) {
+      // Push through the normal open-note pipeline — marks dirty and lets
+      // autosave flush on its schedule.
+      get().updateNoteBody(path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(path, nextBody)
+      } catch (err) {
+        console.error('writeNote (toggle) failed', err)
+        return
+      }
+    }
+
+    // Optimistically reflect the change locally; the watcher echo will
+    // confirm via rescanTasksForPath.
+    set((s) => ({
+      vaultTasks: s.vaultTasks.map((t) =>
+        t.sourcePath === path && t.taskIndex === task.taskIndex
+          ? { ...t, checked: !task.checked }
+          : t
+      )
+    }))
+  },
+
+  setTasksFilter: (q) => set({ tasksFilter: q, taskCursorIndex: 0 }),
+  setTaskCursorIndex: (idx) => set({ taskCursorIndex: Math.max(0, idx) }),
 
   selectNote: async (relPath) => {
     await selectNoteImpl(relPath, 'push')
@@ -1206,6 +1383,19 @@ export const useStore = create<Store>((set, get) => {
   applyChange: async (ev) => {
     await get().refreshNotes()
     const state = get()
+
+    // Keep the Tasks view in sync as files change externally or via our own
+    // writes — cheap per-path rescans instead of walking the whole vault.
+    if (isTasksViewActive(state)) {
+      if (ev.kind === 'unlink') {
+        set((s) => ({
+          vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== ev.path)
+        }))
+      } else {
+        void get().rescanTasksForPath(ev.path)
+      }
+    }
+
     // Only react when the path is actually open somewhere.
     const open = findLeavesContaining(state.paneLayout, ev.path).length > 0
     if (!open) return
@@ -1829,6 +2019,24 @@ export const useStore = create<Store>((set, get) => {
       if (s.noteDirty[s.selectedPath]) await get().persistNote(s.selectedPath)
     }
 
+    // Virtual Tasks tab — no disk read, no content cache entry. Just update
+    // the pane layout so the tab becomes active and EditorPane can render
+    // the panel instead of a CodeMirror view.
+    if (isTasksTabPath(path)) {
+      set((cur) => {
+        const nextLayout =
+          updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path)) ??
+          cur.paneLayout
+        return {
+          paneLayout: nextLayout,
+          activePaneId: paneId,
+          focusedPanel: 'tasks',
+          ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
+        }
+      })
+      return
+    }
+
     const needContent = !s.noteContents[path]
     if (needContent) {
       set({ loadingNote: paneId === s.activePaneId })
@@ -1872,6 +2080,20 @@ export const useStore = create<Store>((set, get) => {
     const s = get()
     const leaf = findLeaf(s.paneLayout, paneId)
     if (!leaf) return
+    // Tasks tab is virtual — add it without touching disk.
+    if (isTasksTabPath(path)) {
+      set((cur) => {
+        const nextLayout =
+          updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path, insertIndex)) ??
+          cur.paneLayout
+        return {
+          paneLayout: nextLayout,
+          activePaneId: paneId,
+          ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
+        }
+      })
+      return
+    }
     if (!s.noteContents[path]) {
       try {
         const content = await window.zen.readNote(path)
@@ -2006,11 +2228,11 @@ export const useStore = create<Store>((set, get) => {
   },
 
   splitPaneWithTab: async ({ targetPaneId, edge, path, sourcePaneId }) => {
-    // Make sure content is loaded.
+    // Make sure content is loaded. Tasks tab is virtual — skip disk I/O.
     const s0 = get()
     let contents = s0.noteContents
     let dirty = s0.noteDirty
-    if (!contents[path]) {
+    if (!isTasksTabPath(path) && !contents[path]) {
       try {
         const content = await window.zen.readNote(path)
         contents = { ...contents, [path]: content }

@@ -6,7 +6,7 @@
  * reflect the store state at that moment (toggle labels flip, context-
  * sensitive commands like "Unarchive" only show up when applicable).
  */
-import { useStore } from '../store'
+import { isTasksViewActive, useStore } from '../store'
 import { promptApp } from '../components/PromptHost'
 import { focusPaneInDirection } from './pane-nav'
 import { resolveQuickNoteTitle } from './quick-note-title'
@@ -404,6 +404,15 @@ export function buildCommands(): Command[] {
 
   /* ---------------- View / Layout ---------------- */
   cmds.push(
+    {
+      id: 'view.tasks',
+      title: 'Open Tasks',
+      category: 'View',
+      shortcut: ':tasks',
+      keywords: 'todo checklist due waiting done vault',
+      when: () => !isTasksViewActive(getState()),
+      run: () => getState().openTasksView()
+    },
     {
       id: 'view.toggle.sidebar',
       title: 'Toggle Sidebar',

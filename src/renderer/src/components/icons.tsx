@@ -194,3 +194,10 @@ export const ArrowUpRightIcon = (p: IconProps): JSX.Element => (
     <path d="M8 7h9v9" />
   </I>
 )
+
+export const CheckSquareIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="m9 11 3 3 8-8" />
+    <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h11" />
+  </I>
+)
