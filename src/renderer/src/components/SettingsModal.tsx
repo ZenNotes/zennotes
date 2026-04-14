@@ -23,6 +23,8 @@ export function SettingsModal(): JSX.Element {
   const setEditorFontSize = useStore((s) => s.setEditorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const setEditorLineHeight = useStore((s) => s.setEditorLineHeight)
+  const previewMaxWidth = useStore((s) => s.previewMaxWidth)
+  const setPreviewMaxWidth = useStore((s) => s.setPreviewMaxWidth)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const setLineNumberMode = useStore((s) => s.setLineNumberMode)
   const interfaceFont = useStore((s) => s.interfaceFont)
@@ -289,6 +291,16 @@ export function SettingsModal(): JSX.Element {
                 step={0.05}
                 onChange={setEditorLineHeight}
                 format={(v) => v.toFixed(2)}
+              />
+              <SliderRow
+                label="Reading width"
+                description="Maximum width for preview and split-preview content."
+                value={previewMaxWidth}
+                min={640}
+                max={1400}
+                step={20}
+                unit="px"
+                onChange={setPreviewMaxWidth}
               />
               <SegmentedRow
                 label="Line numbers"

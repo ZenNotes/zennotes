@@ -5,13 +5,21 @@
  */
 
 export type DragPayload =
-  | { kind: 'note'; path: string }
+  | {
+      kind: 'note'
+      path: string
+      /** Leaf pane id the tab was dragged from, when the source is a tab. */
+      sourcePaneId?: string
+    }
   | { kind: 'folder'; folder: 'inbox' | 'archive' | 'trash'; subpath: string }
 
 export const ZEN_DND_MIME = 'application/x-zen-item'
+export const ZEN_DND_TEXT_MIME = 'text/x-zen-item'
 
 export function setDragPayload(e: React.DragEvent, payload: DragPayload): void {
-  e.dataTransfer.setData(ZEN_DND_MIME, JSON.stringify(payload))
+  const encoded = JSON.stringify(payload)
+  e.dataTransfer.setData(ZEN_DND_MIME, encoded)
+  e.dataTransfer.setData(ZEN_DND_TEXT_MIME, encoded)
   // Text fallback so cross-app drops don't look totally empty.
   e.dataTransfer.setData(
     'text/plain',
@@ -21,7 +29,8 @@ export function setDragPayload(e: React.DragEvent, payload: DragPayload): void {
 }
 
 export function readDragPayload(e: React.DragEvent): DragPayload | null {
-  const raw = e.dataTransfer.getData(ZEN_DND_MIME)
+  const raw =
+    e.dataTransfer.getData(ZEN_DND_MIME) || e.dataTransfer.getData(ZEN_DND_TEXT_MIME)
   if (!raw) return null
   try {
     return JSON.parse(raw) as DragPayload
@@ -31,5 +40,8 @@ export function readDragPayload(e: React.DragEvent): DragPayload | null {
 }
 
 export function hasZenItem(e: React.DragEvent): boolean {
-  return e.dataTransfer.types.includes(ZEN_DND_MIME)
+  return (
+    e.dataTransfer.types.includes(ZEN_DND_MIME) ||
+    e.dataTransfer.types.includes(ZEN_DND_TEXT_MIME)
+  )
 }

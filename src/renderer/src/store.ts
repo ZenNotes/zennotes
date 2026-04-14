@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { EditorView } from '@codemirror/view'
 import type {
+  AssetMeta,
   FolderEntry,
   NoteContent,
   NoteFolder,
@@ -11,6 +12,23 @@ import type {
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import type { Panel } from './lib/vim-nav'
+import {
+  allLeaves,
+  findLeaf,
+  findLeavesContaining,
+  leafWithAddedTab,
+  leafWithReorderedTab,
+  leafWithoutTab,
+  makeLeaf,
+  replaceLeaf,
+  rewritePathsInTree,
+  splitLeaf,
+  updateLeaf,
+  updateSplitSizes,
+  type PaneEdge,
+  type PaneLayout,
+  type PaneLeaf
+} from './lib/pane-layout'
 
 export type NoteSortOrder =
   | 'none'
@@ -47,6 +65,7 @@ interface Prefs {
   themeMode: ThemeMode
   editorFontSize: number    // px — affects editor + preview
   editorLineHeight: number  // unitless multiplier
+  previewMaxWidth: number   // px — max reading width for preview surfaces
   lineNumberMode: LineNumberMode
   /** Font used by the whole app chrome (sidebar, menus, title bar). */
   interfaceFont: string | null
@@ -77,6 +96,7 @@ const DEFAULT_PREFS: Prefs = {
   themeMode: 'auto',
   editorFontSize: 16,
   editorLineHeight: 1.7,
+  previewMaxWidth: 920,
   lineNumberMode: 'off',
   interfaceFont: null,
   textFont: null,
@@ -122,6 +142,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.editorLineHeight === 'number'
         ? p.editorLineHeight
         : DEFAULT_PREFS.editorLineHeight,
+    previewMaxWidth:
+      typeof p.previewMaxWidth === 'number'
+        ? Math.min(1600, Math.max(640, p.previewMaxWidth))
+        : DEFAULT_PREFS.previewMaxWidth,
     lineNumberMode:
       p.lineNumberMode && VALID_LINE_NUMBER_MODES.includes(p.lineNumberMode)
         ? p.lineNumberMode
@@ -316,17 +340,6 @@ function rewriteNoteJumpHistory(
     : next
 }
 
-function rewriteOpenPaths(paths: string[], rewrite: (path: string) => string): string[] {
-  const next: string[] = []
-  for (const path of paths) {
-    const mapped = rewrite(path)
-    if (next[next.length - 1] === mapped) continue
-    if (next.includes(mapped)) continue
-    next.push(mapped)
-  }
-  return next
-}
-
 /**
  * Rewrite every occurrence of `#oldTag` across all non-trash notes.
  * When `newTag` is null the hashtag is stripped (delete semantics);
@@ -410,6 +423,7 @@ function collectPrefs(s: {
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
+  previewMaxWidth: number
   lineNumberMode: LineNumberMode
   interfaceFont: string | null
   textFont: string | null
@@ -432,6 +446,7 @@ function collectPrefs(s: {
     themeMode: s.themeMode,
     editorFontSize: s.editorFontSize,
     editorLineHeight: s.editorLineHeight,
+    previewMaxWidth: s.previewMaxWidth,
     lineNumberMode: s.lineNumberMode,
     interfaceFont: s.interfaceFont,
     textFont: s.textFont,
@@ -458,12 +473,15 @@ export type View =
        */
       subpath: string
     }
+  | { kind: 'assets' }
   | { kind: 'tag'; tag: string }
 
 interface Store {
   vault: VaultInfo | null
   notes: NoteMeta[]
   folders: FolderEntry[]
+  assetFiles: AssetMeta[]
+  hasAssetsDir: boolean
   view: View
   selectedPath: string | null
   activeNote: NoteContent | null
@@ -487,6 +505,7 @@ interface Store {
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
+  previewMaxWidth: number
   lineNumberMode: LineNumberMode
   interfaceFont: string | null
   textFont: string | null
@@ -510,9 +529,20 @@ interface Store {
   connectionPreview: ConnectionPreviewState | null
   editorViewRef: EditorView | null
   pendingTitleFocusPath: string | null
-  openTabs: string[]
-  splitNotePath: string | null
-  splitNote: NoteContent | null
+
+  /**
+   * Recursive layout tree for the editor area. Always contains at
+   * least one leaf pane. Each leaf holds its own tab list + active
+   * tab; splits hold ordered children and flex-ratio sizes.
+   */
+  paneLayout: PaneLayout
+  /** ID of the currently focused leaf pane. */
+  activePaneId: string
+  /** Loaded note contents, keyed by path. Shared across panes so the
+   *  same note open in two panes stays in sync on edit. */
+  noteContents: Record<string, NoteContent>
+  /** Dirty flags keyed by path — a buffer with unsaved edits. */
+  noteDirty: Record<string, boolean>
 
   setVault: (v: VaultInfo | null) => void
   setNotes: (notes: NoteMeta[]) => void
@@ -548,6 +578,7 @@ interface Store {
   setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
   setEditorFontSize: (px: number) => void
   setEditorLineHeight: (mult: number) => void
+  setPreviewMaxWidth: (px: number) => void
   setLineNumberMode: (mode: LineNumberMode) => void
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
@@ -567,9 +598,50 @@ interface Store {
   setConnectionsCursorIndex: (idx: number) => void
   setConnectionPreview: (preview: ConnectionPreviewState | null) => void
   setEditorViewRef: (view: EditorView | null) => void
+
+  /* ---- Pane tree actions ---- */
+  /** Focus the given pane and sync active-note plumbing to its activeTab. */
+  setActivePane: (paneId: string) => void
+  /** Focus a tab (path) inside a pane. Loads content if not yet cached. */
+  focusTabInPane: (paneId: string, path: string) => Promise<void>
+  /** Add a tab to a pane at `insertIndex` (or end) and focus it. */
+  openNoteInPane: (paneId: string, path: string, insertIndex?: number) => Promise<void>
+  /** Close a tab from a specific pane. Removes the pane when empty. */
+  closeTabInPane: (paneId: string, path: string) => Promise<void>
+  /** Reorder a tab within one pane. */
+  reorderTabInPane: (
+    paneId: string,
+    dragPath: string,
+    targetPath: string,
+    position: 'before' | 'after'
+  ) => void
+  /** Move a tab between panes (optionally dropping on another tab for ordering). */
+  movePaneTab: (args: {
+    sourcePaneId: string
+    targetPaneId: string
+    path: string
+    insertIndex?: number
+    beforePath?: string
+  }) => Promise<void>
+  /** Split a target pane along `edge`. If `sourcePaneId` is given, the
+   *  path is moved out of that pane; otherwise a fresh tab is added. */
+  splitPaneWithTab: (args: {
+    targetPaneId: string
+    edge: Exclude<PaneEdge, 'center'>
+    path: string
+    sourcePaneId?: string
+  }) => Promise<void>
+  /** Update sizes on a split node (for divider drag). */
+  resizeSplit: (splitId: string, sizes: number[]) => void
+  /** Update an open note's body (typed into any pane). Flags dirty. */
+  updateNoteBody: (path: string, body: string) => void
+  /** Persist a specific note to disk. */
+  persistNote: (path: string) => Promise<void>
+
+  /* ---- Legacy compatibility aliases used by NoteList / Sidebar ---- */
+  openNoteInTab: (relPath: string) => Promise<void>
   closeTab: (relPath: string) => Promise<void>
-  openNoteInSplit: (relPath: string) => Promise<void>
-  closeSplitNote: () => void
+
   clearPendingTitleFocus: () => void
   clearPendingJumpLocation: () => void
   /** Rewrite `#oldTag` → `#newTag` across every non-trash note. */
@@ -585,6 +657,7 @@ interface Store {
   deleteFolder: (folder: NoteFolder, subpath: string) => Promise<void>
   duplicateFolder: (folder: NoteFolder, subpath: string) => Promise<void>
   revealFolder: (folder: NoteFolder, subpath: string) => Promise<void>
+  revealAssetsDir: () => Promise<void>
   /** Move a note to a different folder + subpath. */
   moveNote: (
     relPath: string,
@@ -595,32 +668,94 @@ interface Store {
   openVaultPicker: () => Promise<void>
 }
 
+/** Debounced per-path save timers. Module-scoped so they survive re-renders. */
+const pathSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const PATH_SAVE_DEBOUNCE_MS = 350
+
+function activeFieldsFrom(
+  layout: PaneLayout,
+  activePaneId: string,
+  noteContents: Record<string, NoteContent>,
+  noteDirty: Record<string, boolean>
+): { selectedPath: string | null; activeNote: NoteContent | null; activeDirty: boolean } {
+  const leaf = findLeaf(layout, activePaneId)
+  const path = leaf?.activeTab ?? null
+  return {
+    selectedPath: path,
+    activeNote: path ? noteContents[path] ?? null : null,
+    activeDirty: path ? noteDirty[path] ?? false : false
+  }
+}
+
+/** Ensure `activePaneId` points at a real leaf. Falls back to first leaf. */
+function ensureActivePane(
+  layout: PaneLayout,
+  activePaneId: string
+): { layout: PaneLayout; activePaneId: string } {
+  if (findLeaf(layout, activePaneId)) return { layout, activePaneId }
+  const first = allLeaves(layout)[0]
+  return { layout, activePaneId: first?.id ?? activePaneId }
+}
+
+// Fresh empty leaf that owns the initial activePaneId. Held in module
+// scope so the state initializer below can reference it.
+const initialPane = makeLeaf()
+
 export const useStore = create<Store>((set, get) => {
   const selectNoteImpl = async (
     relPath: string | null,
     historyMode: 'push' | 'preserve' = 'push'
   ): Promise<boolean> => {
     const state = get()
+    const activeLeaf = findLeaf(state.paneLayout, state.activePaneId)
+    if (!activeLeaf) return false
+
     if (!relPath) {
+      const nextLayout =
+        updateLeaf(state.paneLayout, activeLeaf.id, (l) => ({
+          ...l,
+          tabs: [],
+          activeTab: null
+        })) ?? makeLeaf()
+      // If the tree lost the active leaf (shouldn't here, but defensively),
+      // pin active to a surviving leaf.
+      const ensured = ensureActivePane(nextLayout, state.activePaneId)
+      const active = activeFieldsFrom(
+        ensured.layout,
+        ensured.activePaneId,
+        state.noteContents,
+        state.noteDirty
+      )
       set({
-        selectedPath: null,
-        activeNote: null,
-        activeDirty: false,
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        ...active,
         loadingNote: false,
         pendingJumpLocation: null
       })
       return true
     }
-    if (state.selectedPath === relPath && state.activeNote && !state.loadingNote) {
-      if (state.tabsEnabled && !state.openTabs.includes(relPath)) {
-        set({ openTabs: [...state.openTabs, relPath] })
+
+    if (
+      activeLeaf.activeTab === relPath &&
+      state.noteContents[relPath] &&
+      !state.loadingNote
+    ) {
+      if (!activeLeaf.tabs.includes(relPath)) {
+        const layout =
+          updateLeaf(state.paneLayout, activeLeaf.id, (l) => leafWithAddedTab(l, relPath)) ??
+          state.paneLayout
+        set({
+          paneLayout: layout,
+          ...activeFieldsFrom(layout, state.activePaneId, state.noteContents, state.noteDirty)
+        })
       }
       return true
     }
 
-    const current = state.activeNote
-    if (current && state.activeDirty && current.path !== relPath) {
-      await get().persistActive()
+    // Flush pending save for whatever was focused before switching away.
+    if (state.selectedPath && state.selectedPath !== relPath && state.noteDirty[state.selectedPath]) {
+      await get().persistNote(state.selectedPath)
     }
 
     const latest = get()
@@ -636,19 +771,23 @@ export const useStore = create<Store>((set, get) => {
     set({ loadingNote: true })
     try {
       const content = await window.zen.readNote(relPath)
+      const s = get()
+      const leafNow = findLeaf(s.paneLayout, s.activePaneId)
+      if (!leafNow) {
+        set({ loadingNote: false })
+        return false
+      }
+      const nextLayout =
+        updateLeaf(s.paneLayout, leafNow.id, (l) => leafWithAddedTab(l, relPath)) ??
+        s.paneLayout
+      const contents = { ...s.noteContents, [relPath]: content }
+      const dirty = { ...s.noteDirty, [relPath]: false }
       set({
-        selectedPath: relPath,
-        activeNote: content,
-        activeDirty: false,
+        paneLayout: nextLayout,
+        noteContents: contents,
+        noteDirty: dirty,
         loadingNote: false,
-        openTabs: get().tabsEnabled
-          ? get().openTabs.includes(relPath)
-            ? get().openTabs
-            : [...get().openTabs, relPath]
-          : [relPath],
-        ...(get().splitNotePath === relPath
-          ? { splitNotePath: null, splitNote: null }
-          : {}),
+        ...activeFieldsFrom(nextLayout, s.activePaneId, contents, dirty),
         noteBackstack: nextBackstack,
         noteForwardstack: nextForwardstack,
         pendingJumpLocation: null
@@ -667,9 +806,8 @@ export const useStore = create<Store>((set, get) => {
       direction === 'back' ? [...state.noteBackstack] : [...state.noteForwardstack]
     if (source.length === 0) return
 
-    const current = state.activeNote
-    if (current && state.activeDirty) {
-      await get().persistActive()
+    if (state.selectedPath && state.noteDirty[state.selectedPath]) {
+      await get().persistNote(state.selectedPath)
     }
 
     set({ loadingNote: true })
@@ -678,18 +816,27 @@ export const useStore = create<Store>((set, get) => {
       if (!target || target.path === get().selectedPath) continue
       try {
         const content = await window.zen.readNote(target.path)
-        const currentSnapshot = captureNoteJumpLocation(get())
+        const latest = get()
+        const leaf = findLeaf(latest.paneLayout, latest.activePaneId)
+        if (!leaf) continue
+        const currentSnapshot = captureNoteJumpLocation(latest)
         const opposite =
-          direction === 'back' ? state.noteForwardstack : state.noteBackstack
+          direction === 'back' ? latest.noteForwardstack : latest.noteBackstack
         const nextOpposite = appendNoteJumpHistory(opposite, currentSnapshot)
+        const nextLayout =
+          updateLeaf(latest.paneLayout, leaf.id, (l) => leafWithAddedTab(l, target.path)) ??
+          latest.paneLayout
+        const contents = { ...latest.noteContents, [target.path]: content }
+        const dirty = { ...latest.noteDirty, [target.path]: false }
         set({
-          selectedPath: target.path,
-          activeNote: content,
-          activeDirty: false,
+          paneLayout: nextLayout,
+          noteContents: contents,
+          noteDirty: dirty,
           loadingNote: false,
           pendingJumpLocation: target,
           noteBackstack: direction === 'back' ? source : nextOpposite,
-          noteForwardstack: direction === 'back' ? nextOpposite : source
+          noteForwardstack: direction === 'back' ? nextOpposite : source,
+          ...activeFieldsFrom(nextLayout, latest.activePaneId, contents, dirty)
         })
         return
       } catch (err) {
@@ -709,6 +856,8 @@ export const useStore = create<Store>((set, get) => {
   vault: null,
   notes: [],
   folders: [],
+  assetFiles: [],
+  hasAssetsDir: false,
   view: { kind: 'folder', folder: 'inbox', subpath: '' },
   selectedPath: null,
   activeNote: null,
@@ -731,6 +880,7 @@ export const useStore = create<Store>((set, get) => {
   themeMode: loadPrefs().themeMode,
   editorFontSize: loadPrefs().editorFontSize,
   editorLineHeight: loadPrefs().editorLineHeight,
+  previewMaxWidth: loadPrefs().previewMaxWidth,
   lineNumberMode: loadPrefs().lineNumberMode,
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
@@ -750,9 +900,10 @@ export const useStore = create<Store>((set, get) => {
   connectionPreview: null,
   editorViewRef: null,
   pendingTitleFocusPath: null,
-  openTabs: [],
-  splitNotePath: null,
-  splitNote: null,
+  paneLayout: initialPane,
+  activePaneId: initialPane.id,
+  noteContents: {},
+  noteDirty: {},
 
   setVault: (v) => set({ vault: v }),
   setNotes: (notes) => set({ notes }),
@@ -779,25 +930,50 @@ export const useStore = create<Store>((set, get) => {
 
   refreshNotes: async () => {
     try {
-      const [notes, folders] = await Promise.all([
+      const [notes, folders, assetFiles, hasAssetsDir] = await Promise.all([
         window.zen.listNotes(),
-        window.zen.listFolders()
+        window.zen.listFolders(),
+        window.zen.listAssets(),
+        window.zen.hasAssetsDir()
       ])
-      set((s) => ({
-        notes:
-          s.noteSortOrder === 'none'
-            ? mergeNotesPreservingOrder(s.notes, notes)
-            : notes,
-        folders: mergeFoldersPreservingOrder(s.folders, folders),
-        openTabs: s.openTabs.filter((path) =>
-          path === s.selectedPath || notes.some((note) => note.path === path)
-        ),
-        ...(s.splitNotePath &&
-        !notes.some((note) => note.path === s.splitNotePath) &&
-        s.splitNotePath !== s.selectedPath
-          ? { splitNotePath: null, splitNote: null }
-          : {})
-      }))
+      set((s) => {
+        const existingPaths = new Set(notes.map((n) => n.path))
+        // Drop tabs whose notes no longer exist — except keep the currently
+        // focused selectedPath so the editor doesn't blank out mid-save.
+        const keep = (path: string): boolean =>
+          existingPaths.has(path) || path === s.selectedPath
+        const nextLayout = rewritePathsInTree(s.paneLayout, (path) =>
+          keep(path) ? path : null
+        )
+        const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        // Prune content caches for paths no longer referenced anywhere.
+        const referenced = new Set<string>()
+        for (const leaf of allLeaves(nextLayout)) {
+          for (const tab of leaf.tabs) referenced.add(tab)
+        }
+        const contents: Record<string, NoteContent> = {}
+        const dirty: Record<string, boolean> = {}
+        for (const [path, content] of Object.entries(s.noteContents)) {
+          if (referenced.has(path)) contents[path] = content
+        }
+        for (const [path, isDirty] of Object.entries(s.noteDirty)) {
+          if (referenced.has(path)) dirty[path] = isDirty
+        }
+        return {
+          notes:
+            s.noteSortOrder === 'none'
+              ? mergeNotesPreservingOrder(s.notes, notes)
+              : notes,
+          folders: mergeFoldersPreservingOrder(s.folders, folders),
+          assetFiles,
+          hasAssetsDir,
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          noteContents: contents,
+          noteDirty: dirty,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+        }
+      })
     } catch (err) {
       console.error('refresh failed', err)
     }
@@ -806,101 +982,162 @@ export const useStore = create<Store>((set, get) => {
   applyChange: async (ev) => {
     await get().refreshNotes()
     const state = get()
-    if (state.selectedPath && ev.path === state.selectedPath) {
-      if (ev.kind === 'unlink') {
-        set((s) => ({
-          selectedPath: null,
-          activeNote: null,
-          activeDirty: false,
-          openTabs: s.openTabs.filter((path) => path !== ev.path)
-        }))
-      } else if (ev.kind === 'change') {
-        try {
-          const content = await window.zen.readNote(state.selectedPath)
-          // Only refresh the editor if the on-disk body diverged from ours.
-          if (!state.activeNote || state.activeNote.body !== content.body) {
-            set({ activeNote: content, activeDirty: false })
-          }
-        } catch {
-          /* ignore */
+    // Only react when the path is actually open somewhere.
+    const open = findLeavesContaining(state.paneLayout, ev.path).length > 0
+    if (!open) return
+
+    if (ev.kind === 'unlink') {
+      set((s) => {
+        const nextLayout = rewritePathsInTree(s.paneLayout, (p) =>
+          p === ev.path ? null : p
+        )
+        const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        const { [ev.path]: _drop, ...contents } = s.noteContents
+        const { [ev.path]: _d, ...dirty } = s.noteDirty
+        void _drop
+        void _d
+        return {
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          noteContents: contents,
+          noteDirty: dirty,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
-      }
+      })
+      return
     }
-    const latest = get()
-    if (latest.splitNotePath && ev.path === latest.splitNotePath) {
-      if (ev.kind === 'unlink') {
-        set({ splitNotePath: null, splitNote: null })
-      } else if (ev.kind === 'change') {
-        try {
-          const content = await window.zen.readNote(latest.splitNotePath)
-          set({ splitNote: content })
-        } catch {
-          /* ignore */
-        }
+
+    if (ev.kind === 'change') {
+      try {
+        const content = await window.zen.readNote(ev.path)
+        set((s) => {
+          const existing = s.noteContents[ev.path]
+          // Ignore noise — only push when disk differs from our buffer.
+          if (existing && existing.body === content.body) return s
+          const contents = { ...s.noteContents, [ev.path]: content }
+          const dirty = { ...s.noteDirty, [ev.path]: false }
+          return {
+            noteContents: contents,
+            noteDirty: dirty,
+            ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+          }
+        })
+      } catch {
+        /* ignore — note may have been moved in the same tick */
       }
     }
   },
 
   updateActiveBody: (body) => {
-    const active = get().activeNote
-    if (!active) return
-    if (active.body === body) return
-    set({ activeNote: { ...active, body }, activeDirty: true })
+    const path = get().selectedPath
+    if (!path) return
+    get().updateNoteBody(path, body)
+  },
+
+  updateNoteBody: (path, body) => {
+    set((s) => {
+      const existing = s.noteContents[path]
+      if (!existing || existing.body === body) return s
+      const contents = { ...s.noteContents, [path]: { ...existing, body } }
+      const dirty = { ...s.noteDirty, [path]: true }
+      return {
+        noteContents: contents,
+        noteDirty: dirty,
+        ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+      }
+    })
+    // Debounced disk write.
+    const existing = pathSaveTimers.get(path)
+    if (existing) clearTimeout(existing)
+    pathSaveTimers.set(
+      path,
+      setTimeout(() => {
+        pathSaveTimers.delete(path)
+        void get().persistNote(path)
+      }, PATH_SAVE_DEBOUNCE_MS)
+    )
   },
 
   persistActive: async () => {
-    const active = get().activeNote
-    if (!active || !get().activeDirty) return
-    try {
-      const meta = await window.zen.writeNote(active.path, active.body)
-      set((s) => ({
-        activeDirty: false,
-        notes: s.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n))
-      }))
+    const path = get().selectedPath
+    if (!path) return
+    await get().persistNote(path)
+  },
 
+  persistNote: async (path) => {
+    const s = get()
+    const content = s.noteContents[path]
+    if (!content || !s.noteDirty[path]) return
+    const pending = pathSaveTimers.get(path)
+    if (pending) {
+      clearTimeout(pending)
+      pathSaveTimers.delete(path)
+    }
+    try {
+      const meta = await window.zen.writeNote(path, content.body)
+      set((cur) => {
+        const dirty = { ...cur.noteDirty, [path]: false }
+        return {
+          noteDirty: dirty,
+          notes: cur.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n)),
+          ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
+        }
+      })
     } catch (err) {
       console.error('writeNote failed', err)
     }
   },
 
   formatActiveNote: async () => {
-    const active = get().activeNote
-    if (!active) return
+    const s = get()
+    const path = s.selectedPath
+    if (!path) return
+    const content = s.noteContents[path]
+    if (!content) return
     try {
-      const formatted = await formatMarkdown(active.body)
-      if (formatted === active.body) return
-      set({ activeNote: { ...active, body: formatted }, activeDirty: true })
-      await get().persistActive()
+      const formatted = await formatMarkdown(content.body)
+      if (formatted === content.body) return
+      get().updateNoteBody(path, formatted)
+      await get().persistNote(path)
     } catch (err) {
       console.error('formatActiveNote failed', err)
     }
   },
 
   renameActive: async (nextTitle) => {
-    const active = get().activeNote
-    if (!active) return
+    const s0 = get()
+    const oldPath = s0.selectedPath
+    const active = oldPath ? s0.noteContents[oldPath] : null
+    if (!oldPath || !active) return
     try {
-      const oldPath = active.path
       const meta = await window.zen.renameNote(oldPath, nextTitle)
-      set((s) => ({
-        activeNote: { ...active, ...meta },
-        selectedPath: meta.path,
-        notes: replaceNoteMeta(s.notes, oldPath, meta),
-        openTabs: rewriteOpenPaths(s.openTabs, (path) => (path === oldPath ? meta.path : path)),
-        splitNotePath: s.splitNotePath === oldPath ? meta.path : s.splitNotePath,
-        splitNote:
-          s.splitNotePath === oldPath && s.splitNote ? { ...s.splitNote, ...meta } : s.splitNote,
-        noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, (path) =>
-          path === oldPath ? meta.path : path
-        ),
-        noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, (path) =>
-          path === oldPath ? meta.path : path
-        ),
-        pendingJumpLocation:
-          s.pendingJumpLocation?.path === oldPath
-            ? { ...s.pendingJumpLocation, path: meta.path }
-            : s.pendingJumpLocation
-      }))
+      set((s) => {
+        const rewrite = (p: string): string => (p === oldPath ? meta.path : p)
+        const nextLayout = rewritePathsInTree(s.paneLayout, rewrite)
+        const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        const contents = { ...s.noteContents }
+        const dirty = { ...s.noteDirty }
+        if (oldPath !== meta.path) {
+          delete contents[oldPath]
+          delete dirty[oldPath]
+        }
+        contents[meta.path] = { ...active, ...meta }
+        dirty[meta.path] = s.noteDirty[oldPath] ?? false
+        return {
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          noteContents: contents,
+          noteDirty: dirty,
+          notes: replaceNoteMeta(s.notes, oldPath, meta),
+          noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewrite),
+          noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewrite),
+          pendingJumpLocation:
+            s.pendingJumpLocation?.path === oldPath
+              ? { ...s.pendingJumpLocation, path: meta.path }
+              : s.pendingJumpLocation,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+        }
+      })
       await get().refreshNotes()
     } catch (err) {
       console.error('renameNote failed', err)
@@ -923,47 +1160,32 @@ export const useStore = create<Store>((set, get) => {
 
   closeActiveNote: async () => {
     const state = get()
-    if (state.activeNote && state.activeDirty) {
-      await get().persistActive()
-    }
-    if (state.tabsEnabled && state.selectedPath) {
-      const closingPath = state.selectedPath
-      const remaining = state.openTabs.filter((path) => path !== closingPath)
-      if (remaining.length > 0) {
-        const closingIdx = state.openTabs.indexOf(closingPath)
-        const fallbackIdx = Math.min(closingIdx, remaining.length - 1)
-        const nextPath = remaining[Math.max(0, fallbackIdx)] ?? null
-        set({ openTabs: remaining })
-        if (nextPath) {
-          await selectNoteImpl(nextPath, 'preserve')
-          return
-        }
-      }
-    }
-    set({
-      activeNote: null,
-      activeDirty: false,
-      selectedPath: null,
-      openTabs: [],
-      loadingNote: false,
-      pendingJumpLocation: null
-    })
+    const path = state.selectedPath
+    if (!path) return
+    await get().closeTabInPane(state.activePaneId, path)
   },
 
   trashActive: async () => {
-    const active = get().activeNote
-    if (!active) return
+    const path = get().selectedPath
+    if (!path) return
     try {
-      await window.zen.moveToTrash(active.path)
-      set((s) => ({
-        activeNote: null,
-        activeDirty: false,
-        selectedPath: null,
-        openTabs: s.openTabs.filter((path) => path !== active.path),
-        splitNotePath: s.splitNotePath === active.path ? null : s.splitNotePath,
-        splitNote: s.splitNotePath === active.path ? null : s.splitNote,
-        pendingJumpLocation: null
-      }))
+      await window.zen.moveToTrash(path)
+      set((s) => {
+        const nextLayout = rewritePathsInTree(s.paneLayout, (p) => (p === path ? null : p))
+        const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        const { [path]: _drop, ...contents } = s.noteContents
+        const { [path]: _d, ...dirty } = s.noteDirty
+        void _drop
+        void _d
+        return {
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          noteContents: contents,
+          noteDirty: dirty,
+          pendingJumpLocation: null,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+        }
+      })
       await get().refreshNotes()
     } catch (err) {
       console.error('moveToTrash failed', err)
@@ -971,73 +1193,98 @@ export const useStore = create<Store>((set, get) => {
   },
 
   restoreActive: async () => {
-    const active = get().activeNote
-    if (!active) return
-    const oldPath = active.path
-    const meta = await window.zen.restoreFromTrash(active.path)
+    const path = get().selectedPath
+    if (!path) return
+    const meta = await window.zen.restoreFromTrash(path)
     await get().refreshNotes()
-    set((s) => ({
-      activeNote: { ...active, ...meta },
-      selectedPath: meta.path,
-      activeDirty: false,
-      openTabs: rewriteOpenPaths(s.openTabs, (path) => (path === oldPath ? meta.path : path)),
-      splitNotePath: s.splitNotePath === oldPath ? meta.path : s.splitNotePath,
-      splitNote:
-        s.splitNotePath === oldPath && s.splitNote ? { ...s.splitNote, ...meta } : s.splitNote,
-      noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, (path) =>
-        path === oldPath ? meta.path : path
-      ),
-      noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, (path) =>
-        path === oldPath ? meta.path : path
-      ),
-      pendingJumpLocation:
-        s.pendingJumpLocation?.path === oldPath
-          ? { ...s.pendingJumpLocation, path: meta.path }
-          : s.pendingJumpLocation
-    }))
+    set((s) => {
+      const rewrite = (p: string): string => (p === path ? meta.path : p)
+      const nextLayout = rewritePathsInTree(s.paneLayout, rewrite)
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const contents = { ...s.noteContents }
+      const dirty = { ...s.noteDirty }
+      const prevContent = contents[path]
+      if (path !== meta.path) {
+        delete contents[path]
+        delete dirty[path]
+      }
+      if (prevContent) {
+        contents[meta.path] = { ...prevContent, ...meta }
+      }
+      dirty[meta.path] = false
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewrite),
+        noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewrite),
+        pendingJumpLocation:
+          s.pendingJumpLocation?.path === path
+            ? { ...s.pendingJumpLocation, path: meta.path }
+            : s.pendingJumpLocation,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
   },
 
   archiveActive: async () => {
-    const active = get().activeNote
-    if (!active) return
-    await window.zen.archiveNote(active.path)
-    set((s) => ({
-      activeNote: null,
-      activeDirty: false,
-      selectedPath: null,
-      openTabs: s.openTabs.filter((path) => path !== active.path),
-      splitNotePath: s.splitNotePath === active.path ? null : s.splitNotePath,
-      splitNote: s.splitNotePath === active.path ? null : s.splitNote,
-      pendingJumpLocation: null
-    }))
+    const path = get().selectedPath
+    if (!path) return
+    await window.zen.archiveNote(path)
+    set((s) => {
+      const nextLayout = rewritePathsInTree(s.paneLayout, (p) => (p === path ? null : p))
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const { [path]: _drop, ...contents } = s.noteContents
+      const { [path]: _d, ...dirty } = s.noteDirty
+      void _drop
+      void _d
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        pendingJumpLocation: null,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
     await get().refreshNotes()
   },
 
   unarchiveActive: async () => {
-    const active = get().activeNote
-    if (!active) return
-    const oldPath = active.path
-    const meta = await window.zen.unarchiveNote(active.path)
+    const path = get().selectedPath
+    if (!path) return
+    const meta = await window.zen.unarchiveNote(path)
     await get().refreshNotes()
-    set((s) => ({
-      activeNote: { ...active, ...meta },
-      selectedPath: meta.path,
-      activeDirty: false,
-      openTabs: rewriteOpenPaths(s.openTabs, (path) => (path === oldPath ? meta.path : path)),
-      splitNotePath: s.splitNotePath === oldPath ? meta.path : s.splitNotePath,
-      splitNote:
-        s.splitNotePath === oldPath && s.splitNote ? { ...s.splitNote, ...meta } : s.splitNote,
-      noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, (path) =>
-        path === oldPath ? meta.path : path
-      ),
-      noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, (path) =>
-        path === oldPath ? meta.path : path
-      ),
-      pendingJumpLocation:
-        s.pendingJumpLocation?.path === oldPath
-          ? { ...s.pendingJumpLocation, path: meta.path }
-          : s.pendingJumpLocation
-    }))
+    set((s) => {
+      const rewrite = (p: string): string => (p === path ? meta.path : p)
+      const nextLayout = rewritePathsInTree(s.paneLayout, rewrite)
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const contents = { ...s.noteContents }
+      const dirty = { ...s.noteDirty }
+      const prevContent = contents[path]
+      if (path !== meta.path) {
+        delete contents[path]
+        delete dirty[path]
+      }
+      if (prevContent) {
+        contents[meta.path] = { ...prevContent, ...meta }
+      }
+      dirty[meta.path] = false
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewrite),
+        noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewrite),
+        pendingJumpLocation:
+          s.pendingJumpLocation?.path === path
+            ? { ...s.pendingJumpLocation, path: meta.path }
+            : s.pendingJumpLocation,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
   },
 
   setSearchOpen: (open) => set({ searchOpen: open, query: open ? get().query : '' }),
@@ -1055,20 +1302,32 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setTabsEnabled: (on) => {
-    set((s) => ({
-      tabsEnabled: on,
-      openTabs: on
-        ? s.selectedPath
-          ? s.openTabs.includes(s.selectedPath)
-            ? s.openTabs
-            : [...s.openTabs, s.selectedPath]
-          : s.openTabs
-        : s.selectedPath
-          ? [s.selectedPath]
-          : [],
-      splitNotePath: on ? s.splitNotePath : null,
-      splitNote: on ? s.splitNote : null
-    }))
+    set((s) => {
+      if (on) return { tabsEnabled: true }
+      // Collapse to a single leaf holding just the current selectedPath
+      // (if any). All other tabs + splits vanish.
+      const activePath = s.selectedPath
+      const onlyLeaf: PaneLeaf = {
+        kind: 'leaf',
+        id: s.activePaneId,
+        tabs: activePath ? [activePath] : [],
+        activeTab: activePath
+      }
+      const contents: Record<string, NoteContent> = {}
+      const dirty: Record<string, boolean> = {}
+      if (activePath && s.noteContents[activePath]) {
+        contents[activePath] = s.noteContents[activePath]
+        dirty[activePath] = s.noteDirty[activePath] ?? false
+      }
+      return {
+        tabsEnabled: false,
+        paneLayout: onlyLeaf,
+        activePaneId: onlyLeaf.id,
+        noteContents: contents,
+        noteDirty: dirty,
+        ...activeFieldsFrom(onlyLeaf, onlyLeaf.id, contents, dirty)
+      }
+    })
     savePrefs(collectPrefs(get()))
   },
   setSettingsOpen: (open) => set({ settingsOpen: open }),
@@ -1082,6 +1341,11 @@ export const useStore = create<Store>((set, get) => {
   },
   setEditorLineHeight: (mult) => {
     set({ editorLineHeight: mult })
+    savePrefs(collectPrefs(get()))
+  },
+  setPreviewMaxWidth: (px) => {
+    const clamped = Math.min(1600, Math.max(640, Math.round(px)))
+    set({ previewMaxWidth: clamped })
     savePrefs(collectPrefs(get()))
   },
   setLineNumberMode: (mode) => {
@@ -1148,28 +1412,274 @@ export const useStore = create<Store>((set, get) => {
   setConnectionsCursorIndex: (idx) => set({ connectionsCursorIndex: idx }),
   setConnectionPreview: (preview) => set({ connectionPreview: preview }),
   setEditorViewRef: (view) => set({ editorViewRef: view }),
-  closeTab: async (relPath) => {
-    if (get().selectedPath === relPath) {
-      await get().closeActiveNote()
+  setActivePane: (paneId) => {
+    const s = get()
+    if (s.activePaneId === paneId) return
+    if (!findLeaf(s.paneLayout, paneId)) return
+    set({
+      activePaneId: paneId,
+      ...activeFieldsFrom(s.paneLayout, paneId, s.noteContents, s.noteDirty)
+    })
+  },
+
+  focusTabInPane: async (paneId, path) => {
+    const s = get()
+    const leaf = findLeaf(s.paneLayout, paneId)
+    if (!leaf) return
+
+    // Flush pending save on outgoing activeTab — but only if we're the
+    // active pane; inactive panes continue to autosave via their own cycle.
+    if (s.activePaneId === paneId && s.selectedPath && s.selectedPath !== path) {
+      if (s.noteDirty[s.selectedPath]) await get().persistNote(s.selectedPath)
+    }
+
+    const needContent = !s.noteContents[path]
+    if (needContent) {
+      set({ loadingNote: paneId === s.activePaneId })
+      try {
+        const content = await window.zen.readNote(path)
+        set((cur) => {
+          const contents = { ...cur.noteContents, [path]: content }
+          const dirty = { ...cur.noteDirty, [path]: false }
+          const nextLayout =
+            updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path)) ??
+            cur.paneLayout
+          return {
+            paneLayout: nextLayout,
+            noteContents: contents,
+            noteDirty: dirty,
+            activePaneId: paneId,
+            loadingNote: false,
+            ...activeFieldsFrom(nextLayout, paneId, contents, dirty)
+          }
+        })
+      } catch (err) {
+        console.error('focusTabInPane readNote failed', err)
+        set({ loadingNote: false })
+      }
       return
     }
-    set((s) => ({
-      openTabs: s.openTabs.filter((path) => path !== relPath),
-      splitNotePath: s.splitNotePath === relPath ? null : s.splitNotePath,
-      splitNote: s.splitNotePath === relPath ? null : s.splitNote
-    }))
+
+    set((cur) => {
+      const nextLayout =
+        updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path)) ??
+        cur.paneLayout
+      return {
+        paneLayout: nextLayout,
+        activePaneId: paneId,
+        ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
+      }
+    })
   },
-  openNoteInSplit: async (relPath) => {
-    const state = get()
-    if (!state.tabsEnabled || !relPath || relPath === state.selectedPath) return
-    try {
-      const content = await window.zen.readNote(relPath)
-      set({ splitNotePath: relPath, splitNote: content })
-    } catch (err) {
-      console.error('openNoteInSplit failed', err)
+
+  openNoteInPane: async (paneId, path, insertIndex) => {
+    const s = get()
+    const leaf = findLeaf(s.paneLayout, paneId)
+    if (!leaf) return
+    if (!s.noteContents[path]) {
+      try {
+        const content = await window.zen.readNote(path)
+        set((cur) => {
+          const contents = { ...cur.noteContents, [path]: content }
+          const dirty = { ...cur.noteDirty, [path]: false }
+          const nextLayout =
+            updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path, insertIndex)) ??
+            cur.paneLayout
+          return {
+            paneLayout: nextLayout,
+            noteContents: contents,
+            noteDirty: dirty,
+            activePaneId: paneId,
+            ...activeFieldsFrom(nextLayout, paneId, contents, dirty)
+          }
+        })
+      } catch (err) {
+        console.error('openNoteInPane readNote failed', err)
+      }
+      return
     }
+    set((cur) => {
+      const nextLayout =
+        updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path, insertIndex)) ??
+        cur.paneLayout
+      return {
+        paneLayout: nextLayout,
+        activePaneId: paneId,
+        ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
+      }
+    })
   },
-  closeSplitNote: () => set({ splitNotePath: null, splitNote: null }),
+
+  closeTabInPane: async (paneId, path) => {
+    // Flush pending save for the tab we're about to drop. Other panes
+    // may still reference the note via its content cache — we only
+    // evict content when NO pane has it open anymore.
+    if (get().noteDirty[path]) {
+      await get().persistNote(path)
+    }
+    set((s) => {
+      const nextLayout =
+        updateLeaf(s.paneLayout, paneId, (l) => leafWithoutTab(l, path)) ?? makeLeaf()
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      // Is this path still held by some other pane?
+      const stillOpen = allLeaves(nextLayout).some((l) => l.tabs.includes(path))
+      const contents = { ...s.noteContents }
+      const dirty = { ...s.noteDirty }
+      if (!stillOpen) {
+        delete contents[path]
+        delete dirty[path]
+      }
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
+  },
+
+  reorderTabInPane: (paneId, dragPath, targetPath, position) => {
+    if (!dragPath || !targetPath || dragPath === targetPath) return
+    set((s) => {
+      const nextLayout = updateLeaf(s.paneLayout, paneId, (l) =>
+        leafWithReorderedTab(l, dragPath, targetPath, position)
+      )
+      if (!nextLayout || nextLayout === s.paneLayout) return s
+      return {
+        paneLayout: nextLayout,
+        ...activeFieldsFrom(nextLayout, s.activePaneId, s.noteContents, s.noteDirty)
+      }
+    })
+  },
+
+  movePaneTab: async ({ sourcePaneId, targetPaneId, path, insertIndex, beforePath }) => {
+    const s = get()
+    if (sourcePaneId === targetPaneId && !beforePath && insertIndex == null) {
+      // Same-pane drop on the pane body is a no-op; use reorder for tab strip.
+      return
+    }
+    // Make sure content is available (it should be — source pane has it).
+    let contents = s.noteContents
+    let dirty = s.noteDirty
+    if (!contents[path]) {
+      try {
+        const content = await window.zen.readNote(path)
+        contents = { ...contents, [path]: content }
+        dirty = { ...dirty, [path]: false }
+      } catch (err) {
+        console.error('movePaneTab readNote failed', err)
+        return
+      }
+    }
+    set((cur) => {
+      let layout = cur.paneLayout
+      if (sourcePaneId !== targetPaneId) {
+        layout = updateLeaf(layout, sourcePaneId, (l) => leafWithoutTab(l, path)) ?? makeLeaf()
+      }
+      const targetLeaf = findLeaf(layout, targetPaneId)
+      if (!targetLeaf) return cur
+      const idx =
+        beforePath != null
+          ? Math.max(0, targetLeaf.tabs.indexOf(beforePath))
+          : insertIndex
+      layout =
+        updateLeaf(layout, targetPaneId, (l) => leafWithAddedTab(l, path, idx)) ?? layout
+      const ensured = ensureActivePane(layout, targetPaneId)
+      // Evict content if source pane dropped it and no one else has it.
+      const stillOpen = allLeaves(layout).some((l) => l.tabs.includes(path))
+      const nextContents = { ...contents }
+      const nextDirty = { ...dirty }
+      if (!stillOpen) {
+        delete nextContents[path]
+        delete nextDirty[path]
+      }
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: targetPaneId,
+        noteContents: nextContents,
+        noteDirty: nextDirty,
+        ...activeFieldsFrom(ensured.layout, targetPaneId, nextContents, nextDirty)
+      }
+    })
+  },
+
+  splitPaneWithTab: async ({ targetPaneId, edge, path, sourcePaneId }) => {
+    // Make sure content is loaded.
+    const s0 = get()
+    let contents = s0.noteContents
+    let dirty = s0.noteDirty
+    if (!contents[path]) {
+      try {
+        const content = await window.zen.readNote(path)
+        contents = { ...contents, [path]: content }
+        dirty = { ...dirty, [path]: false }
+      } catch (err) {
+        console.error('splitPaneWithTab readNote failed', err)
+        return
+      }
+    }
+    set((cur) => {
+      let layout = cur.paneLayout
+      if (sourcePaneId && sourcePaneId !== targetPaneId) {
+        layout = updateLeaf(layout, sourcePaneId, (l) => leafWithoutTab(l, path)) ?? makeLeaf()
+      }
+      // After removing the source tab, the target pane id must still
+      // exist. If the source WAS the target, that's only valid when the
+      // source had more than one tab.
+      if (sourcePaneId === targetPaneId) {
+        const sameLeaf = findLeaf(layout, targetPaneId)
+        if (!sameLeaf || sameLeaf.tabs.length <= 1) {
+          // Only one tab and we're trying to split it off itself — nothing to do.
+          return cur
+        }
+        layout = updateLeaf(layout, targetPaneId, (l) => leafWithoutTab(l, path)) ?? layout
+      }
+      const targetLeaf = findLeaf(layout, targetPaneId)
+      if (!targetLeaf) return cur
+      const newLeaf = makeLeaf([path], path)
+      layout = splitLeaf(layout, targetPaneId, edge, newLeaf)
+      // Evict content if no pane has it anymore.
+      const stillOpen = allLeaves(layout).some((l) => l.tabs.includes(path))
+      const nextContents = { ...contents }
+      const nextDirty = { ...dirty }
+      if (!stillOpen) {
+        delete nextContents[path]
+        delete nextDirty[path]
+      }
+      return {
+        paneLayout: layout,
+        activePaneId: newLeaf.id,
+        noteContents: nextContents,
+        noteDirty: nextDirty,
+        ...activeFieldsFrom(layout, newLeaf.id, nextContents, nextDirty)
+      }
+    })
+  },
+
+  resizeSplit: (splitId, sizes) => {
+    set((s) => {
+      const nextLayout = updateSplitSizes(s.paneLayout, splitId, sizes)
+      if (nextLayout === s.paneLayout) return s
+      return { paneLayout: nextLayout }
+    })
+  },
+
+  openNoteInTab: async (relPath) => {
+    if (!relPath) return
+    await get().selectNote(relPath)
+  },
+  closeTab: async (relPath) => {
+    const s = get()
+    // Find the first leaf holding this tab (active pane wins if multiple).
+    const activeLeaf = findLeaf(s.paneLayout, s.activePaneId)
+    const ownerId =
+      activeLeaf?.tabs.includes(relPath)
+        ? activeLeaf.id
+        : allLeaves(s.paneLayout).find((l) => l.tabs.includes(relPath))?.id ?? null
+    if (!ownerId) return
+    await get().closeTabInPane(ownerId, relPath)
+  },
   clearPendingTitleFocus: () => set({ pendingTitleFocusPath: null }),
   clearPendingJumpLocation: () => set({ pendingJumpLocation: null }),
 
@@ -1189,8 +1699,6 @@ export const useStore = create<Store>((set, get) => {
   renameFolder: async (folder, oldSubpath, newSubpath) => {
     await window.zen.renameFolder(folder, oldSubpath, newSubpath)
 
-    // Immediately rewrite paths in the store so the UI reflects the
-    // new name without depending on filesystem race conditions.
     const oldPrefix = `${folder}/${oldSubpath}/`
     const newPrefix = `${folder}/${newSubpath}/`
     const rewritePath = (p: string): string =>
@@ -1207,27 +1715,34 @@ export const useStore = create<Store>((set, get) => {
       }
       return f
     })
-    set((s) => ({
-      notes,
-      folders,
-      openTabs: rewriteOpenPaths(s.openTabs, rewritePath),
-      splitNotePath: s.splitNotePath ? rewritePath(s.splitNotePath) : null,
-      splitNote:
-        s.splitNotePath && s.splitNote
-          ? { ...s.splitNote, path: rewritePath(s.splitNote.path) }
-          : s.splitNote,
-      noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewritePath),
-      noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewritePath),
-      pendingJumpLocation: s.pendingJumpLocation
-        ? { ...s.pendingJumpLocation, path: rewritePath(s.pendingJumpLocation.path) }
-        : null
-    }))
+    set((s) => {
+      const nextLayout = rewritePathsInTree(s.paneLayout, rewritePath)
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const contents: Record<string, NoteContent> = {}
+      const dirty: Record<string, boolean> = {}
+      for (const [path, content] of Object.entries(s.noteContents)) {
+        const next = rewritePath(path)
+        contents[next] = path === next ? content : { ...content, path: next }
+        dirty[next] = s.noteDirty[path] ?? false
+      }
+      return {
+        notes,
+        folders,
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewritePath),
+        noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewritePath),
+        pendingJumpLocation: s.pendingJumpLocation
+          ? { ...s.pendingJumpLocation, path: rewritePath(s.pendingJumpLocation.path) }
+          : null,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
 
-    // Also refresh from disk to pick up any other changes
     await get().refreshNotes()
 
-    // If the current view was inside the folder we just renamed,
-    // rewrite its subpath so we stay on the same folder visually.
     const v = get().view
     if (v.kind === 'folder' && v.folder === folder) {
       if (v.subpath === oldSubpath) {
@@ -1237,19 +1752,11 @@ export const useStore = create<Store>((set, get) => {
         set({ view: { ...v, subpath: `${newSubpath}/${tail}` } })
       }
     }
-    // Active note's path will have changed too — update it.
-    const active = get().activeNote
-    if (active && active.path.startsWith(oldPrefix)) {
-      const newPath = rewritePath(active.path)
-      set({ activeNote: { ...active, path: newPath }, selectedPath: newPath })
-    }
   },
 
   deleteFolder: async (folder, subpath) => {
     await window.zen.deleteFolder(folder, subpath)
     await get().refreshNotes()
-    // If the current view lived inside the deleted folder, bounce
-    // back to the top-level.
     const v = get().view
     if (
       v.kind === 'folder' &&
@@ -1258,21 +1765,29 @@ export const useStore = create<Store>((set, get) => {
     ) {
       set({ view: { kind: 'folder', folder, subpath: '' } })
     }
-    // Drop the active note if it was inside that folder.
-    const active = get().activeNote
-    if (active && active.path.startsWith(`${folder}/${subpath}/`)) {
-      set({
-        activeNote: null,
-        activeDirty: false,
-        selectedPath: null,
-        openTabs: get().openTabs.filter((path) => !path.startsWith(`${folder}/${subpath}/`)),
-        splitNotePath:
-          get().splitNotePath?.startsWith(`${folder}/${subpath}/`) ? null : get().splitNotePath,
-        splitNote:
-          get().splitNotePath?.startsWith(`${folder}/${subpath}/`) ? null : get().splitNote,
-        pendingJumpLocation: null
-      })
-    }
+    const prefix = `${folder}/${subpath}/`
+    set((s) => {
+      const nextLayout = rewritePathsInTree(s.paneLayout, (p) =>
+        p.startsWith(prefix) ? null : p
+      )
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const contents: Record<string, NoteContent> = {}
+      const dirty: Record<string, boolean> = {}
+      for (const [path, content] of Object.entries(s.noteContents)) {
+        if (!path.startsWith(prefix)) {
+          contents[path] = content
+          dirty[path] = s.noteDirty[path] ?? false
+        }
+      }
+      return {
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        pendingJumpLocation: null,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
   },
 
   duplicateFolder: async (folder, subpath) => {
@@ -1285,34 +1800,43 @@ export const useStore = create<Store>((set, get) => {
     await window.zen.revealFolder(folder, subpath)
   },
 
+  revealAssetsDir: async () => {
+    await window.zen.revealAssetsDir()
+  },
+
   moveNote: async (relPath, targetFolder, targetSubpath) => {
     try {
       const meta = await window.zen.moveNote(relPath, targetFolder, targetSubpath)
       await get().refreshNotes()
-      const active = get().activeNote
-      set((s) => ({
-        ...(s.selectedPath === relPath
-          ? {
-              activeNote: active ? { ...active, ...meta } : active,
-              selectedPath: meta.path,
-              activeDirty: false
-            }
-          : {}),
-        openTabs: rewriteOpenPaths(s.openTabs, (path) => (path === relPath ? meta.path : path)),
-        splitNotePath: s.splitNotePath === relPath ? meta.path : s.splitNotePath,
-        splitNote:
-          s.splitNotePath === relPath && s.splitNote ? { ...s.splitNote, ...meta } : s.splitNote,
-        noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, (path) =>
-          path === relPath ? meta.path : path
-        ),
-        noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, (path) =>
-          path === relPath ? meta.path : path
-        ),
-        pendingJumpLocation:
-          s.pendingJumpLocation?.path === relPath
-            ? { ...s.pendingJumpLocation, path: meta.path }
-            : s.pendingJumpLocation
-      }))
+      set((s) => {
+        const rewrite = (p: string): string => (p === relPath ? meta.path : p)
+        const nextLayout = rewritePathsInTree(s.paneLayout, rewrite)
+        const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        const contents = { ...s.noteContents }
+        const dirty = { ...s.noteDirty }
+        const prev = contents[relPath]
+        if (relPath !== meta.path) {
+          delete contents[relPath]
+          delete dirty[relPath]
+        }
+        if (prev) {
+          contents[meta.path] = { ...prev, ...meta }
+          dirty[meta.path] = s.noteDirty[relPath] ?? false
+        }
+        return {
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          noteContents: contents,
+          noteDirty: dirty,
+          noteBackstack: rewriteNoteJumpHistory(s.noteBackstack, rewrite),
+          noteForwardstack: rewriteNoteJumpHistory(s.noteForwardstack, rewrite),
+          pendingJumpLocation:
+            s.pendingJumpLocation?.path === relPath
+              ? { ...s.pendingJumpLocation, path: meta.path }
+              : s.pendingJumpLocation,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+        }
+      })
     } catch (err) {
       console.error('moveNote failed', err)
     }
@@ -1342,15 +1866,19 @@ export const useStore = create<Store>((set, get) => {
   openVaultPicker: async () => {
     const vault = await window.zen.pickVault()
     if (vault) {
+      const fresh = makeLeaf()
       set({
         vault,
+        hasAssetsDir: false,
+        assetFiles: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
         selectedPath: null,
         activeNote: null,
         activeDirty: false,
-        openTabs: [],
-        splitNotePath: null,
-        splitNote: null,
+        paneLayout: fresh,
+        activePaneId: fresh.id,
+        noteContents: {},
+        noteDirty: {},
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],

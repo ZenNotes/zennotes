@@ -6,6 +6,8 @@ export const IPC = {
   VAULT_GET_CURRENT: 'vault:get-current',
   VAULT_LIST_NOTES: 'vault:list-notes',
   VAULT_LIST_FOLDERS: 'vault:list-folders',
+  VAULT_LIST_ASSETS: 'vault:list-assets',
+  VAULT_HAS_ASSETS_DIR: 'vault:has-assets-dir',
   VAULT_READ_NOTE: 'vault:read-note',
   VAULT_WRITE_NOTE: 'vault:write-note',
   VAULT_CREATE_NOTE: 'vault:create-note',
@@ -25,6 +27,7 @@ export const IPC = {
   VAULT_DELETE_FOLDER: 'vault:delete-folder',
   VAULT_DUPLICATE_FOLDER: 'vault:duplicate-folder',
   VAULT_REVEAL_FOLDER: 'vault:reveal-folder',
+  VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
   APP_LIST_FONTS: 'app:list-fonts',
   VAULT_ON_CHANGE: 'vault:on-change',
   WINDOW_TOGGLE_MAXIMIZE: 'window:toggle-maximize',
@@ -61,8 +64,18 @@ export interface NoteContent extends NoteMeta {
 
 export type ImportedAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
 
+export interface AssetMeta {
+  /** Vault-relative path to the asset, POSIX-style. */
+  path: string
+  /** File name only. */
+  name: string
+  kind: ImportedAssetKind
+  size: number
+  updatedAt: number
+}
+
 export interface ImportedAsset {
-  /** File name stored under the vault-root `_assets` directory. */
+  /** File name stored under the vault-root attachments directory. */
   name: string
   /** Vault-relative path to the imported asset, POSIX-style. */
   path: string

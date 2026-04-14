@@ -2,6 +2,7 @@ import { promises as fs, type Dirent } from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type {
+  AssetMeta,
   FolderEntry,
   ImportedAsset,
   ImportedAssetKind,
@@ -13,6 +14,9 @@ import type {
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'archive', 'trash']
+const PRIMARY_ATTACHMENTS_DIR = 'attachements'
+const LEGACY_ATTACHMENTS_DIRS = ['_assets']
+const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -536,6 +540,65 @@ export function folderAbsolutePath(
     : path.join(root, topFolder)
 }
 
+export function assetsAbsolutePath(root: string): string {
+  return path.join(root, PRIMARY_ATTACHMENTS_DIR)
+}
+
+export async function hasAssetsDir(root: string): Promise<boolean> {
+  for (const dirName of ATTACHMENTS_DIRS) {
+    try {
+      const stat = await fs.stat(path.join(root, dirName))
+      if (stat.isDirectory()) return true
+    } catch {
+      /* ignore */
+    }
+  }
+  return false
+}
+
+export async function listAssets(root: string): Promise<AssetMeta[]> {
+  const out: AssetMeta[] = []
+  const walk = async (dirAbs: string): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const full = path.join(dirAbs, entry.name)
+      if (entry.isDirectory()) {
+        await walk(full)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const stat = await fs.stat(full)
+      const rel = toPosix(path.relative(root, full))
+      out.push({
+        path: rel,
+        name: path.basename(full),
+        kind: classifyImportedAsset(entry.name),
+        size: stat.size,
+        updatedAt: stat.mtimeMs
+      })
+    }
+  }
+
+  for (const dirName of ATTACHMENTS_DIRS) {
+    const attachmentsRoot = path.join(root, dirName)
+    try {
+      const stat = await fs.stat(attachmentsRoot)
+      if (!stat.isDirectory()) continue
+    } catch {
+      continue
+    }
+    await walk(attachmentsRoot)
+  }
+  out.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  return out
+}
+
 /* ---------- Notes ---------------------------------------------------- */
 
 /**
@@ -591,7 +654,7 @@ export async function importFiles(
   noteRelPath: string,
   sourcePaths: string[]
 ): Promise<ImportedAsset[]> {
-  const assetsDir = path.join(root, '_assets')
+  const assetsDir = assetsAbsolutePath(root)
   await fs.mkdir(assetsDir, { recursive: true })
 
   const noteDir = path.posix.dirname(toPosix(noteRelPath))

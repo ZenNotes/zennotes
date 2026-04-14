@@ -38,10 +38,12 @@ export function Sidebar(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
   const allFolders = useStore((s) => s.folders)
+  const hasAssetsDir = useStore((s) => s.hasAssetsDir)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex)
   const activeNote = useStore((s) => s.activeNote)
   const view = useStore((s) => s.view)
+  const assetFiles = useStore((s) => s.assetFiles)
   const setView = useStore((s) => s.setView)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const createAndOpen = useStore((s) => s.createAndOpen)
@@ -55,6 +57,7 @@ export function Sidebar(): JSX.Element {
   const deleteFolderAction = useStore((s) => s.deleteFolder)
   const duplicateFolderAction = useStore((s) => s.duplicateFolder)
   const revealFolderAction = useStore((s) => s.revealFolder)
+  const revealAssetsDir = useStore((s) => s.revealAssetsDir)
   const sidebarWidth = useStore((s) => s.sidebarWidth)
   const setSidebarWidth = useStore((s) => s.setSidebarWidth)
   const noteSortOrder = useStore((s) => s.noteSortOrder)
@@ -66,6 +69,8 @@ export function Sidebar(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const selectNote = useStore((s) => s.selectNote)
   const selectedPath = useStore((s) => s.selectedPath)
+  const tabsEnabled = useStore((s) => s.tabsEnabled)
+  const openNoteInTab = useStore((s) => s.openNoteInTab)
   const moveNoteAction = useStore((s) => s.moveNote)
   const renameActive = useStore((s) => s.renameActive)
   const { prompt, modal: promptModal } = usePrompt()
@@ -381,6 +386,14 @@ export function Sidebar(): JSX.Element {
         }
       }
     ]
+    if (tabsEnabled) {
+      items.push({
+        label: 'Open in New Tab',
+        onSelect: async () => {
+          await openNoteInTab(n.path)
+        }
+      })
+    }
     if (n.folder !== 'trash') {
       items.push({
         label: 'Rename…',
@@ -498,9 +511,10 @@ export function Sidebar(): JSX.Element {
     selectNote,
     selectedPath,
     refreshNotes,
-    createAndOpen,
     prompt,
-    renameActive
+    renameActive,
+    tabsEnabled,
+    openNoteInTab
   ])
 
   const tagMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -853,6 +867,18 @@ export function Sidebar(): JSX.Element {
         className="mt-2 flex flex-col gap-0.5 px-3 pt-2"
         style={{ borderTop: '1px solid var(--glass-stroke)' }}
       >
+        {hasAssetsDir && (
+          <SidebarRow
+            icon={<FolderIcon open={false} />}
+            label="Attachements"
+            count={assetFiles.length}
+            onClick={() => void revealAssetsDir()}
+            sidebarIdx={idxCounter.current.value++}
+            vimHighlight={vimCursor === idxCounter.current.value - 1}
+            sidebarFocused={isSidebarFocused}
+            sidebarData={{ type: 'assets' }}
+          />
+        )}
         <SidebarRow
           icon={<SettingsIcon />}
           label="Settings"

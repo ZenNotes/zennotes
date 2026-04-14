@@ -10,6 +10,7 @@ import {
 } from '@codemirror/view'
 import { useStore } from '../store'
 import { classifyLocalAssetHref, resolveLocalAssetUrl } from './local-assets'
+import { setImageBlockDragPayload } from './image-block-dnd'
 
 /**
  * Live-preview extension: hides markdown syntax markers on lines where
@@ -54,6 +55,47 @@ type PendingDecoration = {
   deco: Decoration
 }
 
+function createImageDragPreview(title: string): HTMLDivElement {
+  const chip = document.createElement('div')
+  chip.style.position = 'fixed'
+  chip.style.top = '-9999px'
+  chip.style.left = '-9999px'
+  chip.style.pointerEvents = 'none'
+  chip.style.zIndex = '9999'
+  chip.style.display = 'flex'
+  chip.style.flexDirection = 'column'
+  chip.style.gap = '2px'
+  chip.style.maxWidth = '260px'
+  chip.style.padding = '8px 10px'
+  chip.style.borderRadius = '10px'
+  chip.style.border = '1px solid rgba(255,255,255,0.08)'
+  chip.style.background = 'rgba(20,19,18,0.94)'
+  chip.style.boxShadow = '0 12px 28px rgba(0,0,0,0.28)'
+  chip.style.backdropFilter = 'blur(12px)'
+  chip.style.setProperty('-webkit-backdrop-filter', 'blur(12px)')
+  chip.style.color = 'rgba(255,255,255,0.96)'
+  chip.style.fontFamily =
+    "var(--z-mono-font, 'SF Mono', 'SFMono-Regular', ui-monospace, 'JetBrains Mono', Menlo, Consolas, monospace)"
+  chip.style.lineHeight = '1.2'
+
+  const titleEl = document.createElement('div')
+  titleEl.style.fontSize = '11px'
+  titleEl.style.fontWeight = '700'
+  titleEl.style.whiteSpace = 'nowrap'
+  titleEl.style.overflow = 'hidden'
+  titleEl.style.textOverflow = 'ellipsis'
+  titleEl.textContent = title
+
+  const subtitleEl = document.createElement('div')
+  subtitleEl.style.fontSize = '10px'
+  subtitleEl.style.opacity = '0.72'
+  subtitleEl.textContent = 'Move image block'
+
+  chip.append(titleEl, subtitleEl)
+  document.body.append(chip)
+  return chip
+}
+
 function parseStandaloneLocalImage(lineText: string): ParsedImage | null {
   const match = lineText.match(STANDALONE_IMAGE_RE)
   if (!match) return null
@@ -71,7 +113,10 @@ function parseStandaloneLocalImage(lineText: string): ParsedImage | null {
 
 class LocalImageWidget extends WidgetType {
   constructor(
+    private readonly notePath: string,
     private readonly lineFrom: number,
+    private readonly lineTo: number,
+    private readonly lineText: string,
     private readonly alt: string,
     private readonly href: string,
     private readonly resolvedUrl: string
@@ -81,7 +126,10 @@ class LocalImageWidget extends WidgetType {
 
   eq(other: LocalImageWidget): boolean {
     return (
+      other.notePath === this.notePath &&
       other.lineFrom === this.lineFrom &&
+      other.lineTo === this.lineTo &&
+      other.lineText === this.lineText &&
       other.alt === this.alt &&
       other.href === this.href &&
       other.resolvedUrl === this.resolvedUrl
@@ -91,6 +139,31 @@ class LocalImageWidget extends WidgetType {
   toDOM(): HTMLElement {
     const figure = document.createElement('figure')
     figure.className = 'local-image-embed cm-local-image-embed'
+    figure.draggable = true
+    figure.title = 'Drag to move. Use </> to edit this block.'
+
+    figure.addEventListener('dragstart', (event) => {
+      const dataTransfer = event.dataTransfer
+      if (!dataTransfer) return
+      const previewLabel = this.alt || this.href.split('/').filter(Boolean).pop() || 'Image'
+      const dragPreview = createImageDragPreview(previewLabel)
+      setImageBlockDragPayload(dataTransfer, {
+        kind: 'image-block',
+        notePath: this.notePath,
+        from: this.lineFrom,
+        to: this.lineTo,
+        text: this.lineText
+      })
+      dataTransfer.setDragImage(dragPreview, 18, 14)
+      requestAnimationFrame(() => {
+        dragPreview.remove()
+      })
+      figure.classList.add('is-dragging')
+    })
+
+    figure.addEventListener('dragend', () => {
+      figure.classList.remove('is-dragging')
+    })
 
     const frame = document.createElement('div')
     frame.className = 'local-image-embed-frame'
@@ -100,6 +173,7 @@ class LocalImageWidget extends WidgetType {
     image.src = this.resolvedUrl
     image.alt = this.alt
     image.loading = 'lazy'
+    image.draggable = false
 
     const topControls = document.createElement('div')
     topControls.className = 'local-image-embed-controls local-image-embed-controls-top'
@@ -172,13 +246,23 @@ function computeDecorations(view: EditorView): DecorationSet {
       const line = state.doc.line(lineNo)
       const parsed = parseStandaloneLocalImage(line.text)
       if (!parsed) continue
+      const notePath = useStore.getState().activeNote?.path
+      if (!notePath) continue
       replacedLines.add(lineNo)
       pending.push({
         from: line.from,
         to: line.from,
         deco: Decoration.widget({
           side: 1,
-          widget: new LocalImageWidget(line.from, parsed.alt, parsed.href, parsed.resolvedUrl)
+          widget: new LocalImageWidget(
+            notePath,
+            line.from,
+            line.to,
+            line.text,
+            parsed.alt,
+            parsed.href,
+            parsed.resolvedUrl
+          )
         })
       })
       pending.push({

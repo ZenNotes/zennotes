@@ -1,0 +1,97 @@
+/**
+ * Vim-style pane navigation. Given the active pane and a direction
+ * (`h` left, `j` down, `k` up, `l` right), find the nearest neighbor
+ * pane geometrically from the live DOM and focus it.
+ *
+ * We use bounding rects rather than walking the tree because the user's
+ * mental model matches what they see on screen — sibling panes in a
+ * deeply nested split still look like simple neighbors.
+ */
+import { useStore } from '../store'
+
+export type PaneDirection = 'h' | 'j' | 'k' | 'l'
+
+interface PaneRect {
+  id: string
+  rect: DOMRect
+}
+
+function getPaneRects(): PaneRect[] {
+  if (typeof document === 'undefined') return []
+  const nodes = document.querySelectorAll<HTMLElement>('[data-pane-id]')
+  const rects: PaneRect[] = []
+  for (const el of Array.from(nodes)) {
+    const id = el.dataset.paneId
+    if (!id) continue
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) continue
+    rects.push({ id, rect })
+  }
+  return rects
+}
+
+/** Pick the nearest pane in the requested direction, or null if none fits. */
+export function findNeighborPaneId(
+  panes: PaneRect[],
+  currentId: string,
+  direction: PaneDirection
+): string | null {
+  const current = panes.find((p) => p.id === currentId)
+  if (!current) return null
+  const cx = current.rect.left + current.rect.width / 2
+  const cy = current.rect.top + current.rect.height / 2
+
+  const tolerance = 2
+  const candidates = panes.filter((p) => {
+    if (p.id === currentId) return false
+    const r = p.rect
+    switch (direction) {
+      case 'h':
+        return r.right <= current.rect.left + tolerance
+      case 'l':
+        return r.left >= current.rect.right - tolerance
+      case 'k':
+        return r.bottom <= current.rect.top + tolerance
+      case 'j':
+        return r.top >= current.rect.bottom - tolerance
+    }
+  })
+  if (candidates.length === 0) return null
+
+  const score = (p: PaneRect): number => {
+    const pcx = p.rect.left + p.rect.width / 2
+    const pcy = p.rect.top + p.rect.height / 2
+    // Primary axis: distance along the direction of travel.
+    // Secondary axis: perpendicular offset (closer-aligned wins ties).
+    if (direction === 'h' || direction === 'l') {
+      const perpendicular = Math.abs(pcy - cy)
+      const aligned =
+        direction === 'h' ? current.rect.left - p.rect.right : p.rect.left - current.rect.right
+      return perpendicular * 10 + Math.max(0, aligned)
+    }
+    const perpendicular = Math.abs(pcx - cx)
+    const aligned =
+      direction === 'k' ? current.rect.top - p.rect.bottom : p.rect.top - current.rect.bottom
+    return perpendicular * 10 + Math.max(0, aligned)
+  }
+  candidates.sort((a, b) => score(a) - score(b))
+  return candidates[0].id
+}
+
+/**
+ * Focus the pane in the given direction from the currently active one.
+ * No-op if no neighbor exists that way. Also sets the editor panel
+ * focused so keyboard input lands in the new pane's CodeMirror view.
+ */
+export function focusPaneInDirection(direction: PaneDirection): boolean {
+  const state = useStore.getState()
+  const rects = getPaneRects()
+  const targetId = findNeighborPaneId(rects, state.activePaneId, direction)
+  if (!targetId) return false
+  state.setActivePane(targetId)
+  state.setFocusedPanel('editor')
+  requestAnimationFrame(() => {
+    useStore.getState().editorViewRef?.focus()
+  })
+  return true
+}

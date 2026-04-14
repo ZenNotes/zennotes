@@ -1045,8 +1045,9 @@ textarea,
 /* --- Rendered markdown (preview) --------------------------------------- */
 
 .prose-zen {
+  width: min(100%, var(--z-preview-max-width, 920px));
   max-width: none;
-  margin: 0;
+  margin: 0 auto;
   padding: 16px 32px 40vh;
   font-family: var(
     --z-text-font,
@@ -1213,6 +1214,15 @@ textarea,
 
 :is(.prose-zen, .cm-editor) .local-image-embed {
   margin: 1.35rem 0;
+}
+
+.cm-editor .local-image-embed {
+  cursor: grab;
+}
+
+.cm-editor .local-image-embed.is-dragging {
+  opacity: 0.72;
+  cursor: grabbing;
 }
 
 :is(.prose-zen, .cm-editor) .local-image-embed-frame {

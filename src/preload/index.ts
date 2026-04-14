@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import path from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { IPC } from '@shared/ipc'
 import type {
+  AssetMeta,
   FolderEntry,
   ImportedAsset,
   NoteContent,
@@ -22,6 +22,8 @@ const api = {
   listNotes: (): Promise<NoteMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_NOTES),
   listFolders: (): Promise<FolderEntry[]> =>
     ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
+  listAssets: (): Promise<AssetMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_ASSETS),
+  hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),
   readNote: (relPath: string): Promise<NoteContent> =>
     ipcRenderer.invoke(IPC.VAULT_READ_NOTE, relPath),
   writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
@@ -71,6 +73,7 @@ const api = {
     ipcRenderer.invoke(IPC.VAULT_DUPLICATE_FOLDER, folder, subpath),
   revealFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_REVEAL_FOLDER, folder, subpath),
+  revealAssetsDir: (): Promise<void> => ipcRenderer.invoke(IPC.VAULT_REVEAL_ASSETS_DIR),
   getPathForFile: (file: File): string | null => {
     try {
       return webUtils.getPathForFile(file) || null
@@ -112,7 +115,15 @@ const api = {
     const resolved = path.resolve(vaultRoot, relativeTarget.split('/').join(path.sep))
     const rootAbs = path.resolve(vaultRoot)
     if (resolved !== rootAbs && !resolved.startsWith(rootAbs + path.sep)) return null
-    return pathToFileURL(resolved).toString()
+    return `zen-asset://local?path=${encodeURIComponent(resolved)}`
+  },
+  resolveVaultAssetUrl: (vaultRoot: string, assetPath: string): string | null => {
+    const trimmed = assetPath.trim()
+    if (!trimmed) return null
+    const resolved = path.resolve(vaultRoot, trimmed.split('/').join(path.sep))
+    const rootAbs = path.resolve(vaultRoot)
+    if (resolved !== rootAbs && !resolved.startsWith(rootAbs + path.sep)) return null
+    return `zen-asset://local?path=${encodeURIComponent(resolved)}`
   },
 
   onVaultChange: (cb: (ev: VaultChangeEvent) => void): (() => void) => {

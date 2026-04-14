@@ -7,6 +7,7 @@ import {
   isEditorFocused,
   resolveNextPanel
 } from '../lib/vim-nav'
+import { focusPaneInDirection } from '../lib/pane-nav'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -126,12 +127,34 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
-      // ------- Ctrl+w pending → resolve panel switch --------------------
+      // ------- Ctrl+w pending → resolve panel / pane switch ------------
       if (ctrlWPending.current) {
         e.preventDefault()
         e.stopImmediatePropagation()
         ctrlWPending.current = false
         if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
+
+        // When focus is in the editor and we have multiple panes in the
+        // split tree, try pane-internal navigation first. If a neighbor
+        // pane exists in the requested direction, jump to it and stop.
+        // Falling through to panel nav only happens at the tree edge.
+        const paneDir =
+          e.key === 'h' || e.key === 'ArrowLeft'
+            ? 'h'
+            : e.key === 'l' || e.key === 'ArrowRight'
+              ? 'l'
+              : e.key === 'j' || e.key === 'ArrowDown'
+                ? 'j'
+                : e.key === 'k' || e.key === 'ArrowUp'
+                  ? 'k'
+                  : null
+        if (
+          paneDir &&
+          (state.focusedPanel === 'editor' || state.focusedPanel === null) &&
+          focusPaneInDirection(paneDir)
+        ) {
+          return
+        }
 
         const panels = getVisiblePanels(
           state.sidebarOpen,

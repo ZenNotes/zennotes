@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
@@ -8,6 +8,7 @@ import type { NoteFolder, VaultChangeEvent, VaultInfo } from '@shared/ipc'
 import {
   absolutePath,
   archiveNote,
+  assetsAbsolutePath,
   createFolder,
   createNote,
   deleteFolder,
@@ -17,7 +18,9 @@ import {
   emptyTrash,
   ensureVaultLayout,
   folderAbsolutePath,
+  hasAssetsDir,
   importFiles,
+  listAssets,
   listFolders,
   listNotes,
   loadConfig,
@@ -35,6 +38,20 @@ import {
 import { VaultWatcher } from './watcher'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const LOCAL_ASSET_SCHEME = 'zen-asset'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: LOCAL_ASSET_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      corsEnabled: true
+    }
+  }
+])
 
 let mainWindow: BrowserWindow | null = null
 let currentVault: VaultInfo | null = null
@@ -42,6 +59,71 @@ const watcher = new VaultWatcher()
 
 function isMac(): boolean {
   return process.platform === 'darwin'
+}
+
+function decodeLocalAssetRequestPath(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== `${LOCAL_ASSET_SCHEME}:`) return null
+    const encoded = parsed.searchParams.get('path')
+    if (!encoded) return null
+    return decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
+}
+
+function isPathInsideVault(absPath: string): boolean {
+  if (!currentVault) return false
+  const resolved = path.resolve(absPath)
+  const root = path.resolve(currentVault.root)
+  return resolved === root || resolved.startsWith(root + path.sep)
+}
+
+function mimeTypeForPath(absPath: string): string {
+  const ext = path.extname(absPath).toLowerCase()
+  switch (ext) {
+    case '.apng':
+      return 'image/apng'
+    case '.avif':
+      return 'image/avif'
+    case '.gif':
+      return 'image/gif'
+    case '.jpeg':
+    case '.jpg':
+      return 'image/jpeg'
+    case '.png':
+      return 'image/png'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.webp':
+      return 'image/webp'
+    case '.pdf':
+      return 'application/pdf'
+    case '.aac':
+      return 'audio/aac'
+    case '.flac':
+      return 'audio/flac'
+    case '.m4a':
+      return 'audio/mp4'
+    case '.mp3':
+      return 'audio/mpeg'
+    case '.ogg':
+      return 'audio/ogg'
+    case '.wav':
+      return 'audio/wav'
+    case '.m4v':
+    case '.mp4':
+      return 'video/mp4'
+    case '.mov':
+      return 'video/quicktime'
+    case '.ogv':
+      return 'video/ogg'
+    case '.webm':
+      return 'video/webm'
+    default:
+      return 'application/octet-stream'
+  }
 }
 
 function createWindow(): void {
@@ -83,6 +165,13 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith(`${LOCAL_ASSET_SCHEME}://`)) {
+      const abs = decodeLocalAssetRequestPath(url)
+      if (abs && isPathInsideVault(abs)) {
+        void shell.openPath(abs)
+      }
+      return { action: 'deny' }
+    }
     shell.openExternal(url).catch(() => {})
     return { action: 'deny' }
   })
@@ -258,6 +347,16 @@ function registerIpc(): void {
     return await listFolders(v.root)
   })
 
+  ipcMain.handle(IPC.VAULT_LIST_ASSETS, async () => {
+    const v = requireVault()
+    return await listAssets(v.root)
+  })
+
+  ipcMain.handle(IPC.VAULT_HAS_ASSETS_DIR, async () => {
+    const v = requireVault()
+    return await hasAssetsDir(v.root)
+  })
+
   ipcMain.handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
     const v = requireVault()
     return await readNote(v.root, relPath)
@@ -379,6 +478,12 @@ function registerIpc(): void {
     }
   )
 
+  ipcMain.handle(IPC.VAULT_REVEAL_ASSETS_DIR, async () => {
+    const v = requireVault()
+    const abs = assetsAbsolutePath(v.root)
+    await shell.openPath(abs)
+  })
+
   ipcMain.on(IPC.WINDOW_MINIMIZE, () => mainWindow?.minimize())
   ipcMain.on(IPC.WINDOW_TOGGLE_MAXIMIZE, () => {
     if (!mainWindow) return
@@ -470,6 +575,20 @@ function installAppMenu(): void {
 }
 
 app.whenReady().then(async () => {
+  protocol.handle(LOCAL_ASSET_SCHEME, async (request) => {
+    const abs = decodeLocalAssetRequestPath(request.url)
+    if (!abs || !isPathInsideVault(abs)) {
+      throw new Error(`Invalid local asset URL: ${request.url}`)
+    }
+    const data = await fsp.readFile(abs)
+    return new Response(data, {
+      headers: {
+        'content-type': mimeTypeForPath(abs),
+        'cache-control': 'no-cache'
+      }
+    })
+  })
+
   // Auto-grant the Local Font Access permission so `queryLocalFonts()`
   // can enumerate system fonts without a prompt. This is our own app
   // talking to our own vault — no third-party surface.

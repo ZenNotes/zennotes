@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import type { NoteMeta } from '@shared/ipc'
+import type { AssetMeta, NoteMeta } from '@shared/ipc'
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
@@ -30,8 +30,22 @@ function formatDate(ms: number): string {
   })
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes >= 10 * 1024 ? 0 : 1)} KB`
+  if (bytes < 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`
+  }
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+}
+
+const ASSET_LAYOUT_KEY = 'zen:assets-layout:v1'
+type AssetLayout = 'grid' | 'list'
+
 export function NoteList(): JSX.Element {
+  const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
+  const assetFiles = useStore((s) => s.assetFiles)
   const activeNote = useStore((s) => s.activeNote)
   const view = useStore((s) => s.view)
   const selectedPath = useStore((s) => s.selectedPath)
@@ -43,11 +57,29 @@ export function NoteList(): JSX.Element {
   const setNoteListWidth = useStore((s) => s.setNoteListWidth)
   const noteSortOrder = useStore((s) => s.noteSortOrder)
   const renameActive = useStore((s) => s.renameActive)
+  const tabsEnabled = useStore((s) => s.tabsEnabled)
+  const openNoteInTab = useStore((s) => s.openNoteInTab)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const { prompt, modal: promptModal } = usePrompt()
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
+  const [assetLayout, setAssetLayout] = useState<AssetLayout>(() => {
+    try {
+      const raw = localStorage.getItem(ASSET_LAYOUT_KEY)
+      return raw === 'list' ? 'list' : 'grid'
+    } catch {
+      return 'grid'
+    }
+  })
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ASSET_LAYOUT_KEY, assetLayout)
+    } catch {
+      /* ignore */
+    }
+  }, [assetLayout])
   const emptyTrash = async (): Promise<void> => {
     await window.zen.emptyTrash()
     await useStore.getState().refreshNotes()
@@ -104,6 +136,9 @@ export function NoteList(): JSX.Element {
 
     const items: ContextMenuItem[] = []
     items.push({ label: 'Open', onSelect: onOpen })
+    if (tabsEnabled) {
+      items.push({ label: 'Open in New Tab', onSelect: async () => openNoteInTab(n.path) })
+    }
 
     if (n.folder !== 'trash') {
       items.push({
@@ -171,7 +206,17 @@ export function NoteList(): JSX.Element {
     }
 
     return items
-  }, [menu, notes, refreshNotes, selectedPath, selectNote, prompt, renameActive])
+  }, [
+    menu,
+    notes,
+    refreshNotes,
+    selectedPath,
+    selectNote,
+    prompt,
+    renameActive,
+    tabsEnabled,
+    openNoteInTab
+  ])
 
   /**
    * Filter notes for the current view. For folder views we match the
@@ -181,6 +226,7 @@ export function NoteList(): JSX.Element {
    * from the active note's body so newly typed hashtags work instantly.
    */
   const filtered = useMemo<NoteMeta[]>(() => {
+    if (view.kind === 'assets') return []
     if (view.kind === 'folder') {
       const prefix = view.subpath
         ? `${view.folder}/${view.subpath}/`
@@ -211,7 +257,11 @@ export function NoteList(): JSX.Element {
     paths: []
   })
   const viewKey =
-    view.kind === 'folder' ? `folder:${view.folder}:${view.subpath}` : `tag:${view.tag}`
+    view.kind === 'folder'
+      ? `folder:${view.folder}:${view.subpath}`
+      : view.kind === 'assets'
+        ? 'assets'
+        : `tag:${view.tag}`
   const sortComparator = useMemo<((a: NoteMeta, b: NoteMeta) => number) | null>(() => {
     switch (noteSortOrder) {
       case 'none':
@@ -274,7 +324,9 @@ export function NoteList(): JSX.Element {
   }, [filtered, viewKey, sortComparator, noteSortOrder])
 
   const heading =
-    view.kind === 'folder'
+    view.kind === 'assets'
+      ? 'attachements'
+      : view.kind === 'folder'
       ? view.subpath
         ? view.subpath.split('/').slice(-1)[0]
         : view.folder[0].toUpperCase() + view.folder.slice(1)
@@ -320,10 +372,29 @@ export function NoteList(): JSX.Element {
       <header className="glass-header flex h-12 shrink-0 items-center justify-between px-4">
         <div className="flex items-baseline gap-2">
           <h2 className="text-sm font-semibold text-ink-900">{heading}</h2>
-          <span className="text-xs text-ink-400">{filtered.length}</span>
+          <span className="text-xs text-ink-400">
+            {view.kind === 'assets' ? assetFiles.length : filtered.length}
+          </span>
         </div>
         <div className="flex items-center gap-1">
-          {view.kind === 'folder' && view.folder === 'trash' && filtered.length > 0 && (
+          {view.kind === 'assets' ? (
+            <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
+              {(['grid', 'list'] as const).map((layout) => (
+                <button
+                  key={layout}
+                  onClick={() => setAssetLayout(layout)}
+                  className={[
+                    'rounded px-2 py-1 transition-colors',
+                    assetLayout === layout
+                      ? 'bg-paper-50 text-ink-900 shadow-sm'
+                      : 'text-ink-500 hover:text-ink-800'
+                  ].join(' ')}
+                >
+                  {layout === 'grid' ? 'Grid' : 'List'}
+                </button>
+              ))}
+            </div>
+          ) : view.kind === 'folder' && view.folder === 'trash' && filtered.length > 0 && (
             <button
               onClick={() => void emptyTrash()}
               className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-800"
@@ -331,13 +402,15 @@ export function NoteList(): JSX.Element {
               Empty
             </button>
           )}
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
-            title="New note"
-            onClick={() => void createAndOpen(newTargetFolder)}
-          >
-            <PlusIcon />
-          </button>
+          {view.kind !== 'assets' && (
+            <button
+              className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
+              title="New note"
+              onClick={() => void createAndOpen(newTargetFolder)}
+            >
+              <PlusIcon />
+            </button>
+          )}
           <button
             className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
             title="Hide note list (⌘2)"
@@ -349,7 +422,25 @@ export function NoteList(): JSX.Element {
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-        {filtered.length === 0 ? (
+        {view.kind === 'assets' ? (
+          assetFiles.length === 0 ? (
+            <div className="px-4 py-10 text-center text-sm text-ink-400">
+              No attachments yet. Drop an image or file into a note to populate `attachements`.
+            </div>
+          ) : assetLayout === 'grid' ? (
+            <div className="grid grid-cols-2 gap-2 px-1">
+              {assetFiles.map((asset) => (
+                <AssetCard key={asset.path} asset={asset} vaultRoot={vault?.root ?? null} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {assetFiles.map((asset) => (
+                <AssetRow key={asset.path} asset={asset} vaultRoot={vault?.root ?? null} />
+              ))}
+            </div>
+          )
+        ) : filtered.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-ink-400">
             {view.kind === 'folder' && view.folder === 'trash'
               ? 'Trash is empty.'
@@ -445,6 +536,95 @@ function NoteRow({
       <span className="line-clamp-2 text-xs text-ink-500">
         {note.excerpt || 'Empty note'}
       </span>
+    </button>
+  )
+}
+
+function assetUrl(vaultRoot: string | null, assetPath: string): string | null {
+  if (!vaultRoot) return null
+  return window.zen.resolveVaultAssetUrl(vaultRoot, assetPath)
+}
+
+function AssetCard({
+  asset,
+  vaultRoot
+}: {
+  asset: AssetMeta
+  vaultRoot: string | null
+}): JSX.Element {
+  const url = assetUrl(vaultRoot, asset.path)
+  const open = (): void => {
+    if (url) window.open(url, '_blank')
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      className="flex min-h-[154px] flex-col overflow-hidden rounded-xl border border-paper-300/70 bg-paper-50/24 text-left transition-colors hover:border-paper-400 hover:bg-paper-100/40"
+    >
+      <div className="flex min-h-0 flex-1 items-center justify-center bg-paper-200/25">
+        {asset.kind === 'image' && url ? (
+          <img
+            src={url}
+            alt={asset.name}
+            className="max-h-[170px] w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <div className="px-4 text-xs uppercase tracking-[0.18em] text-ink-400">
+            {asset.kind}
+          </div>
+        )}
+      </div>
+      <div className="border-t border-paper-300/70 px-3 py-2">
+        <div className="truncate text-sm font-medium text-ink-900">{asset.name}</div>
+        <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-ink-500">
+          <span className="truncate">{asset.path}</span>
+          <span className="shrink-0">{formatBytes(asset.size)}</span>
+        </div>
+      </div>
+    </button>
+  )
+}
+
+function AssetRow({
+  asset,
+  vaultRoot
+}: {
+  asset: AssetMeta
+  vaultRoot: string | null
+}): JSX.Element {
+  const url = assetUrl(vaultRoot, asset.path)
+  const open = (): void => {
+    if (url) window.open(url, '_blank')
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={open}
+      className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-paper-300/70 hover:bg-paper-200/45"
+    >
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-paper-200/45">
+        {asset.kind === 'image' && url ? (
+          <img
+            src={url}
+            alt={asset.name}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : (
+          <span className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{asset.kind}</span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium text-ink-900">{asset.name}</div>
+        <div className="truncate text-xs text-ink-500">{asset.path}</div>
+      </div>
+      <div className="shrink-0 text-[11px] text-ink-400">
+        {formatBytes(asset.size)}
+      </div>
     </button>
   )
 }
