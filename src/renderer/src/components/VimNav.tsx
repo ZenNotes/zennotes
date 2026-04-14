@@ -86,7 +86,7 @@ export function VimNav(): JSX.Element | null {
       const state = useStore.getState()
 
       // Skip when modals / overlays are open
-      if (state.searchOpen || state.settingsOpen) return
+      if (state.searchOpen || state.settingsOpen || state.commandPaletteOpen) return
       if (document.querySelector('[data-ctx-menu]') || document.querySelector('[data-prompt-modal]')) return
 
       // Hint mode — handled entirely by HintOverlay's own listener

@@ -6,6 +6,7 @@ import { NoteList } from './components/NoteList'
 import { Editor } from './components/Editor'
 import { TitleBar } from './components/TitleBar'
 import { SearchPalette } from './components/SearchPalette'
+import { CommandPalette } from './components/CommandPalette'
 import { SettingsModal } from './components/SettingsModal'
 import { VimNav } from './components/VimNav'
 import { EmptyVault } from './components/EmptyVault'
@@ -16,6 +17,8 @@ function App(): JSX.Element {
   const init = useStore((s) => s.init)
   const searchOpen = useStore((s) => s.searchOpen)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
+  const commandPaletteOpen = useStore((s) => s.commandPaletteOpen)
+  const setCommandPaletteOpen = useStore((s) => s.setCommandPaletteOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const noteListOpen = useStore((s) => s.noteListOpen)
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
@@ -106,7 +109,14 @@ function App(): JSX.Element {
       const key = e.key.toLowerCase()
       const state = useStore.getState()
 
-      if (mod && key === 'p') {
+      if (mod && e.shiftKey && key === 'p') {
+        // ⇧⌘P — command palette
+        e.preventDefault()
+        setCommandPaletteOpen(!state.commandPaletteOpen)
+        return
+      }
+      if (mod && !e.shiftKey && key === 'p') {
+        // ⌘P — note search
         e.preventDefault()
         setSearchOpen(!state.searchOpen)
         return
@@ -118,6 +128,10 @@ function App(): JSX.Element {
       }
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
+        return
+      }
+      if (e.key === 'Escape' && state.commandPaletteOpen) {
+        setCommandPaletteOpen(false)
         return
       }
       // ⌘1 — toggle sidebar
@@ -168,6 +182,7 @@ function App(): JSX.Element {
         <Editor />
       </div>
       {searchOpen && <SearchPalette />}
+      {commandPaletteOpen && <CommandPalette />}
       {settingsOpen && <SettingsModal />}
       <PromptHost />
       <VimNav />

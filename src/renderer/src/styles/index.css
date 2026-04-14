@@ -218,7 +218,11 @@
 :root[data-theme='github-dark-dimmed'],
 :root[data-theme='github-dark-high-contrast'],
 :root[data-theme='github-dark-colorblind'],
-:root[data-theme='github-dark-tritanopia'] {
+:root[data-theme='github-dark-tritanopia'],
+:root[data-theme='solarized-dark'],
+:root[data-theme='one-dark'],
+:root[data-theme='nord-dark'],
+:root[data-theme='tokyo-night-storm'] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
   --z-glass-a3: 0.32;
@@ -600,6 +604,253 @@
   --z-blue: 47 129 247;
   --z-purple: 163 113 247;
   --z-aqua: 86 196 180;
+  --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Solarized — https://ethanschoonover.com/solarized/
+ * Canonical palette: base03 / base02 / base01 / base00 / base0 / base1
+ * base2 / base3 + accent wheel (yellow, orange, red, magenta, violet, blue,
+ * cyan, green).
+ * =======================================================================*/
+
+/* ---- Solarized Light ---------------------------------------------- */
+:root[data-theme='solarized-light'] {
+  color-scheme: light;
+  --z-bg: 253 246 227;         /* base3  #fdf6e3 */
+  --z-bg-softer: 245 238 213;  /* between base3 and base2 */
+  --z-bg-1: 238 232 213;       /* base2  #eee8d5 */
+  --z-bg-2: 223 215 182;       /* derived */
+  --z-bg-3: 147 161 161;       /* base1  #93a1a1 */
+  --z-bg-4: 131 148 150;       /* base0  #839496 */
+  --z-fg: 101 123 131;         /* base00 #657b83 */
+  --z-fg-1: 88 110 117;        /* base01 #586e75 */
+  --z-fg-2: 131 148 150;       /* base0  #839496 */
+  --z-grey-2: 88 110 117;      /* base01 */
+  --z-grey-1: 101 123 131;     /* base00 */
+  --z-grey-0: 131 148 150;     /* base0  */
+  --z-grey-dim: 147 161 161;   /* base1  */
+  --z-accent: 38 139 210;      /* blue    #268bd2 */
+  --z-accent-soft: 203 75 22;  /* orange  #cb4b16 */
+  --z-accent-muted: 133 153 0; /* green   #859900 */
+  --z-red: 220 50 47;          /* red     #dc322f */
+  --z-green: 133 153 0;        /* green   #859900 */
+  --z-yellow: 181 137 0;       /* yellow  #b58900 */
+  --z-blue: 38 139 210;        /* blue    #268bd2 */
+  --z-purple: 108 113 196;     /* violet  #6c71c4 */
+  --z-aqua: 42 161 152;        /* cyan    #2aa198 */
+  --z-shadow: 7 54 66;
+}
+
+/* ---- Solarized Dark ----------------------------------------------- */
+:root[data-theme='solarized-dark'] {
+  color-scheme: dark;
+  --z-bg: 0 43 54;             /* base03  #002b36 */
+  --z-bg-softer: 1 38 48;      /* slightly darker for chrome */
+  --z-bg-1: 7 54 66;           /* base02  #073642 */
+  --z-bg-2: 14 73 84;          /* derived between base02 and base01 */
+  --z-bg-3: 88 110 117;        /* base01  #586e75 */
+  --z-bg-4: 101 123 131;       /* base00  #657b83 */
+  --z-fg: 131 148 150;         /* base0   #839496 */
+  --z-fg-1: 147 161 161;       /* base1   #93a1a1 */
+  --z-fg-2: 101 123 131;       /* base00  #657b83 */
+  --z-grey-2: 147 161 161;     /* base1 */
+  --z-grey-1: 131 148 150;     /* base0 */
+  --z-grey-0: 101 123 131;     /* base00 */
+  --z-grey-dim: 88 110 117;    /* base01 */
+  --z-accent: 38 139 210;      /* blue    #268bd2 */
+  --z-accent-soft: 203 75 22;  /* orange  #cb4b16 */
+  --z-accent-muted: 133 153 0; /* green   #859900 */
+  --z-red: 220 50 47;
+  --z-green: 133 153 0;
+  --z-yellow: 181 137 0;
+  --z-blue: 38 139 210;
+  --z-purple: 108 113 196;     /* violet */
+  --z-aqua: 42 161 152;        /* cyan */
+  --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * One (Atom) — https://github.com/atom/atom/tree/master/packages/one-light-syntax
+ *              https://github.com/atom/atom/tree/master/packages/one-dark-syntax
+ * =======================================================================*/
+
+/* ---- One Light ---------------------------------------------------- */
+:root[data-theme='one-light'] {
+  color-scheme: light;
+  --z-bg: 250 250 250;         /* editor bg     #fafafa */
+  --z-bg-softer: 243 243 245;  /* slightly darker chrome */
+  --z-bg-1: 229 229 230;       /* selection     #e5e5e6 */
+  --z-bg-2: 211 211 213;       /* derived */
+  --z-bg-3: 179 179 182;       /* derived */
+  --z-bg-4: 144 144 149;
+  --z-fg: 56 58 66;            /* mono-1        #383a42 */
+  --z-fg-1: 56 58 66;
+  --z-fg-2: 105 108 119;       /* mono-2        #696c77 */
+  --z-grey-2: 105 108 119;
+  --z-grey-1: 160 161 167;     /* mono-3        #a0a1a7 */
+  --z-grey-0: 179 179 182;
+  --z-grey-dim: 211 211 213;
+  --z-accent: 64 120 242;      /* blue          #4078f2 */
+  --z-accent-soft: 152 104 1;  /* orange        #986801 */
+  --z-accent-muted: 80 161 79; /* green         #50a14f */
+  --z-red: 228 86 73;          /* red           #e45649 */
+  --z-green: 80 161 79;        /* green         #50a14f */
+  --z-yellow: 193 132 1;       /* yellow        #c18401 */
+  --z-blue: 64 120 242;        /* blue */
+  --z-purple: 166 38 164;      /* purple        #a626a4 */
+  --z-aqua: 1 132 188;         /* cyan          #0184bc */
+  --z-shadow: 42 38 32;
+}
+
+/* ---- One Dark ----------------------------------------------------- */
+:root[data-theme='one-dark'] {
+  color-scheme: dark;
+  --z-bg: 40 44 52;            /* editor bg     #282c34 */
+  --z-bg-softer: 33 37 43;     /* slightly darker chrome */
+  --z-bg-1: 44 49 58;           /* sub-bg        #2c313a */
+  --z-bg-2: 62 68 81;           /* selection     #3e4451 */
+  --z-bg-3: 92 99 112;          /* comments      #5c6370 */
+  --z-bg-4: 116 116 116;
+  --z-fg: 171 178 191;          /* mono-1        #abb2bf */
+  --z-fg-1: 218 218 219;
+  --z-fg-2: 92 99 112;          /* mono-3        #5c6370 */
+  --z-grey-2: 171 178 191;
+  --z-grey-1: 132 140 153;
+  --z-grey-0: 92 99 112;
+  --z-grey-dim: 62 68 81;
+  --z-accent: 97 175 239;       /* blue          #61afef */
+  --z-accent-soft: 209 154 102; /* orange        #d19a66 */
+  --z-accent-muted: 152 195 121;/* green         #98c379 */
+  --z-red: 224 108 117;         /* red           #e06c75 */
+  --z-green: 152 195 121;       /* green         #98c379 */
+  --z-yellow: 229 192 123;      /* yellow        #e5c07b */
+  --z-blue: 97 175 239;         /* blue */
+  --z-purple: 198 120 221;      /* purple        #c678dd */
+  --z-aqua: 86 182 194;         /* cyan          #56b6c2 */
+  --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Nord — https://www.nordtheme.com/
+ * Polar Night (nord0–nord3), Snow Storm (nord4–nord6), Frost (nord7–nord10),
+ * Aurora (nord11–nord15).
+ * =======================================================================*/
+
+/* ---- Nord Light --------------------------------------------------- */
+:root[data-theme='nord-light'] {
+  color-scheme: light;
+  --z-bg: 236 239 244;         /* nord6  #eceff4 */
+  --z-bg-softer: 229 233 240;  /* nord5  #e5e9f0 */
+  --z-bg-1: 216 222 233;       /* nord4  #d8dee9 */
+  --z-bg-2: 201 208 221;       /* derived */
+  --z-bg-3: 182 192 208;       /* derived */
+  --z-bg-4: 160 172 190;       /* derived */
+  --z-fg: 46 52 64;            /* nord0  #2e3440 */
+  --z-fg-1: 59 66 82;          /* nord1  #3b4252 */
+  --z-fg-2: 76 86 106;         /* nord3  #4c566a */
+  --z-grey-2: 67 76 94;        /* nord2  */
+  --z-grey-1: 76 86 106;       /* nord3  */
+  --z-grey-0: 123 133 149;     /* derived */
+  --z-grey-dim: 216 222 233;   /* nord4  */
+  --z-accent: 94 129 172;      /* nord10 (frost 3) */
+  --z-accent-soft: 208 135 112;/* nord12 (aurora orange) */
+  --z-accent-muted: 163 190 140;/* nord14 (aurora green) */
+  --z-red: 191 97 106;         /* nord11 */
+  --z-green: 163 190 140;      /* nord14 */
+  --z-yellow: 185 144 0;       /* darker aurora-yellow for readability */
+  --z-blue: 94 129 172;        /* nord10 */
+  --z-purple: 180 142 173;     /* nord15 */
+  --z-aqua: 143 188 187;       /* nord7 (frost cyan) */
+  --z-shadow: 46 52 64;
+}
+
+/* ---- Nord Dark ---------------------------------------------------- */
+:root[data-theme='nord-dark'] {
+  color-scheme: dark;
+  --z-bg: 46 52 64;            /* nord0  #2e3440 */
+  --z-bg-softer: 39 43 53;     /* derived darker chrome */
+  --z-bg-1: 59 66 82;          /* nord1  #3b4252 */
+  --z-bg-2: 67 76 94;          /* nord2  #434c5e */
+  --z-bg-3: 76 86 106;         /* nord3  #4c566a */
+  --z-bg-4: 92 103 121;        /* between nord3 and nord4 */
+  --z-fg: 216 222 233;         /* nord4  #d8dee9 */
+  --z-fg-1: 229 233 240;       /* nord5  #e5e9f0 */
+  --z-fg-2: 141 150 164;       /* derived — lighter than nord3 so readable */
+  --z-grey-2: 216 222 233;     /* nord4 */
+  --z-grey-1: 141 150 164;
+  --z-grey-0: 76 86 106;       /* nord3 */
+  --z-grey-dim: 67 76 94;      /* nord2 */
+  --z-accent: 136 192 208;     /* nord8 — iconic frost */
+  --z-accent-soft: 208 135 112;/* nord12 orange */
+  --z-accent-muted: 163 190 140;/* nord14 green */
+  --z-red: 191 97 106;         /* nord11 */
+  --z-green: 163 190 140;      /* nord14 */
+  --z-yellow: 235 203 139;     /* nord13 */
+  --z-blue: 94 129 172;        /* nord10 */
+  --z-purple: 180 142 173;     /* nord15 */
+  --z-aqua: 143 188 187;       /* nord7 */
+  --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Tokyo Night — https://github.com/folke/tokyonight.nvim
+ * "Day" (light) and "Storm" (dark) variants.
+ * =======================================================================*/
+
+/* ---- Tokyo Night Day (light) -------------------------------------- */
+:root[data-theme='tokyo-night-day'] {
+  color-scheme: light;
+  --z-bg: 225 226 231;         /* bg         #e1e2e7 */
+  --z-bg-softer: 208 213 227;  /* bg-dark    #d0d5e3 */
+  --z-bg-1: 196 200 218;       /* bg-hl      #c4c8da */
+  --z-bg-2: 168 174 203;       /* fg-gutter  #a8aecb */
+  --z-bg-3: 161 166 197;       /* terminal-black #a1a6c5 */
+  --z-bg-4: 137 144 179;       /* dark3      #8990b3 */
+  --z-fg: 55 96 191;           /* fg         #3760bf */
+  --z-fg-1: 97 114 176;        /* fg-dark    #6172b0 */
+  --z-fg-2: 132 140 181;       /* comment    #848cb5 */
+  --z-grey-2: 97 114 176;
+  --z-grey-1: 132 140 181;
+  --z-grey-0: 137 144 179;
+  --z-grey-dim: 168 174 203;
+  --z-accent: 46 125 233;      /* blue       #2e7de9 */
+  --z-accent-soft: 177 92 0;   /* orange     #b15c00 */
+  --z-accent-muted: 88 117 57; /* green      #587539 */
+  --z-red: 245 42 101;         /* red        #f52a65 */
+  --z-green: 88 117 57;        /* green */
+  --z-yellow: 140 108 62;      /* yellow     #8c6c3e */
+  --z-blue: 46 125 233;
+  --z-purple: 120 71 189;      /* purple     #7847bd */
+  --z-aqua: 0 113 151;         /* cyan       #007197 */
+  --z-shadow: 55 96 191;
+}
+
+/* ---- Tokyo Night Storm (dark) ------------------------------------- */
+:root[data-theme='tokyo-night-storm'] {
+  color-scheme: dark;
+  --z-bg: 36 40 59;            /* bg         #24283b */
+  --z-bg-softer: 31 35 53;     /* bg-dark    #1f2335 */
+  --z-bg-1: 41 46 66;          /* bg-hl      #292e42 */
+  --z-bg-2: 59 66 97;          /* fg-gutter  #3b4261 */
+  --z-bg-3: 65 72 104;         /* term-black #414868 */
+  --z-bg-4: 84 92 126;         /* dark3      #545c7e */
+  --z-fg: 192 202 245;         /* fg         #c0caf5 */
+  --z-fg-1: 169 177 214;       /* fg-dark    #a9b1d6 */
+  --z-fg-2: 86 95 137;         /* comment    #565f89 */
+  --z-grey-2: 169 177 214;
+  --z-grey-1: 115 122 162;     /* dark5      #737aa2 */
+  --z-grey-0: 84 92 126;
+  --z-grey-dim: 65 72 104;
+  --z-accent: 122 162 247;     /* blue       #7aa2f7 — iconic */
+  --z-accent-soft: 255 158 100;/* orange     #ff9e64 */
+  --z-accent-muted: 158 206 106;/* green     #9ece6a */
+  --z-red: 247 118 142;        /* red        #f7768e */
+  --z-green: 158 206 106;
+  --z-yellow: 224 175 104;     /* yellow     #e0af68 */
+  --z-blue: 122 162 247;
+  --z-purple: 187 154 247;     /* magenta    #bb9af7 */
+  --z-aqua: 125 207 255;       /* cyan       #7dcfff */
   --z-shadow: 0 0 0;
 }
 
@@ -1039,7 +1290,54 @@ textarea,
   background: rgb(var(--z-bg-2));
   padding: 1px 4px;
   border-radius: 4px;
+  /* No explicit color — lets inline code inherit foreground and lets
+     inner language tokens (keyword/string/etc.) show their own color
+     inside fenced code blocks. */
+}
+
+/* --- Fenced code-block syntax tokens --------------------------------- */
+/* Theme-aware colors that work on both light and dark palettes. Every
+   color here comes from a CSS var defined by every theme block, so the
+   code coloring adapts automatically as the user switches themes. */
+.cm-editor .tok-keyword {
+  color: rgb(var(--z-accent));
+  font-weight: 600;
+}
+.cm-editor .tok-string {
+  color: rgb(var(--z-green));
+}
+.cm-editor .tok-comment {
+  color: rgb(var(--z-fg-2));
+  font-style: italic;
+  opacity: 0.85;
+}
+.cm-editor .tok-number,
+.cm-editor .tok-atom {
+  color: rgb(var(--z-yellow));
+}
+.cm-editor .tok-operator {
+  color: rgb(var(--z-fg-2));
+}
+.cm-editor .tok-type {
+  color: rgb(var(--z-purple));
+}
+.cm-editor .tok-tag {
+  color: rgb(var(--z-red));
+}
+.cm-editor .tok-function {
+  color: rgb(var(--z-blue));
+}
+.cm-editor .tok-variable-def,
+.cm-editor .tok-property {
   color: rgb(var(--z-fg));
+}
+.cm-editor .tok-punct,
+.cm-editor .tok-bracket {
+  color: rgb(var(--z-fg-2));
+}
+.cm-editor .tok-attr,
+.cm-editor .tok-label {
+  color: rgb(var(--z-purple));
 }
 
 /* --- Rendered markdown (preview) --------------------------------------- */

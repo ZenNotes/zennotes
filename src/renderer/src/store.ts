@@ -42,7 +42,16 @@ export type NoteSortOrder =
 export type LineNumberMode = 'off' | 'absolute' | 'relative'
 
 const PREFS_KEY = 'zen:prefs:v2'
-const VALID_FAMILIES: ThemeFamily[] = ['apple', 'gruvbox', 'catppuccin', 'github']
+const VALID_FAMILIES: ThemeFamily[] = [
+  'apple',
+  'gruvbox',
+  'catppuccin',
+  'github',
+  'solarized',
+  'one',
+  'nord',
+  'tokyo-night'
+]
 const VALID_MODES: ThemeMode[] = ['light', 'dark', 'auto']
 const VALID_SORTS: NoteSortOrder[] = [
   'none',
@@ -492,6 +501,7 @@ interface Store {
   /** Notes still loading the full content. */
   loadingNote: boolean
   searchOpen: boolean
+  commandPaletteOpen: boolean
   query: string
   initialized: boolean
   sidebarOpen: boolean
@@ -567,6 +577,7 @@ interface Store {
   archiveActive: () => Promise<void>
   unarchiveActive: () => Promise<void>
   setSearchOpen: (open: boolean) => void
+  setCommandPaletteOpen: (open: boolean) => void
   setQuery: (q: string) => void
   toggleSidebar: () => void
   toggleNoteList: () => void
@@ -867,6 +878,7 @@ export const useStore = create<Store>((set, get) => {
   pendingJumpLocation: null,
   loadingNote: false,
   searchOpen: false,
+  commandPaletteOpen: false,
   query: '',
   initialized: false,
   sidebarOpen: true,
@@ -1288,6 +1300,7 @@ export const useStore = create<Store>((set, get) => {
   },
 
   setSearchOpen: (open) => set({ searchOpen: open, query: open ? get().query : '' }),
+  setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setQuery: (q) => set({ query: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleNoteList: () => set((s) => ({ noteListOpen: !s.noteListOpen })),

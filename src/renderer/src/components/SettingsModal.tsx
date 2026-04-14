@@ -49,14 +49,17 @@ export function SettingsModal(): JSX.Element {
     }
   }, [])
 
-  // Family list — Apple is the default, followed by the three palette
-  // families (Gruvbox, Catppuccin, GitHub).
+  // Family list — Apple is the default, followed by the other families.
   const familyOptions = useMemo<{ id: ThemeFamily; label: string }[]>(
     () => [
       { id: 'apple', label: 'Apple' },
       { id: 'gruvbox', label: 'Gruvbox Material' },
       { id: 'catppuccin', label: 'Catppuccin' },
-      { id: 'github', label: 'GitHub' }
+      { id: 'github', label: 'GitHub' },
+      { id: 'solarized', label: 'Solarized' },
+      { id: 'one', label: 'One' },
+      { id: 'nord', label: 'Nord' },
+      { id: 'tokyo-night', label: 'Tokyo Night' }
     ],
     []
   )
@@ -80,9 +83,16 @@ export function SettingsModal(): JSX.Element {
         (t) => t.family === 'gruvbox' && t.mode === effectiveMode
       )
     }
-    if (themeFamily === 'apple') {
-      return [] // no sub-variant picker for Apple
-    }
+    // Families with only a light/dark pair don't need a variant picker —
+    // the Mode selector above already handles the toggle.
+    const simpleFamilies: ThemeFamily[] = [
+      'apple',
+      'solarized',
+      'one',
+      'nord',
+      'tokyo-night'
+    ]
+    if (simpleFamilies.includes(themeFamily)) return []
     return THEMES.filter((t) => t.family === themeFamily)
   }, [themeFamily, themeMode, themeId])
 
@@ -98,7 +108,11 @@ export function SettingsModal(): JSX.Element {
       apple: { light: 'apple-light', dark: 'apple-dark' },
       gruvbox: { light: 'light-medium', dark: 'dark-medium' },
       catppuccin: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
-      github: { light: 'github-light', dark: 'github-dark' }
+      github: { light: 'github-light', dark: 'github-dark' },
+      solarized: { light: 'solarized-light', dark: 'solarized-dark' },
+      one: { light: 'one-light', dark: 'one-dark' },
+      nord: { light: 'nord-light', dark: 'nord-dark' },
+      'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' }
     }
     const targetId = preferred[family][effectiveMode]
     setTheme({ id: targetId, family, mode: themeMode })

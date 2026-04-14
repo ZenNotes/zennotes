@@ -9,7 +9,15 @@
  *                                                        dark, dark dimmed, dark high-contrast
  */
 
-export type ThemeFamily = 'apple' | 'gruvbox' | 'catppuccin' | 'github'
+export type ThemeFamily =
+  | 'apple'
+  | 'gruvbox'
+  | 'catppuccin'
+  | 'github'
+  | 'solarized'
+  | 'one'
+  | 'nord'
+  | 'tokyo-night'
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
 export interface ThemeOption {
@@ -67,7 +75,23 @@ export const THEMES: ThemeOption[] = [
     family: 'github',
     mode: 'dark',
     variant: 'high-contrast'
-  }
+  },
+
+  // --- Solarized (ethanschoonover.com/solarized) ----------------------
+  { id: 'solarized-light', label: 'Light', family: 'solarized', mode: 'light' },
+  { id: 'solarized-dark', label: 'Dark', family: 'solarized', mode: 'dark' },
+
+  // --- One (Atom One Light / One Dark) --------------------------------
+  { id: 'one-light', label: 'Light', family: 'one', mode: 'light' },
+  { id: 'one-dark', label: 'Dark', family: 'one', mode: 'dark' },
+
+  // --- Nord (arcticicestudio) -----------------------------------------
+  { id: 'nord-light', label: 'Light', family: 'nord', mode: 'light' },
+  { id: 'nord-dark', label: 'Dark', family: 'nord', mode: 'dark' },
+
+  // --- Tokyo Night (enkia) --------------------------------------------
+  { id: 'tokyo-night-day', label: 'Day', family: 'tokyo-night', mode: 'light' },
+  { id: 'tokyo-night-storm', label: 'Storm', family: 'tokyo-night', mode: 'dark' }
 ]
 
 export const DEFAULT_THEME_ID = 'apple-light'
@@ -92,6 +116,18 @@ export function resolveAuto(family: ThemeFamily, prefersDark: boolean): string {
   }
   if (family === 'catppuccin') {
     return targetMode === 'dark' ? 'catppuccin-mocha' : 'catppuccin-latte'
+  }
+  if (family === 'solarized') {
+    return targetMode === 'dark' ? 'solarized-dark' : 'solarized-light'
+  }
+  if (family === 'one') {
+    return targetMode === 'dark' ? 'one-dark' : 'one-light'
+  }
+  if (family === 'nord') {
+    return targetMode === 'dark' ? 'nord-dark' : 'nord-light'
+  }
+  if (family === 'tokyo-night') {
+    return targetMode === 'dark' ? 'tokyo-night-storm' : 'tokyo-night-day'
   }
   // github
   return targetMode === 'dark' ? 'github-dark' : 'github-light'
