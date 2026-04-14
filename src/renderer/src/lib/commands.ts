@@ -176,6 +176,27 @@ export function buildCommands(): Command[] {
   )
 
   /* ---------------- Tabs ---------------- */
+  // Is the active tab currently pinned in the active pane? Used to flip
+  // the Pin/Unpin command title and gate visibility.
+  const isActiveTabPinned = (): boolean => {
+    const s = getState()
+    const leaf = s.paneLayout.kind === 'leaf' ? s.paneLayout : null
+    const path = s.selectedPath
+    if (!path) return false
+    // Walk the tree to find the active leaf without importing tree helpers.
+    const stack: (typeof s.paneLayout)[] = [s.paneLayout]
+    void leaf
+    while (stack.length) {
+      const n = stack.pop()!
+      if (n.kind === 'leaf') {
+        if (n.id === s.activePaneId) return n.pinnedTabs.includes(path)
+      } else {
+        for (const c of n.children) stack.push(c)
+      }
+    }
+    return false
+  }
+
   cmds.push(
     {
       id: 'tab.close',
@@ -184,6 +205,17 @@ export function buildCommands(): Command[] {
       shortcut: '⌘W',
       when: () => !!getState().selectedPath,
       run: () => getState().closeActiveNote()
+    },
+    {
+      id: 'tab.pin',
+      title: isActiveTabPinned() ? 'Unpin Tab' : 'Pin Tab',
+      category: 'Tabs',
+      keywords: 'stick sticky',
+      when: () => !!getState().selectedPath,
+      run: () => {
+        const s = getState()
+        if (s.selectedPath) s.toggleTabPin(s.activePaneId, s.selectedPath)
+      }
     },
     {
       id: 'nav.back',
@@ -426,6 +458,54 @@ export function buildCommands(): Command[] {
         : 'Enable Auto-Reveal Active Note',
       category: 'Editor',
       run: () => getState().setAutoReveal(!getState().autoReveal)
+    }
+  )
+
+  /* ---------------- Reference pane ---------------- */
+  cmds.push(
+    {
+      id: 'ref.pin',
+      title: 'Pin Active Note as Reference',
+      category: 'Reference',
+      keywords: 'sticky side companion research',
+      when: () => !!getState().selectedPath,
+      run: async () => {
+        const path = getState().selectedPath
+        if (path) await getState().pinReference(path)
+      }
+    },
+    {
+      id: 'ref.unpin',
+      title: 'Unpin Reference',
+      category: 'Reference',
+      when: () => !!getState().pinnedRefPath,
+      run: () => {
+        getState().unpinReference()
+      }
+    },
+    {
+      id: 'ref.toggle',
+      title: getState().pinnedRefVisible
+        ? 'Hide Reference Pane'
+        : 'Show Reference Pane',
+      category: 'Reference',
+      when: () => !!getState().pinnedRefPath,
+      run: () => {
+        getState().togglePinnedRefVisible()
+      }
+    },
+    {
+      id: 'ref.focus',
+      title: 'Focus Reference Pane',
+      category: 'Reference',
+      when: () =>
+        !!getState().pinnedRefPath && getState().pinnedRefVisible,
+      run: () => {
+        const cm = document.querySelector<HTMLElement>(
+          '[data-pane-id="pinned-ref"] .cm-content'
+        )
+        cm?.focus()
+      }
     }
   )
 

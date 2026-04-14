@@ -17,7 +17,9 @@ import {
   findLeaf,
   findLeavesContaining,
   leafWithAddedTab,
+  leafWithPinnedTab,
   leafWithReorderedTab,
+  leafWithUnpinnedTab,
   leafWithoutTab,
   makeLeaf,
   replaceLeaf,
@@ -95,6 +97,13 @@ interface Prefs {
   darkSidebar: boolean
   /** Keys of collapsed folders in the sidebar tree. */
   collapsedFolders: string[]
+  /** Pinned reference pane — an always-visible companion note panel
+   *  for research / drafting. Stored at the prefs layer so pins
+   *  survive app restarts. */
+  pinnedRefPath: string | null
+  pinnedRefVisible: boolean
+  pinnedRefWidth: number
+  pinnedRefMode: 'edit' | 'preview'
 }
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
@@ -117,7 +126,11 @@ const DEFAULT_PREFS: Prefs = {
   autoReveal: true,
   unifiedSidebar: true,
   darkSidebar: true,
-  collapsedFolders: []
+  collapsedFolders: [],
+  pinnedRefPath: null,
+  pinnedRefVisible: true,
+  pinnedRefWidth: 420,
+  pinnedRefMode: 'edit'
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
@@ -197,7 +210,23 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     collapsedFolders:
       Array.isArray(p.collapsedFolders)
         ? p.collapsedFolders.filter((k): k is string => typeof k === 'string')
-        : DEFAULT_PREFS.collapsedFolders
+        : DEFAULT_PREFS.collapsedFolders,
+    pinnedRefPath:
+      typeof p.pinnedRefPath === 'string' || p.pinnedRefPath === null
+        ? (p.pinnedRefPath as string | null)
+        : DEFAULT_PREFS.pinnedRefPath,
+    pinnedRefVisible:
+      typeof p.pinnedRefVisible === 'boolean'
+        ? p.pinnedRefVisible
+        : DEFAULT_PREFS.pinnedRefVisible,
+    pinnedRefWidth:
+      typeof p.pinnedRefWidth === 'number'
+        ? Math.min(800, Math.max(280, p.pinnedRefWidth))
+        : DEFAULT_PREFS.pinnedRefWidth,
+    pinnedRefMode:
+      p.pinnedRefMode === 'edit' || p.pinnedRefMode === 'preview'
+        ? p.pinnedRefMode
+        : DEFAULT_PREFS.pinnedRefMode
   }
 }
 function loadPrefs(): Prefs {
@@ -445,6 +474,10 @@ function collectPrefs(s: {
   unifiedSidebar: boolean
   darkSidebar: boolean
   collapsedFolders: string[]
+  pinnedRefPath: string | null
+  pinnedRefVisible: boolean
+  pinnedRefWidth: number
+  pinnedRefMode: 'edit' | 'preview'
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -467,7 +500,11 @@ function collectPrefs(s: {
     autoReveal: s.autoReveal,
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
-    collapsedFolders: s.collapsedFolders
+    collapsedFolders: s.collapsedFolders,
+    pinnedRefPath: s.pinnedRefPath,
+    pinnedRefVisible: s.pinnedRefVisible,
+    pinnedRefWidth: s.pinnedRefWidth,
+    pinnedRefMode: s.pinnedRefMode
   }
 }
 
@@ -530,6 +567,13 @@ interface Store {
   /** Sidebar tree collapsed-folder keys. Kept in the store so the
    *  state survives Sidebar unmount/mount (e.g. toggling the sidebar). */
   collapsedFolders: string[]
+
+  /** Pinned reference pane — an always-visible side panel that shows a
+   *  single companion note while the user works in the main editor. */
+  pinnedRefPath: string | null
+  pinnedRefVisible: boolean
+  pinnedRefWidth: number
+  pinnedRefMode: 'edit' | 'preview'
 
   /** Vim navigation: which panel is keyboard-focused. */
   focusedPanel: Panel | null
@@ -603,6 +647,13 @@ interface Store {
   setDarkSidebar: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
+
+  /* Pinned reference pane */
+  pinReference: (path: string) => Promise<void>
+  unpinReference: () => void
+  togglePinnedRefVisible: () => void
+  setPinnedRefWidth: (px: number) => void
+  setPinnedRefMode: (mode: 'edit' | 'preview') => void
   setFocusedPanel: (panel: Panel | null) => void
   setSidebarCursorIndex: (idx: number) => void
   setNoteListCursorIndex: (idx: number) => void
@@ -644,6 +695,11 @@ interface Store {
   }) => Promise<void>
   /** Update sizes on a split node (for divider drag). */
   resizeSplit: (splitId: string, sizes: number[]) => void
+  /** Pin a tab within a specific pane — sticks it to the left of the
+   *  strip and protects it from "Close Others" / "Close Tabs to Right". */
+  pinTabInPane: (paneId: string, path: string) => void
+  unpinTabInPane: (paneId: string, path: string) => void
+  toggleTabPin: (paneId: string, path: string) => void
   /** Update an open note's body (typed into any pane). Flags dirty. */
   updateNoteBody: (path: string, body: string) => void
   /** Persist a specific note to disk. */
@@ -905,6 +961,10 @@ export const useStore = create<Store>((set, get) => {
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
   collapsedFolders: loadPrefs().collapsedFolders,
+  pinnedRefPath: loadPrefs().pinnedRefPath,
+  pinnedRefVisible: loadPrefs().pinnedRefVisible,
+  pinnedRefWidth: loadPrefs().pinnedRefWidth,
+  pinnedRefMode: loadPrefs().pinnedRefMode,
   focusedPanel: null,
   sidebarCursorIndex: 0,
   noteListCursorIndex: 0,
@@ -958,11 +1018,18 @@ export const useStore = create<Store>((set, get) => {
           keep(path) ? path : null
         )
         const ensured = ensureActivePane(nextLayout, s.activePaneId)
+        // Auto-unpin the reference pane if its note has been deleted on
+        // disk.
+        const pinnedStillExists =
+          s.pinnedRefPath !== null &&
+          (existingPaths.has(s.pinnedRefPath) || s.pinnedRefPath === s.selectedPath)
+        const pinnedRefPath = pinnedStillExists ? s.pinnedRefPath : null
         // Prune content caches for paths no longer referenced anywhere.
         const referenced = new Set<string>()
         for (const leaf of allLeaves(nextLayout)) {
           for (const tab of leaf.tabs) referenced.add(tab)
         }
+        if (pinnedRefPath) referenced.add(pinnedRefPath)
         const contents: Record<string, NoteContent> = {}
         const dirty: Record<string, boolean> = {}
         for (const [path, content] of Object.entries(s.noteContents)) {
@@ -983,6 +1050,7 @@ export const useStore = create<Store>((set, get) => {
           activePaneId: ensured.activePaneId,
           noteContents: contents,
           noteDirty: dirty,
+          pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -1013,6 +1081,7 @@ export const useStore = create<Store>((set, get) => {
           activePaneId: ensured.activePaneId,
           noteContents: contents,
           noteDirty: dirty,
+          pinnedRefPath: s.pinnedRefPath === ev.path ? null : s.pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -1147,6 +1216,7 @@ export const useStore = create<Store>((set, get) => {
             s.pendingJumpLocation?.path === oldPath
               ? { ...s.pendingJumpLocation, path: meta.path }
               : s.pendingJumpLocation,
+          pinnedRefPath: s.pinnedRefPath === oldPath ? meta.path : s.pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -1195,6 +1265,7 @@ export const useStore = create<Store>((set, get) => {
           noteContents: contents,
           noteDirty: dirty,
           pendingJumpLocation: null,
+          pinnedRefPath: s.pinnedRefPath === path ? null : s.pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -1235,6 +1306,7 @@ export const useStore = create<Store>((set, get) => {
           s.pendingJumpLocation?.path === path
             ? { ...s.pendingJumpLocation, path: meta.path }
             : s.pendingJumpLocation,
+        pinnedRefPath: s.pinnedRefPath === path ? meta.path : s.pinnedRefPath,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -1257,6 +1329,7 @@ export const useStore = create<Store>((set, get) => {
         noteContents: contents,
         noteDirty: dirty,
         pendingJumpLocation: null,
+        pinnedRefPath: s.pinnedRefPath === path ? null : s.pinnedRefPath,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -1294,6 +1367,7 @@ export const useStore = create<Store>((set, get) => {
           s.pendingJumpLocation?.path === path
             ? { ...s.pendingJumpLocation, path: meta.path }
             : s.pendingJumpLocation,
+        pinnedRefPath: s.pinnedRefPath === path ? meta.path : s.pinnedRefPath,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -1318,12 +1392,14 @@ export const useStore = create<Store>((set, get) => {
     set((s) => {
       if (on) return { tabsEnabled: true }
       // Collapse to a single leaf holding just the current selectedPath
-      // (if any). All other tabs + splits vanish.
+      // (if any). All other tabs + splits vanish. The pinned reference
+      // pane is independent of the tab tree and keeps its own content.
       const activePath = s.selectedPath
       const onlyLeaf: PaneLeaf = {
         kind: 'leaf',
         id: s.activePaneId,
         tabs: activePath ? [activePath] : [],
+        pinnedTabs: [],
         activeTab: activePath
       }
       const contents: Record<string, NoteContent> = {}
@@ -1331,6 +1407,10 @@ export const useStore = create<Store>((set, get) => {
       if (activePath && s.noteContents[activePath]) {
         contents[activePath] = s.noteContents[activePath]
         dirty[activePath] = s.noteDirty[activePath] ?? false
+      }
+      if (s.pinnedRefPath && s.noteContents[s.pinnedRefPath]) {
+        contents[s.pinnedRefPath] = s.noteContents[s.pinnedRefPath]
+        dirty[s.pinnedRefPath] = s.noteDirty[s.pinnedRefPath] ?? false
       }
       return {
         tabsEnabled: false,
@@ -1417,6 +1497,75 @@ export const useStore = create<Store>((set, get) => {
   },
   setCollapsedFolders: (keys) => {
     set({ collapsedFolders: keys })
+    savePrefs(collectPrefs(get()))
+  },
+
+  pinReference: async (path) => {
+    if (!path) return
+    const s = get()
+    // Already pinned to this path — just make sure it's visible.
+    if (s.pinnedRefPath === path) {
+      if (!s.pinnedRefVisible) {
+        set({ pinnedRefVisible: true })
+        savePrefs(collectPrefs(get()))
+      }
+      return
+    }
+    // Preload content if we don't already have it cached.
+    let contents = s.noteContents
+    let dirty = s.noteDirty
+    if (!contents[path]) {
+      try {
+        const content = await window.zen.readNote(path)
+        contents = { ...contents, [path]: content }
+        dirty = { ...dirty, [path]: false }
+      } catch (err) {
+        console.error('pinReference readNote failed', err)
+        return
+      }
+    }
+    set({
+      pinnedRefPath: path,
+      pinnedRefVisible: true,
+      noteContents: contents,
+      noteDirty: dirty
+    })
+    savePrefs(collectPrefs(get()))
+  },
+
+  unpinReference: () => {
+    const s = get()
+    const path = s.pinnedRefPath
+    if (!path) return
+    // Evict the cached content if no pane has this note open.
+    const stillOpen = allLeaves(s.paneLayout).some((l) => l.tabs.includes(path))
+    const contents = { ...s.noteContents }
+    const dirty = { ...s.noteDirty }
+    if (!stillOpen) {
+      delete contents[path]
+      delete dirty[path]
+    }
+    set({
+      pinnedRefPath: null,
+      noteContents: contents,
+      noteDirty: dirty
+    })
+    savePrefs(collectPrefs(get()))
+  },
+
+  togglePinnedRefVisible: () => {
+    set((st) => ({ pinnedRefVisible: !st.pinnedRefVisible }))
+    savePrefs(collectPrefs(get()))
+  },
+
+  setPinnedRefWidth: (px) => {
+    const clamped = Math.min(800, Math.max(280, Math.round(px)))
+    set({ pinnedRefWidth: clamped })
+    savePrefs(collectPrefs(get()))
+  },
+
+  setPinnedRefMode: (mode) => {
+    set({ pinnedRefMode: mode })
     savePrefs(collectPrefs(get()))
   },
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),
@@ -1525,8 +1674,9 @@ export const useStore = create<Store>((set, get) => {
 
   closeTabInPane: async (paneId, path) => {
     // Flush pending save for the tab we're about to drop. Other panes
-    // may still reference the note via its content cache — we only
-    // evict content when NO pane has it open anymore.
+    // (and the pinned-reference pane) may still reference the note via
+    // its content cache — we only evict content when nothing else has
+    // it open anymore.
     if (get().noteDirty[path]) {
       await get().persistNote(path)
     }
@@ -1534,8 +1684,9 @@ export const useStore = create<Store>((set, get) => {
       const nextLayout =
         updateLeaf(s.paneLayout, paneId, (l) => leafWithoutTab(l, path)) ?? makeLeaf()
       const ensured = ensureActivePane(nextLayout, s.activePaneId)
-      // Is this path still held by some other pane?
-      const stillOpen = allLeaves(nextLayout).some((l) => l.tabs.includes(path))
+      const stillOpen =
+        s.pinnedRefPath === path ||
+        allLeaves(nextLayout).some((l) => l.tabs.includes(path))
       const contents = { ...s.noteContents }
       const dirty = { ...s.noteDirty }
       if (!stillOpen) {
@@ -1599,8 +1750,11 @@ export const useStore = create<Store>((set, get) => {
       layout =
         updateLeaf(layout, targetPaneId, (l) => leafWithAddedTab(l, path, idx)) ?? layout
       const ensured = ensureActivePane(layout, targetPaneId)
-      // Evict content if source pane dropped it and no one else has it.
-      const stillOpen = allLeaves(layout).some((l) => l.tabs.includes(path))
+      // Evict content only when nothing references the path anymore,
+      // including the pinned-reference pane.
+      const stillOpen =
+        cur.pinnedRefPath === path ||
+        allLeaves(layout).some((l) => l.tabs.includes(path))
       const nextContents = { ...contents }
       const nextDirty = { ...dirty }
       if (!stillOpen) {
@@ -1652,8 +1806,9 @@ export const useStore = create<Store>((set, get) => {
       if (!targetLeaf) return cur
       const newLeaf = makeLeaf([path], path)
       layout = splitLeaf(layout, targetPaneId, edge, newLeaf)
-      // Evict content if no pane has it anymore.
-      const stillOpen = allLeaves(layout).some((l) => l.tabs.includes(path))
+      const stillOpen =
+        cur.pinnedRefPath === path ||
+        allLeaves(layout).some((l) => l.tabs.includes(path))
       const nextContents = { ...contents }
       const nextDirty = { ...dirty }
       if (!stillOpen) {
@@ -1676,6 +1831,37 @@ export const useStore = create<Store>((set, get) => {
       if (nextLayout === s.paneLayout) return s
       return { paneLayout: nextLayout }
     })
+  },
+
+  pinTabInPane: (paneId, path) => {
+    set((s) => {
+      const nextLayout = updateLeaf(s.paneLayout, paneId, (l) =>
+        leafWithPinnedTab(l, path)
+      )
+      if (!nextLayout || nextLayout === s.paneLayout) return s
+      return {
+        paneLayout: nextLayout,
+        ...activeFieldsFrom(nextLayout, s.activePaneId, s.noteContents, s.noteDirty)
+      }
+    })
+  },
+  unpinTabInPane: (paneId, path) => {
+    set((s) => {
+      const nextLayout = updateLeaf(s.paneLayout, paneId, (l) =>
+        leafWithUnpinnedTab(l, path)
+      )
+      if (!nextLayout || nextLayout === s.paneLayout) return s
+      return {
+        paneLayout: nextLayout,
+        ...activeFieldsFrom(nextLayout, s.activePaneId, s.noteContents, s.noteDirty)
+      }
+    })
+  },
+  toggleTabPin: (paneId, path) => {
+    const leaf = findLeaf(get().paneLayout, paneId)
+    if (!leaf || !leaf.tabs.includes(path)) return
+    if (leaf.pinnedTabs.includes(path)) get().unpinTabInPane(paneId, path)
+    else get().pinTabInPane(paneId, path)
   },
 
   openNoteInTab: async (relPath) => {
@@ -1750,6 +1936,7 @@ export const useStore = create<Store>((set, get) => {
         pendingJumpLocation: s.pendingJumpLocation
           ? { ...s.pendingJumpLocation, path: rewritePath(s.pendingJumpLocation.path) }
           : null,
+        pinnedRefPath: s.pinnedRefPath ? rewritePath(s.pinnedRefPath) : null,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -1798,6 +1985,8 @@ export const useStore = create<Store>((set, get) => {
         noteContents: contents,
         noteDirty: dirty,
         pendingJumpLocation: null,
+        pinnedRefPath:
+          s.pinnedRefPath && s.pinnedRefPath.startsWith(prefix) ? null : s.pinnedRefPath,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -1847,6 +2036,7 @@ export const useStore = create<Store>((set, get) => {
             s.pendingJumpLocation?.path === relPath
               ? { ...s.pendingJumpLocation, path: meta.path }
               : s.pendingJumpLocation,
+          pinnedRefPath: s.pinnedRefPath === relPath ? meta.path : s.pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -1870,6 +2060,23 @@ export const useStore = create<Store>((set, get) => {
     // Default focus to the sidebar so j/k navigation works immediately
     if (get().sidebarOpen && !get().focusedPanel) {
       set({ focusedPanel: 'sidebar' })
+    }
+    // Restore the pinned reference note by loading its content — the
+    // path survived in prefs; `refreshNotes` has already confirmed it
+    // still exists and otherwise cleared `pinnedRefPath`.
+    const pinnedPath = get().pinnedRefPath
+    if (pinnedPath && !get().noteContents[pinnedPath]) {
+      try {
+        const content = await window.zen.readNote(pinnedPath)
+        set((s) => ({
+          noteContents: { ...s.noteContents, [pinnedPath]: content },
+          noteDirty: { ...s.noteDirty, [pinnedPath]: false }
+        }))
+      } catch (err) {
+        console.error('pinned reference readNote failed', err)
+        set({ pinnedRefPath: null })
+        savePrefs(collectPrefs(get()))
+      }
     }
     window.zen.onVaultChange((ev) => {
       void get().applyChange(ev)
@@ -1895,8 +2102,10 @@ export const useStore = create<Store>((set, get) => {
         loadingNote: false,
         noteBackstack: [],
         noteForwardstack: [],
-        pendingJumpLocation: null
+        pendingJumpLocation: null,
+        pinnedRefPath: null
       })
+      savePrefs(collectPrefs(get()))
       await get().refreshNotes()
     }
   }

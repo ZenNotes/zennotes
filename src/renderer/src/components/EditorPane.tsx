@@ -6,7 +6,7 @@
  * The store keeps per-path note content (`noteContents`) shared across
  * all panes, so the same note open in two panes stays in sync on edit.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Annotation,
   Compartment,
@@ -55,6 +55,7 @@ import {
   CloseIcon,
   PanelLeftIcon,
   PanelRightIcon,
+  PinIcon,
   TrashIcon
 } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -137,6 +138,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const paneId = pane.id
   const isActive = useStore((s) => s.activePaneId === paneId)
   const tabs = pane.tabs
+  const pinnedTabs = pane.pinnedTabs
   const activeTab = pane.activeTab
 
   const content = useStore((s) => (activeTab ? s.noteContents[activeTab] ?? null : null))
@@ -153,6 +155,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const movePaneTab = useStore((s) => s.movePaneTab)
   const splitPaneWithTab = useStore((s) => s.splitPaneWithTab)
   const openNoteInPane = useStore((s) => s.openNoteInPane)
+  const toggleTabPin = useStore((s) => s.toggleTabPin)
+  const unpinTabInPane = useStore((s) => s.unpinTabInPane)
   const updateNoteBody = useStore((s) => s.updateNoteBody)
   const persistNote = useStore((s) => s.persistNote)
   const trashActive = useStore((s) => s.trashActive)
@@ -216,6 +220,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       return next
     })
   }, [focusedPanel, setConnectionPreview, setFocusedPanel])
+
+  // ⌘2 toggles the connections panel — only the active pane responds so
+  // the shortcut targets the pane the user is currently working in.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      toggleConnectionsPanel()
+    }
+    window.addEventListener('zen:toggle-connections', handler)
+    return () => window.removeEventListener('zen:toggle-connections', handler)
+  }, [isActive, toggleConnectionsPanel])
 
   // Mount / unmount the CodeMirror view via a callback ref on the host
   // div. The callback identity is stable so React only invokes it on
@@ -678,35 +693,52 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   /* ---------- Tab rendering ---------- */
   const tabItems = useMemo(
-    () =>
-      tabs.map((path) => {
+    () => {
+      const pinnedSet = new Set(pinnedTabs)
+      return tabs.map((path) => {
         const meta = path === content?.path ? content : notes.find((n) => n.path === path)
         const title = meta?.title ?? path.split('/').pop()?.replace(/\.md$/i, '') ?? path
-        return { path, title }
-      }),
-    [tabs, content, notes]
+        return { path, title, pinned: pinnedSet.has(path) }
+      })
+    },
+    [tabs, pinnedTabs, content, notes]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!tabMenu) return []
     const path = tabMenu.path
     const tabIndex = tabs.indexOf(path)
-    const hasRightTabs = tabIndex >= 0 && tabIndex < tabs.length - 1
+    const isPinned = pinnedTabs.includes(path)
+    const pinnedSet = new Set(pinnedTabs)
+    // Closable tabs (everything that isn't pinned) that sit strictly
+    // after this tab in the strip.
+    const closableRight = tabs
+      .slice(tabIndex + 1)
+      .filter((t) => !pinnedSet.has(t))
+    // Everything that could be closed by "Close Others" — every tab
+    // except this one AND any pinned tabs.
+    const closableOthers = tabs.filter((t) => t !== path && !pinnedSet.has(t))
     return [
       { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
       {
         label: 'Close Others',
-        disabled: tabs.length <= 1,
+        disabled: closableOthers.length === 0,
         onSelect: async () => {
-          for (const t of [...tabs]) if (t !== path) await closeTabInPane(paneId, t)
+          for (const t of closableOthers) await closeTabInPane(paneId, t)
         }
       },
       {
         label: 'Close Tabs to Right',
-        disabled: !hasRightTabs,
+        disabled: closableRight.length === 0,
         onSelect: async () => {
-          const victims = tabs.slice(tabIndex + 1)
-          for (const t of victims) await closeTabInPane(paneId, t)
+          for (const t of closableRight) await closeTabInPane(paneId, t)
+        }
+      },
+      { kind: 'separator' },
+      {
+        label: isPinned ? 'Unpin Tab' : 'Pin Tab',
+        onSelect: async () => {
+          toggleTabPin(paneId, path)
         }
       },
       { kind: 'separator' },
@@ -723,12 +755,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         onSelect: async () =>
           splitPaneWithTab({ targetPaneId: paneId, edge: 'bottom', path })
       },
+      { kind: 'separator' },
+      {
+        label: 'Pin as Reference',
+        onSelect: async () => {
+          await useStore.getState().pinReference(path)
+        }
+      },
       { label: 'Reveal in Finder', onSelect: async () => window.zen.revealNote(path) }
     ]
-  }, [tabMenu, tabs, paneId, closeTabInPane, splitPaneWithTab])
+  }, [tabMenu, tabs, pinnedTabs, paneId, closeTabInPane, splitPaneWithTab, toggleTabPin])
 
   const renderTab = useCallback(
-    (tab: { path: string; title: string }) => {
+    (tab: { path: string; title: string; pinned: boolean }) => {
       const active = tab.path === activeTab
       return (
         <div
@@ -737,12 +776,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           draggable
           onDragStart={(e) => setDragPayload(e, { kind: 'note', path: tab.path, sourcePaneId: paneId })}
           onDragOver={(e) => {
-            const info = getTabDropInfo(readDragPayload(e), tab.path, e.currentTarget, e.clientX)
-            if (!info) return
+            // Chromium masks `dataTransfer.getData()` for custom MIMEs
+            // during dragover, so we can't parse the payload here —
+            // fall back to `hasZenItem()` which only reads `types`.
+            if (!hasZenItem(e)) return
             e.preventDefault()
             e.stopPropagation()
             e.dataTransfer.dropEffect = 'move'
-            setTabDropIndicator({ path: info.targetPath, position: info.position })
+            const rect = e.currentTarget.getBoundingClientRect()
+            const position: 'before' | 'after' =
+              e.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+            setTabDropIndicator({ path: tab.path, position })
           }}
           onDragLeave={(e) => {
             if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
@@ -790,7 +834,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           )}
           <div
             className={[
-              'group flex h-8 min-w-0 max-w-[220px] items-center gap-1 rounded-t-lg border border-b-0 px-1.5 text-sm transition-colors',
+              'group flex h-8 min-w-0 items-center gap-1 rounded-t-lg border border-b-0 px-1.5 text-sm transition-colors',
+              tab.pinned ? 'max-w-[140px]' : 'max-w-[220px]',
               active && isActive
                 ? 'border-paper-300/80 bg-paper-100 text-ink-900'
                 : active
@@ -798,6 +843,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   : 'border-transparent bg-paper-200/45 text-ink-500 hover:bg-paper-200/70 hover:text-ink-900'
             ].join(' ')}
           >
+            {tab.pinned && (
+              <button
+                type="button"
+                aria-label={`Unpin ${tab.title}`}
+                title="Unpin tab"
+                onClick={() => unpinTabInPane(paneId, tab.path)}
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-accent transition-colors hover:bg-paper-200"
+              >
+                <PinIcon width={11} height={11} />
+              </button>
+            )}
             <button
               onClick={() => void focusTabInPane(paneId, tab.path)}
               className="min-w-0 flex-1 truncate px-1.5 text-left"
@@ -832,7 +888,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       paneId,
       reorderTabInPane,
       tabDropIndicator,
-      tabs
+      tabs,
+      unpinTabInPane
     ]
   )
 
@@ -920,7 +977,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           onDragOver={handleTabStripDragOver}
           onDrop={handleTabStripDrop}
         >
-          {tabItems.map(renderTab)}
+          {tabItems.map((tab, i) => {
+            // Draw a subtle vertical separator between the last pinned
+            // tab and the first unpinned one (VSCode convention). The
+            // separator is a flex sibling, not a wrapper, so drag hit-
+            // detection on the tab itself is unchanged.
+            const prevPinned = i > 0 ? tabItems[i - 1].pinned : false
+            const needsSeparator = prevPinned && !tab.pinned
+            return (
+              <Fragment key={tab.path}>
+                {needsSeparator && (
+                  <div
+                    aria-hidden
+                    className="mx-0.5 h-5 shrink-0 self-center border-l border-paper-300/70"
+                  />
+                )}
+                {renderTab(tab)}
+              </Fragment>
+            )
+          })}
         </div>
       )}
       {content && (

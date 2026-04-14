@@ -78,6 +78,17 @@ export function findNeighborPaneId(
   return candidates[0].id
 }
 
+/** The pinned reference pane lives outside `paneLayout`; we handle its
+ *  focus by targeting its DOM directly instead of `setActivePane`. */
+const PINNED_REF_PANE_ID = 'pinned-ref'
+
+function focusPinnedRefDom(): void {
+  const cm = document.querySelector<HTMLElement>(
+    `[data-pane-id="${PINNED_REF_PANE_ID}"] .cm-content`
+  )
+  cm?.focus()
+}
+
 /**
  * Focus the pane in the given direction from the currently active one.
  * No-op if no neighbor exists that way. Also sets the editor panel
@@ -86,8 +97,20 @@ export function findNeighborPaneId(
 export function focusPaneInDirection(direction: PaneDirection): boolean {
   const state = useStore.getState()
   const rects = getPaneRects()
-  const targetId = findNeighborPaneId(rects, state.activePaneId, direction)
+  // Treat the pinned reference pane as the "currently focused" pane
+  // when its CodeMirror is the active element — geometric nav picks up
+  // from where the cursor actually lives, not from activePaneId.
+  const activeEl = document.activeElement as HTMLElement | null
+  const inPinned =
+    activeEl?.closest(`[data-pane-id="${PINNED_REF_PANE_ID}"]`) != null
+  const currentId = inPinned ? PINNED_REF_PANE_ID : state.activePaneId
+  const targetId = findNeighborPaneId(rects, currentId, direction)
   if (!targetId) return false
+  if (targetId === PINNED_REF_PANE_ID) {
+    state.setFocusedPanel('editor')
+    requestAnimationFrame(focusPinnedRefDom)
+    return true
+  }
   state.setActivePane(targetId)
   state.setFocusedPanel('editor')
   requestAnimationFrame(() => {

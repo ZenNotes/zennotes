@@ -11,6 +11,7 @@ import { SettingsModal } from './components/SettingsModal'
 import { VimNav } from './components/VimNav'
 import { EmptyVault } from './components/EmptyVault'
 import { PromptHost } from './components/PromptHost'
+import { PinnedReferencePane } from './components/PinnedReferencePane'
 
 function App(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -180,6 +181,7 @@ function App(): JSX.Element {
         {sidebarOpen && <Sidebar />}
         {noteListOpen && !unifiedSidebar && <NoteList />}
         <Editor />
+        <PinnedReferencePane />
       </div>
       {searchOpen && <SearchPalette />}
       {commandPaletteOpen && <CommandPalette />}
