@@ -19,7 +19,13 @@
  * reveal it when the heading line is hovered or holds the caret,
  * matching Obsidian's behaviour.
  */
-import { foldService, foldEffect, unfoldEffect, foldedRanges } from '@codemirror/language'
+import {
+  codeFolding,
+  foldService,
+  foldEffect,
+  unfoldEffect,
+  foldedRanges
+} from '@codemirror/language'
 import type { EditorState, Extension } from '@codemirror/state'
 import {
   Decoration,
@@ -218,5 +224,9 @@ export function headingFolding(): Extension {
     return rangeForHeading(state, lineNumber, level)
   })
 
-  return [service, headingArrowPlugin]
+  // `codeFolding()` is what actually applies fold state — it listens
+  // for foldEffect / unfoldEffect and installs the replace-decorations
+  // that hide folded ranges. Without it, our dispatches go through
+  // with no visible effect.
+  return [codeFolding(), service, headingArrowPlugin]
 }
