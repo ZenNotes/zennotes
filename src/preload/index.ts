@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, webUtils } from 'electron'
 import path from 'node:path'
 import { IPC } from '@shared/ipc'
 import type {
@@ -140,7 +140,12 @@ const api = {
   windowToggleMaximize: (): void => ipcRenderer.send(IPC.WINDOW_TOGGLE_MAXIMIZE),
   windowClose: (): void => ipcRenderer.send(IPC.WINDOW_CLOSE),
   openNoteWindow: (relPath: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath)
+    ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath),
+  // Native Electron clipboard — more reliable than `navigator.clipboard`
+  // which can reject for focus / permission reasons in Electron contexts,
+  // especially right after a React state change that unmounts a menu.
+  clipboardWriteText: (text: string): void => clipboard.writeText(text),
+  clipboardReadText: (): string => clipboard.readText()
 }
 
 export type ZenApi = typeof api

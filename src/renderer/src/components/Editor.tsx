@@ -339,12 +339,65 @@ function registerVimNoteCommands(): void {
   )
 
   const shiftTab = (delta: 1 | -1): void => {
+    const state = useStore.getState()
     const leaf = getActiveLeaf()
-    if (!leaf || leaf.tabs.length < 2 || !leaf.activeTab) return
-    const idx = leaf.tabs.indexOf(leaf.activeTab)
-    if (idx < 0) return
-    const nextIdx = (idx + delta + leaf.tabs.length) % leaf.tabs.length
-    void useStore.getState().focusTabInPane(leaf.id, leaf.tabs[nextIdx])
+    if (!leaf) return
+    const current = leaf.activeTab
+
+    // Build a traversal list. Start with every unique tab path across
+    // every pane — vim-style "buffer list". If there's only one (or
+    // none), fall back to every live note in the vault ordered by
+    // recency, so `:bn` / `:bp` always has somewhere to go in a fresh
+    // session where only one note is open.
+    const seen = new Set<string>()
+    const order: string[] = []
+    for (const l of allLeavesFlat(state.paneLayout)) {
+      for (const path of l.tabs) {
+        if (!seen.has(path)) {
+          seen.add(path)
+          order.push(path)
+        }
+      }
+    }
+    if (order.length < 2) {
+      const fallback = state.notes
+        .filter((n) => n.folder !== 'trash')
+        .slice()
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+      for (const n of fallback) {
+        if (!seen.has(n.path)) {
+          seen.add(n.path)
+          order.push(n.path)
+        }
+      }
+    }
+    if (order.length < 2) {
+      // Genuinely nothing else to switch to — create a quick note so
+      // the command still feels responsive in an empty vault.
+      void state.createAndOpen('quick', '', { focusTitle: true })
+      return
+    }
+
+    const baseIdx = current ? order.indexOf(current) : -1
+    const startIdx = baseIdx >= 0 ? baseIdx : 0
+    const nextIdx = (startIdx + delta + order.length) % order.length
+    const nextPath = order[nextIdx]
+
+    // If another pane already has this tab open, focus THAT pane rather
+    // than duplicating the tab — closer to vim's "buffer is visible in
+    // another window, jump there" behavior.
+    const owningLeaf = allLeavesFlat(state.paneLayout).find((l) =>
+      l.tabs.includes(nextPath)
+    )
+    if (owningLeaf && owningLeaf.id !== leaf.id) {
+      void state.focusTabInPane(owningLeaf.id, nextPath)
+      return
+    }
+    if (leaf.tabs.includes(nextPath)) {
+      void state.focusTabInPane(leaf.id, nextPath)
+    } else {
+      void state.openNoteInPane(leaf.id, nextPath)
+    }
   }
 
   Vim.defineEx('bnext', 'bn', () => shiftTab(1))
@@ -449,9 +502,11 @@ const MANUAL_EX_NAMES = new Set([
 ])
 
 function commandIdToExName(id: string): string {
-  // `note.new.quick` → `note-new-quick`. Dashes are accepted by CM-vim's
-  // ex parser and make the names scannable when listed in `:cmd`.
-  return id.replace(/\./g, '-')
+  // CM-Vim's ex parser only reads word characters (`\w+` = `[A-Za-z0-9_]`)
+  // for the command name. Any non-word char — dot, dash, etc. — ends the
+  // name early. Collapse them all to underscores so `note.copy-wikilink`
+  // → `note_copy_wikilink` is recognized as a single token.
+  return id.replace(/[^A-Za-z0-9]+/g, '_')
 }
 
 /** Names of every ex command we register. Captured during init so the
@@ -522,6 +577,114 @@ function registerCommandPaletteEx(): void {
 
 let exTabListenerInstalled = false
 
+// ---------------------------------------------------------------------------
+// Wildmenu popup — shown above the ex prompt while Tab completion is active
+// ---------------------------------------------------------------------------
+
+interface Wildmenu {
+  root: HTMLDivElement
+  list: HTMLDivElement
+  /** Max number of rows to render — keeps the popup from taking over the
+   *  screen when the prefix is empty and every command matches. */
+  maxRows: number
+}
+
+let wildmenu: Wildmenu | null = null
+
+function ensureWildmenu(): Wildmenu {
+  if (wildmenu) return wildmenu
+  const root = document.createElement('div')
+  root.className = 'zen-ex-wildmenu'
+  root.setAttribute('role', 'listbox')
+  root.style.cssText = [
+    'position: fixed',
+    'z-index: 60',
+    'display: none',
+    'max-width: min(520px, 90vw)',
+    'max-height: 40vh',
+    'overflow-y: auto',
+    'border-radius: 10px',
+    'padding: 4px',
+    'background: rgb(var(--z-bg-softer) / 0.98)',
+    'border: 1px solid rgb(var(--z-bg-3) / 0.6)',
+    'box-shadow: 0 10px 30px rgba(0,0,0,0.35)',
+    'font: 12px/1.4 var(--z-mono-font, ui-monospace, Menlo, monospace)',
+    'color: rgb(var(--z-fg))',
+    'backdrop-filter: blur(6px)'
+  ].join(';')
+
+  const list = document.createElement('div')
+  list.style.cssText = 'display: flex; flex-direction: column; gap: 1px'
+  root.appendChild(list)
+  document.body.appendChild(root)
+
+  wildmenu = { root, list, maxRows: 200 }
+  return wildmenu
+}
+
+function hideWildmenu(): void {
+  if (wildmenu) wildmenu.root.style.display = 'none'
+}
+
+function positionWildmenu(anchor: HTMLElement): void {
+  if (!wildmenu) return
+  const panel = anchor.closest('.cm-vim-panel') as HTMLElement | null
+  const target = panel ?? anchor
+  const rect = target.getBoundingClientRect()
+  wildmenu.root.style.left = `${Math.max(8, Math.round(rect.left))}px`
+  // Anchor above the ex panel (vim wildmenu convention). Keep at least 8px
+  // from the top edge so it doesn't bump into the title bar.
+  const bottom = Math.max(8, Math.round(window.innerHeight - rect.top) + 6)
+  wildmenu.root.style.bottom = `${bottom}px`
+  wildmenu.root.style.right = ''
+  wildmenu.root.style.top = ''
+}
+
+function renderWildmenu(matches: string[], cycleIdx: number, anchor: HTMLElement): void {
+  const menu = ensureWildmenu()
+  if (matches.length === 0) {
+    menu.root.style.display = 'none'
+    return
+  }
+  // Defensive cap — `:` + Tab with empty prefix matches every registered
+  // command (90+ of them). Rendering them all is fine, but we still cap
+  // to avoid a pathological case if the registry balloons later.
+  const slice = matches.slice(0, menu.maxRows)
+
+  menu.list.innerHTML = ''
+  slice.forEach((name, i) => {
+    const row = document.createElement('div')
+    row.textContent = name
+    row.dataset.idx = String(i)
+    const isActive = i === cycleIdx
+    row.style.cssText = [
+      'padding: 3px 8px',
+      'border-radius: 6px',
+      'white-space: nowrap',
+      isActive
+        ? 'background: rgb(var(--z-accent) / 0.85); color: white'
+        : 'color: rgb(var(--z-fg))'
+    ].join(';')
+    menu.list.appendChild(row)
+  })
+  // Surface a small footer when we had to truncate — lets the user know
+  // they should type more to filter rather than keep tabbing forever.
+  if (matches.length > slice.length) {
+    const more = document.createElement('div')
+    more.textContent = `+${matches.length - slice.length} more — type to filter`
+    more.style.cssText =
+      'padding: 4px 8px 2px; font-size: 10px; opacity: 0.6; color: rgb(var(--z-fg))'
+    menu.list.appendChild(more)
+  }
+  menu.root.style.display = 'block'
+  positionWildmenu(anchor)
+
+  const activeRow = menu.list.querySelector<HTMLDivElement>(
+    `[data-idx="${cycleIdx}"]`
+  )
+  if (activeRow) activeRow.scrollIntoView({ block: 'nearest' })
+}
+
 /**
  * Per-session tab-completion state. Keyed on the current ex-prompt input
  * element — a fresh cycle starts every time the user mutates the value
@@ -530,7 +693,11 @@ let exTabListenerInstalled = false
  */
 interface ExTabCycle {
   input: HTMLInputElement
-  basePrefix: string
+  /** The user-typed text that seeded the current cycle. `null` signals
+   *  "cycle expired, next Tab starts fresh" (so an empty-string base
+   *  prefix — valid when the user presses Tab with nothing typed — is
+   *  not accidentally treated as expired). */
+  basePrefix: string | null
   matches: string[]
   cycleIdx: number
 }
@@ -579,7 +746,15 @@ function installExTabCompletion(): void {
         const target = e.target as HTMLElement | null
         if (target && target instanceof HTMLInputElement) {
           if (target.closest('.cm-vim-panel')) {
-            if (exCycle && exCycle.input === target) exCycle.basePrefix = ''
+            // Mark the cycle as expired so the next Tab re-seeds from
+            // the freshly-typed prefix. `null` means "no cycle in
+            // progress" — an empty-string prefix would look identical
+            // to the legitimate "Tab with no input" case.
+            if (exCycle && exCycle.input === target) exCycle.basePrefix = null
+            // Enter / Escape / navigation keys dismiss the popup. Plain
+            // character input also hides it — we want a clean slate on
+            // the next Tab so the popup reflects the new prefix.
+            hideWildmenu()
           }
         }
         return
@@ -595,11 +770,14 @@ function installExTabCompletion(): void {
       e.stopImmediatePropagation()
 
       const step = e.shiftKey ? -1 : 1
-      const fresh = !exCycle || exCycle.input !== target || exCycle.basePrefix === ''
+      const fresh = !exCycle || exCycle.input !== target || exCycle.basePrefix === null
 
       if (fresh) {
         exCycle = {
           input: target,
+          // Seed from whatever the user typed. `target.value` is the
+          // current content of the prompt, which on a fresh cycle is
+          // exactly the prefix we want to filter by.
           basePrefix: target.value,
           matches: computeExMatches(target.value),
           cycleIdx: step === 1 ? 0 : -1 // sentinel; normalized below
@@ -609,18 +787,50 @@ function installExTabCompletion(): void {
       }
 
       const cycle = exCycle
-      if (!cycle || cycle.matches.length === 0) return
+      if (!cycle || cycle.matches.length === 0) {
+        hideWildmenu()
+        return
+      }
       const n = cycle.matches.length
       const idx = ((cycle.cycleIdx % n) + n) % n
       cycle.cycleIdx = idx
       const match = cycle.matches[idx]
-      // Mutate and notify CM-vim so its internal state stays in sync.
+      // Mutate the input value directly. We deliberately DO NOT dispatch
+      // a synthetic input event here: CM6's panel StateField reacts to
+      // input events by re-evaluating the panel provider, which tears
+      // down and re-creates the `.cm-vim-panel` DOM — including a fresh
+      // `<input>`. That would invalidate exCycle.input on the very next
+      // Tab, restarting the cycle at match 0. Submission reads
+      // `inp.value` directly, so skipping the event is safe.
       target.value = match
-      target.dispatchEvent(new Event('input', { bubbles: true }))
+      target.focus()
       target.setSelectionRange(match.length, match.length)
+      // Render / refresh the wildmenu with the highlighted match.
+      renderWildmenu(cycle.matches, idx, target)
     },
     true
   )
+
+  // Hide the wildmenu when the ex prompt's own input is detached from
+  // the document. Checking `isConnected` sidesteps false positives from
+  // CodeMirror re-parenting unrelated DOM around the panel (which would
+  // otherwise null `exCycle` mid-completion and reset the cycle every
+  // Tab press).
+  const observer = new MutationObserver(() => {
+    if (exCycle && !exCycle.input.isConnected) {
+      exCycle = null
+      hideWildmenu()
+    }
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+
+  // Keep the wildmenu positioned correctly if the window resizes mid-
+  // completion (e.g. user toggles sidebar while the prompt is open).
+  window.addEventListener('resize', () => {
+    if (exCycle && wildmenu?.root.style.display === 'block') {
+      positionWildmenu(exCycle.input)
+    }
+  })
 }
 
 export function Editor(): JSX.Element {

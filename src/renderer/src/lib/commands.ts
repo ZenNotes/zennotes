@@ -136,14 +136,81 @@ export function buildCommands(): Command[] {
     },
     {
       id: 'note.copy-wikilink',
-      title: 'Copy as Wikilink',
+      title: 'Copy Note as Wikilink',
       category: 'Note',
+      keywords: 'link clipboard',
       when: () => !!getState().activeNote,
       run: async () => {
         const active = getState().activeNote
         if (!active) return
         const title = active.title || active.path.split('/').pop()?.replace(/\.md$/i, '') || ''
-        await navigator.clipboard.writeText(`[[${title}]]`)
+        window.zen.clipboardWriteText(`[[${title}]]`)
+      }
+    },
+    {
+      id: 'note.copy-path',
+      title: 'Copy Note Path',
+      category: 'Note',
+      keywords: 'clipboard relative vault',
+      when: () => !!getState().activeNote,
+      run: async () => {
+        const active = getState().activeNote
+        if (!active) return
+        window.zen.clipboardWriteText(active.path)
+      }
+    },
+    {
+      id: 'note.copy-absolute-path',
+      title: 'Copy Note Absolute Path',
+      category: 'Note',
+      keywords: 'clipboard full system file',
+      when: () => !!getState().activeNote && !!getState().vault?.root,
+      run: async () => {
+        const s = getState()
+        if (!s.activeNote || !s.vault) return
+        // vault.root is the OS-native absolute path; note.path is POSIX
+        // vault-relative. Joining with the platform separator keeps the
+        // output pasteable into Finder/Explorer/terminal as-is.
+        const sep = s.vault.root.includes('\\') ? '\\' : '/'
+        const segments = s.activeNote.path.split('/').filter(Boolean)
+        window.zen.clipboardWriteText(
+          [s.vault.root.replace(/[\\/]+$/, ''), ...segments].join(sep)
+        )
+      }
+    },
+    {
+      id: 'folder.copy-path',
+      title: 'Copy Current Folder Path',
+      category: 'Folder',
+      keywords: 'clipboard relative vault',
+      when: () => {
+        const v = getState().view
+        return v.kind === 'folder'
+      },
+      run: async () => {
+        const v = getState().view
+        if (v.kind !== 'folder') return
+        const rel = v.subpath ? `${v.folder}/${v.subpath}` : v.folder
+        window.zen.clipboardWriteText(rel)
+      }
+    },
+    {
+      id: 'folder.copy-absolute-path',
+      title: 'Copy Current Folder Absolute Path',
+      category: 'Folder',
+      keywords: 'clipboard full system file',
+      when: () => {
+        const s = getState()
+        return s.view.kind === 'folder' && !!s.vault?.root
+      },
+      run: async () => {
+        const s = getState()
+        if (s.view.kind !== 'folder' || !s.vault) return
+        const sep = s.vault.root.includes('\\') ? '\\' : '/'
+        const segments = [s.view.folder, ...s.view.subpath.split('/').filter(Boolean)]
+        window.zen.clipboardWriteText(
+          [s.vault.root.replace(/[\\/]+$/, ''), ...segments].join(sep)
+        )
       }
     },
     {

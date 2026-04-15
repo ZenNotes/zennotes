@@ -327,11 +327,26 @@ export function Sidebar(): JSX.Element {
       }
     })
     items.push({
-      label: 'Copy path',
+      label: 'Copy Path',
       onSelect: async () => {
+        // Vault-relative POSIX path (e.g. `inbox/Work/Research`).
+        const rel = subpath ? `${folder}/${subpath}` : folder
+        window.zen.clipboardWriteText(rel)
+      }
+    })
+    items.push({
+      label: 'Copy Absolute Path',
+      onSelect: async () => {
+        // Native OS path using the platform separator — ready for Finder
+        // / Explorer / terminal use.
         const root = vault?.root ?? ''
-        const parts = [root, folder, ...subpath.split('/').filter(Boolean)]
-        await navigator.clipboard.writeText(parts.join('/'))
+        const sep = root.includes('\\') ? '\\' : '/'
+        const parts = [
+          root.replace(/[\\/]+$/, ''),
+          folder,
+          ...subpath.split('/').filter(Boolean)
+        ]
+        window.zen.clipboardWriteText(parts.join(sep))
       }
     })
 
@@ -449,9 +464,28 @@ export function Sidebar(): JSX.Element {
       })
     }
     items.push({
-      label: 'Copy as Wiki Link',
+      label: 'Copy as Wikilink',
       onSelect: async () => {
-        await navigator.clipboard.writeText(`[[${n.title}]]`)
+        window.zen.clipboardWriteText(`[[${n.title}]]`)
+      }
+    })
+    items.push({
+      label: 'Copy Path',
+      onSelect: async () => {
+        // Vault-relative POSIX path (what wikilinks and IPC use).
+        window.zen.clipboardWriteText(n.path)
+      }
+    })
+    items.push({
+      label: 'Copy Absolute Path',
+      onSelect: async () => {
+        // Join with the platform separator so the result can be pasted
+        // directly into Finder / Explorer / a terminal.
+        const root = vault?.root ?? ''
+        const sep = root.includes('\\') ? '\\' : '/'
+        const segments = n.path.split('/').filter(Boolean)
+        const abs = [root.replace(/[\\/]+$/, ''), ...segments].join(sep)
+        window.zen.clipboardWriteText(abs)
       }
     })
     items.push({

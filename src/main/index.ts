@@ -499,13 +499,21 @@ function registerIpc(): void {
     await shell.openPath(abs)
   })
 
-  ipcMain.on(IPC.WINDOW_MINIMIZE, () => mainWindow?.minimize())
-  ipcMain.on(IPC.WINDOW_TOGGLE_MAXIMIZE, () => {
-    if (!mainWindow) return
-    if (mainWindow.isMaximized()) mainWindow.unmaximize()
-    else mainWindow.maximize()
+  // Route window chrome controls to the window that actually sent the
+  // IPC (via `e.sender`) so that floating note windows can minimize /
+  // maximize / close themselves without hijacking the main window.
+  ipcMain.on(IPC.WINDOW_MINIMIZE, (e) => {
+    BrowserWindow.fromWebContents(e.sender)?.minimize()
   })
-  ipcMain.on(IPC.WINDOW_CLOSE, () => mainWindow?.close())
+  ipcMain.on(IPC.WINDOW_TOGGLE_MAXIMIZE, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return
+    if (win.isMaximized()) win.unmaximize()
+    else win.maximize()
+  })
+  ipcMain.on(IPC.WINDOW_CLOSE, (e) => {
+    BrowserWindow.fromWebContents(e.sender)?.close()
+  })
 
   ipcMain.handle(IPC.WINDOW_OPEN_NOTE, async (_e, relPath: string) => {
     openFloatingNoteWindow(relPath)

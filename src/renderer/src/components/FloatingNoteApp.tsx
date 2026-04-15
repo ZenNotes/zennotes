@@ -25,7 +25,7 @@ import {
   keymap,
   lineNumbers
 } from '@codemirror/view'
-import { vim } from '@replit/codemirror-vim'
+import { Vim, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
@@ -343,6 +343,22 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
     return () => window.removeEventListener('beforeunload', flush)
   }, [persist])
 
+  // Vim ex commands scoped to the floating window. The main-window
+  // `registerVimCommands` never runs here (each Electron window has its
+  // own renderer process), so `:q` / `:w` / `:wq` / `:x` would otherwise
+  // be "Not an editor command". We keep the set minimal — there's no
+  // sidebar / tabs / tasks view here, so broader ex commands don't apply.
+  useEffect(() => {
+    floatingHandlers.persist = async (): Promise<void> => {
+      const body = viewRef.current?.state.doc.toString()
+      if (body != null) await persist(body)
+    }
+    floatingHandlers.close = (): void => {
+      window.zen.windowClose()
+    }
+    registerFloatingVimCommands()
+  }, [persist])
+
   const title = useMemo(() => {
     if (content?.title) return content.title
     return notePath.split('/').pop()?.replace(/\.md$/i, '') ?? notePath
@@ -431,4 +447,46 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
       </div>
     </div>
   )
+}
+
+// Module-scoped handler slots — the Vim ex callbacks are registered
+// exactly once per window but need to see the latest `persist` closure,
+// so the component effect above overwrites these on each re-render.
+const floatingHandlers: {
+  persist: null | (() => Promise<void>)
+  close: null | (() => void)
+} = { persist: null, close: null }
+
+let floatingVimRegistered = false
+
+/** Defer the window close by one tick so CM-Vim can finish unwinding its
+ *  ex-command stack before the renderer is torn down. Closing synchronously
+ *  from inside the ex callback means any follow-up IPC (history writes,
+ *  panel cleanup) races against the already-destroyed WebContents and
+ *  surfaces as a "TypeError: Object has been destroyed" in main. */
+function deferredClose(): void {
+  setTimeout(() => floatingHandlers.close?.(), 0)
+}
+
+function registerFloatingVimCommands(): void {
+  if (floatingVimRegistered) return
+  floatingVimRegistered = true
+
+  Vim.defineEx('write', 'w', () => {
+    void floatingHandlers.persist?.()
+  })
+  Vim.defineEx('quit', 'q', () => {
+    // Pending autosave flushes on `beforeunload`, so closing without
+    // `:w` first still writes whatever the user typed.
+    deferredClose()
+  })
+  Vim.defineEx('wq', 'wq', () => {
+    void floatingHandlers.persist?.().then(deferredClose)
+  })
+  // `:x` is its own command in vim (write + close if modified). CM-Vim
+  // requires prefix to match the leading chars of name, so we register
+  // `x` as both the name and the prefix rather than aliasing `exit`.
+  Vim.defineEx('x', 'x', () => {
+    void floatingHandlers.persist?.().then(deferredClose)
+  })
 }
