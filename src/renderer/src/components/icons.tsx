@@ -82,6 +82,16 @@ export const PlusIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const CommandIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="M7 10h.01" />
+    <path d="M10 10h7" />
+    <path d="M7 14h.01" />
+    <path d="M10 14h4" />
+  </I>
+)
+
 export const PanelLeftIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="4" width="18" height="16" rx="2" />

@@ -124,6 +124,10 @@ export function TasksView(): JSX.Element {
         case 'tasks':
           // Already here; no-op.
           return
+        case 'h':
+        case 'help':
+          void store.openHelpView()
+          return
         case 'refresh':
         case 'r':
           void refreshTasks()

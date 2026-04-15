@@ -52,8 +52,10 @@ import { ConnectionsPanel } from './ConnectionsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
 import { TagView } from './TagView'
-import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
+import { HelpView } from './HelpView'
+import { isTasksTabPath } from '@shared/tasks'
 import { isTagsTabPath } from '@shared/tags'
+import { isHelpTabPath } from '@shared/help'
 import { hasZenItem, readDragPayload, setDragPayload, type DragPayload } from '../lib/dnd'
 import {
   getImageBlockDropPlacement,
@@ -66,6 +68,7 @@ import {
   ArrowUpRightIcon,
   CheckSquareIcon,
   CloseIcon,
+  DocumentIcon,
   PanelLeftIcon,
   PanelRightIcon,
   PinIcon,
@@ -736,7 +739,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             title: 'Tasks',
             pinned: pinnedSet.has(path),
             isTasks: true,
-            isTag: false
+            isTag: false,
+            isHelp: false
           }
         }
         if (isTagsTabPath(path)) {
@@ -745,7 +749,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             title: 'Tags',
             pinned: pinnedSet.has(path),
             isTasks: false,
-            isTag: true
+            isTag: true,
+            isHelp: false
+          }
+        }
+        if (isHelpTabPath(path)) {
+          return {
+            path,
+            title: 'Help',
+            pinned: pinnedSet.has(path),
+            isTasks: false,
+            isTag: false,
+            isHelp: true
           }
         }
         const meta = path === content?.path ? content : notes.find((n) => n.path === path)
@@ -755,7 +770,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           title,
           pinned: pinnedSet.has(path),
           isTasks: false,
-          isTag: false
+          isTag: false,
+          isHelp: false
         }
       })
     },
@@ -817,9 +833,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       ]
     }
 
-    // Tags tab: same shape as Tasks minus Refresh (tag list is derived
-    // from already-watched notes — always fresh).
-    if (isTagsTabPath(path)) {
+    // Tags and Help tabs share the same virtual-tab menu shape: close,
+    // close relatives, or split them into another pane.
+    if (isTagsTabPath(path) || isHelpTabPath(path)) {
       return [
         { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
         {
@@ -911,9 +927,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       pinned: boolean
       isTasks: boolean
       isTag: boolean
+      isHelp: boolean
     }) => {
       const active = tab.path === activeTab
-      const isVirtual = tab.isTasks || tab.isTag
+      const isVirtual = tab.isTasks || tab.isTag || tab.isHelp
       return (
         <div
           key={tab.path}
@@ -1014,6 +1031,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isTag && (
                 <TagIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isHelp && (
+                <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               <span className="min-w-0 flex-1 truncate">{tab.title}</span>
             </button>
@@ -1201,6 +1221,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <TasksView />
           ) : isTagsTabPath(activeTab) ? (
             <TagView />
+          ) : isHelpTabPath(activeTab) ? (
+            <HelpView />
           ) : content ? (
             <div
               className={[

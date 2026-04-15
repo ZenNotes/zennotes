@@ -68,6 +68,7 @@ export type SidebarItem =
   | { type: 'folder'; folder: NoteFolder; subpath: string; key: string; hasChildren: boolean }
   | { type: 'note'; path: string }
   | { type: 'tag'; tag: string }
+  | { type: 'help' }
   | { type: 'settings' }
   | { type: 'trash' }
 
@@ -145,6 +146,7 @@ export function flattenSidebarItems(
   }
 
   // Footer
+  items.push({ type: 'help' })
   items.push({ type: 'settings' })
   items.push({ type: 'trash' })
 

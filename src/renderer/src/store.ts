@@ -12,6 +12,7 @@ import type {
 import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
+import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { toggleTaskAtIndex } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
@@ -630,6 +631,15 @@ export function isTagsViewActive(state: {
   return leaf?.activeTab === TAGS_TAB_PATH
 }
 
+/** True when the active pane's active tab is the built-in Help view. */
+export function isHelpViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return leaf?.activeTab === HELP_TAB_PATH
+}
+
 interface Store {
   vault: VaultInfo | null
   notes: NoteMeta[]
@@ -762,6 +772,8 @@ interface Store {
   openTagView: (tag?: string) => Promise<void>
   /** Close the Tags tab in every pane and clear the selection. */
   closeTagView: () => void
+  /** Open the built-in Help tab in the active pane. */
+  openHelpView: () => Promise<void>
   /** Add or remove a tag from the Tags view selection without touching
    *  pane layout. No-op if the selection is already in that state. */
   toggleTagSelection: (tag: string) => void
@@ -1261,6 +1273,13 @@ export const useStore = create<Store>((set, get) => {
       }
     }
     set({ selectedTags: [] })
+  },
+
+  openHelpView: async () => {
+    const state = get()
+    await get().openNoteInPane(state.activePaneId, HELP_TAB_PATH)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
   },
 
   toggleTagSelection: (tag) => {
@@ -2147,6 +2166,23 @@ export const useStore = create<Store>((set, get) => {
       return
     }
 
+    // Built-in Help tab — virtual content that still follows the editor
+    // focus path so preview-like scroll navigation works naturally.
+    if (isHelpTabPath(path)) {
+      set((cur) => {
+        const nextLayout =
+          updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path)) ??
+          cur.paneLayout
+        return {
+          paneLayout: nextLayout,
+          activePaneId: paneId,
+          focusedPanel: 'editor',
+          ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
+        }
+      })
+      return
+    }
+
     const needContent = !s.noteContents[path]
     if (needContent) {
       set({ loadingNote: paneId === s.activePaneId })
@@ -2190,8 +2226,8 @@ export const useStore = create<Store>((set, get) => {
     const s = get()
     const leaf = findLeaf(s.paneLayout, paneId)
     if (!leaf) return
-    // Tasks / Tags tabs are virtual — add them without touching disk.
-    if (isTasksTabPath(path) || isTagsTabPath(path)) {
+    // Tasks / Tags / Help tabs are virtual — add them without touching disk.
+    if (isTasksTabPath(path) || isTagsTabPath(path) || isHelpTabPath(path)) {
       set((cur) => {
         const nextLayout =
           updateLeaf(cur.paneLayout, paneId, (l) => leafWithAddedTab(l, path, insertIndex)) ??
@@ -2338,11 +2374,11 @@ export const useStore = create<Store>((set, get) => {
   },
 
   splitPaneWithTab: async ({ targetPaneId, edge, path, sourcePaneId }) => {
-    // Make sure content is loaded. Virtual tabs (Tasks, Tags) skip disk I/O.
+    // Make sure content is loaded. Virtual tabs (Tasks, Tags, Help) skip disk I/O.
     const s0 = get()
     let contents = s0.noteContents
     let dirty = s0.noteDirty
-    if (!isTasksTabPath(path) && !isTagsTabPath(path) && !contents[path]) {
+    if (!isTasksTabPath(path) && !isTagsTabPath(path) && !isHelpTabPath(path) && !contents[path]) {
       try {
         const content = await window.zen.readNote(path)
         contents = { ...contents, [path]: content }

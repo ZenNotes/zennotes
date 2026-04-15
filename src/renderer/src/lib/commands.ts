@@ -28,7 +28,7 @@ export interface Command {
   run: () => void | Promise<void>
 }
 
-export function buildCommands(): Command[] {
+export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
   const getState = (): ReturnType<typeof useStore.getState> => useStore.getState()
   const cmds: Command[] = []
 
@@ -685,6 +685,13 @@ export function buildCommands(): Command[] {
   /* ---------------- App / Vault ---------------- */
   cmds.push(
     {
+      id: 'app.help',
+      title: 'Open Help',
+      category: 'App',
+      keywords: 'manual docs documentation shortcuts vim onboarding learn',
+      run: () => getState().openHelpView()
+    },
+    {
       id: 'app.settings',
       title: 'Open Settings',
       category: 'App',
@@ -707,5 +714,6 @@ export function buildCommands(): Command[] {
   )
 
   // Filter out commands whose `when` guard rejects them.
+  if (options?.includeUnavailable) return cmds
   return cmds.filter((c) => !c.when || c.when())
 }

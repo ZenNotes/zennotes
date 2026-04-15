@@ -1,23 +1,37 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
+import { isTasksTabPath } from '@shared/tasks'
+import { isTagsTabPath } from '@shared/tags'
+import { isHelpTabPath } from '@shared/help'
 
 export function TitleBar(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const activeNote = useStore((s) => s.activeNote)
+  const selectedPath = useStore((s) => s.selectedPath)
   const [isMac, setIsMac] = useState(true)
 
   useEffect(() => {
     window.zen.platform().then((p) => setIsMac(p === 'darwin'))
   }, [])
 
+  const title = activeNote
+    ? activeNote.title
+    : isTasksTabPath(selectedPath)
+      ? 'Tasks'
+      : isTagsTabPath(selectedPath)
+        ? 'Tags'
+        : isHelpTabPath(selectedPath)
+          ? 'Help'
+          : vault
+            ? vault.name
+            : 'ZenNotes'
+
   return (
     <div
       className="drag-region glass-titlebar flex h-11 shrink-0 items-center px-4 text-xs text-ink-500"
       style={{ paddingLeft: isMac ? 80 : 12 }}
     >
-      <div className="flex-1 text-center tracking-wide">
-        {activeNote ? activeNote.title : vault ? vault.name : 'ZenNotes'}
-      </div>
+      <div className="flex-1 text-center tracking-wide">{title}</div>
       {!isMac && (
         <div className="flex items-center gap-1">
           <WinButton onClick={() => window.zen.windowMinimize()} label="–" />

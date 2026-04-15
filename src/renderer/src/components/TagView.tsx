@@ -151,6 +151,10 @@ export function TagView(): JSX.Element {
         case 'w':
         case 'write':
           return
+        case 'h':
+        case 'help':
+          void store.openHelpView()
+          return
         case 'sp':
         case 'split':
           if (path) {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
+import { isHelpViewActive, isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { extractTags } from '../lib/tags'
 import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import type { NoteSortOrder } from '../store'
@@ -7,6 +7,7 @@ import {
   ArchiveIcon,
   ArrowUpRightIcon,
   CheckSquareIcon,
+  DocumentIcon,
   ExpandAllIcon,
   FolderPlusIcon,
   InboxIcon,
@@ -50,6 +51,8 @@ export function Sidebar(): JSX.Element {
   const setView = useStore((s) => s.setView)
   const openTasksView = useStore((s) => s.openTasksView)
   const tasksViewActive = useStore(isTasksViewActive)
+  const openHelpView = useStore((s) => s.openHelpView)
+  const helpViewActive = useStore(isHelpViewActive)
   const openTagView = useStore((s) => s.openTagView)
   const selectedTags = useStore((s) => s.selectedTags)
   const tagsViewActive = useStore(isTagsViewActive)
@@ -974,7 +977,7 @@ export function Sidebar(): JSX.Element {
         )}
       </div>
 
-      {/* Footer: Settings + Trash */}
+      {/* Footer: Help + Settings + Trash */}
       <div
         className="mt-2 flex flex-col gap-0.5 px-3 pt-2"
         style={{ borderTop: '1px solid var(--glass-stroke)' }}
@@ -991,6 +994,16 @@ export function Sidebar(): JSX.Element {
             sidebarData={{ type: 'assets' }}
           />
         )}
+        <SidebarRow
+          icon={<DocumentIcon />}
+          label="Help"
+          active={helpViewActive}
+          onClick={() => void openHelpView()}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
+          sidebarFocused={isSidebarFocused}
+          sidebarData={{ type: 'help' }}
+        />
         <SidebarRow
           icon={<SettingsIcon />}
           label="Settings"

@@ -859,6 +859,8 @@ export function VimNav(): JSX.Element | null {
       // Tasks is a top-level sidebar row that opens the vault-wide Tasks
       // tab in the active pane. Matches clicking the row.
       void state.openTasksView()
+    } else if (itemType === 'help') {
+      void state.openHelpView()
     } else if (itemType === 'settings') {
       state.setSettingsOpen(true)
     } else if (itemType === 'trash') {

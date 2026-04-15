@@ -275,7 +275,7 @@ function registerVimCommands(): void {
  * - `:bd[elete]`, `:bc`  close the active tab (alias for `:q` on notes)
  * - `:only`              close every other tab in the active pane
  * - `:qa[ll]`            close every tab, everywhere
- * - `:h[elp]`            open the command palette for discovery
+ * - `:h[elp]`            open the built-in Help manual
  */
 function registerVimNoteCommands(): void {
   const getActiveLeaf = (): { id: string; tabs: string[]; activeTab: string | null } | null => {
@@ -443,7 +443,7 @@ function registerVimNoteCommands(): void {
   Vim.defineEx('wall', 'wa', closeEveryTab)
 
   Vim.defineEx('help', 'h', () => {
-    useStore.getState().setCommandPaletteOpen(true)
+    void useStore.getState().openHelpView()
   })
 }
 

@@ -406,7 +406,7 @@ export function NoteList(): JSX.Element {
           )}
           <button
             className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
-            title="Hide note list (⌘2)"
+            title="Hide note list"
             onClick={toggleNoteList}
           >
             <ColumnsIcon />
