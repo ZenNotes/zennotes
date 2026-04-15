@@ -2161,14 +2161,18 @@ textarea,
 /* --- Obsidian-style heading fold arrow ----------------------------- */
 /* Inline widget injected by cm-heading-fold.ts at each heading line.
  * Hidden by default so the editor stays clean; revealed when the mouse
- * hovers the heading line, when the caret is on it, or when the
- * heading is currently folded (so the user can always unfold it). */
+ * hovers the heading line, when the caret is on the line (CM6 adds
+ * `cm-activeLine` via the highlightActiveLine extension), or when the
+ * heading is currently folded (so the user can always unfold it).
+ *
+ * The widget's own hover also lights it up, so it works even if the
+ * parent line-level hover doesn't bubble through the widget's DOM. */
 .cm-heading-fold-arrow {
   display: inline-block;
-  width: 12px;
-  margin-right: 4px;
+  width: 14px;
+  margin-right: 6px;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1;
   color: rgb(var(--z-ink-400));
   opacity: 0;
@@ -2176,11 +2180,13 @@ textarea,
   user-select: none;
   transition: opacity 120ms ease, color 120ms ease;
 }
-.cm-editor .cm-line:hover .cm-heading-fold-arrow,
-.cm-editor .cm-heading-line-active .cm-heading-fold-arrow,
+.cm-editor .cm-heading-line:hover .cm-heading-fold-arrow,
+.cm-editor .cm-activeLine.cm-heading-line .cm-heading-fold-arrow,
+.cm-heading-fold-arrow:hover,
 .cm-heading-fold-arrow.is-folded {
   opacity: 1;
 }
-.cm-heading-fold-arrow:hover {
-  color: rgb(var(--z-ink-900));
+.cm-heading-fold-arrow:hover,
+.cm-heading-fold-arrow.is-folded {
+  color: rgb(var(--z-accent));
 }

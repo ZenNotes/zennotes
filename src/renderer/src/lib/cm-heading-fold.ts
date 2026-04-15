@@ -120,11 +120,6 @@ function buildDecorations(view: EditorView): DecorationSet {
   const builder: { from: number; to: number; deco: Decoration }[] = []
   const folded = foldedRanges(state)
 
-  // Line that currently holds the primary selection — CSS uses the
-  // `cm-heading-line-active` class on this line's container to force
-  // the fold arrow visible, matching Obsidian's live-preview reveal.
-  const cursorLine = state.doc.lineAt(state.selection.main.head).number
-
   for (const { from, to } of view.visibleRanges) {
     const first = state.doc.lineAt(from).number
     const last = state.doc.lineAt(Math.max(from, to - 1)).number
@@ -145,22 +140,28 @@ function buildDecorations(view: EditorView): DecorationSet {
         return undefined
       })
 
-      builder.push({
-        from: line.from,
-        to: line.from,
-        deco: Decoration.widget({
-          side: -1,
-          widget: new HeadingFoldArrow(n, isFolded)
-        })
-      })
-
+      // Line decoration adds `cm-heading-line` to the cm-line div so
+      // CSS can target heading rows specifically. The active-line
+      // highlight is already provided by the built-in
+      // `highlightActiveLine()` extension, which stamps `cm-activeLine`
+      // on whichever row the caret is on — we combine the two in CSS.
       const classes = ['cm-heading-line']
-      if (n === cursorLine) classes.push('cm-heading-line-active')
       if (isFolded) classes.push('cm-heading-line-folded')
       builder.push({
         from: line.from,
         to: line.from,
         deco: Decoration.line({ class: classes.join(' ') })
+      })
+
+      // Widget sits at the very start of the line (side: 1 → just
+      // after line.from, which is the first child of the line div).
+      builder.push({
+        from: line.from,
+        to: line.from,
+        deco: Decoration.widget({
+          side: 1,
+          widget: new HeadingFoldArrow(n, isFolded)
+        })
       })
     }
   }
