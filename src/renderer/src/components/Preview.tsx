@@ -9,6 +9,7 @@ import {
   enhanceLocalAssetNodes,
   resolveAssetVaultRelativePath
 } from '../lib/local-assets'
+import { enhancePreviewHeadingFolds } from '../lib/preview-heading-fold'
 import { NoteHoverPreview } from './NoteHoverPreview'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 
@@ -286,6 +287,8 @@ export function Preview({
         if (!pinnedRefVisible) togglePinnedRefVisible()
       }
     })
+
+    enhancePreviewHeadingFolds(root)
 
     root.querySelectorAll<HTMLInputElement>('li.task-list-item input[type="checkbox"]').forEach(
       (input, idx) => {

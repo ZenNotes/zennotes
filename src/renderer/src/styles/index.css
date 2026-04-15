@@ -2200,3 +2200,44 @@ textarea,
 .cm-heading-fold-arrow.is-folded {
   color: rgb(var(--z-accent));
 }
+
+/* --- Preview heading fold arrow ------------------------------------ */
+/* Counterpart to the CM live-preview fold arrow: sits in the left
+ * margin of every rendered h1–h6 in the preview/prose surface and
+ * collapses the section beneath on click. Hidden unless the heading
+ * is hovered, or the arrow itself is hovered, or the section is
+ * currently folded (so the user can always reopen it). */
+.prose-zen .prose-heading-foldable {
+  position: relative;
+}
+.prose-zen .prose-heading-fold-arrow {
+  position: absolute;
+  left: -28px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+  color: rgb(var(--z-ink-400));
+  opacity: 0;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.prose-zen .prose-heading-foldable:hover .prose-heading-fold-arrow,
+.prose-zen .prose-heading-fold-arrow:hover,
+.prose-zen .prose-heading-fold-arrow.is-folded {
+  opacity: 1;
+}
+.prose-zen .prose-heading-fold-arrow:hover {
+  color: rgb(var(--z-ink-900));
+  background: rgb(var(--z-bg-2));
+}
+.prose-zen .prose-heading-fold-arrow.is-folded {
+  color: rgb(var(--z-accent));
+}
