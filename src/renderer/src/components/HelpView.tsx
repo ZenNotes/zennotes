@@ -450,7 +450,7 @@ export function HelpView(): JSX.Element {
             {settingsSections.length > 0 && (
               <SectionShell
                 id="help-settings"
-                title="Preferences And Settings"
+                title="Settings"
                 subtitle="Everything configurable from the Settings modal today."
               >
                 <div className="grid gap-4 xl:grid-cols-2">

@@ -436,6 +436,20 @@ function registerVimNoteCommands(): void {
     })
   }
   Vim.defineEx('outline', 'outline', openOutline)
+  const setZenMode = (next: 'toggle' | 'on' | 'off'): void => {
+    requestAnimationFrame(() => {
+      const state = useStore.getState()
+      if (next === 'on') {
+        state.setFocusMode(true)
+        return
+      }
+      if (next === 'off') {
+        state.setFocusMode(false)
+        return
+      }
+      state.setFocusMode(!state.zenMode)
+    })
+  }
   const setPaneMode = (mode: 'edit' | 'split' | 'preview'): void => {
     requestAnimationFrame(() => {
       requestPaneMode(mode)
@@ -447,6 +461,17 @@ function registerVimNoteCommands(): void {
       setPaneMode(nextMode)
     }
   })
+  Vim.defineEx('zen', 'zen', (_cm: unknown, params: { argString?: string } | undefined) => {
+    const nextMode = (params?.argString ?? '').trim().toLowerCase()
+    if (!nextMode || nextMode === 'toggle') {
+      setZenMode('toggle')
+      return
+    }
+    if (nextMode === 'on' || nextMode === 'off') {
+      setZenMode(nextMode)
+    }
+  })
+  Vim.defineEx('zenmode', 'zenmode', () => setZenMode('toggle'))
   Vim.defineEx('editmode', 'editmode', () => setPaneMode('edit'))
   Vim.defineEx('splitmode', 'splitmode', () => setPaneMode('split'))
   Vim.defineEx('previewmode', 'previewmode', () => setPaneMode('preview'))
@@ -553,6 +578,8 @@ const MANUAL_EX_NAMES = new Set([
   'ls',
   'outline',
   'view',
+  'zen',
+  'zenmode',
   'editmode',
   'splitmode',
   'previewmode',
@@ -781,12 +808,15 @@ interface ExTabCycle {
 
 let exCycle: ExTabCycle | null = null
 
-function completeViewArgs(input: string): ExCompletionMatch[] | null {
+function completeCommandArgs(
+  input: string,
+  command: string,
+  options: string[]
+): ExCompletionMatch[] | null {
   const match = input.match(/^([A-Za-z0-9_]+)(\s+)([^ ]*)$/)
   if (!match) return null
   const [, commandName, whitespace, argPrefix] = match
-  if (commandName.toLowerCase() !== 'view') return null
-  const options = ['edit', 'split', 'preview']
+  if (commandName.toLowerCase() !== command) return null
   const filtered = argPrefix
     ? options.filter((option) => option.startsWith(argPrefix.toLowerCase()))
     : options
@@ -797,7 +827,9 @@ function completeViewArgs(input: string): ExCompletionMatch[] | null {
 }
 
 function computeExMatches(prefix: string): ExCompletionMatch[] {
-  const argMatches = completeViewArgs(prefix)
+  const argMatches =
+    completeCommandArgs(prefix, 'view', ['edit', 'split', 'preview']) ??
+    completeCommandArgs(prefix, 'zen', ['toggle', 'on', 'off'])
   if (argMatches) return argMatches
   if (!prefix) {
     return registeredExNames.map((name) => ({ label: name, apply: name }))
@@ -934,6 +966,7 @@ function installExTabCompletion(): void {
 export function Editor(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activeNote = useStore((s) => s.activeNote)
+  const zenMode = useStore((s) => s.zenMode)
 
   useEffect(() => {
     registerVimCommands()
@@ -944,7 +977,7 @@ export function Editor(): JSX.Element {
       <div className="flex min-h-0 min-w-0 flex-1">
         <PaneTreeView node={paneLayout} />
       </div>
-      {activeNote && <StatusBar note={activeNote} />}
+      {!zenMode && activeNote && <StatusBar note={activeNote} />}
     </section>
   )
 }

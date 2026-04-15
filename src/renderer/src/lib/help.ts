@@ -56,7 +56,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Pick up where you left off',
     body:
-      'ZenNotes restores the last open tabs, splits, and built-in views for each vault, so closing and reopening the app brings you back to the same workspace.'
+      'ZenNotes restores the last open tabs, splits, built-in views, and sidebar layout for each vault, and the app also remembers the main window size, position, and maximized state between launches.'
   }
 ]
 
@@ -70,6 +70,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: 'Tabs and splits are first-class',
     body:
       'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`.'
+  },
+  {
+    title: 'Sessions restore on relaunch',
+    body:
+      'Workspace restore is saved per vault, while the window frame restore is global. Reopening ZenNotes brings back your pane layout, open buffers, built-in views, and the last window bounds instead of dropping you into a fresh shell.'
   },
   {
     title: 'Leader mode can teach itself',
@@ -92,6 +97,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft.'
   },
   {
+    title: 'Zen mode removes chrome',
+    body:
+      'Use `⌘.` to enter Zen mode and strip away the title bar, sidebar, note list, tabs, pane headers, side panels, and status bar so only the active editor, preview, or split view stays visible.'
+  },
+  {
     title: 'Links are actionable',
     body:
       'Use [[wikilinks]] or markdown links. In normal mode, `gd` follows the link under the cursor, offers to create missing notes, and pins PDFs into the reference pane.'
@@ -104,7 +114,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Footer actions expose utility views',
     body:
-      'The sidebar footer gives you direct access to Attachments, Help, and Preferences, so utility screens stay discoverable even when you are new to the app.'
+      'The sidebar footer gives you direct access to Attachments, Help, and Settings, so utility screens stay discoverable even when you are new to the app.'
   },
   {
     title: 'Destructive actions ask first',
@@ -122,10 +132,10 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: '⌘P', action: 'Search notes', detail: 'Open the note search palette.' },
       { keys: '⇧⌘P', action: 'Open commands', detail: 'Open the command palette.' },
       { keys: '⇧⌘N', action: 'New Quick Note', detail: 'Create a quick capture note and focus its title.' },
-      { keys: '⌘,', action: 'Open Settings', detail: 'Open preferences for appearance, editor, fonts, and vault settings.' },
+      { keys: '⌘,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
       { keys: '⌘1', action: 'Toggle sidebar', detail: 'Hide or show the left sidebar.' },
       { keys: '⌘2', action: 'Toggle connections', detail: 'Toggle the connections panel for the active editor pane.' },
-      { keys: '⌘.', action: 'Toggle focus mode', detail: 'Hide or restore the app chrome for distraction-free writing.' },
+      { keys: '⌘.', action: 'Toggle Zen mode', detail: 'Hide or restore the app chrome so only the active editor, preview, or split view stays on screen.' },
       { keys: '⌘W', action: 'Close active tab', detail: 'Close the current note or virtual tab.' },
       { keys: '⌥Z', action: 'Toggle word wrap', detail: 'Switch between wrapped lines and horizontal scrolling.' },
       { keys: 'Esc', action: 'Dismiss overlay', detail: 'Close note search or the command palette when they are open.' }
@@ -207,7 +217,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':q',
     summary: 'Close the current tab or virtual view',
-    detail: 'Closes the active note, Tasks tab, or Tags tab.'
+    detail: 'Closes the active note or the current virtual tab, including Tasks, Tags, Help, and Trash.'
   },
   {
     command: ':wq',
@@ -292,7 +302,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Tab> / <Shift-Tab> on the ex line',
     summary: 'Complete ex commands',
-    detail: 'Cycle through every registered ex command with a wildmenu popup, and complete supported command arguments like `:view edit|split|preview`.'
+    detail: 'Cycle through every registered ex command with a wildmenu popup, and complete supported command arguments like `:view edit|split|preview` and `:zen toggle|on|off`.'
   },
   {
     command: '<Space> l f',
@@ -333,6 +343,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':view edit|split|preview',
     summary: 'Switch the active note layout',
     detail: 'Change the current pane between editor-only, side-by-side split, and preview-only modes without clicking the toolbar.'
+  },
+  {
+    command: ':zen [toggle|on|off] / :zenmode',
+    summary: 'Toggle Zen mode',
+    detail: 'Enter or leave Zen mode from the ex line. `:zen` by itself toggles; `:zen on` and `:zen off` force a specific state.'
   },
   {
     command: ':editmode / :splitmode / :previewmode',
@@ -387,6 +402,13 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Vault',
     items: [
       { label: 'Vault location', detail: 'Reveal or change the root folder ZenNotes treats as the active vault.' }
+    ]
+  },
+  {
+    title: 'About',
+    items: [
+      { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a quick description of the app inside Settings.' },
+      { label: 'Lumary Labs', detail: 'The About section links to Lumary Labs at lumarylabs.com so company details stay easy to find from inside the app.' }
     ]
   }
 ]

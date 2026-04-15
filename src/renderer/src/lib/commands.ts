@@ -711,15 +711,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.focus-mode',
       title: (() => {
         const st = getState()
-        return st.sidebarOpen || st.noteListOpen ? 'Enter Focus Mode' : 'Exit Focus Mode'
+        return st.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode'
       })(),
       category: 'View',
       shortcut: '⌘.',
-      keywords: 'zen distraction-free',
+      keywords: 'zen distraction-free focus',
       run: () => {
         const st = getState()
-        const anyOpen = st.sidebarOpen || st.noteListOpen
-        st.setFocusMode(anyOpen)
+        st.setFocusMode(!st.zenMode)
       }
     },
     {

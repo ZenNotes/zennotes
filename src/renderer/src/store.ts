@@ -661,6 +661,12 @@ interface WorkspaceSnapshot {
   selectedTags: string[]
 }
 
+interface ZenRestoreState {
+  sidebarOpen: boolean
+  noteListOpen: boolean
+  pinnedRefVisible: boolean
+}
+
 function isWorkspaceVirtualTabPath(path: string): boolean {
   return (
     isTasksTabPath(path) ||
@@ -891,6 +897,8 @@ interface Store {
   workspaceRestored: boolean
   sidebarOpen: boolean
   noteListOpen: boolean
+  zenMode: boolean
+  zenRestoreState: ZenRestoreState | null
   vimMode: boolean
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1462,6 +1470,8 @@ export const useStore = create<Store>((set, get) => {
   workspaceRestored: false,
   sidebarOpen: true,
   noteListOpen: true,
+  zenMode: false,
+  zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
@@ -2158,7 +2168,33 @@ export const useStore = create<Store>((set, get) => {
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   toggleNoteList: () => set((s) => ({ noteListOpen: !s.noteListOpen })),
   setFocusMode: (focus) =>
-    set({ sidebarOpen: !focus, noteListOpen: !focus }),
+    set((s) => {
+      if (focus) {
+        if (s.zenMode) return {}
+        return {
+          zenMode: true,
+          zenRestoreState: {
+            sidebarOpen: s.sidebarOpen,
+            noteListOpen: s.noteListOpen,
+            pinnedRefVisible: s.pinnedRefVisible
+          },
+          sidebarOpen: false,
+          noteListOpen: false,
+          pinnedRefVisible: false,
+          focusedPanel: 'editor'
+        }
+      }
+
+      if (!s.zenMode) return {}
+      return {
+        zenMode: false,
+        zenRestoreState: null,
+        sidebarOpen: s.zenRestoreState?.sidebarOpen ?? s.sidebarOpen,
+        noteListOpen: s.zenRestoreState?.noteListOpen ?? s.noteListOpen,
+        pinnedRefVisible: s.zenRestoreState?.pinnedRefVisible ?? s.pinnedRefVisible,
+        focusedPanel: 'editor'
+      }
+    }),
   setVimMode: (on) => {
     set({ vimMode: on })
     savePrefs(collectPrefs(get()))
@@ -3089,12 +3125,18 @@ export const useStore = create<Store>((set, get) => {
   persistWorkspace: () => {
     const state = get()
     if (!state.vault || !state.workspaceRestored) return
+    const sidebarOpen = state.zenMode
+      ? state.zenRestoreState?.sidebarOpen ?? state.sidebarOpen
+      : state.sidebarOpen
+    const noteListOpen = state.zenMode
+      ? state.zenRestoreState?.noteListOpen ?? state.noteListOpen
+      : state.noteListOpen
     saveWorkspaceSnapshot(state.vault.root, {
       paneLayout: state.paneLayout,
       activePaneId: state.activePaneId,
       view: state.view,
-      sidebarOpen: state.sidebarOpen,
-      noteListOpen: state.noteListOpen,
+      sidebarOpen,
+      noteListOpen,
       selectedTags: state.selectedTags
     })
   },

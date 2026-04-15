@@ -32,26 +32,95 @@ const PDF_EXTENSIONS = new Set(['.pdf'])
 const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
 const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
-interface PersistedConfig {
-  vaultRoot: string | null
+export interface PersistedWindowState {
+  x: number
+  y: number
+  width: number
+  height: number
+  isMaximized: boolean
 }
+
+export interface PersistedConfig {
+  vaultRoot: string | null
+  windowState: PersistedWindowState | null
+}
+
+const DEFAULT_CONFIG: PersistedConfig = {
+  vaultRoot: null,
+  windowState: null
+}
+
+let configWriteQueue = Promise.resolve()
 
 function configPath(): string {
   return path.join(app.getPath('userData'), CONFIG_FILE)
 }
 
+function normalizeWindowState(value: unknown): PersistedWindowState | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Record<string, unknown>
+  const x = candidate['x']
+  const y = candidate['y']
+  const width = candidate['width']
+  const height = candidate['height']
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    typeof width !== 'number' ||
+    typeof height !== 'number' ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
+  ) {
+    return null
+  }
+  return {
+    x,
+    y,
+    width,
+    height,
+    isMaximized: Boolean(candidate['isMaximized'])
+  }
+}
+
+function normalizePersistedConfig(value: unknown): PersistedConfig {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_CONFIG }
+  const candidate = value as Partial<PersistedConfig>
+  return {
+    vaultRoot: typeof candidate.vaultRoot === 'string' ? candidate.vaultRoot : null,
+    windowState: normalizeWindowState(candidate.windowState)
+  }
+}
+
 export async function loadConfig(): Promise<PersistedConfig> {
   try {
     const raw = await fs.readFile(configPath(), 'utf8')
-    return JSON.parse(raw) as PersistedConfig
+    return normalizePersistedConfig(JSON.parse(raw))
   } catch {
-    return { vaultRoot: null }
+    return { ...DEFAULT_CONFIG }
   }
 }
 
 export async function saveConfig(cfg: PersistedConfig): Promise<void> {
+  const normalized = normalizePersistedConfig(cfg)
   await fs.mkdir(path.dirname(configPath()), { recursive: true })
-  await fs.writeFile(configPath(), JSON.stringify(cfg, null, 2), 'utf8')
+  await fs.writeFile(configPath(), JSON.stringify(normalized, null, 2), 'utf8')
+}
+
+export async function updateConfig(
+  updater: (cfg: PersistedConfig) => PersistedConfig | Promise<PersistedConfig>
+): Promise<PersistedConfig> {
+  let nextConfig = { ...DEFAULT_CONFIG }
+  configWriteQueue = configWriteQueue
+    .catch(() => {})
+    .then(async () => {
+      const current = await loadConfig()
+      nextConfig = normalizePersistedConfig(await updater(current))
+      await saveConfig(nextConfig)
+    })
+  await configWriteQueue
+  return nextConfig
 }
 
 /**

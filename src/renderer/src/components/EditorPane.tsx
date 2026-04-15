@@ -189,6 +189,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   const setEditorViewRef = useStore((s) => s.setEditorViewRef)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const zenMode = useStore((s) => s.zenMode)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const focusedPanel = useStore((s) => s.focusedPanel)
@@ -1268,7 +1269,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const showEditor = !!content && mode !== 'preview'
   const showPreview = !!content && mode !== 'edit'
   const splitMode = mode === 'split'
-  const hasTabs = tabsEnabled && tabs.length > 0
+  const hasTabs = !zenMode && tabsEnabled && tabs.length > 0
 
   const paneFrameClass = [
     'relative flex min-h-0 min-w-0 flex-1 flex-col',
@@ -1316,7 +1317,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           })}
         </div>
       )}
-      {content && (
+      {content && !zenMode && (
         <header className="glass-header flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {!sidebarOpen && isActive && (
@@ -1444,6 +1445,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ) : (
             <EmptyPaneState
               sidebarOpen={sidebarOpen}
+              zenMode={zenMode}
               onShowSidebar={() => {
                 toggleSidebar()
                 setFocusedPanel('sidebar')
@@ -1451,8 +1453,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             />
           )}
         </div>
-        {content && connectionsOpen && isActive && <ConnectionsPanel note={content} />}
-        {content && outlineOpen && (
+        {content && connectionsOpen && isActive && !zenMode && <ConnectionsPanel note={content} />}
+        {content && outlineOpen && !zenMode && (
           <OutlinePanel note={content} onJump={jumpToOutlineLine} />
         )}
       </div>
@@ -1575,9 +1577,11 @@ function PaneDropOverlay({ edge }: { edge: PaneEdge }): JSX.Element {
 
 function EmptyPaneState({
   sidebarOpen,
+  zenMode,
   onShowSidebar
 }: {
   sidebarOpen: boolean
+  zenMode: boolean
   onShowSidebar: () => void
 }): JSX.Element {
   return (
@@ -1587,14 +1591,16 @@ function EmptyPaneState({
           <PanelLeftIcon width={20} height={20} />
         </div>
         <h2 className="mt-4 text-base font-medium text-ink-900">
-          {sidebarOpen ? 'No note selected' : 'Sidebar hidden'}
+          {zenMode ? 'Zen mode is on' : sidebarOpen ? 'No note selected' : 'Sidebar hidden'}
         </h2>
         <p className="mt-2 text-sm leading-6 text-ink-500">
-          {sidebarOpen
+          {zenMode
+            ? 'Leave Zen mode with ⌘. to bring the rest of the app chrome back.'
+            : sidebarOpen
             ? 'Select a note from the sidebar, or create a new one to start writing.'
             : 'Bring the sidebar back to browse your notes, folders, and shortcuts.'}
         </p>
-        {!sidebarOpen && (
+        {!zenMode && !sidebarOpen && (
           <div className="mt-5 flex items-center justify-center">
             <button
               type="button"

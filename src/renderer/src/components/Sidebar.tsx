@@ -1090,7 +1090,7 @@ export function Sidebar(): JSX.Element {
         />
         <SidebarFooterAction
           icon={<SettingsIcon />}
-          label="Prefs"
+          label="Settings"
           onClick={() => setSettingsOpen(true)}
           sidebarIdx={idxCounter.current.value++}
           vimHighlight={vimCursor === idxCounter.current.value - 1}

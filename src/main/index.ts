@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
@@ -30,7 +30,8 @@ import {
   renameFolder,
   renameNote,
   restoreFromTrash,
-  saveConfig,
+  type PersistedWindowState,
+  updateConfig,
   unarchiveNote,
   vaultInfo,
   writeNote
@@ -57,6 +58,11 @@ protocol.registerSchemesAsPrivileged([
 let mainWindow: BrowserWindow | null = null
 let currentVault: VaultInfo | null = null
 const watcher = new VaultWatcher()
+const DEFAULT_WINDOW_WIDTH = 1280
+const DEFAULT_WINDOW_HEIGHT = 820
+const MIN_WINDOW_WIDTH = 900
+const MIN_WINDOW_HEIGHT = 600
+const WINDOW_STATE_PERSIST_DELAY_MS = 150
 
 function isMac(): boolean {
   return process.platform === 'darwin'
@@ -127,13 +133,69 @@ function mimeTypeForPath(absPath: string): string {
   }
 }
 
-function createWindow(): void {
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
+}
+
+function sanitizeWindowState(state: PersistedWindowState | null): PersistedWindowState | null {
+  if (!state) return null
+
+  const width = Math.max(MIN_WINDOW_WIDTH, Math.round(state.width))
+  const height = Math.max(MIN_WINDOW_HEIGHT, Math.round(state.height))
+  const display = screen.getDisplayMatching({
+    x: Math.round(state.x),
+    y: Math.round(state.y),
+    width,
+    height
+  })
+  const workArea = display.workArea
+  const clampedWidth = Math.min(width, workArea.width)
+  const clampedHeight = Math.min(height, workArea.height)
+  const x = clamp(
+    Math.round(state.x),
+    workArea.x,
+    Math.max(workArea.x, workArea.x + workArea.width - clampedWidth)
+  )
+  const y = clamp(
+    Math.round(state.y),
+    workArea.y,
+    Math.max(workArea.y, workArea.y + workArea.height - clampedHeight)
+  )
+
+  return {
+    x,
+    y,
+    width: clampedWidth,
+    height: clampedHeight,
+    isMaximized: state.isMaximized
+  }
+}
+
+async function persistWindowState(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds()
+  await updateConfig((cfg) => ({
+    ...cfg,
+    windowState: {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+      isMaximized: win.isMaximized()
+    }
+  }))
+}
+
+async function createWindow(): Promise<void> {
   const mac = isMac()
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 900,
-    minHeight: 600,
+  const cfg = await loadConfig()
+  const restoredState = sanitizeWindowState(cfg.windowState)
+  const win = new BrowserWindow({
+    width: restoredState?.width ?? DEFAULT_WINDOW_WIDTH,
+    height: restoredState?.height ?? DEFAULT_WINDOW_HEIGHT,
+    ...(restoredState ? { x: restoredState.x, y: restoredState.y } : {}),
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     show: false,
     autoHideMenuBar: true,
     titleBarStyle: mac ? 'hiddenInset' : 'hidden',
@@ -161,11 +223,40 @@ function createWindow(): void {
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+  mainWindow = win
+
+  let persistWindowStateTimer: ReturnType<typeof setTimeout> | null = null
+  const scheduleWindowStatePersist = () => {
+    if (persistWindowStateTimer) clearTimeout(persistWindowStateTimer)
+    persistWindowStateTimer = setTimeout(() => {
+      persistWindowStateTimer = null
+      void persistWindowState(win)
+    }, WINDOW_STATE_PERSIST_DELAY_MS)
+  }
+  const flushWindowStatePersist = () => {
+    if (persistWindowStateTimer) {
+      clearTimeout(persistWindowStateTimer)
+      persistWindowStateTimer = null
+    }
+    void persistWindowState(win)
+  }
+
+  win.on('ready-to-show', () => {
+    if (restoredState?.isMaximized) win.maximize()
+    win.show()
   })
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  win.on('move', scheduleWindowStatePersist)
+  win.on('resize', scheduleWindowStatePersist)
+  win.on('maximize', scheduleWindowStatePersist)
+  win.on('unmaximize', scheduleWindowStatePersist)
+  win.on('close', flushWindowStatePersist)
+  win.on('closed', () => {
+    if (persistWindowStateTimer) clearTimeout(persistWindowStateTimer)
+    if (mainWindow === win) mainWindow = null
+  })
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith(`${LOCAL_ASSET_SCHEME}://`)) {
       const abs = decodeLocalAssetRequestPath(url)
       if (abs && isPathInsideVault(abs)) {
@@ -179,16 +270,16 @@ function createWindow(): void {
 
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
-    void mainWindow.loadURL(devServerUrl)
+    void win.loadURL(devServerUrl)
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+    void win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
 }
 
 async function setVault(root: string): Promise<VaultInfo> {
   await ensureVaultLayout(root)
   currentVault = vaultInfo(root)
-  await saveConfig({ vaultRoot: root })
+  await updateConfig((cfg) => ({ ...cfg, vaultRoot: root }))
   watcher.start(root, (ev: VaultChangeEvent) => {
     // Broadcast to every open window — the main window, all floating
     // note windows — so each can refresh its in-memory state.
@@ -702,10 +793,10 @@ app.whenReady().then(async () => {
 
   installAppMenu()
   registerIpc()
-  createWindow()
+  await createWindow()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })
 })
 

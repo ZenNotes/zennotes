@@ -30,6 +30,7 @@ function App(): JSX.Element {
   const setOutlinePaletteOpen = useStore((s) => s.setOutlinePaletteOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const noteListOpen = useStore((s) => s.noteListOpen)
+  const zenMode = useStore((s) => s.zenMode)
   const paneLayout = useStore((s) => s.paneLayout)
   const activePaneId = useStore((s) => s.activePaneId)
   const view = useStore((s) => s.view)
@@ -217,11 +218,10 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:toggle-outline'))
         return
       }
-      // ⌘. — toggle focus mode (hide both)
+      // ⌘. — toggle Zen mode
       if (mod && (e.key === '.' || e.code === 'Period')) {
         e.preventDefault()
-        const anyOpen = state.sidebarOpen || state.noteListOpen
-        state.setFocusMode(anyOpen)
+        state.setFocusMode(!state.zenMode)
         return
       }
       // ⌘, — open settings (macOS convention)
@@ -238,7 +238,7 @@ function App(): JSX.Element {
   if (!vault) {
     return (
       <div className="h-screen w-screen bg-paper-100 text-ink-900">
-        <TitleBar />
+        {!zenMode && <TitleBar />}
         <EmptyVault />
       </div>
     )
@@ -246,12 +246,12 @@ function App(): JSX.Element {
 
   return (
     <div className="flex h-screen w-screen flex-col bg-paper-100 text-ink-900">
-      <TitleBar />
+      {!zenMode && <TitleBar />}
       <div className="flex min-h-0 flex-1">
-        {sidebarOpen && <Sidebar />}
-        {noteListOpen && !unifiedSidebar && <NoteList />}
+        {!zenMode && sidebarOpen && <Sidebar />}
+        {!zenMode && noteListOpen && !unifiedSidebar && <NoteList />}
         <Editor />
-        <PinnedReferencePane />
+        {!zenMode && <PinnedReferencePane />}
       </div>
       {searchOpen && <SearchPalette />}
       {commandPaletteOpen && <CommandPalette />}
