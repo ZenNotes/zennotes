@@ -134,6 +134,9 @@ interface Prefs {
   /** Whether the editor and preview content sit centered (with the
    *  width capped) or are left-aligned to the pane edge. */
   contentAlign: 'center' | 'left'
+  /** Sidebar Tags section collapsed — keeps the tag pills hidden
+   *  without removing the section entirely. */
+  tagsCollapsed: boolean
 }
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
@@ -170,7 +173,8 @@ const DEFAULT_PREFS: Prefs = {
   pdfEmbedInEditMode: 'compact',
   pinnedRefKind: 'note',
   noteRefs: {},
-  contentAlign: 'center'
+  contentAlign: 'center',
+  tagsCollapsed: false
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
@@ -302,7 +306,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     contentAlign:
       p.contentAlign === 'left' || p.contentAlign === 'center'
         ? p.contentAlign
-        : DEFAULT_PREFS.contentAlign
+        : DEFAULT_PREFS.contentAlign,
+    tagsCollapsed:
+      typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed
   }
 }
 function loadPrefs(): Prefs {
@@ -561,6 +567,7 @@ function collectPrefs(s: {
   pinnedRefKind: 'note' | 'asset'
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
+  tagsCollapsed: boolean
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -594,7 +601,8 @@ function collectPrefs(s: {
     pdfEmbedInEditMode: s.pdfEmbedInEditMode,
     pinnedRefKind: s.pinnedRefKind,
     noteRefs: s.noteRefs,
-    contentAlign: s.contentAlign
+    contentAlign: s.contentAlign,
+    tagsCollapsed: s.tagsCollapsed
   }
 }
 
@@ -723,6 +731,10 @@ interface Store {
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
   contentAlign: 'center' | 'left'
+
+  /** Sidebar Tags section collapsed — hides the pill rail but keeps
+   *  the section header visible as a toggle. Persisted. */
+  tagsCollapsed: boolean
 
   /** Vault-wide Tasks view state. Populated lazily when the view is opened
    *  and kept incrementally fresh via the chokidar watcher while the view
@@ -860,6 +872,7 @@ interface Store {
   setEditorMaxWidth: (px: number) => void
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
   setContentAlign: (align: 'center' | 'left') => void
+  setTagsCollapsed: (collapsed: boolean) => void
   setFocusedPanel: (panel: Panel | null) => void
   setSidebarCursorIndex: (idx: number) => void
   setNoteListCursorIndex: (idx: number) => void
@@ -1189,6 +1202,7 @@ export const useStore = create<Store>((set, get) => {
   pinnedRefKind: loadPrefs().pinnedRefKind,
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
+  tagsCollapsed: loadPrefs().tagsCollapsed,
   vaultTasks: [],
   tasksLoading: false,
   tasksFilter: '',
@@ -2110,6 +2124,10 @@ export const useStore = create<Store>((set, get) => {
 
   setContentAlign: (align) => {
     set({ contentAlign: align })
+    savePrefs(collectPrefs(get()))
+  },
+  setTagsCollapsed: (collapsed) => {
+    set({ tagsCollapsed: collapsed })
     savePrefs(collectPrefs(get()))
   },
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),

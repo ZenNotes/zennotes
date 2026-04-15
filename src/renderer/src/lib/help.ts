@@ -113,6 +113,9 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
+      { keys: '⌘3', action: 'Toggle outline panel', detail: 'Show or hide the persistent outline in the active pane.' },
+      { keys: 'z c / z o', action: 'Fold / unfold heading', detail: 'Collapse or expand the section below the heading at the cursor.' },
+      { keys: 'z M / z R', action: 'Fold / unfold all', detail: 'Collapse or expand every heading section in the note.' },
       { keys: 'Ctrl-o', action: 'Go back', detail: 'Jump to the previous note location in history.' },
       { keys: 'Ctrl-i', action: 'Go forward', detail: 'Jump forward in note history.' },
       { keys: 'f', action: 'Hint mode', detail: 'Show jump labels for clickable targets when you are not in insert mode.' }
@@ -282,6 +285,16 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':outline',
     summary: 'Note outline palette',
     detail: 'Same as <Space> p — ex-line access to the note outline.'
+  },
+  {
+    command: ':fold / :unfold',
+    summary: 'Toggle the heading at the cursor',
+    detail: 'Collapse or expand the section beneath the heading at the current line. Same as vim `z c` / `z o`.'
+  },
+  {
+    command: ':foldall / :unfoldall',
+    summary: 'Fold every heading',
+    detail: 'Collapse or expand every heading section at once. Same as vim `z M` / `z R`.'
   }
 ]
 

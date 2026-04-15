@@ -35,6 +35,7 @@ import { searchKeymap } from '@codemirror/search'
 import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { headingFolding } from '../lib/cm-heading-fold'
 import { Preview } from './Preview'
 import { CloseIcon, PinIcon } from './icons'
 import {
@@ -285,6 +286,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
           markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
+          headingFolding(),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           prefs.livePreview ? livePreviewPlugin : [],

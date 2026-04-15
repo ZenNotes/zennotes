@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { Vim, getCM } from '@replit/codemirror-vim'
+import { foldAll, unfoldAll, foldCode, unfoldCode } from '@codemirror/language'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
 import { rankItems } from '../lib/fuzzy-score'
@@ -460,6 +461,21 @@ function registerVimNoteCommands(): void {
   Vim.defineEx('help', 'h', () => {
     void useStore.getState().openHelpView()
   })
+
+  // Heading fold helpers — wrap CodeMirror's commands so they work on
+  // whichever pane currently owns the editor. `:fold` / `:unfold` act
+  // on the current heading; `:foldall` / `:unfoldall` cover the whole
+  // note. Vim's own `zc` / `zo` / `zM` / `zR` keys still work too.
+  const runFold = (cmd: (view: { state: unknown; dispatch: unknown }) => boolean): void => {
+    const view = useStore.getState().editorViewRef
+    if (!view) return
+    cmd(view as unknown as Parameters<typeof foldCode>[0])
+    view.focus()
+  }
+  Vim.defineEx('fold', 'fold', () => runFold(foldCode as never))
+  Vim.defineEx('unfold', 'unfold', () => runFold(unfoldCode as never))
+  Vim.defineEx('foldall', 'foldall', () => runFold(foldAll as never))
+  Vim.defineEx('unfoldall', 'unfoldall', () => runFold(unfoldAll as never))
 }
 
 /** Flatten the pane tree to a list of leaves, independent of the store's
@@ -507,6 +523,10 @@ const MANUAL_EX_NAMES = new Set([
   'buffers',
   'ls',
   'outline',
+  'fold',
+  'unfold',
+  'foldall',
+  'unfoldall',
   'only',
   'qall',
   'qa',

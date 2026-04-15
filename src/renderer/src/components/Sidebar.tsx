@@ -64,6 +64,8 @@ export function Sidebar(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const renameTag = useStore((s) => s.renameTag)
   const deleteTag = useStore((s) => s.deleteTag)
+  const tagsCollapsed = useStore((s) => s.tagsCollapsed)
+  const setTagsCollapsed = useStore((s) => s.setTagsCollapsed)
   const createFolderAction = useStore((s) => s.createFolder)
   const renameFolderAction = useStore((s) => s.renameFolder)
   const deleteFolderAction = useStore((s) => s.deleteFolder)
@@ -922,9 +924,24 @@ export function Sidebar(): JSX.Element {
         {/* Tag pills */}
         {tags.length > 0 && (
           <div className="mt-5">
-            <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500">
-              Tags
-            </div>
+            <button
+              type="button"
+              onClick={() => setTagsCollapsed(!tagsCollapsed)}
+              title={tagsCollapsed ? 'Show tags' : 'Hide tags'}
+              aria-expanded={!tagsCollapsed}
+              className="flex w-full items-center gap-1 rounded px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
+            >
+              <span
+                aria-hidden
+                className="inline-block transition-transform"
+                style={{ transform: tagsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}
+              >
+                ▾
+              </span>
+              <span>Tags</span>
+              <span className="ml-1 text-ink-400 normal-case tracking-normal">{tags.length}</span>
+            </button>
+            {!tagsCollapsed && (
             <div className="flex flex-wrap gap-1.5 px-1">
               {tags.map(([tag, count]) => {
                 // Tag chips feed into a single vault-wide Tags tab. If the
@@ -973,6 +990,7 @@ export function Sidebar(): JSX.Element {
                 )
               })}
             </div>
+            )}
           </div>
         )}
       </div>

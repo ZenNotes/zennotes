@@ -181,6 +181,12 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:toggle-connections'))
         return
       }
+      // ⌘3 — toggle outline panel in the active pane
+      if (mod && (e.key === '3' || e.code === 'Digit3')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:toggle-outline'))
+        return
+      }
       // ⌘. — toggle focus mode (hide both)
       if (mod && (e.key === '.' || e.code === 'Period')) {
         e.preventDefault()

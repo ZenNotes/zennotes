@@ -36,6 +36,7 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
+import { headingFolding } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
@@ -318,6 +319,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           highlightActiveLine(),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
+          headingFolding(),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           livePreviewCompartment.of(s0.livePreview ? livePreviewPlugin : []),

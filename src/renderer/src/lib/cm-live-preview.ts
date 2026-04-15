@@ -472,7 +472,12 @@ function computeDecorations(view: EditorView): DecorationSet {
     const firstLine = state.doc.lineAt(from).number
     const lastLine = state.doc.lineAt(Math.max(from, to - 1)).number
     for (let lineNo = firstLine; lineNo <= lastLine; lineNo++) {
-      if (activeLines.has(lineNo) || replacedLines.has(lineNo)) continue
+      if (replacedLines.has(lineNo)) continue
+      // Image / PDF lines still render their preview widget even when
+      // the cursor is on the line. We only suppress `imageSourceHide`
+      // so the raw markdown text shows alongside the widget — matching
+      // Obsidian's live-preview behaviour.
+      const lineActive = activeLines.has(lineNo)
       const line = state.doc.line(lineNo)
       const parsedImage = parseStandaloneLocalImage(line.text)
       if (parsedImage) {
@@ -483,7 +488,8 @@ function computeDecorations(view: EditorView): DecorationSet {
           from: line.from,
           to: line.from,
           deco: Decoration.widget({
-            side: 1,
+            side: -1,
+            block: true,
             widget: new LocalImageWidget(
               notePath,
               line.from,
@@ -495,13 +501,16 @@ function computeDecorations(view: EditorView): DecorationSet {
             )
           })
         })
-        pending.push({
-          from: line.from,
-          to: line.to,
-          deco: imageSourceHide
-        })
+        if (!lineActive) {
+          pending.push({
+            from: line.from,
+            to: line.to,
+            deco: imageSourceHide
+          })
+        }
         continue
       }
+      if (lineActive) continue
       const parsedPdf = parseStandaloneLocalPdf(line.text)
       if (parsedPdf) {
         const st = useStore.getState()

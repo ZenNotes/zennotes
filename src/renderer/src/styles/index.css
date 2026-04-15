@@ -2143,3 +2143,37 @@ textarea,
   color: rgb(var(--z-ink-400));
   font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
 }
+
+/* --- Heading fold gutter (CodeMirror) ------------------------------ */
+.cm-editor .cm-foldGutter {
+  color: rgb(var(--z-ink-400));
+  padding-right: 2px;
+  user-select: none;
+}
+.cm-editor .cm-foldGutter .cm-gutterElement {
+  min-width: 14px;
+  text-align: center;
+  cursor: pointer;
+}
+.cm-heading-fold-marker {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: rgb(var(--z-ink-400));
+  transition: color 120ms ease;
+}
+.cm-heading-fold-marker.is-closed {
+  color: rgb(var(--z-accent));
+}
+.cm-editor .cm-foldGutter .cm-gutterElement:hover .cm-heading-fold-marker {
+  color: rgb(var(--z-ink-900));
+}
+.cm-editor .cm-foldPlaceholder {
+  background: rgb(var(--z-bg-2));
+  color: rgb(var(--z-ink-500));
+  border: 1px solid rgb(var(--z-bg-3));
+  border-radius: 4px;
+  padding: 0 6px;
+  margin: 0 4px;
+  font-size: 0.85em;
+}
