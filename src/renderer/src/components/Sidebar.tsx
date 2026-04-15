@@ -176,14 +176,14 @@ export function Sidebar(): JSX.Element {
         notes.filter((n) => n.folder === 'archive'),
         'archive',
         allFolders.filter((f) => f.folder === 'archive')
+      ),
+      trash: buildTree(
+        notes.filter((n) => n.folder === 'trash'),
+        'trash',
+        allFolders.filter((f) => f.folder === 'trash')
       )
     }),
     [notes, allFolders]
-  )
-
-  const trashCount = useMemo(
-    () => notes.filter((n) => n.folder === 'trash').length,
-    [notes]
   )
 
   const treeSortComparator = useMemo<((a: NoteMeta, b: NoteMeta) => number) | null>(() => {
@@ -921,6 +921,31 @@ export function Sidebar(): JSX.Element {
           groupByKind={groupByKind}
         />
 
+        <FolderTreeRoot
+          label="Trash"
+          icon={<TrashIcon />}
+          folder="trash"
+          tree={trees.trash}
+          isFolderActive={isFolderActive}
+          collapsed={collapsed}
+          toggleCollapse={toggleCollapse}
+          setView={setView}
+          onContextMenu={openFolderMenu}
+          showNotes={unifiedSidebar}
+          selectedPath={selectedPath}
+          onSelectNote={(p) => void selectNote(p)}
+          onNoteContextMenu={(e, n) => {
+            e.preventDefault()
+            setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path })
+          }}
+          sortComparator={treeSortComparator}
+          onDropOnFolder={handleDropOnFolder}
+          idxCounter={idxCounter.current}
+          vimCursor={vimCursor}
+          sidebarFocused={isSidebarFocused}
+          groupByKind={groupByKind}
+        />
+
         {/* Tag pills */}
         {tags.length > 0 && (
           <div className="mt-5">
@@ -995,16 +1020,18 @@ export function Sidebar(): JSX.Element {
         )}
       </div>
 
-      {/* Footer: Help + Settings + Trash */}
+      {/* Footer — vault-level utilities. Kept deliberately small so the
+       *  main tree area dominates; Help and Settings are also reachable
+       *  from the command palette and (for Settings) ⌘,. Trash moved
+       *  into the main tree above so its notes can be browsed inline. */}
       <div
-        className="mt-2 flex flex-col gap-0.5 px-3 pt-2"
+        className="mt-2 flex items-center gap-0.5 px-3 py-2"
         style={{ borderTop: '1px solid var(--glass-stroke)' }}
       >
         {hasAssetsDir && (
-          <SidebarRow
+          <SidebarFooterIcon
             icon={<FolderIcon open={false} />}
-            label="Attachements"
-            count={assetFiles.length}
+            label={`Attachments (${assetFiles.length})`}
             onClick={() => void revealAssetsDir()}
             sidebarIdx={idxCounter.current.value++}
             vimHighlight={vimCursor === idxCounter.current.value - 1}
@@ -1012,7 +1039,8 @@ export function Sidebar(): JSX.Element {
             sidebarData={{ type: 'assets' }}
           />
         )}
-        <SidebarRow
+        <div className="flex-1" />
+        <SidebarFooterIcon
           icon={<DocumentIcon />}
           label="Help"
           active={helpViewActive}
@@ -1022,25 +1050,14 @@ export function Sidebar(): JSX.Element {
           sidebarFocused={isSidebarFocused}
           sidebarData={{ type: 'help' }}
         />
-        <SidebarRow
+        <SidebarFooterIcon
           icon={<SettingsIcon />}
-          label="Settings"
+          label="Settings (⌘,)"
           onClick={() => setSettingsOpen(true)}
           sidebarIdx={idxCounter.current.value++}
           vimHighlight={vimCursor === idxCounter.current.value - 1}
           sidebarFocused={isSidebarFocused}
           sidebarData={{ type: 'settings' }}
-        />
-        <SidebarRow
-          icon={<TrashIcon />}
-          label="Trash"
-          count={trashCount}
-          active={isFolderActive('trash', '')}
-          onClick={() => setView({ kind: 'folder', folder: 'trash', subpath: '' })}
-          sidebarIdx={idxCounter.current.value++}
-          vimHighlight={vimCursor === idxCounter.current.value - 1}
-          sidebarFocused={isSidebarFocused}
-          sidebarData={{ type: 'trash' }}
         />
       </div>
 
@@ -1885,6 +1902,60 @@ function SidebarRow({
         </span>
       )}
       {trailing}
+    </button>
+  )
+}
+
+/** Compact icon button used in the sidebar footer. Same vim-nav
+ *  wiring as SidebarRow (sidebarIdx / sidebarData), but rendered as a
+ *  square icon so three utilities (Attachments, Help, Settings) fit
+ *  on one row without crowding. */
+function SidebarFooterIcon({
+  icon,
+  label,
+  active,
+  onClick,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false,
+  sidebarData
+}: {
+  icon: JSX.Element
+  label: string
+  active?: boolean
+  onClick: () => void
+  sidebarIdx?: number
+  vimHighlight?: boolean
+  sidebarFocused?: boolean
+  sidebarData?: { type: string }
+}): JSX.Element {
+  const strongActive = !!active && (!sidebarFocused || !!vimHighlight)
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={[
+        'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+        active
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'text-ink-500 hover:bg-paper-200/70 hover:text-ink-900'
+      ].join(' ')}
+      {...(sidebarIdx != null
+        ? {
+            'data-sidebar-idx': sidebarIdx,
+            'data-sidebar-type': sidebarData?.type ?? 'settings'
+          }
+        : {})}
+    >
+      <span className={strongActive ? 'text-white' : undefined}>{icon}</span>
     </button>
   )
 }
