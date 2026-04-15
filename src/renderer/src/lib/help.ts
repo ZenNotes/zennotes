@@ -109,7 +109,9 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Ctrl-w h / j / k / l', action: 'Move focus', detail: 'Move between sidebar, note list, editor, connections, or adjacent editor panes.' },
       { keys: 'Ctrl-w v', action: 'Split right', detail: 'Clone the current tab into a pane to the right.' },
       { keys: 'Ctrl-w s', action: 'Split down', detail: 'Clone the current tab into a pane below.' },
-      { keys: 'Space o', action: 'Open buffers', detail: 'Normal mode only: open the active pane’s buffer switcher, especially useful when the tab strip is hidden.' },
+      { keys: 'Space o', action: 'Open buffers', detail: 'Show a searchable list of every open buffer across every pane.' },
+      { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
+      { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: 'Ctrl-o', action: 'Go back', detail: 'Jump to the previous note location in history.' },
       { keys: 'Ctrl-i', action: 'Go forward', detail: 'Jump forward in note history.' },
       { keys: 'f', action: 'Hint mode', detail: 'Show jump labels for clickable targets when you are not in insert mode.' }
@@ -257,8 +259,18 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   },
   {
     command: '<Space> o',
-    summary: 'Leader buffer switcher in normal mode',
-    detail: 'Open the searchable buffer list for the active pane, including hidden tabs.'
+    summary: 'Leader buffer switcher',
+    detail: 'Open the searchable list of every open buffer across every pane. Works from any non-text panel.'
+  },
+  {
+    command: '<Space> f',
+    summary: 'Leader note search',
+    detail: 'Open the vault-wide note search palette from any panel.'
+  },
+  {
+    command: '<Space> e',
+    summary: 'Leader toggle sidebar',
+    detail: 'Show or hide the left sidebar from any panel.'
   }
 ]
 

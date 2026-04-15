@@ -262,6 +262,78 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
+      // ------- Global leader handling -----------------------------------
+      // Runs before per-panel routing so <Space>-prefixed shortcuts work
+      // from any focus context (sidebar, note list, editor, …). Editor-
+      // specific leader chains (leader-l-f for format) still require an
+      // editor in normal mode; the others are purely UI actions.
+      const editorNormalMode =
+        isEditorFocused(state.editorViewRef) &&
+        !isEditorInsertMode(state.editorViewRef, state.vimMode)
+      const editorInsertMode =
+        isEditorFocused(state.editorViewRef) &&
+        isEditorInsertMode(state.editorViewRef, state.vimMode)
+
+      if (leaderPending.current === 'leader') {
+        if (e.key === 'o') {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.setBufferPaletteOpen(true)
+          return
+        }
+        if (e.key === 'f') {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.setSearchOpen(true)
+          return
+        }
+        if (e.key === 'e') {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.toggleSidebar()
+          return
+        }
+        if (e.key === 'l' && editorNormalMode) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          armLeader('leader-l')
+          return
+        }
+        // Any other key cancels leader and falls through to normal routing.
+        resetLeader()
+      }
+
+      if (leaderPending.current === 'leader-l') {
+        if (e.key === 'f' && editorNormalMode) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.formatActiveNote()
+          return
+        }
+        resetLeader()
+      }
+
+      if (
+        e.key === ' ' &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        !editorInsertMode
+      ) {
+        const tag = (e.target as HTMLElement | null)?.tagName
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          armLeader('leader')
+          return
+        }
+      }
+
       // ------- g-g pending (jump to top) --------------------------------
       if (gPending.current) {
         gPending.current = false
@@ -316,35 +388,7 @@ export function VimNav(): JSX.Element | null {
 
       // ------- Editor focused -------------------------------------------
       if (isEditorFocused(state.editorViewRef)) {
-        if (!isEditorInsertMode(state.editorViewRef, state.vimMode)) {
-          if (leaderPending.current) {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            if (leaderPending.current === 'leader' && e.key === 'l') {
-              armLeader('leader-l')
-              return
-            }
-            if (leaderPending.current === 'leader' && e.key === 'o') {
-              resetLeader()
-              state.setBufferPaletteOpen(true)
-              return
-            }
-            if (leaderPending.current === 'leader-l' && e.key === 'f') {
-              resetLeader()
-              void state.formatActiveNote()
-              return
-            }
-            resetLeader()
-            return
-          }
-
-          if (e.key === ' ') {
-            e.preventDefault()
-            e.stopImmediatePropagation()
-            armLeader('leader')
-            return
-          }
-        } else {
+        if (isEditorInsertMode(state.editorViewRef, state.vimMode)) {
           resetLeader()
         }
 
