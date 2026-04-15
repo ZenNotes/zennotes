@@ -17,6 +17,7 @@ import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { toggleTaskAtIndex } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
+import { confirmMoveToTrash } from './lib/confirm-trash'
 import type { Panel } from './lib/vim-nav'
 import {
   allLeaves,
@@ -33,6 +34,7 @@ import {
   splitLeaf,
   updateLeaf,
   updateSplitSizes,
+  nextPaneId,
   type PaneEdge,
   type PaneLayout,
   type PaneLeaf
@@ -48,8 +50,10 @@ export type NoteSortOrder =
   | 'name-desc'
 
 export type LineNumberMode = 'off' | 'absolute' | 'relative'
+export type WhichKeyHintMode = 'timed' | 'sticky'
 
 const PREFS_KEY = 'zen:prefs:v2'
+const WORKSPACE_KEY = 'zen:workspace:v1'
 const VALID_FAMILIES: ThemeFamily[] = [
   'apple',
   'gruvbox',
@@ -71,10 +75,17 @@ const VALID_SORTS: NoteSortOrder[] = [
   'name-desc'
 ]
 const VALID_LINE_NUMBER_MODES: LineNumberMode[] = ['off', 'absolute', 'relative']
+const VALID_WHICH_KEY_HINT_MODES: WhichKeyHintMode[] = ['timed', 'sticky']
 const MAX_NOTE_JUMP_HISTORY = 100
 
 interface Prefs {
   vimMode: boolean
+  /** When true, pressing the leader key shows the next available Vim-style actions. */
+  whichKeyHints: boolean
+  /** Whether leader hints auto-hide after a timeout or stay open until dismissed. */
+  whichKeyHintMode: WhichKeyHintMode
+  /** How long the leader hint overlay and pending leader sequence stay visible/armed. */
+  whichKeyHintTimeoutMs: number
   livePreview: boolean      // hide markdown syntax on inactive lines
   tabsEnabled: boolean
   themeId: string
@@ -141,6 +152,9 @@ interface Prefs {
 }
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
+  whichKeyHints: true,
+  whichKeyHintMode: 'timed',
+  whichKeyHintTimeoutMs: 900,
   livePreview: true,
   tabsEnabled: false,
   themeId: DEFAULT_THEME_ID,
@@ -194,6 +208,18 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       : DEFAULT_PREFS.themeId
   return {
     vimMode: typeof p.vimMode === 'boolean' ? p.vimMode : DEFAULT_PREFS.vimMode,
+    whichKeyHints:
+      typeof p.whichKeyHints === 'boolean'
+        ? p.whichKeyHints
+        : DEFAULT_PREFS.whichKeyHints,
+    whichKeyHintMode:
+      p.whichKeyHintMode && VALID_WHICH_KEY_HINT_MODES.includes(p.whichKeyHintMode)
+        ? p.whichKeyHintMode
+        : DEFAULT_PREFS.whichKeyHintMode,
+    whichKeyHintTimeoutMs:
+      typeof p.whichKeyHintTimeoutMs === 'number'
+        ? Math.min(3000, Math.max(400, Math.round(p.whichKeyHintTimeoutMs)))
+        : DEFAULT_PREFS.whichKeyHintTimeoutMs,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
     tabsEnabled:
@@ -537,6 +563,9 @@ async function rewriteTagAcrossVault(
 /** Snapshot prefs-shaped fields out of the live store. */
 function collectPrefs(s: {
   vimMode: boolean
+  whichKeyHints: boolean
+  whichKeyHintMode: WhichKeyHintMode
+  whichKeyHintTimeoutMs: number
   livePreview: boolean
   tabsEnabled: boolean
   themeId: string
@@ -572,6 +601,9 @@ function collectPrefs(s: {
 }): Prefs {
   return {
     vimMode: s.vimMode,
+    whichKeyHints: s.whichKeyHints,
+    whichKeyHintMode: s.whichKeyHintMode,
+    whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
     livePreview: s.livePreview,
     tabsEnabled: s.tabsEnabled,
     themeId: s.themeId,
@@ -619,6 +651,183 @@ export type View =
       subpath: string
     }
   | { kind: 'assets' }
+
+interface WorkspaceSnapshot {
+  paneLayout: PaneLayout
+  activePaneId: string
+  view: View
+  sidebarOpen: boolean
+  noteListOpen: boolean
+  selectedTags: string[]
+}
+
+function isWorkspaceVirtualTabPath(path: string): boolean {
+  return (
+    isTasksTabPath(path) ||
+    isTagsTabPath(path) ||
+    isHelpTabPath(path) ||
+    isTrashTabPath(path)
+  )
+}
+
+function loadWorkspaceSnapshots(): Record<string, unknown> {
+  try {
+    const raw = localStorage.getItem(WORKSPACE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveWorkspaceSnapshot(root: string, snapshot: WorkspaceSnapshot): void {
+  try {
+    const allSnapshots = loadWorkspaceSnapshots()
+    allSnapshots[root] = snapshot
+    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(allSnapshots))
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadWorkspaceSnapshot(root: string): unknown {
+  return loadWorkspaceSnapshots()[root] ?? null
+}
+
+function normalizeWorkspaceView(raw: unknown): View {
+  if (!raw || typeof raw !== 'object') {
+    return { kind: 'folder', folder: 'inbox', subpath: '' }
+  }
+  const view = raw as Record<string, unknown>
+  if (view.kind === 'assets') return { kind: 'assets' }
+  if (
+    view.kind === 'folder' &&
+    (view.folder === 'inbox' ||
+      view.folder === 'quick' ||
+      view.folder === 'archive' ||
+      view.folder === 'trash') &&
+    typeof view.subpath === 'string'
+  ) {
+    return { kind: 'folder', folder: view.folder, subpath: view.subpath }
+  }
+  return { kind: 'folder', folder: 'inbox', subpath: '' }
+}
+
+function normalizeWorkspaceTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const tags: string[] = []
+  for (const value of raw) {
+    if (typeof value !== 'string' || seen.has(value)) continue
+    seen.add(value)
+    tags.push(value)
+  }
+  return tags
+}
+
+function normalizeWorkspaceSizes(raw: unknown, length: number): number[] {
+  if (!Array.isArray(raw) || raw.length !== length) {
+    return Array.from({ length }, () => 1 / length)
+  }
+  const sizes = raw
+    .map((value) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
+    )
+    .filter((value) => value > 0)
+  if (sizes.length !== length) {
+    return Array.from({ length }, () => 1 / length)
+  }
+  const total = sizes.reduce((sum, value) => sum + value, 0)
+  if (total <= 0) return Array.from({ length }, () => 1 / length)
+  return sizes.map((value) => value / total)
+}
+
+function sanitizeWorkspaceLayout(raw: unknown, existingPaths: Set<string>): PaneLayout {
+  const usedIds = new Set<string>()
+
+  const nextId = (rawId: unknown): string => {
+    if (typeof rawId === 'string' && rawId && !usedIds.has(rawId)) {
+      usedIds.add(rawId)
+      return rawId
+    }
+    let fresh = nextPaneId()
+    while (usedIds.has(fresh)) fresh = nextPaneId()
+    usedIds.add(fresh)
+    return fresh
+  }
+
+  const sanitizePath = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null
+    return existingPaths.has(value) || isWorkspaceVirtualTabPath(value) ? value : null
+  }
+
+  const visit = (value: unknown): PaneLayout | null => {
+    if (!value || typeof value !== 'object') return null
+    const node = value as Record<string, unknown>
+
+    if (node.kind === 'leaf') {
+      const seenTabs = new Set<string>()
+      const tabs: string[] = []
+      const rawTabs = Array.isArray(node.tabs) ? node.tabs : []
+      for (const rawTab of rawTabs) {
+        const tab = sanitizePath(rawTab)
+        if (!tab || seenTabs.has(tab)) continue
+        seenTabs.add(tab)
+        tabs.push(tab)
+      }
+
+      const pinnedSeen = new Set<string>()
+      const pinnedTabs: string[] = []
+      const rawPinnedTabs = Array.isArray(node.pinnedTabs) ? node.pinnedTabs : []
+      for (const rawPinnedTab of rawPinnedTabs) {
+        const tab = sanitizePath(rawPinnedTab)
+        if (!tab || !seenTabs.has(tab) || pinnedSeen.has(tab)) continue
+        pinnedSeen.add(tab)
+        pinnedTabs.push(tab)
+      }
+
+      const orderedTabs = [...pinnedTabs, ...tabs.filter((tab) => !pinnedSeen.has(tab))]
+      if (orderedTabs.length === 0) return null
+
+      const activeCandidate = sanitizePath(node.activeTab)
+      const activeTab =
+        activeCandidate && orderedTabs.includes(activeCandidate)
+          ? activeCandidate
+          : orderedTabs[0]
+
+      return {
+        kind: 'leaf',
+        id: nextId(node.id),
+        tabs: orderedTabs,
+        pinnedTabs,
+        activeTab
+      }
+    }
+
+    if (node.kind === 'split') {
+      const rawChildren = Array.isArray(node.children) ? node.children : []
+      const children = rawChildren.flatMap((child) => {
+        const next = visit(child)
+        return next ? [next] : []
+      })
+      if (children.length === 0) return null
+      if (children.length === 1) return children[0]
+
+      return {
+        kind: 'split',
+        id: nextId(node.id),
+        direction: node.direction === 'column' ? 'column' : 'row',
+        children,
+        sizes: normalizeWorkspaceSizes(node.sizes, children.length)
+      }
+    }
+
+    return null
+  }
+
+  return visit(raw) ?? makeLeaf()
+}
 
 /** True if any pane currently has the virtual Tasks tab open. The Tasks
  *  panel lives as a tab in the pane layout, so this is how callers detect
@@ -679,9 +888,13 @@ interface Store {
   outlinePaletteOpen: boolean
   query: string
   initialized: boolean
+  workspaceRestored: boolean
   sidebarOpen: boolean
   noteListOpen: boolean
   vimMode: boolean
+  whichKeyHints: boolean
+  whichKeyHintMode: WhichKeyHintMode
+  whichKeyHintTimeoutMs: number
   livePreview: boolean
   tabsEnabled: boolean
   settingsOpen: boolean
@@ -844,6 +1057,9 @@ interface Store {
   toggleNoteList: () => void
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
+  setWhichKeyHints: (on: boolean) => void
+  setWhichKeyHintMode: (mode: WhichKeyHintMode) => void
+  setWhichKeyHintTimeoutMs: (ms: number) => void
   setLivePreview: (on: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -964,6 +1180,8 @@ interface Store {
   ) => Promise<void>
   init: () => Promise<void>
   openVaultPicker: () => Promise<void>
+  persistWorkspace: () => void
+  flushDirtyNotes: () => Promise<void>
 }
 
 /** Debounced per-path save timers. Module-scoped so they survive re-renders. */
@@ -1159,6 +1377,68 @@ export const useStore = create<Store>((set, get) => {
     })
   }
 
+  const restoreWorkspaceForVault = async (vault: VaultInfo): Promise<void> => {
+    const rawSnapshot = loadWorkspaceSnapshot(vault.root)
+    if (!rawSnapshot || typeof rawSnapshot !== 'object') {
+      set({ workspaceRestored: true })
+      return
+    }
+
+    const snapshot = rawSnapshot as Partial<WorkspaceSnapshot>
+    const existingPaths = new Set(get().notes.map((note) => note.path))
+    let layout = sanitizeWorkspaceLayout(snapshot.paneLayout, existingPaths)
+    const unreadable = new Set<string>()
+    const contents: Record<string, NoteContent> = {}
+    const dirty: Record<string, boolean> = {}
+    const pathsToLoad = Array.from(
+      new Set(
+        allLeaves(layout)
+          .flatMap((leaf) => leaf.tabs)
+          .filter((path) => existingPaths.has(path))
+      )
+    )
+
+    await Promise.all(
+      pathsToLoad.map(async (path) => {
+        try {
+          contents[path] = await window.zen.readNote(path)
+          dirty[path] = false
+        } catch (err) {
+          unreadable.add(path)
+          console.error('restoreWorkspace readNote failed', err)
+        }
+      })
+    )
+
+    if (unreadable.size > 0) {
+      layout = rewritePathsInTree(layout, (path) => (unreadable.has(path) ? null : path))
+    }
+
+    const ensured = ensureActivePane(
+      layout,
+      typeof snapshot.activePaneId === 'string' ? snapshot.activePaneId : ''
+    )
+
+    set({
+      paneLayout: ensured.layout,
+      activePaneId: ensured.activePaneId,
+      noteContents: contents,
+      noteDirty: dirty,
+      view: normalizeWorkspaceView(snapshot.view),
+      sidebarOpen:
+        typeof snapshot.sidebarOpen === 'boolean'
+          ? snapshot.sidebarOpen
+          : get().sidebarOpen,
+      noteListOpen:
+        typeof snapshot.noteListOpen === 'boolean'
+          ? snapshot.noteListOpen
+          : get().noteListOpen,
+      selectedTags: normalizeWorkspaceTags(snapshot.selectedTags),
+      workspaceRestored: true,
+      ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+    })
+  }
+
   return {
   vault: null,
   notes: [],
@@ -1179,9 +1459,13 @@ export const useStore = create<Store>((set, get) => {
   outlinePaletteOpen: false,
   query: '',
   initialized: false,
+  workspaceRestored: false,
   sidebarOpen: true,
   noteListOpen: true,
   vimMode: loadPrefs().vimMode,
+  whichKeyHints: loadPrefs().whichKeyHints,
+  whichKeyHintMode: loadPrefs().whichKeyHintMode,
+  whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
   livePreview: loadPrefs().livePreview,
   tabsEnabled: loadPrefs().tabsEnabled,
   settingsOpen: false,
@@ -1475,7 +1759,9 @@ export const useStore = create<Store>((set, get) => {
         // Drop tabs whose notes no longer exist — except keep the currently
         // focused selectedPath so the editor doesn't blank out mid-save.
         const keep = (path: string): boolean =>
-          existingPaths.has(path) || path === s.selectedPath
+          existingPaths.has(path) ||
+          isWorkspaceVirtualTabPath(path) ||
+          path === s.selectedPath
         const nextLayout = rewritePathsInTree(s.paneLayout, (path) =>
           keep(path) ? path : null
         )
@@ -1736,8 +2022,11 @@ export const useStore = create<Store>((set, get) => {
   },
 
   trashActive: async () => {
-    const path = get().selectedPath
+    const state = get()
+    const path = state.selectedPath
     if (!path) return
+    const title = state.notes.find((note) => note.path === path)?.title
+    if (!confirmMoveToTrash(title)) return
     try {
       await window.zen.moveToTrash(path)
       set((s) => {
@@ -1872,6 +2161,18 @@ export const useStore = create<Store>((set, get) => {
     set({ sidebarOpen: !focus, noteListOpen: !focus }),
   setVimMode: (on) => {
     set({ vimMode: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setWhichKeyHints: (on) => {
+    set({ whichKeyHints: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setWhichKeyHintMode: (mode) => {
+    set({ whichKeyHintMode: mode })
+    savePrefs(collectPrefs(get()))
+  },
+  setWhichKeyHintTimeoutMs: (ms) => {
+    set({ whichKeyHintTimeoutMs: Math.min(3000, Math.max(400, Math.round(ms))) })
     savePrefs(collectPrefs(get()))
   },
   setLivePreview: (on) => {
@@ -2719,11 +3020,15 @@ export const useStore = create<Store>((set, get) => {
     try {
       const vault = await window.zen.getCurrentVault()
       if (vault) {
-        set({ vault })
+        set({ vault, workspaceRestored: false })
         await get().refreshNotes()
+        await restoreWorkspaceForVault(vault)
+      } else {
+        set({ workspaceRestored: true })
       }
     } catch (err) {
       console.error('init failed', err)
+      set({ workspaceRestored: true })
     }
     // Default focus to the sidebar so j/k navigation works immediately
     if (get().sidebarOpen && !get().focusedPanel) {
@@ -2752,6 +3057,7 @@ export const useStore = create<Store>((set, get) => {
   },
 
   openVaultPicker: async () => {
+    await get().flushDirtyNotes()
     const vault = await window.zen.pickVault()
     if (vault) {
       const fresh = makeLeaf()
@@ -2771,11 +3077,34 @@ export const useStore = create<Store>((set, get) => {
         noteBackstack: [],
         noteForwardstack: [],
         pendingJumpLocation: null,
-        pinnedRefPath: null
+        pinnedRefPath: null,
+        workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
       await get().refreshNotes()
+      await restoreWorkspaceForVault(vault)
     }
+  },
+
+  persistWorkspace: () => {
+    const state = get()
+    if (!state.vault || !state.workspaceRestored) return
+    saveWorkspaceSnapshot(state.vault.root, {
+      paneLayout: state.paneLayout,
+      activePaneId: state.activePaneId,
+      view: state.view,
+      sidebarOpen: state.sidebarOpen,
+      noteListOpen: state.noteListOpen,
+      selectedTags: state.selectedTags
+    })
+  },
+
+  flushDirtyNotes: async () => {
+    get().persistWorkspace()
+    const dirtyPaths = Object.entries(get().noteDirty)
+      .filter(([, isDirty]) => isDirty)
+      .map(([path]) => path)
+    await Promise.all(dirtyPaths.map(async (path) => get().persistNote(path)))
   }
   }
 })

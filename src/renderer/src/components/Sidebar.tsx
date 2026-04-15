@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { isHelpViewActive, isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
+import { confirmMoveToTrash } from '../lib/confirm-trash'
+import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import type { NoteSortOrder } from '../store'
@@ -488,6 +490,15 @@ export function Sidebar(): JSX.Element {
         }
       })
       items.push({
+        label: 'Move…',
+        onSelect: async () => {
+          const target = await prompt(buildMoveNotePrompt(n, allFolders))
+          if (!target) return
+          const dest = parseMoveNoteTarget(target)
+          await moveNoteAction(n.path, dest.folder, dest.subpath)
+        }
+      })
+      items.push({
         label: 'Duplicate',
         onSelect: async () => {
           const meta = await window.zen.duplicateNote(n.path)
@@ -549,6 +560,7 @@ export function Sidebar(): JSX.Element {
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
+          if (!confirmMoveToTrash(n.title)) return
           await window.zen.moveToTrash(n.path)
           await refreshNotes()
           if (selectedPath === n.path) await selectNote(null)
@@ -569,6 +581,7 @@ export function Sidebar(): JSX.Element {
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
+          if (!confirmMoveToTrash(n.title)) return
           await window.zen.moveToTrash(n.path)
           await refreshNotes()
           if (selectedPath === n.path) await selectNote(null)
@@ -599,11 +612,13 @@ export function Sidebar(): JSX.Element {
   }, [
     noteMenu,
     notes,
+    allFolders,
     selectNote,
     selectedPath,
     refreshNotes,
     prompt,
     renameActive,
+    moveNoteAction,
     tabsEnabled,
     openNoteInTab
   ])
@@ -746,7 +761,7 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside
-      className={`glass-sidebar relative flex shrink-0 flex-col pb-3 pt-3${isSidebarFocused ? ' panel-focused' : ''}`}
+      className={`glass-sidebar relative flex shrink-0 flex-col pt-3${isSidebarFocused ? ' panel-focused' : ''}`}
       style={{ width: sidebarWidth }}
       onMouseDownCapture={() => setFocusedPanel('sidebar')}
       onFocusCapture={() => setFocusedPanel('sidebar')}
@@ -1047,7 +1062,7 @@ export function Sidebar(): JSX.Element {
        *  from the command palette and (for Settings) ⌘,. Trash lives in
        *  the main tree above and opens its dedicated recovery view. */}
       <div
-        className="mt-2 grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3 py-3"
+        className="mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
         style={{ borderTop: '1px solid var(--glass-stroke)' }}
       >
         {hasAssetsDir && (
@@ -1575,7 +1590,6 @@ function NoteLeaf({
   return (
     <button
       onClick={onSelect}
-      onDoubleClick={() => void window.zen.openNoteWindow(note.path)}
       onContextMenu={onContextMenu}
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}

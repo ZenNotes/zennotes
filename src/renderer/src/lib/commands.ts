@@ -8,8 +8,10 @@
  */
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
 import { promptApp } from '../components/PromptHost'
+import { buildMoveNotePrompt, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
+import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
 import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 
@@ -243,31 +245,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       when: () => !!getState().activeNote,
       run: async () => {
-        const active = getState().activeNote
+        const state = getState()
+        const active = state.activeNote
         if (!active) return
-        const target = await promptApp({
-          title: `Move "${active.title}" to…`,
-          description: 'Enter a folder path, e.g. inbox/Work/Research',
-          initialValue: active.path.split('/').slice(0, -1).join('/'),
-          placeholder: 'inbox/Work',
-          okLabel: 'Move',
-          validate: (v) => {
-            const trimmed = v.trim()
-            if (!trimmed) return 'Folder path required'
-            const top = trimmed.split('/')[0]
-            if (top !== 'inbox' && top !== 'archive') {
-              return 'Top-level folder must be inbox or archive'
-            }
-            return null
-          }
-        })
+        const target = await promptApp(buildMoveNotePrompt(active, state.folders))
         if (!target) return
-        const [folder, ...rest] = target.split('/')
-        await getState().moveNote(
-          active.path,
-          folder as 'inbox' | 'archive',
-          rest.join('/')
-        )
+        const dest = parseMoveNoteTarget(target)
+        await state.moveNote(active.path, dest.folder, dest.subpath)
       }
     }
   )
@@ -346,6 +330,33 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-outline'))
       }
+    },
+    {
+      id: 'view.mode.edit',
+      title: 'Switch to Edit Mode',
+      category: 'View',
+      shortcut: ':editmode',
+      keywords: 'editor writing raw markdown pane mode toolbar',
+      when: () => !!getState().activeNote,
+      run: () => requestPaneMode('edit')
+    },
+    {
+      id: 'view.mode.split',
+      title: 'Switch to Split Mode',
+      category: 'View',
+      shortcut: ':splitmode',
+      keywords: 'editor preview side by side pane mode toolbar',
+      when: () => !!getState().activeNote,
+      run: () => requestPaneMode('split')
+    },
+    {
+      id: 'view.mode.preview',
+      title: 'Switch to Preview Mode',
+      category: 'View',
+      shortcut: ':previewmode',
+      keywords: 'reading rendered markdown pane mode toolbar',
+      when: () => !!getState().activeNote,
+      run: () => requestPaneMode('preview')
     },
     {
       id: 'fold.heading',
@@ -747,6 +758,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: getState().vimMode ? 'Disable Vim Mode' : 'Enable Vim Mode',
       category: 'Editor',
       run: () => getState().setVimMode(!getState().vimMode)
+    },
+    {
+      id: 'editor.which-key.toggle',
+      title: getState().whichKeyHints
+        ? 'Disable Leader Key Hints'
+        : 'Enable Leader Key Hints',
+      category: 'Editor',
+      keywords: 'which-key leader space hints overlay vim',
+      run: () => getState().setWhichKeyHints(!getState().whichKeyHints)
     },
     {
       id: 'editor.live-preview.toggle',

@@ -19,6 +19,7 @@ import { resolveQuickNoteTitle } from './lib/quick-note-title'
 function App(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const init = useStore((s) => s.init)
+  const workspaceRestored = useStore((s) => s.workspaceRestored)
   const searchOpen = useStore((s) => s.searchOpen)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const commandPaletteOpen = useStore((s) => s.commandPaletteOpen)
@@ -29,6 +30,10 @@ function App(): JSX.Element {
   const setOutlinePaletteOpen = useStore((s) => s.setOutlinePaletteOpen)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const noteListOpen = useStore((s) => s.noteListOpen)
+  const paneLayout = useStore((s) => s.paneLayout)
+  const activePaneId = useStore((s) => s.activePaneId)
+  const view = useStore((s) => s.view)
+  const selectedTags = useStore((s) => s.selectedTags)
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const themeId = useStore((s) => s.themeId)
@@ -43,10 +48,35 @@ function App(): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
   const darkSidebar = useStore((s) => s.darkSidebar)
+  const persistWorkspace = useStore((s) => s.persistWorkspace)
+  const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
 
   useEffect(() => {
     void init()
   }, [init])
+
+  useEffect(() => {
+    if (!vault || !workspaceRestored) return
+    persistWorkspace()
+  }, [
+    activePaneId,
+    noteListOpen,
+    paneLayout,
+    persistWorkspace,
+    selectedTags,
+    sidebarOpen,
+    vault,
+    view,
+    workspaceRestored
+  ])
+
+  useEffect(() => {
+    const flush = (): void => {
+      void flushDirtyNotes()
+    }
+    window.addEventListener('beforeunload', flush)
+    return () => window.removeEventListener('beforeunload', flush)
+  }, [flushDirtyNotes])
 
   // Apply theme: set html[data-theme=...] based on mode/family/id.
   // When mode === 'auto', we mirror `prefers-color-scheme` and also

@@ -46,12 +46,17 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Stay keyboard-first',
     body:
-      'Search notes with Cmd+P, open the command palette with Shift+Cmd+P, and use Vim mode for ex commands, pane motion, hint mode, and link-following.'
+      'Search notes with Cmd+P, open the command palette with Shift+Cmd+P, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following.'
   },
   {
     title: 'Use the built-in manual',
     body:
       'Open Help from the sidebar footer or with `:help` to browse shortcuts, commands, panel behavior, Vim flows, and settings in one place.'
+  },
+  {
+    title: 'Pick up where you left off',
+    body:
+      'ZenNotes restores the last open tabs, splits, and built-in views for each vault, so closing and reopening the app brings you back to the same workspace.'
   }
 ]
 
@@ -64,12 +69,22 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Tabs and splits are first-class',
     body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`.'
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`.'
+  },
+  {
+    title: 'Leader mode can teach itself',
+    body:
+      'If Leader key hints are enabled, pressing `Space` opens a which-key style panel that shows the next available leader actions, including note-local commands like `Space l f`. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you press `Space` again or `Esc`.'
   },
   {
     title: 'Tasks, tags, and trash are vault-wide views',
     body:
       'Tasks scans every note for checkboxes, Tags lets you browse notes matching any selected tag, and Trash gives you a dedicated recovery surface for deleted notes without turning the left rail into a second browser.'
+  },
+  {
+    title: 'Moving notes is path-first',
+    body:
+      'Use the note context menu or the command palette to move a note into Inbox or Archive. The move prompt autocompletes folder paths, so you can type and Tab through existing destinations instead of dragging.'
   },
   {
     title: 'Reference and connections support research-heavy work',
@@ -90,6 +105,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: 'Footer actions expose utility views',
     body:
       'The sidebar footer gives you direct access to Attachments, Help, and Preferences, so utility screens stay discoverable even when you are new to the app.'
+  },
+  {
+    title: 'Destructive actions ask first',
+    body:
+      'Moving a note to Trash now asks for confirmation before anything is deleted from the active workspace, and the Trash view separates restore from permanent delete.'
   }
 ]
 
@@ -123,6 +143,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
+      { keys: 'Space, then pause', action: 'Show leader hints', detail: 'If enabled in Settings, open a which-key style guide for the next available leader actions. Sticky mode keeps it open until `Space` or `Esc`.' },
       { keys: '⌘3', action: 'Toggle outline panel', detail: 'Show or hide the persistent outline in the active pane.' },
       { keys: 'zc / zo', action: 'Fold / unfold heading', detail: 'Collapse or expand the section below the heading at the cursor.' },
       { keys: 'zM / zR', action: 'Fold / unfold all', detail: 'Collapse or expand every heading section in the note.' },
@@ -271,12 +292,17 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Tab> / <Shift-Tab> on the ex line',
     summary: 'Complete ex commands',
-    detail: 'Cycle through every registered ex command with a wildmenu popup.'
+    detail: 'Cycle through every registered ex command with a wildmenu popup, and complete supported command arguments like `:view edit|split|preview`.'
   },
   {
     command: '<Space> l f',
     summary: 'Leader-format in normal mode',
     detail: 'A quick keyboard path to format the active note from the editor.'
+  },
+  {
+    command: '<Space> (pause)',
+    summary: 'Show leader hints',
+    detail: 'When Leader key hints are enabled, pressing Space shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until Space or Esc.'
   },
   {
     command: '<Space> o',
@@ -304,6 +330,16 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Same as <Space> p — ex-line access to the note outline.'
   },
   {
+    command: ':view edit|split|preview',
+    summary: 'Switch the active note layout',
+    detail: 'Change the current pane between editor-only, side-by-side split, and preview-only modes without clicking the toolbar.'
+  },
+  {
+    command: ':editmode / :splitmode / :previewmode',
+    summary: 'Direct mode aliases',
+    detail: 'Single-command aliases for switching the active note to Edit, Split, or Preview mode.'
+  },
+  {
     command: ':fold / :unfold',
     summary: 'Toggle the heading at the cursor',
     detail: 'Collapse or expand the section beneath the heading at the current line. Same as vim `zc` / `zo`.'
@@ -327,6 +363,9 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Editor behavior',
     items: [
       { label: 'Vim mode', detail: 'Turn CodeMirror Vim bindings on or off for the editor and reference pane.' },
+      { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing Space so available leader actions stay visible while you decide.' },
+      { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with Space or Esc.' },
+      { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing Space.' },
       { label: 'Live preview', detail: 'Hide markdown syntax on lines you are not actively editing.' },
       { label: 'Note tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows.' },
       { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },

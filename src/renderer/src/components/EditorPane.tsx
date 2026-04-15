@@ -85,6 +85,7 @@ import {
   droppedPathsFromTransfer,
   hasDroppedFiles
 } from '../lib/editor-drops'
+import { ZEN_SET_PANE_MODE_EVENT, type PaneMode } from '../lib/pane-mode'
 
 const paperHighlight = HighlightStyle.define([
   // Markdown-level tokens
@@ -138,8 +139,6 @@ const paperHighlight = HighlightStyle.define([
  *  switch) so the update listener skips the save schedule. */
 const programmatic = Annotation.define<boolean>()
 const OUTLINE_JUMP_TOP_MARGIN = 24
-
-type Mode = 'edit' | 'preview' | 'split'
 
 function lineNumberExtension(mode: LineNumberMode): Extension {
   if (mode === 'off') return []
@@ -207,7 +206,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const wordWrap = useStore((s) => s.wordWrap)
 
-  const [mode, setMode] = useState<Mode>('edit')
+  const [mode, setMode] = useState<PaneMode>('edit')
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [paneDropEdge, setPaneDropEdge] = useState<PaneEdge | null>(null)
@@ -271,6 +270,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setOutlineOpen((open) => !open)
   }, [])
 
+  const applyPaneMode = useCallback((nextMode: PaneMode) => {
+    setMode(nextMode)
+    setActivePane(paneId)
+    setFocusedPanel('editor')
+    requestAnimationFrame(() => {
+      if (nextMode === 'preview') {
+        previewScrollRef.current?.focus()
+        return
+      }
+      focusEditorNormalMode()
+    })
+  }, [paneId, setActivePane, setFocusedPanel])
+
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
   useEffect(() => {
@@ -281,6 +293,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:toggle-outline', handler)
     return () => window.removeEventListener('zen:toggle-outline', handler)
   }, [isActive, toggleOutlinePanel])
+
+  // `zen:set-pane-mode` — active-pane-only route for command palette and
+  // vim ex commands that switch the current note between Edit / Split /
+  // Preview without touching the toolbar.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (event: Event): void => {
+      const nextMode = (event as CustomEvent<{ mode?: PaneMode }>).detail?.mode
+      if (nextMode !== 'edit' && nextMode !== 'split' && nextMode !== 'preview') return
+      applyPaneMode(nextMode)
+    }
+    window.addEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
+    return () => window.removeEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
+  }, [applyPaneMode, isActive])
 
   const commitOutlineJump = useCallback((line: number) => {
     const view = viewRef.current
@@ -304,13 +330,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setActivePane(paneId)
     setFocusedPanel('editor')
     if (mode === 'preview' || !viewRef.current) {
-      setMode('edit')
+      applyPaneMode('edit')
       return
     }
     if (commitOutlineJump(line)) {
       pendingOutlineJumpLineRef.current = null
     }
-  }, [commitOutlineJump, mode, paneId, setActivePane, setFocusedPanel])
+  }, [applyPaneMode, commitOutlineJump, mode, paneId, setActivePane, setFocusedPanel])
 
   useEffect(() => {
     const pendingLine = pendingOutlineJumpLineRef.current
@@ -1181,7 +1207,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const folder = content.folder
     return (
       <div className="flex items-center gap-1 text-ink-500">
-        <ToggleGroup mode={mode} onChange={setMode} />
+        <ToggleGroup mode={mode} onChange={applyPaneMode} />
         <div className="mx-2 h-4 w-px bg-paper-300" />
         <IconBtn
           title={connectionsOpen ? 'Hide connections' : 'Show connections'}
@@ -1401,7 +1427,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     markdown={content.body}
                     notePath={content.path}
                     onRequestEdit={() => {
-                      if (mode === 'preview') setMode('edit')
+                      if (mode === 'preview') {
+                        applyPaneMode('edit')
+                        return
+                      }
                       focusEditorNormalMode()
                     }}
                   />
@@ -1617,12 +1646,12 @@ function ToggleGroup({
   mode,
   onChange
 }: {
-  mode: Mode
-  onChange: (m: Mode) => void
+  mode: PaneMode
+  onChange: (m: PaneMode) => void
 }): JSX.Element {
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
-      {(['edit', 'split', 'preview'] as Mode[]).map((m) => (
+      {(['edit', 'split', 'preview'] as PaneMode[]).map((m) => (
         <button
           key={m}
           onClick={() => onChange(m)}

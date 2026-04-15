@@ -10,6 +10,8 @@ import {
 } from './icons'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { ResizeHandle } from './ResizeHandle'
+import { confirmMoveToTrash } from '../lib/confirm-trash'
+import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
 import { usePrompt } from './PromptModal'
@@ -45,6 +47,7 @@ type AssetLayout = 'grid' | 'list'
 export function NoteList(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
+  const folders = useStore((s) => s.folders)
   const assetFiles = useStore((s) => s.assetFiles)
   const activeNote = useStore((s) => s.activeNote)
   const view = useStore((s) => s.view)
@@ -57,6 +60,7 @@ export function NoteList(): JSX.Element {
   const setNoteListWidth = useStore((s) => s.setNoteListWidth)
   const noteSortOrder = useStore((s) => s.noteSortOrder)
   const renameActive = useStore((s) => s.renameActive)
+  const moveNote = useStore((s) => s.moveNote)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const openNoteInTab = useStore((s) => s.openNoteInTab)
   const focusedPanel = useStore((s) => s.focusedPanel)
@@ -114,9 +118,16 @@ export function NoteList(): JSX.Element {
       if (selectedPath === n.path) await selectNote(meta.path)
     }
     const onTrash = async (): Promise<void> => {
+      if (!confirmMoveToTrash(n.title)) return
       await window.zen.moveToTrash(n.path)
       await refreshNotes()
       if (selectedPath === n.path) await selectNote(null)
+    }
+    const onMove = async (): Promise<void> => {
+      const target = await prompt(buildMoveNotePrompt(n, folders))
+      if (!target) return
+      const dest = parseMoveNoteTarget(target)
+      await moveNote(n.path, dest.folder, dest.subpath)
     }
     const onRestore = async (): Promise<void> => {
       const meta = await window.zen.restoreFromTrash(n.path)
@@ -165,6 +176,7 @@ export function NoteList(): JSX.Element {
           }
         }
       })
+      items.push({ label: 'Move…', onSelect: onMove })
       items.push({ label: 'Duplicate', onSelect: onDuplicate })
     }
     items.push({ label: 'Copy as Wiki Link', onSelect: onCopyWikilink })
@@ -215,11 +227,13 @@ export function NoteList(): JSX.Element {
   }, [
     menu,
     notes,
+    folders,
     refreshNotes,
     selectedPath,
     selectNote,
     prompt,
     renameActive,
+    moveNote,
     tabsEnabled,
     openNoteInTab
   ])
@@ -495,7 +509,6 @@ function NoteRow({
   return (
     <button
       onClick={onSelect}
-      onDoubleClick={() => void window.zen.openNoteWindow(note.path)}
       onContextMenu={onContextMenu}
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}

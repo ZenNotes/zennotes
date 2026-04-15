@@ -25,6 +25,7 @@ import { promptApp } from './PromptHost'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
 import { focusPaneInDirection } from '../lib/pane-nav'
+import { requestPaneMode } from '../lib/pane-mode'
 
 let vimCommandsRegistered = false
 
@@ -435,6 +436,20 @@ function registerVimNoteCommands(): void {
     })
   }
   Vim.defineEx('outline', 'outline', openOutline)
+  const setPaneMode = (mode: 'edit' | 'split' | 'preview'): void => {
+    requestAnimationFrame(() => {
+      requestPaneMode(mode)
+    })
+  }
+  Vim.defineEx('view', 'view', (_cm: unknown, params: { argString?: string } | undefined) => {
+    const nextMode = (params?.argString ?? '').trim().toLowerCase()
+    if (nextMode === 'edit' || nextMode === 'split' || nextMode === 'preview') {
+      setPaneMode(nextMode)
+    }
+  })
+  Vim.defineEx('editmode', 'editmode', () => setPaneMode('edit'))
+  Vim.defineEx('splitmode', 'splitmode', () => setPaneMode('split'))
+  Vim.defineEx('previewmode', 'previewmode', () => setPaneMode('preview'))
 
   Vim.defineEx('only', 'only', () => {
     const leaf = getActiveLeaf()
@@ -537,6 +552,10 @@ const MANUAL_EX_NAMES = new Set([
   'buffers',
   'ls',
   'outline',
+  'view',
+  'editmode',
+  'splitmode',
+  'previewmode',
   'trash',
   'fold',
   'unfold',
@@ -693,7 +712,12 @@ function positionWildmenu(anchor: HTMLElement): void {
   wildmenu.root.style.top = ''
 }
 
-function renderWildmenu(matches: string[], cycleIdx: number, anchor: HTMLElement): void {
+interface ExCompletionMatch {
+  label: string
+  apply: string
+}
+
+function renderWildmenu(matches: ExCompletionMatch[], cycleIdx: number, anchor: HTMLElement): void {
   const menu = ensureWildmenu()
   if (matches.length === 0) {
     menu.root.style.display = 'none'
@@ -705,9 +729,9 @@ function renderWildmenu(matches: string[], cycleIdx: number, anchor: HTMLElement
   const slice = matches.slice(0, menu.maxRows)
 
   menu.list.innerHTML = ''
-  slice.forEach((name, i) => {
+  slice.forEach((match, i) => {
     const row = document.createElement('div')
-    row.textContent = name
+    row.textContent = match.label
     row.dataset.idx = String(i)
     const isActive = i === cycleIdx
     row.style.cssText = [
@@ -751,15 +775,36 @@ interface ExTabCycle {
    *  prefix — valid when the user presses Tab with nothing typed — is
    *  not accidentally treated as expired). */
   basePrefix: string | null
-  matches: string[]
+  matches: ExCompletionMatch[]
   cycleIdx: number
 }
 
 let exCycle: ExTabCycle | null = null
 
-function computeExMatches(prefix: string): string[] {
-  if (!prefix) return registeredExNames.slice()
-  return registeredExNames.filter((n) => n.startsWith(prefix))
+function completeViewArgs(input: string): ExCompletionMatch[] | null {
+  const match = input.match(/^([A-Za-z0-9_]+)(\s+)([^ ]*)$/)
+  if (!match) return null
+  const [, commandName, whitespace, argPrefix] = match
+  if (commandName.toLowerCase() !== 'view') return null
+  const options = ['edit', 'split', 'preview']
+  const filtered = argPrefix
+    ? options.filter((option) => option.startsWith(argPrefix.toLowerCase()))
+    : options
+  return filtered.map((option) => ({
+    label: option,
+    apply: `${commandName}${whitespace}${option}`
+  }))
+}
+
+function computeExMatches(prefix: string): ExCompletionMatch[] {
+  const argMatches = completeViewArgs(prefix)
+  if (argMatches) return argMatches
+  if (!prefix) {
+    return registeredExNames.map((name) => ({ label: name, apply: name }))
+  }
+  return registeredExNames
+    .filter((n) => n.startsWith(prefix))
+    .map((name) => ({ label: name, apply: name }))
 }
 
 /**
@@ -855,9 +900,9 @@ function installExTabCompletion(): void {
       // `<input>`. That would invalidate exCycle.input on the very next
       // Tab, restarting the cycle at match 0. Submission reads
       // `inp.value` directly, so skipping the event is safe.
-      target.value = match
+      target.value = match.apply
       target.focus()
-      target.setSelectionRange(match.length, match.length)
+      target.setSelectionRange(match.apply.length, match.apply.length)
       // Render / refresh the wildmenu with the highlighted match.
       renderWildmenu(cycle.matches, idx, target)
     },

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
-import type { LineNumberMode } from '../store'
+import type { LineNumberMode, WhichKeyHintMode } from '../store'
 import { THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
 
@@ -9,6 +9,12 @@ export function SettingsModal(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
+  const whichKeyHints = useStore((s) => s.whichKeyHints)
+  const setWhichKeyHints = useStore((s) => s.setWhichKeyHints)
+  const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
+  const setWhichKeyHintMode = useStore((s) => s.setWhichKeyHintMode)
+  const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
+  const setWhichKeyHintTimeoutMs = useStore((s) => s.setWhichKeyHintTimeoutMs)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
@@ -260,6 +266,38 @@ export function SettingsModal(): JSX.Element {
                 value={vimMode}
                 onChange={setVimMode}
               />
+              <ToggleRow
+                label="Leader key hints"
+                description="Show a which-key style guide after pressing Space so the next available leader actions stay visible."
+                value={whichKeyHints}
+                onChange={setWhichKeyHints}
+              />
+              {whichKeyHints && (
+                <>
+                  <SegmentedRow
+                    label="Leader hint behavior"
+                    description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you press Space again or Esc."
+                    value={whichKeyHintMode}
+                    options={[
+                      { value: 'timed', label: 'Timed' },
+                      { value: 'sticky', label: 'Sticky' }
+                    ]}
+                    onChange={(next) => setWhichKeyHintMode(next as WhichKeyHintMode)}
+                  />
+                  {whichKeyHintMode === 'timed' && (
+                    <SliderRow
+                      label="Leader hint duration"
+                      description="How long the leader overlay stays visible, and how long the pending leader sequence stays armed after pressing Space."
+                      value={whichKeyHintTimeoutMs}
+                      min={400}
+                      max={3000}
+                      step={100}
+                      format={(v) => `${(v / 1000).toFixed(1)}s`}
+                      onChange={setWhichKeyHintTimeoutMs}
+                    />
+                  )}
+                </>
+              )}
               <ToggleRow
                 label="Live preview"
                 description="Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], etc."

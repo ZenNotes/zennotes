@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
+import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
   getVisiblePanels,
   isEditorInsertMode,
@@ -32,6 +33,10 @@ export function VimNav(): JSX.Element | null {
 
   // Hint mode needs a render (to mount HintOverlay), so it's state.
   const [hintActive, setHintActive] = useState(false)
+  const [whichKeyState, setWhichKeyState] = useState<{
+    stage: 'leader' | 'leader-l'
+    allowEditorActions: boolean
+  } | null>(null)
   const hintRef = useRef(false)
   const setHint = useCallback((v: boolean) => {
     hintRef.current = v
@@ -69,17 +74,73 @@ export function VimNav(): JSX.Element | null {
     setHint(false)
     focusEditor()
   }, [focusEditor, setHint])
+  const whichKeyHintsEnabled = useStore((s) => s.whichKeyHints)
+  const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
+  const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
+  const stickyWhichKeyHints = whichKeyHintsEnabled && whichKeyHintMode === 'sticky'
   const resetLeader = useCallback(() => {
     leaderPending.current = null
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
+    setWhichKeyState(null)
   }, [])
-  const armLeader = useCallback((stage: 'leader' | 'leader-l') => {
-    leaderPending.current = stage
-    if (leaderTimer.current) clearTimeout(leaderTimer.current)
-    leaderTimer.current = setTimeout(() => {
-      leaderPending.current = null
-    }, 900)
-  }, [])
+  const armLeader = useCallback(
+    (stage: 'leader' | 'leader-l', allowEditorActions: boolean) => {
+      leaderPending.current = stage
+      setWhichKeyState({ stage, allowEditorActions })
+      if (leaderTimer.current) clearTimeout(leaderTimer.current)
+      if (!stickyWhichKeyHints) {
+        leaderTimer.current = setTimeout(() => {
+          leaderPending.current = null
+          setWhichKeyState(null)
+        }, whichKeyHintTimeoutMs)
+      }
+    },
+    [stickyWhichKeyHints, whichKeyHintTimeoutMs]
+  )
+
+  const whichKeyItems: WhichKeyItem[] = (() => {
+    if (!whichKeyState) return []
+    if (whichKeyState.stage === 'leader-l') {
+      return [
+        {
+          keyLabel: 'f',
+          label: 'Format note',
+          detail: 'Run markdown formatting on the active note.'
+        }
+      ]
+    }
+
+    const items: WhichKeyItem[] = [
+      {
+        keyLabel: 'o',
+        label: 'Open buffers',
+        detail: 'Show the active pane’s open buffers in a searchable list.'
+      },
+      {
+        keyLabel: 'f',
+        label: 'Search notes',
+        detail: 'Open the vault-wide note search palette.'
+      },
+      {
+        keyLabel: 'e',
+        label: 'Toggle sidebar',
+        detail: 'Show or hide the left sidebar.'
+      },
+      {
+        keyLabel: 'p',
+        label: 'Note outline',
+        detail: 'Jump to any heading in the active note.'
+      }
+    ]
+    if (whichKeyState.allowEditorActions) {
+      items.push({
+        keyLabel: 'l',
+        label: 'Note actions',
+        detail: 'Open the note-local leader group. `f` formats the current note.'
+      })
+    }
+    return items
+  })()
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -257,6 +318,25 @@ export function VimNav(): JSX.Element | null {
       // doesn't swallow those keys with stale sidebar routing. Exception:
       // let `f` (hint mode) fall through — a global affordance that
       // should still work anywhere, and its handler sits further down.
+      if (leaderPending.current && e.key === 'Escape') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        resetLeader()
+        return
+      }
+      if (
+        leaderPending.current &&
+        e.key === ' ' &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        resetLeader()
+        return
+      }
       const panelViewActive = isTasksViewActive(state) || isTagsViewActive(state)
       if (panelViewActive && e.key !== 'f') {
         return
@@ -306,7 +386,7 @@ export function VimNav(): JSX.Element | null {
         if (e.key === 'l' && editorNormalMode) {
           e.preventDefault()
           e.stopImmediatePropagation()
-          armLeader('leader-l')
+          armLeader('leader-l', true)
           return
         }
         // Any other key cancels leader and falls through to normal routing.
@@ -336,7 +416,7 @@ export function VimNav(): JSX.Element | null {
         if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
           e.preventDefault()
           e.stopImmediatePropagation()
-          armLeader('leader')
+          armLeader('leader', editorNormalMode)
           return
         }
       }
@@ -1034,6 +1114,21 @@ export function VimNav(): JSX.Element | null {
 
   if (hintActive) {
     return <HintOverlay onActivate={exitHints} onCancel={cancelHints} />
+  }
+
+  if (whichKeyHintsEnabled && whichKeyState) {
+    return (
+      <WhichKeyOverlay
+        prefix={whichKeyState.stage === 'leader' ? 'Space' : 'Space l'}
+        title={whichKeyState.stage === 'leader' ? 'Leader' : 'Leader · Note Actions'}
+        detail={
+          stickyWhichKeyHints
+            ? 'Press a key to continue. Press Space again or Esc to close.'
+            : 'Press a key to continue or Esc to cancel.'
+        }
+        items={whichKeyItems}
+      />
+    )
   }
 
   return null
