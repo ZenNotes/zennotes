@@ -6,11 +6,12 @@
  * reflect the store state at that moment (toggle labels flip, context-
  * sensitive commands like "Unarchive" only show up when applicable).
  */
-import { isTasksViewActive, useStore } from '../store'
+import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { promptApp } from '../components/PromptHost'
 import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
 import { resolveQuickNoteTitle } from './quick-note-title'
+import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 
 export interface Command {
   /** Stable identifier — used as React key and for analytics. */
@@ -338,10 +339,71 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.outline-panel',
       title: 'Toggle Outline Panel',
       category: 'View',
+      shortcut: '⌘3',
       keywords: 'outline panel sidebar right headings',
       when: () => !!getState().activeNote,
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-outline'))
+      }
+    },
+    {
+      id: 'fold.heading',
+      title: 'Fold Heading at Cursor',
+      category: 'Editor',
+      shortcut: 'z c',
+      keywords: 'collapse fold heading section',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) {
+          foldCode(view)
+          view.focus()
+        }
+      }
+    },
+    {
+      id: 'fold.unfold-heading',
+      title: 'Unfold Heading at Cursor',
+      category: 'Editor',
+      shortcut: 'z o',
+      keywords: 'expand unfold heading section',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) {
+          unfoldCode(view)
+          view.focus()
+        }
+      }
+    },
+    {
+      id: 'fold.all',
+      title: 'Fold All Headings',
+      category: 'Editor',
+      shortcut: 'z M',
+      keywords: 'collapse fold all every',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) {
+          foldAll(view)
+          view.focus()
+        }
+      }
+    },
+    {
+      id: 'fold.unfold-all',
+      title: 'Unfold All Headings',
+      category: 'Editor',
+      shortcut: 'z R',
+      keywords: 'expand unfold all every reset',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) {
+          unfoldAll(view)
+          view.focus()
+        }
       }
     },
     {
@@ -514,6 +576,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openTasksView()
     },
     {
+      id: 'view.tags',
+      title: 'Open Tags',
+      category: 'View',
+      shortcut: ':tag',
+      keywords: 'tags browse filter vault',
+      when: () => !isTagsViewActive(getState()),
+      run: () => getState().openTagView()
+    },
+    {
       id: 'view.toggle.sidebar',
       title: 'Toggle Sidebar',
       category: 'View',
@@ -528,6 +599,100 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-connections'))
       }
+    },
+    {
+      id: 'view.toggle.note-list',
+      title: 'Toggle Note List Column',
+      category: 'View',
+      keywords: 'middle pane list browser',
+      when: () => !getState().unifiedSidebar,
+      run: () => getState().toggleNoteList()
+    },
+    {
+      id: 'view.toggle.tags',
+      title: getState().tagsCollapsed
+        ? 'Show Tags in Sidebar'
+        : 'Hide Tags in Sidebar',
+      category: 'View',
+      keywords: 'tag section fold hide collapse',
+      run: () => getState().setTagsCollapsed(!getState().tagsCollapsed),
+    },
+    {
+      id: 'view.content-align',
+      title: getState().contentAlign === 'center'
+        ? 'Align Content Left'
+        : 'Center Content',
+      category: 'View',
+      keywords: 'align center left width reading',
+      run: () =>
+        getState().setContentAlign(
+          getState().contentAlign === 'center' ? 'left' : 'center'
+        )
+    },
+    {
+      id: 'view.sort.name-asc',
+      title: 'Sort Notes: Name (A → Z)',
+      category: 'View',
+      keywords: 'alphabetical order',
+      when: () => getState().noteSortOrder !== 'name-asc',
+      run: () => getState().setNoteSortOrder('name-asc')
+    },
+    {
+      id: 'view.sort.name-desc',
+      title: 'Sort Notes: Name (Z → A)',
+      category: 'View',
+      keywords: 'alphabetical order reverse',
+      when: () => getState().noteSortOrder !== 'name-desc',
+      run: () => getState().setNoteSortOrder('name-desc')
+    },
+    {
+      id: 'view.sort.updated-desc',
+      title: 'Sort Notes: Updated (Newest First)',
+      category: 'View',
+      keywords: 'date recent time modified',
+      when: () => getState().noteSortOrder !== 'updated-desc',
+      run: () => getState().setNoteSortOrder('updated-desc')
+    },
+    {
+      id: 'view.sort.updated-asc',
+      title: 'Sort Notes: Updated (Oldest First)',
+      category: 'View',
+      keywords: 'date time modified',
+      when: () => getState().noteSortOrder !== 'updated-asc',
+      run: () => getState().setNoteSortOrder('updated-asc')
+    },
+    {
+      id: 'view.sort.created-desc',
+      title: 'Sort Notes: Created (Newest First)',
+      category: 'View',
+      keywords: 'date added',
+      when: () => getState().noteSortOrder !== 'created-desc',
+      run: () => getState().setNoteSortOrder('created-desc')
+    },
+    {
+      id: 'view.sort.created-asc',
+      title: 'Sort Notes: Created (Oldest First)',
+      category: 'View',
+      keywords: 'date added reverse',
+      when: () => getState().noteSortOrder !== 'created-asc',
+      run: () => getState().setNoteSortOrder('created-asc')
+    },
+    {
+      id: 'view.sort.manual',
+      title: 'Sort Notes: Manual',
+      category: 'View',
+      keywords: 'none drag order',
+      when: () => getState().noteSortOrder !== 'none',
+      run: () => getState().setNoteSortOrder('none')
+    },
+    {
+      id: 'view.group-by-kind',
+      title: getState().groupByKind
+        ? 'Ungroup Notes by Kind'
+        : 'Group Notes by Kind',
+      category: 'View',
+      keywords: 'folders notes split section',
+      run: () => getState().setGroupByKind(!getState().groupByKind)
     },
     {
       id: 'view.focus-mode',
@@ -609,6 +774,32 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         : 'Enable Auto-Reveal Active Note',
       category: 'Editor',
       run: () => getState().setAutoReveal(!getState().autoReveal)
+    },
+    {
+      id: 'editor.quick-note-date.toggle',
+      title: getState().quickNoteDateTitle
+        ? 'Disable Quick Note Date Titles'
+        : 'Enable Quick Note Date Titles'
+      ,
+      category: 'Editor',
+      keywords: 'daily date today yyyy-mm-dd',
+      run: () => getState().setQuickNoteDateTitle(!getState().quickNoteDateTitle)
+    },
+    {
+      id: 'editor.pdf-embed.compact',
+      title: 'PDF Embeds: Compact Card',
+      category: 'Editor',
+      keywords: 'pdf embed compact card preview reference',
+      when: () => getState().pdfEmbedInEditMode !== 'compact',
+      run: () => getState().setPdfEmbedInEditMode('compact')
+    },
+    {
+      id: 'editor.pdf-embed.full',
+      title: 'PDF Embeds: Inline Viewer',
+      category: 'Editor',
+      keywords: 'pdf embed full iframe inline',
+      when: () => getState().pdfEmbedInEditMode !== 'full',
+      run: () => getState().setPdfEmbedInEditMode('full')
     }
   )
 

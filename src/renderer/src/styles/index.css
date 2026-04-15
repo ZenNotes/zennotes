@@ -2144,30 +2144,10 @@ textarea,
   font-family: var(--z-mono-font, 'SF Mono', ui-monospace, monospace);
 }
 
-/* --- Heading fold gutter (CodeMirror) ------------------------------ */
-.cm-editor .cm-foldGutter {
-  color: rgb(var(--z-ink-400));
-  padding-right: 2px;
-  user-select: none;
-}
-.cm-editor .cm-foldGutter .cm-gutterElement {
-  min-width: 14px;
-  text-align: center;
-  cursor: pointer;
-}
-.cm-heading-fold-marker {
-  display: inline-block;
-  font-size: 10px;
-  line-height: 1;
-  color: rgb(var(--z-ink-400));
-  transition: color 120ms ease;
-}
-.cm-heading-fold-marker.is-closed {
-  color: rgb(var(--z-accent));
-}
-.cm-editor .cm-foldGutter .cm-gutterElement:hover .cm-heading-fold-marker {
-  color: rgb(var(--z-ink-900));
-}
+/* --- Heading fold placeholder (CodeMirror) ------------------------- */
+/* Shown in place of folded content. Used by the heading-fold ex
+ * commands and vim z-fold keys; the gutter itself is intentionally
+ * disabled in cm-heading-fold.ts. */
 .cm-editor .cm-foldPlaceholder {
   background: rgb(var(--z-bg-2));
   color: rgb(var(--z-ink-500));
@@ -2176,4 +2156,31 @@ textarea,
   padding: 0 6px;
   margin: 0 4px;
   font-size: 0.85em;
+}
+
+/* --- Obsidian-style heading fold arrow ----------------------------- */
+/* Inline widget injected by cm-heading-fold.ts at each heading line.
+ * Hidden by default so the editor stays clean; revealed when the mouse
+ * hovers the heading line, when the caret is on it, or when the
+ * heading is currently folded (so the user can always unfold it). */
+.cm-heading-fold-arrow {
+  display: inline-block;
+  width: 12px;
+  margin-right: 4px;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1;
+  color: rgb(var(--z-ink-400));
+  opacity: 0;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 120ms ease, color 120ms ease;
+}
+.cm-editor .cm-line:hover .cm-heading-fold-arrow,
+.cm-editor .cm-heading-line-active .cm-heading-fold-arrow,
+.cm-heading-fold-arrow.is-folded {
+  opacity: 1;
+}
+.cm-heading-fold-arrow:hover {
+  color: rgb(var(--z-ink-900));
 }
