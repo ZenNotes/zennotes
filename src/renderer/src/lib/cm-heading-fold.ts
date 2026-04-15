@@ -19,7 +19,7 @@
  * reveal it when the heading line is hovered or holds the caret,
  * matching Obsidian's behaviour.
  */
-import { foldService, foldable, foldEffect, unfoldEffect, foldedRanges } from '@codemirror/language'
+import { foldService, foldEffect, unfoldEffect, foldedRanges } from '@codemirror/language'
 import type { EditorState, Extension } from '@codemirror/state'
 import {
   Decoration,
@@ -79,7 +79,17 @@ class HeadingFoldArrow extends WidgetType {
     el.setAttribute('aria-label', this.folded ? 'Expand heading' : 'Collapse heading')
     el.setAttribute('aria-expanded', String(!this.folded))
     el.textContent = this.folded ? '▸' : '▾'
-    el.addEventListener('mousedown', (event) => {
+    // Eat mousedown so CodeMirror's own handler doesn't interpret the
+    // click as a caret position and steal focus before we dispatch
+    // the fold effect. The actual toggle fires on the click event so
+    // it only runs once per mouse action.
+    const swallow = (event: Event): void => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    el.addEventListener('mousedown', swallow)
+    el.addEventListener('pointerdown', swallow)
+    el.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
       toggleHeadingFold(view, this.line)
@@ -88,18 +98,22 @@ class HeadingFoldArrow extends WidgetType {
   }
 
   ignoreEvent(): boolean {
-    return false
+    // Return true so CodeMirror treats the widget as atomic and skips
+    // its own click → caret-position logic; our own DOM listeners
+    // still fire because they're attached directly to the span.
+    return true
   }
 }
 
-/** Toggle the fold at the given heading line by consulting the current
- *  fold state and dispatching fold/unfold effects directly — avoids a
- *  dependency on CodeMirror's `foldCode` command context. */
+/** Toggle the fold at the given heading line. We compute the target
+ *  range ourselves (same logic the foldService uses) instead of going
+ *  through `foldable()` so the click is resilient to fold-service
+ *  registration timing and language-extension interactions. */
 function toggleHeadingFold(view: EditorView, lineNumber: number): void {
   const { state } = view
-  if (lineNumber < 1 || lineNumber > state.doc.lines) return
-  const line = state.doc.line(lineNumber)
-  const range = foldable(state, line.from, line.to)
+  const level = headingLevelAt(state, lineNumber)
+  if (level === null) return
+  const range = rangeForHeading(state, lineNumber, level)
   if (!range) return
   const folded = foldedRanges(state)
   let existing: { from: number; to: number } | null = null
