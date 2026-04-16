@@ -46,7 +46,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Stay keyboard-first',
     body:
-      'Search notes with Cmd+P, open the command palette with Shift+Cmd+P, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following. If you explicitly turn Vim mode off, Cmd/Ctrl+F becomes an extra direct search shortcut.'
+      'Search notes and open the command palette from their configured shortcuts, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following. If you explicitly turn Vim mode off, the non-Vim search shortcut becomes available too.'
   },
   {
     title: 'Insert structure inline',
@@ -74,7 +74,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Tabs and splits are first-class',
     body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`. If you disable Vim mode, use the command palette instead.'
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. If you disable Vim mode, use the command palette instead.'
   },
   {
     title: 'Sessions restore on relaunch',
@@ -84,7 +84,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Leader mode can teach itself',
     body:
-      'If Leader key hints are enabled, pressing `Space` opens a which-key style panel that shows the next available leader actions, including note-local commands like `Space l f`. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you press `Space` again or `Esc`. If you disable Vim mode, the leader system is turned off with it.'
+      'If Leader key hints are enabled, pressing the configured Leader key opens a which-key style panel that shows the next available leader actions, including note-local commands like format note. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you dismiss it. If you disable Vim mode, the leader system is turned off with it.'
   },
   {
     title: 'Tasks, tags, archive, and trash are vault-wide views',
@@ -114,12 +114,12 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Zen mode removes chrome',
     body:
-      'Use `⌘.` to enter Zen mode and strip away the title bar, sidebar, note list, tabs, pane headers, side panels, and status bar so only the active editor, preview, or split view stays visible.'
+      'Use the configured Zen shortcut to strip away the title bar, sidebar, note list, tabs, pane headers, side panels, and status bar so only the active editor, preview, or split view stays visible.'
   },
   {
     title: 'Links are actionable',
     body:
-      'Use [[wikilinks]] or markdown links. In normal mode, `gd` follows the link under the cursor, offers to create missing notes, and pins PDFs into the reference pane.'
+      'Use [[wikilinks]] or markdown links. In normal mode, the follow-link motion opens the link under the cursor, offers to create missing notes, and pins PDFs into the reference pane.'
   },
   {
     title: 'Attachments stay local',
@@ -359,7 +359,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Space> (pause)',
     summary: 'Show leader hints',
-    detail: 'When Leader key hints are enabled, pressing Space shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until Space or Esc. Turning Vim mode off disables the leader system too.'
+    detail: 'When Leader key hints are enabled, pressing the configured Leader key shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until you dismiss it. Turning Vim mode off disables the leader system too.'
   },
   {
     command: '<Space> o',
@@ -384,7 +384,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':outline',
     summary: 'Note outline palette',
-    detail: 'Same as <Space> p — ex-line access to the note outline.'
+    detail: 'The ex-line path to the same searchable note outline opened by the Leader outline binding.'
   },
   {
     command: ':view edit|split|preview',
@@ -404,12 +404,12 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: ':fold / :unfold',
     summary: 'Toggle the heading at the cursor',
-    detail: 'Collapse or expand the section beneath the heading at the current line. Same as vim `zc` / `zo`.'
+    detail: 'Collapse or expand the section beneath the heading at the current line. This is the ex-line path to the editor fold and unfold motions.'
   },
   {
     command: ':foldall / :unfoldall',
     summary: 'Fold every heading',
-    detail: 'Collapse or expand every heading section at once. Same as vim `zM` / `zR`.'
+    detail: 'Collapse or expand every heading section at once. This is the ex-line path to the editor-wide fold motions.'
   }
 ]
 
@@ -425,9 +425,9 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Editor behavior',
     items: [
       { label: 'Vim mode', detail: 'Turn CodeMirror Vim bindings on or off for the editor and reference pane.' },
-      { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing Space so available leader actions stay visible while you decide. This setting is only available when Vim mode is enabled.' },
-      { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with Space or Esc. These controls only appear when Vim mode is enabled.' },
-      { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing Space. This setting is only available in Vim mode.' },
+      { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing the configured Leader key so available leader actions stay visible while you decide. This setting is only available when Vim mode is enabled.' },
+      { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with the Leader key or Esc. These controls only appear when Vim mode is enabled.' },
+      { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing the Leader key. This setting is only available in Vim mode.' },
       { label: 'Live preview', detail: 'Hide markdown syntax on lines you are not actively editing.' },
       { label: 'Note tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows.' },
       { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },
@@ -443,6 +443,14 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
       { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },
       { label: 'Line numbers', detail: 'Switch between off, absolute, and relative gutter numbering.' }
+    ]
+  },
+  {
+    title: 'Keymaps',
+    items: [
+      { label: 'Shortcut overrides', detail: 'Remap global app shortcuts, Vim-specific bindings, panel navigation keys, and view actions from one place.' },
+      { label: 'Recorded sequences', detail: 'Capture single shortcuts or multi-step sequences such as Leader flows, pane prefixes, `g g`, `g d`, or fold motions without editing raw config files.' },
+      { label: 'Reset controls', detail: 'Clear an individual override or reset the entire keymap table back to the shipped defaults.' }
     ]
   },
   {

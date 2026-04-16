@@ -9,6 +9,14 @@ import {
   resolveNextPanel
 } from '../lib/vim-nav'
 import { focusPaneInDirection } from '../lib/pane-nav'
+import {
+  advanceSequence,
+  getKeymapBinding,
+  getKeymapDisplay,
+  getSequenceTokens,
+  matchesSequenceToken,
+  sequenceTokenFromEvent
+} from '../lib/keymaps'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -24,12 +32,13 @@ function escapeForAttr(value: string): string {
  */
 export function VimNav(): JSX.Element | null {
   const vimMode = useStore((s) => s.vimMode)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   // All control-flow flags are refs so the handler never stales.
   const ctrlWPending = useRef(false)
-  const gPending = useRef(false)
+  const jumpTopPending = useRef(0)
   const leaderPending = useRef<'leader' | 'leader-l' | null>(null)
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
-  const gTimer = useRef<ReturnType<typeof setTimeout>>()
+  const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaderTimer = useRef<ReturnType<typeof setTimeout>>()
 
   // Hint mode needs a render (to mount HintOverlay), so it's state.
@@ -104,39 +113,39 @@ export function VimNav(): JSX.Element | null {
     if (!whichKeyState) return []
     if (whichKeyState.stage === 'leader-l') {
       return [
-        {
-          keyLabel: 'f',
-          label: 'Format note',
-          detail: 'Run markdown formatting on the active note.'
-        }
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFormatNote'),
+        label: 'Format note',
+        detail: 'Run markdown formatting on the active note.'
+      }
       ]
     }
 
     const items: WhichKeyItem[] = [
       {
-        keyLabel: 'o',
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenBuffers'),
         label: 'Open buffers',
         detail: 'Show the active pane’s open buffers in a searchable list.'
       },
       {
-        keyLabel: 'f',
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchNotes'),
         label: 'Search notes',
         detail: 'Open the vault-wide note search palette.'
       },
       {
-        keyLabel: 'e',
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleSidebar'),
         label: 'Toggle sidebar',
         detail: 'Show or hide the left sidebar.'
       },
       {
-        keyLabel: 'p',
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteOutline'),
         label: 'Note outline',
         detail: 'Jump to any heading in the active note.'
       }
     ]
     if (whichKeyState.allowEditorActions) {
       items.push({
-        keyLabel: 'l',
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions'),
         label: 'Note actions',
         detail: 'Open the note-local leader group. `f` formats the current note.'
       })
@@ -147,9 +156,9 @@ export function VimNav(): JSX.Element | null {
   useEffect(() => {
     if (vimMode) return
     ctrlWPending.current = false
-    gPending.current = false
+    jumpTopPending.current = 0
     if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
-    if (gTimer.current) clearTimeout(gTimer.current)
+    if (jumpTopTimer.current) clearTimeout(jumpTopTimer.current)
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
     resetLeader()
     setHint(false)
@@ -159,6 +168,9 @@ export function VimNav(): JSX.Element | null {
     if (!vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const state = useStore.getState()
+      const overrides = state.keymapOverrides
+      const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? 'Space'
+      const panePrefixToken = getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? 'Ctrl+W'
 
       // Skip when modals / overlays are open
       if (
@@ -189,14 +201,8 @@ export function VimNav(): JSX.Element | null {
       const previewEl = getPreviewScrollElement()
       const hoverPreviewEl = getHoverPreviewScrollElement()
 
-      const wantsJumpBack =
-        e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'o'
-      const wantsJumpForward =
-        e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey &&
-        (e.key === 'i' || e.key === 'Tab')
+      const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
+      const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')
       if (
         (wantsJumpBack || wantsJumpForward) &&
         !isEditorInsertMode(state.editorViewRef, state.vimMode)
@@ -217,12 +223,15 @@ export function VimNav(): JSX.Element | null {
         // <C-w>v / <C-w>s → vim-style splits. Clones the active pane's
         // current tab into a new pane. Works for any tab, including the
         // virtual Tasks tab (no CM editor required to fire `:vs`/`:sp`).
-        if (e.key === 'v' || e.key === 's') {
+        if (
+          matchesSequenceToken(e, overrides, 'vim.paneSplitRight') ||
+          matchesSequenceToken(e, overrides, 'vim.paneSplitDown')
+        ) {
           const activePath = state.selectedPath
           if (activePath) {
             void state.splitPaneWithTab({
               targetPaneId: state.activePaneId,
-              edge: e.key === 'v' ? 'right' : 'bottom',
+              edge: matchesSequenceToken(e, overrides, 'vim.paneSplitRight') ? 'right' : 'bottom',
               path: activePath
             })
           }
@@ -234,13 +243,13 @@ export function VimNav(): JSX.Element | null {
         // pane exists in the requested direction, jump to it and stop.
         // Falling through to panel nav only happens at the tree edge.
         const paneDir =
-          e.key === 'h' || e.key === 'ArrowLeft'
+          matchesSequenceToken(e, overrides, 'vim.paneFocusLeft') || e.key === 'ArrowLeft'
             ? 'h'
-            : e.key === 'l' || e.key === 'ArrowRight'
+            : matchesSequenceToken(e, overrides, 'vim.paneFocusRight') || e.key === 'ArrowRight'
               ? 'l'
-              : e.key === 'j' || e.key === 'ArrowDown'
+              : matchesSequenceToken(e, overrides, 'vim.paneFocusDown') || e.key === 'ArrowDown'
                 ? 'j'
-                : e.key === 'k' || e.key === 'ArrowUp'
+                : matchesSequenceToken(e, overrides, 'vim.paneFocusUp') || e.key === 'ArrowUp'
                   ? 'k'
                   : null
         if (
@@ -259,9 +268,15 @@ export function VimNav(): JSX.Element | null {
           isTasksViewActive(state)
         )
         const direction =
-          e.key === 'h' || e.key === 'k' || e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+          matchesSequenceToken(e, overrides, 'vim.paneFocusLeft') ||
+          matchesSequenceToken(e, overrides, 'vim.paneFocusUp') ||
+          e.key === 'ArrowLeft' ||
+          e.key === 'ArrowUp'
             ? 'left'
-            : e.key === 'l' || e.key === 'j' || e.key === 'ArrowRight' || e.key === 'ArrowDown'
+            : matchesSequenceToken(e, overrides, 'vim.paneFocusRight') ||
+                matchesSequenceToken(e, overrides, 'vim.paneFocusDown') ||
+                e.key === 'ArrowRight' ||
+                e.key === 'ArrowDown'
               ? 'right'
               : null
         const currentPanel = state.focusedPanel === 'hoverpreview' ? 'connections' : state.focusedPanel
@@ -316,7 +331,7 @@ export function VimNav(): JSX.Element | null {
       }
 
       // ------- Ctrl+w initiation ----------------------------------------
-      if (e.ctrlKey && e.key === 'w' && !e.metaKey && !e.altKey && !e.shiftKey) {
+      if (sequenceTokenFromEvent(e) === panePrefixToken) {
         if (isEditorFocused(state.editorViewRef) && isEditorInsertMode(state.editorViewRef, state.vimMode)) return
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -340,11 +355,7 @@ export function VimNav(): JSX.Element | null {
       }
       if (
         leaderPending.current &&
-        e.key === ' ' &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey
+        sequenceTokenFromEvent(e) === leaderToken
       ) {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -369,35 +380,35 @@ export function VimNav(): JSX.Element | null {
         isEditorInsertMode(state.editorViewRef, state.vimMode)
 
       if (leaderPending.current === 'leader') {
-        if (e.key === 'o') {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderOpenBuffers')) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
           state.setBufferPaletteOpen(true)
           return
         }
-        if (e.key === 'f') {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderSearchNotes')) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
           state.setSearchOpen(true)
           return
         }
-        if (e.key === 'e') {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderToggleSidebar')) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
           state.toggleSidebar()
           return
         }
-        if (e.key === 'p') {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderNoteOutline')) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
           state.setOutlinePaletteOpen(true)
           return
         }
-        if (e.key === 'l' && editorNormalMode) {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderNoteActions') && editorNormalMode) {
           e.preventDefault()
           e.stopImmediatePropagation()
           armLeader('leader-l', true)
@@ -408,7 +419,7 @@ export function VimNav(): JSX.Element | null {
       }
 
       if (leaderPending.current === 'leader-l') {
-        if (e.key === 'f' && editorNormalMode) {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderFormatNote') && editorNormalMode) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
@@ -419,11 +430,7 @@ export function VimNav(): JSX.Element | null {
       }
 
       if (
-        e.key === ' ' &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        !e.shiftKey &&
+        sequenceTokenFromEvent(e) === leaderToken &&
         !editorInsertMode
       ) {
         const tag = (e.target as HTMLElement | null)?.tagName
@@ -433,40 +440,6 @@ export function VimNav(): JSX.Element | null {
           armLeader('leader', editorNormalMode)
           return
         }
-      }
-
-      // ------- g-g pending (jump to top) --------------------------------
-      if (gPending.current) {
-        gPending.current = false
-        if (gTimer.current) clearTimeout(gTimer.current)
-        if (e.key === 'g') {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          if (state.focusedPanel === 'sidebar') {
-            scrollToIndexedElement(
-              getIndexedElements('[data-sidebar-idx]', 'sidebarIdx')[0],
-              'sidebarIdx',
-              state.setSidebarCursorIndex
-            )
-          } else if (state.focusedPanel === 'notelist') {
-            scrollToIndexedElement(
-              getIndexedElements('[data-notelist-idx]', 'notelistIdx')[0],
-              'notelistIdx',
-              state.setNoteListCursorIndex
-            )
-          } else if (state.focusedPanel === 'connections') {
-            scrollToIndexedElement(
-              getIndexedElements('[data-connections-idx]', 'connectionsIdx')[0],
-              'connectionsIdx',
-              state.setConnectionsCursorIndex
-            )
-          } else if (state.focusedPanel === 'hoverpreview' && hoverPreviewEl) {
-            scrollPreviewTo(hoverPreviewEl, 0)
-          } else if (previewEl && isPreviewNavigationActive(previewEl, state, target)) {
-            scrollPreviewTo(previewEl, 0)
-          }
-        }
-        return
       }
 
       // ------- Sidebar navigation (explicit) -----------------------------
@@ -494,10 +467,7 @@ export function VimNav(): JSX.Element | null {
         }
 
         if (
-          e.key === 'f' &&
-          !e.ctrlKey &&
-          !e.metaKey &&
-          !e.altKey &&
+          matchesSequenceToken(e, overrides, 'vim.hintMode') &&
           !isEditorInsertMode(state.editorViewRef, state.vimMode)
         ) {
           e.preventDefault()
@@ -530,7 +500,7 @@ export function VimNav(): JSX.Element | null {
       }
 
       // ------- No panel focused → f for hints ---------------------------
-      if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
         const tag = (document.activeElement as HTMLElement)?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA') return
         e.preventDefault()
@@ -550,21 +520,37 @@ export function VimNav(): JSX.Element | null {
 
   function handleSidebarKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
+    const overrides = state.keymapOverrides
     if (state.focusedPanel !== 'sidebar') state.setFocusedPanel('sidebar')
     const items = getIndexedElements('[data-sidebar-idx]', 'sidebarIdx')
     const count = items.length
     const max = count - 1
     const currentPos = findPositionByIndex(items, 'sidebarIdx', state.sidebarCursorIndex)
     const wantsContextMenu =
-      key === 'm' || key === 'ContextMenu' || (e.shiftKey && key === 'F10')
+      matchesSequenceToken(e, overrides, 'nav.contextMenu') ||
+      key === 'ContextMenu' ||
+      (e.shiftKey && key === 'F10')
 
     // Always consume single-char nav keys when sidebar is focused,
     // even if the sidebar is empty — prevents them leaking to the editor.
-    const navKeys = new Set([
-      'j', 'k', 'h', 'l', 'o', 'g', 'G', 'f', '/',
-      'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'
-    ])
-    if (navKeys.has(key) || key === 'Enter' || key === 'Escape' || wantsContextMenu) {
+    const wantsHandledKey =
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      matchesSequenceToken(e, overrides, 'nav.toggleFolder') ||
+      matchesSequenceToken(e, overrides, 'nav.filter') ||
+      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
+      key === 'Enter' ||
+      key === 'Escape' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight' ||
+      wantsContextMenu
+    if (wantsHandledKey) {
       e.preventDefault()
       e.stopImmediatePropagation()
     } else {
@@ -573,33 +559,45 @@ export function VimNav(): JSX.Element | null {
 
     if (count === 0) return // nothing to navigate
 
-    if (key === 'j' || key === 'ArrowDown') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
       scrollToIndexedElement(items[Math.min(currentPos + 1, max)], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
-    if (key === 'k' || key === 'ArrowUp') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
       scrollToIndexedElement(items[Math.max(currentPos - 1, 0)], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
-    if (key === 'G') {
+    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
       scrollToIndexedElement(items[max], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
-    if (key === 'g') {
-      gPending.current = true
-      if (gTimer.current) clearTimeout(gTimer.current)
-      gTimer.current = setTimeout(() => { gPending.current = false }, 300)
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => {
+          scrollToIndexedElement(items[0], 'sidebarIdx', state.setSidebarCursorIndex)
+        },
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
       return
     }
-    if (key === 'Enter' || key === 'l' || key === 'ArrowRight') {
+    if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
       activateSidebarItem(items[currentPos], state)
       return
     }
-    if (key === 'h' || key === 'ArrowLeft') {
+    if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft') {
       collapseSidebarItem(items[currentPos], state)
       return
     }
-    if (key === 'o') {
+    if (matchesSequenceToken(e, overrides, 'nav.toggleFolder')) {
       toggleSidebarItem(items[currentPos], state)
       return
     }
@@ -607,11 +605,11 @@ export function VimNav(): JSX.Element | null {
       focusEditor()
       return
     }
-    if (key === '/') {
+    if (matchesSequenceToken(e, overrides, 'nav.filter')) {
       state.setSearchOpen(true)
       return
     }
-    if (key === 'f') {
+    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
       setHint(true)
       return
     }
@@ -623,16 +621,28 @@ export function VimNav(): JSX.Element | null {
 
   function handleNoteListKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
+    const overrides = state.keymapOverrides
     const items = getIndexedElements('[data-notelist-idx]', 'notelistIdx')
     const count = items.length
     const max = count - 1
     const currentPos = findPositionByIndex(items, 'notelistIdx', state.noteListCursorIndex)
 
-    const navKeys = new Set([
-      'j', 'k', 'h', 'l', 'g', 'G', 'f', '/',
-      'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'
-    ])
-    if (navKeys.has(key) || key === 'Enter' || key === 'Escape') {
+    const wantsHandledKey =
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      matchesSequenceToken(e, overrides, 'nav.filter') ||
+      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
+      key === 'Enter' ||
+      key === 'Escape' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight'
+    if (wantsHandledKey) {
       e.preventDefault()
       e.stopImmediatePropagation()
     } else {
@@ -641,7 +651,7 @@ export function VimNav(): JSX.Element | null {
 
     if (count === 0) return
 
-    if (key === 'j' || key === 'ArrowDown') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
       scrollToIndexedElement(
         items[Math.min(currentPos + 1, max)],
         'notelistIdx',
@@ -649,7 +659,7 @@ export function VimNav(): JSX.Element | null {
       )
       return
     }
-    if (key === 'k' || key === 'ArrowUp') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
       scrollToIndexedElement(
         items[Math.max(currentPos - 1, 0)],
         'notelistIdx',
@@ -657,17 +667,29 @@ export function VimNav(): JSX.Element | null {
       )
       return
     }
-    if (key === 'G') {
+    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
       scrollToIndexedElement(items[max], 'notelistIdx', state.setNoteListCursorIndex)
       return
     }
-    if (key === 'g') {
-      gPending.current = true
-      if (gTimer.current) clearTimeout(gTimer.current)
-      gTimer.current = setTimeout(() => { gPending.current = false }, 300)
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => {
+          scrollToIndexedElement(items[0], 'notelistIdx', state.setNoteListCursorIndex)
+        },
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
       return
     }
-    if (key === 'Enter' || key === 'l' || key === 'ArrowRight') {
+    if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
       const el = items[currentPos]
       const path = el?.dataset.notelistPath
       if (path) {
@@ -676,7 +698,7 @@ export function VimNav(): JSX.Element | null {
       }
       return
     }
-    if (key === 'h' || key === 'ArrowLeft') {
+    if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft') {
       if (state.sidebarOpen) state.setFocusedPanel('sidebar')
       return
     }
@@ -684,11 +706,11 @@ export function VimNav(): JSX.Element | null {
       focusEditor()
       return
     }
-    if (key === '/') {
+    if (matchesSequenceToken(e, overrides, 'nav.filter')) {
       state.setSearchOpen(true)
       return
     }
-    if (key === 'f') {
+    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
       setHint(true)
       return
     }
@@ -696,15 +718,26 @@ export function VimNav(): JSX.Element | null {
 
   function handleConnectionsKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
+    const overrides = state.keymapOverrides
     const items = getIndexedElements('[data-connections-idx]', 'connectionsIdx')
     const count = items.length
     const max = count - 1
     const currentPos = findPositionByIndex(items, 'connectionsIdx', state.connectionsCursorIndex)
-    const navKeys = new Set([
-      'j', 'k', 'h', 'l', 'g', 'G', 'p',
-      'ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'
-    ])
-    if (navKeys.has(key) || key === 'Enter' || key === 'Escape') {
+    const wantsHandledKey =
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      matchesSequenceToken(e, overrides, 'nav.peekPreview') ||
+      key === 'Enter' ||
+      key === 'Escape' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight'
+    if (wantsHandledKey) {
       e.preventDefault()
       e.stopImmediatePropagation()
     } else {
@@ -712,14 +745,14 @@ export function VimNav(): JSX.Element | null {
     }
 
     if (count === 0) {
-      if (key === 'Escape' || key === 'h' || key === 'ArrowLeft') {
+      if (key === 'Escape' || matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft') {
         state.setConnectionPreview(null)
         focusEditor()
       }
       return
     }
 
-    if (key === 'j' || key === 'ArrowDown') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
       state.setConnectionPreview(null)
       scrollToIndexedElement(
         items[Math.min(currentPos + 1, max)],
@@ -728,7 +761,7 @@ export function VimNav(): JSX.Element | null {
       )
       return
     }
-    if (key === 'k' || key === 'ArrowUp') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
       state.setConnectionPreview(null)
       scrollToIndexedElement(
         items[Math.max(currentPos - 1, 0)],
@@ -737,28 +770,40 @@ export function VimNav(): JSX.Element | null {
       )
       return
     }
-    if (key === 'G') {
+    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
       state.setConnectionPreview(null)
       scrollToIndexedElement(items[max], 'connectionsIdx', state.setConnectionsCursorIndex)
       return
     }
-    if (key === 'g') {
-      state.setConnectionPreview(null)
-      gPending.current = true
-      if (gTimer.current) clearTimeout(gTimer.current)
-      gTimer.current = setTimeout(() => { gPending.current = false }, 300)
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => {
+          state.setConnectionPreview(null)
+          scrollToIndexedElement(items[0], 'connectionsIdx', state.setConnectionsCursorIndex)
+        },
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
       return
     }
-    if (key === 'Enter' || key === 'l' || key === 'ArrowRight') {
+    if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
       state.setConnectionPreview(null)
       activateConnectionItem(items[currentPos], state)
       return
     }
-    if (key === 'p') {
+    if (matchesSequenceToken(e, overrides, 'nav.peekPreview')) {
       openConnectionPreview(items[currentPos], state)
       return
     }
-    if (key === 'h' || key === 'ArrowLeft' || key === 'Escape') {
+    if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft' || key === 'Escape') {
       state.setConnectionPreview(null)
       focusEditor()
       return
@@ -770,7 +815,11 @@ export function VimNav(): JSX.Element | null {
     previewEl: HTMLElement,
     state: ReturnType<typeof useStore.getState>
   ): void {
-    if (e.key === 'Escape' || e.key === 'h' || e.key === 'ArrowLeft') {
+    if (
+      e.key === 'Escape' ||
+      matchesSequenceToken(e, state.keymapOverrides, 'nav.back') ||
+      e.key === 'ArrowLeft'
+    ) {
       e.preventDefault()
       e.stopImmediatePropagation()
       state.setConnectionPreview(null)
@@ -792,13 +841,8 @@ export function VimNav(): JSX.Element | null {
     panel: 'editor' | 'hoverpreview' = 'editor'
   ): void {
     const key = e.key
+    const overrides = state.keymapOverrides
     const navKeys = new Set([
-      'j',
-      'k',
-      'g',
-      'G',
-      'f',
-      '/',
       'ArrowDown',
       'ArrowUp',
       'PageDown',
@@ -806,12 +850,20 @@ export function VimNav(): JSX.Element | null {
       'Home',
       'End'
     ])
-    const wantsHalfPageDown =
-      e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === 'd'
-    const wantsHalfPageUp =
-      e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && key === 'u'
+    const wantsHalfPageDown = matchesSequenceToken(e, overrides, 'nav.halfPageDown')
+    const wantsHalfPageUp = matchesSequenceToken(e, overrides, 'nav.halfPageUp')
 
-    if (navKeys.has(key) || wantsHalfPageDown || wantsHalfPageUp) {
+    if (
+      navKeys.has(key) ||
+      wantsHalfPageDown ||
+      wantsHalfPageUp ||
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
+      matchesSequenceToken(e, overrides, 'nav.filter')
+    ) {
       e.preventDefault()
       e.stopImmediatePropagation()
     } else {
@@ -820,11 +872,11 @@ export function VimNav(): JSX.Element | null {
 
     if (state.focusedPanel !== panel) state.setFocusedPanel(panel)
 
-    if (key === 'j' || key === 'ArrowDown') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
       scrollPreviewBy(previewEl, getPreviewLineStep(previewEl))
       return
     }
-    if (key === 'k' || key === 'ArrowUp') {
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
       scrollPreviewBy(previewEl, -getPreviewLineStep(previewEl))
       return
     }
@@ -840,23 +892,33 @@ export function VimNav(): JSX.Element | null {
       scrollPreviewTo(previewEl, 0)
       return
     }
-    if (key === 'End' || key === 'G') {
+    if (key === 'End' || matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
       scrollPreviewTo(previewEl, previewEl.scrollHeight)
       return
     }
-    if (key === 'g') {
-      gPending.current = true
-      if (gTimer.current) clearTimeout(gTimer.current)
-      gTimer.current = setTimeout(() => {
-        gPending.current = false
-      }, 300)
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => {
+          scrollPreviewTo(previewEl, 0)
+        },
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
       return
     }
-    if (key === '/') {
+    if (matchesSequenceToken(e, overrides, 'nav.filter')) {
       state.setSearchOpen(true)
       return
     }
-    if (key === 'f') {
+    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
       setHint(true)
     }
   }
@@ -1135,13 +1197,15 @@ export function VimNav(): JSX.Element | null {
   }
 
   if (whichKeyHintsEnabled && whichKeyState) {
+    const leaderDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderPrefix')
+    const noteActionsDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions')
     return (
       <WhichKeyOverlay
-        prefix={whichKeyState.stage === 'leader' ? 'Space' : 'Space l'}
+        prefix={whichKeyState.stage === 'leader' ? leaderDisplay : `${leaderDisplay} ${noteActionsDisplay}`}
         title={whichKeyState.stage === 'leader' ? 'Leader' : 'Leader · Note Actions'}
         detail={
           stickyWhichKeyHints
-            ? 'Press a key to continue. Press Space again or Esc to close.'
+            ? `Press a key to continue. Press ${leaderDisplay} again or Esc to close.`
             : 'Press a key to continue or Esc to cancel.'
         }
         items={whichKeyItems}

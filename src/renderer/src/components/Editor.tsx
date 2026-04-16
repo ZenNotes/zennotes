@@ -26,8 +26,181 @@ import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
 import { focusPaneInDirection } from '../lib/pane-nav'
 import { requestPaneMode } from '../lib/pane-mode'
+import {
+  getKeymapBinding,
+  getSequenceTokens,
+  type KeymapId,
+  type KeymapOverrides
+} from '../lib/keymaps'
 
 let vimCommandsRegistered = false
+let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
+
+const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
+  'gd',
+  '<C-w>h',
+  '<C-w>j',
+  '<C-w>k',
+  '<C-w>l',
+  '<C-w><C-h>',
+  '<C-w><C-j>',
+  '<C-w><C-k>',
+  '<C-w><C-l>',
+  'zc',
+  'zo',
+  'zM',
+  'zR'
+]
+
+function clearKnownVimMappings(): void {
+  for (const binding of DEFAULT_VIM_MAPPINGS_TO_CLEAR) {
+    try {
+      Vim.unmap(binding, 'normal')
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function toVimKeyName(base: string): string {
+  if (base === 'Space') return 'Space'
+  if (base === 'Enter') return 'CR'
+  if (base === 'Esc' || base === 'Escape') return 'Esc'
+  if (base === 'Tab') return 'Tab'
+  if (base === 'ArrowUp') return 'Up'
+  if (base === 'ArrowDown') return 'Down'
+  if (base === 'ArrowLeft') return 'Left'
+  if (base === 'ArrowRight') return 'Right'
+  return base
+}
+
+function toVimSequenceToken(token: string): string | null {
+  const parts = token
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (parts.length === 0) return null
+  const base = parts.pop()
+  if (!base) return null
+  const keyName = toVimKeyName(base)
+  if (parts.length === 0) {
+    if (base.length === 1) return base
+    return `<${keyName}>`
+  }
+  const modifiers = parts
+    .map((part) => {
+      if (part === 'Ctrl') return 'C'
+      if (part === 'Alt') return 'A'
+      if (part === 'Shift') return 'S'
+      if (part === 'Meta' || part === 'Mod') return 'D'
+      return null
+    })
+    .filter(Boolean) as string[]
+  const normalizedKey = base.length === 1 ? base.toLowerCase() : keyName
+  return `<${[...modifiers, normalizedKey].join('-')}>`
+}
+
+function toVimSequence(binding: string): string | null {
+  const tokens = binding
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => toVimSequenceToken(token))
+  if (tokens.length === 0 || tokens.some((token) => !token)) return null
+  return tokens.join('')
+}
+
+function paneMapBindings(overrides: KeymapOverrides, actionId: KeymapId): string[] {
+  const prefixBinding = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))
+  const actionBinding = toVimSequence(getKeymapBinding(overrides, actionId))
+  if (!prefixBinding || !actionBinding) return []
+  const bindings = [`${prefixBinding}${actionBinding}`]
+  const prefixTokens = getSequenceTokens(overrides, 'vim.panePrefix')
+  const actionTokens = getSequenceTokens(overrides, actionId)
+  if (
+    prefixTokens.length === 1 &&
+    prefixTokens[0] === 'Ctrl+W' &&
+    actionTokens.length === 1 &&
+    /^[hjkl]$/i.test(actionTokens[0])
+  ) {
+    bindings.push(`${prefixBinding}<C-${actionTokens[0].toLowerCase()}>`)
+  }
+  return [...new Set(bindings)]
+}
+
+function syncVimKeymaps(overrides: KeymapOverrides): void {
+  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> = [
+    {
+      id: 'vim.goToDefinition',
+      action: 'goToDefinition',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.goToDefinition'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.paneFocusLeft',
+      action: 'focusPaneLeft',
+      bindings: paneMapBindings(overrides, 'vim.paneFocusLeft')
+    },
+    {
+      id: 'vim.paneFocusDown',
+      action: 'focusPaneDown',
+      bindings: paneMapBindings(overrides, 'vim.paneFocusDown')
+    },
+    {
+      id: 'vim.paneFocusUp',
+      action: 'focusPaneUp',
+      bindings: paneMapBindings(overrides, 'vim.paneFocusUp')
+    },
+    {
+      id: 'vim.paneFocusRight',
+      action: 'focusPaneRight',
+      bindings: paneMapBindings(overrides, 'vim.paneFocusRight')
+    },
+    {
+      id: 'vim.foldCurrent',
+      action: 'foldHeadingAtCursor',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.foldCurrent'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.unfoldCurrent',
+      action: 'unfoldHeadingAtCursor',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.unfoldCurrent'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.foldAll',
+      action: 'foldAllHeadings',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.foldAll'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.unfoldAll',
+      action: 'unfoldAllHeadings',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.unfoldAll'))].filter(
+        (binding): binding is string => !!binding
+      )
+    }
+  ]
+
+  for (const mapping of mappings) {
+    for (const binding of syncedVimBindings[mapping.id] ?? []) {
+      try {
+        Vim.unmap(binding, 'normal')
+      } catch {
+        /* ignore */
+      }
+    }
+    for (const binding of mapping.bindings) {
+      Vim.mapCommand(binding, 'action', mapping.action, {}, { context: 'normal' })
+    }
+    syncedVimBindings[mapping.id] = mapping.bindings
+  }
+}
 
 function unwrapMdUrl(url: string): string {
   // Markdown wraps URLs with spaces in angle brackets: `[x](<a b.pdf>)`.
@@ -74,6 +247,7 @@ function registerVimCommands(): void {
   } catch {
     /* ignore */
   }
+  clearKnownVimMappings()
 
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
@@ -235,11 +409,8 @@ function registerVimCommands(): void {
     })
   })
 
-  Vim.mapCommand('gd', 'action', 'goToDefinition', {}, { context: 'normal' })
-
-  // Vim-style pane navigation: <C-w> followed by h/j/k/l focuses the
-  // neighbor pane in that direction. Works only when CodeMirror is in
-  // normal mode; App.tsx handles the same chord for focus outside CM.
+  // Vim-style pane navigation actions are registered here, but their
+  // actual key bindings are synced from the configurable keymap registry.
   Vim.defineAction('focusPaneLeft', () => {
     focusPaneInDirection('h')
   })
@@ -252,14 +423,6 @@ function registerVimCommands(): void {
   Vim.defineAction('focusPaneRight', () => {
     focusPaneInDirection('l')
   })
-  Vim.mapCommand('<C-w>h', 'action', 'focusPaneLeft', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w>j', 'action', 'focusPaneDown', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w>k', 'action', 'focusPaneUp', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w>l', 'action', 'focusPaneRight', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w><C-h>', 'action', 'focusPaneLeft', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w><C-j>', 'action', 'focusPaneDown', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w><C-k>', 'action', 'focusPaneUp', {}, { context: 'normal' })
-  Vim.mapCommand('<C-w><C-l>', 'action', 'focusPaneRight', {}, { context: 'normal' })
 
   registerVimNoteCommands()
   registerCommandPaletteEx()
@@ -522,10 +685,6 @@ function registerVimNoteCommands(): void {
   Vim.defineAction('unfoldHeadingAtCursor', () => runFold(unfoldCode as never))
   Vim.defineAction('foldAllHeadings', () => runFold(foldAll as never))
   Vim.defineAction('unfoldAllHeadings', () => runFold(unfoldAll as never))
-  Vim.mapCommand('zc', 'action', 'foldHeadingAtCursor', {}, { context: 'normal' })
-  Vim.mapCommand('zo', 'action', 'unfoldHeadingAtCursor', {}, { context: 'normal' })
-  Vim.mapCommand('zM', 'action', 'foldAllHeadings', {}, { context: 'normal' })
-  Vim.mapCommand('zR', 'action', 'unfoldAllHeadings', {}, { context: 'normal' })
   Vim.defineEx('fold', 'fold', () => runFold(foldCode as never))
   Vim.defineEx('unfold', 'unfold', () => runFold(unfoldCode as never))
   Vim.defineEx('foldall', 'foldall', () => runFold(foldAll as never))
@@ -966,11 +1125,17 @@ function installExTabCompletion(): void {
 export function Editor(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activeNote = useStore((s) => s.activeNote)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   const zenMode = useStore((s) => s.zenMode)
 
   useEffect(() => {
     registerVimCommands()
   }, [])
+
+  useEffect(() => {
+    registerVimCommands()
+    syncVimKeymaps(keymapOverrides)
+  }, [keymapOverrides])
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">

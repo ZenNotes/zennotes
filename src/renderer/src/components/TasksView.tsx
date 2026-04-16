@@ -4,6 +4,7 @@ import type { VaultTask } from '@shared/tasks'
 import { computeTasksRender, isOverdue } from '../lib/tasks-filter'
 import { TasksRow } from './TasksRow'
 import { CheckSquareIcon } from './icons'
+import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done'
 
@@ -25,6 +26,7 @@ export function TasksView(): JSX.Element {
   const openTaskAt = useStore((s) => s.openTaskAt)
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
   const closeTasksView = useStore((s) => s.closeTasksView)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   // Only the Tasks panel in the *active* pane should listen for j/k/etc.
   // Splits can show Tasks in multiple panes simultaneously; without this
   // gate every keypress would fire once per mounted panel.
@@ -42,7 +44,7 @@ export function TasksView(): JSX.Element {
   const filterRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const exRef = useRef<HTMLInputElement>(null)
-  const gPending = useRef(false)
+  const gPending = useRef(0)
   const gTimer = useRef<ReturnType<typeof setTimeout>>()
   // Vim-style command line. Not backed by CodeMirror (Tasks has no CM
   // view) — just a tiny bottom-of-panel input that dispatches a handful
@@ -177,6 +179,7 @@ export function TasksView(): JSX.Element {
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
       const key = e.key
+      const overrides = keymapOverrides
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -193,14 +196,14 @@ export function TasksView(): JSX.Element {
         return
       }
 
-      if (key === '/') {
+      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (key === ':') {
+      if (matchesSequenceToken(e, overrides, 'nav.localEx')) {
         consume()
         setExValue('')
         setExOpen(true)
@@ -209,42 +212,41 @@ export function TasksView(): JSX.Element {
         return
       }
 
-      if (key === 'j' || key === 'ArrowDown') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
         consume()
         moveCursor(1)
         return
       }
-      if (key === 'k' || key === 'ArrowUp') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
         consume()
         moveCursor(-1)
         return
       }
-      if (key === 'G') {
+      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
         consume()
         setCursorIndex(taskRowIndices.length - 1)
         return
       }
-      if (key === 'g') {
-        consume()
-        if (gPending.current) {
-          gPending.current = false
-          if (gTimer.current) clearTimeout(gTimer.current)
-          setCursorIndex(0)
-          return
-        }
-        gPending.current = true
-        gTimer.current = setTimeout(() => {
-          gPending.current = false
-        }, 500)
+      if (
+        advanceSequence(
+          e,
+          getKeymapBinding(overrides, 'nav.jumpTop'),
+          gPending,
+          gTimer,
+          () => setCursorIndex(0),
+          consume,
+          500
+        )
+      ) {
         return
       }
 
-      if ((key === 'Enter' || key === 'o') && currentTask) {
+      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && currentTask) {
         consume()
         void openTaskAt(currentTask)
         return
       }
-      if ((key === ' ' || key === 'x') && currentTask) {
+      if ((key === ' ' || matchesSequenceToken(e, overrides, 'nav.toggleTask')) && currentTask) {
         consume()
         void toggleTaskFromList(currentTask)
         return
@@ -259,6 +261,7 @@ export function TasksView(): JSX.Element {
     setCursorIndex,
     taskRowIndices.length,
     currentTask,
+    keymapOverrides,
     openTaskAt,
     toggleTaskFromList,
     closeTasksView,

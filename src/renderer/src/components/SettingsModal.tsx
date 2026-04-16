@@ -2,15 +2,44 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import type { LineNumberMode, WhichKeyHintMode } from '../store'
+import type { KeymapDefinition, KeymapId, KeymapOverrides } from '../lib/keymaps'
+import {
+  formatKeymapBinding,
+  getKeymapBinding,
+  getKeymapDefinitionsByGroup,
+  getKeymapDisplay,
+  isMacPlatform,
+  sequenceTokenFromEvent,
+  shortcutBindingFromEvent
+} from '../lib/keymaps'
 import { THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import appPackage from '../../../../package.json'
 
+type SettingsCategoryId =
+  | 'appearance'
+  | 'editor'
+  | 'keymaps'
+  | 'typography'
+  | 'vault'
+  | 'about'
+
+interface SettingsCategory {
+  id: SettingsCategoryId
+  title: string
+  description: string
+  keywords: string[]
+  content: JSX.Element
+}
+
 export function SettingsModal(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const setKeymapBinding = useStore((s) => s.setKeymapBinding)
+  const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
   const whichKeyHints = useStore((s) => s.whichKeyHints)
   const setWhichKeyHints = useStore((s) => s.setWhichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
@@ -163,6 +192,8 @@ export function SettingsModal(): JSX.Element {
   }
 
   const ref = useRef<HTMLDivElement | null>(null)
+  const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
+  const [navQuery, setNavQuery] = useState('')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -172,370 +203,863 @@ export function SettingsModal(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [setSettingsOpen])
 
+  const categories: SettingsCategory[] = [
+    {
+      id: 'appearance',
+      title: 'Appearance',
+      description: 'Theme family, mode, and chrome surface styling.',
+      keywords: ['theme', 'mode', 'variant', 'dark sidebar', 'surface', 'look'],
+      content: (
+        <div className="space-y-6">
+          <Section
+            title="Theme"
+            description="Pick the visual system ZenNotes uses across the app."
+          >
+            <div className="flex flex-col gap-5 px-5 py-5">
+              <div>
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                  Family
+                </div>
+                <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+                  {familyOptions.map((f) => (
+                    <button
+                      key={f.id}
+                      onClick={() => pickFamily(f.id)}
+                      className={[
+                        'rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+                        themeFamily === f.id
+                          ? 'border-accent/45 bg-accent/10 text-ink-900'
+                          : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
+                      ].join(' ')}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                  Mode
+                </div>
+                <div className="inline-flex rounded-xl border border-paper-300/70 bg-paper-100/75 p-1">
+                  {(['light', 'dark', 'auto'] as ThemeMode[]).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => pickMode(m)}
+                      className={[
+                        'rounded-lg px-3 py-1.5 text-xs capitalize transition-colors',
+                        themeMode === m
+                          ? 'bg-paper-50 text-ink-900 shadow-sm'
+                          : 'text-ink-600 hover:text-ink-900'
+                      ].join(' ')}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {visibleVariants.length > 1 && (
+                <div>
+                  <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                    {themeFamily === 'gruvbox'
+                      ? 'Contrast'
+                      : themeFamily === 'catppuccin'
+                        ? 'Flavor'
+                        : 'Variant'}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {visibleVariants.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => pickVariant(v.id)}
+                        className={[
+                          'rounded-xl border px-3 py-1.5 text-xs transition-colors',
+                          themeId === v.id
+                            ? 'border-accent/45 bg-accent/10 text-ink-900'
+                            : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
+                        ].join(' ')}
+                      >
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Section>
+
+          <Section
+            title="Chrome"
+            description="Small visual adjustments that change how the shell feels."
+          >
+            <ToggleRow
+              label="Dark sidebar"
+              description="Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface."
+              value={darkSidebar}
+              onChange={setDarkSidebar}
+            />
+          </Section>
+        </div>
+      )
+    },
+    {
+      id: 'editor',
+      title: 'Editor',
+      description: 'Vim, leader hints, live preview, tabs, and writing behavior.',
+      keywords: ['vim', 'leader', 'preview', 'tabs', 'wrap', 'pdf', 'quick note'],
+      content: (
+        <div className="space-y-6">
+          <Section
+            title="Vim"
+            description="Keyboard-first editing behavior and leader guidance."
+          >
+            <ToggleRow
+              label="Vim mode"
+              description="First-class Vim motions in the markdown editor."
+              value={vimMode}
+              onChange={setVimMode}
+            />
+            {vimMode ? (
+              <>
+                <ToggleRow
+                  label="Leader key hints"
+                  description="Show a which-key style guide after pressing the Leader key so the next available actions stay visible."
+                  value={whichKeyHints}
+                  onChange={setWhichKeyHints}
+                />
+                {whichKeyHints && (
+                  <>
+                    <SegmentedRow
+                      label="Leader hint behavior"
+                      description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it."
+                      value={whichKeyHintMode}
+                      options={[
+                        { value: 'timed', label: 'Timed' },
+                        { value: 'sticky', label: 'Sticky' }
+                      ]}
+                      onChange={(next) => setWhichKeyHintMode(next as WhichKeyHintMode)}
+                    />
+                    {whichKeyHintMode === 'timed' && (
+                      <SliderRow
+                        label="Leader hint duration"
+                        description="How long the leader overlay stays visible, and how long the pending leader sequence remains armed."
+                        value={whichKeyHintTimeoutMs}
+                        min={400}
+                        max={3000}
+                        step={100}
+                        format={(v) => `${(v / 1000).toFixed(1)}s`}
+                        onChange={setWhichKeyHintTimeoutMs}
+                      />
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <InlineNote>
+                Leader key hints are only available while Vim mode is enabled.
+              </InlineNote>
+            )}
+          </Section>
+
+          <Section
+            title="Writing"
+            description="Controls that change how notes render while you work."
+          >
+            <ToggleRow
+              label="Live preview"
+              description="Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], and other source text."
+              value={livePreview}
+              onChange={setLivePreview}
+            />
+            <ToggleRow
+              label="Note tabs"
+              description="Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior."
+              value={tabsEnabled}
+              onChange={setTabsEnabled}
+            />
+            <ToggleRow
+              label="Word wrap"
+              description="Wrap long lines to the editor width. Turn off to scroll horizontally instead."
+              value={wordWrap}
+              onChange={setWordWrap}
+            />
+            <SegmentedRow
+              label="PDFs in edit mode"
+              description="Compact keeps the editor focused. Full inlines the PDF viewer under your cursor."
+              value={pdfEmbedInEditMode}
+              options={[
+                { value: 'compact', label: 'Compact' },
+                { value: 'full', label: 'Full' }
+              ]}
+              onChange={(next) => setPdfEmbedInEditMode(next)}
+            />
+            <ToggleRow
+              label="Date-titled Quick Notes"
+              description="New Quick Notes use YYYY-MM-DD instead of timestamp-style titles."
+              value={quickNoteDateTitle}
+              onChange={setQuickNoteDateTitle}
+            />
+          </Section>
+        </div>
+      )
+    },
+    {
+      id: 'keymaps',
+      title: 'Keymap',
+      description: 'Remap global shortcuts, Vim bindings, and view navigation.',
+      keywords: ['shortcuts', 'bindings', 'leader', 'vim', 'remap', 'keyboard'],
+      content: (
+        <div className="h-full">
+          <KeymapSettings
+            vimMode={vimMode}
+            overrides={keymapOverrides}
+            onSetBinding={(id, binding) => setKeymapBinding(id, binding)}
+            onResetAll={resetAllKeymaps}
+          />
+        </div>
+      )
+    },
+    {
+      id: 'typography',
+      title: 'Typography',
+      description: 'Fonts, line height, reading width, alignment, and line numbers.',
+      keywords: ['font', 'size', 'line height', 'width', 'alignment', 'numbers'],
+      content: (
+        <div className="space-y-6">
+          <Section
+            title="Fonts"
+            description="Separate the app chrome, reading text, and code treatment."
+          >
+            <FontRow
+              label="Interface font"
+              description="Used for the sidebar, menus, and window chrome."
+              value={interfaceFont}
+              options={systemFonts}
+              onChange={setInterfaceFont}
+            />
+            <FontRow
+              label="Text font"
+              description="Used for editing and reading views."
+              value={textFont}
+              options={systemFonts}
+              onChange={setTextFont}
+            />
+            <FontRow
+              label="Monospace font"
+              description="Used for code blocks, inline code, and frontmatter."
+              value={monoFont}
+              options={systemFonts}
+              onChange={setMonoFont}
+            />
+          </Section>
+
+          <Section
+            title="Layout"
+            description="Tune reading density and how notes sit in the pane."
+          >
+            <SliderRow
+              label="Font size"
+              description="Editor and preview text size."
+              value={editorFontSize}
+              min={12}
+              max={32}
+              step={1}
+              unit="px"
+              onChange={setEditorFontSize}
+            />
+            <SliderRow
+              label="Line height"
+              description="Vertical spacing between lines."
+              value={editorLineHeight}
+              min={1.2}
+              max={2.4}
+              step={0.05}
+              onChange={setEditorLineHeight}
+              format={(v) => v.toFixed(2)}
+            />
+            <SliderRow
+              label="Reading width"
+              description="Maximum width for preview and split-preview content."
+              value={previewMaxWidth}
+              min={640}
+              max={1400}
+              step={20}
+              unit="px"
+              onChange={setPreviewMaxWidth}
+            />
+            <SliderRow
+              label="Editor width"
+              description="Caps and centers the editor column so lines do not stretch edge-to-edge on large windows."
+              value={editorMaxWidth}
+              min={640}
+              max={1600}
+              step={20}
+              unit="px"
+              onChange={setEditorMaxWidth}
+            />
+            <SegmentedRow
+              label="Content alignment"
+              description="Center note content within the column or left-align it to the pane edge."
+              value={contentAlign}
+              options={[
+                { value: 'center', label: 'Center' },
+                { value: 'left', label: 'Left' }
+              ]}
+              onChange={(next) => setContentAlign(next)}
+            />
+            <SegmentedRow
+              label="Line numbers"
+              description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
+              value={lineNumberMode}
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'absolute', label: 'Absolute' },
+                { value: 'relative', label: 'Relative' }
+              ]}
+              onChange={(next) => setLineNumberMode(next)}
+            />
+          </Section>
+        </div>
+      )
+    },
+    {
+      id: 'vault',
+      title: 'Vault',
+      description: 'Current vault location and root-folder controls.',
+      keywords: ['folder', 'root', 'location', 'open vault', 'change'],
+      content: (
+        <Section
+          title="Location"
+          description="ZenNotes reads markdown directly from the selected vault folder."
+        >
+          <div className="flex items-center justify-between gap-4 px-5 py-5">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-ink-900">Vault location</div>
+              <div className="mt-1 truncate text-xs text-ink-500">
+                {vault?.root ?? 'No vault selected'}
+              </div>
+            </div>
+            <button
+              onClick={() => void openVaultPicker()}
+              className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+            >
+              Change…
+            </button>
+          </div>
+        </Section>
+      )
+    },
+    {
+      id: 'about',
+      title: 'About',
+      description: 'App identity, version, and company information.',
+      keywords: ['version', 'company', 'lumary', 'about', 'logo'],
+      content: (
+        <Section
+          title="ZenNotes"
+          description="A compact summary of the app and the studio behind it."
+        >
+          <div className="px-5 py-5">
+            <div className="min-w-0 text-sm leading-6 text-ink-600">
+              <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+                <span className="font-medium text-ink-900">ZenNotes</span>
+                <span className="text-xs text-ink-500">v{appPackage.version}</span>
+              </div>
+              <p className="mx-auto mt-2 max-w-[44rem] text-center">
+                {appPackage.description}. Visit{' '}
+                <a
+                  href="https://lumarylabs.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-ink-900 underline decoration-paper-400 underline-offset-2 hover:text-accent"
+                >
+                  lumarylabs.com
+                </a>{' '}
+                for company and product details.
+              </p>
+              <div className="mt-4 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-4 text-center">
+                <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+                  Built by
+                </span>
+                <a
+                  href="https://lumarylabs.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center justify-center px-2 py-1 transition-transform hover:-translate-y-px hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+                >
+                  <span
+                    aria-label="Lumary Labs"
+                    className="block h-12 w-[10.5rem] bg-ink-900"
+                    style={{
+                      WebkitMaskImage: `url(${companyLogo})`,
+                      maskImage: `url(${companyLogo})`,
+                      WebkitMaskRepeat: 'no-repeat',
+                      maskRepeat: 'no-repeat',
+                      WebkitMaskPosition: 'center',
+                      maskPosition: 'center',
+                      WebkitMaskSize: 'contain',
+                      maskSize: 'contain'
+                    }}
+                  />
+                </a>
+              </div>
+            </div>
+          </div>
+        </Section>
+      )
+    }
+  ]
+
+  const query = navQuery.trim().toLowerCase()
+  const filteredCategories = query
+    ? categories.filter((category) =>
+        [category.title, category.description, ...category.keywords].some((value) =>
+          value.toLowerCase().includes(query)
+        )
+      )
+    : categories
+  const visibleCategory =
+    filteredCategories.find((category) => category.id === activeCategory) ??
+    filteredCategories[0] ??
+    null
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[12vh] backdrop-blur-md"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[7vh] backdrop-blur-md"
       onClick={() => setSettingsOpen(false)}
     >
       <div
         ref={ref}
-        className="w-[min(560px,92vw)] overflow-hidden rounded-2xl bg-paper-100 shadow-float ring-1 ring-paper-300/70"
+        className="grid h-[min(82vh,820px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-paper-300/70 bg-paper-100 shadow-float"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-paper-300/60 px-6 py-4">
-          <h2 className="font-serif text-lg font-semibold text-ink-900">Settings</h2>
-          <p className="text-xs text-ink-500">Settings are saved on this device.</p>
-        </div>
+        <aside className="flex min-h-0 flex-col border-r border-paper-300/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
+          <div className="border-b border-paper-300/55 px-4 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
+              Settings
+            </div>
+            <div className="mt-3">
+              <label className="relative block">
+                <input
+                  value={navQuery}
+                  onChange={(e) => setNavQuery(e.target.value)}
+                  placeholder="Search settings…"
+                  className="w-full rounded-xl border border-paper-300/70 bg-paper-50/75 px-3 py-2.5 pl-9 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+                />
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink-400">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="11" cy="11" r="7" />
+                    <path d="m20 20-3.5-3.5" />
+                  </svg>
+                </span>
+              </label>
+            </div>
+          </div>
 
-        <div className="max-h-[65vh] overflow-y-auto">
-          <div className="flex flex-col divide-y divide-paper-300/50">
-            <Section title="Appearance">
-              <div className="flex flex-col gap-4 px-6 py-4">
-                <div>
-                  <div className="mb-2 text-xs font-medium text-ink-500">Theme</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {familyOptions.map((f) => (
-                      <button
-                        key={f.id}
-                        onClick={() => pickFamily(f.id)}
-                        className={[
-                          'rounded-md border px-3 py-2 text-left text-sm transition-colors',
-                          themeFamily === f.id
-                            ? 'border-accent/60 bg-accent/10 text-ink-900'
-                            : 'border-paper-300 bg-paper-50 text-ink-700 hover:bg-paper-200/70'
-                        ].join(' ')}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <div className="mb-2 text-xs font-medium text-ink-500">Mode</div>
-                  <div className="inline-flex rounded-md bg-paper-200/70 p-0.5">
-                    {(['light', 'dark', 'auto'] as ThemeMode[]).map((m) => (
-                      <button
-                        key={m}
-                        onClick={() => pickMode(m)}
-                        className={[
-                          'rounded px-3 py-1 text-xs capitalize transition-colors',
-                          themeMode === m
-                            ? 'bg-paper-50 text-ink-900 shadow-sm'
-                            : 'text-ink-600 hover:text-ink-900'
-                        ].join(' ')}
-                      >
-                        {m}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {visibleVariants.length > 1 && (
-                  <div>
-                    <div className="mb-2 text-xs font-medium text-ink-500">
-                      {themeFamily === 'gruvbox'
-                        ? 'Contrast'
-                        : themeFamily === 'catppuccin'
-                          ? 'Flavor'
-                          : 'Variant'}
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+            <nav className="space-y-1">
+              {filteredCategories.map((category) => {
+                const selected = visibleCategory?.id === category.id
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setActiveCategory(category.id)}
+                    className={[
+                      'w-full rounded-xl px-3 py-2.5 text-left transition-colors',
+                      selected
+                        ? 'bg-paper-200/85 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                        : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900'
+                    ].join(' ')}
+                  >
+                    <div className="text-sm font-medium">{category.title}</div>
+                    <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-ink-500">
+                      {category.description}
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {visibleVariants.map((v) => (
-                        <button
-                          key={v.id}
-                          onClick={() => pickVariant(v.id)}
-                          className={[
-                            'rounded-md border px-3 py-1.5 text-xs transition-colors',
-                            themeId === v.id
-                              ? 'border-accent/60 bg-accent/10 text-ink-900'
-                              : 'border-paper-300 bg-paper-50 text-ink-700 hover:bg-paper-200/70'
-                          ].join(' ')}
-                        >
-                          {v.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Section>
-
-            <Section title="Editor">
-              <ToggleRow
-                label="Vim mode"
-                description="First-class Vim motions in the markdown editor."
-                value={vimMode}
-                onChange={setVimMode}
-              />
-              {vimMode ? (
-                <>
-                  <ToggleRow
-                    label="Leader key hints"
-                    description="Show a which-key style guide after pressing Space so the next available leader actions stay visible."
-                    value={whichKeyHints}
-                    onChange={setWhichKeyHints}
-                  />
-                  {whichKeyHints && (
-                    <>
-                      <SegmentedRow
-                        label="Leader hint behavior"
-                        description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you press Space again or Esc."
-                        value={whichKeyHintMode}
-                        options={[
-                          { value: 'timed', label: 'Timed' },
-                          { value: 'sticky', label: 'Sticky' }
-                        ]}
-                        onChange={(next) => setWhichKeyHintMode(next as WhichKeyHintMode)}
-                      />
-                      {whichKeyHintMode === 'timed' && (
-                        <SliderRow
-                          label="Leader hint duration"
-                          description="How long the leader overlay stays visible, and how long the pending leader sequence stays armed after pressing Space."
-                          value={whichKeyHintTimeoutMs}
-                          min={400}
-                          max={3000}
-                          step={100}
-                          format={(v) => `${(v / 1000).toFixed(1)}s`}
-                          onChange={setWhichKeyHintTimeoutMs}
-                        />
-                      )}
-                    </>
-                  )}
-                </>
-              ) : (
-                <div className="px-6 py-1 text-xs text-ink-500">
-                  Leader key hints are only available while Vim mode is enabled.
+                  </button>
+                )
+              })}
+              {filteredCategories.length === 0 && (
+                <div className="rounded-xl border border-dashed border-paper-300/70 px-3 py-4 text-sm text-ink-500">
+                  No settings sections match your search.
                 </div>
               )}
-              <ToggleRow
-                label="Live preview"
-                description="Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], etc."
-                value={livePreview}
-                onChange={setLivePreview}
-              />
-              <ToggleRow
-                label="Note tabs"
-                description="Open notes in tabs and allow note-drag split view. Turn off to keep the current single-note behavior."
-                value={tabsEnabled}
-                onChange={setTabsEnabled}
-              />
-              <ToggleRow
-                label="Word wrap"
-                description="Wrap long lines to the editor width. Turn off to scroll horizontally instead — same toggle as a coding editor."
-                value={wordWrap}
-                onChange={setWordWrap}
-              />
-              <SegmentedRow
-                label="PDFs in edit mode"
-                description="How embedded PDFs render while you're writing. 'Compact' keeps the editor focused — read the PDF in the reference pane. 'Full' inlines the PDF iframe under your cursor."
-                value={pdfEmbedInEditMode}
-                options={[
-                  { value: 'compact', label: 'Compact' },
-                  { value: 'full', label: 'Full' }
-                ]}
-                onChange={(next) => setPdfEmbedInEditMode(next)}
-              />
-              <ToggleRow
-                label="Date-titled Quick Notes"
-                description="New Quick Notes are named YYYY-MM-DD instead of a timestamp. A second note on the same day becomes “YYYY-MM-DD (2)”, then (3), and so on."
-                value={quickNoteDateTitle}
-                onChange={setQuickNoteDateTitle}
-              />
-            </Section>
-
-            <Section title="Font">
-              <FontRow
-                label="Interface font"
-                description="Used for the sidebar, menus, and window chrome."
-                value={interfaceFont}
-                options={systemFonts}
-                onChange={setInterfaceFont}
-              />
-              <FontRow
-                label="Text font"
-                description="Used for editing and reading views."
-                value={textFont}
-                options={systemFonts}
-                onChange={setTextFont}
-              />
-              <FontRow
-                label="Monospace font"
-                description="Used for code blocks, inline code, and frontmatter."
-                value={monoFont}
-                options={systemFonts}
-                onChange={setMonoFont}
-              />
-              <SliderRow
-                label="Font size"
-                description="Editor and preview text size."
-                value={editorFontSize}
-                min={12}
-                max={32}
-                step={1}
-                unit="px"
-                onChange={setEditorFontSize}
-              />
-              <SliderRow
-                label="Line height"
-                description="Vertical spacing between lines."
-                value={editorLineHeight}
-                min={1.2}
-                max={2.4}
-                step={0.05}
-                onChange={setEditorLineHeight}
-                format={(v) => v.toFixed(2)}
-              />
-              <SliderRow
-                label="Reading width"
-                description="Maximum width for preview and split-preview content."
-                value={previewMaxWidth}
-                min={640}
-                max={1400}
-                step={20}
-                unit="px"
-                onChange={setPreviewMaxWidth}
-              />
-              <SliderRow
-                label="Editor width"
-                description="Caps and centers the editor's content column. Useful when the window is maximized so lines don't stretch edge-to-edge."
-                value={editorMaxWidth}
-                min={640}
-                max={1600}
-                step={20}
-                unit="px"
-                onChange={setEditorMaxWidth}
-              />
-              <SegmentedRow
-                label="Content alignment"
-                description="Center note content within the column (Apple Notes style) or left-align it to the pane edge."
-                value={contentAlign}
-                options={[
-                  { value: 'center', label: 'Center' },
-                  { value: 'left', label: 'Left' }
-                ]}
-                onChange={(next) => setContentAlign(next)}
-              />
-              <SegmentedRow
-                label="Line numbers"
-                description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
-                value={lineNumberMode}
-                options={[
-                  { value: 'off', label: 'Off' },
-                  { value: 'absolute', label: 'Absolute' },
-                  { value: 'relative', label: 'Relative' }
-                ]}
-                onChange={(next) => setLineNumberMode(next)}
-              />
-            </Section>
-
-            <Section title="Appearance · Advanced">
-              <ToggleRow
-                label="Dark sidebar"
-                description="Tint the sidebar one step darker than the main canvas so the chrome reads as a separate surface."
-                value={darkSidebar}
-                onChange={setDarkSidebar}
-              />
-            </Section>
-
-            <Section title="Vault">
-              <div className="flex items-center justify-between gap-4 px-6 py-4">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink-900">Vault location</div>
-                  <div className="truncate text-xs text-ink-500">
-                    {vault?.root ?? 'No vault selected'}
-                  </div>
-                </div>
-                <button
-                  onClick={() => void openVaultPicker()}
-                  className="shrink-0 rounded-md border border-paper-300 bg-paper-50 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
-                >
-                  Change…
-                </button>
-              </div>
-            </Section>
-
-            <Section title="About">
-              <div className="px-6 py-4">
-                <div className="rounded-lg border border-paper-300/60 bg-paper-50/70 px-4 py-3">
-                  <div className="min-w-0 text-sm leading-6 text-ink-600">
-                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
-                      <span className="font-medium text-ink-900">ZenNotes</span>
-                      <span className="text-xs text-ink-500">v{appPackage.version}</span>
-                    </div>
-                    <p className="mx-auto mt-1 max-w-[44rem] text-center">
-                      {appPackage.description}. Visit{' '}
-                      <a
-                        href="https://lumarylabs.com"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-ink-900 underline decoration-paper-400 underline-offset-2 hover:text-accent"
-                      >
-                        lumarylabs.com
-                      </a>{' '}
-                      for company and product details.
-                    </p>
-                    <div className="mt-3 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-3 text-center">
-                      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
-                        Built by
-                      </span>
-                      <a
-                        href="https://lumarylabs.com"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex shrink-0 items-center justify-center px-2 py-1 transition-transform hover:-translate-y-px hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
-                      >
-                        <span
-                          aria-label="Lumary Labs"
-                          className="block h-12 w-[10.5rem] bg-ink-900"
-                          style={{
-                            WebkitMaskImage: `url(${companyLogo})`,
-                            maskImage: `url(${companyLogo})`,
-                            WebkitMaskRepeat: 'no-repeat',
-                            maskRepeat: 'no-repeat',
-                            WebkitMaskPosition: 'center',
-                            maskPosition: 'center',
-                            WebkitMaskSize: 'contain',
-                            maskSize: 'contain'
-                          }}
-                        />
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Section>
+            </nav>
           </div>
-        </div>
 
-        <div className="flex justify-end border-t border-paper-300/60 px-6 py-3">
-          <button
-            onClick={() => setSettingsOpen(false)}
-            className="rounded-md bg-ink-900 px-4 py-1.5 text-sm font-medium text-paper-50 hover:bg-ink-800"
-          >
-            Done
-          </button>
+          <div className="border-t border-paper-300/55 px-4 py-3 text-[11px] leading-5 text-ink-500">
+            Settings save automatically on this device.
+          </div>
+        </aside>
+
+        <div className="flex min-h-0 flex-col">
+          <div className="flex items-start justify-between gap-4 border-b border-paper-300/60 px-7 py-5">
+            <div>
+              <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
+                {visibleCategory ? visibleCategory.title : 'Settings'}
+              </div>
+              <h2 className="mt-1 font-serif text-[28px] font-semibold leading-tight text-ink-900">
+                {visibleCategory?.title ?? 'Settings'}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">
+                {visibleCategory?.description ??
+                  'Search the navigation on the left to jump to a settings section.'}
+              </p>
+            </div>
+            <button
+              onClick={() => setSettingsOpen(false)}
+              className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-2 text-sm font-medium text-ink-900 transition-colors hover:bg-paper-200"
+            >
+              Done
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
+            {visibleCategory ? (
+              visibleCategory.content
+            ) : (
+              <div className="flex h-full min-h-[280px] items-center justify-center rounded-[24px] border border-dashed border-paper-300/70 bg-paper-50/35 px-6 text-center text-sm leading-6 text-ink-500">
+                Try a broader search term, or clear the search field to browse every settings section.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   )
 }
 
+function KeymapSettings({
+  vimMode,
+  overrides,
+  onSetBinding,
+  onResetAll
+}: {
+  vimMode: boolean
+  overrides: KeymapOverrides
+  onSetBinding: (id: KeymapId, binding: string | null) => void
+  onResetAll: () => void
+}): JSX.Element {
+  const [query, setQuery] = useState('')
+  const [recording, setRecording] = useState<KeymapDefinition | null>(null)
+
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return getKeymapDefinitionsByGroup()
+      .map((group) => {
+        const items = group.items.filter((definition) => {
+          if (definition.vimOnly && !vimMode && definition.id !== 'global.searchNotesNonVim') {
+            // Keep Vim-only bindings visible so users can prep their layout
+            // before turning Vim mode back on, but still let the filter work.
+          }
+          if (!q) return true
+          return (
+            definition.title.toLowerCase().includes(q) ||
+            definition.description.toLowerCase().includes(q) ||
+            getKeymapDisplay(overrides, definition.id).toLowerCase().includes(q)
+          )
+        })
+        return items.length > 0 ? { ...group, items } : null
+      })
+      .filter((group): group is ReturnType<typeof getKeymapDefinitionsByGroup>[number] => !!group)
+  }, [overrides, query, vimMode])
+
+  const hasOverrides = Object.keys(overrides).length > 0
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col rounded-[22px] border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="sticky top-0 z-10 border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ink-900">Shortcut editor</div>
+            <div className="mt-1 text-xs leading-5 text-ink-500">
+              Record a new key or sequence for the app’s keyboard-first actions. Standard
+              accessibility fallbacks like arrows, Enter, and Escape still work.
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter keymaps…"
+              className="w-48 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+            />
+            <button
+              type="button"
+              disabled={!hasOverrides}
+              onClick={onResetAll}
+              className={[
+                'rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
+                hasOverrides
+                  ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
+                  : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
+              ].join(' ')}
+            >
+              Reset all
+            </button>
+          </div>
+        </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-paper-300/45">
+          {groups.map((group) => (
+            <div key={group.group}>
+              <div className="px-5 pt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                {group.label}
+              </div>
+              <div className="pb-4">
+                {group.items.map((definition) => {
+                  const current = getKeymapBinding(overrides, definition.id)
+                  const custom = !!overrides[definition.id]
+                  const inactive =
+                    (definition.vimOnly && !vimMode) ||
+                    (definition.nonVimOnly && vimMode)
+                  return (
+                    <div
+                      key={definition.id}
+                      className="flex items-center justify-between gap-4 px-5 py-4"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-sm font-medium text-ink-900">
+                            {definition.title}
+                          </span>
+                          {inactive && (
+                            <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                              {definition.vimOnly ? 'Vim only' : 'Non-Vim only'}
+                            </span>
+                          )}
+                          {custom && (
+                            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                              Custom
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-ink-500">{definition.description}</div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="rounded-xl border border-paper-300/70 bg-paper-100/85 px-3 py-1.5 text-xs font-medium text-ink-900">
+                          {formatKeymapBinding(current, definition.kind)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setRecording(definition)}
+                          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                        >
+                          Change…
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!custom}
+                          onClick={() => onSetBinding(definition.id, null)}
+                          className={[
+                            'rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
+                            custom
+                              ? 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
+                              : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
+                          ].join(' ')}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          {groups.length === 0 && (
+            <div className="px-5 py-10 text-center text-sm text-ink-500">
+              No keymaps match your filter.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {recording && (
+        <KeymapRecorderModal
+          definition={recording}
+          currentBinding={getKeymapBinding(overrides, recording.id)}
+          onClose={() => setRecording(null)}
+          onSave={(binding) => {
+            onSetBinding(recording.id, binding === recording.defaultBinding ? null : binding)
+            setRecording(null)
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function KeymapRecorderModal({
+  definition,
+  currentBinding,
+  onClose,
+  onSave
+}: {
+  definition: KeymapDefinition
+  currentBinding: string
+  onClose: () => void
+  onSave: (binding: string) => void
+}): JSX.Element {
+  const [binding, setBinding] = useState(currentBinding)
+  const mac = isMacPlatform()
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      const key = event.key
+      if (key === 'Backspace' || key === 'Delete') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (definition.kind === 'shortcut') {
+          setBinding('')
+          return
+        }
+        setBinding((current) => {
+          const tokens = current.split(/\s+/).filter(Boolean)
+          tokens.pop()
+          return tokens.join(' ')
+        })
+        return
+      }
+
+      const next =
+        definition.kind === 'shortcut'
+          ? shortcutBindingFromEvent(event)
+          : sequenceTokenFromEvent(event)
+      if (!next) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      if (definition.kind === 'shortcut') {
+        setBinding(next)
+        return
+      }
+
+      setBinding((current) => {
+        const limit = definition.maxTokens ?? 2
+        const tokens = current.split(/\s+/).filter(Boolean)
+        if (limit <= 1) return next
+        if (tokens.length >= limit) return next
+        return [...tokens, next].join(' ')
+      })
+    }
+
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [definition])
+
+  const display = binding
+    ? formatKeymapBinding(binding, definition.kind)
+    : 'Press a key…'
+
+  return createPortal(
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
+      <div className="w-[min(440px,92vw)] overflow-hidden rounded-2xl border border-paper-300/70 bg-paper-100 shadow-float">
+        <div className="border-b border-paper-300/60 px-5 py-4">
+          <div className="text-base font-semibold text-ink-900">{definition.title}</div>
+          <div className="mt-1 text-sm text-ink-500">{definition.description}</div>
+        </div>
+        <div className="px-5 py-4">
+          <div className="rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+              Recording
+            </div>
+            <div className="mt-2 text-2xl font-semibold text-ink-900">{display}</div>
+            <div className="mt-2 text-xs leading-5 text-ink-500">
+              {definition.kind === 'shortcut'
+                ? `Press the shortcut you want. ${mac ? 'Command' : 'Ctrl'}-style chords are saved in the app’s cross-platform format.`
+                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? '' : 's'}.`}
+            </div>
+          </div>
+          <div className="mt-3 text-xs text-ink-500">
+            Current: {formatKeymapBinding(currentBinding, definition.kind)}
+          </div>
+          <div className="mt-1 text-xs text-ink-500">
+            Default: {formatKeymapBinding(definition.defaultBinding, definition.kind)}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-paper-300/60 px-5 py-3">
+          <button
+            type="button"
+            onClick={() => setBinding('')}
+            className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
+          >
+            Clear
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!binding}
+              onClick={() => onSave(binding)}
+              className={[
+                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                binding
+                  ? 'bg-ink-900 text-paper-50 hover:bg-ink-800'
+                  : 'cursor-not-allowed bg-paper-300 text-ink-500'
+              ].join(' ')}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 function Section({
   title,
+  description,
   children
 }: {
   title: string
+  description?: string
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section>
-      <div className="px-6 pt-4 text-[11px] font-medium uppercase tracking-wide text-ink-500">
-        {title}
+    <section className="space-y-3">
+      <div>
+        <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-ink-500">
+          {title}
+        </div>
+        {description && (
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">{description}</p>
+        )}
       </div>
-      <div>{children}</div>
+      <div className="overflow-hidden rounded-[22px] border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="divide-y divide-paper-300/45">{children}</div>
+      </div>
     </section>
   )
+}
+
+function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
+  return <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
 }
 
 function FontRow({
@@ -665,16 +1189,16 @@ function FontRow({
   }
 
   return (
-    <div className="flex items-center justify-between gap-4 px-6 py-3">
+    <div className="flex items-center justify-between gap-5 px-5 py-4">
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
-        {description && <div className="text-xs text-ink-500">{description}</div>}
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
       <button
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-[220px] shrink-0 items-center justify-between gap-2 rounded-md border border-paper-300 bg-paper-50 px-3 py-1.5 text-left text-sm text-ink-900 transition-colors hover:bg-paper-100"
+        className="flex w-[236px] shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-left text-sm text-ink-900 transition-colors hover:bg-paper-200"
       >
         <span
           className="truncate"
@@ -713,7 +1237,7 @@ function FontRow({
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKey}
                 placeholder="Search fonts…"
-                className="w-full rounded-md bg-paper-200 px-2 py-1.5 text-sm text-ink-900 outline-none placeholder:text-ink-400"
+                className="w-full rounded-lg bg-paper-200 px-2.5 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400"
               />
             </div>
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -796,10 +1320,10 @@ function SliderRow({
 }): JSX.Element {
   const display = (format ? format(value) : String(value)) + (unit && !format ? unit : '')
   return (
-    <div className="flex items-center justify-between gap-4 px-6 py-3">
+    <div className="flex items-center justify-between gap-5 px-5 py-4">
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
-        {description && <div className="text-xs text-ink-500">{description}</div>}
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <input
@@ -811,7 +1335,7 @@ function SliderRow({
           onChange={(e) => onChange(Number(e.target.value))}
           className="zen-slider h-1 w-[140px] cursor-pointer appearance-none rounded-full"
         />
-        <div className="min-w-[48px] text-right text-sm tabular-nums text-ink-800">
+        <div className="min-w-[54px] text-right text-sm tabular-nums text-ink-800">
           {display}
         </div>
       </div>
@@ -883,10 +1407,10 @@ function ToggleRow({
   onChange: (next: boolean) => void
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 px-6 py-3">
+    <label className="flex cursor-pointer items-center justify-between gap-5 px-5 py-4">
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
-        {description && <div className="text-xs text-ink-500">{description}</div>}
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
       <button
         type="button"
@@ -923,19 +1447,19 @@ function SegmentedRow<T extends string>({
   onChange: (next: T) => void
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4 px-6 py-3">
+    <div className="flex items-center justify-between gap-5 px-5 py-4">
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
-        {description && <div className="text-xs text-ink-500">{description}</div>}
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
-      <div className="inline-flex shrink-0 rounded-md bg-paper-200/70 p-0.5">
+      <div className="inline-flex shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/75 p-1">
         {options.map((option) => (
           <button
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
             className={[
-              'rounded px-3 py-1 text-xs transition-colors',
+              'rounded-lg px-3 py-1.5 text-xs transition-colors',
               value === option.value
                 ? 'bg-paper-50 text-ink-900 shadow-sm'
                 : 'text-ink-600 hover:text-ink-900'

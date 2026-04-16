@@ -3,6 +3,7 @@ import { isTagsViewActive, useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
 import { extractTags } from '../lib/tags'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
+import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -30,6 +31,7 @@ export function TagView(): JSX.Element {
   const toggleTagSelection = useStore((s) => s.toggleTagSelection)
   const closeTagView = useStore((s) => s.closeTagView)
   const selectNote = useStore((s) => s.selectNote)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   const amActive = useStore(isTagsViewActive)
 
   const [filter, setFilter] = useState('')
@@ -40,7 +42,7 @@ export function TagView(): JSX.Element {
   const filterRef = useRef<HTMLInputElement>(null)
   const exRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const gPending = useRef(false)
+  const gPending = useRef(0)
   const gTimer = useRef<ReturnType<typeof setTimeout>>()
 
   // Every tag the vault knows about, so the panel can offer a "pick more
@@ -194,6 +196,7 @@ export function TagView(): JSX.Element {
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
       const k = e.key
+      const overrides = keymapOverrides
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -209,49 +212,48 @@ export function TagView(): JSX.Element {
         closeTagView()
         return
       }
-      if (k === '/') {
+      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
-      if (k === ':') {
+      if (matchesSequenceToken(e, overrides, 'nav.localEx')) {
         consume()
         setExValue('')
         setExOpen(true)
         requestAnimationFrame(() => exRef.current?.focus())
         return
       }
-      if (k === 'j' || k === 'ArrowDown') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || k === 'ArrowDown') {
         consume()
         moveCursor(1)
         return
       }
-      if (k === 'k' || k === 'ArrowUp') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || k === 'ArrowUp') {
         consume()
         moveCursor(-1)
         return
       }
-      if (k === 'G') {
+      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
-      if (k === 'g') {
-        consume()
-        if (gPending.current) {
-          gPending.current = false
-          if (gTimer.current) clearTimeout(gTimer.current)
-          setCursorIndex(0)
-          return
-        }
-        gPending.current = true
-        gTimer.current = setTimeout(() => {
-          gPending.current = false
-        }, 500)
+      if (
+        advanceSequence(
+          e,
+          getKeymapBinding(overrides, 'nav.jumpTop'),
+          gPending,
+          gTimer,
+          () => setCursorIndex(0),
+          consume,
+          500
+        )
+      ) {
         return
       }
-      if ((k === 'Enter' || k === 'o') && current) {
+      if ((k === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
         consume()
         void openCurrent()
       }
@@ -264,6 +266,7 @@ export function TagView(): JSX.Element {
     moveCursor,
     filtered.length,
     current,
+    keymapOverrides,
     openCurrent,
     closeTagView
   ])

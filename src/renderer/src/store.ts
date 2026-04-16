@@ -20,6 +20,8 @@ import { toggleTaskAtIndex } from '@shared/tasklists'
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
+import type { KeymapId, KeymapOverrides } from './lib/keymaps'
+import { normalizeKeymapOverrides } from './lib/keymaps'
 import type { Panel } from './lib/vim-nav'
 import {
   allLeaves,
@@ -82,6 +84,7 @@ const MAX_NOTE_JUMP_HISTORY = 100
 
 interface Prefs {
   vimMode: boolean
+  keymapOverrides: KeymapOverrides
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
   /** Whether leader hints auto-hide after a timeout or stay open until dismissed. */
@@ -154,6 +157,7 @@ interface Prefs {
 }
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
+  keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
   whichKeyHintTimeoutMs: 900,
@@ -210,6 +214,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       : DEFAULT_PREFS.themeId
   return {
     vimMode: typeof p.vimMode === 'boolean' ? p.vimMode : DEFAULT_PREFS.vimMode,
+    keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
     whichKeyHints:
       typeof p.whichKeyHints === 'boolean'
         ? p.whichKeyHints
@@ -565,6 +570,7 @@ async function rewriteTagAcrossVault(
 /** Snapshot prefs-shaped fields out of the live store. */
 function collectPrefs(s: {
   vimMode: boolean
+  keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
@@ -603,6 +609,7 @@ function collectPrefs(s: {
 }): Prefs {
   return {
     vimMode: s.vimMode,
+    keymapOverrides: s.keymapOverrides,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
     whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
@@ -922,6 +929,7 @@ interface Store {
   zenMode: boolean
   zenRestoreState: ZenRestoreState | null
   vimMode: boolean
+  keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
@@ -1091,6 +1099,8 @@ interface Store {
   toggleNoteList: () => void
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
+  setKeymapBinding: (id: KeymapId, binding: string | null) => void
+  resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
   setWhichKeyHintMode: (mode: WhichKeyHintMode) => void
   setWhichKeyHintTimeoutMs: (ms: number) => void
@@ -1499,6 +1509,7 @@ export const useStore = create<Store>((set, get) => {
   zenMode: false,
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
+  keymapOverrides: loadPrefs().keymapOverrides,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
   whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
@@ -2237,6 +2248,19 @@ export const useStore = create<Store>((set, get) => {
     }),
   setVimMode: (on) => {
     set({ vimMode: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setKeymapBinding: (id, binding) => {
+    set((s) => {
+      const nextOverrides = { ...s.keymapOverrides }
+      if (binding) nextOverrides[id] = binding
+      else delete nextOverrides[id]
+      return { keymapOverrides: nextOverrides }
+    })
+    savePrefs(collectPrefs(get()))
+  },
+  resetAllKeymaps: () => {
+    set({ keymapOverrides: {} })
     savePrefs(collectPrefs(get()))
   },
   setWhichKeyHints: (on) => {

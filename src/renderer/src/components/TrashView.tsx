@@ -3,6 +3,7 @@ import type { NoteMeta } from '@shared/ipc'
 import { isTrashViewActive, useStore } from '../store'
 import { ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
+import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -25,6 +26,7 @@ export function TrashView(): JSX.Element {
   const refreshNotes = useStore((s) => s.refreshNotes)
   const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const amActive = useStore(isTrashViewActive)
 
@@ -32,7 +34,7 @@ export function TrashView(): JSX.Element {
   const [cursorIndex, setCursorIndex] = useState(0)
   const filterRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const gPending = useRef(false)
+  const gPending = useRef(0)
   const gTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const trashed = useMemo(
@@ -121,6 +123,7 @@ export function TrashView(): JSX.Element {
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
       const key = e.key
+      const overrides = keymapOverrides
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -137,53 +140,52 @@ export function TrashView(): JSX.Element {
         return
       }
 
-      if (key === '/') {
+      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (key === 'j' || key === 'ArrowDown') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)))
         return
       }
-      if (key === 'k' || key === 'ArrowUp') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i - 1)))
         return
       }
-      if (key === 'G') {
+      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
-      if (key === 'g') {
-        consume()
-        if (gPending.current) {
-          gPending.current = false
-          if (gTimer.current) clearTimeout(gTimer.current)
-          setCursorIndex(0)
-          return
-        }
-        gPending.current = true
-        gTimer.current = setTimeout(() => {
-          gPending.current = false
-        }, 500)
+      if (
+        advanceSequence(
+          e,
+          getKeymapBinding(overrides, 'nav.jumpTop'),
+          gPending,
+          gTimer,
+          () => setCursorIndex(0),
+          consume,
+          500
+        )
+      ) {
         return
       }
-      if ((key === 'Enter' || key === 'o') && current) {
+      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
         consume()
         void openCurrent()
         return
       }
-      if (key === 'r' && current) {
+      if (matchesSequenceToken(e, overrides, 'nav.restore') && current) {
         consume()
         void restoreNote(current)
         return
       }
-      if ((key === 'x' || key === 'd') && current) {
+      if ((matchesSequenceToken(e, overrides, 'nav.delete') || key === 'd') && current) {
         consume()
         void deleteNoteForever(current)
       }
@@ -200,6 +202,7 @@ export function TrashView(): JSX.Element {
     deleteNoteForever,
     filter,
     filtered.length,
+    keymapOverrides,
     openCurrent,
     restoreNote
   ])

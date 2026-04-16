@@ -1,6 +1,7 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
+import { getKeymapDisplay, type KeymapId, type KeymapOverrides } from '../lib/keymaps'
 import {
   HELP_CORE_CONCEPTS,
   HELP_QUICK_START,
@@ -21,6 +22,111 @@ import {
 interface CommandGroup {
   category: string
   commands: Command[]
+}
+
+function shortcut(overrides: KeymapOverrides, id: KeymapId): string {
+  return getKeymapDisplay(overrides, id)
+}
+
+function leaderShortcut(overrides: KeymapOverrides, id: KeymapId): string {
+  return `${shortcut(overrides, 'vim.leaderPrefix')} ${shortcut(overrides, id)}`
+}
+
+function paneShortcut(overrides: KeymapOverrides, id: KeymapId): string {
+  return `${shortcut(overrides, 'vim.panePrefix')} ${shortcut(overrides, id)}`
+}
+
+function resolveShortcutKeys(
+  sectionId: string,
+  action: string,
+  overrides: KeymapOverrides
+): string | null {
+  if (sectionId === 'global-shortcuts') {
+    if (action === 'Search notes') return shortcut(overrides, 'global.searchNotes')
+    if (action === 'Search notes (non-Vim mode)') return shortcut(overrides, 'global.searchNotesNonVim')
+    if (action === 'Open commands') return shortcut(overrides, 'global.commandPalette')
+    if (action === 'New Quick Note') return shortcut(overrides, 'global.newQuickNote')
+    if (action === 'Open Settings') return shortcut(overrides, 'global.openSettings')
+    if (action === 'Toggle sidebar') return shortcut(overrides, 'global.toggleSidebar')
+    if (action === 'Toggle connections') return shortcut(overrides, 'global.toggleConnections')
+    if (action === 'Toggle Zen mode') return shortcut(overrides, 'global.toggleZenMode')
+    if (action === 'Close active tab') return shortcut(overrides, 'global.closeActiveTab')
+    if (action === 'Toggle word wrap') return shortcut(overrides, 'global.toggleWordWrap')
+  }
+
+  if (sectionId === 'panel-motion') {
+    if (action === 'Move focus') {
+      return [
+        paneShortcut(overrides, 'vim.paneFocusLeft'),
+        paneShortcut(overrides, 'vim.paneFocusDown'),
+        paneShortcut(overrides, 'vim.paneFocusUp'),
+        paneShortcut(overrides, 'vim.paneFocusRight')
+      ].join(' / ')
+    }
+    if (action === 'Split right') return paneShortcut(overrides, 'vim.paneSplitRight')
+    if (action === 'Split down') return paneShortcut(overrides, 'vim.paneSplitDown')
+    if (action === 'Open buffers') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
+    if (action === 'Search notes') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
+    if (action === 'Toggle left sidebar') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
+    if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
+    if (action === 'Show leader hints') return `${shortcut(overrides, 'vim.leaderPrefix')}, then pause`
+    if (action === 'Toggle outline panel') return shortcut(overrides, 'global.toggleOutlinePanel')
+    if (action === 'Fold / unfold heading') {
+      return `${shortcut(overrides, 'vim.foldCurrent')} / ${shortcut(overrides, 'vim.unfoldCurrent')}`
+    }
+    if (action === 'Fold / unfold all') {
+      return `${shortcut(overrides, 'vim.foldAll')} / ${shortcut(overrides, 'vim.unfoldAll')}`
+    }
+    if (action === 'Go back') return shortcut(overrides, 'vim.historyBack')
+    if (action === 'Go forward') return shortcut(overrides, 'vim.historyForward')
+    if (action === 'Hint mode') return shortcut(overrides, 'vim.hintMode')
+  }
+
+  if (sectionId === 'lists-and-sidebar') {
+    if (action === 'Move selection') {
+      return `${shortcut(overrides, 'nav.moveDown')} / ${shortcut(overrides, 'nav.moveUp')}`
+    }
+    if (action === 'Jump to top or bottom') {
+      return `${shortcut(overrides, 'nav.jumpTop')} / ${shortcut(overrides, 'nav.jumpBottom')}`
+    }
+    if (action === 'Open item') return `Enter / ${shortcut(overrides, 'nav.openSideItem')}`
+    if (action === 'Collapse or move left') return shortcut(overrides, 'nav.back')
+    if (action === 'Toggle folder') return shortcut(overrides, 'nav.toggleFolder')
+    if (action === 'Search notes') return shortcut(overrides, 'nav.filter')
+    if (action === 'Open context menu') return shortcut(overrides, 'nav.contextMenu')
+  }
+
+  if (sectionId === 'preview-and-connections') {
+    if (action === 'Scroll preview') {
+      return `${shortcut(overrides, 'nav.moveDown')} / ${shortcut(overrides, 'nav.moveUp')}`
+    }
+    if (action === 'Half-page scroll') {
+      return `${shortcut(overrides, 'nav.halfPageDown')} / ${shortcut(overrides, 'nav.halfPageUp')}`
+    }
+    if (action === 'Jump to top or bottom') {
+      return `${shortcut(overrides, 'nav.jumpTop')} / ${shortcut(overrides, 'nav.jumpBottom')}`
+    }
+    if (action === 'Search notes') return shortcut(overrides, 'nav.filter')
+    if (action === 'Peek backlink') return shortcut(overrides, 'nav.peekPreview')
+    if (action === 'Back out') return `${shortcut(overrides, 'nav.back')} / Esc`
+  }
+
+  return null
+}
+
+function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): string {
+  if (command === 'gd') return shortcut(overrides, 'vim.goToDefinition')
+  if (command === '<Space> l f') {
+    return `${leaderShortcut(overrides, 'vim.leaderNoteActions')} ${shortcut(overrides, 'vim.leaderFormatNote')}`
+  }
+  if (command === '<Space> (pause)') {
+    return `${shortcut(overrides, 'vim.leaderPrefix')} (pause)`
+  }
+  if (command === '<Space> o') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
+  if (command === '<Space> f') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
+  if (command === '<Space> e') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
+  if (command === '<Space> p') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
+  return command
 }
 
 const HELP_SECTION_LINKS = [
@@ -59,6 +165,7 @@ export function HelpView(): JSX.Element {
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
@@ -89,7 +196,7 @@ export function HelpView(): JSX.Element {
             deferredQuery,
             section.title,
             section.description,
-            item.keys,
+            resolveShortcutKeys(section.id, item.action, keymapOverrides) ?? item.keys,
             item.action,
             item.detail
           )
@@ -98,19 +205,33 @@ export function HelpView(): JSX.Element {
           items.length > 0 ||
           matchesQuery(deferredQuery, section.title, section.description)
         ) {
-          return { ...section, items }
+          return {
+            ...section,
+            items: items.map((item) => ({
+              ...item,
+              keys: resolveShortcutKeys(section.id, item.action, keymapOverrides) ?? item.keys
+            }))
+          }
         }
         return null
       }).filter((section): section is (typeof HELP_SHORTCUT_SECTIONS)[number] => !!section),
-    [deferredQuery]
+    [deferredQuery, keymapOverrides]
   )
 
   const vimCommands = useMemo(
     () =>
       HELP_VIM_COMMANDS.filter((command) =>
-        matchesQuery(deferredQuery, command.command, command.summary, command.detail)
-      ),
-    [deferredQuery]
+        matchesQuery(
+          deferredQuery,
+          resolveVimCommandLabel(command.command, keymapOverrides),
+          command.summary,
+          command.detail
+        )
+      ).map((command) => ({
+        ...command,
+        command: resolveVimCommandLabel(command.command, keymapOverrides)
+      })),
+    [deferredQuery, keymapOverrides]
   )
 
   const settingsSections = useMemo(
@@ -339,7 +460,7 @@ export function HelpView(): JSX.Element {
                       <div className="mt-4 flex flex-col gap-3">
                         {section.items.map((item) => (
                           <ShortcutRow
-                            key={`${section.id}-${item.keys}-${item.action}`}
+                            key={`${section.id}-${item.action}`}
                             keys={item.keys}
                             action={item.action}
                             detail={item.detail}
@@ -389,12 +510,12 @@ export function HelpView(): JSX.Element {
                     <CalloutCard
                       icon={<CheckSquareIcon width={16} height={16} className="text-accent" />}
                       title="Tasks and Tags have local ex prompts"
-                      body="Inside Tasks or Tags, press `:` to open the local command line for view-specific actions like close, split, refresh, and retagging."
+                      body={`Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`}
                     />
                     <CalloutCard
                       icon={<TagIcon width={16} height={16} className="text-accent" />}
                       title="Link following is context-aware"
-                      body="`gd` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow."
+                      body={`\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`}
                     />
                   </div>
                 </div>
@@ -405,7 +526,7 @@ export function HelpView(): JSX.Element {
               <SectionShell
                 id="help-commands"
                 title="Command Palette"
-                subtitle="Everything searchable from Shift+Cmd+P, including contextual commands."
+                subtitle={`Everything searchable from ${shortcut(keymapOverrides, 'global.commandPalette')}, including contextual commands.`}
               >
                 <div className="space-y-5">
                   {commandGroups.map((group) => (

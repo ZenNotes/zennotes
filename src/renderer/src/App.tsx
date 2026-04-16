@@ -15,6 +15,7 @@ import { EmptyVault } from './components/EmptyVault'
 import { PromptHost } from './components/PromptHost'
 import { PinnedReferencePane } from './components/PinnedReferencePane'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
+import { matchesShortcut } from './lib/keymaps'
 
 function App(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -148,45 +149,44 @@ function App(): JSX.Element {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
-      const key = e.key.toLowerCase()
       const state = useStore.getState()
+      const overrides = state.keymapOverrides
 
-      if (mod && e.shiftKey && key === 'p') {
+      if (matchesShortcut(e, overrides, 'global.commandPalette')) {
         // ⇧⌘P — command palette
         e.preventDefault()
         setBufferPaletteOpen(false)
         setCommandPaletteOpen(!state.commandPaletteOpen)
         return
       }
-      if (!state.vimMode && mod && !e.shiftKey && key === 'f') {
+      if (!state.vimMode && matchesShortcut(e, overrides, 'global.searchNotesNonVim')) {
         // ⌘F / Ctrl+F — note search when Vim mode is off
         e.preventDefault()
         setBufferPaletteOpen(false)
         setSearchOpen(true)
         return
       }
-      if (mod && e.shiftKey && key === 'n') {
+      if (matchesShortcut(e, overrides, 'global.newQuickNote')) {
         // ⇧⌘N — new quick note
         e.preventDefault()
         const title = resolveQuickNoteTitle(state.notes, state.quickNoteDateTitle)
         void state.createAndOpen('quick', '', { title, focusTitle: true })
         return
       }
-      if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && key === 'z') {
+      if (matchesShortcut(e, overrides, 'global.toggleWordWrap')) {
         // ⌥Z — toggle word wrap (matches VSCode/Sublime convention)
         e.preventDefault()
         state.setWordWrap(!state.wordWrap)
         return
       }
-      if (mod && !e.shiftKey && key === 'p') {
+      if (matchesShortcut(e, overrides, 'global.searchNotes')) {
         // ⌘P — note search
         e.preventDefault()
         setBufferPaletteOpen(false)
         setSearchOpen(!state.searchOpen)
         return
       }
-      if (e.metaKey && !e.ctrlKey && !e.altKey && key === 'w') {
+      if (matchesShortcut(e, overrides, 'global.closeActiveTab')) {
         e.preventDefault()
         void state.closeActiveNote()
         return
@@ -208,31 +208,31 @@ function App(): JSX.Element {
         return
       }
       // ⌘1 — toggle sidebar
-      if (mod && (e.key === '1' || e.code === 'Digit1')) {
+      if (matchesShortcut(e, overrides, 'global.toggleSidebar')) {
         e.preventDefault()
         state.toggleSidebar()
         return
       }
       // ⌘2 — toggle connections
-      if (mod && (e.key === '2' || e.code === 'Digit2')) {
+      if (matchesShortcut(e, overrides, 'global.toggleConnections')) {
         e.preventDefault()
         window.dispatchEvent(new Event('zen:toggle-connections'))
         return
       }
       // ⌘3 — toggle outline panel in the active pane
-      if (mod && (e.key === '3' || e.code === 'Digit3')) {
+      if (matchesShortcut(e, overrides, 'global.toggleOutlinePanel')) {
         e.preventDefault()
         window.dispatchEvent(new Event('zen:toggle-outline'))
         return
       }
       // ⌘. — toggle Zen mode
-      if (mod && (e.key === '.' || e.code === 'Period')) {
+      if (matchesShortcut(e, overrides, 'global.toggleZenMode')) {
         e.preventDefault()
         state.setFocusMode(!state.zenMode)
         return
       }
       // ⌘, — open settings (macOS convention)
-      if (mod && (e.key === ',' || e.code === 'Comma')) {
+      if (matchesShortcut(e, overrides, 'global.openSettings')) {
         e.preventDefault()
         state.setSettingsOpen(!state.settingsOpen)
         return

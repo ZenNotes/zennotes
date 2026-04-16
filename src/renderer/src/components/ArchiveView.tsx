@@ -8,6 +8,7 @@ import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { ContextMenu } from './ContextMenu'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { usePrompt } from './PromptModal'
+import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -37,6 +38,7 @@ export function ArchiveView(): JSX.Element {
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const selectedPath = useStore((s) => s.selectedPath)
   const renameActive = useStore((s) => s.renameActive)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const amActive = useStore(isArchiveViewActive)
   const { prompt, modal: promptModal } = usePrompt()
@@ -46,7 +48,7 @@ export function ArchiveView(): JSX.Element {
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const filterRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
-  const gPending = useRef(false)
+  const gPending = useRef(0)
   const gTimer = useRef<ReturnType<typeof setTimeout>>()
 
   const archived = useMemo(
@@ -273,6 +275,7 @@ export function ArchiveView(): JSX.Element {
       if (e.metaKey || e.ctrlKey || e.altKey) return
 
       const key = e.key
+      const overrides = keymapOverrides
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -289,59 +292,58 @@ export function ArchiveView(): JSX.Element {
         return
       }
 
-      if (key === '/') {
+      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (key === 'm' && current) {
+      if (matchesSequenceToken(e, overrides, 'nav.contextMenu') && current) {
         consume()
         openMenuForCurrent()
         return
       }
 
-      if (key === 'j' || key === 'ArrowDown') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)))
         return
       }
-      if (key === 'k' || key === 'ArrowUp') {
+      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i - 1)))
         return
       }
-      if (key === 'G') {
+      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
-      if (key === 'g') {
-        consume()
-        if (gPending.current) {
-          gPending.current = false
-          if (gTimer.current) clearTimeout(gTimer.current)
-          setCursorIndex(0)
-          return
-        }
-        gPending.current = true
-        gTimer.current = setTimeout(() => {
-          gPending.current = false
-        }, 500)
+      if (
+        advanceSequence(
+          e,
+          getKeymapBinding(overrides, 'nav.jumpTop'),
+          gPending,
+          gTimer,
+          () => setCursorIndex(0),
+          consume,
+          500
+        )
+      ) {
         return
       }
-      if ((key === 'Enter' || key === 'o') && current) {
+      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
         consume()
         void openNote(current.path)
         return
       }
-      if (key === 'u' && current) {
+      if (matchesSequenceToken(e, overrides, 'nav.unarchive') && current) {
         consume()
         void unarchiveNote(current)
         return
       }
-      if ((key === 'x' || key === 'd') && current) {
+      if ((matchesSequenceToken(e, overrides, 'nav.delete') || key === 'd') && current) {
         consume()
         void moveNoteToTrash(current)
       }
@@ -358,6 +360,7 @@ export function ArchiveView(): JSX.Element {
     current,
     filter,
     filtered.length,
+    keymapOverrides,
     moveNoteToTrash,
     openMenuForCurrent,
     openNote,

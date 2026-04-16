@@ -13,6 +13,7 @@ import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
 import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
+import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 
 export interface Command {
@@ -34,6 +35,17 @@ export interface Command {
 
 export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
   const getState = (): ReturnType<typeof useStore.getState> => useStore.getState()
+  const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
+  const leaderShortcut = (id: KeymapId): string =>
+    `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
+  const paneShortcut = (id: KeymapId): string =>
+    `${shortcut('vim.panePrefix')} ${shortcut(id)}`
+  const searchShortcut = (): string => {
+    const state = getState()
+    const primary = shortcut('global.searchNotes')
+    if (state.vimMode) return primary
+    return `${primary} / ${shortcut('global.searchNotesNonVim')}`
+  }
   const cmds: Command[] = []
 
   /* ---------------- Note actions ---------------- */
@@ -42,7 +54,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.new.quick',
       title: 'New Quick Note',
       category: 'Note',
-      shortcut: '⇧⌘N',
+      shortcut: shortcut('global.newQuickNote'),
       keywords: 'scratch capture jot',
       run: () => {
         const s = getState()
@@ -283,7 +295,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'tab.close',
       title: 'Close Tab',
       category: 'Tabs',
-      shortcut: '⌘W',
+      shortcut: shortcut('global.closeActiveTab'),
       when: () => !!getState().selectedPath,
       run: () => getState().closeActiveNote()
     },
@@ -302,7 +314,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'tab.buffers',
       title: 'Open Buffer Switcher…',
       category: 'Tabs',
-      shortcut: getState().vimMode ? 'Space o' : undefined,
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderOpenBuffers') : undefined,
       keywords: 'buffers hidden tabs switch list vim leader',
       when: () => {
         const s = getState()
@@ -315,7 +327,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.outline',
       title: 'Open Note Outline…',
       category: 'Navigation',
-      shortcut: getState().vimMode ? 'Space p' : undefined,
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderNoteOutline') : undefined,
       keywords: 'outline headings toc jump toc table of contents leader',
       when: () => !!getState().activeNote,
       run: () => getState().setOutlinePaletteOpen(true)
@@ -324,7 +336,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.outline-panel',
       title: 'Toggle Outline Panel',
       category: 'View',
-      shortcut: '⌘3',
+      shortcut: shortcut('global.toggleOutlinePanel'),
       keywords: 'outline panel sidebar right headings',
       when: () => !!getState().activeNote,
       run: () => {
@@ -362,7 +374,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.heading',
       title: 'Fold Heading at Cursor',
       category: 'Editor',
-      shortcut: 'zc',
+      shortcut: shortcut('vim.foldCurrent'),
       keywords: 'collapse fold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => {
@@ -377,7 +389,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.unfold-heading',
       title: 'Unfold Heading at Cursor',
       category: 'Editor',
-      shortcut: 'zo',
+      shortcut: shortcut('vim.unfoldCurrent'),
       keywords: 'expand unfold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => {
@@ -392,7 +404,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.all',
       title: 'Fold All Headings',
       category: 'Editor',
-      shortcut: 'zM',
+      shortcut: shortcut('vim.foldAll'),
       keywords: 'collapse fold all every',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => {
@@ -407,7 +419,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.unfold-all',
       title: 'Unfold All Headings',
       category: 'Editor',
-      shortcut: 'zR',
+      shortcut: shortcut('vim.unfoldAll'),
       keywords: 'expand unfold all every reset',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => {
@@ -422,7 +434,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.back',
       title: 'Go Back',
       category: 'Tabs',
-      shortcut: '⌃O',
+      shortcut: shortcut('vim.historyBack'),
       keywords: 'history previous',
       run: () => getState().jumpToPreviousNote()
     },
@@ -430,7 +442,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.forward',
       title: 'Go Forward',
       category: 'Tabs',
-      shortcut: '⌃I',
+      shortcut: shortcut('vim.historyForward'),
       keywords: 'history next',
       run: () => getState().jumpToNextNote()
     }
@@ -478,7 +490,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'pane.focus.left',
       title: 'Focus Pane Left',
       category: 'Panes',
-      shortcut: '⌃W h',
+      shortcut: paneShortcut('vim.paneFocusLeft'),
       run: () => {
         focusPaneInDirection('h')
       }
@@ -487,7 +499,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'pane.focus.down',
       title: 'Focus Pane Below',
       category: 'Panes',
-      shortcut: '⌃W j',
+      shortcut: paneShortcut('vim.paneFocusDown'),
       run: () => {
         focusPaneInDirection('j')
       }
@@ -496,7 +508,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'pane.focus.up',
       title: 'Focus Pane Above',
       category: 'Panes',
-      shortcut: '⌃W k',
+      shortcut: paneShortcut('vim.paneFocusUp'),
       run: () => {
         focusPaneInDirection('k')
       }
@@ -505,7 +517,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'pane.focus.right',
       title: 'Focus Pane Right',
       category: 'Panes',
-      shortcut: '⌃W l',
+      shortcut: paneShortcut('vim.paneFocusRight'),
       run: () => {
         focusPaneInDirection('l')
       }
@@ -518,7 +530,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.search',
       title: 'Search Notes…',
       category: 'Go',
-      shortcut: '⌘P',
+      shortcut: searchShortcut(),
       keywords: 'find open cmd+f ctrl+f leader',
       run: () => getState().setSearchOpen(true)
     },
@@ -602,14 +614,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.toggle.sidebar',
       title: 'Toggle Sidebar',
       category: 'View',
-      shortcut: '⌘1',
+      shortcut: shortcut('global.toggleSidebar'),
       run: () => getState().toggleSidebar()
     },
     {
       id: 'view.toggle.connections',
       title: 'Toggle Connections Panel',
       category: 'View',
-      shortcut: '⌘2',
+      shortcut: shortcut('global.toggleConnections'),
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-connections'))
       }
@@ -715,7 +727,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         return st.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode'
       })(),
       category: 'View',
-      shortcut: '⌘.',
+      shortcut: shortcut('global.toggleZenMode'),
       keywords: 'zen distraction-free focus',
       run: () => {
         const st = getState()
@@ -786,7 +798,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'editor.word-wrap.toggle',
       title: getState().wordWrap ? 'Disable Word Wrap' : 'Enable Word Wrap',
       category: 'Editor',
-      shortcut: '⌥Z',
+      shortcut: shortcut('global.toggleWordWrap'),
       keywords: 'wrap line soft hard',
       run: () => getState().setWordWrap(!getState().wordWrap)
     },
@@ -942,7 +954,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'app.settings',
       title: 'Open Settings',
       category: 'App',
-      shortcut: '⌘,',
+      shortcut: shortcut('global.openSettings'),
       keywords: 'preferences',
       run: () => getState().setSettingsOpen(true)
     },
