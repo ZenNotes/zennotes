@@ -585,8 +585,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const docLength = view.state.doc.length
       const anchor = Math.max(0, Math.min(docLength, pendingJumpLocation.editorSelectionAnchor))
       const head = Math.max(0, Math.min(docLength, pendingJumpLocation.editorSelectionHead))
-      view.dispatch({ selection: { anchor, head } })
-      view.scrollDOM.scrollTop = pendingJumpLocation.editorScrollTop
+      const scrollMode = pendingJumpLocation.editorScrollMode ?? 'preserve'
+      if (scrollMode === 'preserve') {
+        view.dispatch({ selection: { anchor, head } })
+        view.scrollDOM.scrollTop = pendingJumpLocation.editorScrollTop
+      } else {
+        view.dispatch({
+          selection: { anchor, head },
+          effects: EditorView.scrollIntoView(anchor, {
+            y: scrollMode,
+            yMargin: scrollMode === 'start' ? OUTLINE_JUMP_TOP_MARGIN : 0
+          })
+        })
+      }
       previewScrollRef.current?.scrollTo({
         top: pendingJumpLocation.previewScrollTop,
         behavior: 'auto'

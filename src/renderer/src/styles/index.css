@@ -1119,13 +1119,15 @@ textarea,
  */
 .cm-editor .cm-fat-cursor,
 .cm-editor.cm-focused .cm-fat-cursor {
-  --z-fat-cursor-height: calc(1em * 1.25);
+  --z-active-cursor-height: 1em;
+  --z-fat-cursor-height: calc(var(--z-active-cursor-height) * 1.14);
   background: rgb(var(--z-accent) / 0.55) !important;
   outline: none !important;
   border: none !important;
   min-width: 0.55em;
   height: var(--z-fat-cursor-height) !important;
   max-height: var(--z-fat-cursor-height) !important;
+  transform: translateY(calc((var(--z-active-cursor-height) - var(--z-fat-cursor-height)) / 2));
   color: rgb(var(--z-fg)) !important;
   mix-blend-mode: multiply;
   border-radius: 2px;

@@ -4,7 +4,13 @@ import { promises as fsp } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IPC } from '@shared/ipc'
-import type { NoteFolder, VaultChangeEvent, VaultInfo } from '@shared/ipc'
+import type {
+  NoteFolder,
+  VaultChangeEvent,
+  VaultInfo,
+  VaultTextSearchBackendPreference,
+  VaultTextSearchToolPaths
+} from '@shared/ipc'
 import {
   absolutePath,
   archiveNote,
@@ -30,6 +36,8 @@ import {
   renameFolder,
   renameNote,
   restoreFromTrash,
+  searchVaultTextCapabilities,
+  searchVaultText,
   type PersistedWindowState,
   updateConfig,
   unarchiveNote,
@@ -452,6 +460,23 @@ function registerIpc(): void {
     const v = requireVault()
     return await hasAssetsDir(v.root)
   })
+
+  ipcMain.handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {
+    return await searchVaultTextCapabilities(paths)
+  })
+
+  ipcMain.handle(
+    IPC.VAULT_SEARCH_TEXT,
+    async (
+      _e,
+      query: string,
+      backend: VaultTextSearchBackendPreference = 'auto',
+      paths: VaultTextSearchToolPaths = {}
+    ) => {
+      const v = requireVault()
+      return await searchVaultText(v.root, query, backend, paths)
+    }
+  )
 
   ipcMain.handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
     const v = requireVault()

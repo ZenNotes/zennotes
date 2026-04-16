@@ -1,5 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type {
+  VaultTextSearchBackendPreference,
+  VaultTextSearchCapabilities,
+  VaultTextSearchToolPaths
+} from '@shared/ipc'
 import { useStore } from '../store'
 import type { LineNumberMode, WhichKeyHintMode } from '../store'
 import type { KeymapDefinition, KeymapId, KeymapOverrides } from '../lib/keymaps'
@@ -46,6 +51,12 @@ export function SettingsModal(): JSX.Element {
   const setWhichKeyHintMode = useStore((s) => s.setWhichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
   const setWhichKeyHintTimeoutMs = useStore((s) => s.setWhichKeyHintTimeoutMs)
+  const vaultTextSearchBackend = useStore((s) => s.vaultTextSearchBackend)
+  const setVaultTextSearchBackend = useStore((s) => s.setVaultTextSearchBackend)
+  const ripgrepBinaryPath = useStore((s) => s.ripgrepBinaryPath)
+  const setRipgrepBinaryPath = useStore((s) => s.setRipgrepBinaryPath)
+  const fzfBinaryPath = useStore((s) => s.fzfBinaryPath)
+  const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
@@ -86,6 +97,15 @@ export function SettingsModal(): JSX.Element {
   // Lazy-load the system font list on mount. Retried on every mount
   // when the list comes back empty (IPC failure / no fonts yet).
   const [systemFonts, setSystemFonts] = useState<string[]>([])
+  const [vaultTextSearchCapabilities, setVaultTextSearchCapabilities] =
+    useState<VaultTextSearchCapabilities | null>(null)
+  const searchToolPaths = useMemo<VaultTextSearchToolPaths>(
+    () => ({
+      ripgrepPath: ripgrepBinaryPath,
+      fzfPath: fzfBinaryPath
+    }),
+    [fzfBinaryPath, ripgrepBinaryPath]
+  )
   useEffect(() => {
     let cancelled = false
     void listSystemFonts().then((fonts) => {
@@ -95,6 +115,27 @@ export function SettingsModal(): JSX.Element {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.zen.getVaultTextSearchCapabilities !== 'function') {
+      setVaultTextSearchCapabilities({ ripgrep: false, fzf: false })
+      return () => {
+        cancelled = true
+      }
+    }
+    void window.zen.getVaultTextSearchCapabilities(searchToolPaths).then(
+      (capabilities) => {
+        if (!cancelled) setVaultTextSearchCapabilities(capabilities)
+      },
+      () => {
+        if (!cancelled) setVaultTextSearchCapabilities({ ripgrep: false, fzf: false })
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [searchToolPaths])
 
   // Family list — Apple is the default, followed by the other families.
   const familyOptions = useMemo<{ id: ThemeFamily; label: string }[]>(
@@ -194,6 +235,10 @@ export function SettingsModal(): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
   const [navQuery, setNavQuery] = useState('')
+  const availableVaultTextSearchTools = [
+    vaultTextSearchCapabilities?.ripgrep ? 'ripgrep' : null,
+    vaultTextSearchCapabilities?.fzf ? 'fzf' : null
+  ].filter((value): value is string => !!value)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -361,6 +406,45 @@ export function SettingsModal(): JSX.Element {
                 Leader key hints are only available while Vim mode is enabled.
               </InlineNote>
             )}
+          </Section>
+
+          <Section
+            title="Search"
+            description="Choose how vault-wide text search is powered."
+          >
+            <SegmentedRow
+              label="Vault text search backend"
+              description="Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher."
+              value={vaultTextSearchBackend}
+              options={[
+                { value: 'auto', label: 'Auto' },
+                { value: 'builtin', label: 'Built-in' },
+                { value: 'ripgrep', label: 'ripgrep' },
+                { value: 'fzf', label: 'fzf' }
+              ]}
+              onChange={(next) => setVaultTextSearchBackend(next as VaultTextSearchBackendPreference)}
+            />
+            <TextInputRow
+              label="ripgrep binary path"
+              description="Optional. Leave blank to use `rg` from your PATH."
+              value={ripgrepBinaryPath ?? ''}
+              placeholder="/custom/bin/rg"
+              onChange={(next) => setRipgrepBinaryPath(next)}
+            />
+            <TextInputRow
+              label="fzf binary path"
+              description="Optional. Leave blank to use `fzf` from your PATH."
+              value={fzfBinaryPath ?? ''}
+              placeholder="/custom/bin/fzf"
+              onChange={(next) => setFzfBinaryPath(next)}
+            />
+            <InlineNote>
+              {vaultTextSearchCapabilities == null
+                ? 'Checking configured search tools…'
+                : availableVaultTextSearchTools.length > 0
+                  ? `Available with the current paths: ${availableVaultTextSearchTools.join(', ')}.`
+                  : 'No usable ripgrep or fzf binary was detected from the configured paths or PATH. ZenNotes will use the built-in search backend.'}
+            </InlineNote>
           </Section>
 
           <Section
@@ -1060,6 +1144,38 @@ function Section({
 
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+}
+
+function TextInputRow({
+  label,
+  description,
+  value,
+  placeholder,
+  onChange
+}: {
+  label: string
+  description?: string
+  value: string
+  placeholder?: string
+  onChange: (next: string | null) => void
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-5 px-5 py-4">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">{label}</div>
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
+      </div>
+      <input
+        value={value}
+        onChange={(e) => {
+          const next = e.target.value.trim()
+          onChange(next ? next : null)
+        }}
+        placeholder={placeholder}
+        className="w-[23rem] max-w-[50vw] rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+      />
+    </div>
+  )
 }
 
 function FontRow({

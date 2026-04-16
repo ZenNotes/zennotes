@@ -1,5 +1,7 @@
 import { promises as fs, type Dirent } from 'node:fs'
+import { execFile, spawn } from 'node:child_process'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { app } from 'electron'
 import type {
   AssetMeta,
@@ -9,6 +11,11 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  VaultTextSearchBackendPreference,
+  VaultTextSearchCapabilities,
+  VaultTextSearchBackendResolved,
+  VaultTextSearchToolPaths,
+  VaultTextSearchMatch,
   VaultInfo
 } from '@shared/ipc'
 
@@ -31,6 +38,27 @@ const IMAGE_EXTENSIONS = new Set([
 const PDF_EXTENSIONS = new Set(['.pdf'])
 const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
 const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
+const execFileAsync = promisify(execFile)
+const SEARCHABLE_TEXT_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
+const COMMAND_CHECK_TIMEOUT_MS = 1500
+const SEARCH_EXEC_MAX_BUFFER = 64 * 1024 * 1024
+
+interface VaultTextSearchCandidate {
+  path: string
+  title: string
+  folder: NoteFolder
+  lineNumber: number
+  lineText: string
+  offset?: number
+}
+
+interface ScoredVaultTextSearchCandidate extends VaultTextSearchCandidate {
+  score: number
+}
+
+let cachedVaultTextSearchCapabilities:
+  | { at: number; key: string; value: VaultTextSearchCapabilities }
+  | null = null
 
 export interface PersistedWindowState {
   x: number
@@ -234,6 +262,391 @@ function buildExcerpt(body: string): string {
   return text.slice(0, 220)
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function scoreMatch(query: string, text: string): number {
+  if (!query) return 1
+  if (!text) return 0
+  const q = query.toLowerCase()
+  const t = text.toLowerCase()
+  if (t === q) return 1000
+  if (t.startsWith(q)) return 900 - t.length * 0.5
+  const wordBoundary = new RegExp(`(?:^|[\\s·:_\\-/])${escapeRegex(q)}`)
+  if (wordBoundary.test(t)) return 700 - t.length * 0.5
+  if (t.includes(q)) return 500 - t.length * 0.5
+
+  let i = 0
+  let gaps = 0
+  let prev = -1
+  for (let j = 0; j < t.length && i < q.length; j++) {
+    if (t[j] === q[i]) {
+      if (prev === -1) gaps += j
+      else gaps += j - prev - 1
+      prev = j
+      i++
+    }
+  }
+  if (i === q.length) return Math.max(1, 200 - gaps * 3 - t.length * 0.2)
+  return 0
+}
+
+function firstMatchColumn(query: string, text: string): number {
+  const q = query.trim().toLowerCase()
+  const t = text.toLowerCase()
+  const direct = t.indexOf(q)
+  if (direct >= 0) return direct
+
+  let qi = 0
+  let start = -1
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] !== q[qi]) continue
+    if (start === -1) start = i
+    qi++
+  }
+  return start >= 0 ? start : 0
+}
+
+function collapseSearchLine(line: string): string {
+  return line.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeToolPath(value: string | null | undefined): string | null {
+  const trimmed = value?.trim()
+  if (!trimmed) return null
+  if (trimmed === '~') return app.getPath('home')
+  if (trimmed.startsWith('~/')) return path.join(app.getPath('home'), trimmed.slice(2))
+  return trimmed
+}
+
+function normalizeVaultTextSearchToolPaths(
+  paths: VaultTextSearchToolPaths | null | undefined
+): Required<VaultTextSearchToolPaths> {
+  return {
+    ripgrepPath: normalizeToolPath(paths?.ripgrepPath),
+    fzfPath: normalizeToolPath(paths?.fzfPath)
+  }
+}
+
+function capabilityCacheKey(paths: Required<VaultTextSearchToolPaths>): string {
+  return JSON.stringify(paths)
+}
+
+function searchExecutable(
+  kind: 'ripgrep' | 'fzf',
+  paths: Required<VaultTextSearchToolPaths>
+): string {
+  if (kind === 'ripgrep') return paths.ripgrepPath || 'rg'
+  return paths.fzfPath || 'fzf'
+}
+
+async function commandAvailable(command: string): Promise<boolean> {
+  try {
+    await execFileAsync(command, ['--version'], {
+      timeout: COMMAND_CHECK_TIMEOUT_MS,
+      windowsHide: true,
+      maxBuffer: 256 * 1024
+    })
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') return false
+    return false
+  }
+}
+
+export async function searchVaultTextCapabilities(
+  rawPaths: VaultTextSearchToolPaths = {},
+  force = false
+): Promise<VaultTextSearchCapabilities> {
+  const paths = normalizeVaultTextSearchToolPaths(rawPaths)
+  const key = capabilityCacheKey(paths)
+  const now = Date.now()
+  if (
+    !force &&
+    cachedVaultTextSearchCapabilities &&
+    cachedVaultTextSearchCapabilities.key === key &&
+    now - cachedVaultTextSearchCapabilities.at < 30_000
+  ) {
+    return cachedVaultTextSearchCapabilities.value
+  }
+
+  const value = {
+    ripgrep: await commandAvailable(searchExecutable('ripgrep', paths)),
+    fzf: await commandAvailable(searchExecutable('fzf', paths))
+  }
+  cachedVaultTextSearchCapabilities = { at: now, key, value }
+  return value
+}
+
+function resolveSearchBackend(
+  preferred: VaultTextSearchBackendPreference,
+  capabilities: VaultTextSearchCapabilities
+): VaultTextSearchBackendResolved {
+  if (preferred === 'builtin') return 'builtin'
+  if (preferred === 'ripgrep') return capabilities.ripgrep ? 'ripgrep' : 'builtin'
+  if (preferred === 'fzf') return capabilities.fzf ? 'fzf' : 'builtin'
+  if (capabilities.fzf) return 'fzf'
+  if (capabilities.ripgrep) return 'ripgrep'
+  return 'builtin'
+}
+
+function noteFolderFromRelPath(relPath: string): NoteFolder | null {
+  const top = relPath.split('/')[0]
+  if (top === 'inbox' || top === 'quick' || top === 'archive') return top
+  return null
+}
+
+async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSearchCandidate[]> {
+  const candidates: VaultTextSearchCandidate[] = []
+  const walkFolder = async (folder: NoteFolder, dirAbs: string): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const full = path.join(dirAbs, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name.startsWith('.')) continue
+        await walkFolder(folder, full)
+        continue
+      }
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
+
+      let body = ''
+      try {
+        body = await fs.readFile(full, 'utf8')
+      } catch {
+        continue
+      }
+
+      const relPath = toPosix(path.relative(root, full))
+      const title = path.basename(full, path.extname(full))
+      const lines = body.split('\n')
+      let lineOffset = 0
+
+      for (let index = 0; index < lines.length; index += 1) {
+        const rawLine = lines[index] ?? ''
+        candidates.push({
+          path: relPath,
+          title,
+          folder,
+          lineNumber: index + 1,
+          offset: lineOffset,
+          lineText: collapseSearchLine(rawLine).slice(0, 220)
+        })
+        lineOffset += rawLine.length + 1
+      }
+    }
+  }
+
+  for (const folder of SEARCHABLE_TEXT_FOLDERS) {
+    await walkFolder(folder, path.join(root, folder))
+  }
+  return candidates
+}
+
+async function collectRipgrepSearchCandidates(
+  root: string,
+  paths: Required<VaultTextSearchToolPaths>
+): Promise<VaultTextSearchCandidate[]> {
+  let stdout = ''
+  try {
+    const result = await execFileAsync(
+      searchExecutable('ripgrep', paths),
+      [
+        '--json',
+        '--line-number',
+        '--with-filename',
+        '--no-heading',
+        '--color=never',
+        '-g',
+        '*.md',
+        '^',
+        ...SEARCHABLE_TEXT_FOLDERS
+      ],
+      {
+        cwd: root,
+        windowsHide: true,
+        maxBuffer: SEARCH_EXEC_MAX_BUFFER
+      }
+    )
+    stdout = result.stdout
+  } catch (error) {
+    if ((error as { code?: number }).code === 1) return []
+    throw error
+  }
+
+  const candidates: VaultTextSearchCandidate[] = []
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    let event: unknown
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!event || typeof event !== 'object') continue
+    const type = (event as { type?: unknown }).type
+    if (type !== 'match') continue
+    const data = (event as { data?: Record<string, unknown> }).data
+    const rawPath = data?.path
+    const rawLines = data?.lines
+    const lineNumber = data?.line_number
+    const relPath =
+      rawPath && typeof rawPath === 'object' && typeof (rawPath as { text?: unknown }).text === 'string'
+        ? toPosix((rawPath as { text: string }).text)
+        : null
+    const rawLineText =
+      rawLines && typeof rawLines === 'object' && typeof (rawLines as { text?: unknown }).text === 'string'
+        ? (rawLines as { text: string }).text.replace(/\r?\n$/, '')
+        : null
+    if (!relPath || rawLineText == null || typeof lineNumber !== 'number') continue
+    const folder = noteFolderFromRelPath(relPath)
+    if (!folder) continue
+    candidates.push({
+      path: relPath,
+      title: path.basename(relPath, path.extname(relPath)),
+      folder,
+      lineNumber,
+      lineText: collapseSearchLine(rawLineText).slice(0, 220)
+    })
+  }
+  return candidates
+}
+
+function rankSearchCandidates(
+  query: string,
+  candidates: VaultTextSearchCandidate[],
+  limit: number
+): ScoredVaultTextSearchCandidate[] {
+  const ranked: ScoredVaultTextSearchCandidate[] = []
+  for (const candidate of candidates) {
+    const bodyScore = scoreMatch(query, candidate.lineText)
+    if (bodyScore <= 0) continue
+    const titleScore = scoreMatch(query, candidate.title) * 0.18
+    const pathScore = scoreMatch(query, candidate.path) * 0.1
+    ranked.push({
+      ...candidate,
+      score: bodyScore + titleScore + pathScore
+    })
+  }
+  ranked.sort((a, b) => b.score - a.score)
+  return ranked.slice(0, limit)
+}
+
+async function runFzfSearch(
+  query: string,
+  candidates: VaultTextSearchCandidate[],
+  limit: number,
+  paths: Required<VaultTextSearchToolPaths>
+): Promise<VaultTextSearchCandidate[]> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(
+      searchExecutable('fzf', paths),
+      ['--filter', query, '--nth=2,6,1', '--tiebreak=index'],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
+    )
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      if (code !== 0 && code !== 1) {
+        reject(new Error(stderr.trim() || `fzf exited with code ${code ?? 'unknown'}`))
+        return
+      }
+      const matches = stdout
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .slice(0, limit)
+        .map((line) => {
+          const [pathValue, title, folderValue, lineNumberValue, lineText] = line.split('\t')
+          const folder = folderValue === 'quick' || folderValue === 'archive' ? folderValue : 'inbox'
+          return {
+            path: pathValue,
+            title,
+            folder,
+            lineNumber: Number(lineNumberValue),
+            lineText
+          } as VaultTextSearchCandidate
+        })
+      resolve(matches)
+    })
+
+    for (const candidate of candidates) {
+      const row = [
+        candidate.path.replace(/\t/g, ' '),
+        candidate.title.replace(/\t/g, ' '),
+        candidate.folder,
+        String(candidate.lineNumber),
+        candidate.lineText.replace(/\t/g, ' ')
+      ].join('\t')
+      child.stdin.write(`${row}\n`)
+    }
+    child.stdin.end()
+  })
+}
+
+async function hydrateSearchOffsets(
+  root: string,
+  query: string,
+  candidates: VaultTextSearchCandidate[]
+): Promise<VaultTextSearchMatch[]> {
+  const bodyCache = new Map<string, string>()
+  return await Promise.all(
+    candidates.map(async (candidate) => {
+      if (typeof candidate.offset === 'number') {
+        const rawPath = resolveSafe(root, candidate.path)
+        let body = bodyCache.get(candidate.path)
+        if (body == null) {
+          body = await fs.readFile(rawPath, 'utf8')
+          bodyCache.set(candidate.path, body)
+        }
+        const rawLine = body.split('\n')[candidate.lineNumber - 1] ?? ''
+        return {
+          path: candidate.path,
+          title: candidate.title,
+          folder: candidate.folder,
+          lineNumber: candidate.lineNumber,
+          offset: candidate.offset + Math.max(0, Math.min(firstMatchColumn(query, rawLine), rawLine.length)),
+          lineText: candidate.lineText
+        }
+      }
+
+      const abs = resolveSafe(root, candidate.path)
+      let body = bodyCache.get(candidate.path)
+      if (body == null) {
+        body = await fs.readFile(abs, 'utf8')
+        bodyCache.set(candidate.path, body)
+      }
+      const lines = body.split('\n')
+      let lineOffset = 0
+      for (let index = 0; index < candidate.lineNumber - 1; index += 1) {
+        lineOffset += (lines[index] ?? '').length + 1
+      }
+      const rawLine = lines[candidate.lineNumber - 1] ?? ''
+      return {
+        path: candidate.path,
+        title: candidate.title,
+        folder: candidate.folder,
+        lineNumber: candidate.lineNumber,
+        offset: lineOffset + Math.max(0, Math.min(firstMatchColumn(query, rawLine), rawLine.length)),
+        lineText: candidate.lineText
+      }
+    })
+  )
+}
+
 async function readMeta(
   root: string,
   abs: string,
@@ -329,6 +742,40 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
     await walkFolder(folder, path.join(root, folder))
   }
   return metas
+}
+
+export async function searchVaultText(
+  root: string,
+  query: string,
+  preferredBackend: VaultTextSearchBackendPreference = 'auto',
+  rawPaths: VaultTextSearchToolPaths = {},
+  limit = 80
+): Promise<VaultTextSearchMatch[]> {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+  const paths = normalizeVaultTextSearchToolPaths(rawPaths)
+  const capabilities = await searchVaultTextCapabilities(paths)
+  const backend = resolveSearchBackend(preferredBackend, capabilities)
+
+  if (backend === 'builtin') {
+    const ranked = rankSearchCandidates(trimmed, await collectBuiltinSearchCandidates(root), limit)
+    return await hydrateSearchOffsets(root, trimmed, ranked)
+  }
+
+  if (backend === 'ripgrep') {
+    const ranked = rankSearchCandidates(
+      trimmed,
+      await collectRipgrepSearchCandidates(root, paths),
+      limit
+    )
+    return await hydrateSearchOffsets(root, trimmed, ranked)
+  }
+
+  const candidates = capabilities.ripgrep
+    ? await collectRipgrepSearchCandidates(root, paths)
+    : await collectBuiltinSearchCandidates(root)
+  const ranked = await runFzfSearch(trimmed, candidates, limit, paths)
+  return await hydrateSearchOffsets(root, trimmed, ranked)
 }
 
 function resolveSafe(root: string, rel: string): string {

@@ -47,9 +47,19 @@ export function WhichKeyOverlay({
                 index > 0 ? 'border-t' : ''
               ].join(' ')}
             >
-              <span className="mt-0.5 min-w-[2rem] rounded-md border border-paper-300 bg-paper-200/85 px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-ink-700">
-                {item.keyLabel}
-              </span>
+              <div className="mt-0.5 flex min-w-[2rem] shrink-0 items-center gap-1 whitespace-nowrap">
+                {item.keyLabel
+                  .split(/\s+/)
+                  .filter(Boolean)
+                  .map((token, tokenIndex) => (
+                    <span
+                      key={`${prefix}-${item.keyLabel}-${tokenIndex}`}
+                      className="rounded-md border border-paper-300 bg-paper-200/85 px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-ink-700"
+                    >
+                      {token}
+                    </span>
+                  ))}
+              </div>
               <div className="min-w-0">
                 <div className="text-[15px] font-medium leading-5 text-ink-900">{item.label}</div>
                 <div className="mt-0.5 text-xs leading-[1.35rem] text-ink-500">{item.detail}</div>

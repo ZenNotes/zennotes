@@ -8,6 +8,10 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  VaultTextSearchBackendPreference,
+  VaultTextSearchCapabilities,
+  VaultTextSearchToolPaths,
+  VaultTextSearchMatch,
   VaultChangeEvent,
   VaultInfo
 } from '@shared/ipc'
@@ -25,6 +29,16 @@ const api = {
     ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
   listAssets: (): Promise<AssetMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_ASSETS),
   hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),
+  getVaultTextSearchCapabilities: (
+    paths: VaultTextSearchToolPaths = {}
+  ): Promise<VaultTextSearchCapabilities> =>
+    ipcRenderer.invoke(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, paths),
+  searchVaultText: (
+    query: string,
+    backend: VaultTextSearchBackendPreference = 'auto',
+    paths: VaultTextSearchToolPaths = {}
+  ): Promise<VaultTextSearchMatch[]> =>
+    ipcRenderer.invoke(IPC.VAULT_SEARCH_TEXT, query, backend, paths),
   readNote: (relPath: string): Promise<NoteContent> =>
     ipcRenderer.invoke(IPC.VAULT_READ_NOTE, relPath),
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),

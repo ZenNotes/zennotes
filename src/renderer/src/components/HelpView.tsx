@@ -67,6 +67,7 @@ function resolveShortcutKeys(
     if (action === 'Split down') return paneShortcut(overrides, 'vim.paneSplitDown')
     if (action === 'Open buffers') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
     if (action === 'Search notes') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
+    if (action === 'Search vault text') return leaderShortcut(overrides, 'vim.leaderSearchVaultText')
     if (action === 'Toggle left sidebar') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
     if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
     if (action === 'Show leader hints') return `${shortcut(overrides, 'vim.leaderPrefix')}, then pause`
@@ -124,6 +125,7 @@ function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): st
   }
   if (command === '<Space> o') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
   if (command === '<Space> f') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
+  if (command === '<Space> s t') return leaderShortcut(overrides, 'vim.leaderSearchVaultText')
   if (command === '<Space> e') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
   if (command === '<Space> p') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
   return command

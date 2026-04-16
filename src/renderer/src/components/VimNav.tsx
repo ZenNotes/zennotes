@@ -3,6 +3,7 @@ import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
+  clearEditorPendingVimStatus,
   getVisiblePanels,
   isEditorInsertMode,
   isEditorFocused,
@@ -36,9 +37,11 @@ export function VimNav(): JSX.Element | null {
   // All control-flow flags are refs so the handler never stales.
   const ctrlWPending = useRef(false)
   const jumpTopPending = useRef(0)
+  const leaderTextSearchPending = useRef(0)
   const leaderPending = useRef<'leader' | 'leader-l' | null>(null)
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
   const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
+  const leaderTextSearchTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaderTimer = useRef<ReturnType<typeof setTimeout>>()
 
   // Hint mode needs a render (to mount HintOverlay), so it's state.
@@ -92,6 +95,8 @@ export function VimNav(): JSX.Element | null {
   const resetLeader = useCallback(() => {
     leaderPending.current = null
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
+    leaderTextSearchPending.current = 0
+    if (leaderTextSearchTimer.current) clearTimeout(leaderTextSearchTimer.current)
     setWhichKeyState(null)
   }, [])
   const armLeader = useCallback(
@@ -133,6 +138,11 @@ export function VimNav(): JSX.Element | null {
         detail: 'Open the vault-wide note search palette.'
       },
       {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchVaultText'),
+        label: 'Search vault text',
+        detail: 'Fuzzy-search note contents across the vault.'
+      },
+      {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleSidebar'),
         label: 'Toggle sidebar',
         detail: 'Show or hide the left sidebar.'
@@ -159,6 +169,7 @@ export function VimNav(): JSX.Element | null {
     jumpTopPending.current = 0
     if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
     if (jumpTopTimer.current) clearTimeout(jumpTopTimer.current)
+    if (leaderTextSearchTimer.current) clearTimeout(leaderTextSearchTimer.current)
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
     resetLeader()
     setHint(false)
@@ -175,6 +186,7 @@ export function VimNav(): JSX.Element | null {
       // Skip when modals / overlays are open
       if (
         state.searchOpen ||
+        state.vaultTextSearchOpen ||
         state.settingsOpen ||
         state.commandPaletteOpen ||
         state.bufferPaletteOpen
@@ -219,6 +231,8 @@ export function VimNav(): JSX.Element | null {
         e.stopImmediatePropagation()
         ctrlWPending.current = false
         if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
+        clearEditorPendingVimStatus(state.editorViewRef)
+        const editorHasFocus = isEditorFocused(state.editorViewRef)
 
         // <C-w>v / <C-w>s → vim-style splits. Clones the active pane's
         // current tab into a new pane. Works for any tab, including the
@@ -254,7 +268,7 @@ export function VimNav(): JSX.Element | null {
                   : null
         if (
           paneDir &&
-          (state.focusedPanel === 'editor' || state.focusedPanel === null) &&
+          (editorHasFocus || state.focusedPanel === 'editor' || state.focusedPanel === null) &&
           focusPaneInDirection(paneDir)
         ) {
           return
@@ -279,7 +293,11 @@ export function VimNav(): JSX.Element | null {
                 e.key === 'ArrowDown'
               ? 'right'
               : null
-        const currentPanel = state.focusedPanel === 'hoverpreview' ? 'connections' : state.focusedPanel
+        const currentPanel = editorHasFocus
+          ? 'editor'
+          : state.focusedPanel === 'hoverpreview'
+            ? 'connections'
+            : state.focusedPanel
         const next = direction ? resolveNextPanel(currentPanel, direction, panels) : null
         if (!next) return
 
@@ -335,9 +353,14 @@ export function VimNav(): JSX.Element | null {
         if (isEditorFocused(state.editorViewRef) && isEditorInsertMode(state.editorViewRef, state.vimMode)) return
         e.preventDefault()
         e.stopImmediatePropagation()
+        if (isEditorFocused(state.editorViewRef)) state.setFocusedPanel('editor')
+        clearEditorPendingVimStatus(state.editorViewRef)
         ctrlWPending.current = true
         if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
-        ctrlWTimer.current = setTimeout(() => { ctrlWPending.current = false }, 800)
+        ctrlWTimer.current = setTimeout(() => {
+          ctrlWPending.current = false
+          clearEditorPendingVimStatus(useStore.getState().editorViewRef)
+        }, 800)
         return
       }
 
@@ -380,6 +403,25 @@ export function VimNav(): JSX.Element | null {
         isEditorInsertMode(state.editorViewRef, state.vimMode)
 
       if (leaderPending.current === 'leader') {
+        if (
+          advanceSequence(
+            e,
+            getKeymapBinding(overrides, 'vim.leaderSearchVaultText'),
+            leaderTextSearchPending,
+            leaderTextSearchTimer,
+            () => {
+              resetLeader()
+              state.setVaultTextSearchOpen(true)
+            },
+            () => {
+              e.preventDefault()
+              e.stopImmediatePropagation()
+            },
+            stickyWhichKeyHints ? 5000 : whichKeyHintTimeoutMs
+          )
+        ) {
+          return
+        }
         if (matchesSequenceToken(e, overrides, 'vim.leaderOpenBuffers')) {
           e.preventDefault()
           e.stopImmediatePropagation()
@@ -514,7 +556,15 @@ export function VimNav(): JSX.Element | null {
       window.removeEventListener('keydown', handler, true)
       resetLeader()
     }
-  }, [armLeader, jumpNoteHistory, resetLeader, setHint, vimMode]) // ← stable dep, handler never re-registers unnecessarily
+  }, [
+    armLeader,
+    jumpNoteHistory,
+    resetLeader,
+    setHint,
+    stickyWhichKeyHints,
+    vimMode,
+    whichKeyHintTimeoutMs
+  ]) // ← stable dep, handler never re-registers unnecessarily
 
   // ---- Key handlers (called from the single persistent handler) --------
 

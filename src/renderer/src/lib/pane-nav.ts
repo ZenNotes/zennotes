@@ -10,6 +10,7 @@
 import { useStore } from '../store'
 
 export type PaneDirection = 'h' | 'j' | 'k' | 'l'
+type EdgePanel = 'sidebar' | 'notelist' | 'editor' | 'connections'
 
 interface PaneRect {
   id: string
@@ -89,6 +90,62 @@ function focusPinnedRefDom(): void {
   cm?.focus()
 }
 
+function getVisibleEdgePanels(state: ReturnType<typeof useStore.getState>): EdgePanel[] {
+  const panels: EdgePanel[] = []
+  if (state.sidebarOpen) panels.push('sidebar')
+  if (state.noteListOpen && !state.unifiedSidebar) panels.push('notelist')
+  panels.push('editor')
+  if (document.querySelector('[data-connections-panel]')) panels.push('connections')
+  return panels
+}
+
+function resolveNeighborEdgePanel(
+  current: EdgePanel,
+  direction: PaneDirection,
+  panels: EdgePanel[]
+): EdgePanel | null {
+  const index = panels.indexOf(current)
+  if (index === -1) return null
+  if (direction === 'h' || direction === 'k') {
+    return index > 0 ? panels[index - 1] : current
+  }
+  return index < panels.length - 1 ? panels[index + 1] : current
+}
+
+function findIndexedElement(
+  selector: string,
+  datasetKey: 'sidebarIdx' | 'notelistIdx' | 'connectionsIdx',
+  targetIndex: number
+): HTMLElement | null {
+  const items = Array.from(document.querySelectorAll<HTMLElement>(selector))
+    .map((el) => ({
+      el,
+      index: Number(el.dataset[datasetKey])
+    }))
+    .filter((entry) => Number.isFinite(entry.index))
+    .sort((a, b) => a.index - b.index)
+  return items.find((entry) => entry.index === targetIndex)?.el ?? items[0]?.el ?? null
+}
+
+function focusEdgePanel(panel: Exclude<EdgePanel, 'editor'>): void {
+  const state = useStore.getState()
+  state.setFocusedPanel(panel)
+  ;(document.activeElement as HTMLElement | null)?.blur()
+  requestAnimationFrame(() => {
+    const target =
+      panel === 'sidebar'
+        ? findIndexedElement('[data-sidebar-idx]', 'sidebarIdx', state.sidebarCursorIndex)
+        : panel === 'notelist'
+          ? findIndexedElement('[data-notelist-idx]', 'notelistIdx', state.noteListCursorIndex)
+          : findIndexedElement(
+              '[data-connections-idx]',
+              'connectionsIdx',
+              state.connectionsCursorIndex
+            )
+    target?.scrollIntoView({ block: 'nearest' })
+  })
+}
+
 /**
  * Focus the pane in the given direction from the currently active one.
  * No-op if no neighbor exists that way. Also sets the editor panel
@@ -116,5 +173,15 @@ export function focusPaneInDirection(direction: PaneDirection): boolean {
   requestAnimationFrame(() => {
     useStore.getState().editorViewRef?.focus()
   })
+  return true
+}
+
+export function focusPaneOrEdgePanel(direction: PaneDirection): boolean {
+  if (focusPaneInDirection(direction)) return true
+
+  const state = useStore.getState()
+  const next = resolveNeighborEdgePanel('editor', direction, getVisibleEdgePanels(state))
+  if (!next || next === 'editor') return false
+  focusEdgePanel(next)
   return true
 }

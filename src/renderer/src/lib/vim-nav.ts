@@ -55,6 +55,16 @@ export function isEditorInsertMode(view: EditorView | null, vimMode: boolean): b
   return cm?.state.vim?.insertMode === true
 }
 
+export function clearEditorPendingVimStatus(view: EditorView | null): void {
+  if (!view) return
+  const cm = getCM(view)
+  const vim = cm?.state?.vim
+  if (!vim) return
+  vim.status = ''
+  cm.state.vimPlugin?.blockCursor?.scheduleRedraw?.()
+  cm.state.vimPlugin?.updateStatus?.()
+}
+
 export function isEditorFocused(view: EditorView | null): boolean {
   if (!view) return false
   return view.hasFocus

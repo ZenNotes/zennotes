@@ -24,7 +24,7 @@ import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/lo
 import { promptApp } from './PromptHost'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
-import { focusPaneInDirection } from '../lib/pane-nav'
+import { focusPaneOrEdgePanel } from '../lib/pane-nav'
 import { requestPaneMode } from '../lib/pane-mode'
 import {
   getKeymapBinding,
@@ -412,16 +412,16 @@ function registerVimCommands(): void {
   // Vim-style pane navigation actions are registered here, but their
   // actual key bindings are synced from the configurable keymap registry.
   Vim.defineAction('focusPaneLeft', () => {
-    focusPaneInDirection('h')
+    focusPaneOrEdgePanel('h')
   })
   Vim.defineAction('focusPaneDown', () => {
-    focusPaneInDirection('j')
+    focusPaneOrEdgePanel('j')
   })
   Vim.defineAction('focusPaneUp', () => {
-    focusPaneInDirection('k')
+    focusPaneOrEdgePanel('k')
   })
   Vim.defineAction('focusPaneRight', () => {
-    focusPaneInDirection('l')
+    focusPaneOrEdgePanel('l')
   })
 
   registerVimNoteCommands()

@@ -46,7 +46,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Stay keyboard-first',
     body:
-      'Search notes and open the command palette from their configured shortcuts, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following. If you explicitly turn Vim mode off, the non-Vim search shortcut becomes available too.'
+      'Search notes, search vault text, and open the command palette from their configured shortcuts, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following. Vault text search can use auto-detected system tools like fzf or ripgrep when they are available, can be pointed at custom binary paths, or can fall back to the built-in searcher. If you explicitly turn Vim mode off, the non-Vim search shortcut becomes available too.'
   },
   {
     title: 'Insert structure inline',
@@ -84,7 +84,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Leader mode can teach itself',
     body:
-      'If Leader key hints are enabled, pressing the configured Leader key opens a which-key style panel that shows the next available leader actions, including note-local commands like format note. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you dismiss it. If you disable Vim mode, the leader system is turned off with it.'
+      'If Leader key hints are enabled, pressing the configured Leader key opens a which-key style panel that shows the next available leader actions, including note-local commands like format note and longer sequences like vault text search. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you dismiss it. If you disable Vim mode, the leader system is turned off with it.'
   },
   {
     title: 'Tasks, tags, archive, and trash are vault-wide views',
@@ -167,6 +167,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Ctrl-w s', action: 'Split down', detail: 'Clone the current tab into a pane below.' },
       { keys: 'Space o', action: 'Open buffers', detail: 'Show a searchable list of every open buffer across every pane.' },
       { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
+      { keys: 'Space s t', action: 'Search vault text', detail: 'Fuzzy-search matching text lines across notes in Inbox, Quick Notes, and Archive.' },
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space, then pause', action: 'Show leader hints', detail: 'If enabled in Settings, open a which-key style guide for the next available leader actions. Sticky mode keeps it open until `Space` or `Esc`.' },
@@ -428,6 +429,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing the configured Leader key so available leader actions stay visible while you decide. This setting is only available when Vim mode is enabled.' },
       { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with the Leader key or Esc. These controls only appear when Vim mode is enabled.' },
       { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing the Leader key. This setting is only available in Vim mode.' },
+      { label: 'Vault text search backend and binary paths', detail: 'Choose Auto, the built-in searcher, ripgrep, or fzf for vault-wide text search. Auto prefers system tools when they are installed and falls back cleanly when they are not, and you can provide explicit binary paths for ripgrep or fzf if they are not on your PATH.' },
       { label: 'Live preview', detail: 'Hide markdown syntax on lines you are not actively editing.' },
       { label: 'Note tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows.' },
       { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },

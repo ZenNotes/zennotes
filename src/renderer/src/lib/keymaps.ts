@@ -23,6 +23,7 @@ export type KeymapId =
   | 'vim.leaderPrefix'
   | 'vim.leaderOpenBuffers'
   | 'vim.leaderSearchNotes'
+  | 'vim.leaderSearchVaultText'
   | 'vim.leaderToggleSidebar'
   | 'vim.leaderNoteOutline'
   | 'vim.leaderNoteActions'
@@ -210,6 +211,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBinding: 'f',
     vimOnly: true,
     maxTokens: 1
+  },
+  {
+    id: 'vim.leaderSearchVaultText',
+    kind: 'sequence',
+    scope: 'leader',
+    group: 'vim',
+    title: 'Leader: search vault text',
+    description: 'Open fuzzy vault text search across note contents.',
+    defaultBinding: 's t',
+    vimOnly: true,
+    maxTokens: 2
   },
   {
     id: 'vim.leaderToggleSidebar',

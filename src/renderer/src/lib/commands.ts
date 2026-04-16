@@ -535,6 +535,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setSearchOpen(true)
     },
     {
+      id: 'nav.search-text',
+      title: 'Search Text in Vault…',
+      category: 'Go',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderSearchVaultText') : undefined,
+      keywords: 'grep live grep telescope fuzzy content body line text vault',
+      run: () => {
+        const s = getState()
+        s.setSearchOpen(false)
+        s.setVaultTextSearchOpen(true)
+      }
+    },
+    {
       id: 'nav.folder.quick',
       title: 'Go to Quick Notes',
       category: 'Go',

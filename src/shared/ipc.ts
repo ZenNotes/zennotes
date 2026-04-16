@@ -8,6 +8,8 @@ export const IPC = {
   VAULT_LIST_FOLDERS: 'vault:list-folders',
   VAULT_LIST_ASSETS: 'vault:list-assets',
   VAULT_HAS_ASSETS_DIR: 'vault:has-assets-dir',
+  VAULT_TEXT_SEARCH_CAPABILITIES: 'vault:text-search-capabilities',
+  VAULT_SEARCH_TEXT: 'vault:search-text',
   VAULT_READ_NOTE: 'vault:read-note',
   VAULT_WRITE_NOTE: 'vault:write-note',
   VAULT_CREATE_NOTE: 'vault:create-note',
@@ -67,6 +69,33 @@ export interface NoteMeta {
 export interface NoteContent extends NoteMeta {
   /** Raw markdown body including any frontmatter. */
   body: string
+}
+
+export type VaultTextSearchBackendPreference = 'auto' | 'builtin' | 'ripgrep' | 'fzf'
+export type VaultTextSearchBackendResolved = 'builtin' | 'ripgrep' | 'fzf'
+
+export interface VaultTextSearchToolPaths {
+  ripgrepPath?: string | null
+  fzfPath?: string | null
+}
+
+export interface VaultTextSearchCapabilities {
+  ripgrep: boolean
+  fzf: boolean
+}
+
+export interface VaultTextSearchMatch {
+  /** Path relative to the vault root, always POSIX-style. */
+  path: string
+  /** File name without extension. */
+  title: string
+  folder: NoteFolder
+  /** 1-based line number of the match inside the note body. */
+  lineNumber: number
+  /** Zero-based character offset into the raw markdown body. */
+  offset: number
+  /** Single-line preview of the matched line. */
+  lineText: string
 }
 
 export type ImportedAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'

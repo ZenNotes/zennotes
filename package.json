@@ -1,5 +1,6 @@
 {
   "name": "zennotes",
+  "productName": "ZenNotes",
   "version": "0.1.0",
   "description": "A keyboard-first markdown notes app with Vim motions and plain local files",
   "main": "./out/main/index.js",
@@ -69,6 +70,7 @@
   },
   "build": {
     "appId": "com.adibhanna.zennotes",
+    "executableName": "ZenNotes",
     "productName": "ZenNotes",
     "directories": {
       "buildResources": "build",
@@ -80,6 +82,10 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "extendInfo": {
+        "CFBundleName": "ZenNotes",
+        "CFBundleDisplayName": "ZenNotes"
+      },
       "target": [
         "dmg",
         "zip"

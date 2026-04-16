@@ -6,6 +6,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  VaultTextSearchBackendPreference,
   VaultChangeEvent,
   VaultInfo
 } from '@shared/ipc'
@@ -80,6 +81,12 @@ const VALID_SORTS: NoteSortOrder[] = [
 ]
 const VALID_LINE_NUMBER_MODES: LineNumberMode[] = ['off', 'absolute', 'relative']
 const VALID_WHICH_KEY_HINT_MODES: WhichKeyHintMode[] = ['timed', 'sticky']
+const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
+  'auto',
+  'builtin',
+  'ripgrep',
+  'fzf'
+]
 const MAX_NOTE_JUMP_HISTORY = 100
 
 interface Prefs {
@@ -91,6 +98,12 @@ interface Prefs {
   whichKeyHintMode: WhichKeyHintMode
   /** How long the leader hint overlay and pending leader sequence stay visible/armed. */
   whichKeyHintTimeoutMs: number
+  /** Which engine powers vault-wide text search. */
+  vaultTextSearchBackend: VaultTextSearchBackendPreference
+  /** Optional explicit binary path for ripgrep. Blank uses PATH lookup. */
+  ripgrepBinaryPath: string | null
+  /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
+  fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
   tabsEnabled: boolean
   themeId: string
@@ -161,6 +174,9 @@ const DEFAULT_PREFS: Prefs = {
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
   whichKeyHintTimeoutMs: 900,
+  vaultTextSearchBackend: 'auto',
+  ripgrepBinaryPath: null,
+  fzfBinaryPath: null,
   livePreview: true,
   tabsEnabled: false,
   themeId: DEFAULT_THEME_ID,
@@ -227,6 +243,19 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.whichKeyHintTimeoutMs === 'number'
         ? Math.min(3000, Math.max(400, Math.round(p.whichKeyHintTimeoutMs)))
         : DEFAULT_PREFS.whichKeyHintTimeoutMs,
+    vaultTextSearchBackend:
+      p.vaultTextSearchBackend &&
+      VALID_VAULT_TEXT_SEARCH_BACKENDS.includes(p.vaultTextSearchBackend)
+        ? p.vaultTextSearchBackend
+        : DEFAULT_PREFS.vaultTextSearchBackend,
+    ripgrepBinaryPath:
+      typeof p.ripgrepBinaryPath === 'string' || p.ripgrepBinaryPath === null
+        ? (p.ripgrepBinaryPath as string | null)
+        : DEFAULT_PREFS.ripgrepBinaryPath,
+    fzfBinaryPath:
+      typeof p.fzfBinaryPath === 'string' || p.fzfBinaryPath === null
+        ? (p.fzfBinaryPath as string | null)
+        : DEFAULT_PREFS.fzfBinaryPath,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
     tabsEnabled:
@@ -417,6 +446,7 @@ export interface NoteJumpLocation {
   editorSelectionHead: number
   editorScrollTop: number
   previewScrollTop: number
+  editorScrollMode?: 'preserve' | 'center' | 'start'
 }
 
 export interface PreviewAnchorRect {
@@ -452,7 +482,8 @@ function captureNoteJumpLocation(state: {
     editorSelectionAnchor: selection?.anchor ?? 0,
     editorSelectionHead: selection?.head ?? 0,
     editorScrollTop: state.editorViewRef?.scrollDOM.scrollTop ?? 0,
-    previewScrollTop: getVisiblePreviewScrollElement()?.scrollTop ?? 0
+    previewScrollTop: getVisiblePreviewScrollElement()?.scrollTop ?? 0,
+    editorScrollMode: 'preserve'
   }
 }
 
@@ -574,6 +605,9 @@ function collectPrefs(s: {
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
+  vaultTextSearchBackend: VaultTextSearchBackendPreference
+  ripgrepBinaryPath: string | null
+  fzfBinaryPath: string | null
   livePreview: boolean
   tabsEnabled: boolean
   themeId: string
@@ -613,6 +647,9 @@ function collectPrefs(s: {
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
     whichKeyHintTimeoutMs: s.whichKeyHintTimeoutMs,
+    vaultTextSearchBackend: s.vaultTextSearchBackend,
+    ripgrepBinaryPath: s.ripgrepBinaryPath,
+    fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
     tabsEnabled: s.tabsEnabled,
     themeId: s.themeId,
@@ -918,6 +955,7 @@ interface Store {
   /** Notes still loading the full content. */
   loadingNote: boolean
   searchOpen: boolean
+  vaultTextSearchOpen: boolean
   commandPaletteOpen: boolean
   bufferPaletteOpen: boolean
   outlinePaletteOpen: boolean
@@ -933,6 +971,9 @@ interface Store {
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
   whichKeyHintTimeoutMs: number
+  vaultTextSearchBackend: VaultTextSearchBackendPreference
+  ripgrepBinaryPath: string | null
+  fzfBinaryPath: string | null
   livePreview: boolean
   tabsEnabled: boolean
   settingsOpen: boolean
@@ -1072,6 +1113,11 @@ interface Store {
   setTasksFilter: (q: string) => void
   setTaskCursorIndex: (idx: number) => void
   selectNote: (relPath: string | null) => Promise<void>
+  openNoteAtOffset: (
+    relPath: string,
+    offset: number,
+    options?: { scrollMode?: 'center' | 'start' }
+  ) => Promise<void>
   jumpToPreviousNote: () => Promise<void>
   jumpToNextNote: () => Promise<void>
   applyChange: (ev: VaultChangeEvent) => Promise<void>
@@ -1091,6 +1137,7 @@ interface Store {
   archiveActive: () => Promise<void>
   unarchiveActive: () => Promise<void>
   setSearchOpen: (open: boolean) => void
+  setVaultTextSearchOpen: (open: boolean) => void
   setCommandPaletteOpen: (open: boolean) => void
   setBufferPaletteOpen: (open: boolean) => void
   setOutlinePaletteOpen: (open: boolean) => void
@@ -1104,6 +1151,9 @@ interface Store {
   setWhichKeyHints: (on: boolean) => void
   setWhichKeyHintMode: (mode: WhichKeyHintMode) => void
   setWhichKeyHintTimeoutMs: (ms: number) => void
+  setVaultTextSearchBackend: (backend: VaultTextSearchBackendPreference) => void
+  setRipgrepBinaryPath: (path: string | null) => void
+  setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -1498,6 +1548,7 @@ export const useStore = create<Store>((set, get) => {
   pendingJumpLocation: null,
   loadingNote: false,
   searchOpen: false,
+  vaultTextSearchOpen: false,
   commandPaletteOpen: false,
   bufferPaletteOpen: false,
   outlinePaletteOpen: false,
@@ -1513,6 +1564,9 @@ export const useStore = create<Store>((set, get) => {
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
   whichKeyHintTimeoutMs: loadPrefs().whichKeyHintTimeoutMs,
+  vaultTextSearchBackend: loadPrefs().vaultTextSearchBackend,
+  ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
+  fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
   tabsEnabled: loadPrefs().tabsEnabled,
   settingsOpen: false,
@@ -1797,6 +1851,23 @@ export const useStore = create<Store>((set, get) => {
 
   selectNote: async (relPath) => {
     await selectNoteImpl(relPath, 'push')
+  },
+
+  openNoteAtOffset: async (relPath, offset, options) => {
+    const state = get()
+    const anchor = Math.max(0, offset)
+    await get().openNoteInPane(state.activePaneId, relPath)
+    set({
+      pendingJumpLocation: {
+        path: relPath,
+        editorSelectionAnchor: anchor,
+        editorSelectionHead: anchor,
+        editorScrollTop: 0,
+        previewScrollTop: 0,
+        editorScrollMode: options?.scrollMode ?? 'center'
+      },
+      focusedPanel: 'editor'
+    })
   },
 
   jumpToPreviousNote: async () => {
@@ -2211,7 +2282,17 @@ export const useStore = create<Store>((set, get) => {
     })
   },
 
-  setSearchOpen: (open) => set({ searchOpen: open, query: open ? get().query : '' }),
+  setSearchOpen: (open) =>
+    set({
+      searchOpen: open,
+      vaultTextSearchOpen: open ? false : get().vaultTextSearchOpen,
+      query: open ? get().query : ''
+    }),
+  setVaultTextSearchOpen: (open) =>
+    set({
+      vaultTextSearchOpen: open,
+      searchOpen: open ? false : get().searchOpen
+    }),
   setCommandPaletteOpen: (open) => set({ commandPaletteOpen: open }),
   setBufferPaletteOpen: (open) => set({ bufferPaletteOpen: open }),
   setOutlinePaletteOpen: (open) => set({ outlinePaletteOpen: open }),
@@ -2273,6 +2354,18 @@ export const useStore = create<Store>((set, get) => {
   },
   setWhichKeyHintTimeoutMs: (ms) => {
     set({ whichKeyHintTimeoutMs: Math.min(3000, Math.max(400, Math.round(ms))) })
+    savePrefs(collectPrefs(get()))
+  },
+  setVaultTextSearchBackend: (backend) => {
+    set({ vaultTextSearchBackend: backend })
+    savePrefs(collectPrefs(get()))
+  },
+  setRipgrepBinaryPath: (path) => {
+    set({ ripgrepBinaryPath: path })
+    savePrefs(collectPrefs(get()))
+  },
+  setFzfBinaryPath: (path) => {
+    set({ fzfBinaryPath: path })
     savePrefs(collectPrefs(get()))
   },
   setLivePreview: (on) => {

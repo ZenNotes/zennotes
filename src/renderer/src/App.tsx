@@ -6,6 +6,7 @@ import { NoteList } from './components/NoteList'
 import { Editor } from './components/Editor'
 import { TitleBar } from './components/TitleBar'
 import { SearchPalette } from './components/SearchPalette'
+import { VaultTextSearchPalette } from './components/VaultTextSearchPalette'
 import { CommandPalette } from './components/CommandPalette'
 import { BufferPalette } from './components/BufferPalette'
 import { OutlinePalette } from './components/OutlinePalette'
@@ -23,6 +24,8 @@ function App(): JSX.Element {
   const workspaceRestored = useStore((s) => s.workspaceRestored)
   const searchOpen = useStore((s) => s.searchOpen)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
+  const vaultTextSearchOpen = useStore((s) => s.vaultTextSearchOpen)
+  const setVaultTextSearchOpen = useStore((s) => s.setVaultTextSearchOpen)
   const commandPaletteOpen = useStore((s) => s.commandPaletteOpen)
   const setCommandPaletteOpen = useStore((s) => s.setCommandPaletteOpen)
   const bufferPaletteOpen = useStore((s) => s.bufferPaletteOpen)
@@ -156,6 +159,7 @@ function App(): JSX.Element {
         // ⇧⌘P — command palette
         e.preventDefault()
         setBufferPaletteOpen(false)
+        setVaultTextSearchOpen(false)
         setCommandPaletteOpen(!state.commandPaletteOpen)
         return
       }
@@ -163,6 +167,7 @@ function App(): JSX.Element {
         // ⌘F / Ctrl+F — note search when Vim mode is off
         e.preventDefault()
         setBufferPaletteOpen(false)
+        setVaultTextSearchOpen(false)
         setSearchOpen(true)
         return
       }
@@ -183,6 +188,7 @@ function App(): JSX.Element {
         // ⌘P — note search
         e.preventDefault()
         setBufferPaletteOpen(false)
+        setVaultTextSearchOpen(false)
         setSearchOpen(!state.searchOpen)
         return
       }
@@ -193,6 +199,10 @@ function App(): JSX.Element {
       }
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
+        return
+      }
+      if (e.key === 'Escape' && state.vaultTextSearchOpen) {
+        setVaultTextSearchOpen(false)
         return
       }
       if (e.key === 'Escape' && state.commandPaletteOpen) {
@@ -240,7 +250,13 @@ function App(): JSX.Element {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [setBufferPaletteOpen, setCommandPaletteOpen, setOutlinePaletteOpen, setSearchOpen])
+  }, [
+    setBufferPaletteOpen,
+    setCommandPaletteOpen,
+    setOutlinePaletteOpen,
+    setSearchOpen,
+    setVaultTextSearchOpen
+  ])
 
   if (!vault) {
     return (
@@ -261,6 +277,7 @@ function App(): JSX.Element {
         {!zenMode && <PinnedReferencePane />}
       </div>
       {searchOpen && <SearchPalette />}
+      {vaultTextSearchOpen && <VaultTextSearchPalette />}
       {commandPaletteOpen && <CommandPalette />}
       {bufferPaletteOpen && <BufferPalette />}
       {outlinePaletteOpen && <OutlinePalette />}

@@ -39,21 +39,17 @@ import {
 const HEADING_RE = /^(#{1,6})\s+/
 
 function fixFatCursorHeight(view: EditorView): void {
-  const pos = view.state.selection.main.head
-  const lineNumber = view.state.doc.lineAt(pos).number
-  const level = headingLevelAt(view.state, lineNumber)
   const cursors = view.scrollDOM.querySelectorAll<HTMLElement>('.cm-fat-cursor')
-  if (level === null) {
-    for (const el of cursors) {
-      el.style.removeProperty('height')
-      el.style.removeProperty('max-height')
-    }
-    return
-  }
-  const block = view.lineBlockAt(pos)
+  const activeLine = view.scrollDOM.querySelector<HTMLElement>('.cm-activeLine')
+  const activeLineFontSize = activeLine ? Number.parseFloat(getComputedStyle(activeLine).fontSize) : Number.NaN
   for (const el of cursors) {
-    el.style.setProperty('height', `${block.height}px`, 'important')
-    el.style.setProperty('max-height', `${block.height}px`, 'important')
+    el.style.removeProperty('height')
+    el.style.removeProperty('max-height')
+    if (Number.isFinite(activeLineFontSize) && activeLineFontSize > 0) {
+      el.style.setProperty('--z-active-cursor-height', `${activeLineFontSize}px`)
+    } else {
+      el.style.removeProperty('--z-active-cursor-height')
+    }
   }
 }
 
