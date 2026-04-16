@@ -1,6 +1,12 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
-import type { VaultTextSearchMatch } from '@shared/ipc'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  VaultTextSearchBackendPreference,
+  VaultTextSearchCapabilities,
+  VaultTextSearchMatch
+} from '@shared/ipc'
 import { useStore } from '../store'
+
+type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -113,6 +119,19 @@ function renderHighlightedText(text: string, query: string): JSX.Element {
   return <>{nodes}</>
 }
 
+function resolveVaultTextSearchBackend(
+  preferred: VaultTextSearchBackendPreference,
+  capabilities: VaultTextSearchCapabilities | null
+): ResolvedVaultTextSearchBackend | null {
+  if (!capabilities) return null
+  if (preferred === 'builtin') return 'builtin'
+  if (preferred === 'ripgrep') return capabilities.ripgrep ? 'ripgrep' : 'builtin'
+  if (preferred === 'fzf') return capabilities.fzf ? 'fzf' : 'builtin'
+  if (capabilities.fzf) return 'fzf'
+  if (capabilities.ripgrep) return 'ripgrep'
+  return 'builtin'
+}
+
 export function VaultTextSearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
   const noteContents = useStore((s) => s.noteContents)
@@ -121,6 +140,7 @@ export function VaultTextSearchPalette(): JSX.Element {
   const backend = useStore((s) => s.vaultTextSearchBackend)
   const ripgrepBinaryPath = useStore((s) => s.ripgrepBinaryPath)
   const fzfBinaryPath = useStore((s) => s.fzfBinaryPath)
+  const [capabilities, setCapabilities] = useState<VaultTextSearchCapabilities | null>(null)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<VaultTextSearchMatch[]>([])
   const [active, setActive] = useState(0)
@@ -135,6 +155,45 @@ export function VaultTextSearchPalette(): JSX.Element {
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    if (typeof window.zen.getVaultTextSearchCapabilities !== 'function') {
+      setCapabilities(null)
+      return () => {
+        cancelled = true
+      }
+    }
+    void window.zen
+      .getVaultTextSearchCapabilities({
+        ripgrepPath: ripgrepBinaryPath,
+        fzfPath: fzfBinaryPath
+      })
+      .then(
+        (next) => {
+          if (!cancelled) setCapabilities(next)
+        },
+        () => {
+          if (!cancelled) setCapabilities(null)
+        }
+      )
+    return () => {
+      cancelled = true
+    }
+  }, [fzfBinaryPath, ripgrepBinaryPath])
+
+  const resolvedBackend = useMemo(
+    () => resolveVaultTextSearchBackend(backend, capabilities),
+    [backend, capabilities]
+  )
+  const resolvedBackendLabel =
+    resolvedBackend === 'ripgrep'
+      ? 'ripgrep'
+      : resolvedBackend === 'fzf'
+        ? 'fzf'
+        : resolvedBackend === 'builtin'
+          ? 'built-in'
+          : 'resolving…'
 
   useEffect(() => {
     setActive(0)
@@ -309,8 +368,11 @@ export function VaultTextSearchPalette(): JSX.Element {
             }}
             className="w-full bg-transparent text-base text-ink-900 outline-none placeholder:text-ink-400"
           />
-          <div className="mt-2 text-[11px] uppercase tracking-[0.24em] text-ink-400">
-            Vault text search
+          <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-ink-400">
+            <span>Vault text search</span>
+            <span className="rounded-full border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-[10px] tracking-[0.16em] text-ink-500">
+              {resolvedBackendLabel}
+            </span>
           </div>
         </div>
         <div className="max-h-[56vh] overflow-x-hidden overflow-y-auto py-1">

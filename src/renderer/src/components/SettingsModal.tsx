@@ -30,12 +30,36 @@ type SettingsCategoryId =
   | 'vault'
   | 'about'
 
+type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
+
 interface SettingsCategory {
   id: SettingsCategoryId
   title: string
   description: string
   keywords: string[]
   content: JSX.Element
+}
+
+function resolveVaultTextSearchBackend(
+  preferred: VaultTextSearchBackendPreference,
+  capabilities: VaultTextSearchCapabilities | null
+): ResolvedVaultTextSearchBackend | null {
+  if (!capabilities) return null
+  if (preferred === 'builtin') return 'builtin'
+  if (preferred === 'ripgrep') return capabilities.ripgrep ? 'ripgrep' : 'builtin'
+  if (preferred === 'fzf') return capabilities.fzf ? 'fzf' : 'builtin'
+  if (capabilities.fzf) return 'fzf'
+  if (capabilities.ripgrep) return 'ripgrep'
+  return 'builtin'
+}
+
+function resolvedVaultTextSearchBackendLabel(
+  backend: ResolvedVaultTextSearchBackend | null
+): string {
+  if (backend === 'ripgrep') return 'ripgrep'
+  if (backend === 'fzf') return 'fzf'
+  if (backend === 'builtin') return 'Built-in'
+  return 'Checking…'
 }
 
 export function SettingsModal(): JSX.Element {
@@ -239,6 +263,37 @@ export function SettingsModal(): JSX.Element {
     vaultTextSearchCapabilities?.ripgrep ? 'ripgrep' : null,
     vaultTextSearchCapabilities?.fzf ? 'fzf' : null
   ].filter((value): value is string => !!value)
+  const resolvedVaultTextSearchBackend = useMemo(
+    () =>
+      resolveVaultTextSearchBackend(
+        vaultTextSearchBackend,
+        vaultTextSearchCapabilities
+      ),
+    [vaultTextSearchBackend, vaultTextSearchCapabilities]
+  )
+  const resolvedVaultTextSearchMessage = useMemo(() => {
+    if (!vaultTextSearchCapabilities) return 'Checking configured search tools…'
+    if (vaultTextSearchBackend === 'builtin') {
+      return 'Current runtime backend: Built-in, by explicit choice.'
+    }
+    if (vaultTextSearchBackend === 'ripgrep') {
+      return vaultTextSearchCapabilities.ripgrep
+        ? 'Current runtime backend: ripgrep.'
+        : 'Current runtime backend: Built-in fallback, because ripgrep is not available from the configured path or PATH.'
+    }
+    if (vaultTextSearchBackend === 'fzf') {
+      return vaultTextSearchCapabilities.fzf
+        ? 'Current runtime backend: fzf.'
+        : 'Current runtime backend: Built-in fallback, because fzf is not available from the configured path or PATH.'
+    }
+    if (vaultTextSearchCapabilities.fzf) {
+      return 'Current runtime backend: fzf, selected automatically.'
+    }
+    if (vaultTextSearchCapabilities.ripgrep) {
+      return 'Current runtime backend: ripgrep, selected automatically.'
+    }
+    return 'Current runtime backend: Built-in, because no external search tool is available.'
+  }, [vaultTextSearchBackend, vaultTextSearchCapabilities])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -438,6 +493,12 @@ export function SettingsModal(): JSX.Element {
               placeholder="/custom/bin/fzf"
               onChange={(next) => setFzfBinaryPath(next)}
             />
+            <InlineNote>
+              Runtime backend: {resolvedVaultTextSearchBackendLabel(resolvedVaultTextSearchBackend)}
+            </InlineNote>
+            <InlineNote>
+              {resolvedVaultTextSearchMessage}
+            </InlineNote>
             <InlineNote>
               {vaultTextSearchCapabilities == null
                 ? 'Checking configured search tools…'
