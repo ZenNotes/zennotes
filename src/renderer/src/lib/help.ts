@@ -41,12 +41,17 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Capture, organize, archive',
     body:
-      'Quick Notes are for fast capture, Inbox is active work, Archive is cold storage, and Trash is recoverable deletion. Inbox and Archive support nested folders, while Trash opens as a dedicated main-pane recovery view so the sidebar stays singular.'
+      'Quick Notes are for fast capture, Inbox is active work, Archive is cold storage, and Trash is recoverable deletion. Archive and Trash both open as dedicated main-pane list views so the sidebar stays singular, while Quick Notes stays foldable in the sidebar and can also open its own list tab from the context menu.'
   },
   {
     title: 'Stay keyboard-first',
     body:
-      'Search notes with Cmd+P, open the command palette with Shift+Cmd+P, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following.'
+      'Search notes with Cmd+P, open the command palette with Shift+Cmd+P, and use Vim mode for ex commands, pane motion, hint mode, leader hints, and link-following. If you explicitly turn Vim mode off, Cmd/Ctrl+F becomes an extra direct search shortcut.'
+  },
+  {
+    title: 'Insert structure inline',
+    body:
+      'Type `/` in the editor to open a slash menu for headings, lists, callouts, code blocks, dividers, tables, links, images, and more. Type `@` to insert date shortcuts like Today, Yesterday, and Tomorrow as markdown-friendly ISO dates.'
   },
   {
     title: 'Use the built-in manual',
@@ -69,7 +74,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Tabs and splits are first-class',
     body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`.'
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with Ctrl-w motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher with `Space o` or `:buffers`. If you disable Vim mode, use the command palette instead.'
   },
   {
     title: 'Sessions restore on relaunch',
@@ -79,17 +84,27 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Leader mode can teach itself',
     body:
-      'If Leader key hints are enabled, pressing `Space` opens a which-key style panel that shows the next available leader actions, including note-local commands like `Space l f`. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you press `Space` again or `Esc`.'
+      'If Leader key hints are enabled, pressing `Space` opens a which-key style panel that shows the next available leader actions, including note-local commands like `Space l f`. Settings let you choose between a timed hint or a sticky leader overlay that stays open until you press `Space` again or `Esc`. If you disable Vim mode, the leader system is turned off with it.'
   },
   {
-    title: 'Tasks, tags, and trash are vault-wide views',
+    title: 'Tasks, tags, archive, and trash are vault-wide views',
     body:
-      'Tasks scans every note for checkboxes, Tags lets you browse notes matching any selected tag, and Trash gives you a dedicated recovery surface for deleted notes without turning the left rail into a second browser.'
+      'Tasks scans every note for checkboxes, Tags lets you browse notes matching any selected tag, Archive gives you a dedicated list of cold-storage notes, and Trash gives you a recovery surface for deleted notes without turning the left rail into a second browser.'
   },
   {
     title: 'Moving notes is path-first',
     body:
       'Use the note context menu or the command palette to move a note into Inbox or Archive. The move prompt autocompletes folder paths, so you can type and Tab through existing destinations instead of dragging.'
+  },
+  {
+    title: 'Slash commands speed up writing',
+    body:
+      'When you type `/` at the start of a line or after whitespace, ZenNotes opens an inline insert menu for common markdown structures such as headings, bulleted or numbered lists, to-do items, callouts, code blocks, dividers, tables, math blocks, links, images, and even creating a new note page.'
+  },
+  {
+    title: '@ shortcuts insert relative dates',
+    body:
+      'Typing `@` in normal text opens date suggestions for Today, Yesterday, and Tomorrow. Choosing one inserts an ISO date like `2026-04-15`, which keeps notes file-friendly, searchable, and easy to sort.'
   },
   {
     title: 'Reference and connections support research-heavy work',
@@ -130,6 +145,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     description: 'These work across the main app shell.',
     items: [
       { keys: '⌘P', action: 'Search notes', detail: 'Open the note search palette.' },
+      { keys: '⌘F / Ctrl+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
       { keys: '⇧⌘P', action: 'Open commands', detail: 'Open the command palette.' },
       { keys: '⇧⌘N', action: 'New Quick Note', detail: 'Create a quick capture note and focus its title.' },
       { keys: '⌘,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
@@ -144,7 +160,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'panel-motion',
     title: 'Pane and panel motion',
-    description: 'These are the main keyboard-first movement patterns outside typing.',
+    description: 'These are the primary keyboard-first movement patterns. The Vim-style ones assume Vim mode is on.',
     items: [
       { keys: 'Ctrl-w h / j / k / l', action: 'Move focus', detail: 'Move between sidebar, note list, editor, connections, or adjacent editor panes.' },
       { keys: 'Ctrl-w v', action: 'Split right', detail: 'Clone the current tab into a pane to the right.' },
@@ -165,7 +181,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'lists-and-sidebar',
     title: 'Sidebar and list navigation',
-    description: 'These bindings work when the sidebar or note list owns focus.',
+    description: 'These bindings work when the sidebar or note list owns focus in Vim mode.',
     items: [
       { keys: 'j / k', action: 'Move selection', detail: 'Move down or up one visible item.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Fast travel to the first or last visible row.' },
@@ -175,6 +191,37 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: '/', action: 'Search notes', detail: 'Open note search directly from keyboard navigation mode.' },
       { keys: 'm', action: 'Open context menu', detail: 'Open the right-click menu for the selected sidebar row.' },
       { keys: 'Esc', action: 'Return to editor', detail: 'Drop back into the main editor focus path.' }
+    ]
+  },
+  {
+    id: 'editor-writing-aids',
+    title: 'Editor writing aids',
+    description: 'Inline completions that appear while you type in the markdown editor.',
+    items: [
+      {
+        keys: '/',
+        action: 'Open slash commands',
+        detail:
+          'At the start of a line or after whitespace, show an insert menu for headings, lists, to-dos, callouts, code blocks, dividers, tables, math blocks, links, images, and creating a new page.'
+      },
+      {
+        keys: 'Type after /',
+        action: 'Filter the insert menu',
+        detail:
+          'Keep typing to narrow the slash command list by name, then confirm the highlighted item to insert its markdown structure.'
+      },
+      {
+        keys: '@',
+        action: 'Open date shortcuts',
+        detail:
+          'Show inline suggestions for Today, Yesterday, and Tomorrow while writing so you can insert dates without leaving the keyboard.'
+      },
+      {
+        keys: 'Type after @',
+        action: 'Filter date suggestions',
+        detail:
+          'Match by words like today or tomorrow, or by date fragments such as weekday, month, day number, or the ISO date before confirming the result.'
+      }
     ]
   },
   {
@@ -312,7 +359,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Space> (pause)',
     summary: 'Show leader hints',
-    detail: 'When Leader key hints are enabled, pressing Space shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until Space or Esc.'
+    detail: 'When Leader key hints are enabled, pressing Space shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until Space or Esc. Turning Vim mode off disables the leader system too.'
   },
   {
     command: '<Space> o',
@@ -378,9 +425,9 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Editor behavior',
     items: [
       { label: 'Vim mode', detail: 'Turn CodeMirror Vim bindings on or off for the editor and reference pane.' },
-      { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing Space so available leader actions stay visible while you decide.' },
-      { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with Space or Esc.' },
-      { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing Space.' },
+      { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing Space so available leader actions stay visible while you decide. This setting is only available when Vim mode is enabled.' },
+      { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with Space or Esc. These controls only appear when Vim mode is enabled.' },
+      { label: 'Leader hint duration', detail: 'When behavior is Timed, control how long the which-key overlay stays visible and how long the pending leader sequence remains active after pressing Space. This setting is only available in Vim mode.' },
       { label: 'Live preview', detail: 'Hide markdown syntax on lines you are not actively editing.' },
       { label: 'Note tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows.' },
       { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },

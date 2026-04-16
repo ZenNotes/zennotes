@@ -159,6 +159,13 @@ function App(): JSX.Element {
         setCommandPaletteOpen(!state.commandPaletteOpen)
         return
       }
+      if (!state.vimMode && mod && !e.shiftKey && key === 'f') {
+        // ⌘F / Ctrl+F — note search when Vim mode is off
+        e.preventDefault()
+        setBufferPaletteOpen(false)
+        setSearchOpen(true)
+        return
+      }
       if (mod && e.shiftKey && key === 'n') {
         // ⇧⌘N — new quick note
         e.preventDefault()

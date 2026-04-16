@@ -268,37 +268,45 @@ export function SettingsModal(): JSX.Element {
                 value={vimMode}
                 onChange={setVimMode}
               />
-              <ToggleRow
-                label="Leader key hints"
-                description="Show a which-key style guide after pressing Space so the next available leader actions stay visible."
-                value={whichKeyHints}
-                onChange={setWhichKeyHints}
-              />
-              {whichKeyHints && (
+              {vimMode ? (
                 <>
-                  <SegmentedRow
-                    label="Leader hint behavior"
-                    description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you press Space again or Esc."
-                    value={whichKeyHintMode}
-                    options={[
-                      { value: 'timed', label: 'Timed' },
-                      { value: 'sticky', label: 'Sticky' }
-                    ]}
-                    onChange={(next) => setWhichKeyHintMode(next as WhichKeyHintMode)}
+                  <ToggleRow
+                    label="Leader key hints"
+                    description="Show a which-key style guide after pressing Space so the next available leader actions stay visible."
+                    value={whichKeyHints}
+                    onChange={setWhichKeyHints}
                   />
-                  {whichKeyHintMode === 'timed' && (
-                    <SliderRow
-                      label="Leader hint duration"
-                      description="How long the leader overlay stays visible, and how long the pending leader sequence stays armed after pressing Space."
-                      value={whichKeyHintTimeoutMs}
-                      min={400}
-                      max={3000}
-                      step={100}
-                      format={(v) => `${(v / 1000).toFixed(1)}s`}
-                      onChange={setWhichKeyHintTimeoutMs}
-                    />
+                  {whichKeyHints && (
+                    <>
+                      <SegmentedRow
+                        label="Leader hint behavior"
+                        description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you press Space again or Esc."
+                        value={whichKeyHintMode}
+                        options={[
+                          { value: 'timed', label: 'Timed' },
+                          { value: 'sticky', label: 'Sticky' }
+                        ]}
+                        onChange={(next) => setWhichKeyHintMode(next as WhichKeyHintMode)}
+                      />
+                      {whichKeyHintMode === 'timed' && (
+                        <SliderRow
+                          label="Leader hint duration"
+                          description="How long the leader overlay stays visible, and how long the pending leader sequence stays armed after pressing Space."
+                          value={whichKeyHintTimeoutMs}
+                          min={400}
+                          max={3000}
+                          step={100}
+                          format={(v) => `${(v / 1000).toFixed(1)}s`}
+                          onChange={setWhichKeyHintTimeoutMs}
+                        />
+                      )}
+                    </>
                   )}
                 </>
+              ) : (
+                <div className="px-6 py-1 text-xs text-ink-500">
+                  Leader key hints are only available while Vim mode is enabled.
+                </div>
               )}
               <ToggleRow
                 label="Live preview"

@@ -23,6 +23,7 @@ function escapeForAttr(value: string): string {
  * dependency on React re-renders between keystrokes.
  */
 export function VimNav(): JSX.Element | null {
+  const vimMode = useStore((s) => s.vimMode)
   // All control-flow flags are refs so the handler never stales.
   const ctrlWPending = useRef(false)
   const gPending = useRef(false)
@@ -74,9 +75,10 @@ export function VimNav(): JSX.Element | null {
     setHint(false)
     focusEditor()
   }, [focusEditor, setHint])
-  const whichKeyHintsEnabled = useStore((s) => s.whichKeyHints)
+  const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
+  const whichKeyHintsEnabled = vimMode && whichKeyHintsPref
   const stickyWhichKeyHints = whichKeyHintsEnabled && whichKeyHintMode === 'sticky'
   const resetLeader = useCallback(() => {
     leaderPending.current = null
@@ -143,6 +145,18 @@ export function VimNav(): JSX.Element | null {
   })()
 
   useEffect(() => {
+    if (vimMode) return
+    ctrlWPending.current = false
+    gPending.current = false
+    if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
+    if (gTimer.current) clearTimeout(gTimer.current)
+    if (leaderTimer.current) clearTimeout(leaderTimer.current)
+    resetLeader()
+    setHint(false)
+  }, [resetLeader, setHint, vimMode])
+
+  useEffect(() => {
+    if (!vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const state = useStore.getState()
 
@@ -530,7 +544,7 @@ export function VimNav(): JSX.Element | null {
       window.removeEventListener('keydown', handler, true)
       resetLeader()
     }
-  }, [armLeader, jumpNoteHistory, resetLeader, setHint]) // ← stable dep, handler never re-registers unnecessarily
+  }, [armLeader, jumpNoteHistory, resetLeader, setHint, vimMode]) // ← stable dep, handler never re-registers unnecessarily
 
   // ---- Key handlers (called from the single persistent handler) --------
 
@@ -1004,6 +1018,8 @@ export function VimNav(): JSX.Element | null {
       void state.openHelpView()
     } else if (itemType === 'settings') {
       state.setSettingsOpen(true)
+    } else if (itemType === 'archive') {
+      void state.openArchiveView()
     } else if (itemType === 'trash') {
       void state.openTrashView()
     }
@@ -1111,6 +1127,8 @@ export function VimNav(): JSX.Element | null {
     const collapseKey = el.dataset.sidebarKey
     if (collapseKey) state.toggleCollapseFolder(collapseKey)
   }
+
+  if (!vimMode) return null
 
   if (hintActive) {
     return <HintOverlay onActivate={exitHints} onCancel={cancelHints} />

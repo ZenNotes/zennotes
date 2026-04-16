@@ -302,7 +302,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'tab.buffers',
       title: 'Open Buffer Switcher…',
       category: 'Tabs',
-      shortcut: 'Space o',
+      shortcut: getState().vimMode ? 'Space o' : undefined,
       keywords: 'buffers hidden tabs switch list vim leader',
       when: () => {
         const s = getState()
@@ -315,7 +315,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.outline',
       title: 'Open Note Outline…',
       category: 'Navigation',
-      shortcut: 'Space p',
+      shortcut: getState().vimMode ? 'Space p' : undefined,
       keywords: 'outline headings toc jump toc table of contents leader',
       when: () => !!getState().activeNote,
       run: () => getState().setOutlinePaletteOpen(true)
@@ -519,7 +519,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Search Notes…',
       category: 'Go',
       shortcut: '⌘P',
-      keywords: 'find open',
+      keywords: 'find open cmd+f ctrl+f leader',
       run: () => getState().setSearchOpen(true)
     },
     {
@@ -539,7 +539,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.folder.archive',
       title: 'Go to Archive',
       category: 'Go',
-      run: () => getState().setView({ kind: 'folder', folder: 'archive', subpath: '' })
+      keywords: 'archive archived storage',
+      run: () => getState().openArchiveView()
     },
     {
       id: 'nav.folder.trash',
@@ -765,6 +766,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         : 'Enable Leader Key Hints',
       category: 'Editor',
       keywords: 'which-key leader space hints overlay vim',
+      when: () => getState().vimMode,
       run: () => getState().setWhichKeyHints(!getState().whichKeyHints)
     },
     {

@@ -11,13 +11,22 @@ import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
 import { parseOutline, type OutlineItem } from '../lib/outline'
 import { isHelpTabPath } from '@shared/help'
+import { isArchiveTabPath } from '@shared/archive'
 import { isTagsTabPath } from '@shared/tags'
 import { isTasksTabPath } from '@shared/tasks'
 import { isTrashTabPath } from '@shared/trash'
+import { isQuickNotesTabPath } from '@shared/quick-notes'
 
 function isVirtualPath(path: string | null): boolean {
   if (!path) return true
-  return isTasksTabPath(path) || isTagsTabPath(path) || isHelpTabPath(path) || isTrashTabPath(path)
+  return (
+    isQuickNotesTabPath(path) ||
+    isTasksTabPath(path) ||
+    isTagsTabPath(path) ||
+    isHelpTabPath(path) ||
+    isArchiveTabPath(path) ||
+    isTrashTabPath(path)
+  )
 }
 
 export function OutlinePalette(): JSX.Element {

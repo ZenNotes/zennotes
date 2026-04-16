@@ -38,6 +38,25 @@ import {
 
 const HEADING_RE = /^(#{1,6})\s+/
 
+function fixFatCursorHeight(view: EditorView): void {
+  const pos = view.state.selection.main.head
+  const lineNumber = view.state.doc.lineAt(pos).number
+  const level = headingLevelAt(view.state, lineNumber)
+  const cursors = view.scrollDOM.querySelectorAll<HTMLElement>('.cm-fat-cursor')
+  if (level === null) {
+    for (const el of cursors) {
+      el.style.removeProperty('height')
+      el.style.removeProperty('max-height')
+    }
+    return
+  }
+  const block = view.lineBlockAt(pos)
+  for (const el of cursors) {
+    el.style.setProperty('height', `${block.height}px`, 'important')
+    el.style.setProperty('max-height', `${block.height}px`, 'important')
+  }
+}
+
 function headingLevelAt(state: EditorState, lineNumber: number): number | null {
   if (lineNumber < 1 || lineNumber > state.doc.lines) return null
   const text = state.doc.line(lineNumber).text
@@ -173,13 +192,14 @@ function buildDecorations(view: EditorView): DecorationSet {
         deco: Decoration.line({ class: classes.join(' ') })
       })
 
-      // Widget sits at the very start of the line (side: 1 → just
-      // after line.from, which is the first child of the line div).
+      // Widget sits at the very start of the line. side: -1 places
+      // it before text content in the DOM so the vim fat-cursor at
+      // position 0 measures the first # glyph, not the widget.
       builder.push({
         from: line.from,
         to: line.from,
         deco: Decoration.widget({
-          side: 1,
+          side: -1,
           widget: new HeadingFoldArrow(n, isFolded)
         })
       })
@@ -190,11 +210,16 @@ function buildDecorations(view: EditorView): DecorationSet {
   return Decoration.set(builder.map((b) => b.deco.range(b.from, b.to)))
 }
 
+
 const headingArrowPlugin = ViewPlugin.fromClass(
   class {
+    private readonly view: EditorView
     decorations: DecorationSet
 
+    private cursorFixFrame = 0
+
     constructor(view: EditorView) {
+      this.view = view
       this.decorations = buildDecorations(view)
     }
 
@@ -209,6 +234,14 @@ const headingArrowPlugin = ViewPlugin.fromClass(
       ) {
         this.decorations = buildDecorations(update.view)
       }
+      if (update.selectionSet || update.geometryChanged) {
+        cancelAnimationFrame(this.cursorFixFrame)
+        this.cursorFixFrame = requestAnimationFrame(() => fixFatCursorHeight(this.view))
+      }
+    }
+
+    destroy(): void {
+      cancelAnimationFrame(this.cursorFixFrame)
     }
   },
   {

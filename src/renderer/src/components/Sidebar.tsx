@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { isHelpViewActive, isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
+import {
+  isArchiveViewActive,
+  isHelpViewActive,
+  isQuickNotesViewActive,
+  isTagsViewActive,
+  isTasksViewActive,
+  isTrashViewActive,
+  useStore
+} from '../store'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import type { NoteSortOrder } from '../store'
+import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isQuickNotesTabPath } from '@shared/quick-notes'
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
@@ -54,8 +64,12 @@ export function Sidebar(): JSX.Element {
   const setView = useStore((s) => s.setView)
   const openTasksView = useStore((s) => s.openTasksView)
   const tasksViewActive = useStore(isTasksViewActive)
+  const openQuickNotesView = useStore((s) => s.openQuickNotesView)
+  const quickNotesViewActive = useStore(isQuickNotesViewActive)
   const openHelpView = useStore((s) => s.openHelpView)
   const helpViewActive = useStore(isHelpViewActive)
+  const openArchiveView = useStore((s) => s.openArchiveView)
+  const archiveViewActive = useStore(isArchiveViewActive)
   const openTrashView = useStore((s) => s.openTrashView)
   const trashViewActive = useStore(isTrashViewActive)
   const openTagView = useStore((s) => s.openTagView)
@@ -225,8 +239,6 @@ export function Sidebar(): JSX.Element {
     }
     keys.push('inbox:')
     walk('inbox', trees.inbox)
-    keys.push('archive:')
-    walk('archive', trees.archive)
     return keys
   }, [trees])
 
@@ -309,6 +321,22 @@ export function Sidebar(): JSX.Element {
         }
       }
     ]
+    if (folder === 'quick' && isTop) {
+      items.push({
+        label: 'Open as Tab',
+        onSelect: async () => {
+          await openQuickNotesView()
+        }
+      })
+    }
+    if (folder === 'archive' && isTop) {
+      items.push({
+        label: 'Open as Tab',
+        onSelect: async () => {
+          await openArchiveView()
+        }
+      })
+    }
     // Quick Notes is a flat folder — no nested subfolders allowed.
     if (folder !== 'quick') {
       items.push({
@@ -431,6 +459,8 @@ export function Sidebar(): JSX.Element {
     notes,
     vault,
     createAndOpen,
+    openArchiveView,
+    openQuickNotesView,
     createFolderAction,
     renameFolderAction,
     deleteFolderAction,
@@ -674,10 +704,11 @@ export function Sidebar(): JSX.Element {
   // opens a note, the note row owns the selection visual and the
   // parent folders drop back to a neutral state.
   const isFolderActive = (folder: NoteFolder, subpath: string): boolean =>
-    !selectedPath &&
-    view.kind === 'folder' &&
-    view.folder === folder &&
-    view.subpath === subpath
+    (folder === 'quick' && subpath === '' && quickNotesViewActive) ||
+    (!selectedPath &&
+      view.kind === 'folder' &&
+      view.folder === folder &&
+      view.subpath === subpath)
 
   const openFolderMenu = (
     e: React.MouseEvent,
@@ -713,9 +744,30 @@ export function Sidebar(): JSX.Element {
         return document.querySelector('[data-sidebar-type="trash"]') as HTMLElement | null
       }
 
-      if (selectedPath && unifiedSidebar) {
+      if (archiveViewActive) {
+        return document.querySelector('[data-sidebar-type="archive"]') as HTMLElement | null
+      }
+
+      if (quickNotesViewActive) {
+        return document.querySelector(
+          '[data-sidebar-type="folder"][data-sidebar-folder="quick"][data-sidebar-subpath=""]'
+        ) as HTMLElement | null
+      }
+
+      if (selectedPath) {
+        if (isArchiveTabPath(selectedPath) || selectedPath.startsWith('archive/')) {
+          return document.querySelector('[data-sidebar-type="archive"]') as HTMLElement | null
+        }
         if (isTrashTabPath(selectedPath) || selectedPath.startsWith('trash/')) {
           return document.querySelector('[data-sidebar-type="trash"]') as HTMLElement | null
+        }
+      }
+
+      if (selectedPath && unifiedSidebar) {
+        if (isQuickNotesTabPath(selectedPath)) {
+          return document.querySelector(
+            '[data-sidebar-type="folder"][data-sidebar-folder="quick"][data-sidebar-subpath=""]'
+          ) as HTMLElement | null
         }
         const noteEl = document.querySelector(
           `[data-sidebar-path="${escapeForAttr(selectedPath)}"]`
@@ -735,6 +787,9 @@ export function Sidebar(): JSX.Element {
       }
 
       if (view.kind === 'folder') {
+        if (view.folder === 'archive') {
+          return document.querySelector('[data-sidebar-type="archive"]') as HTMLElement | null
+        }
         if (view.folder === 'trash') {
           return document.querySelector('[data-sidebar-type="trash"]') as HTMLElement | null
         }
@@ -757,7 +812,17 @@ export function Sidebar(): JSX.Element {
     requestAnimationFrame(() => {
       target.scrollIntoView({ block: 'nearest' })
     })
-  }, [isSidebarFocused, selectedPath, unifiedSidebar, view, tagsViewActive, selectedTags, trashViewActive])
+  }, [
+    archiveViewActive,
+    isSidebarFocused,
+    quickNotesViewActive,
+    selectedPath,
+    unifiedSidebar,
+    view,
+    tagsViewActive,
+    selectedTags,
+    trashViewActive
+  ])
 
   return (
     <aside
@@ -872,7 +937,12 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Main scrollable tree area */}
-      <div className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3">
+      <div
+        className="mt-3 flex min-h-0 flex-1 flex-col overflow-y-auto px-3"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setFocusedPanel('editor')
+        }}
+      >
         <TaskSidebarRow
           active={tasksViewActive}
           onClick={() => void openTasksView()}
@@ -946,29 +1016,20 @@ export function Sidebar(): JSX.Element {
           groupByKind={groupByKind}
         />
 
-        <FolderTreeRoot
-          label="Archive"
-          icon={<ArchiveIcon />}
-          folder="archive"
-          tree={trees.archive}
-          isFolderActive={isFolderActive}
-          collapsed={collapsed}
-          toggleCollapse={toggleCollapse}
-          setView={setView}
-          onContextMenu={openFolderMenu}
-          showNotes={unifiedSidebar}
-          selectedPath={selectedPath}
-          onSelectNote={(p) => void selectNote(p)}
-          onNoteContextMenu={(e, n) => {
-            e.preventDefault()
-            setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path })
+        <ArchiveSidebarRow
+          count={countNotesInTree(trees.archive)}
+          active={
+            archiveViewActive ||
+            (view.kind === 'folder' && view.folder === 'archive') ||
+            !!selectedPath?.startsWith('archive/')
+          }
+          onClick={() => {
+            void openArchiveView()
           }}
-          sortComparator={treeSortComparator}
-          onDropOnFolder={handleDropOnFolder}
-          idxCounter={idxCounter.current}
-          vimCursor={vimCursor}
+          onContextMenu={(e) => openFolderMenu(e, 'archive', '')}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
           sidebarFocused={isSidebarFocused}
-          groupByKind={groupByKind}
         />
 
         <TrashSidebarRow
@@ -1872,6 +1933,81 @@ function TaskSidebarRow({
   )
 }
 
+function ArchiveSidebarRow({
+  count,
+  active,
+  onClick,
+  onContextMenu,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false
+}: {
+  count: number
+  active: boolean
+  onClick: () => void
+  onContextMenu?: (e: React.MouseEvent) => void
+  sidebarIdx?: number
+  vimHighlight?: boolean
+  sidebarFocused?: boolean
+}): JSX.Element {
+  const strongActive = active && (!sidebarFocused || !!vimHighlight)
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+      onContextMenu={onContextMenu}
+      className={[
+        'group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
+        active
+          ? vimHighlight
+            ? 'vim-cursor-on-active bg-accent text-white'
+            : sidebarFocused
+              ? 'text-accent'
+              : 'bg-accent text-white'
+          : vimHighlight
+            ? 'vim-cursor'
+            : 'text-ink-800 hover:bg-paper-200/70'
+      ].join(' ')}
+      style={{ paddingLeft: 4 }}
+      {...(sidebarIdx != null
+        ? {
+            'data-sidebar-idx': sidebarIdx,
+            'data-sidebar-type': 'archive'
+          }
+        : {
+            'data-sidebar-type': 'archive'
+          })}
+    >
+      <span className="h-5 w-5 shrink-0" />
+      <span className={strongActive ? 'text-white' : 'text-ink-500 group-hover:text-ink-800'}>
+        <ArchiveIcon />
+      </span>
+      <span className="flex-1 truncate">Archive</span>
+      {sidebarFocused && vimHighlight && (
+        <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
+      )}
+      {count > 0 && (
+        <span
+          className={[
+            'shrink-0 pr-2 text-xs',
+            strongActive ? 'text-white/80' : 'text-ink-400'
+          ].join(' ')}
+        >
+          {count}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function TrashSidebarRow({
   count,
   active,
@@ -1904,7 +2040,7 @@ function TrashSidebarRow({
       }}
       onContextMenu={onContextMenu}
       className={[
-        'group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
+        'group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none',
         active
           ? vimHighlight
             ? 'vim-cursor-on-active bg-accent text-white'

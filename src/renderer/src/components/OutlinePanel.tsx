@@ -34,7 +34,7 @@ export function OutlinePanel({ note, onJump }: Props): JSX.Element {
   return (
     <section
       aria-label="Outline"
-      className="hidden w-[280px] shrink-0 border-l border-paper-300/70 bg-paper-50/18 xl:flex xl:flex-col"
+      className="flex w-[clamp(208px,26vw,280px)] shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
     >
       <div className="border-b border-paper-300/60 px-4 py-4">
         <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">

@@ -1119,12 +1119,16 @@ textarea,
  */
 .cm-editor .cm-fat-cursor,
 .cm-editor.cm-focused .cm-fat-cursor {
+  --z-fat-cursor-height: calc(1em * 1.25);
   background: rgb(var(--z-accent) / 0.55) !important;
   outline: none !important;
   border: none !important;
   min-width: 0.55em;
+  height: var(--z-fat-cursor-height) !important;
+  max-height: var(--z-fat-cursor-height) !important;
   color: rgb(var(--z-fg)) !important;
   mix-blend-mode: multiply;
+  border-radius: 2px;
 }
 :root[data-theme^='dark'] .cm-editor .cm-fat-cursor,
 :root[data-theme^='dark'] .cm-editor.cm-focused .cm-fat-cursor {
@@ -2167,30 +2171,59 @@ textarea,
  * or when the heading is folded (so the user can always unfold). */
 .cm-editor .cm-heading-line {
   position: relative;
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 1.25);
+  --z-heading-font-size: var(--z-editor-font-size, 16px);
+  --z-heading-line-height: 1.25;
+  --z-heading-fold-first-line: calc(var(--z-heading-font-size) * var(--z-heading-line-height));
+  --z-heading-fold-arrow-size: clamp(16px, calc(var(--z-heading-fold-first-line) * 0.6), 28px);
+  --z-heading-fold-arrow-glyph-size: calc(var(--z-heading-fold-arrow-size) * 0.72);
+  --z-heading-fold-arrow-gap: clamp(6px, calc(var(--z-heading-fold-arrow-size) * 0.35), 10px);
 }
 .cm-editor .cm-heading-line-h1 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 2.5);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 2);
+  font-size: calc(var(--z-editor-font-size, 16px) * 2);
+  line-height: var(--z-heading-line-height);
 }
 .cm-editor .cm-heading-line-h2 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 2);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.6);
+  font-size: calc(var(--z-editor-font-size, 16px) * 1.6);
+  line-height: var(--z-heading-line-height);
 }
 .cm-editor .cm-heading-line-h3 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 1.625);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.3);
+  font-size: calc(var(--z-editor-font-size, 16px) * 1.3);
+  line-height: var(--z-heading-line-height);
 }
 .cm-editor .cm-heading-line-h4 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 1.4375);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.15);
+  font-size: calc(var(--z-editor-font-size, 16px) * 1.15);
+  line-height: var(--z-heading-line-height);
 }
 .cm-editor .cm-heading-line-h5 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 1.25);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1);
+  font-size: calc(var(--z-editor-font-size, 16px) * 1);
+  line-height: var(--z-heading-line-height);
 }
 .cm-editor .cm-heading-line-h6 {
-  --z-heading-fold-first-line: calc(var(--z-editor-font-size, 16px) * 1.15);
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 0.92);
+  font-size: calc(var(--z-editor-font-size, 16px) * 0.92);
+  line-height: var(--z-heading-line-height);
+}
+.cm-editor .cm-heading-line .tok-processingInstruction,
+.cm-editor .cm-heading-line .tok-heading,
+.cm-editor .cm-heading-line .tok-heading1,
+.cm-editor .cm-heading-line .tok-heading2,
+.cm-editor .cm-heading-line .tok-heading3,
+.cm-editor .cm-heading-line .tok-heading4,
+.cm-editor .cm-heading-line .tok-heading5,
+.cm-editor .cm-heading-line .tok-heading6 {
+  font-size: inherit;
+  line-height: inherit;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 .cm-heading-fold-arrow {
-  --z-heading-fold-arrow-size: 20px;
   position: absolute;
-  left: -24px;
+  left: calc(-1 * (var(--z-heading-fold-arrow-size) + var(--z-heading-fold-arrow-gap)));
   top: calc((var(--z-heading-fold-first-line) - var(--z-heading-fold-arrow-size)) / 2);
   transform: none;
   display: inline-flex;
@@ -2198,7 +2231,7 @@ textarea,
   justify-content: center;
   width: var(--z-heading-fold-arrow-size);
   height: var(--z-heading-fold-arrow-size);
-  font-size: 16px;
+  font-size: var(--z-heading-fold-arrow-glyph-size);
   line-height: 1;
   color: rgb(var(--z-ink-400));
   opacity: 0;

@@ -199,6 +199,15 @@ export function PinnedReferencePane(): JSX.Element | null {
                 : 'slash-cmd-option'
           }),
           keymap.of([
+            {
+              key: 'Mod-f',
+              run: () => {
+                const state = useStore.getState()
+                if (state.vimMode) return false
+                state.setSearchOpen(true)
+                return true
+              }
+            },
             indentWithTab,
             ...defaultKeymap,
             ...historyKeymap,

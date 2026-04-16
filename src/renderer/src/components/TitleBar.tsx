@@ -3,7 +3,9 @@ import { useStore } from '../store'
 import { isTasksTabPath } from '@shared/tasks'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
+import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isQuickNotesTabPath } from '@shared/quick-notes'
 
 export function TitleBar(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -17,12 +19,16 @@ export function TitleBar(): JSX.Element {
 
   const title = activeNote
     ? activeNote.title
+    : isQuickNotesTabPath(selectedPath)
+      ? 'Quick Notes'
     : isTasksTabPath(selectedPath)
       ? 'Tasks'
       : isTagsTabPath(selectedPath)
         ? 'Tags'
         : isHelpTabPath(selectedPath)
           ? 'Help'
+          : isArchiveTabPath(selectedPath)
+            ? 'Archive'
           : isTrashTabPath(selectedPath)
             ? 'Trash'
           : vault

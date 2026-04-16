@@ -20,7 +20,9 @@ import {
 import { isHelpTabPath } from '@shared/help'
 import { isTagsTabPath } from '@shared/tags'
 import { isTasksTabPath } from '@shared/tasks'
+import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isQuickNotesTabPath } from '@shared/quick-notes'
 
 interface BufferEntry {
   path: string
@@ -84,6 +86,19 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
       })
       return
     }
+    if (isQuickNotesTabPath(path)) {
+      entries.push({
+        path,
+        title: 'Quick Notes',
+        subtitle: 'Quick capture notes list',
+        keywords: 'quick notes capture scratch inbox virtual',
+        badge,
+        current: isCurrent,
+        dirty: false,
+        virtual: true
+      })
+      return
+    }
     if (isTagsTabPath(path)) {
       entries.push({
         path,
@@ -103,6 +118,19 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
         title: 'Help',
         subtitle: 'Built-in manual and shortcuts',
         keywords: 'help manual docs shortcuts vim virtual',
+        badge,
+        current: isCurrent,
+        dirty: false,
+        virtual: true
+      })
+      return
+    }
+    if (isArchiveTabPath(path)) {
+      entries.push({
+        path,
+        title: 'Archive',
+        subtitle: 'Archived notes list',
+        keywords: 'archive archived storage cold notes list virtual',
         badge,
         current: isCurrent,
         dirty: false,

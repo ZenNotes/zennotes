@@ -55,11 +55,15 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
 import { TagView } from './TagView'
 import { HelpView } from './HelpView'
+import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
+import { QuickNotesView } from './QuickNotesView'
 import { isTasksTabPath } from '@shared/tasks'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
+import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { hasZenItem, readDragPayload, setDragPayload, type DragPayload } from '../lib/dnd'
 import {
   getImageBlockDropPlacement,
@@ -78,7 +82,8 @@ import {
   PanelRightIcon,
   PinIcon,
   TagIcon,
-  TrashIcon
+  TrashIcon,
+  ZapIcon
 } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import {
@@ -420,6 +425,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 : 'slash-cmd-option'
           }),
           keymap.of([
+            {
+              key: 'Mod-f',
+              run: () => {
+                const state = useStore.getState()
+                if (state.vimMode) return false
+                state.setSearchOpen(true)
+                return true
+              }
+            },
             indentWithTab,
             ...defaultKeymap,
             ...historyKeymap,
@@ -852,9 +866,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             path,
             title: 'Tasks',
             pinned: pinnedSet.has(path),
+            isQuick: false,
             isTasks: true,
             isTag: false,
             isHelp: false,
+            isArchive: false,
+            isTrash: false
+          }
+        }
+        if (isQuickNotesTabPath(path)) {
+          return {
+            path,
+            title: 'Quick Notes',
+            pinned: pinnedSet.has(path),
+            isQuick: true,
+            isTasks: false,
+            isTag: false,
+            isHelp: false,
+            isArchive: false,
             isTrash: false
           }
         }
@@ -863,9 +892,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             path,
             title: 'Tags',
             pinned: pinnedSet.has(path),
+            isQuick: false,
             isTasks: false,
             isTag: true,
             isHelp: false,
+            isArchive: false,
             isTrash: false
           }
         }
@@ -874,9 +905,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             path,
             title: 'Help',
             pinned: pinnedSet.has(path),
+            isQuick: false,
             isTasks: false,
             isTag: false,
             isHelp: true,
+            isArchive: false,
+            isTrash: false
+          }
+        }
+        if (isArchiveTabPath(path)) {
+          return {
+            path,
+            title: 'Archive',
+            pinned: pinnedSet.has(path),
+            isQuick: false,
+            isTasks: false,
+            isTag: false,
+            isHelp: false,
+            isArchive: true,
             isTrash: false
           }
         }
@@ -885,9 +931,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             path,
             title: 'Trash',
             pinned: pinnedSet.has(path),
+            isQuick: false,
             isTasks: false,
             isTag: false,
             isHelp: false,
+            isArchive: false,
             isTrash: true
           }
         }
@@ -897,9 +945,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           path,
           title,
           pinned: pinnedSet.has(path),
+          isQuick: false,
           isTasks: false,
           isTag: false,
           isHelp: false,
+          isArchive: false,
           isTrash: false
         }
       })
@@ -962,9 +1012,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       ]
     }
 
-    // Tags, Help, and Trash tabs share the same virtual-tab menu shape:
+    // Quick Notes, Tags, Help, Archive, and Trash tabs share the same virtual-tab menu shape:
     // close, close relatives, or split them into another pane.
-    if (isTagsTabPath(path) || isHelpTabPath(path) || isTrashTabPath(path)) {
+    if (
+      isQuickNotesTabPath(path) ||
+      isTagsTabPath(path) ||
+      isHelpTabPath(path) ||
+      isArchiveTabPath(path) ||
+      isTrashTabPath(path)
+    ) {
       return [
         { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
         {
@@ -1054,13 +1110,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       path: string
       title: string
       pinned: boolean
+      isQuick: boolean
       isTasks: boolean
       isTag: boolean
       isHelp: boolean
+      isArchive: boolean
       isTrash: boolean
     }) => {
       const active = tab.path === activeTab
-      const isVirtual = tab.isTasks || tab.isTag || tab.isHelp || tab.isTrash
+      const isVirtual =
+        tab.isQuick || tab.isTasks || tab.isTag || tab.isHelp || tab.isArchive || tab.isTrash
       return (
         <div
           key={tab.path}
@@ -1159,11 +1218,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               {tab.isTasks && (
                 <CheckSquareIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
+              {tab.isQuick && (
+                <ZapIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
               {tab.isTag && (
                 <TagIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isHelp && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isArchive && (
+                <ArchiveIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isTrash && (
                 <TrashIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -1361,10 +1426,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           )}
           {isTasksTabPath(activeTab) ? (
             <TasksView />
+          ) : isQuickNotesTabPath(activeTab) ? (
+            <QuickNotesView />
           ) : isTagsTabPath(activeTab) ? (
             <TagView />
           ) : isHelpTabPath(activeTab) ? (
             <HelpView />
+          ) : isArchiveTabPath(activeTab) ? (
+            <ArchiveView />
           ) : isTrashTabPath(activeTab) ? (
             <TrashView />
           ) : content ? (
