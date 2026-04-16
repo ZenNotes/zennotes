@@ -11,6 +11,7 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  VaultDemoTourResult,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
   VaultTextSearchBackendResolved,
@@ -18,6 +19,8 @@ import type {
   VaultTextSearchMatch,
   VaultInfo
 } from '@shared/ipc'
+import { DEMO_TOUR_DIR } from '@shared/demo-tour'
+import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
@@ -1091,6 +1094,61 @@ export function folderAbsolutePath(
 
 export function assetsAbsolutePath(root: string): string {
   return path.join(root, PRIMARY_ATTACHMENTS_DIR)
+}
+
+async function removeFileIfExists(abs: string): Promise<void> {
+  try {
+    await fs.rm(abs, { force: true })
+  } catch {
+    /* ignore */
+  }
+}
+
+async function removeDirIfEmpty(abs: string): Promise<void> {
+  try {
+    const entries = await fs.readdir(abs)
+    if (entries.length === 0) await fs.rmdir(abs)
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function generateDemoTour(root: string): Promise<VaultDemoTourResult> {
+  await ensureVaultLayout(root)
+
+  for (const note of DEMO_TOUR_NOTES) {
+    const abs = resolveSafe(root, note.path)
+    await fs.mkdir(path.dirname(abs), { recursive: true })
+    await fs.writeFile(abs, note.body, 'utf8')
+  }
+
+  for (const asset of DEMO_TOUR_ASSETS) {
+    const abs = resolveSafe(root, asset.path)
+    await fs.mkdir(path.dirname(abs), { recursive: true })
+    await fs.writeFile(abs, asset.body, 'utf8')
+  }
+
+  return {
+    notePaths: DEMO_TOUR_NOTES.map((note) => note.path),
+    assetPaths: DEMO_TOUR_ASSETS.map((asset) => asset.path)
+  }
+}
+
+export async function removeDemoTour(root: string): Promise<VaultDemoTourResult> {
+  for (const note of DEMO_TOUR_NOTES) {
+    await removeFileIfExists(resolveSafe(root, note.path))
+  }
+
+  for (const asset of DEMO_TOUR_ASSETS) {
+    await removeFileIfExists(resolveSafe(root, asset.path))
+  }
+
+  await removeDirIfEmpty(resolveSafe(root, DEMO_TOUR_DIR))
+
+  return {
+    notePaths: DEMO_TOUR_NOTES.map((note) => note.path),
+    assetPaths: DEMO_TOUR_ASSETS.map((asset) => asset.path)
+  }
 }
 
 export async function hasAssetsDir(root: string): Promise<boolean> {

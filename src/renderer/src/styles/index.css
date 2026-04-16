@@ -1354,6 +1354,82 @@ textarea,
 .cm-editor .tok-label {
   color: rgb(var(--z-purple));
 }
+.cm-editor .tok-variable {
+  /* Plain identifier — readable default, not loud.  */
+  color: rgb(var(--z-fg));
+}
+.cm-editor .tok-meta-code {
+  /* Decorators (Python @dataclass), annotations (Java/Rust #[derive]),
+     preprocessor instructions. Distinctive but not shouty. */
+  color: rgb(var(--z-accent-soft));
+  font-style: italic;
+}
+.cm-editor .tok-invalid {
+  color: rgb(var(--z-red));
+  text-decoration: underline wavy rgb(var(--z-red) / 0.6);
+}
+
+/* --- Math diagrams (TikZ / JSXGraph / function-plot) ------------------ */
+.zen-tikz,
+.zen-jsxgraph,
+.zen-function-plot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 1.1rem 0;
+  padding: 0.9rem 0.6rem;
+  border-radius: 10px;
+  background: rgb(var(--z-bg-softer));
+  overflow-x: auto;
+  color: rgb(var(--z-fg-1));
+}
+.zen-tikz svg {
+  max-width: 100%;
+  height: auto;
+}
+.zen-jsxgraph-host {
+  background: rgb(var(--z-bg));
+  border-radius: 6px;
+  color: rgb(var(--z-fg-1));
+}
+.zen-function-plot-host {
+  background: rgb(var(--z-bg));
+  border-radius: 6px;
+  color: rgb(var(--z-fg-1));
+}
+/* function-plot writes its axes via D3 with inline styles. Override them
+   so text, axis paths, and ticks match the current theme's foreground. */
+.zen-function-plot-host svg .axis path,
+.zen-function-plot-host svg .axis line {
+  stroke: rgb(var(--z-grey-1));
+  stroke-opacity: 0.75;
+}
+.zen-function-plot-host svg .axis text,
+.zen-function-plot-host svg text {
+  fill: rgb(var(--z-fg-1)) !important;
+}
+.zen-function-plot-host svg .grid line {
+  stroke: rgb(var(--z-grey-dim));
+  stroke-opacity: 0.2;
+}
+.zen-function-plot-host svg .top-right-legend {
+  fill: rgb(var(--z-fg-1)) !important;
+}
+.zen-diagram-error {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgb(var(--z-red));
+  background: rgb(var(--z-red) / 0.08);
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin: 0;
+}
+.zen-tikz-loading {
+  font-size: 11px;
+  color: rgb(var(--z-fg-2));
+  font-style: italic;
+}
 
 /* --- Rendered markdown (preview) --------------------------------------- */
 

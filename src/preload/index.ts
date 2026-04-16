@@ -3,6 +3,7 @@ import path from 'node:path'
 import { IPC } from '@shared/ipc'
 import type {
   AssetMeta,
+  VaultDemoTourResult,
   FolderEntry,
   ImportedAsset,
   NoteContent,
@@ -29,6 +30,10 @@ const api = {
     ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
   listAssets: (): Promise<AssetMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_ASSETS),
   hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),
+  generateDemoTour: (): Promise<VaultDemoTourResult> =>
+    ipcRenderer.invoke(IPC.VAULT_GENERATE_DEMO_TOUR),
+  removeDemoTour: (): Promise<VaultDemoTourResult> =>
+    ipcRenderer.invoke(IPC.VAULT_REMOVE_DEMO_TOUR),
   getVaultTextSearchCapabilities: (
     paths: VaultTextSearchToolPaths = {}
   ): Promise<VaultTextSearchCapabilities> =>
@@ -155,6 +160,8 @@ const api = {
   windowClose: (): void => ipcRenderer.send(IPC.WINDOW_CLOSE),
   openNoteWindow: (relPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath),
+  renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
+    ipcRenderer.invoke(IPC.TIKZ_RENDER, source),
   // Native Electron clipboard — more reliable than `navigator.clipboard`
   // which can reject for focus / permission reasons in Electron contexts,
   // especially right after a React state change that unmounts a menu.

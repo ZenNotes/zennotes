@@ -24,6 +24,7 @@ import {
   emptyTrash,
   ensureVaultLayout,
   folderAbsolutePath,
+  generateDemoTour,
   hasAssetsDir,
   importFiles,
   listAssets,
@@ -35,6 +36,7 @@ import {
   readNote,
   renameFolder,
   renameNote,
+  removeDemoTour,
   restoreFromTrash,
   searchVaultTextCapabilities,
   searchVaultText,
@@ -46,6 +48,7 @@ import {
 } from './vault'
 import { scanAllTasks, scanTasksForPath } from './tasks'
 import { VaultWatcher } from './watcher'
+import { renderTikz } from './tikz'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const LOCAL_ASSET_SCHEME = 'zen-asset'
@@ -461,6 +464,16 @@ function registerIpc(): void {
     return await hasAssetsDir(v.root)
   })
 
+  ipcMain.handle(IPC.VAULT_GENERATE_DEMO_TOUR, async () => {
+    const v = requireVault()
+    return await generateDemoTour(v.root)
+  })
+
+  ipcMain.handle(IPC.VAULT_REMOVE_DEMO_TOUR, async () => {
+    const v = requireVault()
+    return await removeDemoTour(v.root)
+  })
+
   ipcMain.handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {
     return await searchVaultTextCapabilities(paths)
   })
@@ -633,6 +646,12 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.WINDOW_OPEN_NOTE, async (_e, relPath: string) => {
     openFloatingNoteWindow(relPath)
+  })
+
+  ipcMain.handle(IPC.TIKZ_RENDER, async (_e, source: string) => {
+    const result = await renderTikz(source)
+    if (result.ok) return { ok: true, svg: result.svg }
+    return { ok: false, error: result.error }
   })
 }
 

@@ -202,6 +202,58 @@ function rehypeMermaid() {
   }
 }
 
+/**
+ * Rehype plugin: replace fenced blocks tagged `tikz`, `jsxgraph`, and
+ * `function-plot` with placeholder divs. Each placeholder keeps the raw
+ * source in a `data-*-source` attribute so the runtime side (Preview.tsx)
+ * can render and re-render on demand — the same pattern as
+ * `rehypeMermaid`.
+ */
+function rehypeMathDiagrams() {
+  const map: Record<string, { className: string; sourceAttr: string }> = {
+    'language-tikz': { className: 'zen-tikz', sourceAttr: 'data-tikz-source' },
+    'language-jsxgraph': {
+      className: 'zen-jsxgraph',
+      sourceAttr: 'data-jsxgraph-source'
+    },
+    'language-function-plot': {
+      className: 'zen-function-plot',
+      sourceAttr: 'data-function-plot-source'
+    },
+    'language-functionplot': {
+      className: 'zen-function-plot',
+      sourceAttr: 'data-function-plot-source'
+    }
+  }
+  return (tree: HastRoot): void => {
+    visit(tree, 'element', (node, index, parent) => {
+      if (node.tagName !== 'pre' || !parent || index === undefined) return
+      const first = node.children?.[0] as HastElement | undefined
+      if (!first || first.type !== 'element' || first.tagName !== 'code') return
+      const classNames = (first.properties?.className as string[] | undefined) ?? []
+      const matchKey = classNames.find((c) => map[c])
+      if (!matchKey) return
+      const entry = map[matchKey]
+      const textNode = first.children?.[0] as
+        | { type: string; value: string }
+        | undefined
+      const source = textNode && textNode.type === 'text' ? textNode.value : ''
+      const replacement: HastElement = {
+        type: 'element',
+        tagName: 'div',
+        properties: {
+          className: [entry.className],
+          [entry.sourceAttr]: source
+        },
+        children: [{ type: 'text', value: source }]
+      }
+      ;(parent as unknown as AnyParent).children[index] =
+        replacement as unknown as AnyNode
+      return [SKIP, index]
+    })
+  }
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkFrontmatter, ['yaml', 'toml'])
@@ -214,6 +266,7 @@ const processor = unified()
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeMermaid)
+  .use(rehypeMathDiagrams)
   .use(rehypeHighlight, { detect: true, ignoreMissing: true })
   .use(rehypeKatex)
   .use(rehypeStringify)

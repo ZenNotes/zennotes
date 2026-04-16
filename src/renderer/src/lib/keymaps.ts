@@ -754,7 +754,7 @@ export function normalizeSequenceToken(input: string): string | null {
   if (parts.length === 0) return null
   const rawKey = parts.pop()
   if (!rawKey) return null
-  const base = normalizeSequenceBaseToken(rawKey)
+  let base = normalizeSequenceBaseToken(rawKey)
   if (!base) return null
   const modifiers = normalizeModifiers(
     parts
@@ -762,6 +762,18 @@ export function normalizeSequenceToken(input: string): string | null {
       .filter((part): part is NonNullable<typeof part> => !!part)
       .filter((part) => part !== 'Mod')
   )
+  // When a non-Shift modifier (Ctrl/Alt/Meta) is combined with a single
+  // ASCII letter, canonicalize to uppercase. Event-produced tokens come
+  // out lowercase (e.g. Ctrl+w → `'w'` since Shift isn't held), but the
+  // convention in default bindings and user-written keymaps is uppercase
+  // (`'Ctrl+W'`). Matching them requires a consistent canonical form.
+  if (
+    base.length === 1 &&
+    /[a-zA-Z]/.test(base) &&
+    modifiers.some((m) => m === 'Ctrl' || m === 'Alt' || m === 'Meta')
+  ) {
+    base = base.toUpperCase()
+  }
   return modifiers.length > 0 ? `${modifiers.join('+')}+${base}` : base
 }
 

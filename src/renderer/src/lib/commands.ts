@@ -15,6 +15,7 @@ import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
+import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 export interface Command {
   /** Stable identifier — used as React key and for analytics. */
@@ -955,6 +956,48 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
 
   /* ---------------- App / Vault ---------------- */
   cmds.push(
+    {
+      id: 'demo.generate',
+      title: getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH)
+        ? 'Regenerate Demo Tour Notes'
+        : 'Generate Demo Tour Notes',
+      category: 'Demo',
+      keywords: 'demo onboarding starter tour sample example seed welcome',
+      when: () => !!getState().vault,
+      run: async () => {
+        const installed = getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH)
+        const ok = window.confirm(
+          installed
+            ? 'Regenerate the built-in demo tour in this vault? This will overwrite the seeded demo notes under inbox/demo and reset the demo attachment.'
+            : 'Generate the built-in demo tour in this vault? This will add starter notes under inbox/demo and a demo attachment file.'
+        )
+        if (!ok) return
+        const result = await window.zen.generateDemoTour()
+        await getState().refreshNotes()
+        for (const path of result.notePaths) {
+          await getState().applyChange({ kind: 'change', path, folder: 'inbox' })
+        }
+        await getState().selectNote(DEMO_TOUR_START_PATH)
+      }
+    },
+    {
+      id: 'demo.remove',
+      title: 'Remove Demo Tour Notes',
+      category: 'Demo',
+      keywords: 'demo onboarding starter tour sample example delete clear uninstall',
+      when: () => getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH),
+      run: async () => {
+        const ok = window.confirm(
+          'Remove the built-in demo tour from this vault? This deletes the seeded demo notes under inbox/demo and the demo attachment file.'
+        )
+        if (!ok) return
+        const result = await window.zen.removeDemoTour()
+        await getState().refreshNotes()
+        for (const path of result.notePaths) {
+          await getState().applyChange({ kind: 'unlink', path, folder: 'inbox' })
+        }
+      }
+    },
     {
       id: 'app.help',
       title: 'Open Help',

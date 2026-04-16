@@ -28,7 +28,7 @@ import {
 import { vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { languages } from '@codemirror/language-data'
+import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
@@ -182,7 +182,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           drawSelection(),
           highlightActiveLine(),
           EditorView.lineWrapping,
-          markdown({ base: markdownLanguage, codeLanguages: languages, addKeymap: true }),
+          markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
           headingFolding(),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),

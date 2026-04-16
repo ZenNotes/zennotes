@@ -10,6 +10,7 @@ import {
   resolveAssetVaultRelativePath
 } from '../lib/local-assets'
 import { enhancePreviewHeadingFolds } from '../lib/preview-heading-fold'
+import { renderDiagrams } from '../lib/diagram-renderers'
 import { NoteHoverPreview } from './NoteHoverPreview'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 
@@ -464,6 +465,18 @@ export function Preview({
     return () => {
       cancelled = true
     }
+  }, [html, effectiveMode])
+
+  // TikZ / JSXGraph / function-plot rendering. Mirrors the mermaid
+  // effect — placeholder divs get discovered after each render and
+  // turned into SVG / interactive canvases. Theme changes trigger a
+  // re-render of any theme-sensitive renderers (currently JSXGraph and
+  // function-plot; TikZ output is static SVG we post-tint to
+  // `currentColor`).
+  useEffect(() => {
+    const root = ref.current
+    if (!root) return
+    void renderDiagrams(root, { themeKey: effectiveMode })
   }, [html, effectiveMode])
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {

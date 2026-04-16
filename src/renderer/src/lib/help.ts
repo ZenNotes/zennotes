@@ -59,6 +59,11 @@ export const HELP_QUICK_START: HelpCard[] = [
       'Open Help from the sidebar footer or with `:help` to browse shortcuts, commands, panel behavior, Vim flows, and settings in one place.'
   },
   {
+    title: 'Seed a starter vault tour',
+    body:
+      'Use the command palette entry `Generate Demo Tour Notes` to add a guided set of demo notes under `inbox/demo`, plus a local attachment, to the current vault. If you want to clear them later, run `Remove Demo Tour Notes`.'
+  },
+  {
     title: 'Pick up where you left off',
     body:
       'ZenNotes restores the last open tabs, splits, built-in views, and sidebar layout for each vault, and the app also remembers the main window size, position, and maximized state between launches.'
@@ -125,6 +130,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: 'Attachments stay local',
     body:
       'Drop files into a note to insert local assets. ZenNotes tracks the attachments folder, can reveal it from the app, and treats PDFs specially in preview and reference workflows.'
+  },
+  {
+    title: 'Math, diagrams, and plots render from plain fences',
+    body:
+      'Inline `$…$` and display `$$…$$` math render via KaTeX. Beyond math, four fenced block languages turn into live diagrams in preview and split mode: `mermaid` for flow, sequence, state, gantt, and graph diagrams; `tikz` for LaTeX-native coordinate systems, commutative diagrams, and figure-quality plots (the TeX engine runs on-device so no network is required); `jsxgraph` for interactive geometry and function plots driven by a small JSON config; and `function-plot` for compact Cartesian function plotting. Each block is ordinary markdown on disk, so the source remains portable and diffable.'
   },
   {
     title: 'Footer actions expose utility views',
@@ -336,6 +346,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':help / :h',
     summary: 'Open this manual',
     detail: 'Bring up the built-in Help tab.'
+  },
+  {
+    command: ':demo_generate / :demo_remove',
+    summary: 'Seed or remove the demo tour',
+    detail: 'Install the built-in onboarding notes into the current vault under `inbox/demo`, or remove that seeded tour later without touching the rest of the vault.'
   },
   {
     command: ':cmd query / :commands',

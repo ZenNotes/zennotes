@@ -8,6 +8,8 @@ export const IPC = {
   VAULT_LIST_FOLDERS: 'vault:list-folders',
   VAULT_LIST_ASSETS: 'vault:list-assets',
   VAULT_HAS_ASSETS_DIR: 'vault:has-assets-dir',
+  VAULT_GENERATE_DEMO_TOUR: 'vault:generate-demo-tour',
+  VAULT_REMOVE_DEMO_TOUR: 'vault:remove-demo-tour',
   VAULT_TEXT_SEARCH_CAPABILITIES: 'vault:text-search-capabilities',
   VAULT_SEARCH_TEXT: 'vault:search-text',
   VAULT_READ_NOTE: 'vault:read-note',
@@ -38,8 +40,15 @@ export const IPC = {
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_CLOSE: 'window:close',
   WINDOW_OPEN_NOTE: 'window:open-note',
-  APP_PLATFORM: 'app:platform'
+  APP_PLATFORM: 'app:platform',
+  TIKZ_RENDER: 'tikz:render'
 } as const
+
+export interface TikzRenderResponse {
+  ok: boolean
+  svg?: string
+  error?: string
+}
 
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 
@@ -82,6 +91,11 @@ export interface VaultTextSearchToolPaths {
 export interface VaultTextSearchCapabilities {
   ripgrep: boolean
   fzf: boolean
+}
+
+export interface VaultDemoTourResult {
+  notePaths: string[]
+  assetPaths: string[]
 }
 
 export interface VaultTextSearchMatch {

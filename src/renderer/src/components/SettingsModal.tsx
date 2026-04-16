@@ -702,10 +702,7 @@ export function SettingsModal(): JSX.Element {
       description: 'App identity, version, and company information.',
       keywords: ['version', 'company', 'lumary', 'about', 'logo'],
       content: (
-        <Section
-          title="ZenNotes"
-          description="A compact summary of the app and the studio behind it."
-        >
+        <Section title="ZenNotes">
           <div className="px-5 py-5">
             <div className="min-w-0 text-sm leading-6 text-ink-600">
               <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
@@ -926,7 +923,7 @@ function KeymapSettings({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col rounded-[22px] border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
-        <div className="sticky top-0 z-10 border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
+        <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-sm font-medium text-ink-900">Shortcut editor</div>
@@ -940,7 +937,7 @@ function KeymapSettings({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Filter keymaps…"
-              className="w-48 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+              className="w-72 rounded-xl border border-paper-300/70 bg-paper-100/80 px-4 py-2.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
             />
             <button
               type="button"
