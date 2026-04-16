@@ -407,7 +407,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   {
     title: 'About',
     items: [
-      { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a quick description of the app inside Settings.' },
+      { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a short description of the app as a keyboard-first markdown workflow with Vim motions and plain local files.' },
       { label: 'Lumary Labs', detail: 'The About section links to Lumary Labs at lumarylabs.com so company details stay easy to find from inside the app.' }
     ]
   }

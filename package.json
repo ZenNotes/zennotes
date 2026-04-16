@@ -1,7 +1,7 @@
 {
   "name": "zennotes",
   "version": "0.1.0",
-  "description": "A minimal, file-based markdown notes app for focus and deep work",
+  "description": "A keyboard-first markdown notes app with Vim motions and plain local files",
   "main": "./out/main/index.js",
   "author": "Adi Bhanna",
   "license": "MIT",

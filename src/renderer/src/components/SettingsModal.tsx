@@ -4,7 +4,7 @@ import { useStore } from '../store'
 import type { LineNumberMode, WhichKeyHintMode } from '../store'
 import { THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
-import appLogo from '../../../../build/icon.png'
+import companyLogo from '../assets/lumary-labs-logo.svg'
 import appPackage from '../../../../package.json'
 
 export function SettingsModal(): JSX.Element {
@@ -449,39 +449,50 @@ export function SettingsModal(): JSX.Element {
 
             <Section title="About">
               <div className="px-6 py-4">
-                <div className="overflow-hidden rounded-[28px] border border-paper-300/70 bg-[radial-gradient(circle_at_top_left,_rgba(233,171,116,0.18),_transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.7),rgba(255,255,255,0.42))] p-5 shadow-[0_20px_50px_rgba(15,23,42,0.08)]">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[22px] border border-paper-300/80 bg-paper-50/95 shadow-[0_12px_28px_rgba(15,23,42,0.08)]">
-                      <img src={appLogo} alt="ZenNotes logo" className="h-11 w-11 object-contain" />
+                <div className="rounded-lg border border-paper-300/60 bg-paper-50/70 px-4 py-3">
+                  <div className="min-w-0 text-sm leading-6 text-ink-600">
+                    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
+                      <span className="font-medium text-ink-900">ZenNotes</span>
+                      <span className="text-xs text-ink-500">v{appPackage.version}</span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold tracking-[0.01em] text-ink-900">
-                          ZenNotes
-                        </h3>
-                        <span className="rounded-full border border-paper-300/80 bg-paper-50/85 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-                          v{appPackage.version}
-                        </span>
-                      </div>
-                      <p className="mt-2 max-w-[34rem] text-sm leading-6 text-ink-600">
-                        {appPackage.description}. Built for a quieter, keyboard-first
-                        markdown workflow with local files at the center.
-                      </p>
+                    <p className="mx-auto mt-1 max-w-[44rem] text-center">
+                      {appPackage.description}. Visit{' '}
+                      <a
+                        href="https://lumarylabs.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-ink-900 underline decoration-paper-400 underline-offset-2 hover:text-accent"
+                      >
+                        lumarylabs.com
+                      </a>{' '}
+                      for company and product details.
+                    </p>
+                    <div className="mt-3 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-3 text-center">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+                        Built by
+                      </span>
+                      <a
+                        href="https://lumarylabs.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex shrink-0 items-center justify-center px-2 py-1 transition-transform hover:-translate-y-px hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+                      >
+                        <span
+                          aria-label="Lumary Labs"
+                          className="block h-12 w-[10.5rem] bg-ink-900"
+                          style={{
+                            WebkitMaskImage: `url(${companyLogo})`,
+                            maskImage: `url(${companyLogo})`,
+                            WebkitMaskRepeat: 'no-repeat',
+                            maskRepeat: 'no-repeat',
+                            WebkitMaskPosition: 'center',
+                            maskPosition: 'center',
+                            WebkitMaskSize: 'contain',
+                            maskSize: 'contain'
+                          }}
+                        />
+                      </a>
                     </div>
-                  </div>
-
-                  <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                    <AboutCard
-                      eyebrow="Company"
-                      title="Lumary Labs"
-                      detail="The product studio behind ZenNotes."
-                    />
-                    <AboutCard
-                      eyebrow="Website"
-                      title="lumarylabs.com"
-                      detail="Visit the company site for updates, products, and studio info."
-                      href="https://lumarylabs.com"
-                    />
                   </div>
                 </div>
               </div>
@@ -499,41 +510,6 @@ export function SettingsModal(): JSX.Element {
         </div>
       </div>
     </div>
-  )
-}
-
-function AboutCard({
-  eyebrow,
-  title,
-  detail,
-  href
-}: {
-  eyebrow: string
-  title: string
-  detail: string
-  href?: string
-}): JSX.Element {
-  const body = (
-    <div className="rounded-[22px] border border-paper-300/75 bg-paper-50/82 px-4 py-3.5 transition-colors hover:bg-paper-50">
-      <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-        {eyebrow}
-      </div>
-      <div className="mt-2 text-sm font-semibold text-ink-900">{title}</div>
-      <p className="mt-1 text-sm leading-6 text-ink-500">{detail}</p>
-    </div>
-  )
-
-  if (!href) return body
-
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="block rounded-[22px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
-    >
-      {body}
-    </a>
   )
 }
 
