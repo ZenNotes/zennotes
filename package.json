@@ -1,22 +1,35 @@
 {
   "name": "zennotes",
   "productName": "ZenNotes",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "A keyboard-first markdown notes app with Vim motions and plain local files",
+  "private": true,
   "main": "./out/main/index.js",
   "author": "Adi Bhanna",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZenNotes/zennotes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ZenNotes/zennotes/issues"
+  },
+  "homepage": "https://github.com/ZenNotes/zennotes/releases/latest",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:prod": "npm run typecheck && npm run build",
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "pack": "electron-vite build && electron-builder --dir",
-    "dist:mac": "electron-vite build && electron-builder --mac",
-    "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "pack": "npm run build:prod && electron-builder --dir",
+    "dist:mac": "npm run build:prod && electron-builder --mac",
+    "dist:win": "npm run build:prod && electron-builder --win",
+    "dist:linux": "npm run build:prod && electron-builder --linux"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.3",
@@ -76,6 +89,11 @@
     "appId": "com.adibhanna.zennotes",
     "executableName": "ZenNotes",
     "productName": "ZenNotes",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
     "directories": {
       "buildResources": "build",
       "output": "dist"

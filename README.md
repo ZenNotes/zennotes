@@ -10,6 +10,8 @@ The goal is not "another markdown renderer." The goal is a local-first
 notes environment that still feels fast and intentional when you live in
 it all day.
 
+Download the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest).
+
 ## What ZenNotes is for
 
 - writing and organizing plain-file Markdown notes without a database
@@ -156,6 +158,22 @@ The app can:
 The MCP server exposes vault operations like reading notes, creating
 notes, moving notes, appending to notes, searching text, listing notes,
 listing assets, toggling tasks, and related filesystem-safe actions.
+
+## Download
+
+The fastest way to get the app is the latest GitHub release:
+
+- [Latest release](https://github.com/ZenNotes/zennotes/releases/latest)
+
+Release assets are built per platform in GitHub Actions and uploaded to
+the matching release automatically:
+
+- macOS: `.dmg` and `.zip`
+- Windows: installer `.exe` and `.zip`
+- Linux: `.AppImage` and `.deb`
+
+If the repository is private, GitHub access to the release assets follows
+the repository's normal permissions.
 
 ## Vault model
 
