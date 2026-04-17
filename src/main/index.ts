@@ -815,7 +815,7 @@ function installAppMenu(): void {
         {
           label: 'Check for Updates…',
           click: () => {
-            void checkForAppUpdates()
+            void runMenuUpdateCheck()
           }
         },
         { type: 'separator' },
@@ -876,6 +876,91 @@ function installAppMenu(): void {
     }
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+async function runMenuUpdateCheck(): Promise<void> {
+  const parent = BrowserWindow.getFocusedWindow() ?? mainWindow ?? undefined
+  const showDialog = async (
+    options: Electron.MessageBoxOptions
+  ): Promise<Electron.MessageBoxReturnValue> => {
+    return parent
+      ? await dialog.showMessageBox(parent, options)
+      : await dialog.showMessageBox(options)
+  }
+  const state = await checkForAppUpdates()
+
+  if (state.phase === 'available') {
+    const { response } = await showDialog({
+      type: 'info',
+      buttons: ['Download Update', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'ZenNotes Update Available',
+      message: `ZenNotes ${state.availableVersion ?? ''} is available.`,
+      detail: [
+        state.message,
+        state.releaseNotes ? `\n\nRelease notes:\n${state.releaseNotes}` : ''
+      ]
+        .join('')
+        .trim()
+    })
+    if (response === 0) {
+      void downloadAppUpdate()
+      await showDialog({
+        type: 'info',
+        buttons: ['OK'],
+        defaultId: 0,
+        title: 'Downloading Update',
+        message: `ZenNotes ${state.availableVersion ?? ''} is downloading in the background.`,
+        detail: 'Open Settings → About to track progress and install when the download finishes.'
+      })
+    }
+    return
+  }
+
+  if (state.phase === 'downloaded') {
+    const { response } = await showDialog({
+      type: 'info',
+      buttons: ['Install and Relaunch', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'ZenNotes Update Ready',
+      message: `ZenNotes ${state.availableVersion ?? ''} is ready to install.`,
+      detail: state.message
+    })
+    if (response === 0) {
+      installAppUpdate()
+    }
+    return
+  }
+
+  if (state.phase === 'downloading' || state.phase === 'checking') {
+    await showDialog({
+      type: 'info',
+      buttons: ['OK'],
+      defaultId: 0,
+      title: 'ZenNotes Updates',
+      message: state.phase === 'checking' ? 'Checking for updates…' : 'Downloading update…',
+      detail: state.message
+    })
+    return
+  }
+
+  await showDialog({
+    type: state.phase === 'error' ? 'warning' : 'info',
+    buttons: ['OK'],
+    defaultId: 0,
+    title: 'ZenNotes Updates',
+    message:
+      state.phase === 'not-available'
+        ? 'ZenNotes is up to date.'
+        : state.phase === 'unsupported'
+          ? 'Update checks are unavailable.'
+          : state.phase === 'error'
+            ? 'Could not check for updates.'
+            : 'ZenNotes Updates',
+    detail: state.message
+  })
 }
 
 app.whenReady().then(async () => {
