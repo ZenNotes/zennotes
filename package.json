@@ -48,7 +48,7 @@
     "@lezer/highlight": "^1.2.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@replit/codemirror-vim": "^6.3.0",
-    "chokidar": "^4.0.3",
+    "chokidar": "^5.0.0",
     "codemirror": "^6.0.1",
     "dompurify": "^3.3.4",
     "electron-updater": "^6.8.3",
