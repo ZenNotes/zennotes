@@ -5,7 +5,10 @@
   "description": "A keyboard-first markdown notes app with Vim motions and plain local files",
   "private": true,
   "main": "./out/main/index.js",
-  "author": "Adi Bhanna",
+  "author": {
+    "name": "Adi Bhanna",
+    "email": "adibhanna@gmail.com"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -124,6 +127,7 @@
         "AppImage",
         "deb"
       ],
+      "maintainer": "Adi Bhanna <adibhanna@gmail.com>",
       "category": "Office"
     }
   }
