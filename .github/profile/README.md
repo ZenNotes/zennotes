@@ -8,6 +8,8 @@
     ·
     <a href="https://github.com/ZenNotes/zennotes">Main Repository</a>
     ·
+    <a href="https://discord.gg/W4fWzapKS6">Join Discord</a>
+    ·
     <a href="https://github.com/ZenNotes/zennotes/issues">Report an Issue</a>
   </p>
 </div>
@@ -31,3 +33,4 @@
 
 - [Latest release downloads](https://github.com/ZenNotes/zennotes/releases/latest)
 - [Source code](https://github.com/ZenNotes/zennotes)
+- [Community Discord](https://discord.gg/W4fWzapKS6)

@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { isTasksTabPath } from '@shared/tasks'
 import { isTagsTabPath } from '@shared/tags'
@@ -11,11 +10,7 @@ export function TitleBar(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const activeNote = useStore((s) => s.activeNote)
   const selectedPath = useStore((s) => s.selectedPath)
-  const [isMac, setIsMac] = useState(true)
-
-  useEffect(() => {
-    window.zen.platform().then((p) => setIsMac(p === 'darwin'))
-  }, [])
+  const isMac = window.zen.platformSync() === 'darwin'
 
   const title = activeNote
     ? activeNote.title

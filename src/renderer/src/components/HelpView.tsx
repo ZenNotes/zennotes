@@ -168,6 +168,15 @@ export function HelpView(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const runtimePlatform = window.zen.platformSync()
+  const platformLabel =
+    runtimePlatform === 'darwin'
+      ? 'macOS'
+      : runtimePlatform === 'win32'
+        ? 'Windows'
+        : 'Linux'
+  const primaryModifierLabel =
+    runtimePlatform === 'darwin' ? 'Command (⌘)' : 'Ctrl'
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
@@ -324,6 +333,18 @@ export function HelpView(): JSX.Element {
                     core workflows, keyboard shortcuts, Vim bindings, ex commands, command palette
                     entries, and preferences.
                   </p>
+                  <p className="mt-3 max-w-2xl text-xs leading-6 text-ink-500 sm:text-sm">
+                    Shortcut labels on this page are rendered for {platformLabel}. The primary app
+                    modifier is {primaryModifierLabel}, while Vim-style motions like{' '}
+                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.95em] text-ink-700">
+                      Ctrl-w
+                    </code>{' '}
+                    and{' '}
+                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.95em] text-ink-700">
+                      Ctrl-d
+                    </code>{' '}
+                    stay literal across OSes.
+                  </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <ActionBtn
@@ -449,7 +470,7 @@ export function HelpView(): JSX.Element {
               <SectionShell
                 id="help-shortcuts"
                 title="Keyboard Shortcuts"
-                subtitle="Documented from the current input model, not guessed."
+                subtitle={`Documented from the current input model for ${platformLabel}, not guessed.`}
               >
                 <div className="grid gap-4 xl:grid-cols-2">
                   {shortcutSections.map((section) => (

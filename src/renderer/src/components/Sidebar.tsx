@@ -965,6 +965,7 @@ export function Sidebar(): JSX.Element {
       {/* Main scrollable tree area */}
       <div
         className="mt-3 min-h-0 flex-1 overflow-y-auto px-3"
+        style={{ scrollbarGutter: "stable" }}
         onClick={(e) => {
           if (e.target === e.currentTarget) setFocusedPanel("editor");
         }}

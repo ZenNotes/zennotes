@@ -27,6 +27,7 @@ import type {
 
 const api = {
   platform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke(IPC.APP_PLATFORM),
+  platformSync: (): NodeJS.Platform => process.platform,
   listSystemFonts: (): Promise<string[]> => ipcRenderer.invoke(IPC.APP_LIST_FONTS),
   getAppUpdateState: (): Promise<AppUpdateState> =>
     ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),

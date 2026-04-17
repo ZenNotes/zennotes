@@ -683,7 +683,24 @@ export function getSequenceTokens(
     .filter(Boolean);
 }
 
+type RuntimeZenApi = { platformSync?: () => NodeJS.Platform };
+
+function getRuntimePlatform(): NodeJS.Platform | null {
+  if (typeof window !== "undefined") {
+    const zen = (window as Window & { zen?: RuntimeZenApi }).zen;
+    if (typeof zen?.platformSync === "function") {
+      return zen.platformSync();
+    }
+  }
+  if (typeof process !== "undefined" && typeof process.platform === "string") {
+    return process.platform as NodeJS.Platform;
+  }
+  return null;
+}
+
 export function isMacPlatform(): boolean {
+  const runtimePlatform = getRuntimePlatform();
+  if (runtimePlatform) return runtimePlatform === "darwin";
   if (typeof navigator === "undefined") return true;
   return /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
 }
@@ -745,6 +762,7 @@ function normalizeModifiers(parts: string[]): string[] {
 }
 
 export function normalizeShortcutBinding(input: string): string | null {
+  const mac = isMacPlatform();
   const parts = input
     .split("+")
     .map((part) => part.trim())
@@ -754,11 +772,16 @@ export function normalizeShortcutBinding(input: string): string | null {
   if (!rawKey) return null;
   const key = normalizeKeyName(rawKey);
   if (!key) return null;
-  const modifiers = normalizeModifiers(
-    parts
-      .map((part) => normalizeModifierToken(part))
-      .filter((part): part is NonNullable<typeof part> => !!part),
-  );
+  const modifiers = normalizeModifiers(parts.flatMap((part) => {
+    const normalized = normalizeModifierToken(part);
+    if (!normalized) return [];
+    // Canonicalize the platform-primary modifier to `Mod` so stored
+    // shortcut bindings remain portable across the renderer and the
+    // key recorder. Keep the non-primary modifier explicit.
+    if (normalized === "Meta") return [mac ? "Mod" : "Meta"];
+    if (normalized === "Ctrl") return [mac ? "Ctrl" : "Mod"];
+    return [normalized];
+  }));
   return [...modifiers, key].join("+");
 }
 
@@ -840,11 +863,12 @@ export function normalizeKeymapOverrides(input: unknown): KeymapOverrides {
 }
 
 export function shortcutBindingFromEvent(event: KeyboardEvent): string | null {
+  const mac = isMacPlatform();
   const key = normalizeKeyName(event.key);
   if (!key) return null;
   const modifiers: string[] = [];
-  if (event.ctrlKey && !event.metaKey) modifiers.push("Mod");
-  if (event.metaKey && !event.ctrlKey) modifiers.push("Mod");
+  if (event.ctrlKey) modifiers.push(mac ? "Ctrl" : "Mod");
+  if (event.metaKey) modifiers.push(mac ? "Mod" : "Meta");
   if (event.altKey) modifiers.push("Alt");
   if (event.shiftKey) modifiers.push("Shift");
   return normalizeShortcutBinding([...modifiers, key].join("+"));
