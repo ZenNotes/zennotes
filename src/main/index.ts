@@ -856,7 +856,9 @@ function installAppMenu(): void {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        ...(app.isPackaged
+          ? []
+          : ([{ role: 'toggleDevTools' }] as Electron.MenuItemConstructorOptions[])),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
