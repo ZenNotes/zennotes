@@ -93,7 +93,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^5.4.11",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.4"
   },
   "build": {
     "appId": "com.adibhanna.zennotes",
