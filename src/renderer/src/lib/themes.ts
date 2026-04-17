@@ -94,7 +94,7 @@ export const THEMES: ThemeOption[] = [
   { id: 'tokyo-night-storm', label: 'Storm', family: 'tokyo-night', mode: 'dark' }
 ]
 
-export const DEFAULT_THEME_ID = 'apple-light'
+export const DEFAULT_THEME_ID = 'dark-hard'
 
 export function findTheme(id: string): ThemeOption {
   return THEMES.find((t) => t.id === id) ?? THEMES[1] // fallback: light-medium

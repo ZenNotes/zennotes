@@ -183,20 +183,20 @@ const DEFAULT_PREFS: Prefs = {
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
   livePreview: true,
-  tabsEnabled: false,
+  tabsEnabled: true,
   themeId: DEFAULT_THEME_ID,
-  themeFamily: 'apple',
-  themeMode: 'auto',
+  themeFamily: 'gruvbox',
+  themeMode: 'dark',
   editorFontSize: 16,
   editorLineHeight: 1.7,
   previewMaxWidth: 920,
   lineNumberMode: 'off',
-  // Ship with SF Mono everywhere — gives the app a single, consistent
-  // typographic identity out of the box. Users can still change any of
-  // the three slots from Settings → Fonts.
-  interfaceFont: 'SF Mono',
-  textFont: 'SF Mono',
-  monoFont: 'SF Mono',
+  // Leave all font slots on the built-in "Default" path. That lets the
+  // shipped CSS fallbacks choose sensible system fonts on each machine
+  // instead of forcing a specific family that may not exist.
+  interfaceFont: null,
+  textFont: null,
+  monoFont: null,
   sidebarWidth: 232,
   noteListWidth: 300,
   noteSortOrder: 'none',

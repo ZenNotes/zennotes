@@ -6,7 +6,7 @@
   "private": true,
   "main": "./out/main/index.js",
   "author": {
-    "name": "Adi Bhanna",
+    "name": "Adib Hanna",
     "email": "adibhanna@gmail.com"
   },
   "license": "MIT",
@@ -147,7 +147,7 @@
         "AppImage",
         "deb"
       ],
-      "maintainer": "Adi Bhanna <adibhanna@gmail.com>",
+      "maintainer": "Adib Hanna <adibhanna@gmail.com>",
       "category": "Office"
     }
   }

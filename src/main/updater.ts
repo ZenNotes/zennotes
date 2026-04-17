@@ -33,16 +33,45 @@ function makeState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
   }
 }
 
+function decodeBasicHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+}
+
+function normalizeReleaseNoteBody(body: string): string {
+  const normalized = decodeBasicHtmlEntities(
+    body
+      .replace(/\r\n?/g, '\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<li\b[^>]*>/gi, '- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/?(ul|ol)\b[^>]*>/gi, '\n')
+      .replace(/<\/?(p|div|section|article|header|footer|aside|blockquote|pre)\b[^>]*>/gi, '\n')
+      .replace(/<\/?h[1-6]\b[^>]*>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  )
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  return normalized
+}
+
 function normalizeReleaseNotes(notes: UpdateInfo['releaseNotes']): string | null {
   if (!notes) return null
   if (typeof notes === 'string') {
-    const trimmed = notes.trim()
+    const trimmed = normalizeReleaseNoteBody(notes)
     return trimmed.length > 0 ? trimmed : null
   }
   const merged = notes
     .map((note) => {
       const version = note.version ? `Version ${note.version}` : ''
-      const body = note.note?.trim() ?? ''
+      const body = normalizeReleaseNoteBody(note.note ?? '')
       return [version, body].filter(Boolean).join('\n')
     })
     .filter(Boolean)

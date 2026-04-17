@@ -243,7 +243,28 @@ export function SettingsModal(): JSX.Element {
   }, [])
 
   const triggerUpdateCheck = useCallback(() => {
-    void window.zen.checkForAppUpdates()
+    void window.zen.checkForAppUpdates().then(
+      (state) => {
+        if (state.phase === 'available') {
+          window.alert(
+            `ZenNotes ${state.availableVersion ?? ''} is available. Use “Download Update” to fetch it.`
+          )
+          return
+        }
+        if (state.phase === 'not-available') {
+          window.alert(state.message)
+          return
+        }
+        if (state.phase === 'unsupported' || state.phase === 'error') {
+          window.alert(state.message)
+        }
+      },
+      (error) => {
+        const message =
+          error instanceof Error ? error.message : 'Could not check for updates.'
+        window.alert(message)
+      }
+    )
   }, [])
 
   const triggerUpdateDownload = useCallback(() => {
