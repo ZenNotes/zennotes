@@ -459,9 +459,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.APP_PLATFORM, () => process.platform)
 
   ipcMain.handle(IPC.APP_LIST_FONTS, async () => {
-    const list = await listFontFamilies()
-    console.log(`listFontFamilies: returning ${list.length} families`)
-    return list
+    return await listFontFamilies()
   })
   ipcMain.handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState())
   ipcMain.handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates())
@@ -856,7 +854,9 @@ function installAppMenu(): void {
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
-        { role: 'toggleDevTools' },
+        ...(app.isPackaged
+          ? []
+          : ([{ role: 'toggleDevTools' }] as Electron.MenuItemConstructorOptions[])),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
