@@ -257,6 +257,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.move',
       title: 'Move Note to Folder…',
       category: 'Note',
+      keywords: 'move mv relocate folder archive inbox',
       when: () => !!getState().activeNote,
       run: async () => {
         const state = getState()

@@ -21,6 +21,11 @@ import {
   suggestCreateNotePath
 } from '../lib/wikilinks'
 import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
+import {
+  buildMoveNotePrompt,
+  parseMoveNoteTarget,
+  validateMoveNoteTarget
+} from '../lib/move-note'
 import { promptApp } from './PromptHost'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
@@ -435,6 +440,7 @@ function registerVimCommands(): void {
  *
  * - `:e[dit] <path>`     open a note by vault-relative path, create if missing
  * - `:new <path>`        create a new note at an explicit path
+ * - `:mv`, `:move`       move the active note to another Inbox/Archive path
  * - `:bn[ext]`           next tab in the active pane
  * - `:bp[rev]`           previous tab in the active pane
  * - `:bd[elete]`, `:bc`  close the active tab (alias for `:q` on notes)
@@ -505,6 +511,34 @@ function registerVimNoteCommands(): void {
       void openOrCreateByPath(arg)
     }
   )
+
+  const moveActiveNote = async (raw: string): Promise<void> => {
+    const state = useStore.getState()
+    const active = state.activeNote
+    if (!active) return
+
+    const value = raw.trim()
+    let target = value
+    if (!target) {
+      target = (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? ''
+      if (!target) return
+    }
+
+    const error = validateMoveNoteTarget(target)
+    if (error) {
+      window.alert(error)
+      return
+    }
+    const dest = parseMoveNoteTarget(target)
+    await state.moveNote(active.path, dest.folder, dest.subpath)
+  }
+
+  const runMoveEx = (_cm: unknown, params: { argString?: string } | undefined): void => {
+    void moveActiveNote(params?.argString ?? '')
+  }
+
+  Vim.defineEx('move', 'move', runMoveEx)
+  Vim.defineEx('mv', 'mv', runMoveEx)
 
   const shiftTab = (delta: 1 | -1): void => {
     const state = useStore.getState()
@@ -725,6 +759,8 @@ const MANUAL_EX_NAMES = new Set([
   'edit',
   'e',
   'new',
+  'move',
+  'mv',
   'bnext',
   'bn',
   'bprev',

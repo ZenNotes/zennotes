@@ -104,7 +104,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Moving notes is path-first',
     body:
-      'Use the note context menu or the command palette to move a note into Inbox or Archive. The move prompt autocompletes folder paths, so you can type and Tab through existing destinations instead of dragging.'
+      'Use the note context menu, search `move` or `mv` in the command palette, or run `:move` / `:mv` from the ex line to move the active note into Inbox or Archive. With no argument, the command opens the folder picker; with a target like `:mv archive/Reference` or `:move inbox/Work`, it moves the note directly. The move prompt autocompletes folder paths, so you can type and Tab through existing destinations instead of dragging.'
   },
   {
     title: 'Command palette mirrors the important tab actions',
@@ -327,6 +327,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':new [path]',
     summary: 'Create a new note',
     detail: 'Without a path it creates a new inbox note; with a path it opens or creates exactly there.'
+  },
+  {
+    command: ':move [folder] / :mv [folder]',
+    summary: 'Move the active note',
+    detail: 'Both names are supported explicitly. Without an argument they open the move prompt; with a path like `archive/Reference` or `inbox/Work` they move the active note there directly.'
   },
   {
     command: ':bn / :bp',
