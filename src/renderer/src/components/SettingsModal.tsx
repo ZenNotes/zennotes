@@ -126,6 +126,26 @@ function formatBytes(bytes: number | null): string | null {
   return `${rounded} ${unit}`
 }
 
+function formatReleaseNotesForDisplay(notes: string | null): string | null {
+  if (!notes) return null
+  const trimmed = notes.trim()
+  if (!trimmed) return null
+  if (!/[<&]/.test(trimmed)) return trimmed
+
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(trimmed, 'text/html')
+    const text = (doc.body.innerText || doc.body.textContent || '')
+      .replace(/\r\n?/g, '\n')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+    return text || trimmed
+  } catch {
+    return trimmed
+  }
+}
+
 export function SettingsModal(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const vimMode = useStore((s) => s.vimMode)
@@ -243,7 +263,28 @@ export function SettingsModal(): JSX.Element {
   }, [])
 
   const triggerUpdateCheck = useCallback(() => {
-    void window.zen.checkForAppUpdates()
+    void window.zen.checkForAppUpdates().then(
+      (state) => {
+        if (state.phase === 'available') {
+          window.alert(
+            `ZenNotes ${state.availableVersion ?? ''} is available. Use “Download Update” to fetch it.`
+          )
+          return
+        }
+        if (state.phase === 'not-available') {
+          window.alert(state.message)
+          return
+        }
+        if (state.phase === 'unsupported' || state.phase === 'error') {
+          window.alert(state.message)
+        }
+      },
+      (error) => {
+        const message =
+          error instanceof Error ? error.message : 'Could not check for updates.'
+        window.alert(message)
+      }
+    )
   }, [])
 
   const triggerUpdateDownload = useCallback(() => {
@@ -253,6 +294,11 @@ export function SettingsModal(): JSX.Element {
   const triggerUpdateInstall = useCallback(() => {
     void window.zen.installAppUpdate()
   }, [])
+
+  const displayedReleaseNotes = useMemo(
+    () => formatReleaseNotesForDisplay(appUpdateState?.releaseNotes ?? null),
+    [appUpdateState?.releaseNotes]
+  )
 
   // Family list — Apple is the default, followed by the other families.
   const familyOptions = useMemo<{ id: ThemeFamily; label: string }[]>(
@@ -916,13 +962,13 @@ export function SettingsModal(): JSX.Element {
                     </div>
                   </div>
                 )}
-                {appUpdateState?.releaseNotes && (
+                {displayedReleaseNotes && (
                   <details className="mt-3 rounded-xl border border-paper-300/60 bg-paper-100/60 px-3 py-2.5">
                     <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
                       Release notes
                     </summary>
                     <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">
-                      {appUpdateState.releaseNotes}
+                      {displayedReleaseNotes}
                     </pre>
                   </details>
                 )}
