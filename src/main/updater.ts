@@ -52,6 +52,7 @@ function normalizeReleaseNoteBody(body: string): string {
       .replace(/<\/?(p|div|section|article|header|footer|aside|blockquote|pre)\b[^>]*>/gi, '\n')
       .replace(/<\/?h[1-6]\b[^>]*>/gi, '\n')
       .replace(/<\/?(strong|b|em|i|code|span)\b[^>]*>/gi, '')
+      .replace(/[<>]/g, '')
   )
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
