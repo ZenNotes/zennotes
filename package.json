@@ -1,7 +1,7 @@
 {
   "name": "zennotes",
   "productName": "ZenNotes",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A keyboard-first markdown notes app with Vim motions and plain local files",
   "private": true,
   "main": "./out/main/index.js",
