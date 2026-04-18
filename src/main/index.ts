@@ -897,12 +897,7 @@ async function runMenuUpdateCheck(): Promise<void> {
       cancelId: 1,
       title: 'ZenNotes Update Available',
       message: `ZenNotes ${state.availableVersion ?? ''} is available.`,
-      detail: [
-        state.message,
-        state.releaseNotes ? `\n\nRelease notes:\n${state.releaseNotes}` : ''
-      ]
-        .join('')
-        .trim()
+      detail: state.message
     })
     if (response === 0) {
       void downloadAppUpdate()
