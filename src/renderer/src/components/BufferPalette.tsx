@@ -23,6 +23,7 @@ import { isTasksTabPath } from '@shared/tasks'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
+import { resolveSystemFolderLabels, type SystemFolderLabels } from '../lib/system-folder-labels'
 
 interface BufferEntry {
   path: string
@@ -47,9 +48,11 @@ interface BuildDeps {
   noteContents: ReturnType<typeof useStore.getState>['noteContents']
   notes: ReturnType<typeof useStore.getState>['notes']
   noteDirty: ReturnType<typeof useStore.getState>['noteDirty']
+  systemFolderLabels: SystemFolderLabels
 }
 
 function buildEntries(deps: BuildDeps): BufferEntry[] {
+  const labels = resolveSystemFolderLabels(deps.systemFolderLabels)
   const leaves = allLeaves(deps.paneLayout)
   const activeLeafId = deps.activePaneId
   const seen = new Set<string>()
@@ -89,7 +92,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isQuickNotesTabPath(path)) {
       entries.push({
         path,
-        title: 'Quick Notes',
+        title: labels.quick,
         subtitle: 'Quick capture notes list',
         keywords: 'quick notes capture scratch inbox virtual',
         badge,
@@ -128,7 +131,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isArchiveTabPath(path)) {
       entries.push({
         path,
-        title: 'Archive',
+        title: labels.archive,
         subtitle: 'Archived notes list',
         keywords: 'archive archived storage cold notes list virtual',
         badge,
@@ -141,7 +144,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isTrashTabPath(path)) {
       entries.push({
         path,
-        title: 'Trash',
+        title: labels.trash,
         subtitle: 'Deleted notes and recovery',
         keywords: 'trash deleted restore bin recovery virtual',
         badge,
@@ -205,10 +208,20 @@ export function BufferPalette(): JSX.Element {
   const noteContents = useStore((s) => s.noteContents)
   const notes = useStore((s) => s.notes)
   const noteDirty = useStore((s) => s.noteDirty)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
 
   const entries = useMemo(
-    () => buildEntries({ paneLayout, activePaneId, selectedPath, noteContents, notes, noteDirty }),
-    [paneLayout, activePaneId, selectedPath, noteContents, notes, noteDirty]
+    () =>
+      buildEntries({
+        paneLayout,
+        activePaneId,
+        selectedPath,
+        noteContents,
+        notes,
+        noteDirty,
+        systemFolderLabels
+      }),
+    [paneLayout, activePaneId, selectedPath, noteContents, notes, noteDirty, systemFolderLabels]
   )
 
   const [query, setQuery] = useState('')

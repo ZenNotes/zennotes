@@ -1341,7 +1341,7 @@ ZenNotes is a **file-based** markdown notes app made for focus and deep work. Ev
 - **Math** — inline like $e^{i\\pi}+1=0$ or as blocks
 - **Callouts** — Obsidian-style \`> [!note]\` blocks
 - **Mermaid diagrams** — code-fenced \`\`\`mermaid blocks render inline
-- **Full-text search** — press ⌘K from anywhere
+- **Full-text search** — press \`Space s t\` in Vim mode, or run **Search Text in Vault** from the command palette
 
 ## Try it
 

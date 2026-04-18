@@ -15,6 +15,7 @@ import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
 import { usePrompt } from './PromptModal'
+import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -66,7 +67,12 @@ export function NoteList(): JSX.Element {
   const focusedPanel = useStore((s) => s.focusedPanel)
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const { prompt, modal: promptModal } = usePrompt()
+  const folderLabels = useMemo(
+    () => resolveSystemFolderLabels(systemFolderLabels),
+    [systemFolderLabels]
+  )
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const [assetLayout, setAssetLayout] = useState<AssetLayout>(() => {
     try {
@@ -190,21 +196,21 @@ export function NoteList(): JSX.Element {
     items.push({ kind: 'separator' })
 
     if (n.folder === 'inbox' || n.folder === 'quick') {
-      items.push({ label: 'Archive', icon: <ArchiveIcon />, onSelect: onArchive })
+      items.push({ label: folderLabels.archive, icon: <ArchiveIcon />, onSelect: onArchive })
       items.push({
-        label: 'Move to Trash',
+        label: `Move to ${folderLabels.trash}`,
         icon: <TrashIcon />,
         danger: true,
         onSelect: onTrash
       })
     } else if (n.folder === 'archive') {
       items.push({
-        label: 'Move to Inbox',
+        label: `Move to ${folderLabels.inbox}`,
         icon: <ArrowUpRightIcon />,
         onSelect: onUnarchive
       })
       items.push({
-        label: 'Move to Trash',
+        label: `Move to ${folderLabels.trash}`,
         icon: <TrashIcon />,
         danger: true,
         onSelect: onTrash
@@ -235,7 +241,10 @@ export function NoteList(): JSX.Element {
     renameActive,
     moveNote,
     tabsEnabled,
-    openNoteInTab
+    openNoteInTab,
+    folderLabels.archive,
+    folderLabels.inbox,
+    folderLabels.trash
   ])
 
   /**
@@ -337,7 +346,7 @@ export function NoteList(): JSX.Element {
       ? 'attachements'
       : view.subpath
         ? view.subpath.split('/').slice(-1)[0]
-        : view.folder[0].toUpperCase() + view.folder.slice(1)
+        : folderLabels[view.folder]
 
   const newTargetFolder = view.kind === 'folder' && view.folder !== 'trash' ? view.folder : 'inbox'
 
@@ -450,7 +459,7 @@ export function NoteList(): JSX.Element {
         ) : filtered.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-ink-400">
             {view.kind === 'folder' && view.folder === 'trash'
-              ? 'Trash is empty.'
+              ? `${folderLabels.trash} is empty.`
               : 'No notes here yet.'}
           </div>
         ) : (

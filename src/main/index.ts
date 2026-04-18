@@ -60,7 +60,8 @@ import {
   downloadAppUpdate,
   getAppUpdateState,
   initAppUpdater,
-  installAppUpdate
+  installAppUpdate,
+  scheduleBackgroundAppUpdateCheck
 } from './updater'
 import type { McpClientId, McpInstructionsPayload } from '@shared/mcp-clients'
 import {
@@ -460,6 +461,15 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.APP_LIST_FONTS, async () => {
     return await listFontFamilies()
+  })
+  ipcMain.handle(IPC.APP_ICON_DATA_URL, async () => {
+    try {
+      const iconPath = path.join(__dirname, '../../build/icon.png')
+      const png = await fsp.readFile(iconPath)
+      return `data:image/png;base64,${png.toString('base64')}`
+    } catch {
+      return null
+    }
   })
   ipcMain.handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState())
   ipcMain.handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates())
@@ -999,6 +1009,7 @@ app.whenReady().then(async () => {
   registerIpc()
   initAppUpdater()
   await createWindow()
+  scheduleBackgroundAppUpdateCheck()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()

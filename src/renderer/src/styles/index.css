@@ -1129,7 +1129,10 @@ textarea,
 .cm-editor .cm-fat-cursor,
 .cm-editor.cm-focused .cm-fat-cursor {
   --z-active-cursor-height: 1em;
-  --z-fat-cursor-height: calc(var(--z-active-cursor-height) * 1.14);
+  --z-fat-cursor-scale: 1.14;
+  --z-fat-cursor-height: calc(
+    var(--z-active-cursor-height) * var(--z-fat-cursor-scale)
+  );
   background: rgb(var(--z-accent) / 0.55) !important;
   outline: none !important;
   border: none !important;

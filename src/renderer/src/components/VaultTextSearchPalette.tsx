@@ -5,6 +5,7 @@ import type {
   VaultTextSearchMatch
 } from '@shared/ipc'
 import { useStore } from '../store'
+import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
@@ -144,6 +145,11 @@ export function VaultTextSearchPalette(): JSX.Element {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<VaultTextSearchMatch[]>([])
   const [active, setActive] = useState(0)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const folderLabels = useMemo(
+    () => resolveSystemFolderLabels(systemFolderLabels),
+    [systemFolderLabels]
+  )
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const requestIdRef = useRef(0)
@@ -378,7 +384,7 @@ export function VaultTextSearchPalette(): JSX.Element {
         <div className="max-h-[56vh] overflow-x-hidden overflow-y-auto py-1">
           {!query.trim() ? (
             <div className="px-4 py-7 text-center text-sm text-ink-400">
-              Type to search note text across Inbox, Quick Notes, and Archive.
+              {`Type to search note text across ${folderLabels.inbox}, ${folderLabels.quick}, and ${folderLabels.archive}.`}
             </div>
           ) : loading ? (
             <div className="px-4 py-7 text-center text-sm text-ink-400">Searching…</div>

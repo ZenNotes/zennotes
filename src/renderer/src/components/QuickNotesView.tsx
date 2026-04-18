@@ -4,6 +4,7 @@ import { ArrowUpRightIcon, PlusIcon, ZapIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { resolveQuickNoteTitle } from '../lib/quick-note-title'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { getSystemFolderLabel } from '../lib/system-folder-labels'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -29,7 +30,9 @@ export function QuickNotesView(): JSX.Element {
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isQuickNotesViewActive)
+  const quickLabel = getSystemFolderLabel('quick', systemFolderLabels)
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -180,7 +183,7 @@ export function QuickNotesView(): JSX.Element {
         <CollectionViewHeader
           badge="Capture"
           badgeIcon={<ZapIcon width={13} height={13} />}
-          title="Quick Notes"
+          title={quickLabel}
           description="Browse quick captures, filter by title or path, and jump straight into the one you want."
           count={quickNotes.length}
           filter={filter}
@@ -194,7 +197,7 @@ export function QuickNotesView(): JSX.Element {
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:opacity-95"
             >
               <PlusIcon width={15} height={15} />
-              New Quick Note
+              New Note
             </button>
           }
         />
@@ -210,12 +213,12 @@ export function QuickNotesView(): JSX.Element {
               </div>
               <div className="text-lg font-medium text-ink-900">
                 {quickNotes.length === 0
-                  ? 'No Quick Notes yet.'
-                  : 'No Quick Notes match that filter.'}
+                  ? `No ${quickLabel} yet.`
+                  : `No ${quickLabel.toLowerCase()} match that filter.`}
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {quickNotes.length === 0
-                  ? 'Quick Notes are for fast capture. Create one and it will show up here immediately.'
+                  ? `${quickLabel} are for fast capture. Create a note and it will show up here immediately.`
                   : 'Try a different title, path, or excerpt fragment.'}
               </div>
             </div>

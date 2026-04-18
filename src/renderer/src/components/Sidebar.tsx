@@ -45,6 +45,7 @@ import {
   setDragPayload,
   type DragPayload,
 } from "../lib/dnd";
+import { resolveSystemFolderLabels } from "../lib/system-folder-labels";
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function")
@@ -105,9 +106,14 @@ export function Sidebar(): JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath);
   const tabsEnabled = useStore((s) => s.tabsEnabled);
   const openNoteInTab = useStore((s) => s.openNoteInTab);
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels);
   const moveNoteAction = useStore((s) => s.moveNote);
   const renameActive = useStore((s) => s.renameActive);
   const { prompt, modal: promptModal } = usePrompt();
+  const folderLabels = useMemo(
+    () => resolveSystemFolderLabels(systemFolderLabels),
+    [systemFolderLabels],
+  );
 
   /**
    * Handle a drag-drop onto a folder (top-level or subfolder). Both
@@ -256,8 +262,13 @@ export function Sidebar(): JSX.Element {
    * Auto-reveal: whenever the active note changes, expand every
    * ancestor folder so the note is visible in the sidebar tree.
    * Only runs when the `autoReveal` preference is on.
+   *
+   * We also scroll the active note into view. Without that, the toggle
+   * can feel inert unless the note happens to live inside a currently
+   * collapsed folder.
    */
-  const activePath = activeNote?.path;
+  const activePath =
+    selectedPath && !selectedPath.startsWith("zen://") ? selectedPath : null;
   useEffect(() => {
     if (!autoReveal || !activePath) return;
     const parts = activePath.split("/");
@@ -278,7 +289,39 @@ export function Sidebar(): JSX.Element {
       }
     }
     if (changed) setCollapsedFoldersAction([...prev]);
-  }, [autoReveal, activePath, setCollapsedFoldersAction]);
+
+    let raf1 = 0;
+    let raf2 = 0;
+    const reveal = (): void => {
+      const noteEl = document.querySelector(
+        `[data-sidebar-path="${escapeForAttr(activePath)}"]`,
+      ) as HTMLElement | null;
+      if (noteEl) {
+        noteEl.scrollIntoView({ block: "nearest" });
+        return;
+      }
+
+      const parts = activePath.split("/");
+      const folder = parts[0] as NoteFolder;
+      for (let i = parts.length - 1; i >= 1; i--) {
+        const subpath = parts.slice(1, i).join("/");
+        const folderEl = document.querySelector(
+          `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(subpath)}"]`,
+        ) as HTMLElement | null;
+        if (folderEl) {
+          folderEl.scrollIntoView({ block: "nearest" });
+          return;
+        }
+      }
+    };
+    raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(reveal);
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [autoReveal, activePath, selectedPath, setCollapsedFoldersAction]);
 
   // Aggregate hashtags across non-trash notes, with the active note
   // re-computed from its live body.
@@ -297,13 +340,13 @@ export function Sidebar(): JSX.Element {
     if (!folderMenu) return [];
     const { folder, subpath } = folderMenu;
     const isTop = subpath === "";
-    const label = isTop ? folder : subpath.split("/").slice(-1)[0];
+    const label = isTop ? folderLabels[folder] : subpath.split("/").slice(-1)[0];
     const trashCount = notes.filter((note) => note.folder === "trash").length;
 
     if (folder === "trash" && isTop) {
       return [
         {
-          label: "Empty Trash…",
+          label: `Empty ${folderLabels.trash}…`,
           icon: <TrashIcon />,
           danger: true,
           disabled: trashCount === 0,
@@ -586,7 +629,7 @@ export function Sidebar(): JSX.Element {
     items.push({ kind: "separator" });
     if (n.folder === "inbox" || n.folder === "quick") {
       items.push({
-        label: "Archive",
+        label: folderLabels.archive,
         icon: <ArchiveIcon />,
         onSelect: async () => {
           await window.zen.archiveNote(n.path);
@@ -595,7 +638,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Move to Trash",
+        label: `Move to ${folderLabels.trash}`,
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
@@ -607,7 +650,7 @@ export function Sidebar(): JSX.Element {
       });
     } else if (n.folder === "archive") {
       items.push({
-        label: "Move to Inbox",
+        label: `Move to ${folderLabels.inbox}`,
         icon: <ArrowUpRightIcon />,
         onSelect: async () => {
           const meta = await window.zen.unarchiveNote(n.path);
@@ -616,7 +659,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Move to Trash",
+        label: `Move to ${folderLabels.trash}`,
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
@@ -980,7 +1023,7 @@ export function Sidebar(): JSX.Element {
           />
 
           <FolderTreeRoot
-            label="Quick Notes"
+            label={folderLabels.quick}
             icon={<ZapIcon />}
             folder="quick"
             tree={trees.quick}
@@ -1005,8 +1048,8 @@ export function Sidebar(): JSX.Element {
             headerAction={
               <button
                 type="button"
-                title="New Quick Note (⇧⌘N)"
-                aria-label="New Quick Note"
+                title={`New note in ${folderLabels.quick} (⇧⌘N)`}
+                aria-label={`New note in ${folderLabels.quick}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   const title = resolveQuickNoteTitle(
@@ -1023,7 +1066,7 @@ export function Sidebar(): JSX.Element {
           />
 
           <FolderTreeRoot
-            label="Inbox"
+            label={folderLabels.inbox}
             icon={<InboxIcon />}
             folder="inbox"
             tree={trees.inbox}
@@ -1054,6 +1097,7 @@ export function Sidebar(): JSX.Element {
            *  more than that and they start to feel detached. */}
           <div className="mt-1">
             <ArchiveSidebarRow
+              label={folderLabels.archive}
               count={countNotesInTree(trees.archive)}
               active={
                 archiveViewActive ||
@@ -1070,6 +1114,7 @@ export function Sidebar(): JSX.Element {
             />
 
             <TrashSidebarRow
+              label={folderLabels.trash}
               count={countNotesInTree(trees.trash)}
               active={trashViewActive || !!selectedPath?.startsWith("trash/")}
               onClick={() => {
@@ -2006,6 +2051,7 @@ function TaskSidebarRow({
 }
 
 function ArchiveSidebarRow({
+  label,
   count,
   active,
   onClick,
@@ -2014,6 +2060,7 @@ function ArchiveSidebarRow({
   vimHighlight,
   sidebarFocused = false,
 }: {
+  label: string;
   count: number;
   active: boolean;
   onClick: () => void;
@@ -2066,7 +2113,7 @@ function ArchiveSidebarRow({
       >
         <ArchiveIcon />
       </span>
-      <span className="flex-1 truncate">Archive</span>
+      <span className="flex-1 truncate">{label}</span>
       {sidebarFocused && vimHighlight && (
         <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
       )}
@@ -2085,6 +2132,7 @@ function ArchiveSidebarRow({
 }
 
 function TrashSidebarRow({
+  label,
   count,
   active,
   onClick,
@@ -2093,6 +2141,7 @@ function TrashSidebarRow({
   vimHighlight,
   sidebarFocused = false,
 }: {
+  label: string;
   count: number;
   active: boolean;
   onClick: () => void;
@@ -2145,7 +2194,7 @@ function TrashSidebarRow({
       >
         <TrashIcon />
       </span>
-      <span className="flex-1 truncate">Trash</span>
+      <span className="flex-1 truncate">{label}</span>
       {sidebarFocused && vimHighlight && (
         <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
       )}
@@ -2325,16 +2374,21 @@ function IconBtn({
 }): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={[
-        "flex h-7 w-7 items-center justify-center rounded-md transition-colors",
+        "group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors",
         active
           ? "bg-accent/15 text-accent"
           : "text-ink-500 hover:bg-paper-200 hover:text-ink-800",
       ].join(" ")}
     >
-      {children}
+      <span className="pointer-events-none">{children}</span>
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
+        {title}
+      </span>
     </button>
   );
 }

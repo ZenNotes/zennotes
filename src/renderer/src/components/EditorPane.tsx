@@ -87,6 +87,10 @@ import {
 } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import {
+  getSystemFolderLabel,
+  resolveSystemFolderLabels
+} from '../lib/system-folder-labels'
+import {
   droppedPathsFromTransfer,
   hasDroppedFiles
 } from '../lib/editor-drops'
@@ -242,6 +246,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const wordWrap = useStore((s) => s.wordWrap)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
 
   const [mode, setMode] = useState<PaneMode>('edit')
   const [connectionsOpen, setConnectionsOpen] = useState(false)
@@ -919,7 +925,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isQuickNotesTabPath(path)) {
           return {
             path,
-            title: 'Quick Notes',
+            title: folderLabels.quick,
             pinned: pinnedSet.has(path),
             isQuick: true,
             isTasks: false,
@@ -958,7 +964,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isArchiveTabPath(path)) {
           return {
             path,
-            title: 'Archive',
+            title: folderLabels.archive,
             pinned: pinnedSet.has(path),
             isQuick: false,
             isTasks: false,
@@ -971,7 +977,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isTrashTabPath(path)) {
           return {
             path,
-            title: 'Trash',
+            title: folderLabels.trash,
             pinned: pinnedSet.has(path),
             isQuick: false,
             isTasks: false,
@@ -996,7 +1002,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
       })
     },
-    [tabs, pinnedTabs, content, notes]
+    [tabs, pinnedTabs, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -1344,11 +1350,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ArrowUpRightIcon />
           </IconBtn>
         ) : (
-          <IconBtn title="Archive" onClick={() => void archiveActive()}>
+          <IconBtn title={folderLabels.archive} onClick={() => void archiveActive()}>
             <ArchiveIcon />
           </IconBtn>
         )}
-        <IconBtn title="Move to trash" onClick={() => void trashActive()}>
+        <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
           <TrashIcon />
         </IconBtn>
         <IconBtn
@@ -1802,6 +1808,7 @@ function Breadcrumb({
   onRename: (next: string) => void
 }): JSX.Element {
   const setView = useStore((s) => s.setView)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(note.title)
   const [warning, setWarning] = useState('')
@@ -1829,7 +1836,7 @@ function Breadcrumb({
   const segments = parts.slice(1, -1)
   const ancestors: { label: string; onClick: () => void }[] = [
     {
-      label: topFolder.charAt(0).toUpperCase() + topFolder.slice(1),
+      label: getSystemFolderLabel(topFolder, systemFolderLabels),
       onClick: () => setView({ kind: 'folder', folder: topFolder, subpath: '' })
     }
   ]

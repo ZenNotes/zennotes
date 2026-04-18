@@ -41,11 +41,20 @@ const HEADING_RE = /^(#{1,6})\s+/
 function fixFatCursorHeight(view: EditorView): void {
   const cursors = view.scrollDOM.querySelectorAll<HTMLElement>('.cm-fat-cursor')
   const activeLine = view.scrollDOM.querySelector<HTMLElement>('.cm-activeLine')
-  const activeLineFontSize = activeLine ? Number.parseFloat(getComputedStyle(activeLine).fontSize) : Number.NaN
+  const activeLineStyle = activeLine ? getComputedStyle(activeLine) : null
+  const activeLineFontSize = activeLineStyle ? Number.parseFloat(activeLineStyle.fontSize) : Number.NaN
+  const activeLineLineHeight = activeLineStyle
+    ? Number.parseFloat(activeLineStyle.lineHeight)
+    : Number.NaN
+  const isHeadingLine = activeLine?.classList.contains('cm-heading-line') ?? false
   for (const el of cursors) {
     el.style.removeProperty('height')
     el.style.removeProperty('max-height')
-    if (Number.isFinite(activeLineFontSize) && activeLineFontSize > 0) {
+    el.style.removeProperty('--z-fat-cursor-scale')
+    if (isHeadingLine && Number.isFinite(activeLineLineHeight) && activeLineLineHeight > 0) {
+      el.style.setProperty('--z-active-cursor-height', `${activeLineLineHeight}px`)
+      el.style.setProperty('--z-fat-cursor-scale', '1')
+    } else if (Number.isFinite(activeLineFontSize) && activeLineFontSize > 0) {
       el.style.setProperty('--z-active-cursor-height', `${activeLineFontSize}px`)
     } else {
       el.style.removeProperty('--z-active-cursor-height')

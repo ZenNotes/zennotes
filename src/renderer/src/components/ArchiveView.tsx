@@ -9,6 +9,7 @@ import { ContextMenu } from './ContextMenu'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { usePrompt } from './PromptModal'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -40,8 +41,13 @@ export function ArchiveView(): JSX.Element {
   const renameActive = useStore((s) => s.renameActive)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isArchiveViewActive)
   const { prompt, modal: promptModal } = usePrompt()
+  const folderLabels = useMemo(
+    () => resolveSystemFolderLabels(systemFolderLabels),
+    [systemFolderLabels]
+  )
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -224,7 +230,7 @@ export function ArchiveView(): JSX.Element {
     })
     items.push({ kind: 'separator' })
     items.push({
-      label: 'Move to Inbox',
+      label: `Move to ${folderLabels.inbox}`,
       icon: <ArrowUpRightIcon />,
       onSelect: async () => {
         const meta = await window.zen.unarchiveNote(note.path)
@@ -233,7 +239,7 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Move to Trash',
+      label: `Move to ${folderLabels.trash}`,
       icon: <TrashIcon />,
       danger: true,
       onSelect: async () => {
@@ -258,7 +264,9 @@ export function ArchiveView(): JSX.Element {
     selectNote,
     selectedPath,
     tabsEnabled,
-    vault?.root
+    vault?.root,
+    folderLabels.inbox,
+    folderLabels.trash
   ])
 
   useEffect(() => {
@@ -378,10 +386,10 @@ export function ArchiveView(): JSX.Element {
       >
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
           <CollectionViewHeader
-            badge="Archive"
+            badge={folderLabels.archive}
             badgeIcon={<ArchiveIcon width={13} height={13} />}
-            title="Archive"
-            description="Review archived notes in one place and move anything active back into Inbox when needed."
+            title={folderLabels.archive}
+            description={`Review archived notes in one place and move anything active back into ${folderLabels.inbox} when needed.`}
             count={archived.length}
             filter={filter}
             onFilterChange={setFilter}
@@ -399,11 +407,13 @@ export function ArchiveView(): JSX.Element {
                   <ArchiveIcon width={24} height={24} />
                 </div>
                 <div className="text-lg font-medium text-ink-900">
-                  {archived.length === 0 ? 'Archive is empty.' : 'No archived notes match that filter.'}
+                  {archived.length === 0
+                    ? `${folderLabels.archive} is empty.`
+                    : `No ${folderLabels.archive.toLowerCase()} notes match that filter.`}
                 </div>
                 <div className="max-w-xl text-sm leading-7 text-ink-500">
                   {archived.length === 0
-                    ? 'Archive is for notes you want to keep around without leaving them in the active workspace.'
+                    ? `${folderLabels.archive} is for notes you want to keep around without leaving them in the active workspace.`
                     : 'Try a different title, path, or excerpt fragment.'}
                 </div>
               </div>

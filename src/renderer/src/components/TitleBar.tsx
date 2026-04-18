@@ -5,17 +5,20 @@ import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
+import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 
 export function TitleBar(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const activeNote = useStore((s) => s.activeNote)
   const selectedPath = useStore((s) => s.selectedPath)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const isMac = window.zen.platformSync() === 'darwin'
+  const labels = resolveSystemFolderLabels(systemFolderLabels)
 
   const title = activeNote
     ? activeNote.title
     : isQuickNotesTabPath(selectedPath)
-      ? 'Quick Notes'
+      ? labels.quick
     : isTasksTabPath(selectedPath)
       ? 'Tasks'
       : isTagsTabPath(selectedPath)
@@ -23,9 +26,9 @@ export function TitleBar(): JSX.Element {
         : isHelpTabPath(selectedPath)
           ? 'Help'
           : isArchiveTabPath(selectedPath)
-            ? 'Archive'
+            ? labels.archive
           : isTrashTabPath(selectedPath)
-            ? 'Trash'
+            ? labels.trash
           : vault
             ? vault.name
             : 'ZenNotes'

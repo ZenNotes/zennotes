@@ -4,6 +4,7 @@ import { isTrashViewActive, useStore } from '../store'
 import { ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { getSystemFolderLabel } from '../lib/system-folder-labels'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -28,7 +29,9 @@ export function TrashView(): JSX.Element {
   const closeActiveNote = useStore((s) => s.closeActiveNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isTrashViewActive)
+  const trashLabel = getSystemFolderLabel('trash', systemFolderLabels)
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -219,7 +222,7 @@ export function TrashView(): JSX.Element {
         <CollectionViewHeader
           badge="Recovery"
           badgeIcon={<TrashIcon width={13} height={13} />}
-          title="Trash"
+          title={trashLabel}
           description="Review deleted notes, restore what you still need, and only empty the bin when you want permanent removal."
           count={trashed.length}
           filter={filter}
@@ -239,7 +242,7 @@ export function TrashView(): JSX.Element {
               ].join(' ')}
             >
               <TrashIcon width={15} height={15} />
-              Empty Trash
+              {`Empty ${trashLabel}`}
             </button>
           }
         />
@@ -254,7 +257,9 @@ export function TrashView(): JSX.Element {
                 <TrashIcon width={24} height={24} />
               </div>
               <div className="text-lg font-medium text-ink-900">
-                {trashed.length === 0 ? 'Trash is empty.' : 'No trashed notes match that filter.'}
+                {trashed.length === 0
+                  ? `${trashLabel} is empty.`
+                  : `No ${trashLabel.toLowerCase()} notes match that filter.`}
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {trashed.length === 0

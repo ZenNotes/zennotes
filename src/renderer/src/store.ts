@@ -23,6 +23,10 @@ import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
+import {
+  type SystemFolderLabels,
+  normalizeSystemFolderLabels
+} from './lib/system-folder-labels'
 import type { Panel } from './lib/vim-nav'
 import {
   allLeaves,
@@ -119,6 +123,8 @@ interface Prefs {
   textFont: string | null
   /** Font used for inline code + fenced code blocks + frontmatter. */
   monoFont: string | null
+  /** Optional display-only label overrides for the built-in top-level folders. */
+  systemFolderLabels: SystemFolderLabels
   sidebarWidth: number
   noteListWidth: number
   noteSortOrder: NoteSortOrder
@@ -197,11 +203,12 @@ const DEFAULT_PREFS: Prefs = {
   interfaceFont: null,
   textFont: null,
   monoFont: null,
+  systemFolderLabels: {},
   sidebarWidth: 232,
   noteListWidth: 300,
   noteSortOrder: 'none',
-  groupByKind: false,
-  autoReveal: true,
+  groupByKind: true,
+  autoReveal: false,
   unifiedSidebar: true,
   darkSidebar: true,
   collapsedFolders: [],
@@ -297,6 +304,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.monoFont === 'string' || p.monoFont === null
         ? (p.monoFont as string | null)
         : DEFAULT_PREFS.monoFont,
+    systemFolderLabels: normalizeSystemFolderLabels(p.systemFolderLabels),
     sidebarWidth:
       typeof p.sidebarWidth === 'number'
         ? Math.min(520, Math.max(160, p.sidebarWidth))
@@ -630,6 +638,7 @@ function collectPrefs(s: {
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
+  systemFolderLabels: SystemFolderLabels
   sidebarWidth: number
   noteListWidth: number
   noteSortOrder: NoteSortOrder
@@ -673,6 +682,7 @@ function collectPrefs(s: {
     interfaceFont: s.interfaceFont,
     textFont: s.textFont,
     monoFont: s.monoFont,
+    systemFolderLabels: s.systemFolderLabels,
     sidebarWidth: s.sidebarWidth,
     noteListWidth: s.noteListWidth,
     noteSortOrder: s.noteSortOrder,
@@ -999,6 +1009,7 @@ interface Store {
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
+  systemFolderLabels: SystemFolderLabels
   sidebarWidth: number
   noteListWidth: number
   noteSortOrder: NoteSortOrder
@@ -1181,6 +1192,7 @@ interface Store {
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
   setMonoFont: (family: string | null) => void
+  setSystemFolderLabel: (folder: NoteFolder, label: string | null) => void
   setSidebarWidth: (px: number) => void
   setNoteListWidth: (px: number) => void
   setNoteSortOrder: (order: NoteSortOrder) => void
@@ -1597,6 +1609,7 @@ export const useStore = create<Store>((set, get) => {
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
   monoFont: loadPrefs().monoFont,
+  systemFolderLabels: loadPrefs().systemFolderLabels,
   sidebarWidth: loadPrefs().sidebarWidth,
   noteListWidth: loadPrefs().noteListWidth,
   noteSortOrder: loadPrefs().noteSortOrder,
@@ -2457,6 +2470,17 @@ export const useStore = create<Store>((set, get) => {
   },
   setMonoFont: (family) => {
     set({ monoFont: family })
+    savePrefs(collectPrefs(get()))
+  },
+  setSystemFolderLabel: (folder, label) => {
+    const normalized = normalizeSystemFolderLabels({ [folder]: label })
+    set((s) => ({
+      systemFolderLabels: normalized[folder]
+        ? { ...s.systemFolderLabels, [folder]: normalized[folder] }
+        : Object.fromEntries(
+            Object.entries(s.systemFolderLabels).filter(([key]) => key !== folder)
+          ) as SystemFolderLabels
+    }))
     savePrefs(collectPrefs(get()))
   },
   setSidebarWidth: (px) => {

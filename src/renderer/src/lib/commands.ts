@@ -15,6 +15,7 @@ import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
+import { resolveSystemFolderLabels } from './system-folder-labels'
 import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
@@ -37,6 +38,7 @@ export interface Command {
 
 export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
   const getState = (): ReturnType<typeof useStore.getState> => useStore.getState()
+  const labels = () => resolveSystemFolderLabels(getState().systemFolderLabels)
   const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
   const leaderShortcut = (id: KeymapId): string =>
     `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
@@ -66,7 +68,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.new.inbox',
-      title: 'New Note in Inbox',
+      title: `New Note in ${labels().inbox}`,
       category: 'Note',
       keywords: 'create add write',
       run: () => getState().createAndOpen('inbox', '', { focusTitle: true })
@@ -123,7 +125,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.archive',
-      title: 'Archive Note',
+      title: `Move Note to ${labels().archive}`,
       category: 'Note',
       when: () => {
         const f = getState().activeNote?.folder
@@ -140,7 +142,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.trash',
-      title: 'Move Note to Trash',
+      title: `Move Note to ${labels().trash}`,
       category: 'Note',
       keywords: 'delete',
       when: () => !!getState().activeNote && getState().activeNote?.folder !== 'trash',
@@ -148,7 +150,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.restore',
-      title: 'Restore Note from Trash',
+      title: `Restore Note from ${labels().trash}`,
       category: 'Note',
       when: () => getState().activeNote?.folder === 'trash',
       run: () => getState().restoreActive()
@@ -597,27 +599,27 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'nav.folder.quick',
-      title: 'Go to Quick Notes',
+      title: `Go to ${labels().quick}`,
       category: 'Go',
       keywords: 'quick scratch',
       run: () => getState().setView({ kind: 'folder', folder: 'quick', subpath: '' })
     },
     {
       id: 'nav.folder.inbox',
-      title: 'Go to Inbox',
+      title: `Go to ${labels().inbox}`,
       category: 'Go',
       run: () => getState().setView({ kind: 'folder', folder: 'inbox', subpath: '' })
     },
     {
       id: 'nav.folder.archive',
-      title: 'Go to Archive',
+      title: `Go to ${labels().archive}`,
       category: 'Go',
       keywords: 'archive archived storage',
       run: () => getState().openArchiveView()
     },
     {
       id: 'nav.folder.trash',
-      title: 'Go to Trash',
+      title: `Go to ${labels().trash}`,
       category: 'Go',
       keywords: 'trash deleted restore bin',
       run: () => getState().openTrashView()

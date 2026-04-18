@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Notification } from 'electron'
 import electronUpdater, {
   type AppUpdater,
   type ProgressInfo,
@@ -7,10 +7,17 @@ import electronUpdater, {
 import { IPC, type AppUpdateState } from '@shared/ipc'
 
 const { autoUpdater } = electronUpdater
+const UPDATE_CHECK_MAX_ATTEMPTS = 3
+const UPDATE_CHECK_RETRY_DELAY_MS = 1500
+const BACKGROUND_UPDATE_CHECK_DELAY_MS = 8000
 
 let initialized = false
 let updater: AppUpdater | null = null
 let lastInfo: UpdateInfo | null = null
+let startupCheckTimer: NodeJS.Timeout | null = null
+let backgroundCheckScheduled = false
+let notifiedAvailableVersion: string | null = null
+let notifiedDownloadedVersion: string | null = null
 let updateState: AppUpdateState = makeState({
   phase: 'unsupported',
   message: 'Updates are only available in packaged builds.'
@@ -72,6 +79,9 @@ function humanizeUpdateError(error: unknown): string {
   const base =
     error instanceof Error ? error.message.trim() : String(error).trim()
   const message = base.length > 0 ? base : 'Unknown updater error.'
+  if (/5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(message)) {
+    return `${message} GitHub returned a temporary network or server error while checking for updates. Try again in a moment, or open the latest release directly.`
+  }
   if (/404|401|403|forbidden|unauthorized/i.test(message)) {
     return `${message} GitHub-hosted end-user updates require public releases, or a special private-repo token setup.`
   }
@@ -79,6 +89,18 @@ function humanizeUpdateError(error: unknown): string {
     return `${message} macOS auto-updates require a signed app build.`
   }
   return message
+}
+
+function isRetryableUpdateError(error: unknown): boolean {
+  const message =
+    error instanceof Error ? error.message : String(error)
+  return /5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(
+    message
+  )
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function broadcastUpdateState(): void {
@@ -90,6 +112,28 @@ function broadcastUpdateState(): void {
 function setUpdateState(next: AppUpdateState): void {
   updateState = next
   broadcastUpdateState()
+}
+
+function focusAppAndOpenSettings(): void {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed())
+  const target = BrowserWindow.getFocusedWindow() ?? windows[0] ?? null
+  if (!target) return
+  if (target.isMinimized()) target.restore()
+  if (!target.isVisible()) target.show()
+  target.focus()
+  for (const win of windows) {
+    win.webContents.send(IPC.APP_OPEN_SETTINGS)
+  }
+}
+
+function showNativeUpdateNotification(title: string, body: string): void {
+  if (!Notification.isSupported()) return
+  const notification = new Notification({
+    title,
+    body
+  })
+  notification.on('click', focusAppAndOpenSettings)
+  notification.show()
 }
 
 function handleDownloadProgress(progress: ProgressInfo): void {
@@ -145,6 +189,13 @@ export function initAppUpdater(): void {
         `ZenNotes ${info.version} is available. Download it from inside the app.`
       )
     )
+    if (notifiedAvailableVersion !== info.version) {
+      notifiedAvailableVersion = info.version
+      showNativeUpdateNotification(
+        'ZenNotes Update Available',
+        `ZenNotes ${info.version} is available. Click to open Settings and download it.`
+      )
+    }
   })
   updater.on('update-not-available', (info) => {
     lastInfo = info
@@ -166,6 +217,13 @@ export function initAppUpdater(): void {
         `ZenNotes ${info.version} is ready. Restart to install the update.`
       )
     )
+    if (notifiedDownloadedVersion !== info.version) {
+      notifiedDownloadedVersion = info.version
+      showNativeUpdateNotification(
+        'ZenNotes Update Ready',
+        `ZenNotes ${info.version} is downloaded and ready to install. Click to open Settings.`
+      )
+    }
   })
   updater.on('error', (error) => {
     setUpdateState(
@@ -185,15 +243,45 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
     nextStateFromInfo('checking', lastInfo, 'Checking GitHub releases for updates…')
   )
 
-  try {
-    await updater.checkForUpdates()
-  } catch (error) {
-    setUpdateState(
-      nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
-    )
+  for (let attempt = 1; attempt <= UPDATE_CHECK_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      await updater.checkForUpdates()
+      return getAppUpdateState()
+    } catch (error) {
+      const retryable = isRetryableUpdateError(error)
+      const hasAttemptsLeft = attempt < UPDATE_CHECK_MAX_ATTEMPTS
+      if (retryable && hasAttemptsLeft) {
+        setUpdateState(
+          nextStateFromInfo(
+            'checking',
+            lastInfo,
+            `GitHub update check hit a temporary server error. Retrying (${attempt + 1}/${UPDATE_CHECK_MAX_ATTEMPTS})…`
+          )
+        )
+        await sleep(UPDATE_CHECK_RETRY_DELAY_MS)
+        continue
+      }
+
+      setUpdateState(
+        nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
+      )
+      break
+    }
   }
 
   return getAppUpdateState()
+}
+
+export function scheduleBackgroundAppUpdateCheck(
+  delayMs: number = BACKGROUND_UPDATE_CHECK_DELAY_MS
+): void {
+  initAppUpdater()
+  if (!updater || backgroundCheckScheduled) return
+  backgroundCheckScheduled = true
+  startupCheckTimer = setTimeout(() => {
+    startupCheckTimer = null
+    void checkForAppUpdates()
+  }, Math.max(0, delayMs))
 }
 
 export async function downloadAppUpdate(): Promise<AppUpdateState> {

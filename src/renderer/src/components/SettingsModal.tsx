@@ -27,6 +27,10 @@ import {
 } from '../lib/keymaps'
 import { THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
+import {
+  DEFAULT_SYSTEM_FOLDER_LABELS,
+  getSystemFolderLabel
+} from '../lib/system-folder-labels'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import appPackage from '../../../../package.json'
 
@@ -201,6 +205,8 @@ export function SettingsModal(): JSX.Element {
   const setTextFont = useStore((s) => s.setTextFont)
   const monoFont = useStore((s) => s.monoFont)
   const setMonoFont = useStore((s) => s.setMonoFont)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const setSystemFolderLabel = useStore((s) => s.setSystemFolderLabel)
   const darkSidebar = useStore((s) => s.darkSidebar)
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null)
@@ -820,25 +826,64 @@ export function SettingsModal(): JSX.Element {
       description: 'Current vault location and root-folder controls.',
       keywords: ['folder', 'root', 'location', 'open vault', 'change'],
       content: (
-        <Section
-          title="Location"
-          description="ZenNotes reads markdown directly from the selected vault folder."
-        >
-          <div className="flex items-center justify-between gap-4 px-5 py-5">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-ink-900">Vault location</div>
-              <div className="mt-1 truncate text-xs text-ink-500">
-                {vault?.root ?? 'No vault selected'}
+        <div className="space-y-6">
+          <Section
+            title="Location"
+            description="ZenNotes reads markdown directly from the selected vault folder."
+          >
+            <div className="flex items-center justify-between gap-4 px-5 py-5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-900">Vault location</div>
+                <div className="mt-1 truncate text-xs text-ink-500">
+                  {vault?.root ?? 'No vault selected'}
+                </div>
               </div>
+              <button
+                onClick={() => void openVaultPicker()}
+                className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+              >
+                Change…
+              </button>
             </div>
-            <button
-              onClick={() => void openVaultPicker()}
-              className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
-            >
-              Change…
-            </button>
-          </div>
-        </Section>
+          </Section>
+
+          <Section
+            title="System Folders"
+            description="Customize how the built-in top-level folders are named in the UI. This changes labels only; the folders on disk stay `inbox`, `quick`, `archive`, and `trash`."
+          >
+            <TextInputRow
+              label="Inbox label"
+              description="Shown in the sidebar, breadcrumbs, commands, and note actions."
+              value={systemFolderLabels.inbox ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.inbox}
+              onChange={(next) => setSystemFolderLabel('inbox', next)}
+            />
+            <TextInputRow
+              label="Quick Notes label"
+              description="Display name for the quick-capture area."
+              value={systemFolderLabels.quick ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.quick}
+              onChange={(next) => setSystemFolderLabel('quick', next)}
+            />
+            <TextInputRow
+              label="Archive label"
+              description="Display name for cold-storage notes."
+              value={systemFolderLabels.archive ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.archive}
+              onChange={(next) => setSystemFolderLabel('archive', next)}
+            />
+            <TextInputRow
+              label="Trash label"
+              description="Display name for deleted-note recovery."
+              value={systemFolderLabels.trash ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.trash}
+              onChange={(next) => setSystemFolderLabel('trash', next)}
+            />
+            <InlineNote>
+              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
+            </InlineNote>
+          </Section>
+        </div>
       )
     },
     {
