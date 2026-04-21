@@ -4,10 +4,12 @@ import { EnsoLogo } from './EnsoLogo'
 
 export function EmptyVault(): JSX.Element {
   const openVaultPicker = useStore((s) => s.openVaultPicker)
+  const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const capabilities = window.zen.getCapabilities()
   const appInfo = window.zen.getAppInfo()
   const isServerVaultSetup =
     appInfo.runtime === 'web' && !capabilities.supportsLocalFilesystemPickers
+  const canConnectRemote = appInfo.runtime === 'desktop' && capabilities.supportsRemoteWorkspace
   const [appIconUrl, setAppIconUrl] = useState<string | null>(null)
 
   useEffect(() => {
@@ -45,13 +47,29 @@ export function EmptyVault(): JSX.Element {
               <code className="rounded bg-paper-200 px-1 py-0.5">ZENNOTES_VAULT_PATH</code>.
             </p>
           )}
+          {canConnectRemote && (
+            <p className="mt-2 text-xs text-ink-500">
+              You can open a local vault on this machine or connect the desktop app to a ZenNotes
+              server.
+            </p>
+          )}
         </div>
-        <button
-          onClick={() => void openVaultPicker()}
-          className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-paper-50 shadow-panel hover:bg-ink-800"
-        >
-          {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={() => void openVaultPicker()}
+            className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-paper-50 shadow-panel hover:bg-ink-800"
+          >
+            {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
+          </button>
+          {canConnectRemote && (
+            <button
+              onClick={() => void connectRemoteWorkspace()}
+              className="rounded-lg border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-900 shadow-panel hover:bg-paper-200"
+            >
+              Connect to ZenNotes Server
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

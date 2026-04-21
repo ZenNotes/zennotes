@@ -1,11 +1,14 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } from 'electron'
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IPC } from '@shared/ipc'
 import type {
   NoteFolder,
+  RemoteWorkspaceInfo,
+  ServerCapabilities,
   VaultChangeEvent,
   VaultInfo,
   VaultTextSearchBackendPreference,
@@ -41,6 +44,8 @@ import {
   searchVaultTextCapabilities,
   searchVaultText,
   setVaultSettings,
+  type PersistedRemoteWorkspaceConfig,
+  type PersistedRemoteWorkspaceProfile,
   type PersistedWindowState,
   updateConfig,
   unarchiveNote,
@@ -50,6 +55,7 @@ import {
 import { scanAllTasks, scanTasksForPath } from './tasks'
 import { VaultWatcher } from './watcher'
 import { renderTikz } from './tikz'
+import { RemoteServerClient } from './remote/server-client'
 import {
   getMcpClientStatuses,
   getMcpServerRuntime,
@@ -91,6 +97,12 @@ protocol.registerSchemesAsPrivileged([
 
 let mainWindow: BrowserWindow | null = null
 let currentVault: VaultInfo | null = null
+let currentWorkspaceMode: 'local' | 'remote' = 'local'
+let remoteWorkspaceConfig: PersistedRemoteWorkspaceConfig | null = null
+let currentRemoteWorkspaceProfileId: string | null = null
+let remoteWorkspaceClient: RemoteServerClient | null = null
+let remoteServerCapabilities: ServerCapabilities | null = null
+let stopRemoteVaultWatch: (() => void) | null = null
 const watcher = new VaultWatcher()
 const DEFAULT_WINDOW_WIDTH = 1280
 const DEFAULT_WINDOW_HEIGHT = 820
@@ -129,9 +141,24 @@ function decodeLocalAssetRequestPath(url: string): string | null {
   try {
     const parsed = new URL(url)
     if (parsed.protocol !== `${LOCAL_ASSET_SCHEME}:`) return null
+    if (parsed.hostname && parsed.hostname !== 'local') return null
     const encoded = parsed.searchParams.get('path')
     if (!encoded) return null
     return decodeURIComponent(encoded)
+  } catch {
+    return null
+  }
+}
+
+function decodeRemoteAssetRequest(url: string): { baseUrl: string; relPath: string } | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== `${LOCAL_ASSET_SCHEME}:`) return null
+    if (parsed.hostname !== 'remote') return null
+    const baseUrl = parsed.searchParams.get('baseUrl')?.trim()
+    const relPath = parsed.searchParams.get('path')?.trim()
+    if (!baseUrl || !relPath) return null
+    return { baseUrl, relPath }
   } catch {
     return null
   }
@@ -444,23 +471,317 @@ async function createWindow(): Promise<void> {
   }
 }
 
+function currentRemoteWorkspaceInfo(): RemoteWorkspaceInfo | null {
+  if (!remoteWorkspaceConfig) return null
+  return {
+    mode: currentWorkspaceMode,
+    baseUrl: remoteWorkspaceConfig.baseUrl,
+    authConfigured: Boolean(remoteWorkspaceConfig.authToken),
+    capabilities: remoteServerCapabilities,
+    profileId: currentRemoteWorkspaceProfileId
+  }
+}
+
+function normalizeRemoteBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, '')
+}
+
+function deriveRemoteWorkspaceProfileName(
+  input: {
+    id?: string
+    baseUrl: string
+    vaultPath?: string | null
+  },
+  existingProfiles: PersistedRemoteWorkspaceProfile[]
+): string {
+  const normalizedBaseUrl = normalizeRemoteBaseUrl(input.baseUrl)
+  let host = 'ZenNotes Server'
+  try {
+    const normalizedUrl = /^https?:\/\//i.test(normalizedBaseUrl)
+      ? normalizedBaseUrl
+      : `http://${normalizedBaseUrl}`
+    host = new URL(normalizedUrl).host || host
+  } catch {
+    if (normalizedBaseUrl) host = normalizedBaseUrl
+  }
+
+  const trimmedVaultPath = input.vaultPath?.trim() || null
+  let baseName = host
+  if (trimmedVaultPath) {
+    const normalizedVaultPath = trimmedVaultPath.replace(/\\/g, '/').replace(/\/+$/, '')
+    const vaultName = path.posix.basename(normalizedVaultPath)
+    if (vaultName && vaultName !== '.' && vaultName !== '/') {
+      baseName = `${vaultName} (${host})`
+    }
+  }
+
+  const otherProfiles = existingProfiles.filter((entry) => entry.id !== input.id)
+  if (!otherProfiles.some((entry) => entry.name === baseName)) return baseName
+
+  let suffix = 2
+  while (otherProfiles.some((entry) => entry.name === `${baseName} ${suffix}`)) suffix += 1
+  return `${baseName} ${suffix}`
+}
+
+function profileMatchesConnection(
+  profile: PersistedRemoteWorkspaceProfile,
+  connection: PersistedRemoteWorkspaceConfig,
+  vaultPath: string | null
+): boolean {
+  return (
+    normalizeRemoteBaseUrl(profile.baseUrl) === normalizeRemoteBaseUrl(connection.baseUrl) &&
+    (profile.authToken ?? null) === (connection.authToken ?? null) &&
+    (profile.vaultPath ?? null) === (vaultPath ?? null)
+  )
+}
+
+function findRemoteProfileById(
+  profiles: PersistedRemoteWorkspaceProfile[],
+  id: string | null
+): PersistedRemoteWorkspaceProfile | null {
+  if (!id) return null
+  return profiles.find((entry) => entry.id === id) ?? null
+}
+
+function broadcastVaultChange(ev: VaultChangeEvent): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send(IPC.VAULT_ON_CHANGE, ev)
+  }
+}
+
+function stopRemoteWatch(): void {
+  if (stopRemoteVaultWatch) {
+    stopRemoteVaultWatch()
+    stopRemoteVaultWatch = null
+  }
+}
+
+function startRemoteWatch(client: RemoteServerClient, capabilities: ServerCapabilities): void {
+  stopRemoteWatch()
+  if (!capabilities.supportsWatch) return
+  stopRemoteVaultWatch = client.watchVaultChanges((ev) => {
+    broadcastVaultChange(ev)
+  })
+}
+
 async function setVault(root: string): Promise<VaultInfo> {
   await ensureVaultLayout(root)
   currentVault = vaultInfo(root)
-  await updateConfig((cfg) => ({ ...cfg, vaultRoot: root }))
+  currentWorkspaceMode = 'local'
+  remoteWorkspaceClient = null
+  currentRemoteWorkspaceProfileId = null
+  remoteServerCapabilities = null
+  stopRemoteWatch()
+  await updateConfig((cfg) => ({
+    ...cfg,
+    workspaceMode: 'local',
+    vaultRoot: root,
+    remoteWorkspaceProfileId: null
+  }))
   watcher.start(root, (ev: VaultChangeEvent) => {
-    // Broadcast to every open window — the main window, all floating
-    // note windows — so each can refresh its in-memory state.
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC.VAULT_ON_CHANGE, ev)
-    }
+    broadcastVaultChange(ev)
   })
   return currentVault
+}
+
+async function setRemoteWorkspace(
+  baseUrl: string,
+  authToken?: string | null,
+  options: { persist?: boolean; profileId?: string | null; vaultPath?: string | null } = {}
+): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
+  const client = new RemoteServerClient({ baseUrl, authToken })
+  const capabilities = await client.getCapabilities()
+  let vault = await client.getCurrentVault()
+  const preferredVaultPath = options.vaultPath?.trim() || null
+  if (
+    capabilities.supportsVaultSelection &&
+    preferredVaultPath &&
+    vault?.root !== preferredVaultPath
+  ) {
+    vault = await client.selectVaultPath(preferredVaultPath)
+  }
+
+  watcher.stop()
+  currentWorkspaceMode = 'remote'
+  currentVault = vault
+  remoteWorkspaceClient = client
+  remoteServerCapabilities = capabilities
+  currentRemoteWorkspaceProfileId = options.profileId ?? null
+  remoteWorkspaceConfig = {
+    baseUrl: client.baseUrl,
+    authToken: client.authToken
+  }
+  startRemoteWatch(client, capabilities)
+
+  if (options.persist !== false) {
+    await updateConfig((cfg) => ({
+      ...cfg,
+      workspaceMode: 'remote',
+      remoteWorkspace: remoteWorkspaceConfig,
+      remoteWorkspaceProfileId: currentRemoteWorkspaceProfileId
+    }))
+  }
+
+  return { vault, capabilities }
+}
+
+async function disconnectRemoteWorkspace(): Promise<VaultInfo | null> {
+  const cfg = await loadConfig()
+  stopRemoteWatch()
+  remoteWorkspaceClient = null
+  currentRemoteWorkspaceProfileId = null
+  remoteServerCapabilities = null
+  currentWorkspaceMode = 'local'
+
+  if (cfg.vaultRoot) {
+    return await setVault(cfg.vaultRoot)
+  }
+
+  watcher.stop()
+  currentVault = null
+  await updateConfig((current) => ({
+    ...current,
+    workspaceMode: 'local',
+    remoteWorkspaceProfileId: null
+  }))
+  return null
+}
+
+async function listRemoteWorkspaceProfiles(): Promise<PersistedRemoteWorkspaceProfile[]> {
+  const cfg = await loadConfig()
+  return cfg.remoteWorkspaceProfiles
+}
+
+async function saveRemoteWorkspaceProfile(
+  input: {
+    id?: string
+    name?: string
+    baseUrl: string
+    authToken?: string | null
+    vaultPath?: string | null
+    lastConnectedAt?: number | null
+  }
+): Promise<PersistedRemoteWorkspaceProfile> {
+  let normalized: PersistedRemoteWorkspaceProfile | null = null
+  await updateConfig((cfg) => {
+    const normalizedId = input.id?.trim() || randomUUID()
+    const normalizedBaseUrl = normalizeRemoteBaseUrl(input.baseUrl)
+    const trimmedName = input.name?.trim() || ''
+    const normalizedVaultPath = input.vaultPath?.trim() || null
+    if (!normalizedId || !normalizedBaseUrl) {
+      throw new Error('Remote workspace profiles need a server URL.')
+    }
+    const nextNormalized: PersistedRemoteWorkspaceProfile = {
+      id: normalizedId,
+      name:
+        trimmedName ||
+        deriveRemoteWorkspaceProfileName(
+          {
+            id: normalizedId,
+            baseUrl: normalizedBaseUrl,
+            vaultPath: normalizedVaultPath
+          },
+          cfg.remoteWorkspaceProfiles
+        ),
+      baseUrl: normalizedBaseUrl,
+      authToken: input.authToken?.trim() || null,
+      vaultPath: normalizedVaultPath,
+      lastConnectedAt:
+        typeof input.lastConnectedAt === 'number' && Number.isFinite(input.lastConnectedAt)
+          ? input.lastConnectedAt
+          : null
+    }
+    normalized = nextNormalized
+    const others = cfg.remoteWorkspaceProfiles.filter((entry) => entry.id !== nextNormalized.id)
+    const nextProfiles = [...others, nextNormalized].sort((a, b) => a.name.localeCompare(b.name))
+    let nextCurrentProfileId = cfg.remoteWorkspaceProfileId
+    if (remoteWorkspaceConfig) {
+      if (
+        profileMatchesConnection(nextNormalized, remoteWorkspaceConfig, currentVault?.root ?? null)
+      ) {
+        nextCurrentProfileId = nextNormalized.id
+      } else if (cfg.remoteWorkspaceProfileId === nextNormalized.id) {
+        nextCurrentProfileId = null
+      }
+    }
+    currentRemoteWorkspaceProfileId = nextCurrentProfileId
+    return {
+      ...cfg,
+      remoteWorkspaceProfiles: nextProfiles,
+      remoteWorkspaceProfileId: nextCurrentProfileId
+    }
+  })
+  if (!normalized) {
+    throw new Error('Remote workspace profile could not be saved.')
+  }
+  return normalized
+}
+
+async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
+  await updateConfig((cfg) => {
+    const deletedProfile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, id)
+    const nextProfiles = cfg.remoteWorkspaceProfiles.filter((entry) => entry.id !== id)
+    const nextCurrentProfileId =
+      cfg.remoteWorkspaceProfileId === id ? null : cfg.remoteWorkspaceProfileId
+    const shouldClearLegacyRemoteWorkspace =
+      !!deletedProfile &&
+      !!cfg.remoteWorkspace &&
+      normalizeRemoteBaseUrl(cfg.remoteWorkspace.baseUrl) ===
+        normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
+      (cfg.remoteWorkspace.authToken ?? null) === (deletedProfile.authToken ?? null) &&
+      !nextProfiles.some(
+        (entry) =>
+          normalizeRemoteBaseUrl(entry.baseUrl) === normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
+          (entry.authToken ?? null) === (deletedProfile.authToken ?? null)
+      )
+    currentRemoteWorkspaceProfileId = nextCurrentProfileId
+    return {
+      ...cfg,
+      remoteWorkspace: shouldClearLegacyRemoteWorkspace ? null : cfg.remoteWorkspace,
+      remoteWorkspaceProfiles: nextProfiles,
+      remoteWorkspaceProfileId: nextCurrentProfileId
+    }
+  })
+}
+
+async function connectRemoteWorkspaceProfile(
+  profileId: string
+): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
+  const cfg = await loadConfig()
+  const profile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, profileId)
+  if (!profile) {
+    throw new Error('That saved remote workspace no longer exists.')
+  }
+  const result = await setRemoteWorkspace(profile.baseUrl, profile.authToken, {
+    profileId: profile.id,
+    vaultPath: profile.vaultPath
+  })
+  const connectedAt = Date.now()
+  await updateConfig((current) => ({
+    ...current,
+    remoteWorkspaceProfileId: profile.id,
+    remoteWorkspaceProfiles: current.remoteWorkspaceProfiles.map((entry) =>
+      entry.id === profile.id ? { ...entry, lastConnectedAt: connectedAt } : entry
+    )
+  }))
+  currentRemoteWorkspaceProfileId = profile.id
+  return result
 }
 
 function requireVault(): VaultInfo {
   if (!currentVault) throw new Error('No vault is open')
   return currentVault
+}
+
+function isRemoteWorkspaceActive(): boolean {
+  return currentWorkspaceMode === 'remote' && remoteWorkspaceClient != null
+}
+
+function requireRemoteWorkspaceClient(): RemoteServerClient {
+  if (!isRemoteWorkspaceActive() || !remoteWorkspaceClient) {
+    throw new Error('No remote workspace is connected')
+  }
+  return remoteWorkspaceClient
 }
 
 /**
@@ -603,9 +924,45 @@ function registerIpc(): void {
     installAppUpdate()
   })
 
+  ipcMain.handle(IPC.WORKSPACE_GET_INFO, async () => currentRemoteWorkspaceInfo())
+  ipcMain.handle(IPC.WORKSPACE_CONNECT_REMOTE, async (_e, baseUrl: string, authToken?: string | null) => {
+    return await setRemoteWorkspace(baseUrl, authToken)
+  })
+  ipcMain.handle(IPC.WORKSPACE_DISCONNECT_REMOTE, async () => {
+    return await disconnectRemoteWorkspace()
+  })
+  ipcMain.handle(IPC.WORKSPACE_LIST_REMOTE_PROFILES, async () => {
+    return await listRemoteWorkspaceProfiles()
+  })
+  ipcMain.handle(IPC.WORKSPACE_SAVE_REMOTE_PROFILE, async (_e, input) => {
+    return await saveRemoteWorkspaceProfile(input)
+  })
+  ipcMain.handle(IPC.WORKSPACE_DELETE_REMOTE_PROFILE, async (_e, id: string) => {
+    await deleteRemoteWorkspaceProfile(id)
+  })
+  ipcMain.handle(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, async (_e, id: string) => {
+    return await connectRemoteWorkspaceProfile(id)
+  })
+
   ipcMain.handle(IPC.VAULT_GET_CURRENT, async () => {
     if (currentVault) return currentVault
     const cfg = await loadConfig()
+    remoteWorkspaceConfig = cfg.remoteWorkspace
+    currentRemoteWorkspaceProfileId = cfg.remoteWorkspaceProfileId
+    if (cfg.workspaceMode === 'remote' && cfg.remoteWorkspace?.baseUrl) {
+      const remoteProfile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, cfg.remoteWorkspaceProfileId)
+      try {
+        const result = await setRemoteWorkspace(cfg.remoteWorkspace.baseUrl, cfg.remoteWorkspace.authToken, {
+          persist: false,
+          profileId: remoteProfile?.id ?? cfg.remoteWorkspaceProfileId,
+          vaultPath: remoteProfile?.vaultPath ?? null
+        })
+        return result.vault
+      } catch {
+        currentRemoteWorkspaceProfileId = null
+        return null
+      }
+    }
     if (cfg.vaultRoot) {
       try {
         return await setVault(cfg.vaultRoot)
@@ -626,47 +983,81 @@ function registerIpc(): void {
     return await setVault(result.filePaths[0])
   })
 
+  ipcMain.handle(IPC.VAULT_SELECT_PATH, async (_e, targetPath: string) => {
+    const client = requireRemoteWorkspaceClient()
+    const vault = await client.selectVaultPath(targetPath)
+    currentVault = vault
+    if (remoteServerCapabilities) {
+      startRemoteWatch(client, remoteServerCapabilities)
+    }
+    return vault
+  })
+
+  ipcMain.handle(IPC.VAULT_BROWSE_SERVER_DIRECTORIES, async (_e, targetPath = '') => {
+    const client = requireRemoteWorkspaceClient()
+    return await client.browseDirectories(targetPath)
+  })
+
   ipcMain.handle(IPC.VAULT_GET_SETTINGS, async () => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().getVaultSettings()
+    }
     const v = requireVault()
     return await getVaultSettings(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_SET_SETTINGS, async (_e, next) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().setVaultSettings(next)
+    }
     const v = requireVault()
     return await setVaultSettings(v.root, next)
   })
 
   ipcMain.handle(IPC.VAULT_LIST_NOTES, async () => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listNotes()
     const v = requireVault()
     return await listNotes(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_LIST_FOLDERS, async () => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listFolders()
     const v = requireVault()
     return await listFolders(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_LIST_ASSETS, async () => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listAssets()
     const v = requireVault()
     return await listAssets(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_HAS_ASSETS_DIR, async () => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().hasAssetsDir()
     const v = requireVault()
     return await hasAssetsDir(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_GENERATE_DEMO_TOUR, async () => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().generateDemoTour()
+    }
     const v = requireVault()
     return await generateDemoTour(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_REMOVE_DEMO_TOUR, async () => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().removeDemoTour()
+    }
     const v = requireVault()
     return await removeDemoTour(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().getVaultTextSearchCapabilities()
+    }
     return await searchVaultTextCapabilities(paths)
   })
 
@@ -678,27 +1069,38 @@ function registerIpc(): void {
       backend: VaultTextSearchBackendPreference = 'auto',
       paths: VaultTextSearchToolPaths = {}
     ) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().searchVaultText(query, backend, paths)
+      }
       const v = requireVault()
       return await searchVaultText(v.root, query, backend, paths)
     }
   )
 
   ipcMain.handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().readNote(relPath)
     const v = requireVault()
     return await readNote(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_SCAN_TASKS, async () => {
+    if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().scanTasks()
     const v = requireVault()
     return await scanAllTasks(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_SCAN_TASKS_FOR, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().scanTasksForPath(relPath)
+    }
     const v = requireVault()
     return await scanTasksForPath(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().writeNote(relPath, body)
+    }
     const v = requireVault()
     return await writeNote(v.root, relPath, body)
   })
@@ -706,52 +1108,84 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_CREATE_NOTE,
     async (_e, folder: NoteFolder, title?: string, subpath = '') => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().createNote(folder, title, subpath)
+      }
       const v = requireVault()
       return await createNote(v.root, folder, title, subpath)
     }
   )
 
   ipcMain.handle(IPC.VAULT_RENAME_NOTE, async (_e, relPath: string, nextTitle: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().renameNote(relPath, nextTitle)
+    }
     const v = requireVault()
     return await renameNote(v.root, relPath, nextTitle)
   })
 
   ipcMain.handle(IPC.VAULT_DELETE_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      await requireRemoteWorkspaceClient().deleteNote(relPath)
+      return
+    }
     const v = requireVault()
     await deleteNote(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_MOVE_TO_TRASH, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().moveToTrash(relPath)
+    }
     const v = requireVault()
     return await moveToTrash(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_RESTORE_FROM_TRASH, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().restoreFromTrash(relPath)
+    }
     const v = requireVault()
     return await restoreFromTrash(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_EMPTY_TRASH, async () => {
+    if (isRemoteWorkspaceActive()) {
+      await requireRemoteWorkspaceClient().emptyTrash()
+      return
+    }
     const v = requireVault()
     await emptyTrash(v.root)
   })
 
   ipcMain.handle(IPC.VAULT_ARCHIVE_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().archiveNote(relPath)
+    }
     const v = requireVault()
     return await archiveNote(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_UNARCHIVE_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().unarchiveNote(relPath)
+    }
     const v = requireVault()
     return await unarchiveNote(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_DUPLICATE_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      return await requireRemoteWorkspaceClient().duplicateNote(relPath)
+    }
     const v = requireVault()
     return await duplicateNote(v.root, relPath)
   })
 
   ipcMain.handle(IPC.VAULT_REVEAL_NOTE, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Reveal in file manager is only available for local vaults.')
+    }
     const v = requireVault()
     const abs = absolutePath(v.root, relPath)
     shell.showItemInFolder(abs)
@@ -760,6 +1194,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_MOVE_NOTE,
     async (_e, relPath: string, targetFolder: NoteFolder, targetSubpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().moveNote(relPath, targetFolder, targetSubpath)
+      }
       const v = requireVault()
       return await moveNote(v.root, relPath, targetFolder, targetSubpath)
     }
@@ -768,6 +1205,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_IMPORT_FILES,
     async (_e, notePath: string, sourcePaths: string[]) => {
+      if (isRemoteWorkspaceActive()) {
+        throw new Error('Desktop file import is only available for local vaults right now.')
+      }
       const v = requireVault()
       return await importFiles(v.root, notePath, sourcePaths)
     }
@@ -776,6 +1216,10 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_CREATE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        await requireRemoteWorkspaceClient().createFolder(folder, subpath)
+        return
+      }
       const v = requireVault()
       await createFolder(v.root, folder, subpath)
     }
@@ -784,6 +1228,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_RENAME_FOLDER,
     async (_e, folder: NoteFolder, oldSubpath: string, newSubpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().renameFolder(folder, oldSubpath, newSubpath)
+      }
       const v = requireVault()
       return await renameFolder(v.root, folder, oldSubpath, newSubpath)
     }
@@ -792,6 +1239,10 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_DELETE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        await requireRemoteWorkspaceClient().deleteFolder(folder, subpath)
+        return
+      }
       const v = requireVault()
       await deleteFolder(v.root, folder, subpath)
     }
@@ -800,6 +1251,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_DUPLICATE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().duplicateFolder(folder, subpath)
+      }
       const v = requireVault()
       return await duplicateFolder(v.root, folder, subpath)
     }
@@ -808,6 +1262,9 @@ function registerIpc(): void {
   ipcMain.handle(
     IPC.VAULT_REVEAL_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
+      if (isRemoteWorkspaceActive()) {
+        throw new Error('Reveal in file manager is only available for local vaults.')
+      }
       const v = requireVault()
       const abs = await folderAbsolutePath(v.root, folder, subpath)
       await shell.openPath(abs)
@@ -815,6 +1272,9 @@ function registerIpc(): void {
   )
 
   ipcMain.handle(IPC.VAULT_REVEAL_ASSETS_DIR, async () => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Reveal in file manager is only available for local vaults.')
+    }
     const v = requireVault()
     await shell.openPath(v.root)
   })
@@ -1171,6 +1631,19 @@ async function runMenuUpdateCheck(): Promise<void> {
 
 app.whenReady().then(async () => {
   protocol.handle(LOCAL_ASSET_SCHEME, async (request) => {
+    const remote = decodeRemoteAssetRequest(request.url)
+    if (remote) {
+      const client = remoteWorkspaceClient
+      if (!client || client.baseUrl !== remote.baseUrl) {
+        throw new Error(`No remote workspace client for ${remote.baseUrl}`)
+      }
+      const response = await fetch(client.remoteAssetUrl(remote.relPath))
+      if (!response.ok) {
+        throw new Error(`Remote asset request failed (${response.status}) for ${remote.relPath}`)
+      }
+      return response
+    }
+
     const abs = decodeLocalAssetRequestPath(request.url)
     if (!abs || !isPathInsideVault(abs)) {
       throw new Error(`Invalid local asset URL: ${request.url}`)

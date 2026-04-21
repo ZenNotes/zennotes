@@ -375,8 +375,9 @@ export const Preview = memo(function Preview({
   } | null>(null);
   const [expandedDiagram, setExpandedDiagram] =
     useState<ExpandedDiagram | null>(null);
+  const workspaceMode = useStore((s) => s.workspaceMode);
   const canRevealInFileManager =
-    window.zen.getAppInfo().runtime === "desktop";
+    window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
 
   const html = useMemo(() => renderMarkdown(markdown), [markdown]);
   const notesRef = useRef(notes);

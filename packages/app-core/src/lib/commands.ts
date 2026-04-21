@@ -257,9 +257,12 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.reveal',
-      title: 'Reveal Note in Finder',
+      title: 'Reveal Note in File Manager',
       category: 'Note',
-      when: () => !!getState().activeNote,
+      when: () =>
+        !!getState().activeNote &&
+        getState().workspaceMode !== 'remote' &&
+        window.zen.getAppInfo().runtime === 'desktop',
       run: async () => {
         const p = getState().activeNote?.path
         if (p) await window.zen.revealNote(p)
@@ -1168,17 +1171,65 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.vault.pick',
-      title: 'Open Vault…',
-      category: 'App',
+      title:
+        window.zen.getCapabilities().supportsRemoteWorkspace &&
+        window.zen.getAppInfo().runtime === 'desktop'
+          ? 'Open Local Vault…'
+          : 'Open Vault…',
+      category: 'Vault',
+      keywords: 'vault local open folder workspace',
       run: () => getState().openVaultPicker()
+    },
+    {
+      id: 'app.workspace.remote',
+      title: 'Connect to Remote Vault…',
+      category: 'Vault',
+      keywords: 'vault remote server workspace self-hosted',
+      when: () =>
+        window.zen.getAppInfo().runtime === 'desktop' &&
+        window.zen.getCapabilities().supportsRemoteWorkspace,
+      run: () => getState().connectRemoteWorkspace()
+    },
+    {
+      id: 'app.workspace.local',
+      title: 'Switch to Local Vault',
+      category: 'Vault',
+      keywords: 'vault local workspace disconnect return',
+      when: () =>
+        window.zen.getAppInfo().runtime === 'desktop' &&
+        getState().workspaceMode === 'remote',
+      run: () => getState().disconnectRemoteWorkspace()
     },
     {
       id: 'app.assets.reveal',
       title: 'Reveal Vault Root',
       category: 'App',
+      when: () =>
+        getState().workspaceMode !== 'remote' &&
+        window.zen.getAppInfo().runtime === 'desktop',
       run: () => getState().revealAssetsDir()
     }
   )
+
+  if (
+    window.zen.getAppInfo().runtime === 'desktop' &&
+    window.zen.getCapabilities().supportsRemoteWorkspace
+  ) {
+    const { remoteWorkspaceProfiles } = getState()
+    for (const profile of remoteWorkspaceProfiles) {
+      const isCurrent = getState().remoteWorkspaceInfo?.profileId === profile.id
+      cmds.push({
+        id: `app.workspace.remote.profile.${profile.id}`,
+        title: `${isCurrent ? 'Remote Vault (Connected):' : 'Remote Vault:'} ${profile.name}`,
+        category: 'Vault',
+        keywords: `${profile.name} ${profile.baseUrl} ${profile.vaultPath ?? ''} vault remote server workspace saved profile`,
+        run: () => {
+          if (isCurrent) return
+          return getState().connectRemoteWorkspaceProfile(profile.id)
+        }
+      })
+    }
+  }
 
   // Filter out commands whose `when` guard rejects them.
   if (options?.includeUnavailable) return cmds

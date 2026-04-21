@@ -7,6 +7,10 @@ import type {
   NoteFolder,
   NoteMeta,
   DirectoryBrowseResult,
+  RemoteWorkspaceInfo,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
+  ServerCapabilities,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -31,6 +35,7 @@ export interface ZenCapabilities {
   supportsFloatingWindows: boolean
   supportsLocalFilesystemPickers: boolean
   supportsDesktopNotifications: boolean
+  supportsRemoteWorkspace: boolean
 }
 
 export interface ZenAppInfo {
@@ -58,6 +63,19 @@ export interface ZenBridge {
   checkForAppUpdatesWithUi(): Promise<void>
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdate(): Promise<void>
+  getServerCapabilities(): Promise<ServerCapabilities | null>
+  getRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null>
+  connectRemoteWorkspace(
+    baseUrl: string,
+    authToken?: string | null
+  ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }>
+  disconnectRemoteWorkspace(): Promise<VaultInfo | null>
+  listRemoteWorkspaceProfiles(): Promise<RemoteWorkspaceProfile[]>
+  saveRemoteWorkspaceProfile(input: RemoteWorkspaceProfileInput): Promise<RemoteWorkspaceProfile>
+  deleteRemoteWorkspaceProfile(id: string): Promise<void>
+  connectRemoteWorkspaceProfile(
+    id: string
+  ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }>
 
   getCurrentVault(): Promise<VaultInfo | null>
   pickVault(): Promise<VaultInfo | null>

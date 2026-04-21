@@ -34,6 +34,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
+
       - name: Install dependencies
         run: npm ci
 

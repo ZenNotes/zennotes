@@ -251,6 +251,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
@@ -1118,7 +1119,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       ]
     }
 
-    return [
+    const items: ContextMenuItem[] = [
       { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
       {
         label: 'Close Others',
@@ -1167,10 +1168,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         onSelect: async () => {
           await window.zen.openNoteWindow(path)
         }
-      },
-      { label: 'Reveal in Finder', onSelect: async () => window.zen.revealNote(path) }
+      }
     ]
-  }, [tabMenu, tabs, pinnedTabs, paneId, closeTabInPane, splitPaneWithTab, toggleTabPin])
+    if (window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote') {
+      items.push({
+        label: 'Reveal in File Manager',
+        onSelect: async () => window.zen.revealNote(path)
+      })
+    }
+    return items
+  }, [tabMenu, tabs, pinnedTabs, paneId, closeTabInPane, splitPaneWithTab, toggleTabPin, workspaceMode])
 
   const renderTab = useCallback(
     (tab: {

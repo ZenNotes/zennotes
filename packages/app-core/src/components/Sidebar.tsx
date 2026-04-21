@@ -127,10 +127,12 @@ export function Sidebar(): JSX.Element {
   const tabsEnabled = useStore((s) => s.tabsEnabled);
   const openNoteInTab = useStore((s) => s.openNoteInTab);
   const systemFolderLabels = useStore((s) => s.systemFolderLabels);
+  const workspaceMode = useStore((s) => s.workspaceMode);
   const moveNoteAction = useStore((s) => s.moveNote);
   const renameNote = useStore((s) => s.renameNote);
   const { prompt, modal: promptModal } = usePrompt();
-  const canRevealInFileManager = window.zen.getAppInfo().runtime === "desktop";
+  const canRevealInFileManager =
+    window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels],
@@ -504,12 +506,14 @@ export function Sidebar(): JSX.Element {
     }
 
     items.push({ kind: "separator" });
-    items.push({
-      label: "Reveal in Finder",
-      onSelect: async () => {
-        await revealFolderAction(folder, subpath);
-      },
-    });
+    if (canRevealInFileManager) {
+      items.push({
+        label: "Reveal in File Manager",
+        onSelect: async () => {
+          await revealFolderAction(folder, subpath);
+        },
+      });
+    }
     items.push({
       label: "Copy Path",
       onSelect: async () => {
@@ -593,6 +597,7 @@ export function Sidebar(): JSX.Element {
     renameFolderAction,
     deleteFolderAction,
     duplicateFolderAction,
+    canRevealInFileManager,
     revealFolderAction,
     refreshNotes,
     selectedPath,
@@ -686,12 +691,14 @@ export function Sidebar(): JSX.Element {
         await window.zen.openNoteWindow(n.path);
       },
     });
-    items.push({
-      label: "Reveal in Finder",
-      onSelect: async () => {
-        await window.zen.revealNote(n.path);
-      },
-    });
+    if (canRevealInFileManager) {
+      items.push({
+        label: "Reveal in File Manager",
+        onSelect: async () => {
+          await window.zen.revealNote(n.path);
+        },
+      });
+    }
     items.push({ kind: "separator" });
     if (n.folder === "inbox" || n.folder === "quick") {
       items.push({
@@ -767,6 +774,7 @@ export function Sidebar(): JSX.Element {
     prompt,
     renameNote,
     moveNoteAction,
+    canRevealInFileManager,
     tabsEnabled,
     openNoteInTab,
   ]);
@@ -1394,7 +1402,7 @@ export function Sidebar(): JSX.Element {
         className="mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
         style={{ borderTop: "1px solid var(--glass-stroke)" }}
       >
-        {hasAssetsDir && (
+        {hasAssetsDir && canRevealInFileManager && (
           <SidebarFooterAction
             icon={<FolderIcon open={false} />}
             label="Files"
@@ -1406,7 +1414,7 @@ export function Sidebar(): JSX.Element {
             sidebarData={{ type: "assets" }}
           />
         )}
-        {!hasAssetsDir && <div />}
+        {(!hasAssetsDir || !canRevealInFileManager) && <div />}
         <SidebarFooterAction
           icon={<DocumentIcon />}
           label="Help"

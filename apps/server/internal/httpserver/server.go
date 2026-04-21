@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -48,6 +49,12 @@ func (s *Server) currentWatcher() *watcher.Watcher {
 	return s.Watcher
 }
 
+func (s *Server) currentConfig() config.Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Config
+}
+
 func (s *Server) switchVaultRoot(nextPath string) (*vault.Vault, error) {
 	nextVault, err := vault.New(nextPath)
 	if err != nil {
@@ -84,48 +91,24 @@ func (s *Server) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/healthz", s.healthz)
 		r.Get("/version", s.version)
+		r.Get("/capabilities", s.capabilities)
 		r.Get("/platform", s.platform)
-		r.Get("/vault", s.vaultInfo)
-		r.Get("/vault/settings", s.vaultSettings)
-		r.Post("/vault/settings", s.setVaultSettings)
-		r.Post("/vault/select", s.selectVault)
-		r.Get("/fs/browse", s.browseDirectories)
 
-		r.Get("/notes", s.listNotes)
-		r.Get("/folders", s.listFolders)
-		r.Get("/assets", s.listAssets)
-		r.Get("/assets/exists", s.assetsExists)
-		r.Get("/assets/raw", s.rawAsset)
-		r.Post("/assets/upload", s.uploadAsset)
+		r.Group(func(r chi.Router) {
+			r.Use(s.requireAuth)
+			s.registerProtectedRoutes(r)
+		})
+	})
 
-		r.Get("/notes/read", s.readNote)
-		r.Post("/notes/write", s.writeNote)
-		r.Post("/notes/create", s.createNote)
-		r.Post("/notes/rename", s.renameNote)
-		r.Post("/notes/delete", s.deleteNote)
-		r.Post("/notes/trash", s.trashNote)
-		r.Post("/notes/restore", s.restoreNote)
-		r.Post("/notes/empty-trash", s.emptyTrash)
-		r.Post("/notes/archive", s.archiveNote)
-		r.Post("/notes/unarchive", s.unarchiveNote)
-		r.Post("/notes/duplicate", s.duplicateNote)
-		r.Post("/notes/move", s.moveNote)
-
-		r.Post("/folders/create", s.createFolder)
-		r.Post("/folders/rename", s.renameFolder)
-		r.Post("/folders/delete", s.deleteFolder)
-		r.Post("/folders/duplicate", s.duplicateFolder)
-
-		r.Get("/search/capabilities", s.searchCapabilities)
-		r.Get("/search/text", s.searchText)
-
-		r.Get("/tasks", s.allTasks)
-		r.Get("/tasks/for", s.tasksFor)
-
-		r.Post("/demo/generate", s.demoGenerate)
-		r.Post("/demo/remove", s.demoRemove)
-
-		r.Get("/watch", s.watchWS)
+	// Legacy root-level API compatibility. Keep this around so the web client
+	// still works during partial restarts or when an older bundle is cached.
+	r.Get("/healthz", s.healthz)
+	r.Get("/version", s.version)
+	r.Get("/capabilities", s.capabilities)
+	r.Get("/platform", s.platform)
+	r.Group(func(r chi.Router) {
+		r.Use(s.requireAuth)
+		s.registerProtectedRoutes(r)
 	})
 
 	// Static / PWA fallback.
@@ -133,6 +116,50 @@ func (s *Server) Router() http.Handler {
 		r.Get("/*", s.serveStatic)
 	}
 	return r
+}
+
+func (s *Server) registerProtectedRoutes(r chi.Router) {
+	r.Get("/vault", s.vaultInfo)
+	r.Get("/vault/settings", s.vaultSettings)
+	r.Post("/vault/settings", s.setVaultSettings)
+	r.Post("/vault/select", s.selectVault)
+	r.Get("/fs/browse", s.browseDirectories)
+
+	r.Get("/notes", s.listNotes)
+	r.Get("/folders", s.listFolders)
+	r.Get("/assets", s.listAssets)
+	r.Get("/assets/exists", s.assetsExists)
+	r.Get("/assets/raw", s.rawAsset)
+	r.Post("/assets/upload", s.uploadAsset)
+
+	r.Get("/notes/read", s.readNote)
+	r.Post("/notes/write", s.writeNote)
+	r.Post("/notes/create", s.createNote)
+	r.Post("/notes/rename", s.renameNote)
+	r.Post("/notes/delete", s.deleteNote)
+	r.Post("/notes/trash", s.trashNote)
+	r.Post("/notes/restore", s.restoreNote)
+	r.Post("/notes/empty-trash", s.emptyTrash)
+	r.Post("/notes/archive", s.archiveNote)
+	r.Post("/notes/unarchive", s.unarchiveNote)
+	r.Post("/notes/duplicate", s.duplicateNote)
+	r.Post("/notes/move", s.moveNote)
+
+	r.Post("/folders/create", s.createFolder)
+	r.Post("/folders/rename", s.renameFolder)
+	r.Post("/folders/delete", s.deleteFolder)
+	r.Post("/folders/duplicate", s.duplicateFolder)
+
+	r.Get("/search/capabilities", s.searchCapabilities)
+	r.Get("/search/text", s.searchText)
+
+	r.Get("/tasks", s.allTasks)
+	r.Get("/tasks/for", s.tasksFor)
+
+	r.Post("/demo/generate", s.demoGenerate)
+	r.Post("/demo/remove", s.demoRemove)
+
+	r.Get("/watch", s.watchWS)
 }
 
 func corsAllowDev(next http.Handler) http.Handler {
@@ -149,6 +176,40 @@ func corsAllowDev(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func platformName() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return "darwin"
+	case "windows":
+		return "win32"
+	default:
+		return "linux"
+	}
+}
+
+func (s *Server) requireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.currentConfig()
+		expected := strings.TrimSpace(cfg.AuthToken)
+		if expected == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if provided == "" {
+			provided = strings.TrimSpace(r.URL.Query().Get("authToken"))
+		}
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		w.Header().Set("WWW-Authenticate", `Bearer realm="ZenNotes"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	})
 }
 
@@ -186,17 +247,20 @@ func (s *Server) version(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
+	cfg := s.currentConfig()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version":                   "0.1.0-web",
+		"platform":                  platformName(),
+		"authRequired":              strings.TrimSpace(cfg.AuthToken) != "",
+		"supportsVaultSelection":    true,
+		"supportsDirectoryBrowsing": true,
+		"supportsWatch":             true,
+	})
+}
+
 func (s *Server) platform(w http.ResponseWriter, _ *http.Request) {
-	plat := "linux"
-	switch runtime.GOOS {
-	case "darwin":
-		plat = "darwin"
-	case "windows":
-		plat = "win32"
-	case "linux":
-		plat = "linux"
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"platform": plat})
+	writeJSON(w, http.StatusOK, map[string]string{"platform": platformName()})
 }
 
 func (s *Server) vaultInfo(w http.ResponseWriter, _ *http.Request) {
@@ -261,9 +325,9 @@ type directoryBrowseShortcut struct {
 }
 
 type directoryBrowseResult struct {
-	CurrentPath string                   `json:"currentPath"`
-	ParentPath  *string                  `json:"parentPath"`
-	Entries     []directoryBrowseEntry   `json:"entries"`
+	CurrentPath string                    `json:"currentPath"`
+	ParentPath  *string                   `json:"parentPath"`
+	Entries     []directoryBrowseEntry    `json:"entries"`
 	Shortcuts   []directoryBrowseShortcut `json:"shortcuts"`
 }
 

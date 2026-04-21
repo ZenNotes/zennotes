@@ -74,8 +74,10 @@ export function NoteList(): JSX.Element {
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   const { prompt, modal: promptModal } = usePrompt()
-  const canRevealInFileManager = window.zen.getAppInfo().runtime === 'desktop'
+  const canRevealInFileManager =
+    window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels]
@@ -192,7 +194,9 @@ export function NoteList(): JSX.Element {
         await window.zen.openNoteWindow(n.path)
       }
     })
-    items.push({ label: 'Reveal in Finder', onSelect: onReveal })
+    if (canRevealInFileManager) {
+      items.push({ label: 'Reveal in File Manager', onSelect: onReveal })
+    }
     items.push({ kind: 'separator' })
 
     if (n.folder === 'inbox' || n.folder === 'quick') {
@@ -231,6 +235,7 @@ export function NoteList(): JSX.Element {
 
     return items
   }, [
+    canRevealInFileManager,
     menu,
     notes,
     folders,

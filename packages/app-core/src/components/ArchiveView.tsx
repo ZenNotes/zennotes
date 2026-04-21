@@ -42,12 +42,15 @@ export function ArchiveView(): JSX.Element {
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   const amActive = useStore(isArchiveViewActive)
   const { prompt, modal: promptModal } = usePrompt()
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels]
   )
+  const canRevealInFileManager =
+    window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -214,12 +217,14 @@ export function ArchiveView(): JSX.Element {
         await window.zen.openNoteWindow(note.path)
       }
     })
-    items.push({
-      label: 'Reveal in Finder',
-      onSelect: async () => {
-        await window.zen.revealNote(note.path)
-      }
-    })
+    if (canRevealInFileManager) {
+      items.push({
+        label: 'Reveal in File Manager',
+        onSelect: async () => {
+          await window.zen.revealNote(note.path)
+        }
+      })
+    }
     items.push({ kind: 'separator' })
     items.push({
       label: `Move to ${folderLabels.inbox}`,
@@ -256,6 +261,7 @@ export function ArchiveView(): JSX.Element {
     selectNote,
     selectedPath,
     tabsEnabled,
+    canRevealInFileManager,
     vault?.root,
     folderLabels.inbox,
     folderLabels.trash

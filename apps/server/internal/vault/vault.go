@@ -375,11 +375,14 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	out := []AssetMeta{}
+	isSkippableWalkErr := func(err error) bool {
+		return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
+	}
 	var walk func(dir string) error
 	walk = func(dir string) error {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
+			if isSkippableWalkErr(err) {
 				return nil
 			}
 			return err
@@ -395,6 +398,9 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 					continue
 				}
 				if err := walk(full); err != nil {
+					if isSkippableWalkErr(err) {
+						continue
+					}
 					return err
 				}
 				continue

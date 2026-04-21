@@ -7,19 +7,23 @@ import type {
   AppUpdateState,
   AssetMeta,
   DirectoryBrowseResult,
-  VaultDemoTourResult,
   FolderEntry,
   ImportedAsset,
   NoteContent,
   NoteFolder,
   NoteMeta,
+  RemoteWorkspaceInfo,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
+  ServerCapabilities,
+  VaultChangeEvent,
+  VaultDemoTourResult,
+  VaultInfo,
   VaultSettings,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
-  VaultTextSearchToolPaths,
   VaultTextSearchMatch,
-  VaultChangeEvent,
-  VaultInfo
+  VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import type {
@@ -34,7 +38,8 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsNativeMenus: true,
   supportsFloatingWindows: true,
   supportsLocalFilesystemPickers: true,
-  supportsDesktopNotifications: true
+  supportsDesktopNotifications: true,
+  supportsRemoteWorkspace: true
 }
 
 const DESKTOP_APP_INFO: ZenAppInfo = {
@@ -44,6 +49,64 @@ const DESKTOP_APP_INFO: ZenAppInfo = {
   description: appPackage.description,
   homepage: appPackage.homepage,
   runtime: 'desktop'
+}
+
+let remoteWorkspaceInfo: RemoteWorkspaceInfo | null = null
+
+async function refreshRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null> {
+  try {
+    remoteWorkspaceInfo = await ipcRenderer.invoke(IPC.WORKSPACE_GET_INFO)
+  } catch {
+    remoteWorkspaceInfo = null
+  }
+  return remoteWorkspaceInfo
+}
+
+void refreshRemoteWorkspaceInfo()
+
+function stripQueryAndHash(value: string): string {
+  const hashIdx = value.indexOf('#')
+  const queryIdx = value.indexOf('?')
+  const cutIdx =
+    hashIdx === -1
+      ? queryIdx
+      : queryIdx === -1
+        ? hashIdx
+        : Math.min(hashIdx, queryIdx)
+  return cutIdx === -1 ? value : value.slice(0, cutIdx)
+}
+
+function decodeHrefPath(value: string): string {
+  const cleaned = stripQueryAndHash(value)
+  try {
+    return decodeURIComponent(cleaned)
+  } catch {
+    return cleaned
+  }
+}
+
+function resolveVaultRelativeAssetPath(notePath: string, href: string): string | null {
+  const trimmed = href.trim()
+  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
+  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return null
+
+  const normalizedNotePath = notePath.split(path.sep).join('/')
+  const noteDir = path.posix.dirname(normalizedNotePath)
+  const decodedHref = decodeHrefPath(trimmed)
+  const relativeTarget = decodedHref.startsWith('/')
+    ? decodedHref.replace(/^\/+/, '')
+    : path.posix.normalize(path.posix.join(noteDir === '.' ? '' : noteDir, decodedHref))
+  if (relativeTarget === '..' || relativeTarget.startsWith('../')) return null
+  return relativeTarget
+}
+
+function remoteAssetUrl(assetPath: string): string | null {
+  if (remoteWorkspaceInfo?.mode !== 'remote' || !remoteWorkspaceInfo.baseUrl) return null
+  const trimmed = assetPath.trim()
+  if (!trimmed) return null
+  return `zen-asset://remote?baseUrl=${encodeURIComponent(
+    remoteWorkspaceInfo.baseUrl.replace(/\/+$/, '')
+  )}&path=${encodeURIComponent(trimmed)}`
 }
 
 const api: ZenBridge = {
@@ -56,31 +119,74 @@ const api: ZenBridge = {
   zoomInApp: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_IN),
   zoomOutApp: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_OUT),
   resetAppZoom: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_RESET),
-  getAppUpdateState: (): Promise<AppUpdateState> =>
-    ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
-  checkForAppUpdates: (): Promise<AppUpdateState> =>
-    ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
+  getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
+  checkForAppUpdates: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
   checkForAppUpdatesWithUi: (): Promise<void> =>
     ipcRenderer.invoke(IPC.APP_UPDATER_CHECK_WITH_UI),
-  downloadAppUpdate: (): Promise<AppUpdateState> =>
-    ipcRenderer.invoke(IPC.APP_UPDATER_DOWNLOAD),
+  downloadAppUpdate: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_DOWNLOAD),
   installAppUpdate: (): Promise<void> => ipcRenderer.invoke(IPC.APP_UPDATER_INSTALL),
-
-  getCurrentVault: (): Promise<VaultInfo | null> => ipcRenderer.invoke(IPC.VAULT_GET_CURRENT),
-  pickVault: (): Promise<VaultInfo | null> => ipcRenderer.invoke(IPC.VAULT_PICK),
-  selectVaultPath: async (): Promise<VaultInfo> => {
-    throw new Error('Manual vault path selection is only available in the web build')
+  getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
+    (await refreshRemoteWorkspaceInfo())?.capabilities ?? null,
+  getRemoteWorkspaceInfo: async (): Promise<RemoteWorkspaceInfo | null> =>
+    await refreshRemoteWorkspaceInfo(),
+  connectRemoteWorkspace: async (
+    baseUrl: string,
+    authToken?: string | null
+  ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> => {
+    const result = await ipcRenderer.invoke(IPC.WORKSPACE_CONNECT_REMOTE, baseUrl, authToken ?? null)
+    await refreshRemoteWorkspaceInfo()
+    return result
   },
-  browseServerDirectories: async (): Promise<DirectoryBrowseResult> => {
-    throw new Error('Server filesystem browsing is only available in the web build')
+  disconnectRemoteWorkspace: async (): Promise<VaultInfo | null> => {
+    const result = await ipcRenderer.invoke(IPC.WORKSPACE_DISCONNECT_REMOTE)
+    await refreshRemoteWorkspaceInfo()
+    return result
+  },
+  listRemoteWorkspaceProfiles: async (): Promise<RemoteWorkspaceProfile[]> =>
+    ipcRenderer.invoke(IPC.WORKSPACE_LIST_REMOTE_PROFILES),
+  saveRemoteWorkspaceProfile: async (
+    input: RemoteWorkspaceProfileInput
+  ): Promise<RemoteWorkspaceProfile> => {
+    const result = await ipcRenderer.invoke(IPC.WORKSPACE_SAVE_REMOTE_PROFILE, input)
+    await refreshRemoteWorkspaceInfo()
+    return result
+  },
+  deleteRemoteWorkspaceProfile: async (id: string): Promise<void> => {
+    await ipcRenderer.invoke(IPC.WORKSPACE_DELETE_REMOTE_PROFILE, id)
+    await refreshRemoteWorkspaceInfo()
+  },
+  connectRemoteWorkspaceProfile: async (
+    id: string
+  ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> => {
+    const result = await ipcRenderer.invoke(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, id)
+    await refreshRemoteWorkspaceInfo()
+    return result
+  },
+
+  getCurrentVault: async (): Promise<VaultInfo | null> => {
+    const vault = await ipcRenderer.invoke(IPC.VAULT_GET_CURRENT)
+    await refreshRemoteWorkspaceInfo()
+    return vault
+  },
+  pickVault: async (): Promise<VaultInfo | null> => {
+    const vault = await ipcRenderer.invoke(IPC.VAULT_PICK)
+    await refreshRemoteWorkspaceInfo()
+    return vault
+  },
+  selectVaultPath: async (targetPath: string): Promise<VaultInfo> => {
+    const vault = await ipcRenderer.invoke(IPC.VAULT_SELECT_PATH, targetPath)
+    await refreshRemoteWorkspaceInfo()
+    return vault
+  },
+  browseServerDirectories: async (targetPath = ''): Promise<DirectoryBrowseResult> => {
+    return await ipcRenderer.invoke(IPC.VAULT_BROWSE_SERVER_DIRECTORIES, targetPath)
   },
   getVaultSettings: (): Promise<VaultSettings> => ipcRenderer.invoke(IPC.VAULT_GET_SETTINGS),
   setVaultSettings: (next: VaultSettings): Promise<VaultSettings> =>
     ipcRenderer.invoke(IPC.VAULT_SET_SETTINGS, next),
 
   listNotes: (): Promise<NoteMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_NOTES),
-  listFolders: (): Promise<FolderEntry[]> =>
-    ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
+  listFolders: (): Promise<FolderEntry[]> => ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
   listAssets: (): Promise<AssetMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_ASSETS),
   hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),
   generateDemoTour: (): Promise<VaultDemoTourResult> =>
@@ -97,23 +203,17 @@ const api: ZenBridge = {
     paths: VaultTextSearchToolPaths = {}
   ): Promise<VaultTextSearchMatch[]> =>
     ipcRenderer.invoke(IPC.VAULT_SEARCH_TEXT, query, backend, paths),
-  readNote: (relPath: string): Promise<NoteContent> =>
-    ipcRenderer.invoke(IPC.VAULT_READ_NOTE, relPath),
+  readNote: (relPath: string): Promise<NoteContent> => ipcRenderer.invoke(IPC.VAULT_READ_NOTE, relPath),
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
   scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
     ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),
   writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body),
-  createNote: (
-    folder: NoteFolder,
-    title?: string,
-    subpath?: string
-  ): Promise<NoteMeta> =>
+  createNote: (folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_NOTE, folder, title, subpath),
   renameNote: (relPath: string, nextTitle: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_NOTE, relPath, nextTitle),
-  deleteNote: (relPath: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.VAULT_DELETE_NOTE, relPath),
+  deleteNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE_NOTE, relPath),
   moveToTrash: (relPath: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_MOVE_TO_TRASH, relPath),
   restoreFromTrash: (relPath: string): Promise<NoteMeta> =>
@@ -125,8 +225,7 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_UNARCHIVE_NOTE, relPath),
   duplicateNote: (relPath: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_DUPLICATE_NOTE, relPath),
-  revealNote: (relPath: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.VAULT_REVEAL_NOTE, relPath),
+  revealNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_REVEAL_NOTE, relPath),
   moveNote: (
     relPath: string,
     targetFolder: NoteFolder,
@@ -137,11 +236,7 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_IMPORT_FILES, notePath, sourcePaths),
   createFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_FOLDER, folder, subpath),
-  renameFolder: (
-    folder: NoteFolder,
-    oldSubpath: string,
-    newSubpath: string
-  ): Promise<string> =>
+  renameFolder: (folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_FOLDER, folder, oldSubpath, newSubpath),
   deleteFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_DELETE_FOLDER, folder, subpath),
@@ -158,36 +253,17 @@ const api: ZenBridge = {
     }
   },
   resolveLocalAssetUrl: (vaultRoot: string, notePath: string, href: string): string | null => {
+    if (remoteWorkspaceInfo?.mode === 'remote') {
+      const resolved = resolveVaultRelativeAssetPath(notePath, href)
+      return resolved ? remoteAssetUrl(resolved) : null
+    }
+
     const trimmed = href.trim()
     if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
     if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return null
 
-    const stripQueryAndHash = (value: string): string => {
-      const hashIdx = value.indexOf('#')
-      const queryIdx = value.indexOf('?')
-      const cutIdx =
-        hashIdx === -1
-          ? queryIdx
-          : queryIdx === -1
-            ? hashIdx
-            : Math.min(hashIdx, queryIdx)
-      return cutIdx === -1 ? value : value.slice(0, cutIdx)
-    }
-    const decodeHrefPath = (value: string): string => {
-      const cleaned = stripQueryAndHash(value)
-      try {
-        return decodeURIComponent(cleaned)
-      } catch {
-        return cleaned
-      }
-    }
-
-    const normalizedNotePath = notePath.split(path.sep).join('/')
-    const noteDir = path.posix.dirname(normalizedNotePath)
-    const decodedHref = decodeHrefPath(trimmed)
-    const relativeTarget = decodedHref.startsWith('/')
-      ? decodedHref.replace(/^\/+/, '')
-      : path.posix.normalize(path.posix.join(noteDir === '.' ? '' : noteDir, decodedHref))
+    const relativeTarget = resolveVaultRelativeAssetPath(notePath, href)
+    if (!relativeTarget) return null
     const resolved = path.resolve(vaultRoot, relativeTarget.split('/').join(path.sep))
     const rootAbs = path.resolve(vaultRoot)
     if (resolved !== rootAbs && !resolved.startsWith(rootAbs + path.sep)) return null
@@ -196,6 +272,9 @@ const api: ZenBridge = {
   resolveVaultAssetUrl: (vaultRoot: string, assetPath: string): string | null => {
     const trimmed = assetPath.trim()
     if (!trimmed) return null
+    if (remoteWorkspaceInfo?.mode === 'remote') {
+      return remoteAssetUrl(trimmed)
+    }
     const resolved = path.resolve(vaultRoot, trimmed.split('/').join(path.sep))
     const rootAbs = path.resolve(vaultRoot)
     if (resolved !== rootAbs && !resolved.startsWith(rootAbs + path.sep)) return null
@@ -221,24 +300,19 @@ const api: ZenBridge = {
   windowMinimize: (): void => ipcRenderer.send(IPC.WINDOW_MINIMIZE),
   windowToggleMaximize: (): void => ipcRenderer.send(IPC.WINDOW_TOGGLE_MAXIMIZE),
   windowClose: (): void => ipcRenderer.send(IPC.WINDOW_CLOSE),
-  openNoteWindow: (relPath: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath),
+  openNoteWindow: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.WINDOW_OPEN_NOTE, relPath),
   renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
     ipcRenderer.invoke(IPC.TIKZ_RENDER, source),
 
   mcpGetRuntime: (): Promise<McpServerRuntime> => ipcRenderer.invoke(IPC.MCP_RUNTIME),
   mcpGetStatuses: (): Promise<McpClientStatus[]> => ipcRenderer.invoke(IPC.MCP_STATUS),
-  mcpInstall: (id: McpClientId): Promise<McpClientStatus> =>
-    ipcRenderer.invoke(IPC.MCP_INSTALL, id),
+  mcpInstall: (id: McpClientId): Promise<McpClientStatus> => ipcRenderer.invoke(IPC.MCP_INSTALL, id),
   mcpUninstall: (id: McpClientId): Promise<McpClientStatus> =>
     ipcRenderer.invoke(IPC.MCP_UNINSTALL, id),
   mcpGetInstructions: (): Promise<McpInstructionsPayload> =>
     ipcRenderer.invoke(IPC.MCP_GET_INSTRUCTIONS),
   mcpSetInstructions: (next: string | null): Promise<McpInstructionsPayload> =>
     ipcRenderer.invoke(IPC.MCP_SET_INSTRUCTIONS, next),
-  // Native Electron clipboard — more reliable than `navigator.clipboard`
-  // which can reject for focus / permission reasons in Electron contexts,
-  // especially right after a React state change that unmounts a menu.
   clipboardWriteText: (text: string): void => clipboard.writeText(text),
   clipboardReadText: (): string => clipboard.readText()
 }

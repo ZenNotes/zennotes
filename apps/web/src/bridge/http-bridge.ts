@@ -30,6 +30,10 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  RemoteWorkspaceInfo,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
+  ServerCapabilities,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -53,7 +57,8 @@ const WEB_CAPABILITIES: ZenCapabilities = {
   supportsNativeMenus: false,
   supportsFloatingWindows: false,
   supportsLocalFilesystemPickers: false,
-  supportsDesktopNotifications: false
+  supportsDesktopNotifications: false,
+  supportsRemoteWorkspace: false
 }
 
 const WEB_APP_INFO: ZenAppInfo = {
@@ -66,6 +71,7 @@ const WEB_APP_INFO: ZenAppInfo = {
 }
 
 const API_BASE = '/api'
+const SERVER_AUTH_TOKEN_KEY = 'zen:server-auth-token'
 
 type JsonBody = Record<string, unknown> | unknown[]
 type JsonRequestInit = Omit<RequestInit, 'body'> & { body?: JsonBody }
@@ -81,6 +87,43 @@ class HttpRequestError extends Error {
     this.path = path
   }
 }
+
+function readStoredServerAuthToken(): string | null {
+  try {
+    const token = window.localStorage.getItem(SERVER_AUTH_TOKEN_KEY)?.trim()
+    return token ? token : null
+  } catch {
+    return null
+  }
+}
+
+function writeStoredServerAuthToken(token: string | null): void {
+  try {
+    if (token && token.trim()) {
+      window.localStorage.setItem(SERVER_AUTH_TOKEN_KEY, token.trim())
+    } else {
+      window.localStorage.removeItem(SERVER_AUTH_TOKEN_KEY)
+    }
+  } catch {
+    // ignore localStorage failures
+  }
+}
+
+function hydrateServerAuthTokenFromLocation(): void {
+  try {
+    const url = new URL(window.location.href)
+    const authToken = url.searchParams.get('authToken') ?? url.searchParams.get('token')
+    if (!authToken || !authToken.trim()) return
+    writeStoredServerAuthToken(authToken)
+    url.searchParams.delete('authToken')
+    url.searchParams.delete('token')
+    window.history.replaceState({}, '', url.toString())
+  } catch {
+    // ignore URL parsing failures
+  }
+}
+
+hydrateServerAuthTokenFromLocation()
 
 function wrapRouteUpgradeError(path: string, err: unknown): never {
   if (
@@ -100,6 +143,10 @@ async function jsonRequest<T>(
   init?: JsonRequestInit
 ): Promise<T> {
   const headers = new Headers(init?.headers)
+  const authToken = readStoredServerAuthToken()
+  if (authToken && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${authToken}`)
+  }
   const hasBody = init?.body !== undefined
   if (hasBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -111,6 +158,13 @@ async function jsonRequest<T>(
     credentials: 'same-origin'
   })
   if (!res.ok) {
+    if (res.status === 401) {
+      throw new HttpRequestError(
+        res.status,
+        path,
+        'This ZenNotes server requires an auth token. Add `?authToken=...` to the URL once, then reload.'
+      )
+    }
     const text = await res.text().catch(() => '')
     throw new HttpRequestError(
       res.status,
@@ -168,6 +222,41 @@ async function getCurrentVault(): Promise<VaultInfo | null> {
   } catch {
     return null
   }
+}
+
+function getServerCapabilities(): Promise<ServerCapabilities | null> {
+  return jsonRequest<ServerCapabilities>('/capabilities').catch((err) => {
+    if (err instanceof HttpRequestError && err.status === 404) return null
+    throw err
+  })
+}
+
+function getRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null> {
+  return Promise.resolve(null)
+}
+
+function connectRemoteWorkspace(): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
+  return Promise.reject(new Error('Remote workspace connection is only available in the desktop build'))
+}
+
+function disconnectRemoteWorkspace(): Promise<VaultInfo | null> {
+  return Promise.reject(new Error('Remote workspace switching is only available in the desktop build'))
+}
+
+function listRemoteWorkspaceProfiles(): Promise<RemoteWorkspaceProfile[]> {
+  return Promise.resolve([])
+}
+
+function saveRemoteWorkspaceProfile(): Promise<RemoteWorkspaceProfile> {
+  return Promise.reject(new Error('Saved remote workspaces are only available in the desktop build'))
+}
+
+function deleteRemoteWorkspaceProfile(): Promise<void> {
+  return Promise.reject(new Error('Saved remote workspaces are only available in the desktop build'))
+}
+
+function connectRemoteWorkspaceProfile(): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
+  return Promise.reject(new Error('Saved remote workspaces are only available in the desktop build'))
 }
 
 function getVaultSettings(): Promise<VaultSettings> {
@@ -541,7 +630,9 @@ let watchReconnectTimer: number | null = null
 function ensureWatchSocket(): void {
   if (watchSocket && watchSocket.readyState <= 1) return
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const url = `${proto}//${window.location.host}${API_BASE}/watch`
+  const authToken = readStoredServerAuthToken()
+  const query = authToken ? `?authToken=${encodeURIComponent(authToken)}` : ''
+  const url = `${proto}//${window.location.host}${API_BASE}/watch${query}`
   const ws = new WebSocket(url)
   watchSocket = ws
   ws.addEventListener('message', e => {
@@ -745,6 +836,14 @@ export const httpBridge: ZenBridge = {
   checkForAppUpdatesWithUi,
   downloadAppUpdate,
   installAppUpdate,
+  getServerCapabilities,
+  getRemoteWorkspaceInfo,
+  connectRemoteWorkspace,
+  disconnectRemoteWorkspace,
+  listRemoteWorkspaceProfiles,
+  saveRemoteWorkspaceProfile: (_input: RemoteWorkspaceProfileInput) => saveRemoteWorkspaceProfile(),
+  deleteRemoteWorkspaceProfile: (_id: string) => deleteRemoteWorkspaceProfile(),
+  connectRemoteWorkspaceProfile: (_id: string) => connectRemoteWorkspaceProfile(),
 
   getCurrentVault,
   pickVault,

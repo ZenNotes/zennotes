@@ -73,6 +73,59 @@ export default defineConfig({
         changeOrigin: true,
         ws: true
       },
+      '/vault': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/fs': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/notes': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/folders': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/assets': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/search': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/tasks': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/demo': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/watch': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true,
+        ws: true
+      },
+      '/capabilities': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/version': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/platform': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
+      '/healthz': {
+        target: 'http://127.0.0.1:7878',
+        changeOrigin: true
+      },
       '/assets-data': {
         target: 'http://127.0.0.1:7878',
         changeOrigin: true

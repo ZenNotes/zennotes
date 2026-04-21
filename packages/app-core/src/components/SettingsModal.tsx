@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { DEFAULT_DAILY_NOTES_DIRECTORY } from '@shared/ipc'
 import type {
   AppUpdateState,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
   VaultTextSearchToolPaths
@@ -35,6 +37,8 @@ import {
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
+import { confirmApp } from './ConfirmHost'
+import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -189,9 +193,17 @@ export function SettingsModal(): JSX.Element {
   const contentAlign = useStore((s) => s.contentAlign)
   const setContentAlign = useStore((s) => s.setContentAlign)
   const vault = useStore((s) => s.vault)
+  const workspaceMode = useStore((s) => s.workspaceMode)
+  const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo)
+  const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const persistVaultSettings = useStore((s) => s.setVaultSettings)
   const openVaultPicker = useStore((s) => s.openVaultPicker)
+  const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
+  const connectRemoteWorkspaceProfile = useStore((s) => s.connectRemoteWorkspaceProfile)
+  const disconnectRemoteWorkspace = useStore((s) => s.disconnectRemoteWorkspace)
+  const saveRemoteWorkspaceProfile = useStore((s) => s.saveRemoteWorkspaceProfile)
+  const deleteRemoteWorkspaceProfile = useStore((s) => s.deleteRemoteWorkspaceProfile)
   const openTodayDailyNote = useStore((s) => s.openTodayDailyNote)
   const themeId = useStore((s) => s.themeId)
   const themeFamily = useStore((s) => s.themeFamily)
@@ -216,6 +228,10 @@ export function SettingsModal(): JSX.Element {
   const darkSidebar = useStore((s) => s.darkSidebar)
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null)
+  const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
+    mode: 'create' | 'edit'
+    value?: RemoteWorkspaceProfileInput
+  } | null>(null)
 
   // Lazy-load the system font list on mount. Retried on every mount
   // when the list comes back empty (IPC failure / no fonts yet).
@@ -306,6 +322,56 @@ export function SettingsModal(): JSX.Element {
   const triggerUpdateInstall = useCallback(() => {
     void window.zen.installAppUpdate()
   }, [])
+
+  const currentRemoteProfileId =
+    workspaceMode === 'remote' ? remoteWorkspaceInfo?.profileId ?? null : null
+
+  const openCreateRemoteProfile = useCallback(() => {
+    setEditingRemoteProfile({
+      mode: 'create',
+      value: {
+        name: '',
+        baseUrl: remoteWorkspaceInfo?.baseUrl ?? 'http://localhost:7878',
+        authToken: null,
+        vaultPath: workspaceMode === 'remote' ? vault?.root ?? null : null
+      }
+    })
+  }, [remoteWorkspaceInfo?.baseUrl, vault?.root, workspaceMode])
+
+  const openEditRemoteProfile = useCallback((profile: RemoteWorkspaceProfile) => {
+    setEditingRemoteProfile({
+      mode: 'edit',
+      value: {
+        id: profile.id,
+        name: profile.name,
+        baseUrl: profile.baseUrl,
+        authToken: profile.authToken,
+        vaultPath: profile.vaultPath
+      }
+    })
+  }, [])
+
+  const submitRemoteProfile = useCallback(
+    async (input: RemoteWorkspaceProfileInput) => {
+      await saveRemoteWorkspaceProfile(input)
+      setEditingRemoteProfile(null)
+    },
+    [saveRemoteWorkspaceProfile]
+  )
+
+  const removeRemoteProfile = useCallback(
+    async (profile: RemoteWorkspaceProfile) => {
+      const confirmed = await confirmApp({
+        title: `Remove “${profile.name}”?`,
+        description: 'This only removes the saved connection from ZenNotes. It does not delete anything on the server.',
+        confirmLabel: 'Remove',
+        danger: true
+      })
+      if (!confirmed) return
+      await deleteRemoteWorkspaceProfile(profile.id)
+    },
+    [deleteRemoteWorkspaceProfile]
+  )
 
   const displayedReleaseNotes = useMemo(
     () => formatReleaseNotesForDisplay(appUpdateState?.releaseNotes ?? null),
@@ -839,19 +905,127 @@ export function SettingsModal(): JSX.Element {
           >
             <div className="flex items-center justify-between gap-4 px-5 py-5">
               <div className="min-w-0">
-                <div className="text-sm font-medium text-ink-900">Vault location</div>
+                <div className="text-sm font-medium text-ink-900">
+                  {workspaceMode === 'remote' ? 'Remote workspace' : 'Vault location'}
+                </div>
                 <div className="mt-1 truncate text-xs text-ink-500">
                   {vault?.root ?? 'No vault selected'}
                 </div>
+                {workspaceMode === 'remote' && remoteWorkspaceInfo?.baseUrl && (
+                  <div className="mt-1 truncate text-[11px] text-ink-400">
+                    Connected to {remoteWorkspaceInfo.baseUrl}
+                  </div>
+                )}
               </div>
               <button
-                onClick={() => void openVaultPicker()}
+                onClick={() =>
+                  void (workspaceMode === 'remote'
+                    ? disconnectRemoteWorkspace()
+                    : openVaultPicker())
+                }
                 className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
               >
-                Change…
+                {workspaceMode === 'remote' ? 'Return to Local Vault' : 'Change…'}
               </button>
+              {workspaceMode === 'remote' && (
+                <button
+                  onClick={() => void openVaultPicker()}
+                  className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                >
+                  Open Local Vault…
+                </button>
+              )}
+              {appInfo.runtime === 'desktop' && getZenBridge().getCapabilities().supportsRemoteWorkspace && (
+                <button
+                  onClick={() => void connectRemoteWorkspace()}
+                  className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                >
+                  Quick Connect…
+                </button>
+              )}
             </div>
           </Section>
+
+          {appInfo.runtime === 'desktop' && getZenBridge().getCapabilities().supportsRemoteWorkspace && (
+            <Section
+              title="Saved Remote Workspaces"
+              description="Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens."
+            >
+              <div className="space-y-3 px-5 py-5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-xs text-ink-500">
+                    Saved connections can point at different servers or different vaults on the same server.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openCreateRemoteProfile}
+                    className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                  >
+                    New Remote…
+                  </button>
+                </div>
+                {remoteWorkspaceProfiles.length === 0 ? (
+                  <div className="rounded-xl border border-paper-300/60 bg-paper-50/60 px-4 py-4 text-sm text-ink-500">
+                    No saved remote workspaces yet. Use <span className="font-medium text-ink-700">Quick Connect…</span> once and ZenNotes will remember it here.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {remoteWorkspaceProfiles.map((profile) => {
+                      const isCurrent = currentRemoteProfileId === profile.id
+                      return (
+                        <div
+                          key={profile.id}
+                          className="flex items-center justify-between gap-4 rounded-xl border border-paper-300/60 bg-paper-50/70 px-4 py-4"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="truncate text-sm font-medium text-ink-900">
+                                {profile.name}
+                              </div>
+                              {isCurrent && (
+                                <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700">
+                                  Connected
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1 truncate text-xs text-ink-500">{profile.baseUrl}</div>
+                            <div className="mt-1 truncate text-[11px] text-ink-400">
+                              {profile.vaultPath ? profile.vaultPath : 'Vault picked when connecting'}
+                            </div>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {!isCurrent && (
+                              <button
+                                type="button"
+                                onClick={() => void connectRemoteWorkspaceProfile(profile.id)}
+                                className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                              >
+                                Connect
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openEditRemoteProfile(profile)}
+                              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeRemoteProfile(profile)}
+                              className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
 
           <Section
             title="Primary Notes"
@@ -1163,15 +1337,16 @@ export function SettingsModal(): JSX.Element {
     null
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[7vh] backdrop-blur-md"
-      onClick={() => setSettingsOpen(false)}
-    >
+    <>
       <div
-        ref={ref}
-        className="grid h-[min(82vh,820px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-paper-300/70 bg-paper-100 shadow-float"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[7vh] backdrop-blur-md"
+        onClick={() => setSettingsOpen(false)}
       >
+        <div
+          ref={ref}
+          className="grid h-[min(82vh,820px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-paper-300/70 bg-paper-100 shadow-float"
+          onClick={(e) => e.stopPropagation()}
+        >
         <aside className="flex min-h-0 flex-col border-r border-paper-300/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
           <div className="border-b border-paper-300/55 px-4 py-4">
             <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
@@ -1272,9 +1447,28 @@ export function SettingsModal(): JSX.Element {
               </div>
             )}
           </div>
+          </div>
         </div>
       </div>
-    </div>
+      {editingRemoteProfile && (
+        <RemoteWorkspaceProfileModal
+          options={{
+            title:
+              editingRemoteProfile.mode === 'edit'
+                ? 'Edit Remote Workspace'
+                : 'New Remote Workspace',
+            description:
+              editingRemoteProfile.mode === 'edit'
+                ? 'Update this saved server and vault connection.'
+                : 'Save a ZenNotes server so you can reconnect without re-entering the details.',
+            initialValue: editingRemoteProfile.value,
+            submitLabel: editingRemoteProfile.mode === 'edit' ? 'Save Changes' : 'Save Remote'
+          }}
+          onSubmit={submitRemoteProfile}
+          onCancel={() => setEditingRemoteProfile(null)}
+        />
+      )}
+    </>
   )
 }
 

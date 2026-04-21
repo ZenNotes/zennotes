@@ -6,6 +6,7 @@ import {
 
 type DirectoryPickerRequest = {
   options: ServerDirectoryPickerOptions
+  onConfirm?: (path: string) => Promise<void> | void
   resolve: (value: string | null) => void
 }
 
@@ -17,10 +18,11 @@ function emit(): void {
 }
 
 export function pickServerDirectoryApp(
-  options: ServerDirectoryPickerOptions
+  options: ServerDirectoryPickerOptions,
+  onConfirm?: (path: string) => Promise<void> | void
 ): Promise<string | null> {
   return new Promise((resolve) => {
-    currentRequest = { options, resolve }
+    currentRequest = { options, onConfirm, resolve }
     emit()
   })
 }
@@ -40,7 +42,10 @@ export function ServerDirectoryPickerHost(): JSX.Element | null {
   return (
     <ServerDirectoryPickerModal
       options={request.options}
-      onSubmit={(path) => {
+      onSubmit={async (path) => {
+        if (request.onConfirm) {
+          await request.onConfirm(path)
+        }
         const resolve = request.resolve
         currentRequest = null
         setRequest(null)

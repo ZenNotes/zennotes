@@ -1,5 +1,6 @@
 import { promises as fs, type Dirent } from 'node:fs'
 import { execFile, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { app } from 'electron'
@@ -90,14 +91,34 @@ export interface PersistedWindowState {
   isMaximized: boolean
 }
 
+export interface PersistedRemoteWorkspaceConfig {
+  baseUrl: string
+  authToken: string | null
+}
+
+export interface PersistedRemoteWorkspaceProfile extends PersistedRemoteWorkspaceConfig {
+  id: string
+  name: string
+  vaultPath: string | null
+  lastConnectedAt: number | null
+}
+
 export interface PersistedConfig {
+  workspaceMode: 'local' | 'remote'
   vaultRoot: string | null
+  remoteWorkspace: PersistedRemoteWorkspaceConfig | null
+  remoteWorkspaceProfileId: string | null
+  remoteWorkspaceProfiles: PersistedRemoteWorkspaceProfile[]
   windowState: PersistedWindowState | null
   zoomFactor: number
 }
 
 const DEFAULT_CONFIG: PersistedConfig = {
+  workspaceMode: 'local',
   vaultRoot: null,
+  remoteWorkspace: null,
+  remoteWorkspaceProfileId: null,
+  remoteWorkspaceProfiles: [],
   windowState: null,
   zoomFactor: 1
 }
@@ -143,8 +164,61 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     typeof candidate.zoomFactor === 'number' && Number.isFinite(candidate.zoomFactor)
       ? Math.min(3, Math.max(0.5, Math.round(candidate.zoomFactor * 100) / 100))
       : DEFAULT_CONFIG.zoomFactor
+  const normalizeProfile = (candidate: unknown): PersistedRemoteWorkspaceProfile | null => {
+    if (!candidate || typeof candidate !== 'object') return null
+    const value = candidate as Record<string, unknown>
+    const baseUrl = typeof value.baseUrl === 'string' ? value.baseUrl.trim() : ''
+    const name = typeof value.name === 'string' ? value.name.trim() : ''
+    if (!baseUrl || !name) return null
+    return {
+      id: typeof value.id === 'string' && value.id.trim() ? value.id : randomUUID(),
+      name,
+      baseUrl,
+      authToken: typeof value.authToken === 'string' ? value.authToken : null,
+      vaultPath: typeof value.vaultPath === 'string' && value.vaultPath.trim() ? value.vaultPath : null,
+      lastConnectedAt:
+        typeof value.lastConnectedAt === 'number' && Number.isFinite(value.lastConnectedAt)
+          ? value.lastConnectedAt
+          : null
+    }
+  }
+  const legacyRemoteWorkspace =
+    candidate.remoteWorkspace &&
+    typeof candidate.remoteWorkspace === 'object' &&
+    typeof candidate.remoteWorkspace.baseUrl === 'string'
+      ? {
+          baseUrl: candidate.remoteWorkspace.baseUrl,
+          authToken:
+            typeof candidate.remoteWorkspace.authToken === 'string'
+              ? candidate.remoteWorkspace.authToken
+              : null
+        }
+      : null
+  const remoteWorkspaceProfiles = Array.isArray(candidate.remoteWorkspaceProfiles)
+    ? candidate.remoteWorkspaceProfiles
+        .map((entry) => normalizeProfile(entry))
+        .filter((entry): entry is PersistedRemoteWorkspaceProfile => !!entry)
+    : []
+  if (legacyRemoteWorkspace && !remoteWorkspaceProfiles.some((entry) => entry.baseUrl === legacyRemoteWorkspace.baseUrl)) {
+    remoteWorkspaceProfiles.unshift({
+      id: randomUUID(),
+      name: 'ZenNotes Server',
+      baseUrl: legacyRemoteWorkspace.baseUrl,
+      authToken: legacyRemoteWorkspace.authToken,
+      vaultPath: null,
+      lastConnectedAt: null
+    })
+  }
   return {
+    workspaceMode: candidate.workspaceMode === 'remote' ? 'remote' : 'local',
     vaultRoot: typeof candidate.vaultRoot === 'string' ? candidate.vaultRoot : null,
+    remoteWorkspace: legacyRemoteWorkspace,
+    remoteWorkspaceProfileId:
+      typeof candidate.remoteWorkspaceProfileId === 'string' &&
+      remoteWorkspaceProfiles.some((entry) => entry.id === candidate.remoteWorkspaceProfileId)
+        ? candidate.remoteWorkspaceProfileId
+        : null,
+    remoteWorkspaceProfiles,
     windowState: normalizeWindowState(candidate.windowState),
     zoomFactor
   }
@@ -1398,7 +1472,12 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
-      const stat = await fs.stat(full)
+      let stat
+      try {
+        stat = await fs.stat(full)
+      } catch {
+        continue
+      }
       const rel = toPosix(path.relative(root, full))
       out.push({
         path: rel,

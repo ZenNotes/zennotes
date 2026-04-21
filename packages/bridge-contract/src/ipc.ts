@@ -2,7 +2,16 @@
 // Keeping these in one file gives us a single source of truth.
 
 export const IPC = {
+  WORKSPACE_GET_INFO: 'workspace:get-info',
+  WORKSPACE_CONNECT_REMOTE: 'workspace:connect-remote',
+  WORKSPACE_DISCONNECT_REMOTE: 'workspace:disconnect-remote',
+  WORKSPACE_LIST_REMOTE_PROFILES: 'workspace:list-remote-profiles',
+  WORKSPACE_SAVE_REMOTE_PROFILE: 'workspace:save-remote-profile',
+  WORKSPACE_DELETE_REMOTE_PROFILE: 'workspace:delete-remote-profile',
+  WORKSPACE_CONNECT_REMOTE_PROFILE: 'workspace:connect-remote-profile',
   VAULT_PICK: 'vault:pick',
+  VAULT_SELECT_PATH: 'vault:select-path',
+  VAULT_BROWSE_SERVER_DIRECTORIES: 'vault:browse-server-directories',
   VAULT_GET_CURRENT: 'vault:get-current',
   VAULT_GET_SETTINGS: 'vault:get-settings',
   VAULT_SET_SETTINGS: 'vault:set-settings',
@@ -204,6 +213,42 @@ export interface ImportedAsset {
 export interface VaultInfo {
   root: string
   name: string
+}
+
+export interface ServerCapabilities {
+  version: string
+  platform: NodeJS.Platform
+  authRequired: boolean
+  supportsVaultSelection: boolean
+  supportsDirectoryBrowsing: boolean
+  supportsWatch: boolean
+}
+
+export type WorkspaceMode = 'local' | 'remote'
+
+export interface RemoteWorkspaceInfo {
+  mode: WorkspaceMode
+  baseUrl: string | null
+  authConfigured: boolean
+  capabilities: ServerCapabilities | null
+  profileId: string | null
+}
+
+export interface RemoteWorkspaceProfile {
+  id: string
+  name: string
+  baseUrl: string
+  authToken: string | null
+  vaultPath: string | null
+  lastConnectedAt: number | null
+}
+
+export interface RemoteWorkspaceProfileInput {
+  id?: string
+  name?: string
+  baseUrl: string
+  authToken?: string | null
+  vaultPath?: string | null
 }
 
 export interface DirectoryBrowseEntry {

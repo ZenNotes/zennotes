@@ -15,7 +15,7 @@ export function ServerDirectoryPickerModal({
   onCancel
 }: {
   options: ServerDirectoryPickerOptions
-  onSubmit: (path: string) => void
+  onSubmit: (path: string) => Promise<void> | void
   onCancel: () => void
 }): JSX.Element {
   const [currentPath, setCurrentPath] = useState('')
@@ -25,12 +25,15 @@ export function ServerDirectoryPickerModal({
   const [entries, setEntries] = useState<DirectoryBrowseEntry[]>([])
   const [shortcuts, setShortcuts] = useState<DirectoryBrowseShortcut[]>([])
   const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const loadDirectory = useCallback(async (nextPath: string) => {
     setLoading(true)
     setError(null)
+    setSubmitError(null)
     try {
       const result = await window.zen.browseServerDirectories(nextPath)
       setCurrentPath(result.currentPath)
@@ -60,7 +63,10 @@ export function ServerDirectoryPickerModal({
   }, [showAdvancedPath])
 
   const submitPath = useMemo(() => draftPath.trim() || currentPath, [currentPath, draftPath])
-  const canSubmit = useMemo(() => !loading && submitPath.trim().length > 0, [loading, submitPath])
+  const canSubmit = useMemo(
+    () => !loading && !submitting && !error && submitPath.trim().length > 0,
+    [error, loading, submitPath, submitting]
+  )
 
   const pathCrumbs = useMemo(() => {
     const path = currentPath.trim()
@@ -89,9 +95,17 @@ export function ServerDirectoryPickerModal({
     return crumbs
   }, [currentPath])
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     if (!canSubmit) return
-    onSubmit(submitPath)
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await onSubmit(submitPath)
+    } catch (err) {
+      setSubmitError((err as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return createPortal(
@@ -188,6 +202,7 @@ export function ServerDirectoryPickerModal({
                     onChange={(e) => {
                       setDraftPath(e.target.value)
                       setError(null)
+                      setSubmitError(null)
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
@@ -252,6 +267,11 @@ export function ServerDirectoryPickerModal({
               {error}
             </div>
           )}
+          {!error && submitError && (
+            <div className="mt-3 text-xs" style={{ color: 'rgb(var(--z-red))' }}>
+              {submitError}
+            </div>
+          )}
           <div className="mt-3 text-xs text-ink-400">
             Chosen folder: <span className="text-ink-700">{submitPath || 'None'}</span>
           </div>
@@ -267,11 +287,11 @@ export function ServerDirectoryPickerModal({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => void submit()}
             disabled={!canSubmit}
             className="rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-paper-50 enabled:hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {options.confirmLabel ?? 'Select folder'}
+            {submitting ? 'Working…' : options.confirmLabel ?? 'Select folder'}
           </button>
         </div>
       </div>

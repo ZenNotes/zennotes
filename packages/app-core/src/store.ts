@@ -7,10 +7,14 @@ import type {
   NoteContent,
   NoteFolder,
   NoteMeta,
+  RemoteWorkspaceInfo,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
   VaultSettings,
   VaultTextSearchBackendPreference,
   VaultChangeEvent,
-  VaultInfo
+  VaultInfo,
+  WorkspaceMode
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
@@ -24,6 +28,7 @@ import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './li
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { pickServerDirectoryApp } from './components/ServerDirectoryPickerHost'
+import { promptApp } from './components/PromptHost'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
 import {
@@ -973,6 +978,9 @@ export function isQuickNotesViewActive(state: {
 
 interface Store {
   vault: VaultInfo | null
+  workspaceMode: WorkspaceMode
+  remoteWorkspaceInfo: RemoteWorkspaceInfo | null
+  remoteWorkspaceProfiles: RemoteWorkspaceProfile[]
   vaultSettings: VaultSettings
   notes: NoteMeta[]
   folders: FolderEntry[]
@@ -1317,8 +1325,15 @@ interface Store {
   ) => Promise<void>
   init: () => Promise<void>
   openVaultPicker: () => Promise<void>
+  connectRemoteWorkspace: () => Promise<void>
+  connectRemoteWorkspaceProfile: (id: string) => Promise<void>
+  disconnectRemoteWorkspace: () => Promise<void>
+  saveRemoteWorkspaceProfile: (input: RemoteWorkspaceProfileInput) => Promise<RemoteWorkspaceProfile>
+  deleteRemoteWorkspaceProfile: (id: string) => Promise<void>
+  refreshRemoteWorkspaceProfiles: () => Promise<RemoteWorkspaceProfile[]>
   persistWorkspace: () => void
   flushDirtyNotes: () => Promise<void>
+  refreshWorkspaceContext: () => Promise<RemoteWorkspaceInfo | null>
 }
 
 /** Debounced per-path save timers. Module-scoped so they survive re-renders. */
@@ -1333,6 +1348,49 @@ const PATH_SAVE_DEBOUNCE_MS = 350
  * completion and echo arrival get rolled back to the older disk body.
  */
 const lastWrittenByPath = new Map<string, string>()
+
+function normalizeServerBaseUrl(value: string): string {
+  const trimmed = value.trim()
+  const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  return normalized.replace(/\/+$/, '')
+}
+
+function deriveRemoteProfileName(
+  baseUrl: string,
+  vault: VaultInfo | null,
+  existing: RemoteWorkspaceProfile[]
+): string {
+  let host = 'ZenNotes Server'
+  try {
+    host = new URL(normalizeServerBaseUrl(baseUrl)).host || host
+  } catch {
+    host = normalizeServerBaseUrl(baseUrl)
+  }
+  const base = vault?.name ? `${vault.name} (${host})` : host
+  if (!existing.some((entry) => entry.name === base)) return base
+  let suffix = 2
+  while (existing.some((entry) => entry.name === `${base} ${suffix}`)) suffix += 1
+  return `${base} ${suffix}`
+}
+
+function findMatchingRemoteProfile(
+  profiles: RemoteWorkspaceProfile[],
+  baseUrl: string,
+  vaultPath: string | null
+): RemoteWorkspaceProfile | null {
+  const normalizedBaseUrl = normalizeServerBaseUrl(baseUrl)
+  return (
+    profiles.find(
+      (entry) =>
+        normalizeServerBaseUrl(entry.baseUrl) === normalizedBaseUrl &&
+        (entry.vaultPath ?? null) === (vaultPath ?? null)
+    ) ?? null
+  )
+}
+
+function workspaceModeFrom(info: RemoteWorkspaceInfo | null): WorkspaceMode {
+  return info?.mode === 'remote' ? 'remote' : 'local'
+}
 
 function activeFieldsFrom(
   layout: PaneLayout,
@@ -1659,6 +1717,9 @@ export const useStore = create<Store>((set, get) => {
 
   return {
   vault: null,
+  workspaceMode: 'local',
+  remoteWorkspaceInfo: null,
+  remoteWorkspaceProfiles: [],
   vaultSettings: DEFAULT_VAULT_SETTINGS,
   notes: [],
   folders: [],
@@ -3388,22 +3449,75 @@ export const useStore = create<Store>((set, get) => {
     }
   },
 
+  refreshWorkspaceContext: async () => {
+    try {
+      const info = await window.zen.getRemoteWorkspaceInfo()
+      set({
+        workspaceMode: workspaceModeFrom(info),
+        remoteWorkspaceInfo: info
+      })
+      return info
+    } catch (err) {
+      console.error('refreshWorkspaceContext failed', err)
+      set({
+        workspaceMode: 'local',
+        remoteWorkspaceInfo: null
+      })
+      return null
+    }
+  },
+
+  refreshRemoteWorkspaceProfiles: async () => {
+    if (!window.zen.getCapabilities().supportsRemoteWorkspace) {
+      set({ remoteWorkspaceProfiles: [] })
+      return []
+    }
+    try {
+      const profiles = await window.zen.listRemoteWorkspaceProfiles()
+      set({ remoteWorkspaceProfiles: profiles })
+      return profiles
+    } catch (err) {
+      console.error('refreshRemoteWorkspaceProfiles failed', err)
+      set({ remoteWorkspaceProfiles: [] })
+      return []
+    }
+  },
+
   init: async () => {
     if (get().initialized) return
     set({ initialized: true })
     try {
+      const remoteWorkspaceProfilesPromise = get().refreshRemoteWorkspaceProfiles()
+      const remoteWorkspaceInfo = await get().refreshWorkspaceContext()
       const vault = await window.zen.getCurrentVault()
+      await remoteWorkspaceProfilesPromise
       if (vault) {
         const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
-        set({ vault, vaultSettings, workspaceRestored: false })
+        set({
+          vault,
+          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+          remoteWorkspaceInfo,
+          vaultSettings,
+          workspaceRestored: false
+        })
         await get().refreshNotes()
         await restoreWorkspaceForVault(vault)
       } else {
-        set({ workspaceRestored: true, vaultSettings: DEFAULT_VAULT_SETTINGS })
+        set({
+          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+          remoteWorkspaceInfo,
+          workspaceRestored: true,
+          vaultSettings: DEFAULT_VAULT_SETTINGS
+        })
       }
     } catch (err) {
       console.error('init failed', err)
-      set({ workspaceRestored: true, vaultSettings: DEFAULT_VAULT_SETTINGS })
+      set({
+        workspaceMode: 'local',
+        remoteWorkspaceInfo: null,
+        workspaceRestored: true,
+        vaultSettings: DEFAULT_VAULT_SETTINGS
+      })
     }
     // Default focus to the sidebar so j/k navigation works immediately
     if (get().sidebarOpen && !get().focusedPanel) {
@@ -3439,32 +3553,253 @@ export const useStore = create<Store>((set, get) => {
 
     if (appInfo.runtime === 'web' && !capabilities.supportsLocalFilesystemPickers) {
       const current = await window.zen.getCurrentVault()
-      const enteredPath = await pickServerDirectoryApp({
+      const enteredPath = await pickServerDirectoryApp(
+        {
         title: 'Choose Vault Folder',
         description:
           'Choose the folder on the server that ZenNotes should use as your vault.',
         initialPath: current?.root ?? '',
         confirmLabel: 'Choose Folder'
-      })
+        },
+        async (path) => {
+          vault = await window.zen.selectVaultPath(path.trim())
+        }
+      )
       if (!enteredPath) return
-      try {
-        vault = await window.zen.selectVaultPath(enteredPath.trim())
-      } catch (err) {
-        window.alert((err as Error).message)
-        return
-      }
     } else {
       vault = await window.zen.pickVault()
     }
 
-    if (vault) {
+    if (!vault) return
+
+    const remoteWorkspaceInfo = await get().refreshWorkspaceContext()
+
+    const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
+    const fresh = makeLeaf()
+    set({
+      vault,
+      workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+      remoteWorkspaceInfo,
+      vaultSettings,
+      notes: [],
+      folders: [],
+      hasAssetsDir: false,
+      assetFiles: [],
+      vaultTasks: [],
+      selectedTags: [],
+      view: { kind: 'folder', folder: 'inbox', subpath: '' },
+      selectedPath: null,
+      activeNote: null,
+      activeDirty: false,
+      paneLayout: fresh,
+      activePaneId: fresh.id,
+      noteContents: {},
+      noteDirty: {},
+      loadingNote: false,
+      noteBackstack: [],
+      noteForwardstack: [],
+      pendingJumpLocation: null,
+      pinnedRefPath: null,
+      workspaceRestored: false
+    })
+    savePrefs(collectPrefs(get()))
+    await get().refreshNotes()
+    await restoreWorkspaceForVault(vault)
+  },
+
+  connectRemoteWorkspace: async () => {
+    try {
+      await get().flushDirtyNotes()
+      const capabilities = window.zen.getCapabilities()
+      if (!capabilities.supportsRemoteWorkspace) {
+        throw new Error('Remote workspace connection is not available in this build.')
+      }
+
+      const currentRemote = await window.zen.getRemoteWorkspaceInfo()
+      const profileSuggestions = get().remoteWorkspaceProfiles.map((profile) => ({
+        value: profile.baseUrl,
+        label: profile.name,
+        detail: profile.vaultPath ?? undefined
+      }))
+      const baseUrl = await promptApp({
+        title: 'Connect to ZenNotes Server',
+        description:
+          'Enter the base URL for the ZenNotes server, for example `http://localhost:7878` or `https://notes.example.com`.',
+        initialValue: currentRemote?.baseUrl ?? 'http://localhost:7878',
+        placeholder: 'http://localhost:7878',
+        okLabel: 'Next',
+        suggestions: profileSuggestions,
+        suggestionsHint:
+          profileSuggestions.length > 0
+            ? 'Saved remote workspaces are suggested here.'
+            : undefined,
+        validate: (value) => {
+          try {
+            // eslint-disable-next-line no-new
+            new URL(normalizeServerBaseUrl(value))
+            return null
+          } catch {
+            return 'Enter a valid server URL.'
+          }
+        }
+      })
+      if (!baseUrl) return
+
+      const normalizedBaseUrl = normalizeServerBaseUrl(baseUrl)
+      const matchingBaseProfile =
+        get().remoteWorkspaceProfiles.find(
+          (profile) => normalizeServerBaseUrl(profile.baseUrl) === normalizedBaseUrl
+        ) ?? null
+
+      const authToken = await promptApp({
+        title: 'Server Auth Token',
+        description:
+          'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.',
+        initialValue: matchingBaseProfile?.authToken ?? '',
+        placeholder: 'Optional',
+        okLabel: 'Connect'
+      })
+      if (authToken == null) return
+
+      let vault: VaultInfo | null = null
+      const result = await window.zen.connectRemoteWorkspace(normalizedBaseUrl, authToken.trim() || null)
+      vault = result.vault
+
+      if (!vault && result.capabilities.supportsVaultSelection) {
+        const enteredPath = await pickServerDirectoryApp(
+          {
+            title: 'Choose Vault Folder',
+            description:
+              'Choose the folder on the connected ZenNotes server that should be used as your vault.',
+            confirmLabel: 'Choose Folder'
+          },
+          async (selectedPath) => {
+            vault = await window.zen.selectVaultPath(selectedPath.trim())
+          }
+        )
+        if (!enteredPath || !vault) {
+          await window.zen.disconnectRemoteWorkspace()
+          await get().refreshWorkspaceContext()
+          return
+        }
+      }
+
+      if (!vault) {
+        throw new Error('Connected to the server, but no vault folder is selected there yet.')
+      }
+
+      const existingProfile = findMatchingRemoteProfile(
+        get().remoteWorkspaceProfiles,
+        normalizedBaseUrl,
+        vault.root
+      )
+      const savedProfile = await window.zen.saveRemoteWorkspaceProfile({
+        id: existingProfile?.id,
+        name:
+          existingProfile?.name ??
+          deriveRemoteProfileName(normalizedBaseUrl, vault, get().remoteWorkspaceProfiles),
+        baseUrl: normalizedBaseUrl,
+        authToken: authToken.trim() || null,
+        vaultPath: vault.root
+      })
+      const [remoteWorkspaceInfo] = await Promise.all([
+        get().refreshWorkspaceContext(),
+        get().refreshRemoteWorkspaceProfiles()
+      ])
+
       const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
       const fresh = makeLeaf()
       set({
         vault,
+        workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
         vaultSettings,
+        notes: [],
+        folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        vaultTasks: [],
+        selectedTags: [],
+        view: { kind: 'folder', folder: 'inbox', subpath: '' },
+        selectedPath: null,
+        activeNote: null,
+        activeDirty: false,
+        paneLayout: fresh,
+        activePaneId: fresh.id,
+        noteContents: {},
+        noteDirty: {},
+        loadingNote: false,
+        noteBackstack: [],
+        noteForwardstack: [],
+        pendingJumpLocation: null,
+        pinnedRefPath: null,
+        workspaceRestored: false,
+        remoteWorkspaceInfo:
+          remoteWorkspaceInfo && remoteWorkspaceInfo.baseUrl === normalizedBaseUrl
+            ? { ...remoteWorkspaceInfo, profileId: savedProfile.id }
+            : remoteWorkspaceInfo
+      })
+      savePrefs(collectPrefs(get()))
+      await get().refreshNotes()
+      await restoreWorkspaceForVault(vault)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error))
+    }
+  },
+
+  connectRemoteWorkspaceProfile: async (id: string) => {
+    try {
+      await get().flushDirtyNotes()
+      const profile = get().remoteWorkspaceProfiles.find((entry) => entry.id === id)
+      if (!profile) {
+        throw new Error('That saved remote workspace could not be found.')
+      }
+      let vault: VaultInfo | null = null
+      const result = await window.zen.connectRemoteWorkspaceProfile(id)
+      vault = result.vault
+      if (!vault && result.capabilities.supportsVaultSelection) {
+        const enteredPath = await pickServerDirectoryApp(
+          {
+            title: 'Choose Vault Folder',
+            description:
+              'Choose the folder on the connected ZenNotes server that should be used as your vault.',
+            initialPath: profile.vaultPath ?? '',
+            confirmLabel: 'Choose Folder'
+          },
+          async (selectedPath) => {
+            vault = await window.zen.selectVaultPath(selectedPath.trim())
+          }
+        )
+        if (!enteredPath || !vault) {
+          await window.zen.disconnectRemoteWorkspace()
+          await get().refreshWorkspaceContext()
+          return
+        }
+        const selectedVault: VaultInfo = vault
+        await window.zen.saveRemoteWorkspaceProfile({
+          ...profile,
+          vaultPath: selectedVault.root
+        })
+      }
+      if (!vault) {
+        throw new Error('Connected to the server, but no vault folder is selected there yet.')
+      }
+      const [remoteWorkspaceInfo] = await Promise.all([
+        get().refreshWorkspaceContext(),
+        get().refreshRemoteWorkspaceProfiles()
+      ])
+      const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
+      const fresh = makeLeaf()
+      set({
+        vault,
+        workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+        remoteWorkspaceInfo,
+        vaultSettings,
+        notes: [],
+        folders: [],
+        hasAssetsDir: false,
+        assetFiles: [],
+        vaultTasks: [],
+        selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
         selectedPath: null,
         activeNote: null,
@@ -3483,6 +3818,100 @@ export const useStore = create<Store>((set, get) => {
       savePrefs(collectPrefs(get()))
       await get().refreshNotes()
       await restoreWorkspaceForVault(vault)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error))
+    }
+  },
+
+  disconnectRemoteWorkspace: async () => {
+    try {
+      await get().flushDirtyNotes()
+      const vault = await window.zen.disconnectRemoteWorkspace()
+      const remoteWorkspaceInfo = await get().refreshWorkspaceContext()
+
+      if (!vault) {
+        const fresh = makeLeaf()
+        set({
+          vault: null,
+          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+          remoteWorkspaceInfo,
+          vaultSettings: DEFAULT_VAULT_SETTINGS,
+          notes: [],
+          folders: [],
+          hasAssetsDir: false,
+          assetFiles: [],
+          vaultTasks: [],
+          selectedTags: [],
+          view: { kind: 'folder', folder: 'inbox', subpath: '' },
+          selectedPath: null,
+          activeNote: null,
+          activeDirty: false,
+          paneLayout: fresh,
+          activePaneId: fresh.id,
+          noteContents: {},
+          noteDirty: {},
+          loadingNote: false,
+          noteBackstack: [],
+          noteForwardstack: [],
+          pendingJumpLocation: null,
+          pinnedRefPath: null,
+          workspaceRestored: true
+        })
+        savePrefs(collectPrefs(get()))
+        return
+      }
+
+      const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
+      const fresh = makeLeaf()
+      set({
+        vault,
+        workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+        remoteWorkspaceInfo,
+        vaultSettings,
+        notes: [],
+        folders: [],
+        hasAssetsDir: false,
+        assetFiles: [],
+        vaultTasks: [],
+        selectedTags: [],
+        view: { kind: 'folder', folder: 'inbox', subpath: '' },
+        selectedPath: null,
+        activeNote: null,
+        activeDirty: false,
+        paneLayout: fresh,
+        activePaneId: fresh.id,
+        noteContents: {},
+        noteDirty: {},
+        loadingNote: false,
+        noteBackstack: [],
+        noteForwardstack: [],
+        pendingJumpLocation: null,
+        pinnedRefPath: null,
+        workspaceRestored: false
+      })
+      savePrefs(collectPrefs(get()))
+      await get().refreshNotes()
+      await restoreWorkspaceForVault(vault)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error))
+    }
+  },
+
+  saveRemoteWorkspaceProfile: async (input) => {
+    const profile = await window.zen.saveRemoteWorkspaceProfile(input)
+    await Promise.all([get().refreshRemoteWorkspaceProfiles(), get().refreshWorkspaceContext()])
+    return profile
+  },
+
+  deleteRemoteWorkspaceProfile: async (id) => {
+    const wasRemote = get().workspaceMode === 'remote'
+    await window.zen.deleteRemoteWorkspaceProfile(id)
+    const [profiles] = await Promise.all([
+      get().refreshRemoteWorkspaceProfiles(),
+      get().refreshWorkspaceContext()
+    ])
+    if (wasRemote && profiles.length === 0) {
+      await get().disconnectRemoteWorkspace()
     }
   },
 
