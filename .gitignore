@@ -1,6 +1,10 @@
 node_modules
 out
 dist
+.turbo
+apps/*/.turbo
+apps/web/dist
+apps/server/bin
 .DS_Store
 *.log
 .env

@@ -1,0 +1,13 @@
+{
+  "name": "@zennotes/server",
+  "private": true,
+  "version": "1.0.4",
+  "scripts": {
+    "dev": "go run ./cmd/zennotes-server",
+    "typecheck": "go test ./...",
+    "test": "go test ./...",
+    "test:run": "go test ./...",
+    "sync-web": "node ../../tooling/scripts/sync-web-dist.mjs",
+    "build": "npm run sync-web && go build -trimpath -ldflags='-s -w' -o bin/zennotes-server ./cmd/zennotes-server"
+  }
+}

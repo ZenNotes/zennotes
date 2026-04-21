@@ -1,47 +1,56 @@
 # ZenNotes
 
 <p align="center">
-  <img src="build/icon.png" alt="ZenNotes app icon" width="160">
+  <img src="apps/desktop/build/icon.png" alt="ZenNotes app icon" width="160">
 </p>
 
-ZenNotes is a keyboard-first desktop notes app built on Electron,
-React, TypeScript, and CodeMirror 6. It keeps notes as ordinary local
-Markdown files, adds a Vim-friendly editing and navigation model, and
-ships a first-party MCP server so tools like Claude Code, Claude
-Desktop, and Codex can work directly against the same vault.
+ZenNotes is a keyboard-first Markdown notes app with a shared product core and multiple runtimes:
 
-The goal is not "another markdown renderer." The goal is a local-first
-notes environment that still feels fast and intentional when you live in
-it all day.
+- a desktop app built with Electron
+- a self-hosted web app backed by a Go server
+- a future hosted deployment mode built on the same web/server stack
 
-Download the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest).
+ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, daily notes, and MCP integration on top of the files you already own.
+
+Download the latest desktop build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest).  
+Website: [zennotes.org](https://zennotes.org)
 
 ## What ZenNotes is for
 
 - writing and organizing plain-file Markdown notes without a database
 - moving quickly with keyboard-first navigation and Vim motions
 - working across edit, split, and preview modes without losing context
-- keeping task management, tags, search, archive, and trash inside the
-  same vault
+- keeping tasks, tags, search, archive, trash, and quick capture inside the same vault
 - rendering math and diagrams directly from Markdown
-- letting MCP-capable coding / note-taking tools read and write the
-  vault safely through a bundled server
+- exposing the vault to MCP-capable tools through a first-party server
+- self-hosting the app on your own machine or home server
 
-## Core product ideas
+## Product modes
+
+ZenNotes now ships from one monorepo with one shared app core.
+
+- `desktop`: Electron shell, native menus, updater, floating windows, desktop packaging
+- `self-hosted`: browser frontend plus Go server, suitable for home servers and LAN use
+- `hosted`: planned as the same web/server stack with auth and multi-user storage added later
+
+The source of truth for user-facing features is the shared UI in `packages/app-core`.
+
+## Core ideas
 
 ### Plain files first
 
-Every note lives on disk as a normal `.md` file inside a chosen vault.
-ZenNotes does not invent a hidden store for note content. The app adds
-views, metadata extraction, search, and rendering on top of the files
-you already own.
+Every note is a normal `.md` file inside a chosen vault. ZenNotes does not store note content in a hidden database.
 
 ### Keyboard-first by default
 
-The app assumes you want fast navigation, not pointer-heavy chrome.
-There is first-class Vim mode, leader-key flows, remappable shortcuts,
-buffer switching, pane motion, command palette access, local ex prompts,
-and which-key style hint overlays.
+ZenNotes assumes you want to move fast:
+
+- first-class Vim mode
+- leader-key flows
+- command palette
+- pane and tab motion
+- local ex commands
+- built-in help
 
 ### Preview is part of the workflow
 
@@ -51,36 +60,39 @@ ZenNotes supports:
 - preview mode
 - split mode
 - pinned reference panes
-- detached note windows
+- detached note windows on desktop
 
-That makes it useful both as a writing tool and as a reading /
-researching tool.
+### Shared vault, shared tooling
 
-### AI tooling should work with the real vault
-
-ZenNotes includes a standalone MCP server entry and a settings UI that
-can install the server into supported clients. The intent is simple:
-your assistant should operate on the same notes you do, using normal
-Markdown files and safe vault operations.
+ZenNotes includes a first-party MCP server and desktop install flows for compatible clients, so tools can work on the same vault you do instead of a copy.
 
 ## Feature overview
 
 ### Notes, folders, and lifecycle
 
-Each vault is organized into four top-level folders:
+ZenNotes can:
 
-- `inbox/` for active work
-- `quick/` for fast capture
-- `archive/` for cold storage
-- `trash/` for recoverable deletion
+- create, rename, duplicate, move, archive, unarchive, trash, restore, and reveal notes and folders
+- watch the vault for external changes
+- reopen your workspace layout with tabs and panes
 
-ZenNotes can create, rename, duplicate, move, archive, unarchive, trash,
-restore, and reveal notes and folders. The app also watches the vault on
-disk, so external edits are reflected back into the UI.
+System folders still exist, but the vault model is more flexible now:
 
-Attachments are stored under a vault-local attachments directory
-(`attachements/` in the current implementation, with legacy `_assets/`
-support still recognized).
+- `quick`, `archive`, and `trash` remain built-in lifecycle areas
+- the main notes area can be either:
+  - `inbox/`
+  - the vault root directly, for Obsidian-style flat vaults
+
+The built-in folder labels are also customizable in the UI without changing the underlying internal ids.
+
+### Daily notes
+
+Daily notes are optional and can be enabled from Settings.
+
+- when enabled, ZenNotes can open or create today's note automatically
+- the title is a simple ISO date like `2026-04-21`
+- daily notes live in a dedicated directory under your primary notes area
+- the default directory is `Daily Notes`
 
 ### Editor and preview
 
@@ -89,13 +101,13 @@ The editor stack is CodeMirror 6 with a Markdown-oriented workflow:
 - live preview behavior in the editor
 - heading folding
 - outline extraction and jumps
-- word wrap controls
 - configurable line numbers
+- configurable line-height and typography controls
 - syntax highlighting for fenced code blocks
-- local asset embedding
-- inline PDF support
+- wiki links, callouts, tables, footnotes, and local embeds
+- Vim block cursor and keyboard navigation
 
-Preview mode renders:
+Preview and split mode support:
 
 - GitHub-flavored Markdown
 - KaTeX math
@@ -107,158 +119,342 @@ Preview mode renders:
 - footnotes
 - wiki links and backlinks
 
-Expanded diagram viewing is built in for diagram-heavy notes.
-
-### Search, tags, tasks, and built-in views
+### Search, tasks, tags, and built-in views
 
 ZenNotes includes:
 
-- note search by title / path
+- note search by title and path
 - vault-wide text search
 - tags view
 - tasks view
 - archive view
 - trash view
 - quick notes view
-- built-in help view
+- built-in help/manual
 
-Vault text search can use the built-in engine, `ripgrep`, or `fzf`,
-with auto-detection and optional custom binary paths exposed in
-Settings.
+Vault text search can use the built-in engine, `ripgrep`, or `fzf`, with auto-detection and optional custom binary paths.
 
-Task parsing is markdown-native: checkboxes stay as normal `- [ ]` /
-`- [x]` lines in the note body and are surfaced into the global Tasks
-view.
+### Obsidian-friendly vault support
 
-### Themes, fonts, and app customization
+ZenNotes now works better with existing Obsidian-style vaults.
 
-The app exposes a substantial settings surface:
+- primary notes can live at the vault root instead of requiring `inbox/`
+- loose files anywhere in the vault are surfaced as files/assets
+- embedded files like `![[image.png]]` resolve more like Obsidian
+- new referenced files default to the vault root instead of a required attachments folder
+- legacy `attachements/` and `_assets/` folders are still recognized
 
-- multiple theme families and light / dark / auto modes
-- independent interface, text, and monospace font selection
+This means imported vaults with top-level notes, folders, and loose images/files behave much more naturally.
+
+### Files and local assets
+
+ZenNotes supports local files in notes and in the sidebar/list views.
+
+- local images and files can appear directly in the vault tree
+- desktop context menus include reveal-in-file-manager actions
+- desktop uses Finder on macOS and the platform file manager on Windows/Linux
+- watcher updates now include non-Markdown file changes, so deleting files externally updates the UI without a manual refresh
+
+### Themes, fonts, and customization
+
+The settings surface includes:
+
+- theme families and light/dark/auto modes
+- interface, text, and monospace font selection
 - editor font size and line-height controls
 - preview and editor width controls
-- dark-sidebar option
 - content alignment
 - keymap overrides
 - Vim toggles and leader hint behavior
 - search backend selection
+- vault layout settings
+- daily notes settings
+- system-folder display labels
 
-### MCP integration
+## Desktop vs web
 
-ZenNotes ships a dedicated MCP server and installation flows for:
+Both runtimes share the same core app, but they do not expose identical platform features.
+
+Desktop-only features include:
+
+- native menus
+- app updater
+- floating note windows
+- MCP install/uninstall flows for supported clients
+- reveal in Finder / platform file manager
+- packaging and signed releases
+
+Web/self-hosted mode includes:
+
+- the same shared note UI and workflows
+- a Go backend for vault access and file watching
+- a server-side vault picker/browser
+- browser access on a LAN or home server
+
+## Monorepo layout
+
+ZenNotes now uses a single monorepo.
+
+```text
+apps/
+  desktop/   Electron shell, preload, updater, packaging
+  web/       Vite/PWA shell and HTTP bridge
+  server/    Go server for self-hosted and hosted deployments
+packages/
+  app-core/        Shared React application and renderer logic
+  bridge-contract/ Typed runtime contract between UI and host
+  shared-domain/   Shared types and note/task/view models
+  shared-ui/       Reusable UI primitives
+tooling/
+  scripts/         Shared tooling hooks and migration scripts
+docs/
+```
+
+Read [docs/monorepo-architecture.md](docs/monorepo-architecture.md) for the architectural boundary between the shared app core and the platform-specific shells.
+
+## Quick start
+
+### Requirements
+
+- Node.js 22+
+- npm
+- Go 1.22+ for the server build path
+- Docker optional, for self-hosting
+
+### Install dependencies
+
+```bash
+npm ci
+```
+
+## Local development
+
+### Desktop app
+
+```bash
+npm run dev:desktop
+```
+
+or:
+
+```bash
+make desktop
+```
+
+### Web client
+
+```bash
+npm run dev:web
+```
+
+or:
+
+```bash
+make web-dev
+```
+
+### Go server
+
+```bash
+npm run dev:server
+```
+
+or:
+
+```bash
+make server-dev
+```
+
+### Web + server together
+
+```bash
+npm run dev:web-stack
+```
+
+or:
+
+```bash
+make web-stack
+```
+
+Important dev note:
+
+- the browser app and the Go server are separate processes in dev mode
+- frontend-only changes usually need only the web dev server
+- backend changes need the Go server restarted
+- if the web client is newer than the running server, ZenNotes now shows a clearer error instead of raw 404 noise for newer API flows like the vault picker
+
+## Root scripts
+
+From the repository root:
+
+| Script                  | Purpose                                         |
+| ----------------------- | ----------------------------------------------- |
+| `npm run dev`           | Alias for `npm run dev:desktop`                 |
+| `npm run dev:desktop`   | Run the Electron desktop app in development     |
+| `npm run dev:web`       | Run the Vite web client                         |
+| `npm run dev:server`    | Run the Go server                               |
+| `npm run dev:web-stack` | Run web + server development together           |
+| `npm run start`         | Start the built desktop app                     |
+| `npm run typecheck`     | Run monorepo typechecks                         |
+| `npm run test`          | Run monorepo tests                              |
+| `npm run test:run`      | Run the full test suite                         |
+| `npm run build`         | Build the monorepo and then build the Go server |
+| `npm run build:prod`    | Typecheck + test + build                        |
+| `npm run pack`          | Desktop packaged output                         |
+| `npm run dist:mac`      | Build macOS desktop distributables              |
+| `npm run dist:win`      | Build Windows desktop distributables            |
+| `npm run dist:linux`    | Build Linux desktop distributables              |
+
+## Makefile commands
+
+The root `Makefile` provides a simpler interface:
+
+| Command              | Purpose                                                 |
+| -------------------- | ------------------------------------------------------- |
+| `make install`       | Install workspace dependencies                          |
+| `make desktop`       | Run the Electron app in dev mode                        |
+| `make web-dev`       | Run the web client                                      |
+| `make server-dev`    | Run the Go server                                       |
+| `make web-stack`     | Run web + server together                               |
+| `make build`         | Build the full monorepo                                 |
+| `make desktop-build` | Build the Electron app                                  |
+| `make web-build`     | Build `apps/web`                                        |
+| `make server-build`  | Build `apps/server` with the latest embedded web bundle |
+| `make up`            | Build and start the self-hosted Docker stack            |
+| `make down`          | Stop the Docker stack                                   |
+| `make restart`       | Restart the Docker stack                                |
+| `make logs`          | Follow Docker logs                                      |
+| `make status`        | Show Docker status                                      |
+| `make open`          | Open the self-hosted app in a browser                   |
+| `make rebuild`       | Force a full Docker rebuild                             |
+| `make nuke`          | Remove local Docker image/build output                  |
+| `make clean`         | Remove local web/server build output                    |
+
+Run `make help` to print the same summary.
+
+## Self-hosting with Docker
+
+### Start the self-hosted app
+
+```bash
+make up
+```
+
+Then open:
+
+- [http://localhost:7878](http://localhost:7878)
+
+### Default Docker mounts
+
+The current Docker setup mounts:
+
+- host `./vault` -> container `/workspace`
+- host `./data` -> container `/data`
+
+The server stores its config under `/data/server.json` by default.
+
+### Choosing a different host folder
+
+You can mount a different host content root:
+
+```bash
+CONTENT_ROOT="$HOME/Library/Mobile Documents/com~apple~CloudDocs" make up
+```
+
+That works for paths with spaces too.
+
+Useful variables:
+
+- `CONTENT_ROOT`: host folder mounted into the container
+- `DATA`: host directory used for persisted server config
+- `PORT`: published host port
+- `IMAGE`: Docker image tag
+
+### Docker browse model
+
+Important limitation:
+
+- the Docker container can only browse folders that are mounted into it
+- it cannot browse your entire host filesystem
+
+So if you want to browse an Obsidian vault, iCloud Drive, or another directory from the web picker, that directory needs to be mounted into the container first.
+
+### Relevant container env vars
+
+The current compose/runtime flow supports:
+
+- `ZENNOTES_BIND`
+- `ZENNOTES_CONFIG_PATH`
+- `ZENNOTES_DEFAULT_VAULT_PATH`
+- `ZENNOTES_BROWSE_ROOTS`
+- `ZENNOTES_VAULT_PATH`
+
+Behavior notes:
+
+- `ZENNOTES_VAULT_PATH` hard-locks the server to a specific vault path
+- `ZENNOTES_DEFAULT_VAULT_PATH` sets the starting vault when no saved selection exists
+- `ZENNOTES_BROWSE_ROOTS` limits what the web picker can browse
+
+## Web vault picker
+
+The self-hosted web build now includes a server-backed vault chooser.
+
+- it browses folders on the server, not the browser machine
+- it starts from sensible locations instead of requiring blind path typing
+- it supports a simpler folder-picker flow for choosing the active vault
+- on macOS-hosted servers, common shortcuts like iCloud Drive are supported when available
+
+If you start the server with `ZENNOTES_VAULT_PATH`, manual vault switching is intentionally disabled.
+
+## MCP integration
+
+ZenNotes ships a dedicated MCP server and desktop install flows for:
 
 - Claude Code
 - Claude Desktop
-- Codex CLI
+- Codex
 
-The app can:
+The desktop app can:
 
 - detect whether the ZenNotes MCP entry is installed
 - install or uninstall it for each supported client
 - show the exact runtime used to launch the server
-- edit the server's default note-shaping instructions from Settings
+- edit the server's default instructions from Settings
 
-The MCP server exposes vault operations like reading notes, creating
-notes, moving notes, appending to notes, searching text, listing notes,
-listing assets, toggling tasks, and related filesystem-safe actions.
+The MCP server exposes vault operations such as:
 
-## Download
+- reading notes
+- creating notes
+- moving notes
+- appending to notes
+- listing notes
+- searching vault text
+- listing files/assets
+- toggling tasks
 
-The fastest way to get the app is the latest GitHub release:
+## Building and packaging desktop releases
 
-- [Latest release](https://github.com/ZenNotes/zennotes/releases/latest)
-
-Release assets are built per platform in GitHub Actions and uploaded to
-the matching release automatically:
-
-- macOS: `.dmg` and `.zip`
-- Windows: installer `.exe` and `.zip`
-- Linux: `.AppImage` and `.deb`
-
-If the repository is private, GitHub access to the release assets follows
-the repository's normal permissions.
-
-## Vault model
-
-ZenNotes expects a chosen vault root and will ensure the basic folder
-layout exists on first open. The app also seeds a welcome note the first
-time a vault is initialized.
-
-High-level behavior:
-
-- only `inbox`, `quick`, and `archive` are treated as searchable note
-  folders
-- `trash` is recoverable deletion, not part of normal search
-- tags and wiki links are extracted from note bodies
-- attachment presence is inferred from local links in Markdown
-- vault changes are watched and pushed into the renderer over IPC
-
-## Development
-
-### Requirements
-
-- Node.js 22+ recommended
-- npm
-- macOS, Windows, or Linux for Electron development
-
-### Install
+### Build everything
 
 ```bash
-npm install
+npm run build:prod
 ```
 
-### Run the app in development
+### Desktop package scripts
 
 ```bash
-npm run dev
+npm run pack
+npm run dist:mac
+npm run dist:win
+npm run dist:linux
 ```
-
-This starts the Electron main process, preload bundle, and renderer via
-`electron-vite`.
-
-### Typecheck
-
-```bash
-npm run typecheck
-```
-
-### Build
-
-```bash
-npm run build
-```
-
-This produces:
-
-- `out/main` for the Electron main process
-- `out/preload` for the preload bridge
-- `out/renderer` for the renderer bundle
-
-The standalone MCP server is built as `out/main/mcp.js`.
-
-## Packaging
-
-Available package scripts:
-
-| Script | Purpose |
-| --- | --- |
-| `npm run dev` | Run the app in development mode |
-| `npm run build` | Build all Electron bundles |
-| `npm run start` | Preview the built app |
-| `npm run test:run` | Run the automated test suite |
-| `npm run typecheck` | Run node + web TypeScript checks |
-| `npm run pack` | Build and create unpacked app output |
-| `npm run dist:mac` | Build macOS distributables |
-| `npm run dist:win` | Build Windows distributables |
-| `npm run dist:linux` | Build Linux distributables |
-
-Icon packaging notes live in [build/README.md](build/README.md).
 
 ### Signed macOS releases
 
-Public macOS releases are wired for hardened runtime signing and
-notarization. The release workflow expects these GitHub Actions secrets:
+Public macOS releases are wired for hardened runtime signing and notarization.
+
+The GitHub Actions release workflow expects:
 
 - `MACOS_CERTIFICATE_P12`
 - `MACOS_CERTIFICATE_PASSWORD`
@@ -271,90 +467,17 @@ Optional Windows signing can be supplied with:
 - `WINDOWS_CERTIFICATE_P12`
 - `WINDOWS_CERTIFICATE_PASSWORD`
 
-Tagged releases fail the macOS release job if the required Apple signing
-or notarization secrets are missing, which prevents accidentally shipping
-an unsigned public mac build.
-
-## Repository layout
-
-```text
-src/
-  main/       Electron main process, vault I/O, watchers, TikZ, MCP install management
-  preload/    Context bridge / IPC surface exposed to the renderer
-  renderer/   React app, editor UI, preview UI, settings, panes, styles
-  mcp/        Standalone MCP server entry, tool definitions, default instructions
-  shared/     Shared IPC contracts and cross-process types
-build/        Packaging resources (icons, installer assets)
-out/          Built output generated by electron-vite
-```
-
-## Architecture notes
-
-### Main process
-
-`src/main/` is responsible for:
-
-- window lifecycle
-- persisted app config
-- vault selection and layout bootstrapping
-- filesystem operations for notes, folders, archive, trash, and assets
-- vault watching
-- task scanning
-- vault-wide text search
-- TikZ rendering
-- MCP client install / uninstall flows
-
-### Preload
-
-`src/preload/index.ts` exposes the app's typed bridge through
-`window.zen`, including vault operations, search, task scanning, window
-controls, TikZ rendering, clipboard helpers, and MCP settings actions.
-
-### Renderer
-
-`src/renderer/` holds the desktop UI:
-
-- sidebar, note list, editor, preview, floating note windows
-- command palette, help view, tags/tasks/archive/trash views
-- pane layout and tab state
-- settings UI
-- theme system
-- diagram rendering for Mermaid, TikZ, JSXGraph, and function-plot
-
-State is managed with Zustand.
-
-### MCP server
-
-`src/mcp/index.ts` is a standalone stdio server built on
-`@modelcontextprotocol/sdk`. It exposes vault operations to compatible
-clients and ships opinionated note-writing instructions tailored to
-ZenNotes' markdown features and vault model.
-
-Those instructions can be overridden by the user and are persisted as a
-plain Markdown file under the app's user-data directory.
-
-## Why the MCP story matters here
-
-ZenNotes is intentionally opinionated about how assistants should write
-notes:
-
-- use the vault as shared storage, not as a scratchpad
-- prefer surgical edits over blind overwrites
-- lean on KaTeX and diagram fences instead of ASCII approximations
-- connect notes through wiki links
-- preserve user-owned content and frontmatter
-
-That behavior is encoded in the bundled MCP instructions and surfaced in
-Settings so users can tune it without forking the app.
+Tagged releases fail the macOS release job if the required Apple signing or notarization secrets are missing. That prevents accidentally shipping an unsigned public mac build.
 
 ## Current status
 
-ZenNotes is still an actively changing codebase. The app already has a
-meaningful feature surface, but the product and interaction model are
-still being refined quickly.
+ZenNotes is actively evolving. The desktop app is the more mature runtime today, while the self-hosted web/server path is being brought into parity through the shared monorepo core.
 
-If you are contributing, expect UI polish, keyboard flows, diagram
-rendering, and MCP ergonomics to keep evolving.
+That means:
+
+- many features are shared already
+- some platform-specific behavior still lives in the shell layers
+- the README will keep evolving as desktop, web, and self-hosted flows converge further
 
 ## License
 

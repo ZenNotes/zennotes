@@ -1,0 +1,7 @@
+{
+  "primaryNotesLocation": "inbox",
+  "dailyNotes": {
+    "enabled": false,
+    "directory": "Daily Notes"
+  }
+}

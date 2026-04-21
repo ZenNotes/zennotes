@@ -1,7 +1,10 @@
 {
   "files": [],
   "references": [
-    { "path": "./tsconfig.node.json" },
-    { "path": "./tsconfig.web.json" }
+    { "path": "./apps/desktop" },
+    { "path": "./apps/web" },
+    { "path": "./packages/app-core" },
+    { "path": "./packages/bridge-contract" },
+    { "path": "./packages/shared-domain" }
   ]
 }

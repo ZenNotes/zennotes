@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node", "electron-vite/node"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["../../packages/shared-domain/src/*"],
+      "@bridge-contract/*": ["../../packages/bridge-contract/src/*"]
+    }
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "src/main/**/*",
+    "src/mcp/**/*",
+    "src/preload/**/*"
+  ]
+}

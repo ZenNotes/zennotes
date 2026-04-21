@@ -1,0 +1,18 @@
+services:
+  zennotes:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "${ZENNOTES_IMAGE:-zennotes-selfhosted:local}"
+    container_name: zennotes-selfhosted
+    restart: unless-stopped
+    ports:
+      - "${ZENNOTES_HOST_PORT:-7878}:7878"
+    volumes:
+      - "${ZENNOTES_HOST_CONTENT_ROOT:-./vault}:${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}"
+      - "${ZENNOTES_HOST_DATA:-./data}:/data"
+    environment:
+      ZENNOTES_BIND: 0.0.0.0:7878
+      ZENNOTES_CONFIG_PATH: /data/server.json
+      ZENNOTES_DEFAULT_VAULT_PATH: "${ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH:-${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}}"
+      ZENNOTES_BROWSE_ROOTS: "${ZENNOTES_BROWSE_ROOTS:-${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}}"

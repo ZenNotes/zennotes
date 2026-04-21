@@ -1,0 +1,15 @@
+{
+  "name": "@zennotes/app-core",
+  "private": true,
+  "version": "1.0.4",
+  "type": "module",
+  "exports": {
+    "./main": "./src/main.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "echo 'No app-core tests yet'",
+    "test:run": "echo 'No app-core tests yet'"
+  }
+}

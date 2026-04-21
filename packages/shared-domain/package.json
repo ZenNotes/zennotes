@@ -1,0 +1,15 @@
+{
+  "name": "@zennotes/shared-domain",
+  "private": true,
+  "version": "1.0.4",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "echo 'No shared-domain tests yet'",
+    "test:run": "echo 'No shared-domain tests yet'"
+  }
+}

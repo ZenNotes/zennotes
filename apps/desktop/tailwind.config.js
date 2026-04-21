@@ -1,16 +1,9 @@
 /** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    './apps/desktop/src/renderer/index.html',
-    './apps/web/index.html',
-    './packages/app-core/src/**/*.{ts,tsx}'
-  ],
+module.exports = {
+  content: ['./src/renderer/index.html', '../../packages/app-core/src/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {
-        // All colors resolve to CSS custom properties defined in index.css.
-        // Values are space-separated RGB triplets so Tailwind's opacity
-        // modifiers (e.g. `bg-paper-100/50`) keep working.
         paper: {
           50: 'rgb(var(--z-bg-softer) / <alpha-value>)',
           100: 'rgb(var(--z-bg) / <alpha-value>)',
@@ -43,18 +36,8 @@ export default {
           'system-ui',
           'sans-serif'
         ],
-        serif: [
-          '"Iowan Old Style"',
-          '"Source Serif Pro"',
-          'Georgia',
-          'serif'
-        ],
-        mono: [
-          '"JetBrains Mono"',
-          '"SF Mono"',
-          'Menlo',
-          'monospace'
-        ]
+        serif: ['"Iowan Old Style"', '"Source Serif Pro"', 'Georgia', 'serif'],
+        mono: ['"JetBrains Mono"', '"SF Mono"', 'Menlo', 'monospace']
       },
       boxShadow: {
         panel:

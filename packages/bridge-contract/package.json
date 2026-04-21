@@ -1,0 +1,16 @@
+{
+  "name": "@zennotes/bridge-contract",
+  "private": true,
+  "version": "1.0.4",
+  "type": "module",
+  "exports": {
+    "./bridge": "./src/bridge.ts",
+    "./ipc": "./src/ipc.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json",
+    "test": "echo 'No bridge-contract tests yet'",
+    "test:run": "echo 'No bridge-contract tests yet'"
+  }
+}

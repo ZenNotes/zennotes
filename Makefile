@@ -1,0 +1,112 @@
+IMAGE ?= zennotes-selfhosted:local
+PORT ?= 7878
+CONTENT_ROOT ?= ./vault
+DATA ?= ./data
+APP_URL ?= http://localhost:$(PORT)
+COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
+OPEN_BROWSER := $(shell command -v open 2>/dev/null || command -v xdg-open 2>/dev/null)
+
+.PHONY: help install dev desktop web-dev server-dev web-stack \
+	build desktop-build web-build server-build \
+	up down restart logs status open rebuild nuke clean
+
+help:
+	@echo ""
+	@echo "  Setup"
+	@echo "    make install      — install npm workspace dependencies"
+	@echo ""
+	@echo "  Local development"
+	@echo "    make desktop      — run the Electron desktop app in dev mode"
+	@echo "    make web-dev      — run the Vite web client in dev mode"
+	@echo "    make server-dev   — run the Go server in dev mode"
+	@echo "    make web-stack    — run server + web dev together"
+	@echo ""
+	@echo "  Local builds"
+	@echo "    make build        — build the full monorepo"
+	@echo "    make desktop-build — build the Electron desktop app"
+	@echo "    make web-build    — build apps/web"
+	@echo "    make server-build — build apps/server with the latest embedded web bundle"
+	@echo ""
+	@echo "  Docker"
+	@echo "    make up       — build and start the self-hosted server"
+	@echo "    make down     — stop the container"
+	@echo "    make restart  — restart the container"
+	@echo "    make logs     — follow logs"
+	@echo "    make status   — show compose status"
+	@echo "    make open     — open the app in your browser"
+	@echo "    make rebuild  — force a full rebuild"
+	@echo "    make nuke     — tear down and remove local image/build output"
+	@echo "    make clean    — remove local web/server build output"
+	@echo ""
+	@echo "  Useful Docker vars"
+	@echo "    CONTENT_ROOT=~/iCloud Drive/Obsidian   — host folder mounted into the container"
+	@echo "    PORT=7878                               — host port"
+	@echo ""
+
+install:
+	npm ci
+
+dev: desktop
+
+desktop:
+	npm run dev:desktop
+
+web-dev:
+	npm run dev:web
+
+server-dev:
+	npm run dev:server
+
+web-stack:
+	npm run dev:web-stack
+
+build:
+	npm run build
+
+desktop-build:
+	npm run build --workspace @zennotes/desktop
+
+web-build:
+	npm run build --workspace @zennotes/web
+
+up:
+	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
+	@ZENNOTES_IMAGE="$(IMAGE)" ZENNOTES_HOST_PORT="$(PORT)" ZENNOTES_HOST_CONTENT_ROOT="$(CONTENT_ROOT)" ZENNOTES_HOST_DATA="$(DATA)" $(COMPOSE) up --build -d
+	@printf "\nZenNotes is running at $(APP_URL)\n\n"
+ifneq ($(strip $(OPEN_BROWSER)),)
+	@$(OPEN_BROWSER) $(APP_URL) >/dev/null 2>&1 || true
+endif
+
+down:
+	@$(COMPOSE) down
+
+restart:
+	@$(COMPOSE) restart zennotes 2>/dev/null || $(MAKE) --no-print-directory up
+
+logs:
+	@$(COMPOSE) logs -f
+
+status:
+	@$(COMPOSE) ps
+
+open:
+ifneq ($(strip $(OPEN_BROWSER)),)
+	@$(OPEN_BROWSER) $(APP_URL)
+else
+	@echo "Open $(APP_URL) manually."
+endif
+
+rebuild:
+	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
+	@ZENNOTES_IMAGE="$(IMAGE)" ZENNOTES_HOST_PORT="$(PORT)" ZENNOTES_HOST_CONTENT_ROOT="$(CONTENT_ROOT)" ZENNOTES_HOST_DATA="$(DATA)" $(COMPOSE) build --no-cache
+	@$(MAKE) --no-print-directory up
+
+nuke:
+	@$(COMPOSE) down --rmi local --volumes || true
+	@rm -rf apps/web/dist apps/server/bin apps/server/web/dist $(DATA)
+
+server-build: web-build
+	npm run build --workspace @zennotes/server
+
+clean:
+	rm -rf apps/web/dist apps/server/bin apps/server/web/dist
