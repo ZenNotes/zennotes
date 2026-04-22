@@ -1264,6 +1264,7 @@ textarea,
 .cm-editor .tok-heading5,
 .cm-editor .tok-heading6 {
   font-weight: 700;
+  font-style: normal;
   letter-spacing: -0.01em;
   line-height: var(--z-heading-line-height);
 }
@@ -2450,7 +2451,11 @@ textarea,
   font-size: inherit;
   line-height: inherit;
   font-weight: 700;
+  font-style: normal;
   letter-spacing: -0.01em;
+}
+.cm-editor .cm-heading-line .tok-processingInstruction {
+  font-style: normal;
 }
 .cm-editor .cm-heading-line .tok-emphasis {
   font-style: normal;

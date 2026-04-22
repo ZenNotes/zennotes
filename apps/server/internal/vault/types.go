@@ -149,4 +149,5 @@ type ChangeEvent struct {
 	Kind   string     `json:"kind"` // "add" | "change" | "unlink"
 	Path   string     `json:"path"`
 	Folder NoteFolder `json:"folder"`
+	Scope  string     `json:"scope,omitempty"`
 }

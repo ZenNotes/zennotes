@@ -72,6 +72,16 @@ function defaultNewNoteTarget(
   };
 }
 
+function remoteWorkspaceLabel(baseUrl: string | null): string {
+  if (!baseUrl) return "Remote vault";
+  try {
+    const url = new URL(baseUrl);
+    return url.host || "Remote vault";
+  } catch {
+    return baseUrl;
+  }
+}
+
 export function Sidebar(): JSX.Element {
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
@@ -128,14 +138,21 @@ export function Sidebar(): JSX.Element {
   const openNoteInTab = useStore((s) => s.openNoteInTab);
   const systemFolderLabels = useStore((s) => s.systemFolderLabels);
   const workspaceMode = useStore((s) => s.workspaceMode);
+  const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
   const moveNoteAction = useStore((s) => s.moveNote);
   const renameNote = useStore((s) => s.renameNote);
   const { prompt, modal: promptModal } = usePrompt();
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
+  const absolutePathLabel =
+    workspaceMode === "remote" ? "Copy Server Path" : "Copy Absolute Path";
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels],
+  );
+  const remoteLabel = useMemo(
+    () => remoteWorkspaceLabel(remoteWorkspaceInfo?.baseUrl ?? null),
+    [remoteWorkspaceInfo?.baseUrl],
   );
   const primaryNotesAtRoot = useMemo(
     () => isPrimaryNotesAtRoot(vaultSettings),
@@ -523,7 +540,7 @@ export function Sidebar(): JSX.Element {
       },
     });
     items.push({
-      label: "Copy Absolute Path",
+      label: absolutePathLabel,
       onSelect: async () => {
         // Native OS path using the platform separator — ready for Finder
         // / Explorer / terminal use.
@@ -598,6 +615,7 @@ export function Sidebar(): JSX.Element {
     deleteFolderAction,
     duplicateFolderAction,
     canRevealInFileManager,
+    absolutePathLabel,
     revealFolderAction,
     refreshNotes,
     selectedPath,
@@ -674,7 +692,7 @@ export function Sidebar(): JSX.Element {
       },
     });
     items.push({
-      label: "Copy Absolute Path",
+      label: absolutePathLabel,
       onSelect: async () => {
         // Join with the platform separator so the result can be pasted
         // directly into Finder / Explorer / a terminal.
@@ -775,6 +793,7 @@ export function Sidebar(): JSX.Element {
     renameNote,
     moveNoteAction,
     canRevealInFileManager,
+    absolutePathLabel,
     tabsEnabled,
     openNoteInTab,
   ]);
@@ -807,7 +826,7 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
-        label: "Copy Absolute Path",
+        label: absolutePathLabel,
         onSelect: async () => {
           window.zen.clipboardWriteText(abs);
         },
@@ -824,7 +843,7 @@ export function Sidebar(): JSX.Element {
     }
 
     return items;
-  }, [assetMenu, assetFiles, canRevealInFileManager, vault]);
+  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault]);
 
   const tagMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!tagMenu) return [];
@@ -1045,8 +1064,19 @@ export function Sidebar(): JSX.Element {
       <div className="flex items-center justify-between px-3 pb-3">
         <div className="flex min-w-0 items-center gap-2">
           <VaultBadge name={vault?.name ?? "ZenNotes"} size={28} />
-          <div className="truncate text-sm font-medium text-ink-800">
-            {vault?.name ?? "ZenNotes"}
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-ink-800">
+              {vault?.name ?? "ZenNotes"}
+            </div>
+            {workspaceMode === "remote" && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-500">
+                <span className="inline-flex items-center gap-1 rounded-full border border-paper-300/70 bg-paper-100/80 px-1.5 py-0.5 font-medium text-ink-700">
+                  <ArrowUpRightIcon className="h-3 w-3" />
+                  Remote
+                </span>
+                <span className="truncate">{remoteLabel}</span>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-0.5">

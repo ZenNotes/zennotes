@@ -347,10 +347,12 @@ Then open:
 
 ### Default Docker mounts
 
-The current Docker setup mounts:
+When you start Docker with `make up`, ZenNotes mounts:
 
-- host `./vault` -> container `/workspace`
+- host `./vault` -> container `./vault`'s absolute host path
 - host `./data` -> container `/data`
+
+In practice, that means the container sees the vault at the same absolute path you chose on the host, instead of rewriting it to `/workspace`.
 
 The server stores its config under `/data/server.json` by default.
 
@@ -366,7 +368,7 @@ That works for paths with spaces too.
 
 Useful variables:
 
-- `CONTENT_ROOT`: host folder mounted into the container
+- `CONTENT_ROOT`: host folder used as the live vault root
 - `DATA`: host directory used for persisted server config
 - `PORT`: published host port
 - `IMAGE`: Docker image tag

@@ -13,6 +13,7 @@ export interface PromptOptions {
   initialValue?: string
   placeholder?: string
   okLabel?: string
+  allowEmptySubmit?: boolean
   suggestions?: PromptSuggestion[]
   suggestionsHint?: string
   /** Return an error string to block submission, or null/undefined to allow. */
@@ -96,7 +97,7 @@ export function PromptModal({
 
   const submit = (): void => {
     const v = value.trim()
-    if (!v) return
+    if (!v && !options.allowEmptySubmit) return
     const err = options.validate?.(v) ?? null
     if (err) {
       setError(err)

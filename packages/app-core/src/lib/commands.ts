@@ -46,6 +46,8 @@ export interface Command {
 export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
   const getState = (): ReturnType<typeof useStore.getState> => useStore.getState()
   const labels = () => resolveSystemFolderLabels(getState().systemFolderLabels)
+  const pathLabel = (): string =>
+    getState().workspaceMode === 'remote' ? 'Server Path' : 'Absolute Path'
   const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
   const leaderShortcut = (id: KeymapId): string =>
     `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
@@ -203,9 +205,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.copy-absolute-path',
-      title: 'Copy Note Absolute Path',
+      title: `Copy Note ${pathLabel()}`,
       category: 'Note',
-      keywords: 'clipboard full system file',
+      keywords: 'clipboard full system file server path',
       when: () => !!getState().activeNote && !!getState().vault?.root,
       run: async () => {
         const s = getState()
@@ -238,9 +240,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'folder.copy-absolute-path',
-      title: 'Copy Current Folder Absolute Path',
+      title: `Copy Current Folder ${pathLabel()}`,
       category: 'Folder',
-      keywords: 'clipboard full system file',
+      keywords: 'clipboard full system file server path',
       when: () => {
         const s = getState()
         return s.view.kind === 'folder' && !!s.vault?.root

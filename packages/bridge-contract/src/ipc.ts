@@ -278,9 +278,11 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
+export type VaultChangeScope = 'content' | 'vault-settings'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind
   path: string
   folder: NoteFolder
+  scope?: VaultChangeScope
 }

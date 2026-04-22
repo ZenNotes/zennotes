@@ -201,6 +201,7 @@ export function SettingsModal(): JSX.Element {
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const connectRemoteWorkspaceProfile = useStore((s) => s.connectRemoteWorkspaceProfile)
+  const changeRemoteWorkspaceVaultPath = useStore((s) => s.changeRemoteWorkspaceVaultPath)
   const disconnectRemoteWorkspace = useStore((s) => s.disconnectRemoteWorkspace)
   const saveRemoteWorkspaceProfile = useStore((s) => s.saveRemoteWorkspaceProfile)
   const deleteRemoteWorkspaceProfile = useStore((s) => s.deleteRemoteWorkspaceProfile)
@@ -920,13 +921,21 @@ export function SettingsModal(): JSX.Element {
               <button
                 onClick={() =>
                   void (workspaceMode === 'remote'
-                    ? disconnectRemoteWorkspace()
+                    ? changeRemoteWorkspaceVaultPath()
                     : openVaultPicker())
                 }
                 className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
               >
-                {workspaceMode === 'remote' ? 'Return to Local Vault' : 'Change…'}
+                {workspaceMode === 'remote' ? 'Change Remote Vault…' : 'Change…'}
               </button>
+              {workspaceMode === 'remote' && (
+                <button
+                  onClick={() => void disconnectRemoteWorkspace()}
+                  className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                >
+                  Return to Local Vault
+                </button>
+              )}
               {workspaceMode === 'remote' && (
                 <button
                   onClick={() => void openVaultPicker()}

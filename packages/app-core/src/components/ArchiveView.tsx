@@ -51,6 +51,8 @@ export function ArchiveView(): JSX.Element {
   )
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
+  const absolutePathLabel =
+    workspaceMode === 'remote' ? 'Copy Server Path' : 'Copy Absolute Path'
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -203,7 +205,7 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Copy Absolute Path',
+      label: absolutePathLabel,
       onSelect: async () => {
         const root = vault?.root ?? ''
         const sep = root.includes('\\') ? '\\' : '/'
@@ -262,6 +264,7 @@ export function ArchiveView(): JSX.Element {
     selectedPath,
     tabsEnabled,
     canRevealInFileManager,
+    absolutePathLabel,
     vault?.root,
     folderLabels.inbox,
     folderLabels.trash

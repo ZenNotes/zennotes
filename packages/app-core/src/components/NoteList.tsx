@@ -78,6 +78,8 @@ export function NoteList(): JSX.Element {
   const { prompt, modal: promptModal } = usePrompt()
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
+  const absolutePathLabel =
+    workspaceMode === 'remote' ? 'Copy Server Path' : 'Copy Absolute Path'
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels]
@@ -276,7 +278,7 @@ export function NoteList(): JSX.Element {
         }
       },
       {
-        label: 'Copy Absolute Path',
+        label: absolutePathLabel,
         onSelect: async () => {
           window.zen.clipboardWriteText(abs)
         }
@@ -293,7 +295,7 @@ export function NoteList(): JSX.Element {
     }
 
     return items
-  }, [assetMenu, assetFiles, canRevealInFileManager, vault])
+  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault])
 
   /**
    * Filter notes for the current view. For folder views we match the

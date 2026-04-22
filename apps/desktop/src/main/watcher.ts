@@ -4,6 +4,8 @@ import type { NoteFolder, VaultChangeEvent, VaultChangeKind } from '@shared/ipc'
 import { folderForRelativePath } from './vault'
 
 const ATTACHMENTS_DIRS = new Set(['attachements', '_assets'])
+const INTERNAL_VAULT_DIR = '.zennotes'
+const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -17,6 +19,14 @@ function folderOf(root: string, abs: string): NoteFolder | null {
   return ATTACHMENTS_DIRS.has(top) ? 'inbox' : null
 }
 
+function relativeVaultPath(root: string, abs: string): string {
+  return toPosix(path.relative(root, abs))
+}
+
+function isVaultSettingsPath(root: string, abs: string): boolean {
+  return relativeVaultPath(root, abs) === VAULT_SETTINGS_RELATIVE_PATH
+}
+
 export class VaultWatcher {
   private watcher: FSWatcher | null = null
   private root: string | null = null
@@ -28,6 +38,8 @@ export class VaultWatcher {
       ignoreInitial: true,
       persistent: true,
       ignored: (p: string) => {
+        if (this.root && isVaultSettingsPath(this.root, p)) return false
+        if (this.root && relativeVaultPath(this.root, p) === INTERNAL_VAULT_DIR) return false
         const base = path.basename(p)
         return base.startsWith('.') || base === 'node_modules'
       },
@@ -39,8 +51,17 @@ export class VaultWatcher {
 
     const handler = (kind: VaultChangeKind) => (absPath: string) => {
       const base = path.basename(absPath)
-      if (base.startsWith('.')) return
       if (!this.root) return
+      if (isVaultSettingsPath(this.root, absPath)) {
+        onEvent({
+          kind,
+          path: VAULT_SETTINGS_RELATIVE_PATH,
+          folder: 'inbox',
+          scope: 'vault-settings'
+        })
+        return
+      }
+      if (base.startsWith('.')) return
       const folder = folderOf(this.root, absPath)
       if (!folder) return
       onEvent({

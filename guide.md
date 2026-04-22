@@ -84,13 +84,14 @@ Then open:
 
 By default, Docker mounts:
 
-- host `./vault` -> container `/workspace`
+- host `./vault` -> container at the same absolute host path
 - host `./data` -> container `/data`
 
 That means:
 
 - your notes live in `./vault`
 - ZenNotes server config lives in `./data`
+- the server sees your vault as a real host path, not `/workspace`
 
 ### Use a different vault folder
 

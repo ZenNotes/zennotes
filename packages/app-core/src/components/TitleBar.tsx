@@ -12,6 +12,7 @@ export function TitleBar(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote)
   const selectedPath = useStore((s) => s.selectedPath)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const workspaceMode = useStore((s) => s.workspaceMode)
   const isMac = window.zen.platformSync() === 'darwin'
   const labels = resolveSystemFolderLabels(systemFolderLabels)
 
@@ -38,7 +39,14 @@ export function TitleBar(): JSX.Element {
       className="drag-region glass-titlebar flex h-11 shrink-0 items-center px-4 text-xs text-ink-500"
       style={{ paddingLeft: isMac ? 80 : 12 }}
     >
-      <div className="flex-1 text-center tracking-wide">{title}</div>
+      <div className="flex flex-1 items-center justify-center gap-2 text-center tracking-wide">
+        <span className="truncate">{title}</span>
+        {workspaceMode === 'remote' && (
+          <span className="rounded-full border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-700">
+            Remote
+          </span>
+        )}
+      </div>
       {!isMac && (
         <div className="flex items-center gap-1">
           <WinButton onClick={() => window.zen.windowMinimize()} label="–" />

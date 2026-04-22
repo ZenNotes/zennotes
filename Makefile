@@ -39,7 +39,7 @@ help:
 	@echo "    make clean    — remove local web/server build output"
 	@echo ""
 	@echo "  Useful Docker vars"
-	@echo "    CONTENT_ROOT=~/iCloud Drive/Obsidian   — host folder mounted into the container"
+	@echo "    CONTENT_ROOT=~/iCloud Drive/Obsidian   — host folder used as the live vault root"
 	@echo "    PORT=7878                               — host port"
 	@echo ""
 
@@ -71,7 +71,16 @@ web-build:
 
 up:
 	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
-	@ZENNOTES_IMAGE="$(IMAGE)" ZENNOTES_HOST_PORT="$(PORT)" ZENNOTES_HOST_CONTENT_ROOT="$(CONTENT_ROOT)" ZENNOTES_HOST_DATA="$(DATA)" $(COMPOSE) up --build -d
+	@ABS_CONTENT_ROOT="$$(cd "$(CONTENT_ROOT)" && pwd)"; \
+	ABS_DATA="$$(cd "$(DATA)" && pwd)"; \
+	ZENNOTES_IMAGE="$(IMAGE)" \
+	ZENNOTES_HOST_PORT="$(PORT)" \
+	ZENNOTES_HOST_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_CONTAINER_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_BROWSE_ROOTS="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_HOST_DATA="$$ABS_DATA" \
+	$(COMPOSE) up --build -d
 	@printf "\nZenNotes is running at $(APP_URL)\n\n"
 ifneq ($(strip $(OPEN_BROWSER)),)
 	@$(OPEN_BROWSER) $(APP_URL) >/dev/null 2>&1 || true
@@ -98,7 +107,16 @@ endif
 
 rebuild:
 	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
-	@ZENNOTES_IMAGE="$(IMAGE)" ZENNOTES_HOST_PORT="$(PORT)" ZENNOTES_HOST_CONTENT_ROOT="$(CONTENT_ROOT)" ZENNOTES_HOST_DATA="$(DATA)" $(COMPOSE) build --no-cache
+	@ABS_CONTENT_ROOT="$$(cd "$(CONTENT_ROOT)" && pwd)"; \
+	ABS_DATA="$$(cd "$(DATA)" && pwd)"; \
+	ZENNOTES_IMAGE="$(IMAGE)" \
+	ZENNOTES_HOST_PORT="$(PORT)" \
+	ZENNOTES_HOST_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_CONTAINER_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_BROWSE_ROOTS="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_HOST_DATA="$$ABS_DATA" \
+	$(COMPOSE) build --no-cache
 	@$(MAKE) --no-print-directory up
 
 nuke:

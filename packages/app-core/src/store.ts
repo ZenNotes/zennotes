@@ -1327,6 +1327,7 @@ interface Store {
   openVaultPicker: () => Promise<void>
   connectRemoteWorkspace: () => Promise<void>
   connectRemoteWorkspaceProfile: (id: string) => Promise<void>
+  changeRemoteWorkspaceVaultPath: () => Promise<void>
   disconnectRemoteWorkspace: () => Promise<void>
   saveRemoteWorkspaceProfile: (input: RemoteWorkspaceProfileInput) => Promise<RemoteWorkspaceProfile>
   deleteRemoteWorkspaceProfile: (id: string) => Promise<void>
@@ -2147,8 +2148,22 @@ export const useStore = create<Store>((set, get) => {
   },
 
   applyChange: async (ev) => {
-    await get().refreshNotes()
+    await Promise.all([
+      get().refreshNotes(),
+      ev.scope === 'vault-settings'
+        ? window.zen
+            .getVaultSettings()
+            .then((settings) => {
+              set({ vaultSettings: normalizeVaultSettings(settings) })
+            })
+            .catch((err) => {
+              console.error('refresh vault settings failed', err)
+            })
+        : Promise.resolve()
+    ])
     const state = get()
+
+    if (ev.scope === 'vault-settings') return
 
     // Keep the Tasks view in sync as files change externally or via our own
     // writes — cheap per-path rescans instead of walking the whole vault.
@@ -3657,7 +3672,8 @@ export const useStore = create<Store>((set, get) => {
           'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.',
         initialValue: matchingBaseProfile?.authToken ?? '',
         placeholder: 'Optional',
-        okLabel: 'Connect'
+        okLabel: 'Connect',
+        allowEmptySubmit: true
       })
       if (authToken == null) return
 
@@ -3818,6 +3834,85 @@ export const useStore = create<Store>((set, get) => {
       savePrefs(collectPrefs(get()))
       await get().refreshNotes()
       await restoreWorkspaceForVault(vault)
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : String(error))
+    }
+  },
+
+  changeRemoteWorkspaceVaultPath: async () => {
+    try {
+      if (get().workspaceMode !== 'remote') return
+      const remoteInfo = get().remoteWorkspaceInfo
+      if (!remoteInfo?.capabilities?.supportsVaultSelection) {
+        throw new Error('This ZenNotes server does not allow switching vault folders from the app.')
+      }
+
+      await get().flushDirtyNotes()
+
+      const currentVault = get().vault
+      const currentProfile = get().remoteWorkspaceProfiles.find(
+        (entry) => entry.id === (remoteInfo.profileId ?? null)
+      )
+
+      let nextVault: VaultInfo | null = null
+      const enteredPath = await pickServerDirectoryApp(
+        {
+          title: 'Choose Vault Folder',
+          description:
+            'Choose the folder on the connected ZenNotes server that ZenNotes should use as your vault.',
+          initialPath: currentVault?.root ?? currentProfile?.vaultPath ?? '',
+          confirmLabel: 'Choose Folder'
+        },
+        async (selectedPath) => {
+          nextVault = await window.zen.selectVaultPath(selectedPath.trim())
+        }
+      )
+
+      if (!enteredPath || !nextVault) return
+      const selectedVault: VaultInfo = nextVault
+
+      if (currentProfile) {
+        await window.zen.saveRemoteWorkspaceProfile({
+          ...currentProfile,
+          vaultPath: selectedVault.root
+        })
+      }
+
+      const [remoteWorkspaceInfo] = await Promise.all([
+        get().refreshWorkspaceContext(),
+        get().refreshRemoteWorkspaceProfiles()
+      ])
+      const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
+      const fresh = makeLeaf()
+      set({
+        vault: selectedVault,
+        workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+        remoteWorkspaceInfo,
+        vaultSettings,
+        notes: [],
+        folders: [],
+        hasAssetsDir: false,
+        assetFiles: [],
+        vaultTasks: [],
+        selectedTags: [],
+        view: { kind: 'folder', folder: 'inbox', subpath: '' },
+        selectedPath: null,
+        activeNote: null,
+        activeDirty: false,
+        paneLayout: fresh,
+        activePaneId: fresh.id,
+        noteContents: {},
+        noteDirty: {},
+        loadingNote: false,
+        noteBackstack: [],
+        noteForwardstack: [],
+        pendingJumpLocation: null,
+        pinnedRefPath: null,
+        workspaceRestored: false
+      })
+      savePrefs(collectPrefs(get()))
+      await get().refreshNotes()
+      await restoreWorkspaceForVault(selectedVault)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
     }
