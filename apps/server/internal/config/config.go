@@ -87,7 +87,7 @@ func SaveHost(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, out, 0o644)
+	return os.WriteFile(target, out, 0o600)
 }
 
 func LegacyVaultConfigPath(vaultRoot string) string {

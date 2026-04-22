@@ -634,7 +634,6 @@ async function migrateLegacyRemoteWorkspaceSecrets(): Promise<void> {
       }
       nextProfiles = [...nextProfiles, targetProfile].sort((a, b) => a.name.localeCompare(b.name))
       nextProfileId = targetProfile.id
-      changed = true
     }
 
     await setRemoteWorkspaceSecret(targetProfile.id, nextRemoteWorkspace.authToken)
