@@ -29,10 +29,24 @@ var reservedRootNames = map[string]struct{}{
 	internalVaultDir:      {},
 }
 
+var hiddenPrimaryRootNames = map[string]struct{}{
+	string(FolderQuick):   {},
+	string(FolderArchive): {},
+	string(FolderTrash):   {},
+	PrimaryAttachmentsDir: {},
+	internalVaultDir:      {},
+}
+
 func init() {
 	for _, dir := range legacyAttachmentsDirs {
 		reservedRootNames[dir] = struct{}{}
+		hiddenPrimaryRootNames[dir] = struct{}{}
 	}
+}
+
+func shouldHidePrimaryRootName(name string) bool {
+	_, hidden := hiddenPrimaryRootNames[name]
+	return hidden
 }
 
 // Vault encapsulates all operations against a filesystem vault root.
@@ -262,7 +276,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
 					if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-						if _, reserved := reservedRootNames[d.Name()]; reserved {
+						if shouldHidePrimaryRootName(d.Name()) {
 							return filepath.SkipDir
 						}
 					}
@@ -272,7 +286,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-					if _, reserved := reservedRootNames[d.Name()]; reserved {
+					if shouldHidePrimaryRootName(d.Name()) {
 						return filepath.SkipDir
 					}
 				}
@@ -338,7 +352,7 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-					if _, reserved := reservedRootNames[d.Name()]; reserved {
+					if shouldHidePrimaryRootName(d.Name()) {
 						return filepath.SkipDir
 					}
 				}
@@ -825,7 +839,7 @@ func (v *Vault) ScanTasks() ([]Task, error) {
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
 					if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-						if _, reserved := reservedRootNames[d.Name()]; reserved {
+						if shouldHidePrimaryRootName(d.Name()) {
 							return filepath.SkipDir
 						}
 					}
@@ -835,7 +849,7 @@ func (v *Vault) ScanTasks() ([]Task, error) {
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-					if _, reserved := reservedRootNames[d.Name()]; reserved {
+					if shouldHidePrimaryRootName(d.Name()) {
 						return nil
 					}
 				}
@@ -906,7 +920,7 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
 					if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-						if _, reserved := reservedRootNames[d.Name()]; reserved {
+						if shouldHidePrimaryRootName(d.Name()) {
 							return filepath.SkipDir
 						}
 					}
@@ -916,7 +930,7 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
-					if _, reserved := reservedRootNames[d.Name()]; reserved {
+					if shouldHidePrimaryRootName(d.Name()) {
 						return nil
 					}
 				}

@@ -5,6 +5,7 @@ import { EnsoLogo } from './EnsoLogo'
 export function EmptyVault(): JSX.Element {
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
+  const workspaceSetupError = useStore((s) => s.workspaceSetupError)
   const capabilities = window.zen.getCapabilities()
   const appInfo = window.zen.getAppInfo()
   const isServerVaultSetup =
@@ -38,12 +39,14 @@ export function EmptyVault(): JSX.Element {
           <h1 className="font-serif text-2xl font-semibold text-ink-900">Welcome to ZenNotes</h1>
           <p className="mt-2 text-sm text-ink-600">
             {isServerVaultSetup
-              ? 'Enter the path to the vault directory on the server running ZenNotes. The app will use that folder as your vault and keep your notes there as plain markdown files.'
+              ? 'Choose the vault directory on the server running ZenNotes. The normal self-hosted path is `make up`, which serves the browser app and server together.'
               : 'Choose a folder on your computer to use as your vault. ZenNotes will store your notes there as plain markdown files — yours to keep, back up, and sync any way you like.'}
           </p>
           {isServerVaultSetup && (
             <p className="mt-2 text-xs text-ink-500">
-              You can also preconfigure this on the server with{' '}
+              If you are using the web dev server, you also need{' '}
+              <code className="rounded bg-paper-200 px-1 py-0.5">npm run dev:server</code>. You can
+              also preconfigure the vault on the server with{' '}
               <code className="rounded bg-paper-200 px-1 py-0.5">ZENNOTES_VAULT_PATH</code>.
             </p>
           )}
@@ -70,6 +73,9 @@ export function EmptyVault(): JSX.Element {
             </button>
           )}
         </div>
+        {workspaceSetupError && (
+          <p className="max-w-lg text-sm text-[rgb(var(--z-red))]">{workspaceSetupError}</p>
+        )}
       </div>
     </div>
   )

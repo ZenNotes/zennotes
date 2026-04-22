@@ -79,6 +79,7 @@
     "remark-rehype": "^11.1.1",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0",
+    "ws": "^8.20.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
@@ -86,6 +87,7 @@
     "@types/node": "^25.6.0",
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "electron": "^41.2.1",

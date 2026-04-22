@@ -356,6 +356,26 @@ In practice, that means the container sees the vault at the same absolute path y
 
 The server stores its config under `/data/server.json` by default.
 
+### Default Docker security behavior
+
+The self-hosted Docker flow is now secure by default:
+
+- the published port binds to `127.0.0.1` unless you override it
+- ZenNotes generates a bootstrap auth token on first `make up` and stores it in `./data/auth-token`
+- the browser version signs in with that token once, then uses an `HttpOnly` session cookie
+- the container runs as your local UID/GID by default, with a read-only root filesystem, `no-new-privileges`, and dropped Linux capabilities
+
+Useful env vars:
+
+- `ALLOW_INSECURE_NOAUTH=1`: only use this if you intentionally want to disable auth
+- `ZENNOTES_ALLOWED_ORIGINS`: explicit browser origin allowlist
+- `ZENNOTES_BROWSE_ROOTS`: restricts which server-side directories the picker can browse
+
+Recommended deployment model:
+
+- keep ZenNotes behind a reverse proxy, VPN, or private network gate
+- do not expose the raw Go server directly to the public internet unless you understand the tradeoffs
+
 ### Choosing a different host folder
 
 You can mount a different host content root:
@@ -372,6 +392,7 @@ Useful variables:
 - `DATA`: host directory used for persisted server config
 - `PORT`: published host port
 - `IMAGE`: Docker image tag
+- `ALLOW_INSECURE_NOAUTH`: disable the default auth requirement
 
 ### Docker browse model
 
@@ -379,6 +400,7 @@ Important limitation:
 
 - the Docker container can only browse folders that are mounted into it
 - it cannot browse your entire host filesystem
+- by default, the picker is scoped to the mounted content root unless you explicitly relax it
 
 So if you want to browse an Obsidian vault, iCloud Drive, or another directory from the web picker, that directory needs to be mounted into the container first.
 
@@ -397,17 +419,23 @@ Behavior notes:
 - `ZENNOTES_VAULT_PATH` hard-locks the server to a specific vault path
 - `ZENNOTES_DEFAULT_VAULT_PATH` sets the starting vault when no saved selection exists
 - `ZENNOTES_BROWSE_ROOTS` limits what the web picker can browse
+- `ZENNOTES_ALLOWED_ORIGINS` restricts which browser origins can connect
+- `ZENNOTES_ALLOW_UNSCOPED_BROWSE=1` removes browse-root enforcement
+- `ZENNOTES_ALLOW_INSECURE_NOAUTH=1` disables the default auth guardrail
 
 ## Web vault picker
 
 The self-hosted web build now includes a server-backed vault chooser.
 
 - it browses folders on the server, not the browser machine
+- it only browses configured allowed roots by default
 - it starts from sensible locations instead of requiring blind path typing
 - it supports a simpler folder-picker flow for choosing the active vault
 - on macOS-hosted servers, common shortcuts like iCloud Drive are supported when available
 
 If you start the server with `ZENNOTES_VAULT_PATH`, manual vault switching is intentionally disabled.
+
+If auth is enabled, the browser asks for the bootstrap token once and then switches to a secure session cookie. ZenNotes no longer relies on auth tokens in browser URLs or local storage.
 
 ## MCP integration
 

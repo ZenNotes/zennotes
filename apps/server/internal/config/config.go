@@ -8,11 +8,15 @@ import (
 )
 
 type Config struct {
-	VaultPath         string   `json:"vaultPath"`
-	DefaultVaultPath  string   `json:"-"`
-	BrowseRoots       []string `json:"-"`
-	Bind              string   `json:"bind"`
-	AuthToken         string   `json:"authToken"`
+	VaultPath            string   `json:"vaultPath"`
+	DefaultVaultPath     string   `json:"-"`
+	BrowseRoots          []string `json:"-"`
+	AllowedOrigins       []string `json:"-"`
+	Bind                 string   `json:"bind"`
+	AuthToken            string   `json:"authToken"`
+	AllowUnscopedBrowse  bool     `json:"-"`
+	AllowInsecureNoAuth  bool     `json:"-"`
+	DevMode              bool     `json:"-"`
 }
 
 func configFilePath() string {
@@ -49,21 +53,17 @@ func Load() Config {
 	if v := os.Getenv("ZENNOTES_DEFAULT_VAULT_PATH"); v != "" {
 		cfg.DefaultVaultPath = v
 	}
-	if v := os.Getenv("ZENNOTES_BROWSE_ROOTS"); v != "" {
-		parts := strings.Split(v, ",")
-		cfg.BrowseRoots = make([]string, 0, len(parts))
-		for _, part := range parts {
-			if trimmed := strings.TrimSpace(part); trimmed != "" {
-				cfg.BrowseRoots = append(cfg.BrowseRoots, trimmed)
-			}
-		}
-	}
+	cfg.BrowseRoots = parseListEnv("ZENNOTES_BROWSE_ROOTS")
+	cfg.AllowedOrigins = parseListEnv("ZENNOTES_ALLOWED_ORIGINS")
 	if v := os.Getenv("ZENNOTES_BIND"); v != "" {
 		cfg.Bind = v
 	}
 	if v := os.Getenv("ZENNOTES_AUTH_TOKEN"); v != "" {
 		cfg.AuthToken = v
 	}
+	cfg.AllowUnscopedBrowse = envEnabled("ZENNOTES_ALLOW_UNSCOPED_BROWSE")
+	cfg.AllowInsecureNoAuth = envEnabled("ZENNOTES_ALLOW_INSECURE_NOAUTH")
+	cfg.DevMode = envEnabled("ZENNOTES_DEV")
 	if cfg.VaultPath == "" {
 		if cfg.DefaultVaultPath != "" {
 			cfg.VaultPath = cfg.DefaultVaultPath
@@ -90,15 +90,31 @@ func SaveHost(cfg Config) error {
 	return os.WriteFile(target, out, 0o644)
 }
 
-// Save writes the effective config inside the vault, for transparency.
-func Save(cfg Config, vaultRoot string) error {
-	dir := filepath.Join(vaultRoot, ".zennotes")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+func LegacyVaultConfigPath(vaultRoot string) string {
+	return filepath.Join(vaultRoot, ".zennotes", "server.json")
+}
+
+func LegacyVaultConfigExists(vaultRoot string) bool {
+	_, err := os.Stat(LegacyVaultConfigPath(vaultRoot))
+	return err == nil
+}
+
+func parseListEnv(name string) []string {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return nil
 	}
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			values = append(values, trimmed)
+		}
 	}
-	return os.WriteFile(filepath.Join(dir, "server.json"), out, 0o644)
+	return values
+}
+
+func envEnabled(name string) bool {
+	raw := strings.TrimSpace(strings.ToLower(os.Getenv(name)))
+	return raw == "1" || raw == "true" || raw == "yes" || raw == "on"
 }

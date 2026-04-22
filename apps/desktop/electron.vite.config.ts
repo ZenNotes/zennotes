@@ -62,6 +62,7 @@ export default defineConfig({
     build: {
       outDir: 'out/main',
       rollupOptions: {
+        external: ['keytar'],
         // The MCP server is an independent Node entry point bundled
         // alongside the main process. electron-vite\u2019s `main`
         // section is the only slot whose output is plain ESM that

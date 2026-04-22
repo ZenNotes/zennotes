@@ -2,7 +2,6 @@ package httpserver
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -26,15 +25,26 @@ import (
 )
 
 type Server struct {
-	mu      sync.RWMutex
-	Config  config.Config
-	Vault   *vault.Vault
-	Watcher *watcher.Watcher
-	Static  fs.FS // embedded web bundle, may be nil in dev
+	mu             sync.RWMutex
+	Config         config.Config
+	Vault          *vault.Vault
+	Watcher        *watcher.Watcher
+	Static         fs.FS // embedded web bundle, may be nil in dev
+	sessions       *sessionStore
+	loginLimiter   *attemptLimiter
+	wsRejectLimiter *attemptLimiter
 }
 
 func New(v *vault.Vault, w *watcher.Watcher, static fs.FS, cfg config.Config) *Server {
-	return &Server{Vault: v, Watcher: w, Static: static, Config: cfg}
+	return &Server{
+		Vault:           v,
+		Watcher:         w,
+		Static:          static,
+		Config:          cfg,
+		sessions:        newSessionStore(),
+		loginLimiter:    newAttemptLimiter(10*time.Minute, 10),
+		wsRejectLimiter: newAttemptLimiter(1*time.Minute, 20),
+	}
 }
 
 func (s *Server) currentVault() *vault.Vault {
@@ -77,7 +87,6 @@ func (s *Server) switchVaultRoot(nextPath string) (*vault.Vault, error) {
 		prevWatcher.Close()
 	}
 	_ = config.SaveHost(cfg)
-	_ = config.Save(cfg, nextVault.Root())
 	return nextVault, nil
 }
 
@@ -85,14 +94,18 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(securityHeadersMiddleware)
+	r.Use(s.corsMiddleware)
 	r.Use(middleware.Recoverer)
-	r.Use(corsAllowDev)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/healthz", s.healthz)
 		r.Get("/version", s.version)
 		r.Get("/capabilities", s.capabilities)
 		r.Get("/platform", s.platform)
+		r.Get("/session", s.sessionStatus)
+		r.Post("/session/login", s.sessionLogin)
+		r.Post("/session/logout", s.sessionLogout)
 
 		r.Group(func(r chi.Router) {
 			r.Use(s.requireAuth)
@@ -106,6 +119,9 @@ func (s *Server) Router() http.Handler {
 	r.Get("/version", s.version)
 	r.Get("/capabilities", s.capabilities)
 	r.Get("/platform", s.platform)
+	r.Get("/session", s.sessionStatus)
+	r.Post("/session/login", s.sessionLogin)
+	r.Post("/session/logout", s.sessionLogout)
 	r.Group(func(r chi.Router) {
 		r.Use(s.requireAuth)
 		s.registerProtectedRoutes(r)
@@ -162,23 +178,6 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Get("/watch", s.watchWS)
 }
 
-func corsAllowDev(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin != "" && (strings.Contains(origin, "127.0.0.1") || strings.Contains(origin, "localhost")) {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, If-Match")
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func platformName() string {
 	switch runtime.GOOS {
 	case "darwin":
@@ -200,12 +199,16 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 
 		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-		if provided == "" {
-			provided = strings.TrimSpace(r.URL.Query().Get("authToken"))
-		}
-		if subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1 {
+		if subtleCompare(provided, expected) || s.requestAuthenticatedViaSession(r) {
 			next.ServeHTTP(w, r)
 			return
+		}
+
+		if strings.HasSuffix(r.URL.Path, "/watch") || r.URL.Path == "/watch" {
+			if !s.wsRejectLimiter.allow(clientAddressKey(r)) {
+				http.Error(w, "too many unauthorized websocket attempts", http.StatusTooManyRequests)
+				return
+			}
 		}
 
 		w.Header().Set("WWW-Authenticate", `Bearer realm="ZenNotes"`)
@@ -222,6 +225,11 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 func writeError(w http.ResponseWriter, err error) {
+	var statusErr httpStatusError
+	if errors.As(err, &statusErr) {
+		http.Error(w, statusErr.Error(), statusErr.code)
+		return
+	}
 	if errors.Is(err, vault.ErrPathEscape) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -253,6 +261,8 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"version":                   "0.1.0-web",
 		"platform":                  platformName(),
 		"authRequired":              strings.TrimSpace(cfg.AuthToken) != "",
+		"supportsSessionLogin":      true,
+		"browseRootsEnforced":       !cfg.AllowUnscopedBrowse,
 		"supportsVaultSelection":    true,
 		"supportsDirectoryBrowsing": true,
 		"supportsWatch":             true,
@@ -306,7 +316,12 @@ func (s *Server) selectVault(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "vault path is required", http.StatusBadRequest)
 		return
 	}
-	nextVault, err := s.switchVaultRoot(req.Path)
+	allowedPath, err := s.ensureBrowsePathAllowed(req.Path)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	nextVault, err := s.switchVaultRoot(allowedPath)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -384,25 +399,11 @@ func (s *Server) browseDirectories(w http.ResponseWriter, r *http.Request) {
 	requested := strings.TrimSpace(r.URL.Query().Get("path"))
 	target := requested
 	if target == "" {
-		target = defaultBrowsePath()
+		target = s.defaultBrowsePath()
 	}
-	if !filepath.IsAbs(target) {
-		abs, err := filepath.Abs(target)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		target = abs
-	}
-	target = filepath.Clean(target)
-
-	info, err := os.Stat(target)
+	target, err := s.ensureBrowsePathAllowed(target)
 	if err != nil {
 		writeError(w, err)
-		return
-	}
-	if !info.IsDir() {
-		http.Error(w, "path is not a directory", http.StatusBadRequest)
 		return
 	}
 
@@ -417,6 +418,9 @@ func (s *Server) browseDirectories(w http.ResponseWriter, r *http.Request) {
 		childPath := filepath.Join(target, entry.Name())
 		childInfo, err := os.Stat(childPath)
 		if err != nil || !childInfo.IsDir() {
+			continue
+		}
+		if _, err := s.ensureBrowsePathAllowed(childPath); err != nil {
 			continue
 		}
 		entries = append(entries, directoryBrowseEntry{
@@ -436,38 +440,16 @@ func (s *Server) browseDirectories(w http.ResponseWriter, r *http.Request) {
 	parentPath := filepath.Dir(target)
 	var parent *string
 	if parentPath != "" && parentPath != target {
-		parent = &parentPath
-	}
-
-	shortcuts := make([]directoryBrowseShortcut, 0, 8)
-	root := filesystemRootForPath(target)
-	shortcuts = appendBrowseShortcut(shortcuts, "Root", root)
-	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
-		shortcuts = appendBrowseShortcut(shortcuts, "Home", home)
-		shortcuts = appendBrowseShortcut(shortcuts, "Desktop", filepath.Join(home, "Desktop"))
-		shortcuts = appendBrowseShortcut(shortcuts, "Documents", filepath.Join(home, "Documents"))
-		shortcuts = appendBrowseShortcut(shortcuts, "Downloads", filepath.Join(home, "Downloads"))
-		if runtime.GOOS == "darwin" {
-			shortcuts = appendBrowseShortcut(
-				shortcuts,
-				"iCloud Drive",
-				filepath.Join(home, "Library", "Mobile Documents", "com~apple~CloudDocs"),
-			)
+		if allowedParent, err := s.ensureBrowsePathAllowed(parentPath); err == nil {
+			parent = &allowedParent
 		}
-	}
-	if current := s.currentVault(); current != nil {
-		rootPath := current.Root()
-		shortcuts = appendBrowseShortcut(shortcuts, "Current Vault", rootPath)
-	}
-	for idx, rootPath := range s.Config.BrowseRoots {
-		shortcuts = appendBrowseShortcut(shortcuts, browseRootLabel(rootPath, idx), rootPath)
 	}
 
 	writeJSON(w, http.StatusOK, directoryBrowseResult{
 		CurrentPath: target,
 		ParentPath:  parent,
 		Entries:     entries,
-		Shortcuts:   shortcuts,
+		Shortcuts:   s.browseShortcuts(),
 	})
 }
 
@@ -853,9 +835,17 @@ func (s *Server) uploadAsset(w http.ResponseWriter, r *http.Request) {
 // --- WebSocket watcher ---
 
 func (s *Server) watchWS(w http.ResponseWriter, r *http.Request) {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" && !s.isAllowedOrigin(r, origin) {
+		if !s.wsRejectLimiter.allow(clientAddressKey(r)) {
+			http.Error(w, "too many invalid websocket origins", http.StatusTooManyRequests)
+			return
+		}
+		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return
+	}
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		InsecureSkipVerify: true, // Allow Vite dev server origin.
-		OriginPatterns:     []string{"*"},
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		log.Printf("ws accept failed: %v", err)

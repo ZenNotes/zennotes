@@ -219,9 +219,17 @@ export interface ServerCapabilities {
   version: string
   platform: NodeJS.Platform
   authRequired: boolean
+  supportsSessionLogin: boolean
+  browseRootsEnforced: boolean
   supportsVaultSelection: boolean
   supportsDirectoryBrowsing: boolean
   supportsWatch: boolean
+}
+
+export interface ServerSessionStatus {
+  authenticated: boolean
+  authRequired: boolean
+  supportsSessionLogin: boolean
 }
 
 export type WorkspaceMode = 'local' | 'remote'
@@ -238,7 +246,7 @@ export interface RemoteWorkspaceProfile {
   id: string
   name: string
   baseUrl: string
-  authToken: string | null
+  hasCredential: boolean
   vaultPath: string | null
   lastConnectedAt: number | null
 }
@@ -248,6 +256,7 @@ export interface RemoteWorkspaceProfileInput {
   name?: string
   baseUrl: string
   authToken?: string | null
+  clearAuthToken?: boolean
   vaultPath?: string | null
 }
 

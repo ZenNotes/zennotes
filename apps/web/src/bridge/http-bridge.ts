@@ -34,6 +34,7 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  ServerSessionStatus,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -71,7 +72,6 @@ const WEB_APP_INFO: ZenAppInfo = {
 }
 
 const API_BASE = '/api'
-const SERVER_AUTH_TOKEN_KEY = 'zen:server-auth-token'
 
 type JsonBody = Record<string, unknown> | unknown[]
 type JsonRequestInit = Omit<RequestInit, 'body'> & { body?: JsonBody }
@@ -87,43 +87,6 @@ class HttpRequestError extends Error {
     this.path = path
   }
 }
-
-function readStoredServerAuthToken(): string | null {
-  try {
-    const token = window.localStorage.getItem(SERVER_AUTH_TOKEN_KEY)?.trim()
-    return token ? token : null
-  } catch {
-    return null
-  }
-}
-
-function writeStoredServerAuthToken(token: string | null): void {
-  try {
-    if (token && token.trim()) {
-      window.localStorage.setItem(SERVER_AUTH_TOKEN_KEY, token.trim())
-    } else {
-      window.localStorage.removeItem(SERVER_AUTH_TOKEN_KEY)
-    }
-  } catch {
-    // ignore localStorage failures
-  }
-}
-
-function hydrateServerAuthTokenFromLocation(): void {
-  try {
-    const url = new URL(window.location.href)
-    const authToken = url.searchParams.get('authToken') ?? url.searchParams.get('token')
-    if (!authToken || !authToken.trim()) return
-    writeStoredServerAuthToken(authToken)
-    url.searchParams.delete('authToken')
-    url.searchParams.delete('token')
-    window.history.replaceState({}, '', url.toString())
-  } catch {
-    // ignore URL parsing failures
-  }
-}
-
-hydrateServerAuthTokenFromLocation()
 
 function wrapRouteUpgradeError(path: string, err: unknown): never {
   if (
@@ -143,10 +106,6 @@ async function jsonRequest<T>(
   init?: JsonRequestInit
 ): Promise<T> {
   const headers = new Headers(init?.headers)
-  const authToken = readStoredServerAuthToken()
-  if (authToken && !headers.has('Authorization')) {
-    headers.set('Authorization', `Bearer ${authToken}`)
-  }
   const hasBody = init?.body !== undefined
   if (hasBody && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
@@ -162,7 +121,7 @@ async function jsonRequest<T>(
       throw new HttpRequestError(
         res.status,
         path,
-        'This ZenNotes server requires an auth token. Add `?authToken=...` to the URL once, then reload.'
+        'This ZenNotes server requires you to sign in with its auth token.'
       )
     }
     const text = await res.text().catch(() => '')
@@ -228,6 +187,23 @@ function getServerCapabilities(): Promise<ServerCapabilities | null> {
   return jsonRequest<ServerCapabilities>('/capabilities').catch((err) => {
     if (err instanceof HttpRequestError && err.status === 404) return null
     throw err
+  })
+}
+
+function getServerSession(): Promise<ServerSessionStatus> {
+  return jsonRequest<ServerSessionStatus>('/session')
+}
+
+function loginServerSession(token: string): Promise<ServerSessionStatus> {
+  return jsonRequest<ServerSessionStatus>('/session/login', {
+    method: 'POST',
+    body: { token }
+  })
+}
+
+function logoutServerSession(): Promise<ServerSessionStatus> {
+  return jsonRequest<ServerSessionStatus>('/session/logout', {
+    method: 'POST'
   })
 }
 
@@ -630,9 +606,7 @@ let watchReconnectTimer: number | null = null
 function ensureWatchSocket(): void {
   if (watchSocket && watchSocket.readyState <= 1) return
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const authToken = readStoredServerAuthToken()
-  const query = authToken ? `?authToken=${encodeURIComponent(authToken)}` : ''
-  const url = `${proto}//${window.location.host}${API_BASE}/watch${query}`
+  const url = `${proto}//${window.location.host}${API_BASE}/watch`
   const ws = new WebSocket(url)
   watchSocket = ws
   ws.addEventListener('message', e => {
@@ -837,6 +811,9 @@ export const httpBridge: ZenBridge = {
   downloadAppUpdate,
   installAppUpdate,
   getServerCapabilities,
+  getServerSession,
+  loginServerSession,
+  logoutServerSession,
   getRemoteWorkspaceInfo,
   connectRemoteWorkspace,
   disconnectRemoteWorkspace,

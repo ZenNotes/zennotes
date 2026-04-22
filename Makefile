@@ -3,6 +3,7 @@ PORT ?= 7878
 CONTENT_ROOT ?= ./vault
 DATA ?= ./data
 APP_URL ?= http://localhost:$(PORT)
+ALLOW_INSECURE_NOAUTH ?= 0
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compose" || echo "docker-compose")
 OPEN_BROWSER := $(shell command -v open 2>/dev/null || command -v xdg-open 2>/dev/null)
 
@@ -41,6 +42,7 @@ help:
 	@echo "  Useful Docker vars"
 	@echo "    CONTENT_ROOT=~/iCloud Drive/Obsidian   — host folder used as the live vault root"
 	@echo "    PORT=7878                               — host port"
+	@echo "    ALLOW_INSECURE_NOAUTH=1                 — opt out of generated auth token (not recommended)"
 	@echo ""
 
 install:
@@ -73,15 +75,32 @@ up:
 	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
 	@ABS_CONTENT_ROOT="$$(cd "$(CONTENT_ROOT)" && pwd)"; \
 	ABS_DATA="$$(cd "$(DATA)" && pwd)"; \
+	AUTH_TOKEN=""; \
+	if [ "$(ALLOW_INSECURE_NOAUTH)" != "1" ]; then \
+		AUTH_TOKEN_FILE="$$ABS_DATA/auth-token"; \
+		if [ ! -f "$$AUTH_TOKEN_FILE" ]; then \
+			node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" > "$$AUTH_TOKEN_FILE"; \
+			chmod 600 "$$AUTH_TOKEN_FILE"; \
+		fi; \
+		AUTH_TOKEN="$$(cat "$$AUTH_TOKEN_FILE")"; \
+	fi; \
 	ZENNOTES_IMAGE="$(IMAGE)" \
 	ZENNOTES_HOST_PORT="$(PORT)" \
 	ZENNOTES_HOST_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_CONTAINER_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_BROWSE_ROOTS="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_ALLOWED_ORIGINS="http://localhost:$(PORT),http://127.0.0.1:$(PORT)" \
+	ZENNOTES_AUTH_TOKEN="$$AUTH_TOKEN" \
+	ZENNOTES_ALLOW_INSECURE_NOAUTH="$(ALLOW_INSECURE_NOAUTH)" \
 	ZENNOTES_HOST_DATA="$$ABS_DATA" \
+	ZENNOTES_CONTAINER_UID="$$(id -u)" \
+	ZENNOTES_CONTAINER_GID="$$(id -g)" \
 	$(COMPOSE) up --build -d
 	@printf "\nZenNotes is running at $(APP_URL)\n\n"
+ifneq ($(ALLOW_INSECURE_NOAUTH),1)
+	@printf "Auth token: $(DATA)/auth-token\n\n"
+endif
 ifneq ($(strip $(OPEN_BROWSER)),)
 	@$(OPEN_BROWSER) $(APP_URL) >/dev/null 2>&1 || true
 endif
@@ -109,13 +128,27 @@ rebuild:
 	@mkdir -p "$(CONTENT_ROOT)" "$(DATA)"
 	@ABS_CONTENT_ROOT="$$(cd "$(CONTENT_ROOT)" && pwd)"; \
 	ABS_DATA="$$(cd "$(DATA)" && pwd)"; \
+	AUTH_TOKEN=""; \
+	if [ "$(ALLOW_INSECURE_NOAUTH)" != "1" ]; then \
+		AUTH_TOKEN_FILE="$$ABS_DATA/auth-token"; \
+		if [ ! -f "$$AUTH_TOKEN_FILE" ]; then \
+			node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))" > "$$AUTH_TOKEN_FILE"; \
+			chmod 600 "$$AUTH_TOKEN_FILE"; \
+		fi; \
+		AUTH_TOKEN="$$(cat "$$AUTH_TOKEN_FILE")"; \
+	fi; \
 	ZENNOTES_IMAGE="$(IMAGE)" \
 	ZENNOTES_HOST_PORT="$(PORT)" \
 	ZENNOTES_HOST_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_CONTAINER_CONTENT_ROOT="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH="$$ABS_CONTENT_ROOT" \
 	ZENNOTES_BROWSE_ROOTS="$$ABS_CONTENT_ROOT" \
+	ZENNOTES_ALLOWED_ORIGINS="http://localhost:$(PORT),http://127.0.0.1:$(PORT)" \
+	ZENNOTES_AUTH_TOKEN="$$AUTH_TOKEN" \
+	ZENNOTES_ALLOW_INSECURE_NOAUTH="$(ALLOW_INSECURE_NOAUTH)" \
 	ZENNOTES_HOST_DATA="$$ABS_DATA" \
+	ZENNOTES_CONTAINER_UID="$$(id -u)" \
+	ZENNOTES_CONTAINER_GID="$$(id -g)" \
 	$(COMPOSE) build --no-cache
 	@$(MAKE) --no-print-directory up
 

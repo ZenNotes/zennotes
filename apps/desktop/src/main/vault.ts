@@ -35,6 +35,13 @@ const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
+const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
+  'quick',
+  'archive',
+  'trash',
+  ...ATTACHMENTS_DIRS,
+  INTERNAL_VAULT_DIR
+])
 const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -93,7 +100,7 @@ export interface PersistedWindowState {
 
 export interface PersistedRemoteWorkspaceConfig {
   baseUrl: string
-  authToken: string | null
+  authToken?: string | null
 }
 
 export interface PersistedRemoteWorkspaceProfile extends PersistedRemoteWorkspaceConfig {
@@ -235,8 +242,23 @@ export async function loadConfig(): Promise<PersistedConfig> {
 
 export async function saveConfig(cfg: PersistedConfig): Promise<void> {
   const normalized = normalizePersistedConfig(cfg)
+  const sanitized: PersistedConfig = {
+    ...normalized,
+    remoteWorkspace: normalized.remoteWorkspace
+      ? {
+          baseUrl: normalized.remoteWorkspace.baseUrl
+        }
+      : null,
+    remoteWorkspaceProfiles: normalized.remoteWorkspaceProfiles.map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      baseUrl: profile.baseUrl,
+      vaultPath: profile.vaultPath,
+      lastConnectedAt: profile.lastConnectedAt
+    }))
+  }
   await fs.mkdir(path.dirname(configPath()), { recursive: true })
-  await fs.writeFile(configPath(), JSON.stringify(normalized, null, 2), 'utf8')
+  await fs.writeFile(configPath(), JSON.stringify(sanitized, null, 2), 'utf8')
 }
 
 export async function updateConfig(
@@ -368,6 +390,10 @@ export async function setVaultSettings(
 async function primaryNotesRoot(root: string): Promise<string> {
   const settings = await getVaultSettings(root)
   return settings.primaryNotesLocation === 'root' ? root : path.join(root, 'inbox')
+}
+
+function shouldHidePrimaryRootEntry(name: string): boolean {
+  return HIDDEN_PRIMARY_ROOT_NAMES.has(name)
 }
 
 async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
@@ -675,7 +701,7 @@ async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSe
       const full = path.join(dirAbs, entry.name)
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue
-        if (isPrimaryRoot && dirAbs === topAbs && RESERVED_ROOT_NAMES.has(entry.name)) continue
+        if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(entry.name)) continue
         await walkFolder(folder, full, topAbs, isPrimaryRoot)
         continue
       }
@@ -988,7 +1014,7 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
       for (const [index, e] of entries.entries()) {
         if (!e.isDirectory()) continue
         if (e.name.startsWith('.')) continue
-        if (isPrimaryRoot && dirAbs === topAbs && RESERVED_ROOT_NAMES.has(e.name)) continue
+        if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(e.name)) continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
         out.push({ folder, subpath: nextSub, siblingOrder: index })
         await walk(path.join(dirAbs, e.name), nextSub)
@@ -1017,7 +1043,7 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
       const full = path.join(dirAbs, entry.name)
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue
-        if (isPrimaryRoot && dirAbs === topAbs && RESERVED_ROOT_NAMES.has(entry.name)) continue
+        if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(entry.name)) continue
         await walkFolder(folder, full, topAbs, isPrimaryRoot)
         continue
       }

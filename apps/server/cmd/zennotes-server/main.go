@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -21,6 +23,9 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
 	cfg := config.Load()
+	if strings.TrimSpace(cfg.AuthToken) == "" && !cfg.AllowInsecureNoAuth && !bindIsLoopback(cfg.Bind) {
+		log.Fatal("refusing to start without ZENNOTES_AUTH_TOKEN on a non-loopback bind; set ZENNOTES_ALLOW_INSECURE_NOAUTH=1 to override")
+	}
 	log.Printf("vault: %s", cfg.VaultPath)
 	log.Printf("bind:  %s", cfg.Bind)
 
@@ -29,7 +34,9 @@ func main() {
 		log.Fatalf("vault init: %v", err)
 	}
 
-	_ = config.Save(cfg, v.Root())
+	if config.LegacyVaultConfigExists(v.Root()) {
+		log.Printf("warning: ignoring legacy vault config at %s; server secrets now stay in host config only", config.LegacyVaultConfigPath(v.Root()))
+	}
 
 	w, err := watcher.Start(v.Root())
 	if err != nil {
@@ -67,4 +74,17 @@ func main() {
 	shutdownCtx, stopShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer stopShutdown()
 	_ = httpSrv.Shutdown(shutdownCtx)
+}
+
+func bindIsLoopback(bind string) bool {
+	host, _, err := net.SplitHostPort(bind)
+	if err != nil {
+		host = bind
+	}
+	host = strings.Trim(host, "[]")
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

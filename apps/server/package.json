@@ -3,10 +3,11 @@
   "private": true,
   "version": "1.0.4",
   "scripts": {
-    "dev": "go run ./cmd/zennotes-server",
-    "typecheck": "go test ./...",
-    "test": "go test ./...",
-    "test:run": "go test ./...",
+    "dev": "ZENNOTES_DEV=1 go run ./cmd/zennotes-server",
+    "prepare-web": "node ../../tooling/scripts/prepare-server-web-dist.mjs",
+    "typecheck": "npm run prepare-web && go test ./...",
+    "test": "npm run prepare-web && go test ./...",
+    "test:run": "npm run prepare-web && go test ./...",
     "sync-web": "node ../../tooling/scripts/sync-web-dist.mjs",
     "build": "npm run sync-web && go build -trimpath -ldflags='-s -w' -o bin/zennotes-server ./cmd/zennotes-server"
   }

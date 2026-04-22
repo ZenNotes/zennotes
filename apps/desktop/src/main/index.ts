@@ -1,4 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  protocol,
+  screen,
+  session,
+  shell,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+  type WebContents
+} from 'electron'
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { promises as fsp } from 'node:fs'
@@ -8,7 +21,10 @@ import { IPC } from '@shared/ipc'
 import type {
   NoteFolder,
   RemoteWorkspaceInfo,
+  RemoteWorkspaceProfile,
+  RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  VaultSettings,
   VaultChangeEvent,
   VaultInfo,
   VaultTextSearchBackendPreference,
@@ -52,6 +68,11 @@ import {
   vaultInfo,
   writeNote
 } from './vault'
+import {
+  deleteRemoteWorkspaceSecret,
+  getRemoteWorkspaceSecret,
+  setRemoteWorkspaceSecret
+} from './secret-store'
 import { scanAllTasks, scanTasksForPath } from './tasks'
 import { VaultWatcher } from './watcher'
 import { renderTikz } from './tikz'
@@ -244,6 +265,35 @@ function mimeTypeForPath(absPath: string): string {
   }
 }
 
+function isTrustedRendererUrl(url: string): boolean {
+  if (!url) return false
+  const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+  if (devServerUrl) {
+    return url.startsWith(devServerUrl)
+  }
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.protocol === 'file:' &&
+      parsed.pathname.endsWith('/out/renderer/index.html')
+    )
+  } catch {
+    return false
+  }
+}
+
+function isTrustedIpcSender(sender: WebContents): boolean {
+  const ownerWindow = BrowserWindow.fromWebContents(sender)
+  if (!ownerWindow || ownerWindow.isDestroyed()) return false
+  return isTrustedRendererUrl(sender.getURL())
+}
+
+function assertTrustedIpcEvent(event: IpcMainEvent | IpcMainInvokeEvent): void {
+  if (!isTrustedIpcSender(event.sender)) {
+    throw new Error('Blocked IPC call from an untrusted renderer.')
+  }
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
@@ -412,6 +462,9 @@ async function createWindow(): Promise<void> {
         }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
+      // Keep the renderer isolated and node-free, but the current preload
+      // still relies on Node/Electron APIs that are not available inside a
+      // fully sandboxed preload context.
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -476,7 +529,7 @@ function currentRemoteWorkspaceInfo(): RemoteWorkspaceInfo | null {
   return {
     mode: currentWorkspaceMode,
     baseUrl: remoteWorkspaceConfig.baseUrl,
-    authConfigured: Boolean(remoteWorkspaceConfig.authToken),
+    authConfigured: Boolean(remoteWorkspaceClient?.authToken),
     capabilities: remoteServerCapabilities,
     profileId: currentRemoteWorkspaceProfileId
   }
@@ -530,7 +583,6 @@ function profileMatchesConnection(
 ): boolean {
   return (
     normalizeRemoteBaseUrl(profile.baseUrl) === normalizeRemoteBaseUrl(connection.baseUrl) &&
-    (profile.authToken ?? null) === (connection.authToken ?? null) &&
     (profile.vaultPath ?? null) === (vaultPath ?? null)
   )
 }
@@ -541,6 +593,73 @@ function findRemoteProfileById(
 ): PersistedRemoteWorkspaceProfile | null {
   if (!id) return null
   return profiles.find((entry) => entry.id === id) ?? null
+}
+
+async function migrateLegacyRemoteWorkspaceSecrets(): Promise<void> {
+  const cfg = await loadConfig()
+  let changed = false
+  let nextProfiles = [...cfg.remoteWorkspaceProfiles]
+  let nextRemoteWorkspace = cfg.remoteWorkspace
+  let nextProfileId = cfg.remoteWorkspaceProfileId
+
+  for (const profile of nextProfiles) {
+    if (profile.authToken && profile.authToken.trim()) {
+      await setRemoteWorkspaceSecret(profile.id, profile.authToken)
+      delete profile.authToken
+      changed = true
+    }
+  }
+
+  if (nextRemoteWorkspace?.authToken && nextRemoteWorkspace.authToken.trim()) {
+    let targetProfile =
+      findRemoteProfileById(nextProfiles, nextProfileId) ??
+      nextProfiles.find(
+        (entry) => normalizeRemoteBaseUrl(entry.baseUrl) === normalizeRemoteBaseUrl(nextRemoteWorkspace!.baseUrl)
+      ) ??
+      null
+
+    if (!targetProfile) {
+      targetProfile = {
+        id: randomUUID(),
+        name: deriveRemoteWorkspaceProfileName(
+          {
+            baseUrl: nextRemoteWorkspace.baseUrl,
+            vaultPath: currentVault?.root ?? null
+          },
+          nextProfiles
+        ),
+        baseUrl: normalizeRemoteBaseUrl(nextRemoteWorkspace.baseUrl),
+        vaultPath: currentVault?.root ?? null,
+        lastConnectedAt: null
+      }
+      nextProfiles = [...nextProfiles, targetProfile].sort((a, b) => a.name.localeCompare(b.name))
+      nextProfileId = targetProfile.id
+      changed = true
+    }
+
+    await setRemoteWorkspaceSecret(targetProfile.id, nextRemoteWorkspace.authToken)
+    nextRemoteWorkspace = { baseUrl: nextRemoteWorkspace.baseUrl }
+    changed = true
+  }
+
+  if (!changed) return
+
+  await updateConfig((current) => ({
+    ...current,
+    remoteWorkspace: nextRemoteWorkspace
+      ? {
+          baseUrl: normalizeRemoteBaseUrl(nextRemoteWorkspace.baseUrl)
+        }
+      : null,
+    remoteWorkspaceProfiles: nextProfiles.map((profile) => ({
+      id: profile.id,
+      name: profile.name,
+      baseUrl: normalizeRemoteBaseUrl(profile.baseUrl),
+      vaultPath: profile.vaultPath ?? null,
+      lastConnectedAt: profile.lastConnectedAt ?? null
+    })),
+    remoteWorkspaceProfileId: nextProfileId
+  }))
 }
 
 function broadcastVaultChange(ev: VaultChangeEvent): void {
@@ -569,6 +688,7 @@ async function setVault(root: string): Promise<VaultInfo> {
   currentVault = vaultInfo(root)
   currentWorkspaceMode = 'local'
   remoteWorkspaceClient = null
+  remoteWorkspaceConfig = null
   currentRemoteWorkspaceProfileId = null
   remoteServerCapabilities = null
   stopRemoteWatch()
@@ -608,8 +728,7 @@ async function setRemoteWorkspace(
   remoteServerCapabilities = capabilities
   currentRemoteWorkspaceProfileId = options.profileId ?? null
   remoteWorkspaceConfig = {
-    baseUrl: client.baseUrl,
-    authToken: client.authToken
+    baseUrl: client.baseUrl
   }
   startRemoteWatch(client, capabilities)
 
@@ -629,6 +748,7 @@ async function disconnectRemoteWorkspace(): Promise<VaultInfo | null> {
   const cfg = await loadConfig()
   stopRemoteWatch()
   remoteWorkspaceClient = null
+  remoteWorkspaceConfig = null
   currentRemoteWorkspaceProfileId = null
   remoteServerCapabilities = null
   currentWorkspaceMode = 'local'
@@ -647,24 +767,25 @@ async function disconnectRemoteWorkspace(): Promise<VaultInfo | null> {
   return null
 }
 
-async function listRemoteWorkspaceProfiles(): Promise<PersistedRemoteWorkspaceProfile[]> {
+async function listRemoteWorkspaceProfiles(): Promise<RemoteWorkspaceProfile[]> {
   const cfg = await loadConfig()
-  return cfg.remoteWorkspaceProfiles
+  return await Promise.all(
+    cfg.remoteWorkspaceProfiles.map(async (profile) => ({
+      id: profile.id,
+      name: profile.name,
+      baseUrl: profile.baseUrl,
+      vaultPath: profile.vaultPath ?? null,
+      lastConnectedAt: profile.lastConnectedAt ?? null,
+      hasCredential: Boolean(await getRemoteWorkspaceSecret(profile.id))
+    }))
+  )
 }
 
 async function saveRemoteWorkspaceProfile(
-  input: {
-    id?: string
-    name?: string
-    baseUrl: string
-    authToken?: string | null
-    vaultPath?: string | null
-    lastConnectedAt?: number | null
-  }
-): Promise<PersistedRemoteWorkspaceProfile> {
-  let normalized: PersistedRemoteWorkspaceProfile | null = null
+  input: RemoteWorkspaceProfileInput & { lastConnectedAt?: number | null }
+): Promise<RemoteWorkspaceProfile> {
+  const normalizedId = input.id?.trim() || randomUUID()
   await updateConfig((cfg) => {
-    const normalizedId = input.id?.trim() || randomUUID()
     const normalizedBaseUrl = normalizeRemoteBaseUrl(input.baseUrl)
     const trimmedName = input.name?.trim() || ''
     const normalizedVaultPath = input.vaultPath?.trim() || null
@@ -684,14 +805,12 @@ async function saveRemoteWorkspaceProfile(
           cfg.remoteWorkspaceProfiles
         ),
       baseUrl: normalizedBaseUrl,
-      authToken: input.authToken?.trim() || null,
       vaultPath: normalizedVaultPath,
       lastConnectedAt:
         typeof input.lastConnectedAt === 'number' && Number.isFinite(input.lastConnectedAt)
           ? input.lastConnectedAt
           : null
     }
-    normalized = nextNormalized
     const others = cfg.remoteWorkspaceProfiles.filter((entry) => entry.id !== nextNormalized.id)
     const nextProfiles = [...others, nextNormalized].sort((a, b) => a.name.localeCompare(b.name))
     let nextCurrentProfileId = cfg.remoteWorkspaceProfileId
@@ -711,13 +830,32 @@ async function saveRemoteWorkspaceProfile(
       remoteWorkspaceProfileId: nextCurrentProfileId
     }
   })
+  if (input.clearAuthToken) {
+    await deleteRemoteWorkspaceSecret(normalizedId)
+  } else if (typeof input.authToken === 'string' && input.authToken.trim()) {
+    await setRemoteWorkspaceSecret(normalizedId, input.authToken.trim())
+  }
+  const cfg = await loadConfig()
+  const normalized = findRemoteProfileById(cfg.remoteWorkspaceProfiles, normalizedId)
   if (!normalized) {
     throw new Error('Remote workspace profile could not be saved.')
   }
-  return normalized
+  return {
+    id: normalized.id,
+    name: normalized.name,
+    baseUrl: normalized.baseUrl,
+    vaultPath: normalized.vaultPath ?? null,
+    lastConnectedAt: normalized.lastConnectedAt ?? null,
+    hasCredential: input.clearAuthToken
+      ? false
+      : typeof input.authToken === 'string' && input.authToken.trim()
+        ? true
+        : Boolean(await getRemoteWorkspaceSecret(normalized.id))
+  }
 }
 
 async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
+  const deletedSecret = await getRemoteWorkspaceSecret(id)
   await updateConfig((cfg) => {
     const deletedProfile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, id)
     const nextProfiles = cfg.remoteWorkspaceProfiles.filter((entry) => entry.id !== id)
@@ -728,11 +866,9 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
       !!cfg.remoteWorkspace &&
       normalizeRemoteBaseUrl(cfg.remoteWorkspace.baseUrl) ===
         normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
-      (cfg.remoteWorkspace.authToken ?? null) === (deletedProfile.authToken ?? null) &&
       !nextProfiles.some(
         (entry) =>
-          normalizeRemoteBaseUrl(entry.baseUrl) === normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
-          (entry.authToken ?? null) === (deletedProfile.authToken ?? null)
+          normalizeRemoteBaseUrl(entry.baseUrl) === normalizeRemoteBaseUrl(deletedProfile.baseUrl)
       )
     currentRemoteWorkspaceProfileId = nextCurrentProfileId
     return {
@@ -742,6 +878,10 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
       remoteWorkspaceProfileId: nextCurrentProfileId
     }
   })
+  await deleteRemoteWorkspaceSecret(id)
+  if (deletedSecret && currentRemoteWorkspaceProfileId === id) {
+    remoteWorkspaceClient = null
+  }
 }
 
 async function connectRemoteWorkspaceProfile(
@@ -752,7 +892,8 @@ async function connectRemoteWorkspaceProfile(
   if (!profile) {
     throw new Error('That saved remote workspace no longer exists.')
   }
-  const result = await setRemoteWorkspace(profile.baseUrl, profile.authToken, {
+  const authToken = await getRemoteWorkspaceSecret(profile.id)
+  const result = await setRemoteWorkspace(profile.baseUrl, authToken, {
     profileId: profile.id,
     vaultPath: profile.vaultPath
   })
@@ -891,12 +1032,32 @@ async function listFontFamilies(): Promise<string[]> {
 }
 
 function registerIpc(): void {
-  ipcMain.handle(IPC.APP_PLATFORM, () => process.platform)
+  const handle = <Args extends unknown[], Result>(
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>
+  ): void => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      assertTrustedIpcEvent(event)
+      return await listener(event, ...(args as Args))
+    })
+  }
 
-  ipcMain.handle(IPC.APP_LIST_FONTS, async () => {
+  const on = <Args extends unknown[]>(
+    channel: string,
+    listener: (event: IpcMainEvent, ...args: Args) => void
+  ): void => {
+    ipcMain.on(channel, (event, ...args) => {
+      assertTrustedIpcEvent(event)
+      listener(event, ...(args as Args))
+    })
+  }
+
+  handle(IPC.APP_PLATFORM, () => process.platform)
+
+  handle(IPC.APP_LIST_FONTS, async () => {
     return await listFontFamilies()
   })
-  ipcMain.handle(IPC.APP_ICON_DATA_URL, async () => {
+  handle(IPC.APP_ICON_DATA_URL, async () => {
     try {
       const iconPath = path.join(__dirname, '../../build/icon.png')
       const png = await fsp.readFile(iconPath)
@@ -905,54 +1066,58 @@ function registerIpc(): void {
       return null
     }
   })
-  ipcMain.handle(IPC.APP_ZOOM_IN, async (e) => {
+  handle(IPC.APP_ZOOM_IN, async (e) => {
     return await adjustWindowZoom(BrowserWindow.fromWebContents(e.sender), ZOOM_STEP)
   })
-  ipcMain.handle(IPC.APP_ZOOM_OUT, async (e) => {
+  handle(IPC.APP_ZOOM_OUT, async (e) => {
     return await adjustWindowZoom(BrowserWindow.fromWebContents(e.sender), -ZOOM_STEP)
   })
-  ipcMain.handle(IPC.APP_ZOOM_RESET, async (e) => {
+  handle(IPC.APP_ZOOM_RESET, async (e) => {
     return await setWindowZoom(BrowserWindow.fromWebContents(e.sender), DEFAULT_ZOOM_FACTOR)
   })
-  ipcMain.handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState())
-  ipcMain.handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates())
-  ipcMain.handle(IPC.APP_UPDATER_CHECK_WITH_UI, async () => {
+  handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState())
+  handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates())
+  handle(IPC.APP_UPDATER_CHECK_WITH_UI, async () => {
     await runMenuUpdateCheck()
   })
-  ipcMain.handle(IPC.APP_UPDATER_DOWNLOAD, async () => await downloadAppUpdate())
-  ipcMain.handle(IPC.APP_UPDATER_INSTALL, () => {
+  handle(IPC.APP_UPDATER_DOWNLOAD, async () => await downloadAppUpdate())
+  handle(IPC.APP_UPDATER_INSTALL, () => {
     installAppUpdate()
   })
 
-  ipcMain.handle(IPC.WORKSPACE_GET_INFO, async () => currentRemoteWorkspaceInfo())
-  ipcMain.handle(IPC.WORKSPACE_CONNECT_REMOTE, async (_e, baseUrl: string, authToken?: string | null) => {
+  handle(IPC.WORKSPACE_GET_INFO, async () => currentRemoteWorkspaceInfo())
+  handle(IPC.WORKSPACE_CONNECT_REMOTE, async (_e, baseUrl: string, authToken?: string | null) => {
     return await setRemoteWorkspace(baseUrl, authToken)
   })
-  ipcMain.handle(IPC.WORKSPACE_DISCONNECT_REMOTE, async () => {
+  handle(IPC.WORKSPACE_DISCONNECT_REMOTE, async () => {
     return await disconnectRemoteWorkspace()
   })
-  ipcMain.handle(IPC.WORKSPACE_LIST_REMOTE_PROFILES, async () => {
+  handle(IPC.WORKSPACE_LIST_REMOTE_PROFILES, async () => {
     return await listRemoteWorkspaceProfiles()
   })
-  ipcMain.handle(IPC.WORKSPACE_SAVE_REMOTE_PROFILE, async (_e, input) => {
+  handle(IPC.WORKSPACE_SAVE_REMOTE_PROFILE, async (_e, input: RemoteWorkspaceProfileInput) => {
     return await saveRemoteWorkspaceProfile(input)
   })
-  ipcMain.handle(IPC.WORKSPACE_DELETE_REMOTE_PROFILE, async (_e, id: string) => {
+  handle(IPC.WORKSPACE_DELETE_REMOTE_PROFILE, async (_e, id: string) => {
     await deleteRemoteWorkspaceProfile(id)
   })
-  ipcMain.handle(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, async (_e, id: string) => {
+  handle(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, async (_e, id: string) => {
     return await connectRemoteWorkspaceProfile(id)
   })
 
-  ipcMain.handle(IPC.VAULT_GET_CURRENT, async () => {
+  handle(IPC.VAULT_GET_CURRENT, async () => {
     if (currentVault) return currentVault
     const cfg = await loadConfig()
     remoteWorkspaceConfig = cfg.remoteWorkspace
     currentRemoteWorkspaceProfileId = cfg.remoteWorkspaceProfileId
     if (cfg.workspaceMode === 'remote' && cfg.remoteWorkspace?.baseUrl) {
       const remoteProfile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, cfg.remoteWorkspaceProfileId)
+      const authToken =
+        (remoteProfile && (await getRemoteWorkspaceSecret(remoteProfile.id))) ??
+        cfg.remoteWorkspace.authToken ??
+        null
       try {
-        const result = await setRemoteWorkspace(cfg.remoteWorkspace.baseUrl, cfg.remoteWorkspace.authToken, {
+        const result = await setRemoteWorkspace(cfg.remoteWorkspace.baseUrl, authToken, {
           persist: false,
           profileId: remoteProfile?.id ?? cfg.remoteWorkspaceProfileId,
           vaultPath: remoteProfile?.vaultPath ?? null
@@ -973,7 +1138,7 @@ function registerIpc(): void {
     return null
   })
 
-  ipcMain.handle(IPC.VAULT_PICK, async () => {
+  handle(IPC.VAULT_PICK, async () => {
     const result = await dialog.showOpenDialog({
       title: 'Choose a vault folder',
       properties: ['openDirectory', 'createDirectory'],
@@ -983,7 +1148,7 @@ function registerIpc(): void {
     return await setVault(result.filePaths[0])
   })
 
-  ipcMain.handle(IPC.VAULT_SELECT_PATH, async (_e, targetPath: string) => {
+  handle(IPC.VAULT_SELECT_PATH, async (_e, targetPath: string) => {
     const client = requireRemoteWorkspaceClient()
     const vault = await client.selectVaultPath(targetPath)
     currentVault = vault
@@ -993,12 +1158,12 @@ function registerIpc(): void {
     return vault
   })
 
-  ipcMain.handle(IPC.VAULT_BROWSE_SERVER_DIRECTORIES, async (_e, targetPath = '') => {
+  handle(IPC.VAULT_BROWSE_SERVER_DIRECTORIES, async (_e, targetPath: string = '') => {
     const client = requireRemoteWorkspaceClient()
     return await client.browseDirectories(targetPath)
   })
 
-  ipcMain.handle(IPC.VAULT_GET_SETTINGS, async () => {
+  handle(IPC.VAULT_GET_SETTINGS, async () => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().getVaultSettings()
     }
@@ -1006,7 +1171,7 @@ function registerIpc(): void {
     return await getVaultSettings(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_SET_SETTINGS, async (_e, next) => {
+  handle(IPC.VAULT_SET_SETTINGS, async (_e, next: VaultSettings) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().setVaultSettings(next)
     }
@@ -1014,31 +1179,31 @@ function registerIpc(): void {
     return await setVaultSettings(v.root, next)
   })
 
-  ipcMain.handle(IPC.VAULT_LIST_NOTES, async () => {
+  handle(IPC.VAULT_LIST_NOTES, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listNotes()
     const v = requireVault()
     return await listNotes(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_LIST_FOLDERS, async () => {
+  handle(IPC.VAULT_LIST_FOLDERS, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listFolders()
     const v = requireVault()
     return await listFolders(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_LIST_ASSETS, async () => {
+  handle(IPC.VAULT_LIST_ASSETS, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listAssets()
     const v = requireVault()
     return await listAssets(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_HAS_ASSETS_DIR, async () => {
+  handle(IPC.VAULT_HAS_ASSETS_DIR, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().hasAssetsDir()
     const v = requireVault()
     return await hasAssetsDir(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_GENERATE_DEMO_TOUR, async () => {
+  handle(IPC.VAULT_GENERATE_DEMO_TOUR, async () => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().generateDemoTour()
     }
@@ -1046,7 +1211,7 @@ function registerIpc(): void {
     return await generateDemoTour(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_REMOVE_DEMO_TOUR, async () => {
+  handle(IPC.VAULT_REMOVE_DEMO_TOUR, async () => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().removeDemoTour()
     }
@@ -1054,14 +1219,14 @@ function registerIpc(): void {
     return await removeDemoTour(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {
+  handle(IPC.VAULT_TEXT_SEARCH_CAPABILITIES, async (_e, paths: VaultTextSearchToolPaths = {}) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().getVaultTextSearchCapabilities()
     }
     return await searchVaultTextCapabilities(paths)
   })
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_SEARCH_TEXT,
     async (
       _e,
@@ -1077,19 +1242,19 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_READ_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().readNote(relPath)
     const v = requireVault()
     return await readNote(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_SCAN_TASKS, async () => {
+  handle(IPC.VAULT_SCAN_TASKS, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().scanTasks()
     const v = requireVault()
     return await scanAllTasks(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_SCAN_TASKS_FOR, async (_e, relPath: string) => {
+  handle(IPC.VAULT_SCAN_TASKS_FOR, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().scanTasksForPath(relPath)
     }
@@ -1097,7 +1262,7 @@ function registerIpc(): void {
     return await scanTasksForPath(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {
+  handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().writeNote(relPath, body)
     }
@@ -1105,9 +1270,9 @@ function registerIpc(): void {
     return await writeNote(v.root, relPath, body)
   })
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_CREATE_NOTE,
-    async (_e, folder: NoteFolder, title?: string, subpath = '') => {
+    async (_e, folder: NoteFolder, title: string | undefined, subpath: string = '') => {
       if (isRemoteWorkspaceActive()) {
         return await requireRemoteWorkspaceClient().createNote(folder, title, subpath)
       }
@@ -1116,7 +1281,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(IPC.VAULT_RENAME_NOTE, async (_e, relPath: string, nextTitle: string) => {
+  handle(IPC.VAULT_RENAME_NOTE, async (_e, relPath: string, nextTitle: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().renameNote(relPath, nextTitle)
     }
@@ -1124,7 +1289,7 @@ function registerIpc(): void {
     return await renameNote(v.root, relPath, nextTitle)
   })
 
-  ipcMain.handle(IPC.VAULT_DELETE_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_DELETE_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       await requireRemoteWorkspaceClient().deleteNote(relPath)
       return
@@ -1133,7 +1298,7 @@ function registerIpc(): void {
     await deleteNote(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_MOVE_TO_TRASH, async (_e, relPath: string) => {
+  handle(IPC.VAULT_MOVE_TO_TRASH, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().moveToTrash(relPath)
     }
@@ -1141,7 +1306,7 @@ function registerIpc(): void {
     return await moveToTrash(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_RESTORE_FROM_TRASH, async (_e, relPath: string) => {
+  handle(IPC.VAULT_RESTORE_FROM_TRASH, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().restoreFromTrash(relPath)
     }
@@ -1149,7 +1314,7 @@ function registerIpc(): void {
     return await restoreFromTrash(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_EMPTY_TRASH, async () => {
+  handle(IPC.VAULT_EMPTY_TRASH, async () => {
     if (isRemoteWorkspaceActive()) {
       await requireRemoteWorkspaceClient().emptyTrash()
       return
@@ -1158,7 +1323,7 @@ function registerIpc(): void {
     await emptyTrash(v.root)
   })
 
-  ipcMain.handle(IPC.VAULT_ARCHIVE_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_ARCHIVE_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().archiveNote(relPath)
     }
@@ -1166,7 +1331,7 @@ function registerIpc(): void {
     return await archiveNote(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_UNARCHIVE_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_UNARCHIVE_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().unarchiveNote(relPath)
     }
@@ -1174,7 +1339,7 @@ function registerIpc(): void {
     return await unarchiveNote(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_DUPLICATE_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_DUPLICATE_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       return await requireRemoteWorkspaceClient().duplicateNote(relPath)
     }
@@ -1182,7 +1347,7 @@ function registerIpc(): void {
     return await duplicateNote(v.root, relPath)
   })
 
-  ipcMain.handle(IPC.VAULT_REVEAL_NOTE, async (_e, relPath: string) => {
+  handle(IPC.VAULT_REVEAL_NOTE, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       throw new Error('Reveal in file manager is only available for local vaults.')
     }
@@ -1191,7 +1356,7 @@ function registerIpc(): void {
     shell.showItemInFolder(abs)
   })
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_MOVE_NOTE,
     async (_e, relPath: string, targetFolder: NoteFolder, targetSubpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1202,7 +1367,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_IMPORT_FILES,
     async (_e, notePath: string, sourcePaths: string[]) => {
       if (isRemoteWorkspaceActive()) {
@@ -1213,7 +1378,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_CREATE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1225,7 +1390,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_RENAME_FOLDER,
     async (_e, folder: NoteFolder, oldSubpath: string, newSubpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1236,7 +1401,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_DELETE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1248,7 +1413,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_DUPLICATE_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1259,7 +1424,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(
+  handle(
     IPC.VAULT_REVEAL_FOLDER,
     async (_e, folder: NoteFolder, subpath: string) => {
       if (isRemoteWorkspaceActive()) {
@@ -1271,7 +1436,7 @@ function registerIpc(): void {
     }
   )
 
-  ipcMain.handle(IPC.VAULT_REVEAL_ASSETS_DIR, async () => {
+  handle(IPC.VAULT_REVEAL_ASSETS_DIR, async () => {
     if (isRemoteWorkspaceActive()) {
       throw new Error('Reveal in file manager is only available for local vaults.')
     }
@@ -1282,34 +1447,34 @@ function registerIpc(): void {
   // Route window chrome controls to the window that actually sent the
   // IPC (via `e.sender`) so that floating note windows can minimize /
   // maximize / close themselves without hijacking the main window.
-  ipcMain.on(IPC.WINDOW_MINIMIZE, (e) => {
+  on(IPC.WINDOW_MINIMIZE, (e) => {
     BrowserWindow.fromWebContents(e.sender)?.minimize()
   })
-  ipcMain.on(IPC.WINDOW_TOGGLE_MAXIMIZE, (e) => {
+  on(IPC.WINDOW_TOGGLE_MAXIMIZE, (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) return
     if (win.isMaximized()) win.unmaximize()
     else win.maximize()
   })
-  ipcMain.on(IPC.WINDOW_CLOSE, (e) => {
+  on(IPC.WINDOW_CLOSE, (e) => {
     BrowserWindow.fromWebContents(e.sender)?.close()
   })
 
-  ipcMain.handle(IPC.WINDOW_OPEN_NOTE, async (_e, relPath: string) => {
+  handle(IPC.WINDOW_OPEN_NOTE, async (_e, relPath: string) => {
     openFloatingNoteWindow(relPath)
   })
 
-  ipcMain.handle(IPC.TIKZ_RENDER, async (_e, source: string) => {
+  handle(IPC.TIKZ_RENDER, async (_e, source: string) => {
     const result = await renderTikz(source)
     if (result.ok) return { ok: true, svg: result.svg }
     return { ok: false, error: result.error }
   })
 
-  ipcMain.handle(IPC.MCP_RUNTIME, async () => await getMcpServerRuntime())
-  ipcMain.handle(IPC.MCP_STATUS, async () => await getMcpClientStatuses())
-  ipcMain.handle(IPC.MCP_INSTALL, async (_e, id: McpClientId) => await installMcpForClient(id))
-  ipcMain.handle(IPC.MCP_UNINSTALL, async (_e, id: McpClientId) => await uninstallMcpForClient(id))
-  ipcMain.handle(IPC.MCP_GET_INSTRUCTIONS, async (): Promise<McpInstructionsPayload> => {
+  handle(IPC.MCP_RUNTIME, async () => await getMcpServerRuntime())
+  handle(IPC.MCP_STATUS, async () => await getMcpClientStatuses())
+  handle(IPC.MCP_INSTALL, async (_e, id: McpClientId) => await installMcpForClient(id))
+  handle(IPC.MCP_UNINSTALL, async (_e, id: McpClientId) => await uninstallMcpForClient(id))
+  handle(IPC.MCP_GET_INSTRUCTIONS, async (): Promise<McpInstructionsPayload> => {
     const custom = await readCustomInstructions()
     return {
       defaultValue: MCP_SERVER_INSTRUCTIONS,
@@ -1318,7 +1483,7 @@ function registerIpc(): void {
       filePath: instructionsFilePath()
     }
   })
-  ipcMain.handle(
+  handle(
     IPC.MCP_SET_INSTRUCTIONS,
     async (_e, next: string | null): Promise<McpInstructionsPayload> => {
       await writeCustomInstructions(next)
@@ -1367,6 +1532,9 @@ function openFloatingNoteWindow(relPath: string): void {
         }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
+      // Keep the renderer isolated and node-free, but the current preload
+      // still relies on Node/Electron APIs that are not available inside a
+      // fully sandboxed preload context.
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -1630,6 +1798,8 @@ async function runMenuUpdateCheck(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  await migrateLegacyRemoteWorkspaceSecrets()
+
   protocol.handle(LOCAL_ASSET_SCHEME, async (request) => {
     const remote = decodeRemoteAssetRequest(request.url)
     if (remote) {
@@ -1637,10 +1807,7 @@ app.whenReady().then(async () => {
       if (!client || client.baseUrl !== remote.baseUrl) {
         throw new Error(`No remote workspace client for ${remote.baseUrl}`)
       }
-      const response = await fetch(client.remoteAssetUrl(remote.relPath))
-      if (!response.ok) {
-        throw new Error(`Remote asset request failed (${response.status}) for ${remote.relPath}`)
-      }
+      const response = await client.fetchAssetResponse(remote.relPath)
       return response
     }
 

@@ -6,6 +6,7 @@ export interface RemoteWorkspaceProfileModalOptions {
   title: string
   description?: string
   initialValue?: RemoteWorkspaceProfileInput
+  hasStoredCredential?: boolean
   submitLabel?: string
 }
 
@@ -22,6 +23,7 @@ export function RemoteWorkspaceProfileModal({
   const [baseUrl, setBaseUrl] = useState(options.initialValue?.baseUrl ?? 'http://localhost:7878')
   const [authToken, setAuthToken] = useState(options.initialValue?.authToken ?? '')
   const [vaultPath, setVaultPath] = useState(options.initialValue?.vaultPath ?? '')
+  const [clearAuthToken, setClearAuthToken] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -30,6 +32,7 @@ export function RemoteWorkspaceProfileModal({
     setBaseUrl(options.initialValue?.baseUrl ?? 'http://localhost:7878')
     setAuthToken(options.initialValue?.authToken ?? '')
     setVaultPath(options.initialValue?.vaultPath ?? '')
+    setClearAuthToken(false)
     setError(null)
     setSubmitting(false)
   }, [options.initialValue, options.title])
@@ -61,6 +64,7 @@ export function RemoteWorkspaceProfileModal({
         id: options.initialValue?.id,
         baseUrl: normalizedBaseUrl,
         authToken: authToken.trim() || null,
+        clearAuthToken: clearAuthToken && !authToken.trim(),
         vaultPath: vaultPath.trim() || null,
         ...(trimmedName ? { name: trimmedName } : {})
       })
@@ -68,7 +72,7 @@ export function RemoteWorkspaceProfileModal({
       setError(err instanceof Error ? err.message : String(err))
       setSubmitting(false)
     }
-  }, [authToken, name, normalizedBaseUrl, onSubmit, options.initialValue?.id, submitting, vaultPath])
+  }, [authToken, clearAuthToken, name, normalizedBaseUrl, onSubmit, options.initialValue?.id, submitting, vaultPath])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -148,6 +152,25 @@ export function RemoteWorkspaceProfileModal({
               placeholder="Optional"
               className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
             />
+            {options.hasStoredCredential && !authToken.trim() && (
+              <div className="mt-1 text-[11px] leading-5 text-ink-400">
+                A token is already stored securely for this remote. Leave this blank to keep it, or enter a new one to replace it.
+              </div>
+            )}
+            {options.hasStoredCredential && (
+              <label className="mt-2 flex items-center gap-2 text-[11px] text-ink-500">
+                <input
+                  type="checkbox"
+                  checked={clearAuthToken}
+                  onChange={(e) => {
+                    setClearAuthToken(e.target.checked)
+                    setError(null)
+                  }}
+                  className="h-3.5 w-3.5 rounded border-paper-300 bg-paper-50 text-accent focus:ring-accent"
+                />
+                Clear the stored token for this remote
+              </label>
+            )}
           </label>
           <label className="block">
             <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">

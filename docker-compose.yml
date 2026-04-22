@@ -6,8 +6,16 @@ services:
     image: "${ZENNOTES_IMAGE:-zennotes-selfhosted:local}"
     container_name: zennotes-selfhosted
     restart: unless-stopped
+    user: "${ZENNOTES_CONTAINER_UID:-1000}:${ZENNOTES_CONTAINER_GID:-1000}"
     ports:
-      - "${ZENNOTES_HOST_PORT:-7878}:7878"
+      - "127.0.0.1:${ZENNOTES_HOST_PORT:-7878}:7878"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
       - "${ZENNOTES_HOST_CONTENT_ROOT:-./vault}:${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}"
       - "${ZENNOTES_HOST_DATA:-./data}:/data"
@@ -16,3 +24,6 @@ services:
       ZENNOTES_CONFIG_PATH: /data/server.json
       ZENNOTES_DEFAULT_VAULT_PATH: "${ZENNOTES_CONTAINER_DEFAULT_VAULT_PATH:-${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}}"
       ZENNOTES_BROWSE_ROOTS: "${ZENNOTES_BROWSE_ROOTS:-${ZENNOTES_CONTAINER_CONTENT_ROOT:-/workspace}}"
+      ZENNOTES_ALLOWED_ORIGINS: "${ZENNOTES_ALLOWED_ORIGINS:-http://localhost:7878,http://127.0.0.1:7878}"
+      ZENNOTES_AUTH_TOKEN: "${ZENNOTES_AUTH_TOKEN:-}"
+      ZENNOTES_ALLOW_INSECURE_NOAUTH: "${ZENNOTES_ALLOW_INSECURE_NOAUTH:-0}"

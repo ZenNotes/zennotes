@@ -10,6 +10,7 @@ import type {
   RemoteWorkspaceInfo,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
+  ServerCapabilities,
   VaultSettings,
   VaultTextSearchBackendPreference,
   VaultChangeEvent,
@@ -981,6 +982,7 @@ interface Store {
   workspaceMode: WorkspaceMode
   remoteWorkspaceInfo: RemoteWorkspaceInfo | null
   remoteWorkspaceProfiles: RemoteWorkspaceProfile[]
+  workspaceSetupError: string | null
   vaultSettings: VaultSettings
   notes: NoteMeta[]
   folders: FolderEntry[]
@@ -1393,6 +1395,52 @@ function workspaceModeFrom(info: RemoteWorkspaceInfo | null): WorkspaceMode {
   return info?.mode === 'remote' ? 'remote' : 'local'
 }
 
+async function ensureWebServerSession(
+  capabilities?: ServerCapabilities | null
+): Promise<boolean> {
+  if (window.zen.getAppInfo().runtime !== 'web') return true
+
+  const serverCapabilities = capabilities ?? (await window.zen.getServerCapabilities())
+  if (!serverCapabilities?.authRequired || !serverCapabilities.supportsSessionLogin) {
+    return true
+  }
+
+  const session = await window.zen.getServerSession()
+  if (session.authenticated) return true
+
+  const token = await promptApp({
+    title: 'Server Auth Token',
+    description:
+      'This ZenNotes server requires its auth token before notes can be accessed in the browser.',
+    placeholder: 'Enter the server auth token',
+    okLabel: 'Sign In'
+  })
+  if (!token?.trim()) return false
+
+  await window.zen.loginServerSession(token.trim())
+  return true
+}
+
+function describeWebServerSetupError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  const normalized = message.toLowerCase()
+  if (
+    normalized.includes('/capabilities') ||
+    normalized.includes('fetch failed') ||
+    normalized.includes('failed to fetch') ||
+    normalized.includes('proxy error') ||
+    normalized.includes('econnrefused') ||
+    normalized.includes('internal server error')
+  ) {
+    return [
+      'ZenNotes could not reach its server API.',
+      'For normal self-hosted use, run `make up` and open http://localhost:7878.',
+      'If you are using the web dev server, make sure `npm run dev:server` is running too.'
+    ].join(' ')
+  }
+  return message
+}
+
 function activeFieldsFrom(
   layout: PaneLayout,
   activePaneId: string,
@@ -1721,6 +1769,7 @@ export const useStore = create<Store>((set, get) => {
   workspaceMode: 'local',
   remoteWorkspaceInfo: null,
   remoteWorkspaceProfiles: [],
+  workspaceSetupError: null,
   vaultSettings: DEFAULT_VAULT_SETTINGS,
   notes: [],
   folders: [],
@@ -3504,6 +3553,18 @@ export const useStore = create<Store>((set, get) => {
     try {
       const remoteWorkspaceProfilesPromise = get().refreshRemoteWorkspaceProfiles()
       const remoteWorkspaceInfo = await get().refreshWorkspaceContext()
+      const serverCapabilities = await window.zen.getServerCapabilities().catch(() => null)
+      if (!(await ensureWebServerSession(serverCapabilities))) {
+        await remoteWorkspaceProfilesPromise
+        set({
+          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
+          remoteWorkspaceInfo,
+          workspaceSetupError: null,
+          workspaceRestored: true,
+          vaultSettings: DEFAULT_VAULT_SETTINGS
+        })
+        return
+      }
       const vault = await window.zen.getCurrentVault()
       await remoteWorkspaceProfilesPromise
       if (vault) {
@@ -3512,6 +3573,7 @@ export const useStore = create<Store>((set, get) => {
           vault,
           workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
           remoteWorkspaceInfo,
+          workspaceSetupError: null,
           vaultSettings,
           workspaceRestored: false
         })
@@ -3521,6 +3583,7 @@ export const useStore = create<Store>((set, get) => {
         set({
           workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
           remoteWorkspaceInfo,
+          workspaceSetupError: null,
           workspaceRestored: true,
           vaultSettings: DEFAULT_VAULT_SETTINGS
         })
@@ -3530,6 +3593,8 @@ export const useStore = create<Store>((set, get) => {
       set({
         workspaceMode: 'local',
         remoteWorkspaceInfo: null,
+        workspaceSetupError:
+          window.zen.getAppInfo().runtime === 'web' ? describeWebServerSetupError(err) : null,
         workspaceRestored: true,
         vaultSettings: DEFAULT_VAULT_SETTINGS
       })
@@ -3562,27 +3627,39 @@ export const useStore = create<Store>((set, get) => {
 
   openVaultPicker: async () => {
     await get().flushDirtyNotes()
+    set({ workspaceSetupError: null })
     const capabilities = window.zen.getCapabilities()
     const appInfo = window.zen.getAppInfo()
     let vault: VaultInfo | null = null
 
-    if (appInfo.runtime === 'web' && !capabilities.supportsLocalFilesystemPickers) {
-      const current = await window.zen.getCurrentVault()
-      const enteredPath = await pickServerDirectoryApp(
-        {
-        title: 'Choose Vault Folder',
-        description:
-          'Choose the folder on the server that ZenNotes should use as your vault.',
-        initialPath: current?.root ?? '',
-        confirmLabel: 'Choose Folder'
-        },
-        async (path) => {
-          vault = await window.zen.selectVaultPath(path.trim())
-        }
-      )
-      if (!enteredPath) return
-    } else {
-      vault = await window.zen.pickVault()
+    try {
+      if (appInfo.runtime === 'web' && !capabilities.supportsLocalFilesystemPickers) {
+        const serverCapabilities = await window.zen.getServerCapabilities()
+        if (!(await ensureWebServerSession(serverCapabilities))) return
+        const current = await window.zen.getCurrentVault()
+        const enteredPath = await pickServerDirectoryApp(
+          {
+            title: 'Choose Vault Folder',
+            description:
+              'Choose the folder on the server that ZenNotes should use as your vault.',
+            initialPath: current?.root ?? '',
+            confirmLabel: 'Choose Folder'
+          },
+          async (path) => {
+            vault = await window.zen.selectVaultPath(path.trim())
+          }
+        )
+        if (!enteredPath) return
+      } else {
+        vault = await window.zen.pickVault()
+      }
+    } catch (err) {
+      console.error('openVaultPicker failed', err)
+      if (appInfo.runtime === 'web') {
+        set({ workspaceSetupError: describeWebServerSetupError(err) })
+        return
+      }
+      throw err
     }
 
     if (!vault) return
@@ -3595,6 +3672,7 @@ export const useStore = create<Store>((set, get) => {
       vault,
       workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
       remoteWorkspaceInfo,
+      workspaceSetupError: null,
       vaultSettings,
       notes: [],
       folders: [],
@@ -3669,8 +3747,9 @@ export const useStore = create<Store>((set, get) => {
       const authToken = await promptApp({
         title: 'Server Auth Token',
         description:
-          'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.',
-        initialValue: matchingBaseProfile?.authToken ?? '',
+          matchingBaseProfile?.hasCredential
+            ? 'If this server needs a different token than the one already stored for the saved remote, enter it here. Otherwise leave this blank.'
+            : 'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.',
         placeholder: 'Optional',
         okLabel: 'Connect',
         allowEmptySubmit: true

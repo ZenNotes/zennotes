@@ -11,6 +11,7 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  ServerSessionStatus,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -64,6 +65,9 @@ export interface ZenBridge {
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdate(): Promise<void>
   getServerCapabilities(): Promise<ServerCapabilities | null>
+  getServerSession(): Promise<ServerSessionStatus>
+  loginServerSession(token: string): Promise<ServerSessionStatus>
+  logoutServerSession(): Promise<ServerSessionStatus>
   getRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null>
   connectRemoteWorkspace(
     baseUrl: string,

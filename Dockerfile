@@ -56,6 +56,8 @@ ENV ZENNOTES_BIND=0.0.0.0:7878 \
     ZENNOTES_DEFAULT_VAULT_PATH=/workspace \
     ZENNOTES_BROWSE_ROOTS=/workspace
 
+USER 65532:65532
+
 EXPOSE 7878
 VOLUME ["/workspace", "/data"]
 

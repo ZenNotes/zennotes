@@ -232,6 +232,7 @@ export function SettingsModal(): JSX.Element {
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
     value?: RemoteWorkspaceProfileInput
+    hasStoredCredential?: boolean
   } | null>(null)
 
   // Lazy-load the system font list on mount. Retried on every mount
@@ -335,7 +336,8 @@ export function SettingsModal(): JSX.Element {
         baseUrl: remoteWorkspaceInfo?.baseUrl ?? 'http://localhost:7878',
         authToken: null,
         vaultPath: workspaceMode === 'remote' ? vault?.root ?? null : null
-      }
+      },
+      hasStoredCredential: false
     })
   }, [remoteWorkspaceInfo?.baseUrl, vault?.root, workspaceMode])
 
@@ -346,9 +348,9 @@ export function SettingsModal(): JSX.Element {
         id: profile.id,
         name: profile.name,
         baseUrl: profile.baseUrl,
-        authToken: profile.authToken,
         vaultPath: profile.vaultPath
-      }
+      },
+      hasStoredCredential: profile.hasCredential
     })
   }, [])
 
@@ -1471,6 +1473,7 @@ export function SettingsModal(): JSX.Element {
                 ? 'Update this saved server and vault connection.'
                 : 'Save a ZenNotes server so you can reconnect without re-entering the details.',
             initialValue: editingRemoteProfile.value,
+            hasStoredCredential: editingRemoteProfile.hasStoredCredential,
             submitLabel: editingRemoteProfile.mode === 'edit' ? 'Save Changes' : 'Save Remote'
           }}
           onSubmit={submitRemoteProfile}

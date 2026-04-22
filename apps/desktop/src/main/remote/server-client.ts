@@ -17,6 +17,7 @@ import type {
   VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import WebSocket from 'ws'
 
 export interface RemoteServerClientOptions {
   baseUrl: string
@@ -222,26 +223,40 @@ export class RemoteServerClient {
     }).then((resp) => resp.subpath)
   }
 
-  remoteAssetUrl(assetPath: string): string {
-    const url = new URL('/api/assets/raw', `${this.baseUrl}/`)
-    url.searchParams.set('path', assetPath)
-    if (this.authToken) url.searchParams.set('authToken', this.authToken)
-    return url.toString()
+  async fetchAssetResponse(assetPath: string): Promise<Response> {
+    const headers = new Headers()
+    if (this.authToken) {
+      headers.set('Authorization', `Bearer ${this.authToken}`)
+    }
+    const response = await fetch(
+      `${this.baseUrl}/api/assets/raw?path=${encodeURIComponent(assetPath)}`,
+      { headers }
+    )
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(
+        `Remote asset request failed (${response.status} ${response.statusText}) for ${assetPath}${text ? `: ${text}` : ''}`
+      )
+    }
+    return response
   }
 
   watchVaultChanges(onEvent: (event: VaultChangeEvent) => void): () => void {
     const url = new URL('/api/watch', `${this.baseUrl}/`)
-    if (this.authToken) url.searchParams.set('authToken', this.authToken)
-    const ws = new WebSocket(url.toString())
+    const headers: Record<string, string> = {}
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`
+    }
+    const ws = new WebSocket(url, { headers })
 
-    ws.addEventListener('message', (event) => {
+    ws.on('message', (data: WebSocket.RawData) => {
       const text =
-        typeof event.data === 'string'
-          ? event.data
-          : event.data instanceof ArrayBuffer
-            ? Buffer.from(event.data).toString('utf8')
-            : typeof Buffer !== 'undefined' && Buffer.isBuffer(event.data)
-              ? event.data.toString('utf8')
+        typeof data === 'string'
+          ? data
+          : data instanceof ArrayBuffer
+            ? Buffer.from(data).toString('utf8')
+            : Buffer.isBuffer(data)
+              ? data.toString('utf8')
               : ''
       if (!text) return
       try {

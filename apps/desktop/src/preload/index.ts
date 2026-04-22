@@ -16,6 +16,7 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  ServerSessionStatus,
   VaultChangeEvent,
   VaultDemoTourResult,
   VaultInfo,
@@ -127,6 +128,21 @@ const api: ZenBridge = {
   installAppUpdate: (): Promise<void> => ipcRenderer.invoke(IPC.APP_UPDATER_INSTALL),
   getServerCapabilities: async (): Promise<ServerCapabilities | null> =>
     (await refreshRemoteWorkspaceInfo())?.capabilities ?? null,
+  getServerSession: async (): Promise<ServerSessionStatus> => ({
+    authenticated: true,
+    authRequired: false,
+    supportsSessionLogin: false
+  }),
+  loginServerSession: async (): Promise<ServerSessionStatus> => ({
+    authenticated: true,
+    authRequired: false,
+    supportsSessionLogin: false
+  }),
+  logoutServerSession: async (): Promise<ServerSessionStatus> => ({
+    authenticated: true,
+    authRequired: false,
+    supportsSessionLogin: false
+  }),
   getRemoteWorkspaceInfo: async (): Promise<RemoteWorkspaceInfo | null> =>
     await refreshRemoteWorkspaceInfo(),
   connectRemoteWorkspace: async (

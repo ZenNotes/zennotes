@@ -3,23 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <!--
-      Web build Content Security Policy.
-
-      Differences from the Electron build:
-        * connect-src includes http/https/ws/wss for same-origin API and
-          WebSocket traffic to the Go server.
-        * manifest-src 'self' so the PWA manifest is fetchable.
-        * frame-ancestors is relaxed to 'self' so detached note windows
-          (window.open from the same origin) still work.
-
-      script-src keeps 'unsafe-eval' because three diagram engines we
-      bundle in preview depend on runtime evaluation (function-plot,
-      jsxgraph, mermaid).
+      The production/self-hosted app now serves CSP through HTTP
+      response headers from the Go server. Keep the HTML head free of
+      a duplicated meta CSP so browser security warnings stay clean.
     -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self' data: blob:; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' data: blob:; frame-src 'self' data: blob:; font-src 'self' data:; worker-src 'self' blob:; connect-src 'self' ws: wss: https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; manifest-src 'self';"
-    />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f5f0" />
     <link rel="manifest" href="/manifest.webmanifest" />
