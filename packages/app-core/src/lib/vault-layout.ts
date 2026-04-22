@@ -50,6 +50,10 @@ const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
   'home'
 ])
 
+function isFolderIconId(value: unknown): value is FolderIconId {
+  return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
+}
+
 function pad(n: number): string {
   return n.toString().padStart(2, '0')
 }
@@ -66,10 +70,8 @@ export function normalizeVaultSettings(
   const normalizedFolderIcons: Record<string, FolderIconId> = {}
   if (folderIcons && typeof folderIcons === 'object') {
     for (const [key, value] of Object.entries(folderIcons)) {
-      if (!key || typeof value !== 'string') continue
-      if (VALID_FOLDER_ICON_IDS.has(value as FolderIconId)) {
-        normalizedFolderIcons[key] = value
-      }
+      if (!key || !isFolderIconId(value)) continue
+      normalizedFolderIcons[key] = value
     }
   }
   return {

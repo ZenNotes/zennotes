@@ -97,6 +97,10 @@ const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
   'home'
 ])
 
+function isFolderIconId(value: unknown): value is FolderIconId {
+  return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
+}
+
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
@@ -356,8 +360,7 @@ function normalizeVaultSettings(
   const folderIcons: Record<string, FolderIconId> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
     for (const [key, iconId] of Object.entries(candidate.folderIcons)) {
-      if (!key || typeof iconId !== 'string') continue
-      if (!VALID_FOLDER_ICON_IDS.has(iconId as FolderIconId)) continue
+      if (!key || !isFolderIconId(iconId)) continue
       folderIcons[key] = iconId
     }
   }
