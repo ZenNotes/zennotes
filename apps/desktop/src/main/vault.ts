@@ -7,6 +7,7 @@ import { app } from 'electron'
 import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   AssetMeta,
+  type FolderIconId,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -64,13 +65,45 @@ const SEARCH_EXECUTABLE_NAMES = {
   ripgrep: new Set(['rg', 'rg.exe']),
   fzf: new Set(['fzf', 'fzf.exe'])
 } as const
+const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
+  'folder',
+  'bolt',
+  'tray',
+  'archive',
+  'trash',
+  'book',
+  'bookmark',
+  'calendar',
+  'briefcase',
+  'tag',
+  'document',
+  'sparkle',
+  'code',
+  'user',
+  'star',
+  'heart',
+  'link',
+  'lightbulb',
+  'flask',
+  'graduation',
+  'music',
+  'image',
+  'palette',
+  'terminal',
+  'wrench',
+  'globe',
+  'map',
+  'chart',
+  'home'
+])
 
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
     enabled: false,
     directory: DEFAULT_DAILY_NOTES_DIRECTORY
-  }
+  },
+  folderIcons: {}
 }
 
 interface VaultTextSearchCandidate {
@@ -286,7 +319,8 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     dailyNotes: {
       enabled: settings.dailyNotes.enabled,
       directory: settings.dailyNotes.directory
-    }
+    },
+    folderIcons: { ...settings.folderIcons }
   }
 }
 
@@ -310,12 +344,22 @@ function normalizeVaultSettings(
       dailyNotes: {
         enabled: DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
         directory: DEFAULT_DAILY_NOTES_DIRECTORY
-      }
+      },
+      folderIcons: {}
     }
   }
   const candidate = value as {
     primaryNotesLocation?: unknown
     dailyNotes?: { enabled?: unknown; directory?: unknown } | null
+    folderIcons?: Record<string, unknown> | null
+  }
+  const folderIcons: Record<string, FolderIconId> = {}
+  if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
+    for (const [key, iconId] of Object.entries(candidate.folderIcons)) {
+      if (!key || typeof iconId !== 'string') continue
+      if (!VALID_FOLDER_ICON_IDS.has(iconId as FolderIconId)) continue
+      folderIcons[key] = iconId
+    }
   }
   return {
     primaryNotesLocation: normalizePrimaryNotesLocation(
@@ -327,8 +371,72 @@ function normalizeVaultSettings(
           ? candidate.dailyNotes.enabled
           : DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
       directory: normalizeDailyNotesDirectory(candidate.dailyNotes?.directory)
+    },
+    folderIcons
+  }
+}
+
+function folderIconKey(folder: NoteFolder, subpath: string): string {
+  return `${folder}:${subpath}`
+}
+
+function rewriteFolderIconsForRename(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = {}
+  const exactKey = folderIconKey(folder, oldSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, newSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, newSubpath) + key.slice(exactKey.length)] = value
+      continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+function removeFolderIcons(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = {}
+  const exactKey = folderIconKey(folder, subpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey || key.startsWith(prefix)) continue
+    next[key] = value
+  }
+  return next
+}
+
+function duplicateFolderIcons(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  sourceSubpath: string,
+  targetSubpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = { ...folderIcons }
+  const exactKey = folderIconKey(folder, sourceSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, targetSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, targetSubpath) + key.slice(exactKey.length)] = value
     }
   }
+  return next
 }
 
 async function inferPrimaryNotesLocation(root: string): Promise<PrimaryNotesLocation> {
@@ -1343,6 +1451,17 @@ export async function renameFolder(
   } else {
     await fs.rename(oldAbs, newAbs)
   }
+  const settings = await getVaultSettings(root)
+  const nextSettings: VaultSettings = {
+    ...settings,
+    folderIcons: rewriteFolderIconsForRename(
+      settings.folderIcons,
+      topFolder,
+      oldClean,
+      newClean
+    )
+  }
+  await setVaultSettings(root, nextSettings)
   return newClean
 }
 
@@ -1359,6 +1478,12 @@ export async function deleteFolder(
   if (!clean) throw new Error('Cannot delete the top-level folder')
   const abs = resolveSafe(await folderRoot(root, topFolder), clean)
   await fs.rm(abs, { recursive: true, force: true })
+  const settings = await getVaultSettings(root)
+  const nextSettings: VaultSettings = {
+    ...settings,
+    folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean)
+  }
+  await setVaultSettings(root, nextSettings)
 }
 
 /**
@@ -1390,7 +1515,14 @@ export async function duplicateFolder(
   }
   const newAbs = path.join(parentAbs, copyName)
   await fs.cp(oldAbs, newAbs, { recursive: true })
-  return path.relative(topRoot, newAbs).split(path.sep).join('/')
+  const newSubpath = path.relative(topRoot, newAbs).split(path.sep).join('/')
+  const settings = await getVaultSettings(root)
+  const nextSettings: VaultSettings = {
+    ...settings,
+    folderIcons: duplicateFolderIcons(settings.folderIcons, topFolder, clean, newSubpath)
+  }
+  await setVaultSettings(root, nextSettings)
+  return newSubpath
 }
 
 /** Build the absolute on-disk path for a vault folder / subfolder. */

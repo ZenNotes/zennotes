@@ -201,7 +201,11 @@ function App(): JSX.Element {
       if (matchesShortcut(e, overrides, 'global.newQuickNote')) {
         // ⇧⌘N — new quick note
         e.preventDefault()
-        const title = resolveQuickNoteTitle(state.notes, state.quickNoteDateTitle)
+        const title = resolveQuickNoteTitle(
+          state.notes,
+          state.quickNoteDateTitle,
+          state.quickNoteTitlePrefix ?? undefined
+        )
         void state.createAndOpen('quick', '', { title, focusTitle: true })
         return
       }

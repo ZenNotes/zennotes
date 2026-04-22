@@ -2,6 +2,7 @@ import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_VAULT_SETTINGS,
   type AssetMeta,
+  type FolderIconId,
   type NoteFolder,
   type NoteMeta,
   type VaultSettings
@@ -17,6 +18,37 @@ const RESERVED_ROOT_NAMES = new Set<string>([
   '_assets',
   '.zennotes'
 ])
+const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
+  'folder',
+  'bolt',
+  'tray',
+  'archive',
+  'trash',
+  'book',
+  'bookmark',
+  'calendar',
+  'briefcase',
+  'tag',
+  'document',
+  'sparkle',
+  'code',
+  'user',
+  'star',
+  'heart',
+  'link',
+  'lightbulb',
+  'flask',
+  'graduation',
+  'music',
+  'image',
+  'palette',
+  'terminal',
+  'wrench',
+  'globe',
+  'map',
+  'chart',
+  'home'
+])
 
 function pad(n: number): string {
   return n.toString().padStart(2, '0')
@@ -30,6 +62,16 @@ export function normalizeDailyNotesDirectory(directory: string | null | undefine
 export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
+  const folderIcons = settings?.folderIcons
+  const normalizedFolderIcons: Record<string, FolderIconId> = {}
+  if (folderIcons && typeof folderIcons === 'object') {
+    for (const [key, value] of Object.entries(folderIcons)) {
+      if (!key || typeof value !== 'string') continue
+      if (VALID_FOLDER_ICON_IDS.has(value as FolderIconId)) {
+        normalizedFolderIcons[key] = value
+      }
+    }
+  }
   return {
     primaryNotesLocation:
       settings?.primaryNotesLocation === 'root'
@@ -38,8 +80,72 @@ export function normalizeVaultSettings(
     dailyNotes: {
       enabled: !!settings?.dailyNotes?.enabled,
       directory: normalizeDailyNotesDirectory(settings?.dailyNotes?.directory)
+    },
+    folderIcons: normalizedFolderIcons
+  }
+}
+
+export function folderIconKey(folder: NoteFolder, subpath: string): string {
+  return `${folder}:${subpath}`
+}
+
+export function rewriteFolderIconsForRename(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = {}
+  const exactKey = folderIconKey(folder, oldSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, newSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, newSubpath) + key.slice(exactKey.length)] = value
+      continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+export function removeFolderIcons(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = {}
+  const exactKey = folderIconKey(folder, subpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey || key.startsWith(prefix)) continue
+    next[key] = value
+  }
+  return next
+}
+
+export function duplicateFolderIcons(
+  folderIcons: Record<string, FolderIconId>,
+  folder: NoteFolder,
+  sourceSubpath: string,
+  targetSubpath: string
+): Record<string, FolderIconId> {
+  const next: Record<string, FolderIconId> = { ...folderIcons }
+  const exactKey = folderIconKey(folder, sourceSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, targetSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, targetSubpath) + key.slice(exactKey.length)] = value
     }
   }
+  return next
 }
 
 export function isPrimaryNotesAtRoot(

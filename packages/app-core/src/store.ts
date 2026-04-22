@@ -38,10 +38,15 @@ import {
 } from './lib/system-folder-labels'
 import { recordRendererPerf } from './lib/perf'
 import {
+  duplicateFolderIcons,
+  folderForVaultRelativePath,
+  isPrimaryNotesAtRoot,
   normalizeDailyNotesDirectory,
+  removeFolderIcons,
   normalizeVaultSettings,
   noteFolderSubpath,
-  noteTitleForDate
+  noteTitleForDate,
+  rewriteFolderIconsForRename
 } from './lib/vault-layout'
 import type { Panel } from './lib/vim-nav'
 import {
@@ -108,6 +113,8 @@ const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
   'fzf'
 ]
 const MAX_NOTE_JUMP_HISTORY = 100
+const DEFAULT_SIDEBAR_WIDTH = 336
+const LEGACY_DEFAULT_SIDEBAR_WIDTHS = new Set([232, 260, 288])
 
 interface Prefs {
   vimMode: boolean
@@ -152,6 +159,8 @@ interface Prefs {
   unifiedSidebar: boolean
   /** Tint the sidebar surface a step darker than the main canvas. */
   darkSidebar: boolean
+  /** Show disclosure arrows for collapsible sidebar folders and sections. */
+  showSidebarChevrons: boolean
   /** Keys of collapsed folders in the sidebar tree. */
   collapsedFolders: string[]
   /** Pinned reference pane — an always-visible companion note panel
@@ -164,6 +173,9 @@ interface Prefs {
   /** When true, "New Quick Note" auto-titles to today's date
    *  (YYYY-MM-DD), appending " (2)", " (3)" etc. for collisions. */
   quickNoteDateTitle: boolean
+  /** Optional prefix used for new Quick Note titles. Blank falls back
+   *  to a bare timestamp/date. */
+  quickNoteTitlePrefix: string | null
   /** When true, long lines wrap inside the editor. When false they
    *  scroll horizontally — same as a coding editor's "Word Wrap". */
   wordWrap: boolean
@@ -220,19 +232,21 @@ const DEFAULT_PREFS: Prefs = {
   textFont: null,
   monoFont: null,
   systemFolderLabels: {},
-  sidebarWidth: 260,
+  sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   noteListWidth: 300,
   noteSortOrder: 'none',
   groupByKind: true,
   autoReveal: false,
   unifiedSidebar: true,
   darkSidebar: true,
+  showSidebarChevrons: true,
   collapsedFolders: [],
   pinnedRefPath: null,
   pinnedRefVisible: true,
   pinnedRefWidth: 420,
   pinnedRefMode: 'edit',
   quickNoteDateTitle: false,
+  quickNoteTitlePrefix: 'Quick Note',
   wordWrap: true,
   previewSmoothScroll: true,
   editorMaxWidth: 920,
@@ -323,7 +337,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     systemFolderLabels: normalizeSystemFolderLabels(p.systemFolderLabels),
     sidebarWidth:
       typeof p.sidebarWidth === 'number'
-        ? Math.min(520, Math.max(160, p.sidebarWidth))
+        ? LEGACY_DEFAULT_SIDEBAR_WIDTHS.has(Math.round(p.sidebarWidth))
+          ? DEFAULT_PREFS.sidebarWidth
+          : Math.min(520, Math.max(160, p.sidebarWidth))
         : DEFAULT_PREFS.sidebarWidth,
     noteListWidth:
       typeof p.noteListWidth === 'number'
@@ -344,6 +360,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.darkSidebar === 'boolean'
         ? p.darkSidebar
         : DEFAULT_PREFS.darkSidebar,
+    showSidebarChevrons:
+      typeof p.showSidebarChevrons === 'boolean'
+        ? p.showSidebarChevrons
+        : DEFAULT_PREFS.showSidebarChevrons,
     collapsedFolders:
       Array.isArray(p.collapsedFolders)
         ? p.collapsedFolders.filter((k): k is string => typeof k === 'string')
@@ -368,6 +388,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.quickNoteDateTitle === 'boolean'
         ? p.quickNoteDateTitle
         : DEFAULT_PREFS.quickNoteDateTitle,
+    quickNoteTitlePrefix:
+      typeof p.quickNoteTitlePrefix === 'string' || p.quickNoteTitlePrefix === null
+        ? (p.quickNoteTitlePrefix as string | null)
+        : DEFAULT_PREFS.quickNoteTitlePrefix,
     wordWrap:
       typeof p.wordWrap === 'boolean' ? p.wordWrap : DEFAULT_PREFS.wordWrap,
     previewSmoothScroll:
@@ -472,6 +496,52 @@ function mergeFoldersPreservingOrder(prev: FolderEntry[], next: FolderEntry[]): 
     seen.add(key)
   }
   return merged
+}
+
+function computeStartupCollapsedFolders(
+  folders: FolderEntry[],
+  settings: VaultSettings | null | undefined,
+  activePath: string | null
+): string[] {
+  const normalizedSettings = normalizeVaultSettings(settings)
+  const primaryNotesAtRoot = isPrimaryNotesAtRoot(normalizedSettings)
+  const orderedKeys: string[] = []
+  const seen = new Set<string>()
+  const pushKey = (key: string): void => {
+    if (seen.has(key)) return
+    seen.add(key)
+    orderedKeys.push(key)
+  }
+
+  pushKey('quick:')
+  if (!primaryNotesAtRoot) pushKey('inbox:')
+  for (const folder of folders) {
+    if (!folder.subpath) continue
+    pushKey(`${folder.folder}:${folder.subpath}`)
+  }
+
+  if (!activePath || activePath.startsWith('zen://')) return orderedKeys
+
+  const folder = folderForVaultRelativePath(activePath, normalizedSettings)
+  if (!folder) return orderedKeys
+
+  const expandedKeys = new Set<string>()
+  if (folder === 'quick') {
+    expandedKeys.add('quick:')
+  } else if (folder === 'inbox' && !primaryNotesAtRoot) {
+    expandedKeys.add('inbox:')
+  }
+
+  const parentSubpath = noteFolderSubpath({ folder, path: activePath }, normalizedSettings)
+  if (parentSubpath) {
+    let acc = ''
+    for (const segment of parentSubpath.split('/').filter(Boolean)) {
+      acc = acc ? `${acc}/${segment}` : segment
+      expandedKeys.add(`${folder}:${acc}`)
+    }
+  }
+
+  return orderedKeys.filter((key) => !expandedKeys.has(key))
 }
 
 export interface NoteJumpLocation {
@@ -662,12 +732,14 @@ function collectPrefs(s: {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  showSidebarChevrons: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
   pinnedRefVisible: boolean
   pinnedRefWidth: number
   pinnedRefMode: 'edit' | 'preview'
   quickNoteDateTitle: boolean
+  quickNoteTitlePrefix: string | null
   wordWrap: boolean
   previewSmoothScroll: boolean
   editorMaxWidth: number
@@ -706,12 +778,14 @@ function collectPrefs(s: {
     autoReveal: s.autoReveal,
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
+    showSidebarChevrons: s.showSidebarChevrons,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
     pinnedRefVisible: s.pinnedRefVisible,
     pinnedRefWidth: s.pinnedRefWidth,
     pinnedRefMode: s.pinnedRefMode,
     quickNoteDateTitle: s.quickNoteDateTitle,
+    quickNoteTitlePrefix: s.quickNoteTitlePrefix,
     wordWrap: s.wordWrap,
     previewSmoothScroll: s.previewSmoothScroll,
     editorMaxWidth: s.editorMaxWidth,
@@ -1038,6 +1112,7 @@ interface Store {
   autoReveal: boolean
   unifiedSidebar: boolean
   darkSidebar: boolean
+  showSidebarChevrons: boolean
   /** Sidebar tree collapsed-folder keys. Kept in the store so the
    *  state survives Sidebar unmount/mount (e.g. toggling the sidebar). */
   collapsedFolders: string[]
@@ -1052,6 +1127,8 @@ interface Store {
   /** Auto-title new Quick Notes to today's date instead of the
    *  default "Quick Note <ts>" pattern. */
   quickNoteDateTitle: boolean
+  /** Prefix used when generating new Quick Note titles. */
+  quickNoteTitlePrefix: string | null
 
   /** Whether long lines wrap or scroll horizontally in the editor. */
   wordWrap: boolean
@@ -1223,6 +1300,7 @@ interface Store {
   setAutoReveal: (on: boolean) => void
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
+  setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
 
@@ -1241,6 +1319,7 @@ interface Store {
   setPinnedRefMode: (mode: 'edit' | 'preview') => void
 
   setQuickNoteDateTitle: (on: boolean) => void
+  setQuickNoteTitlePrefix: (prefix: string | null) => void
   openTodayDailyNote: () => Promise<void>
   setWordWrap: (on: boolean) => void
   setPreviewSmoothScroll: (on: boolean) => void
@@ -1700,7 +1779,14 @@ export const useStore = create<Store>((set, get) => {
   const restoreWorkspaceForVault = async (vault: VaultInfo): Promise<void> => {
     const rawSnapshot = loadWorkspaceSnapshot(vault.root)
     if (!rawSnapshot || typeof rawSnapshot !== 'object') {
-      set({ workspaceRestored: true })
+      set({
+        collapsedFolders: computeStartupCollapsedFolders(
+          get().folders,
+          get().vaultSettings,
+          null
+        ),
+        workspaceRestored: true
+      })
       return
     }
 
@@ -1743,6 +1829,11 @@ export const useStore = create<Store>((set, get) => {
     const nextView: View = active.selectedPath
       ? restoredView
       : { kind: 'folder', folder: 'inbox', subpath: '' }
+    const collapsedFolders = computeStartupCollapsedFolders(
+      get().folders,
+      get().vaultSettings,
+      active.selectedPath
+    )
 
     set({
       paneLayout: ensured.layout,
@@ -1759,6 +1850,7 @@ export const useStore = create<Store>((set, get) => {
           ? snapshot.noteListOpen
           : get().noteListOpen,
       selectedTags: normalizeWorkspaceTags(snapshot.selectedTags),
+      collapsedFolders,
       workspaceRestored: true,
       ...active
     })
@@ -1824,12 +1916,14 @@ export const useStore = create<Store>((set, get) => {
   autoReveal: loadPrefs().autoReveal,
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
-  collapsedFolders: loadPrefs().collapsedFolders,
+  showSidebarChevrons: loadPrefs().showSidebarChevrons,
+  collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
   pinnedRefVisible: loadPrefs().pinnedRefVisible,
   pinnedRefWidth: loadPrefs().pinnedRefWidth,
   pinnedRefMode: loadPrefs().pinnedRefMode,
   quickNoteDateTitle: loadPrefs().quickNoteDateTitle,
+  quickNoteTitlePrefix: loadPrefs().quickNoteTitlePrefix,
   wordWrap: loadPrefs().wordWrap,
   previewSmoothScroll: loadPrefs().previewSmoothScroll,
   editorMaxWidth: loadPrefs().editorMaxWidth,
@@ -1860,8 +1954,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const settings = normalizeVaultSettings(await window.zen.setVaultSettings(next))
       set({
-        vaultSettings: settings,
-        view: { kind: 'folder', folder: 'inbox', subpath: '' }
+        vaultSettings: settings
       })
       await get().refreshNotes()
     } catch (err) {
@@ -2725,6 +2818,10 @@ export const useStore = create<Store>((set, get) => {
     set({ darkSidebar: on })
     savePrefs(collectPrefs(get()))
   },
+  setShowSidebarChevrons: (on) => {
+    set({ showSidebarChevrons: on })
+    savePrefs(collectPrefs(get()))
+  },
   toggleCollapseFolder: (key) => {
     set((s) =>
       s.collapsedFolders.includes(key)
@@ -2870,6 +2967,11 @@ export const useStore = create<Store>((set, get) => {
 
   setQuickNoteDateTitle: (on) => {
     set({ quickNoteDateTitle: on })
+    savePrefs(collectPrefs(get()))
+  },
+
+  setQuickNoteTitlePrefix: (prefix) => {
+    set({ quickNoteTitlePrefix: prefix?.trim() ? prefix.trim() : null })
     savePrefs(collectPrefs(get()))
   },
 
@@ -3382,6 +3484,12 @@ export const useStore = create<Store>((set, get) => {
       }
       return f
     })
+    const nextFolderIcons = rewriteFolderIconsForRename(
+      get().vaultSettings.folderIcons,
+      folder,
+      oldSubpath,
+      newSubpath
+    )
     set((s) => {
       const nextLayout = rewritePathsInTree(s.paneLayout, rewritePath)
       const ensured = ensureActivePane(nextLayout, s.activePaneId)
@@ -3405,6 +3513,10 @@ export const useStore = create<Store>((set, get) => {
           ? { ...s.pendingJumpLocation, path: rewritePath(s.pendingJumpLocation.path) }
           : null,
         pinnedRefPath: s.pinnedRefPath ? rewritePath(s.pinnedRefPath) : null,
+        vaultSettings: {
+          ...s.vaultSettings,
+          folderIcons: nextFolderIcons
+        },
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -3434,6 +3546,7 @@ export const useStore = create<Store>((set, get) => {
       set({ view: { kind: 'folder', folder, subpath: '' } })
     }
     const prefix = `${folder}/${subpath}/`
+    const nextFolderIcons = removeFolderIcons(get().vaultSettings.folderIcons, folder, subpath)
     set((s) => {
       const nextLayout = rewritePathsInTree(s.paneLayout, (p) =>
         p.startsWith(prefix) ? null : p
@@ -3455,6 +3568,10 @@ export const useStore = create<Store>((set, get) => {
         pendingJumpLocation: null,
         pinnedRefPath:
           s.pinnedRefPath && s.pinnedRefPath.startsWith(prefix) ? null : s.pinnedRefPath,
+        vaultSettings: {
+          ...s.vaultSettings,
+          folderIcons: nextFolderIcons
+        },
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -3463,7 +3580,18 @@ export const useStore = create<Store>((set, get) => {
   duplicateFolder: async (folder, subpath) => {
     const newSubpath = await window.zen.duplicateFolder(folder, subpath)
     await get().refreshNotes()
-    set({ view: { kind: 'folder', folder, subpath: newSubpath } })
+    set((s) => ({
+      view: { kind: 'folder', folder, subpath: newSubpath },
+      vaultSettings: {
+        ...s.vaultSettings,
+        folderIcons: duplicateFolderIcons(
+          s.vaultSettings.folderIcons,
+          folder,
+          subpath,
+          newSubpath
+        )
+      }
+    }))
   },
 
   revealFolder: async (folder, subpath) => {

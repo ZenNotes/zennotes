@@ -28,6 +28,7 @@ export function QuickNotesView(): JSX.Element {
   const closeActiveNote = useStore((s) => s.closeActiveNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
+  const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
@@ -85,9 +86,13 @@ export function QuickNotesView(): JSX.Element {
   )
 
   const createQuickNote = useCallback(async () => {
-    const title = resolveQuickNoteTitle(useStore.getState().notes, quickNoteDateTitle)
+    const title = resolveQuickNoteTitle(
+      useStore.getState().notes,
+      quickNoteDateTitle,
+      quickNoteTitlePrefix ?? undefined
+    )
     await createAndOpen('quick', '', { title, focusTitle: true })
-  }, [createAndOpen, quickNoteDateTitle])
+  }, [createAndOpen, quickNoteDateTitle, quickNoteTitlePrefix])
 
   useEffect(() => {
     if (!amActive) return

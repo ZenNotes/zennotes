@@ -105,6 +105,36 @@ export interface AppUpdateState {
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 
 export type PrimaryNotesLocation = 'inbox' | 'root'
+export type FolderIconId =
+  | 'folder'
+  | 'bolt'
+  | 'tray'
+  | 'archive'
+  | 'trash'
+  | 'book'
+  | 'bookmark'
+  | 'calendar'
+  | 'briefcase'
+  | 'tag'
+  | 'document'
+  | 'sparkle'
+  | 'code'
+  | 'user'
+  | 'star'
+  | 'heart'
+  | 'link'
+  | 'lightbulb'
+  | 'flask'
+  | 'graduation'
+  | 'music'
+  | 'image'
+  | 'palette'
+  | 'terminal'
+  | 'wrench'
+  | 'globe'
+  | 'map'
+  | 'chart'
+  | 'home'
 
 export interface DailyNotesSettings {
   enabled: boolean
@@ -114,6 +144,7 @@ export interface DailyNotesSettings {
 export interface VaultSettings {
   primaryNotesLocation: PrimaryNotesLocation
   dailyNotes: DailyNotesSettings
+  folderIcons: Record<string, FolderIconId>
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -123,7 +154,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   dailyNotes: {
     enabled: false,
     directory: DEFAULT_DAILY_NOTES_DIRECTORY
-  }
+  },
+  folderIcons: {}
 }
 
 export interface NoteMeta {

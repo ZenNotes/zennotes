@@ -511,7 +511,8 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Appearance',
     items: [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family, light or dark mode, and the active flavor or contrast where the theme supports it.' },
-      { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' }
+      { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
+      { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' }
     ]
   },
   {
@@ -526,7 +527,8 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Note tabs', detail: 'Enable or disable tab-based editing and split-friendly note workflows.' },
       { label: 'Word wrap', detail: 'Wrap long lines to the editor width or let them scroll horizontally.' },
       { label: 'PDFs in edit mode', detail: 'Choose between compact PDF cards or full inline PDF embeds while writing.' },
-      { label: 'Date-titled Quick Notes', detail: 'Name quick notes by date instead of timestamp-based titles.' }
+      { label: 'Date-titled Quick Notes', detail: 'Name quick notes by date instead of timestamp-based titles.' },
+      { label: 'Quick Note prefix', detail: 'Choose the prefix used for new quick note titles, or leave it blank for a bare timestamp/date.' }
     ]
   },
   {

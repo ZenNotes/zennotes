@@ -12,6 +12,7 @@ import (
 
 type NoteFolder string
 type PrimaryNotesLocation string
+type FolderIconID string
 
 const (
 	FolderInbox   NoteFolder = "inbox"
@@ -55,8 +56,9 @@ type DailyNotesSettings struct {
 }
 
 type VaultSettings struct {
-	PrimaryNotesLocation PrimaryNotesLocation `json:"primaryNotesLocation"`
-	DailyNotes           DailyNotesSettings   `json:"dailyNotes"`
+	PrimaryNotesLocation PrimaryNotesLocation    `json:"primaryNotesLocation"`
+	DailyNotes           DailyNotesSettings      `json:"dailyNotes"`
+	FolderIcons          map[string]FolderIconID `json:"folderIcons"`
 }
 
 // NoteMeta — vault-relative note metadata. Mirrors shared/ipc.ts NoteMeta.

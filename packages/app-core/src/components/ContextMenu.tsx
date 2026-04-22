@@ -34,6 +34,7 @@ interface Props {
  */
 export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   const [activeIdx, setActiveIdx] = useState<number>(0)
   const [query, setQuery] = useState('')
@@ -83,86 +84,105 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
   }, [x, y])
 
   useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement | null
+    const id = requestAnimationFrame(() => {
+      ref.current?.focus({ preventScroll: true })
+    })
+    return () => {
+      cancelAnimationFrame(id)
+      previousFocusRef.current?.focus?.({ preventScroll: true })
+    }
+  }, [])
+
+  useEffect(() => {
     const onDown = (e: MouseEvent): void => {
       if (!ref.current) return
       if (!ref.current.contains(e.target as Node)) onClose()
     }
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        if (query) setQuery('')
-        else onClose()
-        return
-      }
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setVisibleActive((i) => stepVisible(visible, i, 1))
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setVisibleActive((i) => stepVisible(visible, i, -1))
-        return
-      }
-      // Ctrl-N / Ctrl-P also navigate, so vim-minded users keep access
-      // to downward / upward motion while `j` / `k` are reserved for
-      // typing into the filter.
-      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
-        e.preventDefault()
-        setVisibleActive((i) => stepVisible(visible, i, 1))
-        return
-      }
-      if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
-        e.preventDefault()
-        setVisibleActive((i) => stepVisible(visible, i, -1))
-        return
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        const entry = visible[visibleActive]
-        if (entry && entry.item.kind !== 'separator' && !entry.item.disabled) {
-          onClose()
-          void Promise.resolve(entry.item.onSelect?.())
-        }
-        return
-      }
-      if (e.key === 'Backspace') {
-        // Only react while there's a query — otherwise let the keystroke
-        // pass through to whatever had focus before the menu opened.
-        if (query) {
-          e.preventDefault()
-          setQuery((q) => q.slice(0, -1))
-        }
-        return
-      }
-      // Type-to-filter: accept printable characters (single-char keys
-      // that aren't a modifier chord). Skip when a modifier other than
-      // Shift is held so shortcuts don't get swallowed.
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key.length === 1) {
-        e.preventDefault()
-        setQuery((q) => q + e.key)
-      }
-    }
     window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
     window.addEventListener('blur', onClose)
     return () => {
       window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
       window.removeEventListener('blur', onClose)
     }
-  }, [onClose, visible, visibleActive, query])
+  }, [onClose])
 
   // Keep active index in sync when items change externally.
   useEffect(() => {
     setActiveIdx(visible[visibleActive]?.originalIdx ?? -1)
   }, [visible, visibleActive])
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      if (query) setQuery('')
+      else onClose()
+      return
+    }
+    if (
+      e.key === 'ArrowDown' ||
+      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'j')
+    ) {
+      e.preventDefault()
+      e.stopPropagation()
+      setVisibleActive((i) => stepVisible(visible, i, 1))
+      return
+    }
+    if (
+      e.key === 'ArrowUp' ||
+      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'k')
+    ) {
+      e.preventDefault()
+      e.stopPropagation()
+      setVisibleActive((i) => stepVisible(visible, i, -1))
+      return
+    }
+    if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
+      e.preventDefault()
+      e.stopPropagation()
+      setVisibleActive((i) => stepVisible(visible, i, 1))
+      return
+    }
+    if (e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'p' || e.key === 'P')) {
+      e.preventDefault()
+      e.stopPropagation()
+      setVisibleActive((i) => stepVisible(visible, i, -1))
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      e.stopPropagation()
+      const entry = visible[visibleActive]
+      if (entry && entry.item.kind !== 'separator' && !entry.item.disabled) {
+        onClose()
+        void Promise.resolve(entry.item.onSelect?.())
+      }
+      return
+    }
+    if (e.key === 'Backspace') {
+      if (query) {
+        e.preventDefault()
+        e.stopPropagation()
+        setQuery((q) => q.slice(0, -1))
+      }
+      return
+    }
+    if (e.metaKey || e.ctrlKey || e.altKey) return
+    if (e.key.length === 1) {
+      e.preventDefault()
+      e.stopPropagation()
+      setQuery((q) => q + e.key)
+    }
+  }
+
   return createPortal(
     <div
       ref={ref}
       data-ctx-menu
+      role="menu"
+      tabIndex={-1}
+      onKeyDown={handleKeyDown}
       className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-paper-100 p-1 shadow-float ring-1 ring-paper-300"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}

@@ -182,6 +182,8 @@ export function SettingsModal(): JSX.Element {
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
   const setQuickNoteDateTitle = useStore((s) => s.setQuickNoteDateTitle)
+  const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix)
+  const setQuickNoteTitlePrefix = useStore((s) => s.setQuickNoteTitlePrefix)
   const wordWrap = useStore((s) => s.wordWrap)
   const setWordWrap = useStore((s) => s.setWordWrap)
   const previewSmoothScroll = useStore((s) => s.previewSmoothScroll)
@@ -228,6 +230,8 @@ export function SettingsModal(): JSX.Element {
   const setSystemFolderLabel = useStore((s) => s.setSystemFolderLabel)
   const darkSidebar = useStore((s) => s.darkSidebar)
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
+  const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
+  const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
   const [appUpdateState, setAppUpdateState] = useState<AppUpdateState | null>(null)
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -620,6 +624,12 @@ export function SettingsModal(): JSX.Element {
               value={darkSidebar}
               onChange={setDarkSidebar}
             />
+            <ToggleRow
+              label="Sidebar arrows"
+              description="Show disclosure arrows for collapsible folders and sidebar sections."
+              value={showSidebarChevrons}
+              onChange={setShowSidebarChevrons}
+            />
           </Section>
         </div>
       )
@@ -771,6 +781,13 @@ export function SettingsModal(): JSX.Element {
               description="New Quick Notes use YYYY-MM-DD instead of timestamp-style titles."
               value={quickNoteDateTitle}
               onChange={setQuickNoteDateTitle}
+            />
+            <TextInputRow
+              label="Quick Note prefix"
+              description="Used when naming new Quick Notes. Leave blank for a bare timestamp or date."
+              value={quickNoteTitlePrefix ?? ''}
+              placeholder="Quick Note"
+              onChange={setQuickNoteTitlePrefix}
             />
           </Section>
         </div>

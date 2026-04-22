@@ -36,6 +36,37 @@ var hiddenPrimaryRootNames = map[string]struct{}{
 	PrimaryAttachmentsDir: {},
 	internalVaultDir:      {},
 }
+var validFolderIconIDs = map[FolderIconID]struct{}{
+	"folder":     {},
+	"bolt":       {},
+	"tray":       {},
+	"archive":    {},
+	"trash":      {},
+	"book":       {},
+	"bookmark":   {},
+	"calendar":   {},
+	"briefcase":  {},
+	"tag":        {},
+	"document":   {},
+	"sparkle":    {},
+	"code":       {},
+	"user":       {},
+	"star":       {},
+	"heart":      {},
+	"link":       {},
+	"lightbulb":  {},
+	"flask":      {},
+	"graduation": {},
+	"music":      {},
+	"image":      {},
+	"palette":    {},
+	"terminal":   {},
+	"wrench":     {},
+	"globe":      {},
+	"map":        {},
+	"chart":      {},
+	"home":       {},
+}
 
 func init() {
 	for _, dir := range legacyAttachmentsDirs {
@@ -81,12 +112,17 @@ func (v *Vault) Info() VaultInfo {
 }
 
 func cloneSettings(settings VaultSettings) VaultSettings {
+	folderIcons := make(map[string]FolderIconID, len(settings.FolderIcons))
+	for key, value := range settings.FolderIcons {
+		folderIcons[key] = value
+	}
 	return VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes: DailyNotesSettings{
 			Enabled:   settings.DailyNotes.Enabled,
 			Directory: settings.DailyNotes.Directory,
 		},
+		FolderIcons: folderIcons,
 	}
 }
 
@@ -106,6 +142,16 @@ func normalizePrimaryNotesLocation(value PrimaryNotesLocation) PrimaryNotesLocat
 }
 
 func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLocation) VaultSettings {
+	folderIcons := map[string]FolderIconID{}
+	for key, value := range value.FolderIcons {
+		if key == "" {
+			continue
+		}
+		if _, ok := validFolderIconIDs[value]; !ok {
+			continue
+		}
+		folderIcons[key] = value
+	}
 	return VaultSettings{
 		PrimaryNotesLocation: normalizePrimaryNotesLocation(func() PrimaryNotesLocation {
 			if value.PrimaryNotesLocation == "" {
@@ -117,7 +163,74 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			Enabled:   value.DailyNotes.Enabled,
 			Directory: normalizeDailyNotesDirectory(value.DailyNotes.Directory),
 		},
+		FolderIcons: folderIcons,
 	}
+}
+
+func folderIconKey(folder NoteFolder, subpath string) string {
+	return fmt.Sprintf("%s:%s", folder, subpath)
+}
+
+func rewriteFolderIconsForRename(
+	folderIcons map[string]FolderIconID,
+	folder NoteFolder,
+	oldSubpath string,
+	newSubpath string,
+) map[string]FolderIconID {
+	next := map[string]FolderIconID{}
+	exactKey := folderIconKey(folder, oldSubpath)
+	prefix := exactKey + "/"
+	for key, value := range folderIcons {
+		switch {
+		case key == exactKey:
+			next[folderIconKey(folder, newSubpath)] = value
+		case strings.HasPrefix(key, prefix):
+			next[folderIconKey(folder, newSubpath)+key[len(exactKey):]] = value
+		default:
+			next[key] = value
+		}
+	}
+	return next
+}
+
+func removeFolderIcons(
+	folderIcons map[string]FolderIconID,
+	folder NoteFolder,
+	subpath string,
+) map[string]FolderIconID {
+	next := map[string]FolderIconID{}
+	exactKey := folderIconKey(folder, subpath)
+	prefix := exactKey + "/"
+	for key, value := range folderIcons {
+		if key == exactKey || strings.HasPrefix(key, prefix) {
+			continue
+		}
+		next[key] = value
+	}
+	return next
+}
+
+func duplicateFolderIcons(
+	folderIcons map[string]FolderIconID,
+	folder NoteFolder,
+	sourceSubpath string,
+	targetSubpath string,
+) map[string]FolderIconID {
+	next := map[string]FolderIconID{}
+	for key, value := range folderIcons {
+		next[key] = value
+	}
+	exactKey := folderIconKey(folder, sourceSubpath)
+	prefix := exactKey + "/"
+	for key, value := range folderIcons {
+		switch {
+		case key == exactKey:
+			next[folderIconKey(folder, targetSubpath)] = value
+		case strings.HasPrefix(key, prefix):
+			next[folderIconKey(folder, targetSubpath)+key[len(exactKey):]] = value
+		}
+	}
+	return next
 }
 
 func (v *Vault) settingsPath() string {
@@ -774,6 +887,18 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 	if err := os.Rename(oldAbs, newAbs); err != nil {
 		return "", err
 	}
+	settings, err := v.GetSettings()
+	if err != nil {
+		return "", err
+	}
+	_, err = v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: settings.PrimaryNotesLocation,
+		DailyNotes:           settings.DailyNotes,
+		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
+	})
+	if err != nil {
+		return "", err
+	}
 	rel, _ := filepath.Rel(base, newAbs)
 	return filepath.ToSlash(rel), nil
 }
@@ -792,7 +917,19 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 	if abs == base {
 		return errors.New("refusing to delete top-level folder")
 	}
-	return os.RemoveAll(abs)
+	if err := os.RemoveAll(abs); err != nil {
+		return err
+	}
+	settings, err := v.GetSettings()
+	if err != nil {
+		return err
+	}
+	_, err = v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: settings.PrimaryNotesLocation,
+		DailyNotes:           settings.DailyNotes,
+		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
+	})
+	return err
 }
 
 func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, error) {
@@ -812,8 +949,21 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	if err := copyDir(src, dst); err != nil {
 		return "", err
 	}
+	settings, err := v.GetSettings()
+	if err != nil {
+		return "", err
+	}
 	rel, _ := filepath.Rel(base, dst)
-	return filepath.ToSlash(rel), nil
+	relPath := filepath.ToSlash(rel)
+	_, err = v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: settings.PrimaryNotesLocation,
+		DailyNotes:           settings.DailyNotes,
+		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
+	})
+	if err != nil {
+		return "", err
+	}
+	return relPath, nil
 }
 
 // --- Tasks ---

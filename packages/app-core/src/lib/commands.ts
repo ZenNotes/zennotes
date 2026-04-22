@@ -74,7 +74,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'scratch capture jot',
       run: () => {
         const s = getState()
-        const title = resolveQuickNoteTitle(s.notes, s.quickNoteDateTitle)
+        const title = resolveQuickNoteTitle(
+          s.notes,
+          s.quickNoteDateTitle,
+          s.quickNoteTitlePrefix ?? undefined
+        )
         return s.createAndOpen('quick', '', { title, focusTitle: true })
       }
     },
