@@ -8,7 +8,6 @@ const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
 const serverRoot = resolve(repoRoot, 'apps/server')
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const serverBinaryName = process.platform === 'win32' ? 'zennotes-server.exe' : 'zennotes-server'
 
 function run(command, args, cwd = repoRoot, options = {}) {
   const shell = options.shell ?? false
@@ -17,7 +16,7 @@ function run(command, args, cwd = repoRoot, options = {}) {
       cwd,
       env: options.env ?? process.env,
       stdio: 'inherit',
-      shell
+      shell,
     })
 
     child.on('exit', (code) => {
@@ -32,22 +31,10 @@ function run(command, args, cwd = repoRoot, options = {}) {
   })
 }
 
-await run(npmCommand, ['run', 'sync-web', '--workspace', '@zennotes/server'], repoRoot, {
-  shell: process.platform === 'win32'
+await run(npmCommand, ['run', 'prepare-web'], serverRoot, {
+  shell: process.platform === 'win32',
 })
 
-await run(
-  'go',
-  [
-    'build',
-    '-trimpath',
-    '-ldflags=-s -w',
-    '-o',
-    resolve(serverRoot, 'bin', serverBinaryName),
-    './cmd/zennotes-server'
-  ],
-  serverRoot,
-  {
-    env: withGoEnv()
-  }
-)
+await run('go', ['test', './...'], serverRoot, {
+  env: withGoEnv(),
+})

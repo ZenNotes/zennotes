@@ -5,9 +5,9 @@
   "scripts": {
     "dev": "node ../../tooling/scripts/run-go-server-dev.mjs",
     "prepare-web": "node ../../tooling/scripts/prepare-server-web-dist.mjs",
-    "typecheck": "npm run prepare-web && go test ./...",
-    "test": "npm run prepare-web && go test ./...",
-    "test:run": "npm run prepare-web && go test ./...",
+    "typecheck": "node ../../tooling/scripts/run-go-server-test.mjs",
+    "test": "node ../../tooling/scripts/run-go-server-test.mjs",
+    "test:run": "node ../../tooling/scripts/run-go-server-test.mjs",
     "sync-web": "node ../../tooling/scripts/sync-web-dist.mjs",
     "build": "node ../../tooling/scripts/build-go-server.mjs"
   }

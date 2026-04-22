@@ -2,16 +2,17 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
 
+import { withGoEnv } from './go-env.mjs'
+
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
 const serverRoot = resolve(repoRoot, 'apps/server')
 
 const child = spawn('go', ['run', './cmd/zennotes-server'], {
   cwd: serverRoot,
-  env: {
-    ...process.env,
+  env: withGoEnv({
     ZENNOTES_DEV: '1'
-  },
+  }),
   stdio: 'inherit'
 })
 
