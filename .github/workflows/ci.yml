@@ -17,6 +17,8 @@ jobs:
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      GOCACHE: ${{ runner.temp }}/go-build-cache
     strategy:
       fail-fast: false
       matrix:
