@@ -15,6 +15,8 @@ ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friend
 Download the latest desktop build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest).  
 Website: [zennotes.org](https://zennotes.org)
 
+Detailed in-repo documentation lives under [docs/README.md](docs/README.md).
+
 ## What ZenNotes is for
 
 - writing and organizing plain-file Markdown notes without a database
