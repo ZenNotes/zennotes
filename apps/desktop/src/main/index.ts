@@ -819,12 +819,15 @@ async function exportNotePdf(
   }
 
   const suggestedName = `${sanitizePdfFilename(noteTitleFromRelPath(relPath))}.pdf`
-  const result = await dialog.showSaveDialog(parentWindow ?? undefined, {
+  const saveDialogOptions = {
     title: 'Export Note as PDF',
     defaultPath: path.join(app.getPath('documents'), suggestedName),
     buttonLabel: 'Export PDF',
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
-  })
+  }
+  const result = parentWindow
+    ? await dialog.showSaveDialog(parentWindow, saveDialogOptions)
+    : await dialog.showSaveDialog(saveDialogOptions)
   if (result.canceled || !result.filePath) return null
 
   const targetPath = ensurePdfExtension(result.filePath)
