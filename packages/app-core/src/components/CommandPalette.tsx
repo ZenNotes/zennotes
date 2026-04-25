@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
 import { rankItems } from '../lib/fuzzy-score'
+import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 
 type Mode = 'main' | 'theme'
@@ -183,10 +184,10 @@ export function CommandPalette(): JSX.Element {
             placeholder={mode === 'main' ? 'Type a command…' : 'Pick a color theme'}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
+              if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 setActive((a) => Math.min(resultsLength - 1, a + 1))
-              } else if (e.key === 'ArrowUp') {
+              } else if (isPalettePreviousKey(e)) {
                 e.preventDefault()
                 setActive((a) => Math.max(0, a - 1))
               } else if (e.key === 'Enter') {
@@ -286,7 +287,8 @@ export function CommandPalette(): JSX.Element {
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-[11px] text-ink-500">
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd>{' '}

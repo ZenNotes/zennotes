@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/server",
   "private": true,
-  "version": "1.1.5",
+  "version": "1.1.6",
   "scripts": {
     "dev": "node ../../tooling/scripts/run-go-server-dev.mjs",
     "prepare-web": "node ../../tooling/scripts/prepare-server-web-dist.mjs",

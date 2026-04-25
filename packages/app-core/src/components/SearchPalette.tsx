@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Fuse from 'fuse.js'
 import { useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
+import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 
 export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
@@ -11,6 +12,7 @@ export function SearchPalette(): JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
 
   const fuse = useMemo(
     () =>
@@ -71,6 +73,11 @@ export function SearchPalette(): JSX.Element {
 
   useEffect(() => setActive(0), [query])
 
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-search-idx="${active}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
   const open = async (note: NoteMeta): Promise<void> => {
     setSearchOpen(false)
     await selectNote(note.path)
@@ -96,10 +103,10 @@ export function SearchPalette(): JSX.Element {
             placeholder="Search notes…  ·  use #tag to filter"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
+              if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (e.key === 'ArrowUp') {
+              } else if (isPalettePreviousKey(e)) {
                 e.preventDefault()
                 setActive((a) => Math.max(0, a - 1))
               } else if (e.key === 'Enter') {
@@ -126,13 +133,14 @@ export function SearchPalette(): JSX.Element {
             </div>
           )}
         </div>
-        <div className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
+        <div ref={listRef} className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
           {results.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink-400">No matches.</div>
           ) : (
             results.map((n, i) => (
               <button
                 key={n.path}
+                data-search-idx={i}
                 onClick={() => open(n)}
                 onMouseMove={() => setActive(i)}
                 className={[
@@ -152,7 +160,8 @@ export function SearchPalette(): JSX.Element {
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-[11px] text-ink-500">
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open

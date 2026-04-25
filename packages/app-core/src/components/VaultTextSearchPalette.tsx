@@ -6,6 +6,7 @@ import type {
 } from '@shared/ipc'
 import { useStore } from '../store'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { recordRendererPerf } from '../lib/perf'
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
@@ -379,13 +380,13 @@ export function VaultTextSearchPalette(): JSX.Element {
             placeholder="Search text across the vault…"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'ArrowDown') {
+              if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 if (results.length === 0) return
                 setActive((value) => Math.min(results.length - 1, value + 1))
                 return
               }
-              if (e.key === 'ArrowUp') {
+              if (isPalettePreviousKey(e)) {
                 e.preventDefault()
                 if (results.length === 0) return
                 setActive((value) => Math.max(0, value - 1))
@@ -462,7 +463,8 @@ export function VaultTextSearchPalette(): JSX.Element {
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-[11px] text-ink-500">
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open
