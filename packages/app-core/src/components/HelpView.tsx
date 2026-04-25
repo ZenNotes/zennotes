@@ -52,9 +52,10 @@ function resolveShortcutKeys(
     if (action === 'Toggle connections') return shortcut(overrides, 'global.toggleConnections')
     if (action === 'Toggle Zen mode') return shortcut(overrides, 'global.toggleZenMode')
     if (action === 'Close active tab') return shortcut(overrides, 'global.closeActiveTab')
-    if (action === 'Zoom in') return 'Mod+='
-    if (action === 'Zoom out') return 'Mod+-'
-    if (action === 'Reset zoom') return 'Mod+0'
+    if (action === 'Export note as PDF') return shortcut(overrides, 'global.exportNotePdf')
+    if (action === 'Zoom in') return shortcut(overrides, 'global.zoomIn')
+    if (action === 'Zoom out') return shortcut(overrides, 'global.zoomOut')
+    if (action === 'Reset zoom') return shortcut(overrides, 'global.zoomReset')
     if (action === 'Toggle word wrap') return shortcut(overrides, 'global.toggleWordWrap')
   }
 

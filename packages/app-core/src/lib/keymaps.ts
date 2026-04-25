@@ -21,6 +21,9 @@ export type KeymapId =
   | "global.closeActiveTab"
   | "global.toggleWordWrap"
   | "global.exportNotePdf"
+  | "global.zoomIn"
+  | "global.zoomOut"
+  | "global.zoomReset"
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
@@ -188,6 +191,33 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Export note as PDF",
     description: "Export the active note as a PDF file.",
     defaultBinding: "Shift+Mod+E",
+  },
+  {
+    id: "global.zoomIn",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Zoom in",
+    description: "Increase the app zoom factor.",
+    defaultBinding: "Mod+=",
+  },
+  {
+    id: "global.zoomOut",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Zoom out",
+    description: "Decrease the app zoom factor.",
+    defaultBinding: "Mod+-",
+  },
+  {
+    id: "global.zoomReset",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Reset zoom",
+    description: "Restore the app zoom factor to its default size.",
+    defaultBinding: "Mod+0",
   },
   {
     id: "vim.leaderPrefix",

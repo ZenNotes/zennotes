@@ -469,7 +469,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.zoom.in',
       title: 'Zoom In',
       category: 'View',
-      shortcut: 'Mod+=',
+      shortcut: shortcut('global.zoomIn'),
       keywords: 'bigger larger scale ui app browser',
       run: async () => {
         await window.zen.zoomInApp()
@@ -479,7 +479,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.zoom.out',
       title: 'Zoom Out',
       category: 'View',
-      shortcut: 'Mod+-',
+      shortcut: shortcut('global.zoomOut'),
       keywords: 'smaller decrease scale ui app browser',
       run: async () => {
         await window.zen.zoomOutApp()
@@ -489,7 +489,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.zoom.reset',
       title: 'Reset Zoom',
       category: 'View',
-      shortcut: 'Mod+0',
+      shortcut: shortcut('global.zoomReset'),
       keywords: 'actual size normal reset scale ui app browser',
       run: async () => {
         await window.zen.resetAppZoom()

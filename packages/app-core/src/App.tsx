@@ -220,6 +220,21 @@ function App(): JSX.Element {
         void state.exportActiveNotePdf()
         return
       }
+      if (matchesShortcut(e, overrides, 'global.zoomIn')) {
+        e.preventDefault()
+        void window.zen.zoomInApp()
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.zoomOut')) {
+        e.preventDefault()
+        void window.zen.zoomOutApp()
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.zoomReset')) {
+        e.preventDefault()
+        void window.zen.resetAppZoom()
+        return
+      }
       if (matchesShortcut(e, overrides, 'global.searchNotes')) {
         // ⌘P — note search
         e.preventDefault()
