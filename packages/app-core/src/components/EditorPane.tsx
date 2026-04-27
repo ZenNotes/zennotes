@@ -79,6 +79,7 @@ import {
   CheckSquareIcon,
   CloseIcon,
   DocumentIcon,
+  FileDownIcon,
   ListTreeIcon,
   PanelLeftIcon,
   PanelRightIcon,
@@ -231,6 +232,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const archiveActive = useStore((s) => s.archiveActive)
   const restoreActive = useStore((s) => s.restoreActive)
   const unarchiveActive = useStore((s) => s.unarchiveActive)
+  const exportActiveNotePdf = useStore((s) => s.exportActiveNotePdf)
   const renameActive = useStore((s) => s.renameActive)
 
   const setEditorViewRef = useStore((s) => s.setEditorViewRef)
@@ -1370,6 +1372,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         >
           <ListTreeIcon />
         </IconBtn>
+        <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
+          <FileDownIcon />
+        </IconBtn>
         {folder === 'trash' ? (
           <IconBtn title="Restore" onClick={() => void restoreActive()}>
             <ArrowUpRightIcon />
@@ -1407,6 +1412,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     archiveActive,
     restoreActive,
     unarchiveActive,
+    exportActiveNotePdf,
     closeTabInPane,
     activeTab,
     paneId

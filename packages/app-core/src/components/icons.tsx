@@ -228,3 +228,12 @@ export const DocumentIcon = (p: IconProps): JSX.Element => (
     <path d="M14 3v5h5" />
   </I>
 )
+
+export const FileDownIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <path d="M12 11v6" />
+    <path d="m9 14 3 3 3-3" />
+  </I>
+)
