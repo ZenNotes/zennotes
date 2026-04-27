@@ -419,7 +419,8 @@ function sanitizeWindowState(state: PersistedWindowState | null): PersistedWindo
 
 async function persistWindowState(win: BrowserWindow): Promise<void> {
   if (win.isDestroyed()) return
-  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds()
+  const isMaximized = win.isMaximized()
+  const bounds = isMaximized ? win.getNormalBounds() : win.getBounds()
   await updateConfig((cfg) => ({
     ...cfg,
     windowState: {
@@ -427,7 +428,7 @@ async function persistWindowState(win: BrowserWindow): Promise<void> {
       y: bounds.y,
       width: bounds.width,
       height: bounds.height,
-      isMaximized: win.isMaximized()
+      isMaximized
     }
   }))
 }
