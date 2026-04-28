@@ -91,10 +91,39 @@ function focusAppAndOpenTasks(): void {
   }
 }
 
+/** Keep a live reference to the most recently shown notification so
+ *  macOS doesn't garbage-collect the JS wrapper before the OS gets a
+ *  chance to display it. Without this, a notification fired in quick
+ *  succession can disappear silently — the test path used to look
+ *  "broken after one click" because of exactly this. */
+let lastShownNotification: Notification | null = null
+
+function shortTimeStamp(): string {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function fireNotification(title: string, body: string): void {
+  if (!Notification.isSupported()) return
+  const n = new Notification({
+    title,
+    // macOS dedupes notifications whose title+body match recent ones.
+    // Time-stamping the body avoids the "first one shows, then nothing"
+    // experience without changing the user-facing meaning.
+    body,
+    // `subtitle` shows under the title on macOS — a tiny `· HH:MM:SS`
+    // there reads like a timestamp instead of cluttering the body.
+    subtitle: shortTimeStamp()
+  })
+  n.on('click', focusAppAndOpenTasks)
+  n.show()
+  lastShownNotification = n
+}
+
 function showDigestNotification(
   digest: { dueToday: number; overdue: number; total: number }
 ): void {
-  if (!Notification.isSupported()) return
   const parts: string[] = []
   if (digest.dueToday > 0) {
     parts.push(`${digest.dueToday} due today`)
@@ -103,12 +132,7 @@ function showDigestNotification(
     parts.push(`${digest.overdue} overdue`)
   }
   const body = parts.length ? parts.join(' · ') : 'You have tasks waiting.'
-  const notification = new Notification({
-    title: 'ZenNotes — task digest',
-    body
-  })
-  notification.on('click', focusAppAndOpenTasks)
-  notification.show()
+  fireNotification('ZenNotes — task digest', body)
 }
 
 /** Fire the digest right now (no scheduling, no last-fired guard).
@@ -122,12 +146,10 @@ export async function fireTaskDigestNow(): Promise<{ ok: boolean; reason?: strin
   const digest = buildTaskDigest(tasks, new Date())
   if (digest.total === 0) {
     // Still show *something* so the user can see the wiring works.
-    const n = new Notification({
-      title: 'ZenNotes — task digest',
-      body: 'No tasks due today and nothing overdue. Nice.'
-    })
-    n.on('click', focusAppAndOpenTasks)
-    n.show()
+    fireNotification(
+      'ZenNotes — task digest',
+      'No tasks due today and nothing overdue. Nice.'
+    )
     return { ok: true }
   }
   showDigestNotification(digest)

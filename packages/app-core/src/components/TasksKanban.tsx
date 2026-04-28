@@ -81,13 +81,21 @@ function dropMutationsFor(
   return null
 }
 
-/** Module-scoped reference to the task currently being dragged. We
- *  could route this through `dataTransfer.setData`, but Electron's
- *  drag pipeline serializes it to a plain string and we'd have to
- *  re-find the task by id on every drop — easier to keep the live
- *  object around for the brief lifetime of a drag. Cleared on
- *  dragend. */
+/** Module-scoped state for the active drag. Kept outside React state
+ *  because:
+ *    - dataTransfer would serialize the task to a string and we'd
+ *      have to re-find it on every drop;
+ *    - React state queues, so the column's onDragOver closure can lag
+ *      behind setState calls fired during dragstart;
+ *    - We need a synchronous, always-current "what's being dragged
+ *      and over where" so onDragEnd can complete a drop even when
+ *      Chromium's `drop` event is eaten by a nested layout.
+ *
+ *  `lastOverColumn` is updated in onDragEnter/onDragOver and read by
+ *  onDragEnd as a fallback when the column-level drop didn't fire. */
 let dragPayload: { task: VaultTask } | null = null
+let lastOverColumn: string | null = null
+let dropAlreadyHandled = false
 
 interface Column {
   id: string
@@ -316,12 +324,14 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                 // preventDefault outside a drag is harmless.
                 if (!dndEnabled) return
                 e.preventDefault()
+                lastOverColumn = column.id
                 if (dragOverColumn !== column.id) setDragOverColumn(column.id)
               }}
               onDragOver={(e) => {
                 if (!dndEnabled) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
+                lastOverColumn = column.id
                 if (dragOverColumn !== column.id) setDragOverColumn(column.id)
               }}
               onDragLeave={(e) => {
@@ -333,15 +343,16 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
               }}
               onDrop={(e) => {
                 e.preventDefault()
+                e.stopPropagation()
                 setDragOverColumn(null)
                 if (!dndEnabled) return
                 const payload = dragPayload
-                dragPayload = null
-                setDraggingId(null)
                 if (!payload) return
+                dropAlreadyHandled = true
                 const mutations = dropMutationsFor(groupBy, column.id, payload.task)
-                if (!mutations || mutations.length === 0) return
-                void applyTaskMutation(payload.task, mutations)
+                if (mutations && mutations.length > 0) {
+                  void applyTaskMutation(payload.task, mutations)
+                }
               }}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
@@ -387,6 +398,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                           onToggle={() => onToggleTask(task)}
                           onDragStart={(e) => {
                             dragPayload = { task }
+                            lastOverColumn = null
+                            dropAlreadyHandled = false
                             setDraggingId(task.id)
                             e.dataTransfer.effectAllowed = 'move'
                             // Some renderers refuse to start a drag
@@ -400,7 +413,31 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                             }
                           }}
                           onDragEnd={() => {
+                            // Fallback path: Chromium will sometimes
+                            // skip the column-level `drop` event in
+                            // nested-flex layouts even when
+                            // preventDefault was called on dragover.
+                            // dragend always fires, so use it to
+                            // complete the drop using the column we
+                            // last tracked under the cursor.
+                            if (
+                              !dropAlreadyHandled &&
+                              dragPayload &&
+                              lastOverColumn &&
+                              dndEnabled
+                            ) {
+                              const mutations = dropMutationsFor(
+                                groupBy,
+                                lastOverColumn,
+                                dragPayload.task
+                              )
+                              if (mutations && mutations.length > 0) {
+                                void applyTaskMutation(dragPayload.task, mutations)
+                              }
+                            }
                             dragPayload = null
+                            lastOverColumn = null
+                            dropAlreadyHandled = false
                             setDraggingId(null)
                             setDragOverColumn(null)
                           }}
