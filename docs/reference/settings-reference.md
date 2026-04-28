@@ -225,6 +225,8 @@ The practical rule is:
 - visual/editor preferences usually belong to the app/user
 - vault behavior belongs to the vault
 
+Kanban column title overrides are app-scoped display preferences. They are edited directly from the Tasks Kanban column headers, not from the Settings modal. For the exact behavior, read the [Tasks Reference](./tasks-reference.md).
+
 If you are trying to understand that boundary in more detail, read:
 
 - [Vault and Folder Model](./vault-and-folder-model.md)

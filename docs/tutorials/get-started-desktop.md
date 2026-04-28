@@ -147,7 +147,25 @@ ZenNotes includes several built-in views:
 - `Quick Notes`
 - `Tags`
 
-Tasks are extracted from Markdown task list syntax.
+Tasks are extracted from Markdown task list syntax:
+
+```md
+- [ ] Ship the onboarding checklist due:2026-04-30 !high #docs
+- [ ] Wait for design sign-off @waiting
+- [x] Publish the changelog
+```
+
+The Tasks tab has three modes:
+
+- `List` for a compact vault-wide task list
+- `Calendar` for tasks grouped by due date
+- `Kanban` for moving tasks between status or priority columns
+
+Clicking a task opens the source note at the exact task line and briefly highlights it.
+
+In Kanban mode, drag a card to another column to update the task line. Column titles are display labels: click a title or pencil icon to rename it, press `Enter` to save, and clear the title to reset it.
+
+For the exact task metadata and Kanban rules, read the [Tasks Reference](../reference/tasks-reference.md).
 
 Tags come from hashtags in note content and can appear in the sidebar and related views.
 

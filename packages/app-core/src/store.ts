@@ -219,6 +219,8 @@ interface Prefs {
   tasksViewMode: TasksViewMode
   /** Column source used when the Tasks Kanban view is active. */
   kanbanGroupBy: KanbanGroupBy
+  /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
+  kanbanColumnTitles: Record<string, string>
 }
 
 export type TasksViewMode = 'list' | 'calendar' | 'kanban'
@@ -232,6 +234,27 @@ export type TaskMutation =
 
 const VALID_TASKS_VIEW_MODES: TasksViewMode[] = ['list', 'calendar', 'kanban']
 const VALID_KANBAN_GROUP_BYS: KanbanGroupBy[] = ['status', 'priority', 'folder']
+const MAX_KANBAN_COLUMN_TITLE_LENGTH = 48
+
+function normalizeKanbanColumnTitle(title: string): string | null {
+  const normalized = title.trim().replace(/\s+/g, ' ').slice(0, MAX_KANBAN_COLUMN_TITLE_LENGTH)
+  return normalized.length > 0 ? normalized : null
+}
+
+function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {}
+
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue
+    if (!/^[a-z-]+:[A-Za-z0-9_-]+$/.test(key)) continue
+    if (!VALID_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))) continue
+    const normalized = normalizeKanbanColumnTitle(value)
+    if (normalized) out[key] = normalized
+  }
+  return out
+}
+
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   keymapOverrides: {},
@@ -281,7 +304,8 @@ const DEFAULT_PREFS: Prefs = {
   contentAlign: 'center',
   tagsCollapsed: false,
   tasksViewMode: 'list',
-  kanbanGroupBy: 'status'
+  kanbanGroupBy: 'status',
+  kanbanColumnTitles: {}
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
@@ -464,7 +488,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanGroupBy:
       p.kanbanGroupBy && VALID_KANBAN_GROUP_BYS.includes(p.kanbanGroupBy)
         ? p.kanbanGroupBy
-        : DEFAULT_PREFS.kanbanGroupBy
+        : DEFAULT_PREFS.kanbanGroupBy,
+    kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles)
   }
 }
 function loadPrefs(): Prefs {
@@ -858,6 +883,7 @@ function collectPrefs(s: {
   tagsCollapsed: boolean
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
+  kanbanColumnTitles: Record<string, string>
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -905,7 +931,8 @@ function collectPrefs(s: {
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
     tasksViewMode: s.tasksViewMode,
-    kanbanGroupBy: s.kanbanGroupBy
+    kanbanGroupBy: s.kanbanGroupBy,
+    kanbanColumnTitles: s.kanbanColumnTitles
   }
 }
 
@@ -1286,6 +1313,8 @@ interface Store {
   tasksViewMode: TasksViewMode
   /** Column source for the Tasks Kanban view. */
   kanbanGroupBy: KanbanGroupBy
+  /** Display-only column title overrides for the Tasks Kanban view. */
+  kanbanColumnTitles: Record<string, string>
   /** ISO YYYY-MM-DD currently selected in the Calendar view. null = today. */
   tasksCalendarSelectedDate: string | null
   /** First-of-month anchor (ISO YYYY-MM-01) for the Calendar view's grid. */
@@ -1369,6 +1398,11 @@ interface Store {
   setTasksFilter: (q: string) => void
   setTasksViewMode: (mode: TasksViewMode) => void
   setKanbanGroupBy: (group: KanbanGroupBy) => void
+  setKanbanColumnTitle: (
+    group: KanbanGroupBy,
+    columnId: string,
+    title: string | null
+  ) => void
   setTasksCalendarSelectedDate: (iso: string | null) => void
   setTasksCalendarMonthAnchor: (iso: string | null) => void
   setTaskCursorIndex: (idx: number) => void
@@ -2069,6 +2103,7 @@ export const useStore = create<Store>((set, get) => {
   tagsCollapsed: loadPrefs().tagsCollapsed,
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
+  kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   vaultTasks: [],
   tasksLoading: false,
   tasksFilter: '',
@@ -2401,6 +2436,15 @@ export const useStore = create<Store>((set, get) => {
   },
   setKanbanGroupBy: (group) => {
     set({ kanbanGroupBy: group })
+    savePrefs(collectPrefs(get()))
+  },
+  setKanbanColumnTitle: (group, columnId, title) => {
+    const key = `${group}:${columnId}`
+    const normalized = typeof title === 'string' ? normalizeKanbanColumnTitle(title) : null
+    const nextTitles = { ...get().kanbanColumnTitles }
+    if (normalized) nextTitles[key] = normalized
+    else delete nextTitles[key]
+    set({ kanbanColumnTitles: nextTitles })
     savePrefs(collectPrefs(get()))
   },
   setTasksCalendarSelectedDate: (iso) => set({ tasksCalendarSelectedDate: iso }),

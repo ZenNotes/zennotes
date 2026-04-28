@@ -30,7 +30,7 @@ import type { NoteFolder } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
-import { ArrowUpRightIcon } from './icons'
+import { ArrowUpRightIcon, PencilIcon } from './icons'
 
 interface Props {
   tasks: VaultTask[]
@@ -290,6 +290,8 @@ const POINTER_DRAG_THRESHOLD = 5
 export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): JSX.Element {
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
+  const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
+  const setKanbanColumnTitle = useStore((s) => s.setKanbanColumnTitle)
   const applyTaskMutation = useStore((s) => s.applyTaskMutation)
   const [colIdx, setColIdx] = useState(0)
   const [cardIdx, setCardIdx] = useState(0)
@@ -297,11 +299,14 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
   const [displayTasks, setDisplayTasks] = useState(tasks)
   const [columnOrderVersion, setColumnOrderVersion] = useState(0)
+  const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
   const latestTasksRef = useRef(tasks)
   const displayTasksRef = useRef(tasks)
   const pendingTaskMovesRef = useRef(new Map<string, VaultTask>())
   const columnOrderRef = useRef(new Map<string, string[]>())
   const columnsRef = useRef<Column[]>([])
+  const columnTitleInputRef = useRef<HTMLInputElement | null>(null)
   const boardRef = useRef<HTMLDivElement | null>(null)
   const pointerDragRef = useRef<ActivePointerDrag | null>(null)
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
@@ -338,17 +343,54 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   }, [mergeTasksWithPendingMoves, tasks])
 
   const columns = useMemo(
-    () =>
-      applyColumnOrder(
+    () => {
+      const orderedColumns = applyColumnOrder(
         groupBy,
         buildColumns(groupBy, displayTasks, today),
         columnOrderRef.current
-      ),
-    [columnOrderVersion, groupBy, displayTasks, today]
+      )
+      return orderedColumns.map((column) => ({
+        ...column,
+        label: kanbanColumnTitles[columnOrderKey(groupBy, column.id)] ?? column.label
+      }))
+    },
+    [columnOrderVersion, groupBy, displayTasks, kanbanColumnTitles, today]
   )
   columnsRef.current = columns
 
   const dndEnabled = groupBy !== 'folder'
+
+  const beginColumnRename = useCallback((column: Column) => {
+    setEditingColumnId(column.id)
+    setEditingTitle(column.label)
+  }, [])
+
+  const commitColumnRename = useCallback(
+    (columnId: string) => {
+      setKanbanColumnTitle(groupBy, columnId, editingTitle)
+      setEditingColumnId(null)
+      setEditingTitle('')
+    },
+    [editingTitle, groupBy, setKanbanColumnTitle]
+  )
+
+  const cancelColumnRename = useCallback(() => {
+    setEditingColumnId(null)
+    setEditingTitle('')
+  }, [])
+
+  useEffect(() => {
+    if (!editingColumnId) return
+    const id = window.requestAnimationFrame(() => {
+      columnTitleInputRef.current?.focus()
+      columnTitleInputRef.current?.select()
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [editingColumnId])
+
+  useEffect(() => {
+    cancelColumnRename()
+  }, [cancelColumnRename, groupBy])
 
   const clearDropTarget = useCallback(() => {
     dragOverElementRef.current?.classList.remove('is-drop-target')
@@ -831,9 +873,50 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
               ].join(' ')}
             >
               <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-current/70">
-                  {column.label}
-                </span>
+                <div className="min-w-0 flex-1">
+                  {editingColumnId === column.id ? (
+                    <input
+                      ref={columnTitleInputRef}
+                      value={editingTitle}
+                      aria-label={`Rename ${column.label} column`}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onBlur={() => commitColumnRename(column.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          commitColumnRename(column.id)
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault()
+                          cancelColumnRename()
+                        }
+                      }}
+                      className="h-6 w-full min-w-0 rounded border border-accent/60 bg-paper-200/80 px-1.5 text-xs font-semibold text-current/90 outline-none ring-1 ring-accent/25"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={`Rename ${column.label} column`}
+                      title="Rename column"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        beginColumnRename(column)
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      className="group/title flex max-w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+                    >
+                      <span className="truncate text-xs font-semibold uppercase tracking-wide text-current/70">
+                        {column.label}
+                      </span>
+                      <PencilIcon
+                        width={12}
+                        height={12}
+                        className="shrink-0 text-current/45 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100"
+                      />
+                    </button>
+                  )}
+                </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-current/50">
                   <span>{column.tasks.length}</span>
                   {column.badge?.kind === 'overdue' && column.badge.value > 0 && (
