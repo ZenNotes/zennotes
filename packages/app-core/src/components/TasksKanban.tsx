@@ -270,13 +270,13 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-current/10 px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
         <div className="flex items-center gap-1 text-xs text-current/60">
           <span>Group by</span>
           <select
             value={groupBy}
             onChange={(e) => setGroupBy(e.target.value as KanbanGroupBy)}
-            className="rounded-md border border-current/15 bg-current/5 px-2 py-0.5 text-xs text-current/85 outline-none focus:border-current/30"
+            className="rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-0.5 text-xs text-current/85 outline-none focus:border-paper-400/70"
           >
             <option value="status">Status</option>
             <option value="priority">Priority</option>
@@ -302,11 +302,24 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                 isDropTarget
                   ? 'border-accent/60 ring-1 ring-accent/30'
                   : isColumnFocused
-                    ? 'border-current/30'
-                    : 'border-current/10'
+                    ? 'border-paper-400/70'
+                    : 'border-paper-300/60'
               ].join(' ')}
+              onDragEnter={(e) => {
+                // Always preventDefault on dragenter / dragover when
+                // DnD is enabled: HTML5 requires it to mark the
+                // element as a valid drop target. We can't gate on
+                // React state here (setDraggingId is queued and the
+                // handler closure may still see the old value before
+                // the next render), so we let the browser take care
+                // of the "is there actually a drag?" check. A spurious
+                // preventDefault outside a drag is harmless.
+                if (!dndEnabled) return
+                e.preventDefault()
+                if (dragOverColumn !== column.id) setDragOverColumn(column.id)
+              }}
               onDragOver={(e) => {
-                if (!dndEnabled || !draggingId) return
+                if (!dndEnabled) return
                 e.preventDefault()
                 e.dataTransfer.dropEffect = 'move'
                 if (dragOverColumn !== column.id) setDragOverColumn(column.id)
@@ -319,19 +332,19 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                 if (dragOverColumn === column.id) setDragOverColumn(null)
               }}
               onDrop={(e) => {
+                e.preventDefault()
                 setDragOverColumn(null)
                 if (!dndEnabled) return
                 const payload = dragPayload
                 dragPayload = null
                 setDraggingId(null)
                 if (!payload) return
-                e.preventDefault()
                 const mutations = dropMutationsFor(groupBy, column.id, payload.task)
                 if (!mutations || mutations.length === 0) return
                 void applyTaskMutation(payload.task, mutations)
               }}
             >
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-current/10 px-3 py-2">
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-current/70">
                   {column.label}
                 </span>
@@ -349,7 +362,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                 className="min-h-0 flex-1 overflow-y-auto p-2"
               >
                 {column.tasks.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-current/15 px-2 py-3 text-center text-[11px] text-current/40">
+                  <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-[11px] text-current/40">
                     {isDropTarget ? 'drop to apply' : 'nothing here'}
                   </div>
                 ) : (
@@ -402,7 +415,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
         })}
       </div>
       {!dndEnabled && (
-        <div className="shrink-0 border-t border-current/10 px-3 py-1.5 text-[11px] text-current/40">
+        <div className="shrink-0 border-t border-paper-300/45 px-3 py-1.5 text-[11px] text-current/40">
           Folder grouping is read-only — move a task across folders by moving its source note in
           the sidebar.
         </div>
@@ -460,8 +473,8 @@ function TaskCard({
       onDragEnd={onDragEnd}
       className={[
         'group rounded-md border-l-2 bg-paper-100/85 px-2.5 py-1.5 transition-colors',
-        isOverdue ? 'border-rose-500/70' : 'border-current/15',
-        isFocused ? 'ring-1 ring-accent/60' : 'hover:bg-current/5',
+        isOverdue ? 'border-rose-500/70' : 'border-paper-300/60',
+        isFocused ? 'ring-1 ring-accent/60' : 'hover:bg-paper-200/60',
         isDragging ? 'opacity-40' : '',
         draggable ? 'cursor-grab active:cursor-grabbing' : ''
       ].join(' ')}
@@ -488,7 +501,7 @@ function TaskCard({
             'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors',
             task.checked
               ? 'border border-accent bg-accent text-white'
-              : 'border border-current/40 hover:bg-current/10'
+              : 'border border-paper-400/70 hover:bg-paper-200/80'
           ].join(' ')}
         >
           {task.checked && (
@@ -542,7 +555,7 @@ function TaskCard({
           }}
           className={[
             'flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors',
-            'hover:bg-current/10',
+            'hover:bg-paper-200/80',
             isFocused ? 'text-current/90' : 'text-current/30 group-hover:text-current/80'
           ].join(' ')}
         >
@@ -571,14 +584,14 @@ function TaskCard({
               'shrink-0 rounded px-1.5 py-0.5 font-medium',
               isOverdue
                 ? 'bg-rose-500/15 text-rose-300'
-                : 'bg-current/10 text-current/70'
+                : 'bg-paper-300/60 text-current/70'
             ].join(' ')}
           >
             {formatDue(task.due)}
           </span>
         )}
         {task.waiting && (
-          <span className="shrink-0 rounded bg-current/10 px-1 py-0.5 text-purple-300">
+          <span className="shrink-0 rounded bg-paper-300/60 px-1 py-0.5 text-purple-300">
             @waiting
           </span>
         )}

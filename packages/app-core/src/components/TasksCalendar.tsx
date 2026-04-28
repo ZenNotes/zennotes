@@ -235,7 +235,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
             type="button"
             onClick={() => goToMonth(-1)}
             title="Previous month ([)"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-current/10 hover:text-current/90"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-paper-200/80 hover:text-current/90"
           >
             <ChevronLeftIcon width={14} height={14} />
           </button>
@@ -243,7 +243,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
             type="button"
             onClick={() => goToMonth(1)}
             title="Next month (])"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-current/10 hover:text-current/90"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-paper-200/80 hover:text-current/90"
           >
             <ChevronRightIcon width={14} height={14} />
           </button>
@@ -251,7 +251,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
             type="button"
             onClick={goToToday}
             title="Today (gt)"
-            className="ml-1 rounded-md px-2 py-0.5 text-xs text-current/70 hover:bg-current/10 hover:text-current/90"
+            className="ml-1 rounded-md px-2 py-0.5 text-xs text-current/70 hover:bg-paper-200/80 hover:text-current/90"
           >
             Today
           </button>
@@ -272,7 +272,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
         ))}
       </div>
 
-      <div className="grid shrink-0 grid-cols-7 gap-px bg-current/10 px-3 pb-3">
+      <div className="grid shrink-0 grid-cols-7 gap-px bg-paper-300/45 px-3 pb-3">
         {cells.map((cell) => {
           const cellIso = toIsoDateLocal(cell)
           const cellTasks = buckets.get(cellIso) ?? []
@@ -295,7 +295,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                   ? 'ring-2 ring-inset ring-accent/60'
                   : isToday
                     ? 'ring-1 ring-inset ring-accent/40'
-                    : 'hover:bg-current/5'
+                    : 'hover:bg-paper-200/60'
               ].join(' ')}
             >
               <div className="flex items-center justify-between">
@@ -303,7 +303,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                   {cell.getDate()}
                 </span>
                 {cellTasks.length > 0 && (
-                  <span className="rounded bg-current/10 px-1 text-[9px] text-current/60">
+                  <span className="rounded bg-paper-300/60 px-1 text-[9px] text-current/60">
                     {cellTasks.length}
                   </span>
                 )}
@@ -323,7 +323,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                               ? 'bg-amber-300/80'
                               : task.priority === 'low'
                                 ? 'bg-sky-300/80'
-                                : 'bg-current/40'
+                                : 'bg-paper-400/80'
                       ].join(' ')}
                     />
                   ))}
@@ -337,7 +337,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
         })}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-current/10 px-3 py-3">
+      <div className="min-h-0 flex-1 overflow-y-auto border-t border-paper-300/45 px-3 py-3">
         <div className="mb-2 flex items-baseline gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-current/60">
             {selectedIso === todayIso
@@ -353,9 +353,9 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
           </span>
         </div>
         {selectedTasks.length === 0 ? (
-          <div className="rounded-md border border-dashed border-current/15 px-3 py-4 text-center text-xs text-current/50">
+          <div className="rounded-md border border-dashed border-paper-300/60 px-3 py-4 text-center text-xs text-current/50">
             Nothing scheduled. Add{' '}
-            <code className="rounded bg-current/10 px-1">due:{selectedIso}</code> to a task to see
+            <code className="rounded bg-paper-300/60 px-1">due:{selectedIso}</code> to a task to see
             it here.
           </div>
         ) : (
@@ -413,7 +413,7 @@ function CalendarTaskRow({ task, isOverdue, buttonRef, onToggle, onOpen }: RowPr
       className={[
         'flex w-full items-center gap-2 rounded-md border-l-2 px-2 py-1 text-left text-sm',
         isOverdue ? 'border-rose-500/70' : 'border-transparent',
-        'hover:bg-current/5'
+        'hover:bg-paper-200/60'
       ].join(' ')}
     >
       <span
@@ -427,7 +427,7 @@ function CalendarTaskRow({ task, isOverdue, buttonRef, onToggle, onOpen }: RowPr
           'flex h-4 w-4 shrink-0 cursor-pointer items-center justify-center rounded transition-colors',
           task.checked
             ? 'border border-accent bg-accent text-white'
-            : 'border border-current/40 hover:bg-current/10'
+            : 'border border-paper-400/70 hover:bg-paper-200/80'
         ].join(' ')}
       >
         {task.checked && (

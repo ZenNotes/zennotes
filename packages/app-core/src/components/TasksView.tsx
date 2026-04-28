@@ -326,15 +326,15 @@ export function TasksView(): JSX.Element {
       ref={rootRef}
       className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900"
     >
-      <div className="flex items-center gap-2 border-b border-current/10 px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-paper-300/45 px-4 py-3">
         <CheckSquareIcon width={18} height={18} />
         <h1 className="text-sm font-semibold">Tasks</h1>
-        <span className="ml-2 rounded bg-current/10 px-1.5 py-0.5 text-[11px] text-current/60">
+        <span className="ml-2 rounded bg-paper-300/60 px-1.5 py-0.5 text-[11px] text-current/60">
           {tasks.length} total
         </span>
         {loading && <span className="text-[11px] text-current/50">scanning…</span>}
 
-        <div className="ml-2 flex items-center gap-0.5 rounded-md bg-current/5 p-0.5">
+        <div className="ml-2 flex items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
           {VIEW_BUTTONS.map(({ id, label, shortcut, Icon }) => {
             const isActive = viewMode === id
             return (
@@ -347,7 +347,7 @@ export function TasksView(): JSX.Element {
                   'flex items-center gap-1 rounded px-2 py-1 text-[11px] transition-colors',
                   isActive
                     ? 'bg-paper-50 text-current/90 shadow-sm'
-                    : 'text-current/55 hover:bg-current/5 hover:text-current/85'
+                    : 'text-current/55 hover:bg-paper-200/60 hover:text-current/85'
                 ].join(' ')}
               >
                 <Icon width={13} height={13} />
@@ -375,13 +375,13 @@ export function TasksView(): JSX.Element {
                   e.currentTarget.blur()
                 }
               }}
-              className="w-56 rounded-md border border-current/15 bg-current/5 px-2 py-1 text-xs outline-none focus:border-current/30"
+              className="w-56 rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-1 text-xs outline-none focus:border-paper-400/70"
             />
           )}
           <button
             type="button"
             onClick={() => void refreshTasks()}
-            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-current/10"
+            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title="Rescan vault"
           >
             Refresh
@@ -389,7 +389,7 @@ export function TasksView(): JSX.Element {
           <button
             type="button"
             onClick={closeTasksView}
-            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-current/10"
+            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title="Close (:q or Esc)"
           >
             Close
@@ -401,7 +401,7 @@ export function TasksView(): JSX.Element {
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {render.rows.length === 0 && !loading && (
             <div className="px-6 py-10 text-center text-sm text-current/50">
-              No tasks found. Add <code className="rounded bg-current/10 px-1">- [ ] …</code> lines in any note to see them here.
+              No tasks found. Add <code className="rounded bg-paper-300/60 px-1">- [ ] …</code> lines in any note to see them here.
             </div>
           )}
           {render.rows.map((row, idx) => {
@@ -413,7 +413,7 @@ export function TasksView(): JSX.Element {
                   <button
                     type="button"
                     onClick={() => toggleGroup(key)}
-                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-semibold uppercase tracking-wide text-current/60 hover:bg-current/5"
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-semibold uppercase tracking-wide text-current/60 hover:bg-paper-200/60"
                   >
                     <span className="w-3">{isCollapsed ? '▸' : '▾'}</span>
                     <span>{GROUP_LABELS[key]}</span>
@@ -467,7 +467,7 @@ export function TasksView(): JSX.Element {
 
       {exOpen ? (
         <form
-          className="flex items-center gap-1 border-t border-current/10 px-4 py-1.5 font-mono text-xs"
+          className="flex items-center gap-1 border-t border-paper-300/45 px-4 py-1.5 font-mono text-xs"
           onSubmit={(e) => {
             e.preventDefault()
             runExCommand(exValue)
@@ -499,7 +499,7 @@ export function TasksView(): JSX.Element {
           />
         </form>
       ) : (
-        <div className="border-t border-current/10 px-4 py-1.5 text-[11px] text-current/40">
+        <div className="border-t border-paper-300/45 px-4 py-1.5 text-[11px] text-current/40">
           {viewMode === 'list'
             ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close'
             : viewMode === 'calendar'
