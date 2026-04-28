@@ -188,7 +188,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const [cardIdx, setCardIdx] = useState(0)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
-  const cardRef = useRef<HTMLButtonElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
 
   const columns = useMemo(() => buildColumns(groupBy, tasks, today), [groupBy, tasks, today])
 
@@ -365,7 +365,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                           isFocused={isFocused}
                           isDragging={isDragging}
                           draggable={dndEnabled}
-                          buttonRef={isFocused ? cardRef : null}
+                          cardRef={isFocused ? cardRef : null}
                           onClickRow={() => {
                             setColIdx(ci)
                             setCardIdx(ti)
@@ -417,7 +417,7 @@ interface CardProps {
   isFocused: boolean
   isDragging: boolean
   draggable: boolean
-  buttonRef?: React.RefObject<HTMLButtonElement> | null
+  cardRef?: React.RefObject<HTMLDivElement> | null
   onClickRow: () => void
   onOpen: () => void
   onToggle: () => void
@@ -438,7 +438,7 @@ function TaskCard({
   isFocused,
   isDragging,
   draggable,
-  buttonRef,
+  cardRef,
   onClickRow,
   onOpen,
   onToggle,
@@ -447,6 +447,7 @@ function TaskCard({
 }: CardProps): JSX.Element {
   return (
     <div
+      ref={cardRef ?? undefined}
       onClick={onClickRow}
       draggable={draggable}
       onDragStart={(e) => {
@@ -466,10 +467,19 @@ function TaskCard({
       ].join(' ')}
     >
       <div className="flex items-start gap-2">
+        {/* The interactive controls (checkbox, open arrow) are nested
+            inside the draggable card. Chromium absorbs mousedown on
+            <button> children and refuses to start the parent's drag,
+            so the buttons explicitly opt out of being drag sources
+            (`draggable={false}`) AND swallow mousedown when the user
+            actually wants a drag. The drag is then initiated from the
+            non-button content area below. */}
         <button
           type="button"
           role="checkbox"
           aria-checked={task.checked}
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
             onToggle()
@@ -496,24 +506,36 @@ function TaskCard({
             </svg>
           )}
         </button>
-        <button
-          type="button"
-          ref={buttonRef ?? undefined}
+        {/* The card body. Was a <button> — switched to a div with
+            role/tabIndex so the parent's `draggable=true` works
+            reliably from the bulk of the card. */}
+        <div
+          role="button"
+          tabIndex={0}
           onClick={(e) => {
             e.stopPropagation()
             onOpen()
           }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              e.stopPropagation()
+              onOpen()
+            }
+          }}
           className={[
-            'min-w-0 flex-1 text-left text-sm',
+            'min-w-0 flex-1 text-left text-sm select-none',
             task.checked ? 'text-current/50 line-through' : 'text-current/90'
           ].join(' ')}
         >
           {task.content || '(empty task)'}
-        </button>
+        </div>
         <button
           type="button"
           aria-label={`Open ${task.noteTitle}`}
           title="Open note (Enter)"
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
             onOpen()
