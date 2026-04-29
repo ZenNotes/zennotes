@@ -225,13 +225,15 @@ function buildCommentDecorations(
       if (anchor.to <= anchor.from) return []
       const active = activeId === comment.id
       const lineFrom = doc.lastIndexOf('\n', Math.max(0, anchor.from - 1)) + 1
+      const nextNewline = doc.indexOf('\n', lineFrom)
+      const lineEnd = nextNewline === -1 ? doc.length : nextNewline
       const markerIndex = lineMarkerCounts.get(lineFrom) ?? 0
       lineMarkerCounts.set(lineFrom, markerIndex + 1)
       const ranges = [
         Decoration.widget({
           widget: new CommentMarkerWidget(comment.id, active, markerIndex),
           side: 1
-        }).range(lineFrom)
+        }).range(lineEnd)
       ]
       if (!decoratedLines.has(lineFrom)) {
         decoratedLines.add(lineFrom)
@@ -239,7 +241,7 @@ function buildCommentDecorations(
       }
       if (active) {
         ranges.unshift(
-          Decoration.mark({ class: 'cm-comment-anchor-active' }).range(anchor.from, anchor.to)
+          Decoration.mark({ class: 'cm-comment-anchor-active', inclusiveStart: true }).range(anchor.from, anchor.to)
         )
       }
       return ranges
