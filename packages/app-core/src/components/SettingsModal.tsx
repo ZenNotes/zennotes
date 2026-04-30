@@ -2694,6 +2694,7 @@ function CliSettings(): JSX.Element {
   )
 }
 
+
 function McpSettings(): JSX.Element {
   const [statuses, setStatuses] = useState<McpClientStatus[] | null>(null)
   const [runtime, setRuntime] = useState<McpServerRuntime | null>(null)

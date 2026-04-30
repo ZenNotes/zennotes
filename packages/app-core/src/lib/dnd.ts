@@ -12,6 +12,13 @@ export type DragPayload =
       sourcePaneId?: string
     }
   | { kind: 'folder'; folder: 'inbox' | 'quick' | 'archive' | 'trash'; subpath: string }
+  | {
+      kind: 'multi'
+      items: Array<
+        | { kind: 'note'; path: string }
+        | { kind: 'folder'; folder: 'inbox' | 'quick' | 'archive' | 'trash'; subpath: string }
+      >
+    }
 
 export const ZEN_DND_MIME = 'application/x-zen-item'
 export const ZEN_DND_TEXT_MIME = 'text/x-zen-item'
@@ -23,7 +30,13 @@ export function setDragPayload(e: React.DragEvent, payload: DragPayload): void {
   // Text fallback so cross-app drops don't look totally empty.
   e.dataTransfer.setData(
     'text/plain',
-    payload.kind === 'note' ? payload.path : `${payload.folder}/${payload.subpath}`
+    payload.kind === 'note'
+      ? payload.path
+      : payload.kind === 'folder'
+        ? `${payload.folder}/${payload.subpath}`
+        : payload.items
+            .map((item) => (item.kind === 'note' ? item.path : `${item.folder}/${item.subpath}`))
+            .join('\n')
   )
   e.dataTransfer.effectAllowed = 'move'
 }

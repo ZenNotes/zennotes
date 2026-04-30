@@ -21,6 +21,7 @@ import {
   isPrimaryNotesAtRoot,
   noteBelongsToFolderView
 } from '../lib/vault-layout'
+import { assetTabPath } from '../lib/asset-tabs'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -259,16 +260,15 @@ export function NoteList(): JSX.Element {
     const asset = assetFiles.find((entry) => entry.path === assetMenu.path)
     if (!asset) return []
 
-    const url = assetUrl(vault?.root ?? null, asset.path)
     const root = vault?.root ?? ''
     const sep = root.includes('\\') ? '\\' : '/'
     const abs = [root.replace(/[\\/]+$/, ''), ...asset.path.split('/').filter(Boolean)].join(sep)
 
     const items: ContextMenuItem[] = [
       {
-        label: 'Open',
+        label: 'Open in New Tab',
         onSelect: async () => {
-          if (url) window.open(url, '_blank')
+          await openNoteInTab(assetTabPath(asset.path))
         }
       },
       {
@@ -295,7 +295,7 @@ export function NoteList(): JSX.Element {
     }
 
     return items
-  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault])
+  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault, openNoteInTab])
 
   /**
    * Filter notes for the current view. For folder views we match the
@@ -566,6 +566,7 @@ export function NoteList(): JSX.Element {
                   key={asset.path}
                   asset={asset}
                   vaultRoot={vault?.root ?? null}
+                  onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
@@ -580,6 +581,7 @@ export function NoteList(): JSX.Element {
                   key={asset.path}
                   asset={asset}
                   vaultRoot={vault?.root ?? null}
+                  onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
@@ -614,6 +616,7 @@ export function NoteList(): JSX.Element {
                 key={entry.asset.path}
                 asset={entry.asset}
                 vaultRoot={vault?.root ?? null}
+                onOpen={() => void openNoteInTab(assetTabPath(entry.asset.path))}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setAssetMenu({ x: e.clientX, y: e.clientY, path: entry.asset.path })
@@ -713,12 +716,14 @@ function NoteRow({
 function FolderAssetRow({
   asset,
   vaultRoot,
+  onOpen,
   onContextMenu,
   noteListIdx,
   vimHighlight
 }: {
   asset: AssetMeta
   vaultRoot: string | null
+  onOpen: () => void
   onContextMenu: (e: React.MouseEvent) => void
   noteListIdx?: number
   vimHighlight?: boolean
@@ -729,9 +734,7 @@ function FolderAssetRow({
   return (
     <button
       type="button"
-      onClick={() => {
-        if (url) window.open(url, '_blank')
-      }}
+      onClick={onOpen}
       onContextMenu={onContextMenu}
       className={[
         'list-row mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
@@ -778,21 +781,20 @@ function assetUrl(vaultRoot: string | null, assetPath: string): string | null {
 function AssetCard({
   asset,
   vaultRoot,
+  onOpen,
   onContextMenu
 }: {
   asset: AssetMeta
   vaultRoot: string | null
+  onOpen: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }): JSX.Element {
   const url = assetUrl(vaultRoot, asset.path)
-  const open = (): void => {
-    if (url) window.open(url, '_blank')
-  }
 
   return (
     <button
       type="button"
-      onClick={open}
+      onClick={onOpen}
       onContextMenu={onContextMenu}
       className="flex min-h-[154px] flex-col overflow-hidden rounded-xl border border-paper-300/70 bg-paper-50/24 text-left transition-colors hover:border-paper-400 hover:bg-paper-100/40"
     >
@@ -824,21 +826,20 @@ function AssetCard({
 function AssetRow({
   asset,
   vaultRoot,
+  onOpen,
   onContextMenu
 }: {
   asset: AssetMeta
   vaultRoot: string | null
+  onOpen: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }): JSX.Element {
   const url = assetUrl(vaultRoot, asset.path)
-  const open = (): void => {
-    if (url) window.open(url, '_blank')
-  }
 
   return (
     <button
       type="button"
-      onClick={open}
+      onClick={onOpen}
       onContextMenu={onContextMenu}
       className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-paper-300/70 hover:bg-paper-200/45"
     >

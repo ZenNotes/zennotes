@@ -15,6 +15,7 @@ import {
   resolveLocalAssetUrl
 } from './local-assets'
 import { setImageBlockDragPayload } from './image-block-dnd'
+import { assetTabPath } from './asset-tabs'
 
 /**
  * Live-preview extension: hides markdown syntax markers on lines where
@@ -268,7 +269,15 @@ class LocalImageWidget extends WidgetType {
     openButton.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      window.open(this.resolvedUrl, '_blank')
+      const state = useStore.getState()
+      const root = state.vault?.root
+      const notePath = state.activeNote?.path
+      const assetPath = root && notePath
+        ? resolveAssetVaultRelativePath(root, notePath, this.href)
+        : null
+      if (assetPath) {
+        void state.openNoteInTab(assetTabPath(assetPath))
+      }
     })
     bottomControls.append(openButton)
 
@@ -441,11 +450,19 @@ class LocalPdfWidget extends WidgetType {
     openButton.type = 'button'
     openButton.className = 'local-pdf-embed-action'
     openButton.textContent = 'Open'
-    openButton.title = 'Open PDF in a new window'
+    openButton.title = 'Open PDF in a new tab'
     openButton.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      window.open(this.resolvedUrl, '_blank')
+      const state = useStore.getState()
+      const root = state.vault?.root
+      const notePath = state.activeNote?.path
+      const assetPath = root && notePath
+        ? resolveAssetVaultRelativePath(root, notePath, this.href)
+        : null
+      if (assetPath) {
+        void state.openNoteInTab(assetTabPath(assetPath))
+      }
     })
 
     // Collapse the inline iframe back to the compact card without

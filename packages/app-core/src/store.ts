@@ -26,6 +26,7 @@ import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
+import { isAssetTabPath } from './lib/asset-tabs'
 import {
   FENCE_RE,
   TASK_LINE_RE,
@@ -642,7 +643,7 @@ function captureNoteJumpLocation(state: {
   selectedPath: string | null
   editorViewRef: EditorView | null
 }): NoteJumpLocation | null {
-  if (!state.selectedPath) return null
+  if (!state.selectedPath || isWorkspaceVirtualTabPath(state.selectedPath)) return null
   const selection = state.editorViewRef?.state.selection.main
   return {
     path: state.selectedPath,
@@ -973,7 +974,8 @@ function isWorkspaceVirtualTabPath(path: string): boolean {
     isTagsTabPath(path) ||
     isHelpTabPath(path) ||
     isArchiveTabPath(path) ||
-    isTrashTabPath(path)
+    isTrashTabPath(path) ||
+    isAssetTabPath(path)
   )
 }
 
@@ -1822,6 +1824,33 @@ export const useStore = create<Store>((set, get) => {
       return true
     }
 
+    if (isWorkspaceVirtualTabPath(relPath)) {
+      if (
+        state.selectedPath &&
+        state.selectedPath !== relPath &&
+        !isWorkspaceVirtualTabPath(state.selectedPath) &&
+        state.noteDirty[state.selectedPath]
+      ) {
+        await get().persistNote(state.selectedPath)
+      }
+      const latest = get()
+      const leafNow = findLeaf(latest.paneLayout, latest.activePaneId)
+      if (!leafNow) return false
+      const nextLayout =
+        updateLeaf(latest.paneLayout, leafNow.id, (l) => leafWithAddedTab(l, relPath)) ??
+        latest.paneLayout
+      set({
+        paneLayout: nextLayout,
+        loadingNote: false,
+        pendingJumpLocation: null,
+        ...activeFieldsFrom(nextLayout, latest.activePaneId, latest.noteContents, latest.noteDirty)
+      })
+      recordRendererPerf('note.open.virtual', performance.now() - startedAt, {
+        path: relPath
+      })
+      return true
+    }
+
     if (
       activeLeaf.activeTab === relPath &&
       state.noteContents[relPath] &&
@@ -1848,14 +1877,17 @@ export const useStore = create<Store>((set, get) => {
         state.paneLayout
       set({
         paneLayout: nextLayout,
-        noteBackstack: historyMode === 'push' &&
+        noteBackstack:
+          historyMode === 'push' &&
           state.selectedPath !== null &&
+          !isWorkspaceVirtualTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
-          ? appendNoteJumpHistory(state.noteBackstack, captureNoteJumpLocation(state))
-          : state.noteBackstack,
+            ? appendNoteJumpHistory(state.noteBackstack, captureNoteJumpLocation(state))
+            : state.noteBackstack,
         noteForwardstack:
           historyMode === 'push' &&
           state.selectedPath !== null &&
+          !isWorkspaceVirtualTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
             ? []
             : state.noteForwardstack,
@@ -1870,7 +1902,12 @@ export const useStore = create<Store>((set, get) => {
     }
 
     // Flush pending save for whatever was focused before switching away.
-    if (state.selectedPath && state.selectedPath !== relPath && state.noteDirty[state.selectedPath]) {
+    if (
+      state.selectedPath &&
+      state.selectedPath !== relPath &&
+      !isWorkspaceVirtualTabPath(state.selectedPath) &&
+      state.noteDirty[state.selectedPath]
+    ) {
       await get().persistNote(state.selectedPath)
     }
 
@@ -1878,6 +1915,7 @@ export const useStore = create<Store>((set, get) => {
     const shouldPushHistory =
       historyMode === 'push' &&
       latest.selectedPath !== null &&
+      !isWorkspaceVirtualTabPath(latest.selectedPath) &&
       latest.selectedPath !== relPath
     const nextBackstack = shouldPushHistory
       ? appendNoteJumpHistory(latest.noteBackstack, captureNoteJumpLocation(latest))
@@ -1935,7 +1973,9 @@ export const useStore = create<Store>((set, get) => {
     set({ loadingNote: true })
     while (source.length > 0) {
       const target = source.pop() ?? null
-      if (!target || target.path === get().selectedPath) continue
+      if (!target || target.path === get().selectedPath || isWorkspaceVirtualTabPath(target.path)) {
+        continue
+      }
       try {
         const content = await window.zen.readNote(target.path)
         const latest = get()

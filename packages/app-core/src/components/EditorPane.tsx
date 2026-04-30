@@ -118,6 +118,12 @@ import {
 import { ZEN_SET_PANE_MODE_EVENT, type PaneMode } from '../lib/pane-mode'
 import { resolveCommentAnchor, selectionToCommentAnchor } from '../lib/comments'
 import { ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT } from '../lib/keyboard-context-menu'
+import {
+  assetPathFromTab,
+  assetTitleFromPath,
+  isAssetTabPath
+} from '../lib/asset-tabs'
+import { classifyLocalAssetHref } from '../lib/local-assets'
 
 const paperHighlight = HighlightStyle.define([
   // Markdown-level tokens
@@ -1409,7 +1415,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: false,
             isHelp: false,
             isArchive: false,
-            isTrash: false
+            isTrash: false,
+            isAsset: false
           }
         }
         if (isQuickNotesTabPath(path)) {
@@ -1422,7 +1429,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: false,
             isHelp: false,
             isArchive: false,
-            isTrash: false
+            isTrash: false,
+            isAsset: false
           }
         }
         if (isTagsTabPath(path)) {
@@ -1435,7 +1443,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: true,
             isHelp: false,
             isArchive: false,
-            isTrash: false
+            isTrash: false,
+            isAsset: false
           }
         }
         if (isHelpTabPath(path)) {
@@ -1448,7 +1457,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: false,
             isHelp: true,
             isArchive: false,
-            isTrash: false
+            isTrash: false,
+            isAsset: false
           }
         }
         if (isArchiveTabPath(path)) {
@@ -1461,7 +1471,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: false,
             isHelp: false,
             isArchive: true,
-            isTrash: false
+            isTrash: false,
+            isAsset: false
           }
         }
         if (isTrashTabPath(path)) {
@@ -1474,7 +1485,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTag: false,
             isHelp: false,
             isArchive: false,
-            isTrash: true
+            isTrash: true,
+            isAsset: false
+          }
+        }
+        if (isAssetTabPath(path)) {
+          const assetPath = assetPathFromTab(path)
+          return {
+            path,
+            title: assetTitleFromPath(assetPath),
+            pinned: pinnedSet.has(path),
+            isQuick: false,
+            isTasks: false,
+            isTag: false,
+            isHelp: false,
+            isArchive: false,
+            isTrash: false,
+            isAsset: true
           }
         }
         const meta = path === content?.path ? content : notes.find((n) => n.path === path)
@@ -1488,7 +1515,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isTag: false,
           isHelp: false,
           isArchive: false,
-          isTrash: false
+          isTrash: false,
+          isAsset: false
         }
       })
     },
@@ -1557,7 +1585,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isTagsTabPath(path) ||
       isHelpTabPath(path) ||
       isArchiveTabPath(path) ||
-      isTrashTabPath(path)
+      isTrashTabPath(path) ||
+      isAssetTabPath(path)
     ) {
       return [
         { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
@@ -1660,10 +1689,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isHelp: boolean
       isArchive: boolean
       isTrash: boolean
+      isAsset: boolean
     }) => {
       const active = tab.path === activeTab
       const isVirtual =
-        tab.isQuick || tab.isTasks || tab.isTag || tab.isHelp || tab.isArchive || tab.isTrash
+        tab.isQuick ||
+        tab.isTasks ||
+        tab.isTag ||
+        tab.isHelp ||
+        tab.isArchive ||
+        tab.isTrash ||
+        tab.isAsset
       return (
         <div
           key={tab.path}
@@ -1782,6 +1818,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isTrash && (
                 <TrashIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isAsset && (
+                <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               <span className="min-w-0 flex-1 truncate">{tab.title}</span>
             </button>
@@ -2019,6 +2058,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ArchiveView />
           ) : isTrashTabPath(activeTab) ? (
             <TrashView />
+          ) : activeTab && isAssetTabPath(activeTab) ? (
+            <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
           ) : content ? (
             <div
               className={[
@@ -2158,6 +2199,76 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         />
       )}
     </section>
+  )
+}
+
+function AssetTabView({
+  tabPath,
+  vaultRoot
+}: {
+  tabPath: string
+  vaultRoot: string | null
+}): JSX.Element {
+  const assetPath = assetPathFromTab(tabPath)
+  const title = assetTitleFromPath(assetPath)
+  const assetUrl =
+    assetPath && vaultRoot ? window.zen.resolveVaultAssetUrl(vaultRoot, assetPath) : null
+  const assetKind = assetPath ? classifyLocalAssetHref(assetPath) ?? 'file' : 'file'
+  const canReveal =
+    !!assetPath &&
+    window.zen.getAppInfo().runtime === 'desktop' &&
+    useStore.getState().workspaceMode !== 'remote'
+
+  const body = !assetPath || !assetUrl ? (
+    <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-400">
+      Couldn't resolve asset path.
+    </div>
+  ) : assetKind === 'image' ? (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto bg-black/5 p-6">
+      <img
+        src={assetUrl}
+        alt={title}
+        className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+      />
+    </div>
+  ) : assetKind === 'video' ? (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+      <video src={assetUrl} controls className="max-h-full max-w-full" />
+    </div>
+  ) : assetKind === 'audio' ? (
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-paper-100/35 p-6">
+      <div className="w-full max-w-md rounded-lg border border-paper-300/70 bg-paper-50/80 p-4 shadow-sm">
+        <div className="mb-3 truncate text-sm font-medium text-ink-900">{title}</div>
+        <audio src={assetUrl} controls className="w-full" />
+      </div>
+    </div>
+  ) : (
+    <iframe
+      src={assetUrl}
+      title={title}
+      className="min-h-0 min-w-0 flex-1 border-0 bg-paper-50"
+    />
+  )
+
+  return (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="glass-header flex h-12 shrink-0 items-center justify-between gap-3 border-b border-paper-300/70 px-4">
+        <div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink-900">
+          <DocumentIcon width={15} height={15} className="shrink-0 text-accent" />
+          <span className="truncate">{title}</span>
+        </div>
+        {canReveal && assetPath && (
+          <button
+            type="button"
+            className="rounded-md px-2 py-1 text-xs font-medium text-ink-500 hover:bg-paper-200 hover:text-ink-900"
+            onClick={() => void window.zen.revealNote(assetPath)}
+          >
+            Reveal
+          </button>
+        )}
+      </header>
+      {body}
+    </div>
   )
 }
 

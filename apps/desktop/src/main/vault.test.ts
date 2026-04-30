@@ -2,7 +2,16 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { absolutePath, appendToNote, ensureVaultLayout, searchVaultTextCapabilities } from './vault'
+import {
+  absolutePath,
+  appendToNote,
+  ensureVaultLayout,
+  getVaultSettings,
+  listFolders,
+  renameFolder,
+  searchVaultTextCapabilities,
+  setVaultSettings
+} from './vault'
 
 const tempDirs: string[] = []
 
@@ -72,6 +81,28 @@ describe('appendToNote', () => {
 
     const next = await readFile(path.join(root, rel), 'utf8')
     expect(next).toBe(original)
+  })
+})
+
+describe('renameFolder', () => {
+  it('can promote a nested inbox folder to the vault root in root mode', async () => {
+    const root = await makeTempDir('zennotes-rename-root-mode-')
+    await ensureVaultLayout(root)
+    const settings = await getVaultSettings(root)
+    await setVaultSettings(root, { ...settings, primaryNotesLocation: 'root' })
+    await mkdir(path.join(root, 'inbox', 'demo'), { recursive: true })
+    await writeFile(path.join(root, 'inbox', 'demo', 'Start.md'), '# Start\n', 'utf8')
+
+    const next = await renameFolder(root, 'inbox', 'inbox/demo', 'demo')
+
+    expect(next).toBe('demo')
+    await expect(readFile(path.join(root, 'demo', 'Start.md'), 'utf8')).resolves.toBe(
+      '# Start\n'
+    )
+    const folders = await listFolders(root)
+    expect(folders.some((folder) => folder.folder === 'inbox' && folder.subpath === 'demo')).toBe(
+      true
+    )
   })
 })
 

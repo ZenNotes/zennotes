@@ -10,6 +10,7 @@ import {
   enhanceLocalAssetNodes,
   resolveAssetVaultRelativePath,
 } from "../lib/local-assets";
+import { assetTabPath } from "../lib/asset-tabs";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
 import { renderDiagrams } from "../lib/diagram-renderers";
 import { NoteHoverPreview } from "./NoteHoverPreview";
@@ -335,6 +336,7 @@ export const Preview = memo(function Preview({
     return THEMES.find((t) => t.id === resolvedId)?.mode ?? "light";
   }, [themeId, themeFamily, themeMode, prefersDark]);
   const selectNote = useStore((s) => s.selectNote);
+  const openNoteInTab = useStore((s) => s.openNoteInTab);
   const setView = useStore((s) => s.setView);
   const updateActiveBody = useStore((s) => s.updateActiveBody);
   const persistActive = useStore((s) => s.persistActive);
@@ -397,6 +399,7 @@ export const Preview = memo(function Preview({
   const pinnedRefVisibleRef = useRef(pinnedRefVisible);
   const togglePinnedRefVisibleRef = useRef(togglePinnedRefVisible);
   const selectNoteRef = useRef(selectNote);
+  const openNoteInTabRef = useRef(openNoteInTab);
   const updateActiveBodyRef = useRef(updateActiveBody);
   const persistActiveRef = useRef(persistActive);
 
@@ -430,6 +433,9 @@ export const Preview = memo(function Preview({
   useEffect(() => {
     selectNoteRef.current = selectNote;
   }, [selectNote]);
+  useEffect(() => {
+    openNoteInTabRef.current = openNoteInTab;
+  }, [openNoteInTab]);
   useEffect(() => {
     updateActiveBodyRef.current = updateActiveBody;
   }, [updateActiveBody]);
@@ -474,7 +480,13 @@ export const Preview = memo(function Preview({
       const localAssetUrl = anchor.dataset.localAssetUrl;
       if (localAssetUrl) {
         e.preventDefault();
-        window.open(localAssetUrl, "_blank");
+        const href =
+          anchor.dataset.localAssetHref || anchor.getAttribute("href") || "";
+        const vaultRoot = vaultRootRef.current;
+        const vaultRel = vaultRoot
+          ? resolveAssetVaultRelativePath(vaultRoot, notePathRef.current, href || localAssetUrl)
+          : null;
+        if (vaultRel) void openNoteInTabRef.current(assetTabPath(vaultRel));
         return;
       }
       // External links: let Electron's window-open handler send them to the OS browser.
@@ -598,6 +610,9 @@ export const Preview = memo(function Preview({
       onActivatePinnedRef: () => {
         if (!pinnedRefVisible) togglePinnedRefVisible();
       },
+      onOpenAsset: (path) => {
+        void openNoteInTabRef.current(assetTabPath(path));
+      },
     });
 
     enhancePreviewHeadingFolds(stage);
@@ -647,10 +662,11 @@ export const Preview = memo(function Preview({
     if (!assetMenu) return [];
     const items: ContextMenuItem[] = [
       {
-        label: "Open",
+        label: "Open in New Tab",
         onSelect: async () => {
-          window.open(assetMenu.url, "_blank");
+          if (assetMenu.vaultRel) await openNoteInTab(assetTabPath(assetMenu.vaultRel));
         },
+        disabled: !assetMenu.vaultRel,
       },
       {
         label: "Open as Reference (This Note)",
@@ -666,12 +682,6 @@ export const Preview = memo(function Preview({
         disabled: !assetMenu.vaultRel,
         onSelect: async () => {
           if (assetMenu.vaultRel) pinAssetReference(assetMenu.vaultRel);
-        },
-      },
-      {
-        label: "Open in New Window",
-        onSelect: async () => {
-          window.open(assetMenu.url, "_blank");
         },
       },
     ];
@@ -690,6 +700,7 @@ export const Preview = memo(function Preview({
     assetMenu,
     canRevealInFileManager,
     notePath,
+    openNoteInTab,
     pinAssetReference,
     pinAssetReferenceForNote,
   ]);

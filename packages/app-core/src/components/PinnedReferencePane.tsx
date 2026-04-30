@@ -40,6 +40,7 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
+import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { Preview } from './Preview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 
@@ -327,6 +328,9 @@ export function PinnedReferencePane(): JSX.Element | null {
     pinnedRefPath && isAsset && vaultRoot
       ? window.zen.resolveVaultAssetUrl(vaultRoot, pinnedRefPath)
       : null
+  const assetKind: LocalAssetKind | null =
+    pinnedRefPath && isAsset ? classifyLocalAssetHref(pinnedRefPath) ?? 'file' : null
+  const useAssetIframe = assetKind === 'pdf' || assetKind === 'file'
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide
@@ -336,7 +340,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   // user cycles through many PDFs.
   const [seenAssetUrls, setSeenAssetUrls] = useState<string[]>([])
   useEffect(() => {
-    if (!assetUrl) return
+    if (!assetUrl || !useAssetIframe) return
     setSeenAssetUrls((prev) => {
       if (prev[prev.length - 1] === assetUrl) return prev
       const without = prev.filter((u) => u !== assetUrl)
@@ -344,7 +348,7 @@ export function PinnedReferencePane(): JSX.Element | null {
       while (next.length > 16) next.shift()
       return next
     })
-  }, [assetUrl])
+  }, [assetUrl, useAssetIframe])
 
   const showEditor = pinnedRefMode === 'edit'
   const hidden = !pinnedRefPath || !pinnedRefVisible
@@ -465,7 +469,36 @@ export function PinnedReferencePane(): JSX.Element | null {
           </>
         )}
 
-        {/* Asset iframe stack — ALWAYS mounted once any asset has been
+        {pinnedRefPath && isAsset && assetUrl && assetKind === 'image' && (
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-auto bg-black/5 p-4">
+            <img
+              src={assetUrl}
+              alt={title}
+              className="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+            />
+          </div>
+        )}
+
+        {pinnedRefPath && isAsset && assetUrl && assetKind === 'video' && (
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-black">
+            <video
+              src={assetUrl}
+              controls
+              className="max-h-full max-w-full"
+            />
+          </div>
+        )}
+
+        {pinnedRefPath && isAsset && assetUrl && assetKind === 'audio' && (
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-paper-100/40 p-6">
+            <div className="w-full max-w-md rounded-xl border border-paper-300/70 bg-paper-50/80 p-4 shadow-sm">
+              <div className="mb-3 truncate text-sm font-medium text-ink-900">{title}</div>
+              <audio src={assetUrl} controls className="w-full" />
+            </div>
+          </div>
+        )}
+
+        {/* Asset iframe stack — ALWAYS mounted once any PDF/generic asset has been
             pinned this session, regardless of whether one is currently
             pinned or the pane is visible. This is the "preserve PDF
             page" mechanism: hiding via CSS keeps the iframe alive so
@@ -474,7 +507,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           <div
             className="absolute inset-0"
             style={{
-              display: isAsset && assetUrl ? 'block' : 'none'
+              display: isAsset && assetUrl && useAssetIframe ? 'block' : 'none'
             }}
           >
             {seenAssetUrls.map((url) => (

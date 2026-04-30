@@ -4,6 +4,7 @@ import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import { renderMarkdown } from '../lib/markdown'
 import { enhanceLocalAssetNodes } from '../lib/local-assets'
+import { assetTabPath } from '../lib/asset-tabs'
 
 type AnchorRectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>
 
@@ -27,6 +28,7 @@ export function NoteHoverPreview({
   const assetFiles = useStore((s) => s.assetFiles)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const openNoteInTab = useStore((s) => s.openNoteInTab)
   const [content, setContent] = useState<NoteContent | null>(
     activeNote?.path === note.path ? activeNote : null
   )
@@ -74,9 +76,12 @@ export function NoteHoverPreview({
     if (!root || !content?.path) return
     enhanceLocalAssetNodes(root, {
       vaultRoot: vault?.root,
-      notePath: content.path
+      notePath: content.path,
+      onOpenAsset: (path) => {
+        void openNoteInTab(assetTabPath(path))
+      }
     })
-  }, [assetFilesKey, content?.path, html, vault?.root])
+  }, [assetFilesKey, content?.path, html, openNoteInTab, vault?.root])
 
   const position = useMemo(() => {
     const width = 380

@@ -184,7 +184,8 @@ function buildImageEmbed(
   img: HTMLImageElement,
   rawHref: string,
   resolvedUrl: string,
-  onRequestEdit?: (() => void) | null
+  onRequestEdit?: (() => void) | null,
+  onOpenAsset?: (() => void) | null
 ): HTMLElement {
   const figure = document.createElement('figure')
   figure.className = 'local-image-embed not-prose'
@@ -211,7 +212,9 @@ function buildImageEmbed(
   openButton.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    window.open(resolvedUrl, '_blank')
+    if (onOpenAsset) {
+      onOpenAsset()
+    }
   })
   controlsBottom.append(openButton)
 
@@ -231,7 +234,8 @@ function buildEmbed(
   kind: Exclude<LocalAssetKind, 'image' | 'file'>,
   url: string,
   label: string,
-  href: string
+  href: string,
+  onOpenAsset?: (() => void) | null
 ): HTMLElement {
   const figure = document.createElement('figure')
   figure.className = 'local-asset-embed not-prose'
@@ -248,13 +252,26 @@ function buildEmbed(
   title.className = 'local-asset-embed-title'
   title.textContent = label
 
-  const open = document.createElement('a')
+  const open = onOpenAsset
+    ? document.createElement('button')
+    : document.createElement('a')
   open.className = 'local-asset-embed-open'
-  open.href = url
   open.dataset.localAssetUrl = url
-  open.target = '_blank'
-  open.rel = 'noreferrer'
+  open.dataset.localAssetHref = href
   open.textContent = 'Open'
+  if (onOpenAsset) {
+    open.type = 'button'
+    open.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onOpenAsset()
+    })
+  } else {
+    const link = open as HTMLAnchorElement
+    link.href = url
+    link.target = '_blank'
+    link.rel = 'noreferrer'
+  }
 
   header.append(title, open)
   figure.append(header)
@@ -342,22 +359,40 @@ export function enhanceLocalAssetNodes(
      *  collapsed to a compact placeholder instead of a full iframe. */
     pinnedAssetPath?: string | null
     onActivatePinnedRef?: (() => void) | null
+    onOpenAsset?: ((assetPath: string) => void) | null
   }
 ): void {
-  const { vaultRoot, notePath, onRequestEdit, pinnedAssetPath, onActivatePinnedRef } = options
+  const {
+    vaultRoot,
+    notePath,
+    onRequestEdit,
+    pinnedAssetPath,
+    onActivatePinnedRef,
+    onOpenAsset
+  } = options
   if (!vaultRoot || !notePath) return
 
   root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
     const raw = img.getAttribute('src') || ''
     const resolved = resolveLocalAssetUrl(vaultRoot, notePath, raw)
     if (!resolved) return
+    const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
     img.src = resolved
     img.loading = 'lazy'
     img.dataset.localAssetUrl = resolved
+    img.dataset.localAssetHref = raw
     const paragraph = isStandaloneImageParagraph(img)
     if (!paragraph || paragraph.dataset.assetEmbed === 'true') return
     paragraph.dataset.assetEmbed = 'true'
-    paragraph.replaceWith(buildImageEmbed(img, raw, resolved, onRequestEdit))
+    paragraph.replaceWith(
+      buildImageEmbed(
+        img,
+        raw,
+        resolved,
+        onRequestEdit,
+        assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+      )
+    )
   })
 
   root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
@@ -366,12 +401,21 @@ export function enhanceLocalAssetNodes(
     const resolved = resolveLocalAssetUrl(vaultRoot, notePath, raw)
     if (!resolved) return
 
+    const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
     const kind = classifyLocalAssetHref(raw) ?? 'file'
     anchor.href = resolved
     anchor.dataset.localAssetUrl = resolved
     anchor.dataset.localAssetKind = kind
+    anchor.dataset.localAssetHref = raw
     anchor.target = '_blank'
     anchor.rel = 'noreferrer'
+    if (assetVaultRel && onOpenAsset) {
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onOpenAsset(assetVaultRel)
+      })
+    }
 
     if (kind === 'file' || kind === 'image') return
 
@@ -380,7 +424,6 @@ export function enhanceLocalAssetNodes(
     paragraph.dataset.assetEmbed = 'true'
     const label = localAssetLabel(raw, anchor.textContent?.trim() || 'Asset')
     if (kind === 'pdf' && pinnedAssetPath) {
-      const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
       if (assetVaultRel === pinnedAssetPath) {
         paragraph.replaceWith(
           buildPinnedRefPlaceholder(resolved, raw, label, () => {
@@ -390,6 +433,14 @@ export function enhanceLocalAssetNodes(
         return
       }
     }
-    paragraph.replaceWith(buildEmbed(kind, resolved, label, raw))
+    paragraph.replaceWith(
+      buildEmbed(
+        kind,
+        resolved,
+        label,
+        raw,
+        assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+      )
+    )
   })
 }

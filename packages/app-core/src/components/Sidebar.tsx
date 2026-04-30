@@ -54,6 +54,7 @@ import {
   type DragPayload,
 } from "../lib/dnd";
 import { resolveSystemFolderLabels } from "../lib/system-folder-labels";
+import { assetTabPath } from "../lib/asset-tabs";
 import {
   FolderGlyphIcon,
   resolveFolderIconId,
@@ -109,10 +110,179 @@ function SidebarGlyph({
   );
 }
 
-function SidebarSectionHeading({ label }: { label: string }): JSX.Element {
+function SidebarSectionHeading({
+  label,
+  onDropPayload,
+}: {
+  label: string;
+  onDropPayload?: (payload: DragPayload) => void | Promise<void>;
+}): JSX.Element {
+  const [dragHover, setDragHover] = useState(false);
+  const droppable = !!onDropPayload;
+
   return (
-    <div className="px-2 pb-2 pt-4 text-[11px] font-medium uppercase tracking-wide text-ink-500">
+    <div
+      className={[
+        "rounded-lg px-2 pb-2 pt-4 text-[11px] font-medium uppercase tracking-wide transition-colors",
+        dragHover ? "bg-accent/10 text-accent" : "text-ink-500",
+      ].join(" ")}
+      onDragOver={
+        droppable
+          ? (e) => {
+              if (!hasZenItem(e)) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDragHover(true);
+            }
+          : undefined
+      }
+      onDragLeave={
+        droppable
+          ? () => {
+              setDragHover(false);
+            }
+          : undefined
+      }
+      onDrop={
+        droppable
+          ? (e) => {
+              setDragHover(false);
+              const payload = readDragPayload(e);
+              if (!payload) return;
+              e.preventDefault();
+              void onDropPayload(payload);
+            }
+          : undefined
+      }
+    >
       {label}
+    </div>
+  );
+}
+
+function vaultRelativeFolderPath(
+  folder: NoteFolder,
+  subpath: string,
+  vaultSettings: ReturnType<typeof useStore.getState>["vaultSettings"],
+): string {
+  if (folder === "inbox" && isPrimaryNotesAtRoot(vaultSettings)) return subpath;
+  return subpath ? `${folder}/${subpath}` : folder;
+}
+
+type SidebarSelectionItem =
+  | { kind: "note"; path: string }
+  | { kind: "folder"; folder: NoteFolder; subpath: string };
+
+function noteSelectionKey(path: string): string {
+  return `note:${encodeURIComponent(path)}`;
+}
+
+function folderSelectionKey(folder: NoteFolder, subpath: string): string {
+  return `folder:${folder}:${encodeURIComponent(subpath)}`;
+}
+
+function selectionKeyForItem(item: SidebarSelectionItem): string {
+  return item.kind === "note"
+    ? noteSelectionKey(item.path)
+    : folderSelectionKey(item.folder, item.subpath);
+}
+
+function parseSelectionKey(key: string): SidebarSelectionItem | null {
+  if (key.startsWith("note:")) {
+    return { kind: "note", path: decodeURIComponent(key.slice("note:".length)) };
+  }
+  if (key.startsWith("folder:")) {
+    const rest = key.slice("folder:".length);
+    const sep = rest.indexOf(":");
+    if (sep === -1) return null;
+    const folder = rest.slice(0, sep) as NoteFolder;
+    if (
+      folder !== "inbox" &&
+      folder !== "quick" &&
+      folder !== "archive" &&
+      folder !== "trash"
+    ) {
+      return null;
+    }
+    return {
+      kind: "folder",
+      folder,
+      subpath: decodeURIComponent(rest.slice(sep + 1)),
+    };
+  }
+  return null;
+}
+
+function selectionSetsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const key of a) {
+    if (!b.has(key)) return false;
+  }
+  return true;
+}
+
+function folderContainsFolder(
+  parent: { folder: NoteFolder; subpath: string },
+  child: { folder: NoteFolder; subpath: string },
+): boolean {
+  return (
+    parent.folder === child.folder &&
+    parent.subpath !== child.subpath &&
+    !!parent.subpath &&
+    child.subpath.startsWith(`${parent.subpath}/`)
+  );
+}
+
+function compactFolderSelection(
+  folders: Array<{ folder: NoteFolder; subpath: string }>,
+): Array<{ folder: NoteFolder; subpath: string }> {
+  return folders.filter(
+    (candidate) =>
+      !folders.some((other) => folderContainsFolder(other, candidate)),
+  );
+}
+
+function noteIsInsideFolder(
+  notePath: string,
+  folder: { folder: NoteFolder; subpath: string },
+  vaultSettings: ReturnType<typeof useStore.getState>["vaultSettings"],
+): boolean {
+  const rel = vaultRelativeFolderPath(folder.folder, folder.subpath, vaultSettings);
+  return !!rel && (notePath === rel || notePath.startsWith(`${rel}/`));
+}
+
+function RootFolderDropTarget({
+  children,
+  onDropPayload,
+}: {
+  children: JSX.Element;
+  onDropPayload: (payload: DragPayload) => void | Promise<void>;
+}): JSX.Element {
+  const [dragHover, setDragHover] = useState(false);
+
+  return (
+    <div
+      className={[
+        "min-h-8 rounded-lg transition-colors",
+        dragHover ? "bg-accent/10 ring-1 ring-accent/25" : "",
+      ].join(" ")}
+      onDragOver={(e) => {
+        if (e.target !== e.currentTarget || !hasZenItem(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        setDragHover(true);
+      }}
+      onDragLeave={() => setDragHover(false)}
+      onDrop={(e) => {
+        setDragHover(false);
+        if (e.target !== e.currentTarget) return;
+        const payload = readDragPayload(e);
+        if (!payload) return;
+        e.preventDefault();
+        void onDropPayload(payload);
+      }}
+    >
+      {children}
     </div>
   );
 }
@@ -188,6 +358,12 @@ export function Sidebar(): JSX.Element {
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels],
   );
+  const openAssetInTab = useCallback(
+    (path: string): void => {
+      void openNoteInTab(assetTabPath(path));
+    },
+    [openNoteInTab],
+  );
   const remoteLabel = useMemo(
     () => remoteWorkspaceLabel(remoteWorkspaceInfo?.baseUrl ?? null),
     [remoteWorkspaceInfo?.baseUrl],
@@ -195,6 +371,166 @@ export function Sidebar(): JSX.Element {
   const primaryNotesAtRoot = useMemo(
     () => isPrimaryNotesAtRoot(vaultSettings),
     [vaultSettings],
+  );
+  const [selectedSidebarKeys, setSelectedSidebarKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [selectionAnchorKey, setSelectionAnchorKey] = useState<string | null>(
+    null,
+  );
+  const selectedSidebarItems = useMemo(() => {
+    const notePaths = new Set(notes.map((note) => note.path));
+    const folderKeys = new Set(
+      allFolders.map((folder) =>
+        folderSelectionKey(folder.folder, folder.subpath),
+      ),
+    );
+    const out: SidebarSelectionItem[] = [];
+    for (const key of selectedSidebarKeys) {
+      const item = parseSelectionKey(key);
+      if (!item) continue;
+      if (item.kind === "note" && notePaths.has(item.path)) out.push(item);
+      if (item.kind === "folder" && folderKeys.has(key)) out.push(item);
+    }
+    return out;
+  }, [allFolders, notes, selectedSidebarKeys]);
+  const selectedFolderItems = useMemo(
+    () =>
+      compactFolderSelection(
+        selectedSidebarItems
+          .filter((item): item is Extract<SidebarSelectionItem, { kind: "folder" }> =>
+            item.kind === "folder",
+          )
+          .map((item) => ({ folder: item.folder, subpath: item.subpath })),
+      ),
+    [selectedSidebarItems],
+  );
+  const selectedNoteMetas = useMemo(() => {
+    const selectedPaths = new Set(
+      selectedSidebarItems
+        .filter((item): item is Extract<SidebarSelectionItem, { kind: "note" }> =>
+          item.kind === "note",
+        )
+        .map((item) => item.path),
+    );
+    return notes.filter((note) => selectedPaths.has(note.path));
+  }, [notes, selectedSidebarItems]);
+  const selectedNoteMetasForAction = useMemo(
+    () =>
+      selectedNoteMetas.filter(
+        (note) =>
+          !selectedFolderItems.some((folder) =>
+            noteIsInsideFolder(note.path, folder, vaultSettings),
+          ),
+      ),
+    [selectedFolderItems, selectedNoteMetas, vaultSettings],
+  );
+  const selectedSidebarCount =
+    selectedNoteMetas.length +
+    selectedSidebarItems.filter((item) => item.kind === "folder").length;
+
+  useEffect(() => {
+    const availableKeys = new Set<string>();
+    for (const note of notes) availableKeys.add(noteSelectionKey(note.path));
+    for (const folder of allFolders) {
+      availableKeys.add(folderSelectionKey(folder.folder, folder.subpath));
+    }
+    setSelectedSidebarKeys((prev) => {
+      const next = new Set([...prev].filter((key) => availableKeys.has(key)));
+      return selectionSetsEqual(prev, next) ? prev : next;
+    });
+    setSelectionAnchorKey((prev) =>
+      prev && !availableKeys.has(prev) ? null : prev,
+    );
+  }, [allFolders, notes]);
+
+  const getSelectableSidebarKeys = useCallback((): string[] => {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>("[data-sidebar-select-key]"),
+    )
+      .map((el) => el.dataset.sidebarSelectKey)
+      .filter((key): key is string => !!key);
+  }, []);
+
+  const selectSidebarRange = useCallback(
+    (anchorKey: string, nextKey: string): Set<string> => {
+      const visibleKeys = getSelectableSidebarKeys();
+      const anchorIdx = visibleKeys.indexOf(anchorKey);
+      const nextIdx = visibleKeys.indexOf(nextKey);
+      if (anchorIdx === -1 || nextIdx === -1) return new Set([nextKey]);
+      const [start, end] =
+        anchorIdx < nextIdx ? [anchorIdx, nextIdx] : [nextIdx, anchorIdx];
+      return new Set(visibleKeys.slice(start, end + 1));
+    },
+    [getSelectableSidebarKeys],
+  );
+
+  const handleSidebarItemSelect = useCallback(
+    (
+      event: React.MouseEvent | React.KeyboardEvent,
+      item: SidebarSelectionItem,
+      primaryAction: () => void,
+    ): void => {
+      const key = selectionKeyForItem(item);
+      if (event.shiftKey) {
+        event.preventDefault();
+        const anchor = selectionAnchorKey ?? key;
+        setSelectedSidebarKeys(selectSidebarRange(anchor, key));
+        setSelectionAnchorKey(anchor);
+        return;
+      }
+      if (event.metaKey || event.ctrlKey) {
+        event.preventDefault();
+        setSelectedSidebarKeys((prev) => {
+          const next = new Set(prev);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+        setSelectionAnchorKey(key);
+        return;
+      }
+      setSelectedSidebarKeys(new Set());
+      setSelectionAnchorKey(key);
+      primaryAction();
+    },
+    [selectSidebarRange, selectionAnchorKey],
+  );
+
+  const prepareContextSelection = useCallback(
+    (item: SidebarSelectionItem): void => {
+      const key = selectionKeyForItem(item);
+      setSelectedSidebarKeys((prev) => {
+        if (prev.has(key) && prev.size > 1) return prev;
+        return new Set([key]);
+      });
+      setSelectionAnchorKey(key);
+    },
+    [],
+  );
+
+  const dragPayloadForItem = useCallback(
+    (item: SidebarSelectionItem): DragPayload => {
+      const key = selectionKeyForItem(item);
+      if (selectedSidebarKeys.has(key) && selectedSidebarCount > 1) {
+        return {
+          kind: "multi",
+          items: selectedSidebarItems.map((selected) =>
+            selected.kind === "note"
+              ? { kind: "note", path: selected.path }
+              : {
+                  kind: "folder",
+                  folder: selected.folder,
+                  subpath: selected.subpath,
+                },
+          ),
+        };
+      }
+      return item.kind === "note"
+        ? { kind: "note", path: item.path }
+        : { kind: "folder", folder: item.folder, subpath: item.subpath };
+    },
+    [selectedSidebarCount, selectedSidebarItems, selectedSidebarKeys],
   );
 
   /**
@@ -207,6 +543,68 @@ export function Sidebar(): JSX.Element {
     targetFolder: NoteFolder,
     targetSubpath: string,
   ): Promise<void> => {
+    const moveFolder = async (
+      folder: NoteFolder,
+      subpath: string,
+    ): Promise<void> => {
+      if (folder !== targetFolder) {
+        throw new Error(
+          "Folders can only be moved within the same top-level folder.",
+        );
+      }
+      if (!subpath) return; // top-level folder can't be moved
+      const leaf = subpath.split("/").slice(-1)[0];
+      const nextSubpath = targetSubpath ? `${targetSubpath}/${leaf}` : leaf;
+      if (nextSubpath === subpath) return;
+      if ((nextSubpath + "/").startsWith(subpath + "/")) {
+        throw new Error("Cannot move a folder into itself.");
+      }
+      await renameFolderAction(folder, subpath, nextSubpath);
+    };
+
+    if (payload.kind === "multi") {
+      const folders = compactFolderSelection(
+        payload.items
+          .filter(
+            (
+              item,
+            ): item is Extract<
+              Extract<DragPayload, { kind: "multi" }>["items"][number],
+              { kind: "folder" }
+            > => item.kind === "folder",
+          )
+          .map((item) => ({ folder: item.folder, subpath: item.subpath })),
+      );
+      const notes = payload.items.filter(
+        (
+          item,
+        ): item is Extract<
+          Extract<DragPayload, { kind: "multi" }>["items"][number],
+          { kind: "note" }
+        > => item.kind === "note",
+      );
+      const notesToMove = notes.filter(
+        (note) =>
+          !folders.some((folder) =>
+            noteIsInsideFolder(note.path, folder, vaultSettings),
+          ),
+      );
+
+      try {
+        for (const folder of folders) {
+          await moveFolder(folder.folder, folder.subpath);
+        }
+        for (const note of notesToMove) {
+          await moveNoteAction(note.path, targetFolder, targetSubpath);
+        }
+        setSelectedSidebarKeys(new Set());
+        setSelectionAnchorKey(null);
+      } catch (err) {
+        window.alert((err as Error).message);
+      }
+      return;
+    }
+
     if (payload.kind === "note") {
       // Skip if dropping back into the same container.
       const curParts = payload.path.split("/");
@@ -219,22 +617,8 @@ export function Sidebar(): JSX.Element {
     // Folder drop — cross-top-folder moves aren't supported (folders
     // can't move between inbox/archive/trash). Same-top-folder moves
     // reparent the subfolder.
-    if (payload.folder !== targetFolder) {
-      window.alert(
-        "Folders can only be moved within the same top-level folder.",
-      );
-      return;
-    }
-    if (!payload.subpath) return; // top-level folder can't be moved
-    const leaf = payload.subpath.split("/").slice(-1)[0];
-    const nextSubpath = targetSubpath ? `${targetSubpath}/${leaf}` : leaf;
-    if (nextSubpath === payload.subpath) return;
-    if ((nextSubpath + "/").startsWith(payload.subpath + "/")) {
-      // Moving into self / descendant.
-      return;
-    }
     try {
-      await renameFolderAction(payload.folder, payload.subpath, nextSubpath);
+      await moveFolder(payload.folder, payload.subpath);
     } catch (err) {
       window.alert((err as Error).message);
     }
@@ -510,9 +894,248 @@ export function Sidebar(): JSX.Element {
     return [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [notes, activeNote]);
 
+  const bulkSelectionMenuItems = useMemo<ContextMenuItem[] | null>(() => {
+    if (selectedSidebarCount <= 1) return null;
+    const liveNotes = selectedNoteMetasForAction.filter(
+      (note) => note.folder !== "trash",
+    );
+    const archivableNotes = selectedNoteMetasForAction.filter(
+      (note) => note.folder === "inbox" || note.folder === "quick",
+    );
+    const archivedNotes = selectedNoteMetasForAction.filter(
+      (note) => note.folder === "archive",
+    );
+    const trashedNotes = selectedNoteMetasForAction.filter(
+      (note) => note.folder === "trash",
+    );
+    const rootMoveFolders = selectedFolderItems.filter(
+      (folder) =>
+        primaryNotesAtRoot && folder.folder === "inbox" && folder.subpath.includes("/"),
+    );
+    const paths = [
+      ...selectedNoteMetas.map((note) => note.path),
+      ...selectedFolderItems.map((folder) =>
+        vaultRelativeFolderPath(folder.folder, folder.subpath, vaultSettings),
+      ),
+    ].filter(Boolean);
+
+    const clearSelection = (): void => {
+      setSelectedSidebarKeys(new Set());
+      setSelectionAnchorKey(null);
+    };
+    const refreshAndClear = async (): Promise<void> => {
+      await refreshNotes();
+      clearSelection();
+    };
+    const selectedActiveNote = selectedNoteMetas.some(
+      (note) => note.path === selectedPath,
+    );
+
+    const items: ContextMenuItem[] = [
+      {
+        label: `${selectedSidebarCount} selected`,
+        disabled: true,
+      },
+    ];
+
+    if (selectedNoteMetas.length > 0 && tabsEnabled) {
+      items.push({
+        label: `Open ${selectedNoteMetas.length} note${selectedNoteMetas.length === 1 ? "" : "s"} in Tabs`,
+        onSelect: async () => {
+          for (const note of selectedNoteMetas) {
+            await openNoteInTab(note.path);
+          }
+        },
+      });
+    }
+
+    if (liveNotes.length > 0) {
+      items.push({
+        label: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"}…`,
+        onSelect: async () => {
+          const target = await prompt(
+            buildMoveNotePrompt(
+              { title: `${liveNotes.length} notes`, path: liveNotes[0]!.path },
+              allFolders,
+            ),
+          );
+          if (!target) return;
+          const dest = parseMoveNoteTarget(target);
+          for (const note of liveNotes) {
+            await window.zen.moveNote(note.path, dest.folder, dest.subpath);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+    }
+
+    if (archivableNotes.length > 0) {
+      items.push({
+        label: `Move ${archivableNotes.length} note${archivableNotes.length === 1 ? "" : "s"} to ${folderLabels.archive}`,
+        icon: <ArchiveIcon />,
+        onSelect: async () => {
+          for (const note of archivableNotes) {
+            await window.zen.archiveNote(note.path);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+    }
+
+    if (archivedNotes.length > 0) {
+      items.push({
+        label: `Move ${archivedNotes.length} archived note${archivedNotes.length === 1 ? "" : "s"} to ${folderLabels.inbox}`,
+        icon: <ArrowUpRightIcon />,
+        onSelect: async () => {
+          for (const note of archivedNotes) {
+            await window.zen.unarchiveNote(note.path);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+    }
+
+    if (liveNotes.length > 0) {
+      items.push({
+        label: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"} to ${folderLabels.trash}`,
+        icon: <TrashIcon />,
+        danger: true,
+        onSelect: async () => {
+          const ok = await confirmApp({
+            title: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"} to ${folderLabels.trash}?`,
+            description: "You can restore them from Trash later.",
+            confirmLabel: `Move to ${folderLabels.trash}`,
+            danger: true,
+          });
+          if (!ok) return;
+          for (const note of liveNotes) {
+            await window.zen.moveToTrash(note.path);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+    }
+
+    if (trashedNotes.length > 0) {
+      items.push({
+        label: `Restore ${trashedNotes.length} note${trashedNotes.length === 1 ? "" : "s"}`,
+        icon: <ArrowUpRightIcon />,
+        onSelect: async () => {
+          for (const note of trashedNotes) {
+            await window.zen.restoreFromTrash(note.path);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+      items.push({
+        label: `Delete ${trashedNotes.length} note${trashedNotes.length === 1 ? "" : "s"} permanently`,
+        icon: <TrashIcon />,
+        danger: true,
+        onSelect: async () => {
+          const ok = await confirmApp({
+            title: `Delete ${trashedNotes.length} note${trashedNotes.length === 1 ? "" : "s"} permanently?`,
+            description: "This cannot be undone.",
+            confirmLabel: "Delete permanently",
+            danger: true,
+          });
+          if (!ok) return;
+          for (const note of trashedNotes) {
+            await window.zen.deleteNote(note.path);
+          }
+          if (selectedActiveNote) await selectNote(null);
+          await refreshAndClear();
+        },
+      });
+    }
+
+    if (rootMoveFolders.length > 0) {
+      items.push({
+        label: `Move ${rootMoveFolders.length} folder${rootMoveFolders.length === 1 ? "" : "s"} to vault root`,
+        onSelect: async () => {
+          try {
+            for (const folder of rootMoveFolders) {
+              const leaf = folder.subpath.split("/").slice(-1)[0];
+              if (!leaf || leaf === folder.subpath) continue;
+              await renameFolderAction(folder.folder, folder.subpath, leaf);
+            }
+            clearSelection();
+          } catch (err) {
+            window.alert((err as Error).message);
+          }
+        },
+      });
+    }
+
+    if (selectedFolderItems.length > 0) {
+      items.push({
+        label: `Delete ${selectedFolderItems.length} folder${selectedFolderItems.length === 1 ? "" : "s"}…`,
+        danger: true,
+        onSelect: async () => {
+          const ok = await confirmApp({
+            title: `Delete ${selectedFolderItems.length} folder${selectedFolderItems.length === 1 ? "" : "s"} and everything inside?`,
+            description: "This cannot be undone.",
+            confirmLabel: "Delete folders",
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            for (const folder of selectedFolderItems) {
+              await deleteFolderAction(folder.folder, folder.subpath);
+            }
+            clearSelection();
+          } catch (err) {
+            window.alert((err as Error).message);
+          }
+        },
+      });
+    }
+
+    if (paths.length > 0) {
+      items.push({ kind: "separator" });
+      items.push({
+        label: "Copy Paths",
+        onSelect: async () => {
+          window.zen.clipboardWriteText(paths.join("\n"));
+        },
+      });
+    }
+
+    return items;
+  }, [
+    allFolders,
+    deleteFolderAction,
+    folderLabels.archive,
+    folderLabels.inbox,
+    folderLabels.trash,
+    openNoteInTab,
+    primaryNotesAtRoot,
+    prompt,
+    refreshNotes,
+    renameFolderAction,
+    selectNote,
+    selectedFolderItems,
+    selectedNoteMetas,
+    selectedNoteMetasForAction,
+    selectedPath,
+    selectedSidebarCount,
+    tabsEnabled,
+    vaultSettings,
+  ]);
+
   const folderMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!folderMenu) return [];
     const { folder, subpath } = folderMenu;
+    if (
+      bulkSelectionMenuItems &&
+      selectedSidebarKeys.has(folderSelectionKey(folder, subpath))
+    ) {
+      return bulkSelectionMenuItems;
+    }
     const isTop = subpath === "";
     const label = isTop ? folderLabels[folder] : subpath.split("/").slice(-1)[0];
     const trashCount = notes.filter((note) => note.folder === "trash").length;
@@ -625,6 +1248,20 @@ export function Sidebar(): JSX.Element {
           }
         },
       });
+      if (primaryNotesAtRoot && folder === "inbox" && subpath.includes("/")) {
+        items.push({
+          label: "Move to vault root",
+          onSelect: async () => {
+            const leaf = subpath.split("/").slice(-1)[0];
+            if (!leaf || leaf === subpath) return;
+            try {
+              await renameFolderAction(folder, subpath, leaf);
+            } catch (err) {
+              window.alert((err as Error).message);
+            }
+          },
+        });
+      }
     }
 
     items.push({ kind: "separator" });
@@ -642,7 +1279,7 @@ export function Sidebar(): JSX.Element {
       label: "Copy Path",
       onSelect: async () => {
         // Vault-relative POSIX path (e.g. `inbox/Work/Research`).
-        const rel = subpath ? `${folder}/${subpath}` : folder;
+        const rel = vaultRelativeFolderPath(folder, subpath, vaultSettings);
         window.zen.clipboardWriteText(rel);
       },
     });
@@ -653,12 +1290,11 @@ export function Sidebar(): JSX.Element {
         // / Explorer / terminal use.
         const root = vault?.root ?? "";
         const sep = root.includes("\\") ? "\\" : "/";
-        const parts = [
-          root.replace(/[\\/]+$/, ""),
-          folder,
-          ...subpath.split("/").filter(Boolean),
-        ];
-        window.zen.clipboardWriteText(parts.join(sep));
+        const rel = vaultRelativeFolderPath(folder, subpath, vaultSettings);
+        const parts = rel.split("/").filter(Boolean);
+        window.zen.clipboardWriteText(
+          [root.replace(/[\\/]+$/, ""), ...parts].join(sep),
+        );
       },
     });
 
@@ -729,14 +1365,24 @@ export function Sidebar(): JSX.Element {
     selectNote,
     prompt,
     vaultSettings.folderIcons,
+    vaultSettings,
+    primaryNotesAtRoot,
     openFolderIconPicker,
     resetFolderIcon,
+    bulkSelectionMenuItems,
+    selectedSidebarKeys,
   ]);
 
   const noteMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!noteMenu) return [];
     const n = notes.find((note) => note.path === noteMenu.path);
     if (!n) return [];
+    if (
+      bulkSelectionMenuItems &&
+      selectedSidebarKeys.has(noteSelectionKey(n.path))
+    ) {
+      return bulkSelectionMenuItems;
+    }
     const items: ContextMenuItem[] = [
       {
         label: "Open",
@@ -906,6 +1552,11 @@ export function Sidebar(): JSX.Element {
     absolutePathLabel,
     tabsEnabled,
     openNoteInTab,
+    bulkSelectionMenuItems,
+    selectedSidebarKeys,
+    folderLabels.archive,
+    folderLabels.inbox,
+    folderLabels.trash,
   ]);
 
   const assetMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -913,9 +1564,6 @@ export function Sidebar(): JSX.Element {
     const asset = assetFiles.find((entry) => entry.path === assetMenu.path);
     if (!asset) return [];
 
-    const url = vault?.root
-      ? window.zen.resolveVaultAssetUrl(vault.root, asset.path)
-      : null;
     const root = vault?.root ?? "";
     const sep = root.includes("\\") ? "\\" : "/";
     const abs = [root.replace(/[\\/]+$/, ""), ...asset.path.split("/").filter(Boolean)].join(
@@ -924,9 +1572,9 @@ export function Sidebar(): JSX.Element {
 
     const items: ContextMenuItem[] = [
       {
-        label: "Open",
+        label: "Open in New Tab",
         onSelect: async () => {
-          if (url) window.open(url, "_blank");
+          await openNoteInTab(assetTabPath(asset.path));
         },
       },
       {
@@ -953,7 +1601,7 @@ export function Sidebar(): JSX.Element {
     }
 
     return items;
-  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault]);
+  }, [assetMenu, assetFiles, canRevealInFileManager, absolutePathLabel, vault, openNoteInTab]);
 
   const tagMenuItems = useMemo<ContextMenuItem[]>(() => {
     if (!tagMenu) return [];
@@ -1021,7 +1669,19 @@ export function Sidebar(): JSX.Element {
     subpath: string,
   ): void => {
     e.preventDefault();
+    if (subpath) {
+      prepareContextSelection({ kind: "folder", folder, subpath });
+    } else {
+      setSelectedSidebarKeys(new Set());
+      setSelectionAnchorKey(null);
+    }
     setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath });
+  };
+
+  const openNoteMenu = (e: React.MouseEvent, note: NoteMeta): void => {
+    e.preventDefault();
+    prepareContextSelection({ kind: "note", path: note.path });
+    setNoteMenu({ x: e.clientX, y: e.clientY, path: note.path });
   };
 
   const isSidebarFocused = focusedPanel === "sidebar";
@@ -1322,16 +1982,17 @@ export function Sidebar(): JSX.Element {
             selectedPath={selectedPath}
             vaultRoot={vault?.root ?? null}
             onSelectNote={(p) => void selectNote(p)}
-            onNoteContextMenu={(e, n) => {
-              e.preventDefault();
-              setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path });
-            }}
+            onOpenAsset={openAssetInTab}
+            onNoteContextMenu={openNoteMenu}
             onAssetContextMenu={(e, asset) => {
               e.preventDefault();
               setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
             }}
             sortComparator={treeSortComparator}
             onDropOnFolder={handleDropOnFolder}
+            selectedKeys={selectedSidebarKeys}
+            onSelectItem={handleSidebarItemSelect}
+            dragPayloadForItem={dragPayloadForItem}
             idxCounter={idxCounter.current}
             vimCursor={vimCursor}
             sidebarFocused={isSidebarFocused}
@@ -1392,39 +2053,51 @@ export function Sidebar(): JSX.Element {
             />
           </div>
 
-          <SidebarSectionHeading label="Notes" />
+          <SidebarSectionHeading
+            label="Notes"
+            onDropPayload={
+              primaryNotesAtRoot
+                ? (payload) => handleDropOnFolder(payload, "inbox", "")
+                : undefined
+            }
+          />
 
           {primaryNotesAtRoot ? (
-            <FolderTreeContents
-              tree={trees.inbox}
-              depth={0}
-              folder="inbox"
-              vaultSettings={vaultSettings}
-              isFolderActive={isFolderActive}
-              collapsed={collapsed}
-              toggleCollapse={toggleCollapse}
-              setView={setView}
-              onContextMenu={openFolderMenu}
-              showNotes={unifiedSidebar}
-              selectedPath={selectedPath}
-              vaultRoot={vault?.root ?? null}
-              onSelectNote={(p) => void selectNote(p)}
-              onNoteContextMenu={(e, n) => {
-                e.preventDefault();
-                setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path });
-              }}
-              onAssetContextMenu={(e, asset) => {
-                e.preventDefault();
-                setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
-              }}
-              sortComparator={treeSortComparator}
-              onDropOnFolder={handleDropOnFolder}
-              idxCounter={idxCounter.current}
-              vimCursor={vimCursor}
-              sidebarFocused={isSidebarFocused}
-              groupByKind={groupByKind}
-              showSidebarChevrons={showSidebarChevrons}
-            />
+            <RootFolderDropTarget
+              onDropPayload={(payload) => handleDropOnFolder(payload, "inbox", "")}
+            >
+              <FolderTreeContents
+                tree={trees.inbox}
+                depth={0}
+                folder="inbox"
+                vaultSettings={vaultSettings}
+                isFolderActive={isFolderActive}
+                collapsed={collapsed}
+                toggleCollapse={toggleCollapse}
+                setView={setView}
+                onContextMenu={openFolderMenu}
+                showNotes={unifiedSidebar}
+                selectedPath={selectedPath}
+                vaultRoot={vault?.root ?? null}
+                onSelectNote={(p) => void selectNote(p)}
+                onOpenAsset={openAssetInTab}
+                onNoteContextMenu={openNoteMenu}
+                onAssetContextMenu={(e, asset) => {
+                  e.preventDefault();
+                  setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
+                }}
+                sortComparator={treeSortComparator}
+                onDropOnFolder={handleDropOnFolder}
+                selectedKeys={selectedSidebarKeys}
+                onSelectItem={handleSidebarItemSelect}
+                dragPayloadForItem={dragPayloadForItem}
+                idxCounter={idxCounter.current}
+                vimCursor={vimCursor}
+                sidebarFocused={isSidebarFocused}
+                groupByKind={groupByKind}
+                showSidebarChevrons={showSidebarChevrons}
+              />
+            </RootFolderDropTarget>
           ) : (
             <FolderTreeRoot
               label={folderLabels.inbox}
@@ -1443,16 +2116,17 @@ export function Sidebar(): JSX.Element {
               selectedPath={selectedPath}
               vaultRoot={vault?.root ?? null}
               onSelectNote={(p) => void selectNote(p)}
-              onNoteContextMenu={(e, n) => {
-                e.preventDefault();
-                setNoteMenu({ x: e.clientX, y: e.clientY, path: n.path });
-              }}
+              onOpenAsset={openAssetInTab}
+              onNoteContextMenu={openNoteMenu}
               onAssetContextMenu={(e, asset) => {
                 e.preventDefault();
                 setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
               }}
               sortComparator={treeSortComparator}
               onDropOnFolder={handleDropOnFolder}
+              selectedKeys={selectedSidebarKeys}
+              onSelectItem={handleSidebarItemSelect}
+              dragPayloadForItem={dragPayloadForItem}
               idxCounter={idxCounter.current}
               vimCursor={vimCursor}
               sidebarFocused={isSidebarFocused}
@@ -1850,6 +2524,7 @@ interface TreeRenderProps {
   selectedPath: string | null;
   vaultRoot: string | null;
   onSelectNote: (path: string) => void;
+  onOpenAsset: (path: string) => void;
   onNoteContextMenu: (e: React.MouseEvent, n: NoteMeta) => void;
   onAssetContextMenu: (e: React.MouseEvent, asset: AssetMeta) => void;
   sortComparator: ((a: NoteMeta, b: NoteMeta) => number) | null;
@@ -1858,6 +2533,13 @@ interface TreeRenderProps {
     targetFolder: NoteFolder,
     targetSubpath: string,
   ) => void | Promise<void>;
+  selectedKeys: Set<string>;
+  onSelectItem: (
+    event: React.MouseEvent | React.KeyboardEvent,
+    item: SidebarSelectionItem,
+    primaryAction: () => void,
+  ) => void;
+  dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
   /** Sequential index counter for vim navigation data attributes. */
   idxCounter: IdxCounter;
   /** The highlighted cursor index when sidebar is vim-focused (-1 if not focused). */
@@ -1883,10 +2565,14 @@ function FolderTreeContents({
   selectedPath,
   vaultRoot,
   onSelectNote,
+  onOpenAsset,
   onNoteContextMenu,
   onAssetContextMenu,
   sortComparator,
   onDropOnFolder,
+  selectedKeys,
+  onSelectItem,
+  dragPayloadForItem,
   idxCounter,
   vimCursor,
   sidebarFocused,
@@ -1922,10 +2608,14 @@ function FolderTreeContents({
               selectedPath={selectedPath}
               vaultRoot={vaultRoot}
               onSelectNote={onSelectNote}
+              onOpenAsset={onOpenAsset}
               onNoteContextMenu={onNoteContextMenu}
               onAssetContextMenu={onAssetContextMenu}
               sortComparator={sortComparator}
               onDropOnFolder={onDropOnFolder}
+              selectedKeys={selectedKeys}
+              onSelectItem={onSelectItem}
+              dragPayloadForItem={dragPayloadForItem}
               idxCounter={idxCounter}
               vimCursor={vimCursor}
               sidebarFocused={sidebarFocused}
@@ -1944,6 +2634,7 @@ function FolderTreeContents({
               vaultRoot={vaultRoot}
               depth={depth}
               showSidebarChevrons={showSidebarChevrons}
+              onOpen={() => onOpenAsset(entry.asset.path)}
               onContextMenu={(e) => onAssetContextMenu(e, entry.asset)}
               sidebarFocused={sidebarFocused}
               sidebarIdx={assetIdx}
@@ -1960,9 +2651,15 @@ function FolderTreeContents({
             depth={depth}
             showSidebarChevrons={showSidebarChevrons}
             active={n.path === selectedPath}
+            selected={selectedKeys.has(noteSelectionKey(n.path))}
             sidebarFocused={sidebarFocused}
-            onSelect={() => onSelectNote(n.path)}
+            onSelect={(e) =>
+              onSelectItem(e, { kind: "note", path: n.path }, () =>
+                onSelectNote(n.path),
+              )
+            }
             onContextMenu={(e) => onNoteContextMenu(e, n)}
+            dragPayload={dragPayloadForItem({ kind: "note", path: n.path })}
             sidebarIdx={noteIdx}
             vimHighlight={vimCursor === noteIdx}
           />
@@ -1987,10 +2684,14 @@ function FolderTreeRoot({
   selectedPath,
   vaultRoot,
   onSelectNote,
+  onOpenAsset,
   onNoteContextMenu,
   onAssetContextMenu,
   sortComparator,
   onDropOnFolder,
+  selectedKeys,
+  onSelectItem,
+  dragPayloadForItem,
   idxCounter,
   vimCursor,
   sidebarFocused,
@@ -2073,10 +2774,14 @@ function FolderTreeRoot({
           selectedPath={selectedPath}
           vaultRoot={vaultRoot}
           onSelectNote={onSelectNote}
+          onOpenAsset={onOpenAsset}
           onNoteContextMenu={onNoteContextMenu}
           onAssetContextMenu={onAssetContextMenu}
           sortComparator={sortComparator}
           onDropOnFolder={onDropOnFolder}
+          selectedKeys={selectedKeys}
+          onSelectItem={onSelectItem}
+          dragPayloadForItem={dragPayloadForItem}
           idxCounter={idxCounter}
           vimCursor={vimCursor}
           sidebarFocused={sidebarFocused}
@@ -2102,10 +2807,14 @@ function SubTree({
   selectedPath,
   vaultRoot,
   onSelectNote,
+  onOpenAsset,
   onNoteContextMenu,
   onAssetContextMenu,
   sortComparator,
   onDropOnFolder,
+  selectedKeys,
+  onSelectItem,
+  dragPayloadForItem,
   idxCounter,
   vimCursor,
   sidebarFocused,
@@ -2126,10 +2835,15 @@ function SubTree({
   const hasChildren = entries.length > 0;
   const [dragHover, setDragHover] = useState(false);
   const myIdx = idxCounter.value++;
+  const selectionKey = folderSelectionKey(folder, node.subpath);
 
-  const handleSelect = (): void => {
-    setView({ kind: "folder", folder, subpath: node.subpath });
-    if (hasChildren) toggleCollapse(key);
+  const handleSelect = (
+    e: React.MouseEvent | React.KeyboardEvent,
+  ): void => {
+    onSelectItem(e, { kind: "folder", folder, subpath: node.subpath }, () => {
+      setView({ kind: "folder", folder, subpath: node.subpath });
+      if (hasChildren) toggleCollapse(key);
+    });
   };
 
   return (
@@ -2147,9 +2861,13 @@ function SubTree({
         onContextMenu={(e) => onContextMenu(e, folder, node.subpath)}
         draggable
         onDragStart={(e) =>
-          setDragPayload(e, { kind: "folder", folder, subpath: node.subpath })
+          setDragPayload(
+            e,
+            dragPayloadForItem({ kind: "folder", folder, subpath: node.subpath }),
+          )
         }
         dropTarget={dragHover}
+        selected={selectedKeys.has(selectionKey)}
         onDragOver={(e) => {
           if (!hasZenItem(e)) return;
           e.preventDefault();
@@ -2168,6 +2886,7 @@ function SubTree({
         vimHighlight={vimCursor === myIdx}
         sidebarFocused={sidebarFocused}
         sidebarData={{ type: "folder", folder, subpath: node.subpath, key }}
+        selectionKey={selectionKey}
         reserveLeadingSlot={showSidebarChevrons}
         showExpandChevron={showSidebarChevrons}
       />
@@ -2191,10 +2910,14 @@ function SubTree({
                   selectedPath={selectedPath}
                   vaultRoot={vaultRoot}
                   onSelectNote={onSelectNote}
+                  onOpenAsset={onOpenAsset}
                   onNoteContextMenu={onNoteContextMenu}
                   onAssetContextMenu={onAssetContextMenu}
                   sortComparator={sortComparator}
                   onDropOnFolder={onDropOnFolder}
+                  selectedKeys={selectedKeys}
+                  onSelectItem={onSelectItem}
+                  dragPayloadForItem={dragPayloadForItem}
                   idxCounter={idxCounter}
                   vimCursor={vimCursor}
                   sidebarFocused={sidebarFocused}
@@ -2213,6 +2936,7 @@ function SubTree({
                   vaultRoot={vaultRoot}
                   depth={depth + 1}
                   showSidebarChevrons={showSidebarChevrons}
+                  onOpen={() => onOpenAsset(entry.asset.path)}
                   onContextMenu={(e) => onAssetContextMenu(e, entry.asset)}
                   sidebarFocused={sidebarFocused}
                   sidebarIdx={assetIdx}
@@ -2230,9 +2954,15 @@ function SubTree({
                 depth={depth + 1}
                 showSidebarChevrons={showSidebarChevrons}
                 active={n.path === selectedPath}
+                selected={selectedKeys.has(noteSelectionKey(n.path))}
                 sidebarFocused={sidebarFocused}
-                onSelect={() => onSelectNote(n.path)}
+                onSelect={(e) =>
+                  onSelectItem(e, { kind: "note", path: n.path }, () =>
+                    onSelectNote(n.path),
+                  )
+                }
                 onContextMenu={(e) => onNoteContextMenu(e, n)}
+                dragPayload={dragPayloadForItem({ kind: "note", path: n.path })}
                 sidebarIdx={noteIdx}
                 vimHighlight={vimCursor === noteIdx}
               />
@@ -2249,9 +2979,11 @@ function NoteLeaf({
   depth,
   showSidebarChevrons,
   active,
+  selected,
   sidebarFocused,
   onSelect,
   onContextMenu,
+  dragPayload,
   sidebarIdx,
   vimHighlight,
 }: {
@@ -2259,28 +2991,33 @@ function NoteLeaf({
   depth: number;
   showSidebarChevrons: boolean;
   active: boolean;
+  selected: boolean;
   sidebarFocused: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  dragPayload: DragPayload;
   sidebarIdx?: number;
   vimHighlight?: boolean;
 }): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
+  const selectionKey = noteSelectionKey(note.path);
 
   return (
     <button
       onClick={onSelect}
       onContextMenu={onContextMenu}
       draggable
-      onDragStart={(e) => setDragPayload(e, { kind: "note", path: note.path })}
+      onDragStart={(e) => setDragPayload(e, dragPayload)}
       className={[
-        "group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
             : sidebarFocused
               ? "text-accent"
               : "bg-accent text-white"
+          : selected
+            ? "bg-accent/[0.09] text-ink-900"
             : vimHighlight
               ? "vim-cursor"
               : "text-ink-700 hover:bg-paper-200/70",
@@ -2291,11 +3028,12 @@ function NoteLeaf({
             "data-sidebar-idx": sidebarIdx,
             "data-sidebar-type": "note",
             "data-sidebar-path": note.path,
+            "data-sidebar-select-key": selectionKey,
           }
         : {})}
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
-      <SidebarGlyph active={strongActive} rowActive={active}>
+      <SidebarGlyph active={strongActive} rowActive={active || selected}>
         <svg
           width="14"
           height="14"
@@ -2321,6 +3059,8 @@ function NoteLeaf({
               ? sidebarFocused && !vimHighlight
                 ? "text-accent/70"
                 : "text-white/70"
+              : selected
+                ? "text-accent/75"
               : "text-ink-400",
           ].join(" ")}
         >
@@ -2339,7 +3079,7 @@ function NoteLeaf({
         </span>
       )}
       {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active} label="menu" keyLabel="m" />
+        <RowKeyHint active={active || selected} label="menu" keyLabel="m" />
       )}
     </button>
   );
@@ -2350,6 +3090,7 @@ function AssetLeaf({
   vaultRoot,
   depth,
   showSidebarChevrons,
+  onOpen,
   onContextMenu,
   sidebarFocused,
   sidebarIdx,
@@ -2359,12 +3100,12 @@ function AssetLeaf({
   vaultRoot: string | null;
   depth: number;
   showSidebarChevrons: boolean;
+  onOpen: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   sidebarFocused: boolean;
   sidebarIdx?: number;
   vimHighlight?: boolean;
 }): JSX.Element {
-  const url = vaultRoot ? window.zen.resolveVaultAssetUrl(vaultRoot, asset.path) : null;
   const extension = asset.name.includes(".")
     ? asset.name.split(".").pop()?.toUpperCase() ?? ""
     : "";
@@ -2372,11 +3113,11 @@ function AssetLeaf({
   return (
     <button
       onClick={() => {
-        if (url) window.open(url, "_blank");
+        onOpen();
       }}
       onContextMenu={onContextMenu}
       className={[
-        "group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         vimHighlight ? "vim-cursor" : "text-ink-700 hover:bg-paper-200/70",
       ].join(" ")}
       style={{ paddingLeft: 4 + depth * 14 }}
@@ -2438,10 +3179,12 @@ function TreeRow({
   onDragLeave,
   onDrop,
   dropTarget = false,
+  selected = false,
   sidebarIdx,
   vimHighlight,
   sidebarFocused = false,
   sidebarData,
+  selectionKey,
   trailing,
   reserveLeadingSlot = true,
   showExpandChevron = true,
@@ -2454,7 +3197,7 @@ function TreeRow({
   collapsed: boolean;
   depth: number;
   onToggle: () => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent | React.KeyboardEvent) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
@@ -2462,10 +3205,12 @@ function TreeRow({
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   dropTarget?: boolean;
+  selected?: boolean;
   sidebarIdx?: number;
   vimHighlight?: boolean;
   sidebarFocused?: boolean;
   sidebarData?: { type: string; folder: string; subpath: string; key: string };
+  selectionKey?: string;
   /** Optional inline action(s) shown on the right edge, revealed on hover. */
   trailing?: JSX.Element;
   /** Keep a blank chevron column for non-expandable rows when alignment matters. */
@@ -2483,7 +3228,7 @@ function TreeRow({
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onSelect();
+          onSelect(e);
         }
       }}
       onContextMenu={onContextMenu}
@@ -2493,7 +3238,7 @@ function TreeRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
-        "group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -2502,6 +3247,8 @@ function TreeRow({
               : "bg-accent text-white"
           : dropTarget
             ? "bg-accent/20 text-ink-900 ring-1 ring-accent/60"
+            : selected
+              ? "bg-accent/[0.09] text-ink-900"
             : vimHighlight
               ? "vim-cursor"
               : "text-ink-800 hover:bg-paper-200/70",
@@ -2513,6 +3260,7 @@ function TreeRow({
             "data-sidebar-folder": sidebarData?.folder,
             "data-sidebar-subpath": sidebarData?.subpath,
             "data-sidebar-key": sidebarData?.key,
+            "data-sidebar-select-key": selectionKey,
           }
         : {})}
       style={{ paddingLeft: 4 + depth * 14 }}
@@ -2549,13 +3297,13 @@ function TreeRow({
       ) : reserveLeadingSlot ? (
         <span className="h-5 w-5 shrink-0" />
       ) : null}
-      <SidebarGlyph active={strongActive} rowActive={active}>
+      <SidebarGlyph active={strongActive} rowActive={active || selected}>
         {icon}
       </SidebarGlyph>
       <span className="flex-1 truncate">{label}</span>
       {sidebarFocused && vimHighlight && (
         <RowKeyHint
-          active={active}
+          active={active || selected}
           keyLabel="m"
           compact={typeof count === "number" && count > 0}
         />
@@ -2565,7 +3313,7 @@ function TreeRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-400",
+            strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-400",
           ].join(" ")}
         >
           {count}
