@@ -774,24 +774,7 @@ function isModifierKey(key: string): boolean {
   );
 }
 
-/**
- * Resolve the *physical* key from a KeyboardEvent.
- *
- * On macOS, modifier combos like Option+J or Hyper(=⌃⌥⇧⌘)+J produce
- * transformed glyphs in `event.key` (`ˆ`, `Ô`, …). Using those would
- * make the recorded shortcut depend on the active layout and fail to
- * round-trip — `Hyper+J` stored as `Ctrl+Alt+Shift+Mod+Ô` won't match
- * the next press of the same combo. `event.code` exposes the
- * layout-independent physical key (`KeyJ`, `Digit1`, `BracketLeft`)
- * which is what we actually want for letter / digit / symbol keys.
- *
- * Falls back to `event.key` for keys without a meaningful physical
- * mapping in the binding language (Space, Tab, Enter, F1–F24, arrows,
- * etc.) — these are the same regardless of modifier state.
- */
-function physicalKeyFromEvent(event: KeyboardEvent): string | null {
-  if (isModifierKey(event.key)) return null;
-  const code = event.code;
+function physicalKeyFromCode(code: string): string | null {
   if (/^Key[A-Z]$/.test(code)) return code.slice(3);
   if (/^Digit\d$/.test(code)) return code.slice(5);
   if (/^Numpad\d$/.test(code)) return code.slice(6);
@@ -831,6 +814,42 @@ function physicalKeyFromEvent(event: KeyboardEvent): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * Resolve the binding key from a KeyboardEvent.
+ *
+ * Layout-aware: when `event.key` is a single printable ASCII char it
+ * reflects what the active keyboard layout *typed* (Colemak/Dvorak
+ * users want `Cmd+P` to fire on whichever physical key produces `p`,
+ * not on the QWERTY-P position). Letters are uppercased so binding
+ * comparison is case-insensitive (Shift state is encoded separately).
+ *
+ * Falls back to `event.code` (physical position) when `event.key` is
+ * unusable. On macOS, Alt-bearing combos like Option+J or Hyper
+ * (=⌃⌥⇧⌘)+J produce transformed glyphs (`ˆ`, `Ô`, …) outside ASCII;
+ * the fallback keeps Hyper+J recording as `J` so those bindings
+ * round-trip cleanly.
+ *
+ * Returns `null` for modifier-only events, dead-key composition
+ * (`event.key === 'Dead'`/`'Process'`), and special keys (Space, Tab,
+ * Enter, F1–F24, arrows) — the caller resolves those via
+ * `normalizeKeyName(event.key)`.
+ */
+function resolveKeyFromEvent(event: KeyboardEvent): string | null {
+  if (isModifierKey(event.key)) return null;
+  const k = event.key;
+  // Skip the typed-char fast path for '+': it is the binding-string
+  // separator, so emitting it would produce unparsable strings like
+  // "Mod+Shift++". Fall through to physicalKeyFromCode (event.code
+  // = "Equal" -> "=" for Shift+Cmd+=).
+  if (k.length === 1 && k !== "+") {
+    const cp = k.charCodeAt(0);
+    if (cp > 0x20 && cp < 0x7f) {
+      return k.toUpperCase();
+    }
+  }
+  return physicalKeyFromCode(event.code);
 }
 
 function normalizeKeyName(key: string): string | null {
@@ -986,13 +1005,8 @@ export function normalizeKeymapOverrides(input: unknown): KeymapOverrides {
 
 export function shortcutBindingFromEvent(event: KeyboardEvent): string | null {
   const mac = isMacPlatform();
-  // Prefer event.code for keys that have a physical position (letters,
-  // digits, symbols). This preserves Hyper+J as `Hyper+J` instead of the
-  // transformed glyph macOS produces in event.key under heavy modifier
-  // combos. Falls back to event.key for non-physical keys (Space,
-  // F-keys, arrows, etc.).
-  const physical = physicalKeyFromEvent(event);
-  const key = physical ?? normalizeKeyName(event.key);
+  const resolved = resolveKeyFromEvent(event);
+  const key = resolved ?? normalizeKeyName(event.key);
   if (!key) return null;
   const modifiers: string[] = [];
   if (event.ctrlKey) modifiers.push(mac ? "Ctrl" : "Mod");
@@ -1003,16 +1017,16 @@ export function shortcutBindingFromEvent(event: KeyboardEvent): string | null {
 }
 
 export function sequenceTokenFromEvent(event: KeyboardEvent): string | null {
-  const physical = physicalKeyFromEvent(event);
+  const resolved = resolveKeyFromEvent(event);
   // Sequence tokens are case-sensitive for letters (`<leader>q` vs
-  // `<leader>Q` are different bindings). The physical-key path returns
-  // uppercase letter codes — fold them down so unmodified letters still
+  // `<leader>Q` are different bindings). resolveKeyFromEvent returns
+  // uppercase letters — fold them down so unmodified letters still
   // produce lowercase tokens, then promote to upper if Shift is held.
   let base: string | null
-  if (physical && /^[A-Z]$/.test(physical)) {
-    base = event.shiftKey ? physical : physical.toLowerCase()
-  } else if (physical) {
-    base = physical
+  if (resolved && /^[A-Z]$/.test(resolved)) {
+    base = event.shiftKey ? resolved : resolved.toLowerCase()
+  } else if (resolved) {
+    base = resolved
   } else {
     base = normalizeSequenceBaseToken(event.key);
   }

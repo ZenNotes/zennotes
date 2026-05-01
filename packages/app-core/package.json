@@ -63,7 +63,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc --noEmit -p tsconfig.json",
-    "test": "echo 'No app-core tests yet'",
-    "test:run": "echo 'No app-core tests yet'"
+    "test": "vitest",
+    "test:run": "vitest run"
   }
 }
