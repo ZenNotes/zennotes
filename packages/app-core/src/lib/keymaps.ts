@@ -18,6 +18,9 @@ export type KeymapId =
   | "global.toggleSidebar"
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
+  | "global.modeEdit"
+  | "global.modeSplit"
+  | "global.modePreview"
   | "global.toggleZenMode"
   | "global.closeActiveTab"
   | "global.toggleWordWrap"
@@ -167,6 +170,33 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Toggle outline panel",
     description: "Toggle the outline panel in the active pane.",
     defaultBinding: "Mod+3",
+  },
+  {
+    id: "global.modeEdit",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Switch to editor mode",
+    description: "Show only the markdown editor for the active note.",
+    defaultBinding: "Mod+4",
+  },
+  {
+    id: "global.modeSplit",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Switch to split mode",
+    description: "Show the editor and rendered preview side by side.",
+    defaultBinding: "Mod+5",
+  },
+  {
+    id: "global.modePreview",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Switch to preview mode",
+    description: "Show only the rendered preview for the active note.",
+    defaultBinding: "Mod+6",
   },
   {
     id: "global.toggleZenMode",

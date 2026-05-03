@@ -19,6 +19,7 @@ import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHos
 import { PinnedReferencePane } from './components/PinnedReferencePane'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut } from './lib/keymaps'
+import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 
 function App(): JSX.Element {
@@ -308,6 +309,21 @@ function App(): JSX.Element {
       if (matchesShortcut(e, overrides, 'global.toggleOutlinePanel')) {
         e.preventDefault()
         window.dispatchEvent(new Event('zen:toggle-outline'))
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.modeEdit')) {
+        e.preventDefault()
+        requestPaneMode('edit')
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.modeSplit')) {
+        e.preventDefault()
+        requestPaneMode('split')
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.modePreview')) {
+        e.preventDefault()
+        requestPaneMode('preview')
         return
       }
       // ⌘. — toggle Zen mode

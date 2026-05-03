@@ -37,6 +37,7 @@ import { Vim, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
@@ -393,6 +394,7 @@ export function QuickCaptureApp(): JSX.Element {
           highlightActiveLine(),
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
+          markdownListIndentPlugin,
           syntaxHighlighting(captureHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),

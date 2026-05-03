@@ -452,8 +452,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.mode.edit',
       title: 'Switch to Edit Mode',
       category: 'View',
-      shortcut: ':editmode',
-      keywords: 'editor writing raw markdown pane mode toolbar',
+      shortcut: shortcut('global.modeEdit'),
+      keywords: 'editor writing raw markdown pane mode toolbar editmode',
       when: () => !!getState().activeNote,
       run: () => requestPaneMode('edit')
     },
@@ -461,8 +461,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.mode.split',
       title: 'Switch to Split Mode',
       category: 'View',
-      shortcut: ':splitmode',
-      keywords: 'editor preview side by side pane mode toolbar',
+      shortcut: shortcut('global.modeSplit'),
+      keywords: 'editor preview side by side pane mode toolbar splitmode',
       when: () => !!getState().activeNote,
       run: () => requestPaneMode('split')
     },
@@ -470,8 +470,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.mode.preview',
       title: 'Switch to Preview Mode',
       category: 'View',
-      shortcut: ':previewmode',
-      keywords: 'reading rendered markdown pane mode toolbar',
+      shortcut: shortcut('global.modePreview'),
+      keywords: 'reading rendered markdown pane mode toolbar previewmode',
       when: () => !!getState().activeNote,
       run: () => requestPaneMode('preview')
     },

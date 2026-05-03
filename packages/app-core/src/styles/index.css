@@ -1168,6 +1168,7 @@ textarea,
 }
 .cm-editor .cm-scroller {
   font-family: inherit;
+  line-height: var(--z-editor-line-height, 1.7);
   padding: 16px 0 35vh 0;
   overflow-y: auto;
   /* `auto` so long lines can scroll horizontally when word wrap is
@@ -1183,7 +1184,7 @@ textarea,
   margin: 0 auto;
   padding: 0 32px;
   caret-color: rgb(var(--z-accent));
-  line-height: inherit;
+  line-height: var(--z-editor-line-height, 1.7);
 }
 :root[data-content-align="left"] .cm-editor .cm-content {
   margin: 0;
@@ -1194,7 +1195,11 @@ textarea,
 }
 .cm-editor .cm-line {
   padding: 0;
-  line-height: inherit;
+  line-height: var(--z-editor-line-height, 1.7);
+}
+.cm-editor .cm-line.cm-markdown-list-line {
+  padding-left: var(--z-list-hanging-indent, 0);
+  text-indent: calc(var(--z-list-hanging-indent, 0) * -1);
 }
 .cm-editor .cm-cursor,
 .cm-editor .cm-dropCursor {
@@ -1399,6 +1404,7 @@ textarea,
   padding: 0 8px 0 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
+  line-height: var(--z-editor-line-height, 1.7);
   background: transparent;
 }
 .cm-editor .cm-activeLineGutter {
@@ -1764,13 +1770,29 @@ textarea,
 .prose-zen li.task-list-item {
   list-style: none;
   margin-left: -1.4em;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 0.5em;
+  row-gap: calc(var(--z-prose-block-gap) * 0.45);
   align-items: flex-start;
-  gap: 0.5em;
+}
+.prose-zen li.task-list-item > p:first-child {
+  display: contents;
 }
 .prose-zen li.task-list-item input[type="checkbox"] {
+  grid-column: 1;
   margin-top: 0.45em;
   accent-color: theme("colors.accent.DEFAULT");
+}
+.prose-zen li.task-list-item > p:not(:first-child),
+.prose-zen li.task-list-item > ul,
+.prose-zen li.task-list-item > ol {
+  grid-column: 2;
+}
+.prose-zen li.task-list-item > ul,
+.prose-zen li.task-list-item > ol {
+  margin-top: 0;
+  margin-bottom: 0;
 }
 .prose-zen blockquote {
   margin: var(--z-prose-block-gap) 0;

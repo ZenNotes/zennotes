@@ -48,6 +48,7 @@ import {
 } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
@@ -124,6 +125,23 @@ import {
   isAssetTabPath
 } from '../lib/asset-tabs'
 import { classifyLocalAssetHref } from '../lib/local-assets'
+import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
+
+const MODE_OPTIONS: Array<{
+  mode: PaneMode
+  label: string
+  tooltipLabel: string
+  keymapId: KeymapId
+}> = [
+  { mode: 'edit', label: 'Edit', tooltipLabel: 'Editor mode', keymapId: 'global.modeEdit' },
+  { mode: 'split', label: 'Split', tooltipLabel: 'Split mode', keymapId: 'global.modeSplit' },
+  {
+    mode: 'preview',
+    label: 'Preview',
+    tooltipLabel: 'Preview mode',
+    keymapId: 'global.modePreview'
+  }
+]
 
 const paperHighlight = HighlightStyle.define([
   // Markdown-level tokens
@@ -817,6 +835,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           commentDecorationField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
+          markdownListIndentPlugin,
           headingFolding(),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -2460,20 +2479,28 @@ function ToggleGroup({
   mode: PaneMode
   onChange: (m: PaneMode) => void
 }): JSX.Element {
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
-      {(['edit', 'split', 'preview'] as PaneMode[]).map((m) => (
-        <button
-          key={m}
-          onClick={() => onChange(m)}
-          className={[
-            'rounded px-2 py-1 transition-colors',
-            mode === m ? 'bg-paper-50 text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-800'
-          ].join(' ')}
-        >
-          {m === 'edit' ? 'Edit' : m === 'split' ? 'Split' : 'Preview'}
-        </button>
-      ))}
+      {MODE_OPTIONS.map((option) => {
+        const shortcut = getKeymapDisplay(keymapOverrides, option.keymapId)
+        return (
+          <button
+            key={option.mode}
+            onClick={() => onChange(option.mode)}
+            title={`${option.tooltipLabel} (${shortcut})`}
+            aria-label={`${option.tooltipLabel} (${shortcut})`}
+            className={[
+              'rounded px-2 py-1 transition-colors',
+              mode === option.mode
+                ? 'bg-paper-50 text-ink-900 shadow-sm'
+                : 'text-ink-500 hover:text-ink-800'
+            ].join(' ')}
+          >
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }

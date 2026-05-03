@@ -79,6 +79,44 @@ type PendingDecoration = {
   deco: Decoration
 }
 
+type SyntaxNodeLike = {
+  name: string
+  from: number
+  to: number
+  parent: SyntaxNodeLike | null
+}
+
+type SyntaxNodeRefLike = {
+  node: SyntaxNodeLike
+}
+
+function selectionTouchesRange(
+  state: EditorView['state'],
+  from: number,
+  to: number
+): boolean {
+  for (const range of state.selection.ranges) {
+    if (range.empty) {
+      if (range.from >= from && range.from <= to) return true
+      continue
+    }
+    if (Math.max(range.from, from) < Math.min(range.to, to)) return true
+  }
+  return false
+}
+
+function enclosingLinkRange(ref: SyntaxNodeRefLike): { from: number; to: number } | null {
+  let node: SyntaxNodeLike | null = ref.node
+  while (node) {
+    if (node.name === 'Link' || node.name === 'Image') {
+      return { from: node.from, to: node.to }
+    }
+    if (node.name === 'Paragraph' || node.name === 'Document') break
+    node = node.parent
+  }
+  return null
+}
+
 function createImageDragPreview(title: string): HTMLDivElement {
   const chip = document.createElement('div')
   chip.style.position = 'fixed'
@@ -617,6 +655,7 @@ function computeDecorations(view: EditorView): DecorationSet {
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE
+        const isLinkSyntax = name === 'LinkMark' || isUrl
 
         // Only hide URL nodes that are link targets — preceded by `(`
         if (isUrl) {
@@ -633,7 +672,11 @@ function computeDecorations(view: EditorView): DecorationSet {
             node.node.parent?.name === 'FencedCode') return
 
         const line = state.doc.lineAt(node.from).number
-        if (activeLines.has(line) || replacedLines.has(line)) return
+        if (replacedLines.has(line)) return
+        if (isLinkSyntax) {
+          const linkRange = enclosingLinkRange(node)
+          if (linkRange && selectionTouchesRange(state, linkRange.from, linkRange.to)) return
+        } else if (activeLines.has(line)) return
 
         let start = node.from
         let end = node.to

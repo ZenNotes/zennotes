@@ -897,7 +897,7 @@ export function SettingsModal(): JSX.Element {
             />
             <SliderRow
               label="Line height"
-              description="Vertical spacing between lines."
+              description="Editor and preview line spacing."
               value={editorLineHeight}
               min={1.2}
               max={2.4}
