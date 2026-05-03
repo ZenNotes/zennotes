@@ -42,7 +42,7 @@ describe('renderMarkdown', () => {
     const html = renderMarkdown('![[CleanShot 2026-04-13 at 14.31.31@2x.png]]')
 
     expect(html).toContain('<img')
-    expect(html).toContain('src="CleanShot 2026-04-13 at 14.31.31@2x.png"')
+    expect(html).toContain('src="CleanShot%202026-04-13%20at%2014.31.31@2x.png"')
     expect(html).toContain('alt="CleanShot 2026-04-13 at 14.31.31@2x.png"')
   })
 })

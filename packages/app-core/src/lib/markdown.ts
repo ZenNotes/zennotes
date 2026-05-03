@@ -70,7 +70,93 @@ function sanitizeRenderedHtml(html: string): string {
 }
 
 function remarkWikilinks() {
+  function buildWikilinkNode(bang: string, target: string, label: string): AnyNode {
+    const assetKind = classifyLocalAssetHref(target)
+    if (bang === '!' && assetKind === 'image') {
+      return {
+        type: 'image',
+        url: target,
+        title: null,
+        alt: label
+      }
+    }
+    if (bang === '!' && assetKind) {
+      return {
+        type: 'link',
+        url: target,
+        title: null,
+        children: [{ type: 'text', value: label }]
+      }
+    }
+    return {
+      type: 'link',
+      url: `zen://note/${encodeURIComponent(target)}`,
+      title: null,
+      data: {
+        hProperties: {
+          className: ['wikilink'],
+          'data-wikilink': target
+        }
+      },
+      children: [{ type: 'text', value: label }]
+    }
+  }
+
+  function inlineText(node: AnyNode): string | null {
+    if (node.type === 'text') return String(node.value ?? '')
+    const children = (node as Partial<AnyParent>).children
+    if (Array.isArray(children)) {
+      const parts = children.map((child) => inlineText(child))
+      return parts.every((part): part is string => part != null) ? parts.join('') : null
+    }
+    return null
+  }
+
+  function replaceSplitWikilinks(parent: AnyParent): void {
+    for (let index = 0; index < parent.children.length; index += 1) {
+      const first = inlineText(parent.children[index]!)
+      if (!first || !first.includes('[[')) continue
+
+      const open = first.indexOf('[[')
+      const hasBang = open > 0 && first[open - 1] === '!'
+      const prefixEnd = hasBang ? open - 1 : open
+      let combined = first.slice(open + 2)
+      let endIndex = combined.indexOf(']]')
+      let endNodeIndex = index
+
+      while (endIndex === -1 && endNodeIndex + 1 < parent.children.length) {
+        endNodeIndex += 1
+        const next = inlineText(parent.children[endNodeIndex]!)
+        if (next == null) return
+        combined += next
+        endIndex = combined.indexOf(']]')
+      }
+
+      if (endIndex === -1 || endNodeIndex === index) continue
+
+      const raw = combined.slice(0, endIndex)
+      const [rawTarget, rawLabel] = raw.split('|', 2)
+      const target = rawTarget?.trim() ?? ''
+      if (!target) continue
+
+      const label = (rawLabel ?? rawTarget ?? '').trim()
+      const replacement: AnyNode[] = []
+      const prefix = first.slice(0, prefixEnd)
+      const suffix = combined.slice(endIndex + 2)
+      if (prefix) replacement.push({ type: 'text', value: prefix })
+      replacement.push(buildWikilinkNode(hasBang ? '!' : '', target, label))
+      if (suffix) replacement.push({ type: 'text', value: suffix })
+
+      parent.children.splice(index, endNodeIndex - index + 1, ...replacement)
+      index += replacement.length - 1
+    }
+  }
+
   return (tree: MdRoot): void => {
+    visit(tree, 'paragraph', (node) => {
+      replaceSplitWikilinks(node as unknown as AnyParent)
+    })
+
     visit(tree, 'text', (node, index, parent) => {
       if (!parent || index === undefined) return
       const p = parent as unknown as AnyParent
@@ -90,35 +176,7 @@ function remarkWikilinks() {
         const bang = m[1] ?? ''
         const target = m[2].trim()
         const label = (m[3] ?? m[2]).trim()
-        const assetKind = classifyLocalAssetHref(target)
-        if (bang === '!' && assetKind === 'image') {
-          next.push({
-            type: 'image',
-            url: target,
-            title: null,
-            alt: label
-          })
-        } else if (bang === '!' && assetKind) {
-          next.push({
-            type: 'link',
-            url: target,
-            title: null,
-            children: [{ type: 'text', value: label }]
-          })
-        } else {
-          next.push({
-            type: 'link',
-            url: `zen://note/${encodeURIComponent(target)}`,
-            title: null,
-            data: {
-              hProperties: {
-                className: ['wikilink'],
-                'data-wikilink': target
-              }
-            },
-            children: [{ type: 'text', value: label }]
-          })
-        }
+        next.push(buildWikilinkNode(bang, target, label))
         last = regex.lastIndex
       }
       if (!changed) return
