@@ -6,20 +6,28 @@
  * Jumping is delegated to the host via `onJump(line)` because the
  * panel doesn't own a CodeMirror view; EditorPane targets its local
  * `viewRef` so clicks work even when this isn't the active pane.
+ *
+ * `activeLine` (when provided) marks which heading the host considers
+ * "currently visible" based on scroll position. The matching row is
+ * highlighted and auto-scrolled into view so users can orient at a
+ * glance as they scroll through long notes.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteContent } from '@shared/ipc'
 import { parseOutline } from '../lib/outline'
 
 interface Props {
   note: NoteContent
+  /** 1-based line of the heading the host wants visually marked. */
+  activeLine?: number | null
   /** Jump the host pane's editor to the given 1-based line. */
   onJump: (line: number) => void
 }
 
-export function OutlinePanel({ note, onJump }: Props): JSX.Element {
+export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
   const items = useMemo(() => parseOutline(note.body), [note.body])
   const [query, setQuery] = useState('')
+  const activeItemRef = useRef<HTMLLIElement | null>(null)
 
   // Reset the filter when the note changes so the outline reflects the
   // new document from the top.
@@ -30,6 +38,13 @@ export function OutlinePanel({ note, onJump }: Props): JSX.Element {
     if (!q) return items
     return items.filter((item) => item.text.toLowerCase().includes(q))
   }, [items, query])
+
+  // Keep the active heading in view as the user scrolls. `nearest`
+  // avoids fighting them when the row is already visible.
+  useEffect(() => {
+    if (activeLine == null) return
+    activeItemRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [activeLine])
 
   return (
     <section
@@ -61,22 +76,39 @@ export function OutlinePanel({ note, onJump }: Props): JSX.Element {
           </div>
         ) : (
           <ul className="flex flex-col">
-            {filtered.map((item) => (
-              <li key={`${item.line}-${item.from}`}>
-                <button
-                  type="button"
-                  onClick={() => onJump(item.line)}
-                  title={`Jump to line ${item.line}`}
-                  className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-sm text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
-                  style={{ paddingLeft: `${8 + (item.level - 1) * 12}px` }}
+            {filtered.map((item) => {
+              const isActive = activeLine != null && item.line === activeLine
+              return (
+                <li
+                  key={`${item.line}-${item.from}`}
+                  ref={isActive ? activeItemRef : undefined}
                 >
-                  <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-400">
-                    H{item.level}
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{item.text}</span>
-                </button>
-              </li>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => onJump(item.line)}
+                    title={`Jump to line ${item.line}`}
+                    aria-current={isActive ? 'true' : undefined}
+                    className={[
+                      'flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors',
+                      isActive
+                        ? 'bg-accent/12 font-medium text-accent'
+                        : 'text-ink-700 hover:bg-paper-200 hover:text-ink-900'
+                    ].join(' ')}
+                    style={{ paddingLeft: `${8 + (item.level - 1) * 12}px` }}
+                  >
+                    <span
+                      className={[
+                        'shrink-0 text-[10px] uppercase tracking-wide',
+                        isActive ? 'text-accent/75' : 'text-ink-400'
+                      ].join(' ')}
+                    >
+                      H{item.level}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{item.text}</span>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

@@ -87,6 +87,7 @@ import {
   readImageBlockDragPayload
 } from '../lib/image-block-dnd'
 import { useSettledMarkdown } from '../lib/use-rendered-markdown'
+import { parseOutline } from '../lib/outline'
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
@@ -515,6 +516,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [mode, setMode] = useState<PaneMode>('edit')
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
+  const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null)
   const [selectionCommentAction, setSelectionCommentAction] =
@@ -545,6 +547,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const ignoreEditorScrollRef = useRef(false)
   const ignorePreviewScrollRef = useRef(false)
   const pendingOutlineJumpLineRef = useRef<number | null>(null)
+  const activeOutlineLineRef = useRef<number | null>(null)
+  const activeOutlineFrameRef = useRef<number | null>(null)
   const selectionActionFrameRef = useRef<number | null>(null)
   const taskJumpHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /**
@@ -788,6 +792,84 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:outline-jump', handler)
     return () => window.removeEventListener('zen:outline-jump', handler)
   }, [isActive, jumpToOutlineLine])
+
+  // Outline items derived from the current note body — line numbers
+  // here are 1-based to match `parseOutline` and the editor's doc API.
+  const outlineItems = useMemo(
+    () => parseOutline(content?.body ?? ''),
+    [content?.body]
+  )
+
+  const setActiveOutlineLineSafely = useCallback((line: number | null) => {
+    if (activeOutlineLineRef.current === line) return
+    activeOutlineLineRef.current = line
+    setActiveOutlineLine(line)
+  }, [])
+
+  const computeActiveFromEditor = useCallback(() => {
+    const view = viewRef.current
+    if (!view) return
+    if (outlineItems.length === 0) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    // Probe ~25% down the viewport (capped) so a heading is considered
+    // active once it scrolls into the upper portion of the visible area
+    // — not only after it has scrolled past the very top edge.
+    const rect = view.scrollDOM.getBoundingClientRect()
+    const probeY = rect.top + Math.min(140, rect.height * 0.25)
+    const pos = view.posAtCoords({ x: rect.left + 8, y: probeY })
+    if (pos == null) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    const probeLine = view.state.doc.lineAt(pos).number
+    let activeLine: number | null = null
+    for (const item of outlineItems) {
+      if (item.line <= probeLine) activeLine = item.line
+      else break
+    }
+    setActiveOutlineLineSafely(activeLine)
+  }, [outlineItems, setActiveOutlineLineSafely])
+
+  const computeActiveFromPreview = useCallback(() => {
+    const dom = previewScrollRef.current
+    if (!dom) return
+    if (outlineItems.length === 0) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    const headings = dom.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6')
+    if (headings.length === 0) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    // Match the editor probe: a heading counts as active once it sits
+    // inside the upper ~25% band of the preview viewport.
+    const rect = dom.getBoundingClientRect()
+    const threshold = rect.top + Math.min(140, rect.height * 0.25)
+    let activeIndex = -1
+    for (let i = 0; i < headings.length; i++) {
+      if (headings[i].getBoundingClientRect().top <= threshold) activeIndex = i
+      else break
+    }
+    if (activeIndex < 0) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    const item = outlineItems[Math.min(activeIndex, outlineItems.length - 1)]
+    setActiveOutlineLineSafely(item?.line ?? null)
+  }, [outlineItems, setActiveOutlineLineSafely])
+
+  const scheduleActiveOutlineUpdate = useCallback((compute: () => void) => {
+    if (activeOutlineFrameRef.current != null) {
+      cancelAnimationFrame(activeOutlineFrameRef.current)
+    }
+    activeOutlineFrameRef.current = requestAnimationFrame(() => {
+      activeOutlineFrameRef.current = null
+      compute()
+    })
+  }, [])
 
   // Mount / unmount the CodeMirror view via a callback ref on the host
   // div. The callback identity is stable so React only invokes it on
@@ -1977,6 +2059,67 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     focusEditorNormalMode()
   }, [applyPaneMode, mode])
 
+  // Track the topmost-visible heading and surface it as the active
+  // outline item. We listen on whichever surface is the user's scroll
+  // target for the current mode — split mode follows the editor since
+  // that's where typing happens.
+  useEffect(() => {
+    if (!outlineOpen) {
+      setActiveOutlineLineSafely(null)
+      return
+    }
+    if (mode === 'preview') return
+    const view = viewRef.current
+    if (!view) return
+    const dom = view.scrollDOM
+    const handler = (): void => scheduleActiveOutlineUpdate(computeActiveFromEditor)
+    dom.addEventListener('scroll', handler, { passive: true })
+    handler()
+    return () => {
+      dom.removeEventListener('scroll', handler)
+      if (activeOutlineFrameRef.current != null) {
+        cancelAnimationFrame(activeOutlineFrameRef.current)
+        activeOutlineFrameRef.current = null
+      }
+    }
+  }, [
+    computeActiveFromEditor,
+    content?.path,
+    mode,
+    outlineItems,
+    outlineOpen,
+    scheduleActiveOutlineUpdate,
+    setActiveOutlineLineSafely
+  ])
+
+  useEffect(() => {
+    if (!outlineOpen) return
+    if (mode !== 'preview') return
+    const dom = previewScrollRef.current
+    if (!dom) return
+    const handler = (): void => scheduleActiveOutlineUpdate(computeActiveFromPreview)
+    dom.addEventListener('scroll', handler, { passive: true })
+    // Wait a frame so the preview has had a chance to render headings
+    // for the current `previewMarkdown` before we measure.
+    const initial = requestAnimationFrame(() => computeActiveFromPreview())
+    return () => {
+      cancelAnimationFrame(initial)
+      dom.removeEventListener('scroll', handler)
+      if (activeOutlineFrameRef.current != null) {
+        cancelAnimationFrame(activeOutlineFrameRef.current)
+        activeOutlineFrameRef.current = null
+      }
+    }
+  }, [
+    computeActiveFromPreview,
+    content?.path,
+    mode,
+    outlineItems,
+    outlineOpen,
+    previewMarkdown,
+    scheduleActiveOutlineUpdate
+  ])
+
   const paneFrameClass = [
     'relative flex min-h-0 min-w-0 flex-1 flex-col',
     isActive ? '' : 'opacity-[0.98]'
@@ -2171,7 +2314,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           />
         )}
         {content && outlineOpen && !zenMode && (
-          <OutlinePanel note={content} onJump={jumpToOutlineLine} />
+          <OutlinePanel
+            note={content}
+            activeLine={activeOutlineLine}
+            onJump={jumpToOutlineLine}
+          />
         )}
       </div>
       {content &&
