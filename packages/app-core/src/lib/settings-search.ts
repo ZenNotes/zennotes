@@ -3,6 +3,8 @@ export interface SettingsSearchItem {
   title: string
   description?: string
   keywords?: string[]
+  targetId?: string
+  available?: boolean
 }
 
 export interface SettingsSearchCategory<TCategoryId extends string = string> {
@@ -77,7 +79,7 @@ function settingResult<TCategory extends SettingsSearchCategory>(
     type: 'setting',
     title: item.title,
     description: item.description ?? category.description,
-    targetId: item.id,
+    targetId: item.targetId ?? item.id,
     category,
     item
   }
@@ -91,8 +93,8 @@ export function getSettingsSearchResults<TCategory extends SettingsSearchCategor
   if (!normalized) return categories.map(categoryResult)
 
   return categories.flatMap((category) => {
-    const matchedItems = (category.searchItems ?? []).filter((item) =>
-      itemMatches(item, normalized)
+    const matchedItems = (category.searchItems ?? []).filter(
+      (item) => item.available !== false && itemMatches(item, normalized)
     )
     if (matchedItems.length > 0) {
       return matchedItems.map((item) => settingResult(category, item))

@@ -185,7 +185,10 @@ function formatReleaseNotesForDisplay(notes: string | null): string | null {
 }
 
 export function SettingsModal(): JSX.Element {
-  const appInfo = getZenBridge().getAppInfo()
+  const zenBridge = getZenBridge()
+  const appInfo = zenBridge.getAppInfo()
+  const supportsRemoteWorkspace =
+    appInfo.runtime === 'desktop' && zenBridge.getCapabilities().supportsRemoteWorkspace
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
@@ -620,6 +623,14 @@ export function SettingsModal(): JSX.Element {
     })
   }, [])
 
+  const leaderKeyHintsTargetId = vimMode ? 'leader-key-hints' : 'vim-mode'
+  const leaderHintBehaviorTargetId =
+    vimMode && whichKeyHints ? 'leader-hint-behavior' : leaderKeyHintsTargetId
+  const leaderHintDurationTargetId =
+    vimMode && whichKeyHints && whichKeyHintMode === 'timed'
+      ? 'leader-hint-duration'
+      : leaderHintBehaviorTargetId
+
   const categories: SettingsCategory[] = [
     {
       id: 'appearance',
@@ -643,7 +654,8 @@ export function SettingsModal(): JSX.Element {
           id: 'theme-variant',
           title: 'Theme variant',
           description: 'Choose a family-specific contrast, flavor, or variant.',
-          keywords: ['variant', 'contrast', 'flavor']
+          keywords: ['variant', 'contrast', 'flavor'],
+          available: visibleVariants.length > 1
         },
         {
           id: 'dark-sidebar',
@@ -776,19 +788,22 @@ export function SettingsModal(): JSX.Element {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
-          keywords: ['leader', 'which-key']
+          keywords: ['leader', 'which-key'],
+          targetId: leaderKeyHintsTargetId
         },
         {
           id: 'leader-hint-behavior',
           title: 'Leader hint behavior',
           description: 'Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it.',
-          keywords: ['leader', 'sticky', 'timed']
+          keywords: ['leader', 'sticky', 'timed'],
+          targetId: leaderHintBehaviorTargetId
         },
         {
           id: 'leader-hint-duration',
           title: 'Leader hint duration',
           description: 'How long the leader overlay stays visible, and how long the pending leader sequence remains armed.',
-          keywords: ['leader', 'timeout', 'delay']
+          keywords: ['leader', 'timeout', 'delay'],
+          targetId: leaderHintDurationTargetId
         },
         {
           id: 'vault-text-search-backend',
@@ -1240,7 +1255,8 @@ export function SettingsModal(): JSX.Element {
           id: 'saved-remote-workspaces',
           title: 'Saved Remote Workspaces',
           description: 'Keep multiple ZenNotes servers and vaults ready to reconnect.',
-          keywords: ['remote', 'server', 'workspace', 'connect']
+          keywords: ['remote', 'server', 'workspace', 'connect'],
+          available: supportsRemoteWorkspace
         },
         {
           id: 'primary-notes-location',
@@ -1340,7 +1356,7 @@ export function SettingsModal(): JSX.Element {
                   Open Local Vault…
                 </button>
               )}
-              {appInfo.runtime === 'desktop' && getZenBridge().getCapabilities().supportsRemoteWorkspace && (
+              {supportsRemoteWorkspace && (
                 <button
                   onClick={() => void connectRemoteWorkspace()}
                   className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
@@ -1351,7 +1367,7 @@ export function SettingsModal(): JSX.Element {
             </div>
           </Section>
 
-          {appInfo.runtime === 'desktop' && getZenBridge().getCapabilities().supportsRemoteWorkspace && (
+          {supportsRemoteWorkspace && (
             <Section
               title="Saved Remote Workspaces"
               description="Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens."
