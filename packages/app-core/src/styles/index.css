@@ -2410,16 +2410,32 @@ textarea,
 }
 
 [data-settings-search-id] {
-  transition:
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+  scroll-margin-block: 24px;
+  transition: background-color 180ms ease;
 }
 
 [data-settings-search-highlight="true"] {
-  background: rgb(var(--z-accent) / 0.12);
-  box-shadow:
-    inset 3px 0 0 rgb(var(--z-accent) / 0.82),
-    inset 0 0 0 1px rgb(var(--z-accent) / 0.26);
+  background: rgb(var(--z-accent) / 0.055);
+  animation: settings-search-target-tint 2000ms ease-out;
+}
+
+@keyframes settings-search-target-tint {
+  0% {
+    background: rgb(var(--z-accent) / 0);
+  }
+  12%,
+  72% {
+    background: rgb(var(--z-accent) / 0.07);
+  }
+  100% {
+    background: rgb(var(--z-accent) / 0.025);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-settings-search-highlight="true"] {
+    animation: none;
+  }
 }
 
 /* ===========================================================================
