@@ -66,6 +66,27 @@ interface SettingsCategory extends SettingsSearchCategory<SettingsCategoryId> {
   content: JSX.Element
 }
 
+function settingsSearchTargetProps(
+  settingId: string | undefined
+): { 'data-settings-search-id'?: string } {
+  return settingId ? { 'data-settings-search-id': settingId } : {}
+}
+
+function findSettingsSearchTarget(root: HTMLElement, targetId: string): HTMLElement | null {
+  for (const element of root.querySelectorAll<HTMLElement>('[data-settings-search-id]')) {
+    if (element.dataset.settingsSearchId === targetId) return element
+  }
+  return null
+}
+
+function clearSettingsSearchHighlights(root: HTMLElement): void {
+  root
+    .querySelectorAll<HTMLElement>('[data-settings-search-highlight="true"]')
+    .forEach((element) => {
+      delete element.dataset.settingsSearchHighlight
+    })
+}
+
 function resolveVaultTextSearchBackend(
   preferred: VaultTextSearchBackendPreference,
   capabilities: VaultTextSearchCapabilities | null
@@ -517,6 +538,7 @@ export function SettingsModal(): JSX.Element {
   }
 
   const ref = useRef<HTMLDivElement | null>(null)
+  const settingsSearchHighlightTimerRef = useRef<number | null>(null)
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
   const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null)
   const [navQuery, setNavQuery] = useState('')
@@ -564,6 +586,40 @@ export function SettingsModal(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [setSettingsOpen])
 
+  useEffect(() => {
+    return () => {
+      if (settingsSearchHighlightTimerRef.current != null) {
+        window.clearTimeout(settingsSearchHighlightTimerRef.current)
+      }
+    }
+  }, [])
+
+  const jumpToSettingsSearchTarget = useCallback((targetId: string): void => {
+    if (settingsSearchHighlightTimerRef.current != null) {
+      window.clearTimeout(settingsSearchHighlightTimerRef.current)
+      settingsSearchHighlightTimerRef.current = null
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const root = ref.current
+        if (!root) return
+
+        const target = findSettingsSearchTarget(root, targetId)
+        if (!target) return
+
+        clearSettingsSearchHighlights(root)
+        target.dataset.settingsSearchHighlight = 'true'
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+
+        settingsSearchHighlightTimerRef.current = window.setTimeout(() => {
+          delete target.dataset.settingsSearchHighlight
+          settingsSearchHighlightTimerRef.current = null
+        }, 2000)
+      })
+    })
+  }, [])
+
   const categories: SettingsCategory[] = [
     {
       id: 'appearance',
@@ -608,7 +664,7 @@ export function SettingsModal(): JSX.Element {
             description="Pick the visual system ZenNotes uses across the app."
           >
             <div className="flex flex-col gap-5 px-5 py-5">
-              <div>
+              <div {...settingsSearchTargetProps('theme-family')}>
                 <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
                   Family
                 </div>
@@ -630,7 +686,7 @@ export function SettingsModal(): JSX.Element {
                 </div>
               </div>
 
-              <div>
+              <div {...settingsSearchTargetProps('theme-mode')}>
                 <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
                   Mode
                 </div>
@@ -653,7 +709,7 @@ export function SettingsModal(): JSX.Element {
               </div>
 
               {visibleVariants.length > 1 && (
-                <div>
+                <div {...settingsSearchTargetProps('theme-variant')}>
                   <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
                     {themeFamily === 'gruvbox'
                       ? 'Contrast'
@@ -690,12 +746,14 @@ export function SettingsModal(): JSX.Element {
               label="Dark sidebar"
               description="Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface."
               value={darkSidebar}
+              settingId="dark-sidebar"
               onChange={setDarkSidebar}
             />
             <ToggleRow
               label="Sidebar arrows"
               description="Show disclosure arrows for collapsible folders and sidebar sections."
               value={showSidebarChevrons}
+              settingId="sidebar-arrows"
               onChange={setShowSidebarChevrons}
             />
           </Section>
@@ -809,6 +867,7 @@ export function SettingsModal(): JSX.Element {
               label="Vim mode"
               description="First-class Vim motions in the markdown editor."
               value={vimMode}
+              settingId="vim-mode"
               onChange={setVimMode}
             />
             {vimMode ? (
@@ -817,6 +876,7 @@ export function SettingsModal(): JSX.Element {
                   label="Leader key hints"
                   description="Show a which-key style guide after pressing the Leader key so the next available actions stay visible."
                   value={whichKeyHints}
+                  settingId="leader-key-hints"
                   onChange={setWhichKeyHints}
                 />
                 {whichKeyHints && (
@@ -825,6 +885,7 @@ export function SettingsModal(): JSX.Element {
                       label="Leader hint behavior"
                       description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it."
                       value={whichKeyHintMode}
+                      settingId="leader-hint-behavior"
                       options={[
                         { value: 'timed', label: 'Timed' },
                         { value: 'sticky', label: 'Sticky' }
@@ -840,6 +901,7 @@ export function SettingsModal(): JSX.Element {
                         max={3000}
                         step={100}
                         format={(v) => `${(v / 1000).toFixed(1)}s`}
+                        settingId="leader-hint-duration"
                         onChange={setWhichKeyHintTimeoutMs}
                       />
                     )}
@@ -861,6 +923,7 @@ export function SettingsModal(): JSX.Element {
               label="Vault text search backend"
               description="Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher."
               value={vaultTextSearchBackend}
+              settingId="vault-text-search-backend"
               options={[
                 { value: 'auto', label: 'Auto' },
                 { value: 'builtin', label: 'Built-in' },
@@ -874,6 +937,7 @@ export function SettingsModal(): JSX.Element {
               description="Optional. Leave blank to use `rg` from your PATH."
               value={ripgrepBinaryPath ?? ''}
               placeholder="/custom/bin/rg"
+              settingId="ripgrep-binary-path"
               onChange={(next) => setRipgrepBinaryPath(next)}
             />
             <TextInputRow
@@ -881,6 +945,7 @@ export function SettingsModal(): JSX.Element {
               description="Optional. Leave blank to use `fzf` from your PATH."
               value={fzfBinaryPath ?? ''}
               placeholder="/custom/bin/fzf"
+              settingId="fzf-binary-path"
               onChange={(next) => setFzfBinaryPath(next)}
             />
             <InlineNote>
@@ -906,30 +971,35 @@ export function SettingsModal(): JSX.Element {
               label="Live preview"
               description="Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], and other source text."
               value={livePreview}
+              settingId="live-preview"
               onChange={setLivePreview}
             />
             <ToggleRow
               label="Note tabs"
               description="Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior."
               value={tabsEnabled}
+              settingId="note-tabs"
               onChange={setTabsEnabled}
             />
             <ToggleRow
               label="Word wrap"
               description="Wrap long lines to the editor width. Turn off to scroll horizontally instead."
               value={wordWrap}
+              settingId="word-wrap"
               onChange={setWordWrap}
             />
             <ToggleRow
               label="Smooth preview scroll"
               description="Animate Ctrl+D / Ctrl+U half-page jumps in preview mode. Turn off for an instant snap that keeps position predictable."
               value={previewSmoothScroll}
+              settingId="smooth-preview-scroll"
               onChange={setPreviewSmoothScroll}
             />
             <SegmentedRow
               label="PDFs in edit mode"
               description="Compact keeps the editor focused. Full inlines the PDF viewer under your cursor."
               value={pdfEmbedInEditMode}
+              settingId="pdfs-in-edit-mode"
               options={[
                 { value: 'compact', label: 'Compact' },
                 { value: 'full', label: 'Full' }
@@ -940,6 +1010,7 @@ export function SettingsModal(): JSX.Element {
               label="Date-titled Quick Notes"
               description="New Quick Notes use YYYY-MM-DD instead of timestamp-style titles."
               value={quickNoteDateTitle}
+              settingId="date-titled-quick-notes"
               onChange={setQuickNoteDateTitle}
             />
             <TextInputRow
@@ -947,6 +1018,7 @@ export function SettingsModal(): JSX.Element {
               description="Used when naming new Quick Notes. Leave blank for a bare timestamp or date."
               value={quickNoteTitlePrefix ?? ''}
               placeholder="Quick Note"
+              settingId="quick-note-prefix"
               onChange={setQuickNoteTitlePrefix}
             />
           </Section>
@@ -955,7 +1027,7 @@ export function SettingsModal(): JSX.Element {
             title="Quick capture"
             description="Floating capture window for thoughts you want in the vault without leaving whatever you're doing."
           >
-            <QuickCaptureHotkeyRow />
+            <QuickCaptureHotkeyRow settingId="quick-capture-hotkey" />
           </Section>
         </div>
       )
@@ -974,7 +1046,7 @@ export function SettingsModal(): JSX.Element {
         }
       ],
       content: (
-        <div className="h-full">
+        <div className="h-full" {...settingsSearchTargetProps('shortcut-editor')}>
           <KeymapSettings
             vimMode={vimMode}
             overrides={keymapOverrides}
@@ -1056,6 +1128,7 @@ export function SettingsModal(): JSX.Element {
               description="Used for the sidebar, menus, and window chrome."
               value={interfaceFont}
               options={systemFonts}
+              settingId="interface-font"
               onChange={setInterfaceFont}
             />
             <FontRow
@@ -1063,6 +1136,7 @@ export function SettingsModal(): JSX.Element {
               description="Used for editing and reading views."
               value={textFont}
               options={systemFonts}
+              settingId="text-font"
               onChange={setTextFont}
             />
             <FontRow
@@ -1070,6 +1144,7 @@ export function SettingsModal(): JSX.Element {
               description="Used for code blocks, inline code, and frontmatter."
               value={monoFont}
               options={systemFonts}
+              settingId="monospace-font"
               onChange={setMonoFont}
             />
           </Section>
@@ -1086,6 +1161,7 @@ export function SettingsModal(): JSX.Element {
               max={32}
               step={1}
               unit="px"
+              settingId="font-size"
               onChange={setEditorFontSize}
             />
             <SliderRow
@@ -1095,6 +1171,7 @@ export function SettingsModal(): JSX.Element {
               min={1.2}
               max={2.4}
               step={0.05}
+              settingId="line-height"
               onChange={setEditorLineHeight}
               format={(v) => v.toFixed(2)}
             />
@@ -1106,6 +1183,7 @@ export function SettingsModal(): JSX.Element {
               max={1400}
               step={20}
               unit="px"
+              settingId="reading-width"
               onChange={setPreviewMaxWidth}
             />
             <SliderRow
@@ -1116,12 +1194,14 @@ export function SettingsModal(): JSX.Element {
               max={1600}
               step={20}
               unit="px"
+              settingId="editor-width"
               onChange={setEditorMaxWidth}
             />
             <SegmentedRow
               label="Content alignment"
               description="Center note content within the column or left-align it to the pane edge."
               value={contentAlign}
+              settingId="content-alignment"
               options={[
                 { value: 'center', label: 'Center' },
                 { value: 'left', label: 'Left' }
@@ -1132,6 +1212,7 @@ export function SettingsModal(): JSX.Element {
               label="Line numbers"
               description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
               value={lineNumberMode}
+              settingId="line-numbers"
               options={[
                 { value: 'off', label: 'Off' },
                 { value: 'absolute', label: 'Absolute' },
@@ -1216,7 +1297,10 @@ export function SettingsModal(): JSX.Element {
             title="Location"
             description="ZenNotes reads markdown directly from the selected vault folder."
           >
-            <div className="flex items-center justify-between gap-4 px-5 py-5">
+            <div
+              className="flex items-center justify-between gap-4 px-5 py-5"
+              {...settingsSearchTargetProps('vault-location')}
+            >
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">
                   {workspaceMode === 'remote' ? 'Remote workspace' : 'Vault location'}
@@ -1271,6 +1355,7 @@ export function SettingsModal(): JSX.Element {
             <Section
               title="Saved Remote Workspaces"
               description="Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens."
+              settingId="saved-remote-workspaces"
             >
               <div className="space-y-3 px-5 py-5">
                 <div className="flex items-center justify-between gap-4">
@@ -1356,6 +1441,7 @@ export function SettingsModal(): JSX.Element {
               label="Primary notes location"
               description="`Inbox` keeps ZenNotes' original lifecycle structure. `Vault root` surfaces top-level markdown files and folders directly."
               value={vaultSettings.primaryNotesLocation}
+              settingId="primary-notes-location"
               options={[
                 { value: 'inbox', label: 'Inbox' },
                 { value: 'root', label: 'Vault root' }
@@ -1377,6 +1463,7 @@ export function SettingsModal(): JSX.Element {
               label="Enable daily notes"
               description="Adds a dedicated daily-notes workflow without changing ordinary note creation."
               value={vaultSettings.dailyNotes.enabled}
+              settingId="enable-daily-notes"
               onChange={(enabled) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -1392,6 +1479,7 @@ export function SettingsModal(): JSX.Element {
               description="Stored inside your primary notes area. The default is `Daily Notes`."
               value={vaultSettings.dailyNotes.directory}
               placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
+              settingId="daily-notes-directory"
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -1402,7 +1490,10 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
+            <div
+              className="flex items-center justify-between gap-4 px-5 py-4"
+              {...settingsSearchTargetProps('open-todays-daily-note')}
+            >
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">Open today's daily note</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
@@ -1434,6 +1525,7 @@ export function SettingsModal(): JSX.Element {
               description="Shown in the sidebar, breadcrumbs, commands, and note actions."
               value={systemFolderLabels.inbox ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.inbox}
+              settingId="inbox-label"
               onChange={(next) => setSystemFolderLabel('inbox', next)}
             />
             <TextInputRow
@@ -1441,6 +1533,7 @@ export function SettingsModal(): JSX.Element {
               description="Display name for the quick-capture area."
               value={systemFolderLabels.quick ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.quick}
+              settingId="quick-notes-label"
               onChange={(next) => setSystemFolderLabel('quick', next)}
             />
             <TextInputRow
@@ -1448,6 +1541,7 @@ export function SettingsModal(): JSX.Element {
               description="Display name for cold-storage notes."
               value={systemFolderLabels.archive ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.archive}
+              settingId="archive-label"
               onChange={(next) => setSystemFolderLabel('archive', next)}
             />
             <TextInputRow
@@ -1455,6 +1549,7 @@ export function SettingsModal(): JSX.Element {
               description="Display name for deleted-note recovery."
               value={systemFolderLabels.trash ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.trash}
+              settingId="trash-label"
               onChange={(next) => setSystemFolderLabel('trash', next)}
             />
             <InlineNote>
@@ -1570,14 +1665,17 @@ export function SettingsModal(): JSX.Element {
         }
       ],
       content: (
-        <Section title="ZenNotes">
+        <Section title="ZenNotes" settingId="zen-notes-version">
           <div className="px-5 py-5">
             <div className="min-w-0 text-sm leading-6 text-ink-600">
               <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
                 <span className="font-medium text-ink-900">ZenNotes</span>
                 <span className="text-xs text-ink-500">v{appInfo.version}</span>
               </div>
-              <div className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+              <div
+                className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
+                {...settingsSearchTargetProps('updates')}
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
@@ -1692,7 +1790,10 @@ export function SettingsModal(): JSX.Element {
                 </a>{' '}
                 for company and product details.
               </p>
-              <div className="mt-4 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-4 text-center">
+              <div
+                className="mt-4 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-4 text-center"
+                {...settingsSearchTargetProps('lumary-labs')}
+              >
                 <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
                   Built by
                 </span>
@@ -1791,6 +1892,9 @@ export function SettingsModal(): JSX.Element {
                     onClick={() => {
                       setActiveCategory(result.category.id)
                       setActiveSearchResultId(result.id)
+                      if (result.type === 'setting') {
+                        jumpToSettingsSearchTarget(result.targetId)
+                      }
                     }}
                     className={[
                       'w-full rounded-xl px-3 py-2.5 text-left transition-colors',
@@ -2177,14 +2281,16 @@ function KeymapRecorderModal({
 function Section({
   title,
   description,
+  settingId,
   children
 }: {
   title: string
   description?: string
+  settingId?: string
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="space-y-3">
+    <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
       <div>
         <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-ink-500">
           {title}
@@ -2230,7 +2336,7 @@ function formatAcceleratorForDisplay(accelerator: string): string {
     .join(mac ? '' : '+')
 }
 
-function QuickCaptureHotkeyRow(): JSX.Element {
+function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.Element {
   const [current, setCurrent] = useState<string>('')
   const [recording, setRecording] = useState(false)
   const [draft, setDraft] = useState<string>('')
@@ -2287,7 +2393,10 @@ function QuickCaptureHotkeyRow(): JSX.Element {
 
   const display = draft || current
   return (
-    <div className="flex flex-col gap-2 px-5 py-4">
+    <div
+      className="flex flex-col gap-2 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="flex items-center justify-between gap-5">
         <div className="min-w-0">
           <div className="text-sm font-medium text-ink-900">Quick capture hotkey</div>
@@ -2374,16 +2483,21 @@ function TextInputRow({
   description,
   value,
   placeholder,
+  settingId,
   onChange
 }: {
   label: string
   description?: string
   value: string
   placeholder?: string
+  settingId?: string
   onChange: (next: string | null) => void
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-5 px-5 py-4">
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
@@ -2406,12 +2520,14 @@ function FontRow({
   description,
   value,
   options,
+  settingId,
   onChange
 }: {
   label: string
   description?: string
   value: string | null
   options: string[]
+  settingId?: string
   onChange: (next: string | null) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -2528,7 +2644,10 @@ function FontRow({
   }
 
   return (
-    <div className="flex items-center justify-between gap-5 px-5 py-4">
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
@@ -2645,6 +2764,7 @@ function SliderRow({
   step,
   unit,
   format,
+  settingId,
   onChange
 }: {
   label: string
@@ -2655,11 +2775,15 @@ function SliderRow({
   step: number
   unit?: string
   format?: (v: number) => string
+  settingId?: string
   onChange: (next: number) => void
 }): JSX.Element {
   const display = (format ? format(value) : String(value)) + (unit && !format ? unit : '')
   return (
-    <div className="flex items-center justify-between gap-5 px-5 py-4">
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
@@ -2691,6 +2815,7 @@ function NumberRow({
   step,
   unit,
   format,
+  settingId,
   onChange
 }: {
   label: string
@@ -2701,12 +2826,16 @@ function NumberRow({
   step: number
   unit?: string
   format?: (v: number) => string
+  settingId?: string
   onChange: (next: number) => void
 }): JSX.Element {
   const display = (format ? format(value) : String(value)) + (unit ?? '')
   const clamp = (n: number): number => Math.min(max, Math.max(min, n))
   return (
-    <div className="flex items-center justify-between gap-4 px-6 py-3">
+    <div
+      className="flex items-center justify-between gap-4 px-6 py-3"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="text-xs text-ink-500">{description}</div>}
@@ -2738,15 +2867,20 @@ function ToggleRow({
   label,
   description,
   value,
+  settingId,
   onChange
 }: {
   label: string
   description?: string
   value: boolean
+  settingId?: string
   onChange: (next: boolean) => void
 }): JSX.Element {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-5 px-5 py-4">
+    <label
+      className="flex cursor-pointer items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
@@ -2777,16 +2911,21 @@ function SegmentedRow<T extends string>({
   description,
   value,
   options,
+  settingId,
   onChange
 }: {
   label: string
   description?: string
   value: T
   options: { value: T; label: string }[]
+  settingId?: string
   onChange: (next: T) => void
 }): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-5 px-5 py-4">
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
@@ -2864,7 +3003,11 @@ function CliSettings(): JSX.Element {
   if (status == null) {
     return (
       <div className="space-y-6">
-        <Section title="Command-Line Tool" description="Install the `zen` shell command for terminal-based note workflows.">
+        <Section
+          title="Command-Line Tool"
+          description="Install the `zen` shell command for terminal-based note workflows."
+          settingId="zen-command-line-tool"
+        >
           <InlineNote>Checking install status…</InlineNote>
         </Section>
       </div>
@@ -2874,7 +3017,11 @@ function CliSettings(): JSX.Element {
   if (!status.supportedPlatform) {
     return (
       <div className="space-y-6">
-        <Section title="Command-Line Tool" description="Install the `zen` shell command for terminal-based note workflows.">
+        <Section
+          title="Command-Line Tool"
+          description="Install the `zen` shell command for terminal-based note workflows."
+          settingId="zen-command-line-tool"
+        >
           <InlineNote>{status.reason ?? 'Not supported on this platform yet.'}</InlineNote>
         </Section>
       </div>
@@ -2896,6 +3043,7 @@ function CliSettings(): JSX.Element {
       <Section
         title="Command-Line Tool"
         description="The `zen` CLI talks to your vault directly from any terminal — perfect for scripts, cron jobs, editor plugins, shell pipelines, MCP, and launcher integrations like Raycast. Once installed, try `zen --help` or pipe text in: `pbpaste | zen capture`."
+        settingId="zen-command-line-tool"
       >
         <div className="flex flex-col gap-3 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
@@ -3004,6 +3152,7 @@ function CliSettings(): JSX.Element {
       <Section
         title="Quick reference"
         description="A handful of the most useful commands. Quote paths with spaces, or pass them with `--path`. Run `zen --help` for the full list."
+        settingId="cli-quick-reference"
       >
         <div className="space-y-2 px-5 py-4 font-mono text-[12px] leading-6 text-ink-800">
           <div>zen list --tag idea</div>
@@ -3068,6 +3217,7 @@ function RaycastExtensionSettings({
       <Section
         title="Raycast Extension"
         description="Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review."
+        settingId="raycast-extension"
       >
         <InlineNote>Checking Raycast status…</InlineNote>
       </Section>
@@ -3094,6 +3244,7 @@ function RaycastExtensionSettings({
     <Section
       title="Raycast Extension"
       description="Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review."
+      settingId="raycast-extension"
     >
       <div className="flex flex-col gap-3 px-5 py-4">
         <div className="flex items-start justify-between gap-4">
@@ -3271,6 +3422,7 @@ function McpSettings(): JSX.Element {
       <Section
         title="Server"
         description="ZenNotes bundles a local MCP server that every client below connects to. It uses the packaged Electron binary in plain-Node mode, so no separate Node install is required."
+        settingId="mcp-server"
       >
         <div className="px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3319,6 +3471,7 @@ function McpSettings(): JSX.Element {
       <Section
         title="Integrations"
         description={"Pick the clients you want connected to this vault. Install writes a managed ZenNotes entry into that client\u2019s config; Uninstall removes just that entry."}
+        settingId="mcp-integrations"
       >
         {statuses == null ? (
           <InlineNote>{'Checking integration status\u2026'}</InlineNote>
@@ -3411,6 +3564,7 @@ function McpInstructionsEditor(): JSX.Element {
     <Section
       title="Instructions"
       description="The system prompt ZenNotes ships to any connected MCP client. Edit it to change how the AI writes, structures, and styles your notes. Changes take effect on the next MCP session."
+      settingId="mcp-instructions"
     >
       <div className="space-y-3 px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2">

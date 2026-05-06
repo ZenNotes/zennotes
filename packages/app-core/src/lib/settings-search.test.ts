@@ -39,6 +39,7 @@ describe('getSettingsSearchResults', () => {
       id: 'editor:word-wrap',
       type: 'setting',
       title: 'Word wrap',
+      targetId: 'word-wrap',
       category: { id: 'editor', title: 'Editor' }
     })
   })

@@ -28,6 +28,7 @@ export type SettingsSearchResult<
       type: 'setting'
       title: string
       description: string
+      targetId: string
       category: TCategory
       item: SettingsSearchItem
     }
@@ -76,6 +77,7 @@ function settingResult<TCategory extends SettingsSearchCategory>(
     type: 'setting',
     title: item.title,
     description: item.description ?? category.description,
+    targetId: item.id,
     category,
     item
   }
