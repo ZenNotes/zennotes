@@ -37,6 +37,10 @@ import {
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
+import {
+  getSettingsSearchResults,
+  type SettingsSearchCategory
+} from '../lib/settings-search'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from './ConfirmHost'
@@ -54,7 +58,7 @@ type SettingsCategoryId =
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
-interface SettingsCategory {
+interface SettingsCategory extends SettingsSearchCategory<SettingsCategoryId> {
   id: SettingsCategoryId
   title: string
   description: string
@@ -514,6 +518,7 @@ export function SettingsModal(): JSX.Element {
 
   const ref = useRef<HTMLDivElement | null>(null)
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
+  const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null)
   const [navQuery, setNavQuery] = useState('')
   const availableVaultTextSearchTools = [
     vaultTextSearchCapabilities?.ripgrep ? 'ripgrep' : null,
@@ -565,6 +570,37 @@ export function SettingsModal(): JSX.Element {
       title: 'Appearance',
       description: 'Theme family, mode, and chrome surface styling.',
       keywords: ['theme', 'mode', 'variant', 'dark sidebar', 'surface', 'look'],
+      searchItems: [
+        {
+          id: 'theme-family',
+          title: 'Theme family',
+          description: 'Pick the visual system ZenNotes uses across the app.',
+          keywords: ['theme', 'family', 'apple', 'gruvbox', 'catppuccin', 'github', 'solarized', 'nord', 'tokyo night']
+        },
+        {
+          id: 'theme-mode',
+          title: 'Theme mode',
+          description: 'Choose light, dark, or automatic theme mode.',
+          keywords: ['light', 'dark', 'auto', 'mode']
+        },
+        {
+          id: 'theme-variant',
+          title: 'Theme variant',
+          description: 'Choose a family-specific contrast, flavor, or variant.',
+          keywords: ['variant', 'contrast', 'flavor']
+        },
+        {
+          id: 'dark-sidebar',
+          title: 'Dark sidebar',
+          description: 'Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.'
+        },
+        {
+          id: 'sidebar-arrows',
+          title: 'Sidebar arrows',
+          description: 'Show disclosure arrows for collapsible folders and sidebar sections.',
+          keywords: ['chevrons', 'disclosure']
+        }
+      ],
       content: (
         <div className="space-y-6">
           <Section
@@ -671,6 +707,98 @@ export function SettingsModal(): JSX.Element {
       title: 'Editor',
       description: 'Vim, leader hints, live preview, tabs, and writing behavior.',
       keywords: ['vim', 'leader', 'preview', 'tabs', 'wrap', 'pdf', 'quick note', 'quick capture', 'hotkey', 'shortcut', 'task', 'tasks'],
+      searchItems: [
+        {
+          id: 'vim-mode',
+          title: 'Vim mode',
+          description: 'First-class Vim motions in the markdown editor.',
+          keywords: ['vim', 'motions']
+        },
+        {
+          id: 'leader-key-hints',
+          title: 'Leader key hints',
+          description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
+          keywords: ['leader', 'which-key']
+        },
+        {
+          id: 'leader-hint-behavior',
+          title: 'Leader hint behavior',
+          description: 'Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it.',
+          keywords: ['leader', 'sticky', 'timed']
+        },
+        {
+          id: 'leader-hint-duration',
+          title: 'Leader hint duration',
+          description: 'How long the leader overlay stays visible, and how long the pending leader sequence remains armed.',
+          keywords: ['leader', 'timeout', 'delay']
+        },
+        {
+          id: 'vault-text-search-backend',
+          title: 'Vault text search backend',
+          description: 'Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher.',
+          keywords: ['search', 'backend', 'ripgrep', 'rg', 'fzf', 'built-in']
+        },
+        {
+          id: 'ripgrep-binary-path',
+          title: 'ripgrep binary path',
+          description: 'Optional. Leave blank to use `rg` from your PATH.',
+          keywords: ['search', 'rg', 'path']
+        },
+        {
+          id: 'fzf-binary-path',
+          title: 'fzf binary path',
+          description: 'Optional. Leave blank to use `fzf` from your PATH.',
+          keywords: ['search', 'path']
+        },
+        {
+          id: 'live-preview',
+          title: 'Live preview',
+          description: 'Hide markdown syntax on lines you are not editing.',
+          keywords: ['preview', 'markdown']
+        },
+        {
+          id: 'note-tabs',
+          title: 'Note tabs',
+          description: 'Open notes in tabs and allow split-friendly tab workflows.',
+          keywords: ['tabs']
+        },
+        {
+          id: 'word-wrap',
+          title: 'Word wrap',
+          description: 'Wrap long lines to the editor width. Turn off to scroll horizontally instead.',
+          keywords: ['wrap', 'line wrap']
+        },
+        {
+          id: 'smooth-preview-scroll',
+          title: 'Smooth preview scroll',
+          description: 'Animate Ctrl+D / Ctrl+U half-page jumps in preview mode.',
+          keywords: ['preview', 'scroll']
+        },
+        {
+          id: 'pdfs-in-edit-mode',
+          title: 'PDFs in edit mode',
+          description: 'Compact keeps the editor focused. Full inlines the PDF viewer under your cursor.',
+          keywords: ['pdf', 'embed']
+        },
+        {
+          id: 'date-titled-quick-notes',
+          title: 'Date-titled Quick Notes',
+          description: 'New Quick Notes use YYYY-MM-DD instead of timestamp-style titles.',
+          keywords: ['quick note', 'date', 'title']
+        },
+        {
+          id: 'quick-note-prefix',
+          title: 'Quick Note prefix',
+          description: 'Used when naming new Quick Notes.',
+          keywords: ['quick note', 'prefix']
+        },
+        {
+          id: 'quick-capture-hotkey',
+          title: 'Quick capture hotkey',
+          description: 'System-wide shortcut to open the floating capture window.',
+          keywords: ['quick capture', 'hotkey', 'shortcut']
+        }
+      ],
       content: (
         <div className="space-y-6">
           <Section
@@ -837,6 +965,14 @@ export function SettingsModal(): JSX.Element {
       title: 'Keymap',
       description: 'Remap global shortcuts, Vim bindings, and view navigation.',
       keywords: ['shortcuts', 'bindings', 'leader', 'vim', 'remap', 'keyboard'],
+      searchItems: [
+        {
+          id: 'shortcut-editor',
+          title: 'Shortcut editor',
+          description: 'Record a new key or sequence for the app’s keyboard-first actions.',
+          keywords: ['shortcuts', 'bindings', 'leader', 'vim', 'remap', 'keyboard']
+        }
+      ],
       content: (
         <div className="h-full">
           <KeymapSettings
@@ -853,6 +989,62 @@ export function SettingsModal(): JSX.Element {
       title: 'Typography',
       description: 'Fonts, line height, reading width, alignment, and line numbers.',
       keywords: ['font', 'size', 'line height', 'width', 'alignment', 'numbers'],
+      searchItems: [
+        {
+          id: 'interface-font',
+          title: 'Interface font',
+          description: 'Used for the sidebar, menus, and window chrome.',
+          keywords: ['font']
+        },
+        {
+          id: 'text-font',
+          title: 'Text font',
+          description: 'Used for editing and reading views.',
+          keywords: ['font']
+        },
+        {
+          id: 'monospace-font',
+          title: 'Monospace font',
+          description: 'Used for code blocks, inline code, and frontmatter.',
+          keywords: ['font', 'mono', 'code']
+        },
+        {
+          id: 'font-size',
+          title: 'Font size',
+          description: 'Editor and preview text size.',
+          keywords: ['size']
+        },
+        {
+          id: 'line-height',
+          title: 'Line height',
+          description: 'Editor and preview line spacing.',
+          keywords: ['spacing']
+        },
+        {
+          id: 'reading-width',
+          title: 'Reading width',
+          description: 'Maximum width for preview and split-preview content.',
+          keywords: ['width', 'preview']
+        },
+        {
+          id: 'editor-width',
+          title: 'Editor width',
+          description: 'Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.',
+          keywords: ['width']
+        },
+        {
+          id: 'content-alignment',
+          title: 'Content alignment',
+          description: 'Center note content within the column or left-align it to the pane edge.',
+          keywords: ['alignment', 'center', 'left']
+        },
+        {
+          id: 'line-numbers',
+          title: 'Line numbers',
+          description: 'Show editor gutter numbers.',
+          keywords: ['numbers', 'gutter', 'relative', 'absolute']
+        }
+      ],
       content: (
         <div className="space-y-6">
           <Section
@@ -956,6 +1148,68 @@ export function SettingsModal(): JSX.Element {
       title: 'Vault',
       description: 'Current vault location and root-folder controls.',
       keywords: ['folder', 'root', 'location', 'open vault', 'change'],
+      searchItems: [
+        {
+          id: 'vault-location',
+          title: 'Vault location',
+          description: 'ZenNotes reads markdown directly from the selected vault folder.',
+          keywords: ['folder', 'root', 'location', 'open vault', 'change']
+        },
+        {
+          id: 'saved-remote-workspaces',
+          title: 'Saved Remote Workspaces',
+          description: 'Keep multiple ZenNotes servers and vaults ready to reconnect.',
+          keywords: ['remote', 'server', 'workspace', 'connect']
+        },
+        {
+          id: 'primary-notes-location',
+          title: 'Primary notes location',
+          description: 'Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly.',
+          keywords: ['primary notes', 'inbox', 'vault root']
+        },
+        {
+          id: 'enable-daily-notes',
+          title: 'Enable daily notes',
+          description: 'Adds a dedicated daily-notes workflow without changing ordinary note creation.',
+          keywords: ['daily notes']
+        },
+        {
+          id: 'daily-notes-directory',
+          title: 'Daily notes directory',
+          description: 'Stored inside your primary notes area.',
+          keywords: ['daily notes', 'directory', 'folder']
+        },
+        {
+          id: 'open-todays-daily-note',
+          title: "Open today's daily note",
+          description: "Opens today's note if it exists, otherwise creates it.",
+          keywords: ['daily notes', 'today']
+        },
+        {
+          id: 'inbox-label',
+          title: 'Inbox label',
+          description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
+          keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'quick-notes-label',
+          title: 'Quick Notes label',
+          description: 'Display name for the quick-capture area.',
+          keywords: ['system folders', 'folder label', 'quick']
+        },
+        {
+          id: 'archive-label',
+          title: 'Archive label',
+          description: 'Display name for cold-storage notes.',
+          keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'trash-label',
+          title: 'Trash label',
+          description: 'Display name for deleted-note recovery.',
+          keywords: ['system folders', 'folder label']
+        }
+      ],
       content: (
         <div className="space-y-6">
           <Section
@@ -1227,6 +1481,26 @@ export function SettingsModal(): JSX.Element {
         'agent',
         'model context protocol'
       ],
+      searchItems: [
+        {
+          id: 'mcp-server',
+          title: 'MCP server',
+          description: 'ZenNotes bundles a local MCP server that connected clients use.',
+          keywords: ['mcp', 'server', 'runtime', 'command']
+        },
+        {
+          id: 'mcp-integrations',
+          title: 'MCP integrations',
+          description: 'Pick the clients you want connected to this vault.',
+          keywords: ['mcp', 'claude', 'codex', 'client', 'install', 'uninstall']
+        },
+        {
+          id: 'mcp-instructions',
+          title: 'MCP instructions',
+          description: 'Edit the system prompt ZenNotes ships to any connected MCP client.',
+          keywords: ['mcp', 'prompt', 'instructions', 'system prompt']
+        }
+      ],
       content: <McpSettings />
     },
     {
@@ -1248,6 +1522,26 @@ export function SettingsModal(): JSX.Element {
         'capture',
         'developer'
       ],
+      searchItems: [
+        {
+          id: 'zen-command-line-tool',
+          title: 'zen command-line tool',
+          description: 'Install the `zen` shell command for terminal-based note workflows.',
+          keywords: ['cli', 'command line', 'terminal', 'shell', 'zen', 'install', 'path']
+        },
+        {
+          id: 'cli-quick-reference',
+          title: 'CLI quick reference',
+          description: 'A handful of the most useful `zen` commands.',
+          keywords: ['cli', 'help', 'commands', 'reference']
+        },
+        {
+          id: 'raycast-extension',
+          title: 'Raycast Extension',
+          description: 'Install the ZenNotes Raycast extension locally from this app.',
+          keywords: ['raycast', 'launcher', 'extension', 'install']
+        }
+      ],
       content: <CliSettings />
     },
     {
@@ -1255,6 +1549,26 @@ export function SettingsModal(): JSX.Element {
       title: 'About',
       description: 'App identity, version, updater status, and company information.',
       keywords: ['version', 'company', 'lumary', 'about', 'logo', 'updates'],
+      searchItems: [
+        {
+          id: 'zen-notes-version',
+          title: 'ZenNotes version',
+          description: 'App identity, current version, and product details.',
+          keywords: ['about', 'version', 'identity']
+        },
+        {
+          id: 'updates',
+          title: 'Updates',
+          description: 'Check GitHub releases for a newer ZenNotes build.',
+          keywords: ['release', 'download', 'install', 'updater']
+        },
+        {
+          id: 'lumary-labs',
+          title: 'Lumary Labs',
+          description: 'Company and product details.',
+          keywords: ['company', 'lumary', 'logo']
+        }
+      ],
       content: (
         <Section title="ZenNotes">
           <div className="px-5 py-5">
@@ -1412,16 +1726,14 @@ export function SettingsModal(): JSX.Element {
   ]
 
   const query = navQuery.trim().toLowerCase()
-  const filteredCategories = query
-    ? categories.filter((category) =>
-        [category.title, category.description, ...category.keywords].some((value) =>
-          value.toLowerCase().includes(query)
-        )
-      )
-    : categories
+  const searchResults = getSettingsSearchResults(categories, query)
+  const visibleSearchResult =
+    searchResults.find((result) => result.id === activeSearchResultId) ??
+    searchResults.find((result) => result.category.id === activeCategory) ??
+    searchResults[0] ??
+    null
   const visibleCategory =
-    filteredCategories.find((category) => category.id === activeCategory) ??
-    filteredCategories[0] ??
+    visibleSearchResult?.category ??
     null
 
   return (
@@ -1470,13 +1782,16 @@ export function SettingsModal(): JSX.Element {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             <nav className="space-y-1">
-              {filteredCategories.map((category) => {
-                const selected = visibleCategory?.id === category.id
+              {searchResults.map((result) => {
+                const selected = visibleSearchResult?.id === result.id
                 return (
                   <button
-                    key={category.id}
+                    key={result.id}
                     type="button"
-                    onClick={() => setActiveCategory(category.id)}
+                    onClick={() => {
+                      setActiveCategory(result.category.id)
+                      setActiveSearchResultId(result.id)
+                    }}
                     className={[
                       'w-full rounded-xl px-3 py-2.5 text-left transition-colors',
                       selected
@@ -1484,16 +1799,23 @@ export function SettingsModal(): JSX.Element {
                         : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900'
                     ].join(' ')}
                   >
-                    <div className="text-sm font-medium">{category.title}</div>
+                    <div className="flex min-w-0 items-center justify-between gap-2">
+                      <div className="truncate text-sm font-medium">{result.title}</div>
+                      {result.type === 'setting' && (
+                        <span className="shrink-0 rounded-full border border-paper-300/60 bg-paper-100/70 px-2 py-0.5 text-[10px] font-medium text-ink-500">
+                          {result.category.title}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-ink-500">
-                      {category.description}
+                      {result.description}
                     </div>
                   </button>
                 )
               })}
-              {filteredCategories.length === 0 && (
+              {searchResults.length === 0 && (
                 <div className="rounded-xl border border-dashed border-paper-300/70 px-3 py-4 text-sm text-ink-500">
-                  No settings sections match your search.
+                  No settings match your search.
                 </div>
               )}
             </nav>
