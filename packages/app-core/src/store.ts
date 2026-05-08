@@ -1149,6 +1149,10 @@ export function isTasksViewActive(state: {
   return leaf?.activeTab === TASKS_TAB_PATH
 }
 
+function hasTasksViewOpen(state: { paneLayout: PaneLayout }): boolean {
+  return allLeaves(state.paneLayout).some((leaf) => leaf.tabs.includes(TASKS_TAB_PATH))
+}
+
 /** True when the active pane's active tab is the vault-wide Tags view. */
 export function isTagsViewActive(state: {
   paneLayout: PaneLayout
@@ -2641,15 +2645,17 @@ export const useStore = create<Store>((set, get) => {
 
     if (ev.scope === 'vault-settings') return
 
-    // Keep the Tasks view in sync as files change externally or via our own
-    // writes — cheap per-path rescans instead of walking the whole vault.
-    if (isTasksViewActive(state)) {
+    // Keep an open Tasks tab in sync as files change externally or via our own
+    // writes — cheap per-path rescans instead of walking the whole vault. This
+    // also covers inactive Tasks tabs so returning to Kanban doesn't show stale
+    // cards from the last time the tab was focused.
+    if (hasTasksViewOpen(state)) {
       if (ev.kind === 'unlink') {
         set((s) => ({
           vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== ev.path)
         }))
       } else {
-        void get().rescanTasksForPath(ev.path)
+        await get().rescanTasksForPath(ev.path)
       }
     }
 
@@ -3516,6 +3522,7 @@ export const useStore = create<Store>((set, get) => {
           ...activeFieldsFrom(nextLayout, paneId, cur.noteContents, cur.noteDirty)
         }
       })
+      if (!get().tasksLoading) void get().refreshTasks()
       return
     }
 
