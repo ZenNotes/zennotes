@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  getSidebarEntryLimitIncludingIndex,
   getInitialSidebarEntryLimit,
   getNextSidebarEntryLimit,
   getSidebarEdgePrefetchPaths,
@@ -26,6 +27,21 @@ describe('sidebar progressive row limits', () => {
 
   it('clamps requested batches to the total entry count', () => {
     expect(getNextSidebarEntryLimit(320, 350)).toBe(350)
+  })
+
+  it('expands the visible limit far enough to include a revealed target', () => {
+    expect(getSidebarEntryLimitIncludingIndex(SIDEBAR_PROGRESSIVE_INITIAL_ROWS, 5_000, 900)).toBe(
+      901
+    )
+  })
+
+  it('keeps the current limit for invalid reveal targets', () => {
+    expect(getSidebarEntryLimitIncludingIndex(SIDEBAR_PROGRESSIVE_INITIAL_ROWS, 5_000, -1)).toBe(
+      SIDEBAR_PROGRESSIVE_INITIAL_ROWS
+    )
+    expect(getSidebarEntryLimitIncludingIndex(SIDEBAR_PROGRESSIVE_INITIAL_ROWS, 5_000, 5_100)).toBe(
+      SIDEBAR_PROGRESSIVE_INITIAL_ROWS
+    )
   })
 
   it('prefetches the trailing and leading edges of the visible window first', () => {

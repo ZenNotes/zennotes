@@ -16,6 +16,23 @@ export function getNextSidebarEntryLimit(current: number, total: number): number
   return Math.min(safeTotal, safeCurrent + SIDEBAR_PROGRESSIVE_BATCH_ROWS)
 }
 
+export function getSidebarEntryLimitIncludingIndex(
+  currentLimit: number,
+  total: number,
+  targetIndex: number
+): number {
+  const safeTotal = Math.max(0, Math.floor(total))
+  if (safeTotal === 0) return 0
+
+  const safeLimit = Math.max(0, Math.floor(currentLimit))
+  const safeTarget = Math.floor(targetIndex)
+  if (!Number.isFinite(safeTarget) || safeTarget < 0 || safeTarget >= safeTotal) {
+    return Math.min(safeLimit, safeTotal)
+  }
+
+  return Math.min(safeTotal, Math.max(safeLimit, safeTarget + 1))
+}
+
 export function getSidebarEdgePrefetchPaths(
   paths: readonly (string | null | undefined)[],
   edgeRows = SIDEBAR_VISIBLE_PREFETCH_EDGE_ROWS

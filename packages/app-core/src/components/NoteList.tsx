@@ -593,11 +593,9 @@ export function NoteList(): JSX.Element {
 
   useEffect(() => {
     if (!isNoteListFocused || selectedEntryIndex < 0) return
-    if (selectedEntryIndex !== noteListCursorIndex) {
-      useStore.getState().setNoteListCursorIndex(selectedEntryIndex)
-    }
+    useStore.getState().setNoteListCursorIndex(selectedEntryIndex)
     scrollFolderIndexIntoView(selectedEntryIndex)
-  }, [isNoteListFocused, noteListCursorIndex, selectedEntryIndex])
+  }, [isNoteListFocused, selectedEntryIndex])
 
   useEffect(() => {
     if (!isNoteListFocused || noteListCursorIndex < 0 || orderedFolderEntries.length === 0) return
@@ -665,6 +663,7 @@ export function NoteList(): JSX.Element {
 
       <div
         ref={scrollRef}
+        data-notelist-count={view.kind === 'assets' ? assetFiles.length : orderedFolderEntries.length}
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}
       >

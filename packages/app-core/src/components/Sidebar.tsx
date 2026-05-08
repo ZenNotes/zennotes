@@ -63,6 +63,7 @@ import {
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
 import {
   getSidebarEdgePrefetchPaths,
+  getSidebarEntryLimitIncludingIndex,
   getInitialSidebarEntryLimit,
   getNextSidebarEntryLimit,
   SIDEBAR_PROGRESSIVE_RENDER_THRESHOLD,
@@ -2492,6 +2493,12 @@ function shouldProgressivelyRenderEntries(entries: TreeRenderEntry[]): boolean {
   );
 }
 
+function treeRenderEntryPath(entry: TreeRenderEntry): string | null {
+  if (entry.type === "note") return entry.note.path;
+  if (entry.type === "asset") return entry.asset.path;
+  return null;
+}
+
 function sidebarVisiblePrefetchPaths(entries: TreeRenderEntry[]): string[] {
   return getSidebarEdgePrefetchPaths(
     entries.map((entry) => (entry.type === "note" ? entry.note.path : null)),
@@ -2787,14 +2794,27 @@ function FolderTreeContents({
     () => getTreeRenderEntries(tree, showNotes, sortComparator, groupByKind),
     [tree, showNotes, sortComparator, groupByKind],
   );
-  const progressive = shouldProgressivelyRenderEntries(entries);
+  const progressiveEligible = shouldProgressivelyRenderEntries(entries);
+  const progressive = progressiveEligible && !sidebarFocused;
   const [visibleEntryLimit, progressiveSentinelRef] = useProgressiveEntryLimit(
     entries.length,
     progressive,
   );
+  const selectedEntryIndex = useMemo(
+    () =>
+      selectedPath
+        ? entries.findIndex((entry) => treeRenderEntryPath(entry) === selectedPath)
+        : -1,
+    [entries, selectedPath],
+  );
+  const effectiveEntryLimit = getSidebarEntryLimitIncludingIndex(
+    visibleEntryLimit,
+    entries.length,
+    selectedEntryIndex,
+  );
   const visibleEntries = useMemo(
-    () => (progressive ? entries.slice(0, visibleEntryLimit) : entries),
-    [entries, progressive, visibleEntryLimit],
+    () => (progressive ? entries.slice(0, effectiveEntryLimit) : entries),
+    [effectiveEntryLimit, entries, progressive],
   );
   useSidebarVisibleNotePrefetch(visibleEntries, showNotes);
 
@@ -2872,7 +2892,7 @@ function FolderTreeContents({
           />
         );
       })}
-      {progressive && visibleEntryLimit < entries.length && (
+      {progressive && effectiveEntryLimit < entries.length && (
         <div
           ref={progressiveSentinelRef}
           className="h-px shrink-0"
@@ -3062,14 +3082,27 @@ function SubTree({
     () => getTreeRenderEntries(node, showNotes, sortComparator, groupByKind),
     [node, showNotes, sortComparator, groupByKind],
   );
-  const progressive = shouldProgressivelyRenderEntries(entries);
+  const progressiveEligible = shouldProgressivelyRenderEntries(entries);
+  const progressive = progressiveEligible && !sidebarFocused;
   const [visibleEntryLimit, progressiveSentinelRef] = useProgressiveEntryLimit(
     entries.length,
     progressive,
   );
+  const selectedEntryIndex = useMemo(
+    () =>
+      selectedPath
+        ? entries.findIndex((entry) => treeRenderEntryPath(entry) === selectedPath)
+        : -1,
+    [entries, selectedPath],
+  );
+  const effectiveEntryLimit = getSidebarEntryLimitIncludingIndex(
+    visibleEntryLimit,
+    entries.length,
+    selectedEntryIndex,
+  );
   const visibleEntries = useMemo(
-    () => (progressive ? entries.slice(0, visibleEntryLimit) : entries),
-    [entries, progressive, visibleEntryLimit],
+    () => (progressive ? entries.slice(0, effectiveEntryLimit) : entries),
+    [effectiveEntryLimit, entries, progressive],
   );
   useSidebarVisibleNotePrefetch(visibleEntries, showNotes && !isCollapsed);
   const hasChildren = entries.length > 0;
@@ -3211,7 +3244,7 @@ function SubTree({
               />
             );
           })}
-          {progressive && visibleEntryLimit < entries.length && (
+          {progressive && effectiveEntryLimit < entries.length && (
             <div
               ref={progressiveSentinelRef}
               className="h-px shrink-0"

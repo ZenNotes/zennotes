@@ -11,6 +11,7 @@ import {
 } from '../lib/vim-nav'
 import { focusPaneInDirection } from '../lib/pane-nav'
 import { findLeaf } from '../lib/pane-layout'
+import { boundedIndexCount, clampIndex, moveIndex } from '../lib/index-navigation'
 import {
   advanceSequence,
   getKeymapBinding,
@@ -812,9 +813,9 @@ export function VimNav(): JSX.Element | null {
     const key = e.key
     const overrides = state.keymapOverrides
     const items = getIndexedElements('[data-notelist-idx]', 'notelistIdx')
-    const count = items.length
+    const count = getNoteListItemCount(items.length)
     const max = count - 1
-    const currentPos = findPositionByIndex(items, 'notelistIdx', state.noteListCursorIndex)
+    const currentIndex = clampIndex(state.noteListCursorIndex, count)
     const wantsContextMenu =
       matchesSequenceToken(e, overrides, 'nav.contextMenu') ||
       wantsNativeContextMenuKey(e)
@@ -845,23 +846,25 @@ export function VimNav(): JSX.Element | null {
     if (count === 0) return
 
     if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
-      scrollToIndexedElement(
-        items[Math.min(currentPos + 1, max)],
+      scrollToIndexedIndex(
+        items,
         'notelistIdx',
+        moveIndex(currentIndex, count, 1),
         state.setNoteListCursorIndex
       )
       return
     }
     if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
-      scrollToIndexedElement(
-        items[Math.max(currentPos - 1, 0)],
+      scrollToIndexedIndex(
+        items,
         'notelistIdx',
+        moveIndex(currentIndex, count, -1),
         state.setNoteListCursorIndex
       )
       return
     }
     if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
-      scrollToIndexedElement(items[max], 'notelistIdx', state.setNoteListCursorIndex)
+      scrollToIndexedIndex(items, 'notelistIdx', max, state.setNoteListCursorIndex)
       return
     }
     if (
@@ -871,7 +874,7 @@ export function VimNav(): JSX.Element | null {
         jumpTopPending,
         jumpTopTimer,
         () => {
-          scrollToIndexedElement(items[0], 'notelistIdx', state.setNoteListCursorIndex)
+          scrollToIndexedIndex(items, 'notelistIdx', 0, state.setNoteListCursorIndex)
         },
         () => {
           e.preventDefault()
@@ -883,7 +886,11 @@ export function VimNav(): JSX.Element | null {
       return
     }
     if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
-      const el = items[currentPos]
+      const el = getIndexedElementByIndex(items, 'notelistIdx', currentIndex)
+      if (!el) {
+        scrollToIndexedIndex(items, 'notelistIdx', currentIndex, state.setNoteListCursorIndex)
+        return
+      }
       const path = el?.dataset.notelistPath
       if (path) {
         void state.selectNote(path)
@@ -908,7 +915,12 @@ export function VimNav(): JSX.Element | null {
       return
     }
     if (wantsContextMenu) {
-      openContextMenuForIndexedElement(items[currentPos])
+      const el = getIndexedElementByIndex(items, 'notelistIdx', currentIndex)
+      if (!el) {
+        scrollToIndexedIndex(items, 'notelistIdx', currentIndex, state.setNoteListCursorIndex)
+        return
+      }
+      openContextMenuForIndexedElement(el)
       return
     }
   }
@@ -1407,6 +1419,20 @@ export function VimNav(): JSX.Element | null {
     return Number.isFinite(value) ? value : -1
   }
 
+  function getIndexedElementByIndex(
+    items: HTMLElement[],
+    datasetKey: IndexedDatasetKey,
+    index: number
+  ): HTMLElement | undefined {
+    return items.find((item) => getIndexedValue(item, datasetKey) === index)
+  }
+
+  function getNoteListItemCount(renderedCount: number): number {
+    const raw = document.querySelector<HTMLElement>('[data-notelist-count]')?.dataset.notelistCount
+    const total = raw == null ? null : Number(raw)
+    return boundedIndexCount(renderedCount, total != null && Number.isFinite(total) ? total : null)
+  }
+
   /** Find position in sorted items array by stored cursor index (no DOM focus dependency). */
   function findPositionByIndex(
     items: HTMLElement[],
@@ -1430,6 +1456,17 @@ export function VimNav(): JSX.Element | null {
     if (idx < 0) return
     setIndex(idx)
     el.scrollIntoView({ block: 'nearest' })
+  }
+
+  function scrollToIndexedIndex(
+    items: HTMLElement[],
+    datasetKey: IndexedDatasetKey,
+    index: number,
+    setIndex: (idx: number) => void
+  ): void {
+    const target = getIndexedElementByIndex(items, datasetKey, index)
+    setIndex(index)
+    target?.scrollIntoView({ block: 'nearest' })
   }
 
   function getCommentItems(): HTMLElement[] {
