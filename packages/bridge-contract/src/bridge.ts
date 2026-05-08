@@ -4,6 +4,8 @@ import type {
   CliInstallStatus,
   FolderEntry,
   ImportedAsset,
+  ListNotesPageRequest,
+  ListNotesPageResponse,
   NoteComment,
   NoteCommentInput,
   NoteContent,
@@ -93,6 +95,7 @@ export interface ZenBridge {
   setVaultSettings(next: VaultSettings): Promise<VaultSettings>
 
   listNotes(): Promise<NoteMeta[]>
+  listNotesPage?(request: ListNotesPageRequest): Promise<ListNotesPageResponse>
   listFolders(): Promise<FolderEntry[]>
   listAssets(): Promise<AssetMeta[]>
   hasAssetsDir(): Promise<boolean>

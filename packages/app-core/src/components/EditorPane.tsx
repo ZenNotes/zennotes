@@ -10,6 +10,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -66,7 +67,7 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
-import { Preview } from './Preview'
+import { LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
@@ -91,6 +92,7 @@ import {
   readImageBlockDragPayload
 } from '../lib/image-block-dnd'
 import { useSettledMarkdown } from '../lib/use-rendered-markdown'
+import { recordRendererPerf } from '../lib/perf'
 import { parseOutline } from '../lib/outline'
 import {
   ArchiveIcon,
@@ -131,6 +133,7 @@ import {
 } from '../lib/asset-tabs'
 import { classifyLocalAssetHref } from '../lib/local-assets'
 import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
+import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -147,6 +150,26 @@ const MODE_OPTIONS: Array<{
     keymapId: 'global.modePreview'
   }
 ]
+
+const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
+const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
+const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
+
+function markdownEditingExtensions(): Extension[] {
+  return [
+    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
+    markdownListIndentPlugin,
+    orderedListRenumber,
+    headingFolding()
+  ]
+}
+
+function markdownSyntaxHighlightExtensions(): Extension[] {
+  return [
+    syntaxHighlighting(paperHighlight),
+    syntaxHighlighting(defaultHighlightStyle, { fallback: true })
+  ]
+}
 
 const paperHighlight = HighlightStyle.define([
   // Markdown-level tokens
@@ -512,6 +535,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
+  const wrapTabs = useStore((s) => s.wrapTabs)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
@@ -536,15 +560,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     y: number
     hasSelection: boolean
   } | null>(null)
+  const [editorHydration, setEditorHydration] = useState<{
+    path: string
+    ready: boolean
+  } | null>(null)
   const [assetDropActive, setAssetDropActive] = useState(false)
   const [imageDropIndicatorTop, setImageDropIndicatorTop] = useState<number | null>(null)
+  const [tabStripOverflowing, setTabStripOverflowing] = useState(false)
 
   const viewRef = useRef<EditorView | null>(null)
   const paneRootRef = useRef<HTMLDivElement | null>(null)
+  const tabStripRef = useRef<HTMLDivElement | null>(null)
   const paneBodyRef = useRef<HTMLDivElement | null>(null)
   const editorSurfaceRef = useRef<HTMLDivElement | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
+  const markdownCompartmentRef = useRef<Compartment | null>(null)
+  const markdownSyntaxCompartmentRef = useRef<Compartment | null>(null)
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
@@ -555,6 +587,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const activeOutlineFrameRef = useRef<number | null>(null)
   const selectionActionFrameRef = useRef<number | null>(null)
   const taskJumpHighlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const deferredLivePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const richMarkdownDeferredRef = useRef(false)
   /**
    * Path currently rendered in this pane's CodeMirror view. The CM update
    * listener writes through to `noteContents[viewPathRef.current]`; the
@@ -800,9 +834,61 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // Outline items derived from the current note body — line numbers
   // here are 1-based to match `parseOutline` and the editor's doc API.
   const outlineItems = useMemo(
-    () => parseOutline(content?.body ?? ''),
-    [content?.body]
+    () => (outlineOpen ? parseOutline(content?.body ?? '') : []),
+    [content?.body, outlineOpen]
   )
+
+  useEffect(() => {
+    if (!content) {
+      setEditorHydration(null)
+      return
+    }
+
+    const shouldDefer =
+      mode !== 'preview' &&
+      content.body.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS
+    if (!shouldDefer) {
+      setEditorHydration((current) =>
+        current?.path === content.path && current.ready
+          ? current
+          : { path: content.path, ready: true }
+      )
+      return
+    }
+
+    setEditorHydration((current) =>
+      current?.path === content.path && current.ready
+        ? current
+        : { path: content.path, ready: false }
+    )
+
+    let cancelled = false
+    let idleId: number | null = null
+    const timeoutId = window.setTimeout(() => {
+      const hydrate = (): void => {
+        idleId = null
+        if (cancelled) return
+        setEditorHydration({ path: content.path, ready: true })
+      }
+
+      if (typeof window.requestIdleCallback === 'function') {
+        idleId = window.requestIdleCallback(hydrate, { timeout: 700 })
+        return
+      }
+      hydrate()
+    }, LARGE_DOC_EDITOR_HYDRATE_DELAY_MS)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+      if (
+        idleId != null &&
+        typeof window.cancelIdleCallback === 'function'
+      ) {
+        window.cancelIdleCallback(idleId)
+      }
+    }
+  }, [content?.body.length, content?.path, mode])
 
   const setActiveOutlineLineSafely = useCallback((line: number | null) => {
     if (activeOutlineLineRef.current === line) return
@@ -886,6 +972,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           cancelAnimationFrame(selectionActionFrameRef.current)
           selectionActionFrameRef.current = null
         }
+        if (deferredLivePreviewTimerRef.current != null) {
+          clearTimeout(deferredLivePreviewTimerRef.current)
+          deferredLivePreviewTimerRef.current = null
+        }
+        richMarkdownDeferredRef.current = false
         setSelectionCommentAction(null)
         const existingView = viewRef.current
         if (
@@ -900,18 +991,27 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       if (viewRef.current) return
       const vimCompartment = new Compartment()
+      const markdownCompartment = new Compartment()
+      const markdownSyntaxCompartment = new Compartment()
       const livePreviewCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
+      markdownCompartmentRef.current = markdownCompartment
+      markdownSyntaxCompartmentRef.current = markdownSyntaxCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       wordWrapCompartmentRef.current = wordWrapCompartment
       const s0 = useStore.getState()
       const initialPath = findLeaf(s0.paneLayout, paneId)?.activeTab ?? null
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
+      const initialBody = initialContent?.body ?? ''
+      const deferInitialRichMarkdown =
+        initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS && !s0.livePreview
+      richMarkdownDeferredRef.current = deferInitialRichMarkdown
+      const stateStartedAt = performance.now()
       const state = EditorState.create({
-        doc: initialContent?.body ?? '',
+        doc: initialBody,
         extensions: [
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
@@ -920,13 +1020,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           taskJumpHighlightField,
           commentDecorationField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
-          markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
-          markdownListIndentPlugin,
-          orderedListRenumber,
-          headingFolding(),
-          syntaxHighlighting(paperHighlight),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-          livePreviewCompartment.of(s0.livePreview ? livePreviewPlugin : []),
+          markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
+          markdownSyntaxCompartment.of(
+            deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
+          ),
+          livePreviewCompartment.of(
+            s0.livePreview && !deferInitialRichMarkdown ? livePreviewPlugin : []
+          ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
@@ -1027,11 +1127,36 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           })
         ]
       })
+      recordRendererPerf('editor.mount.state', performance.now() - stateStartedAt, {
+        chars: initialBody.length,
+        deferred: deferInitialRichMarkdown
+      })
+      const viewStartedAt = performance.now()
       const view = new EditorView({ state, parent: el })
+      recordRendererPerf('editor.mount.view', performance.now() - viewStartedAt, {
+        chars: initialBody.length,
+        deferred: deferInitialRichMarkdown
+      })
       viewRef.current = view
       viewPathRef.current = initialPath
-      if (useStore.getState().activePaneId === paneId) {
+      if (initialContent && useStore.getState().activePaneId === paneId) {
         setEditorViewRef(view)
+      }
+      if (deferInitialRichMarkdown && initialPath) {
+        deferredLivePreviewTimerRef.current = setTimeout(() => {
+          deferredLivePreviewTimerRef.current = null
+          if (viewRef.current !== view) return
+          if (viewPathRef.current !== initialPath) return
+          richMarkdownDeferredRef.current = false
+          const restoreEffects = [
+            markdownCompartment.reconfigure(markdownEditingExtensions()),
+            markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
+          ]
+          if (useStore.getState().livePreview) {
+            restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+          }
+          view.dispatch({ effects: restoreEffects })
+        }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
       }
     },
     [
@@ -1048,11 +1173,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   // Register our view as the focused editor whenever our pane is active.
   useEffect(() => {
-    if (!isActive) return
     const view = viewRef.current
     if (!view) return
-    setEditorViewRef(view)
-  }, [isActive, setEditorViewRef, activeTab])
+    if (isActive && content) {
+      setEditorViewRef(view)
+      return
+    }
+    if (useStore.getState().editorViewRef === view) {
+      setEditorViewRef(null)
+    }
+  }, [isActive, setEditorViewRef, activeTab, content?.path])
 
   useEffect(() => {
     const refresh = (): void => scheduleSelectionCommentAction()
@@ -1065,26 +1195,104 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [scheduleSelectionCommentAction])
 
   // Sync CM doc to external content changes (file watcher, peer panes, tab switch).
-  useEffect(() => {
+  useLayoutEffect(() => {
     const view = viewRef.current
     if (!view) return
     const nextPath = content?.path ?? null
     const nextBody = content?.body ?? ''
     const pathChanged = viewPathRef.current !== nextPath
-    const bodyChanged = view.state.doc.toString() !== nextBody
+    const bodyChanged =
+      pathChanged ||
+      view.state.doc.length !== nextBody.length ||
+      view.state.doc.toString() !== nextBody
     if (!pathChanged && !bodyChanged) return
+    if (deferredLivePreviewTimerRef.current != null) {
+      clearTimeout(deferredLivePreviewTimerRef.current)
+      deferredLivePreviewTimerRef.current = null
+    }
     // Preserve selection on in-place body changes (peer pane edits,
     // external file watcher); jump to the start when switching tabs.
     const sel = view.state.selection.main
     const clampedAnchor = Math.min(sel.anchor, nextBody.length)
     const clampedHead = Math.min(sel.head, nextBody.length)
+    const markdownCompartment = markdownCompartmentRef.current
+    const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
+    const livePreviewCompartment = livePreviewCompartmentRef.current
+    const livePreviewEnabled = useStore.getState().livePreview
+    const deferRichMarkdown =
+      pathChanged &&
+      nextBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
+      !livePreviewEnabled &&
+      !!markdownCompartment &&
+      !!markdownSyntaxCompartment
+    const effects: StateEffect<unknown>[] = []
+    if (deferRichMarkdown && markdownCompartment && markdownSyntaxCompartment) {
+      richMarkdownDeferredRef.current = true
+      effects.push(
+        markdownCompartment.reconfigure([]),
+        markdownSyntaxCompartment.reconfigure([])
+      )
+      if (livePreviewCompartment) effects.push(livePreviewCompartment.reconfigure([]))
+    } else if (
+      richMarkdownDeferredRef.current &&
+      markdownCompartment &&
+      markdownSyntaxCompartment
+    ) {
+      richMarkdownDeferredRef.current = false
+      effects.push(
+        markdownCompartment.reconfigure(markdownEditingExtensions()),
+        markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
+      )
+      if (livePreviewEnabled && livePreviewCompartment) {
+        effects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+      }
+    }
+    const dispatchStartedAt = performance.now()
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: nextBody },
       annotations: [programmatic.of(true), skipOrderedListRenumber.of(true)],
+      effects: effects.length > 0 ? effects : undefined,
       selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
     })
+    recordRendererPerf('editor.doc.sync', performance.now() - dispatchStartedAt, {
+      chars: nextBody.length,
+      deferred: deferRichMarkdown,
+      pathChanged
+    })
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        recordRendererPerf('editor.doc.paint-latency', performance.now() - dispatchStartedAt, {
+          chars: nextBody.length,
+          deferred: deferRichMarkdown,
+          pathChanged
+        })
+      })
+    })
     viewPathRef.current = nextPath
-  }, [content?.body, content?.path])
+    if (
+      deferRichMarkdown &&
+      markdownCompartment &&
+      markdownSyntaxCompartment &&
+      nextPath
+    ) {
+      deferredLivePreviewTimerRef.current = setTimeout(() => {
+        deferredLivePreviewTimerRef.current = null
+        if (viewRef.current !== view) return
+        if (viewPathRef.current !== nextPath) return
+        richMarkdownDeferredRef.current = false
+        const restoreEffects = [
+          markdownCompartment.reconfigure(markdownEditingExtensions()),
+          markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
+        ]
+        if (useStore.getState().livePreview && livePreviewCompartment) {
+          restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+        }
+        view.dispatch({
+          effects: restoreEffects
+        })
+      }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
+    }
+  }, [content?.body, content?.path, livePreview])
 
   useEffect(() => {
     if (!content) return
@@ -1113,6 +1321,27 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
     if (!view || !comp) return
+    if (deferredLivePreviewTimerRef.current != null) {
+      if (livePreview) {
+        clearTimeout(deferredLivePreviewTimerRef.current)
+        deferredLivePreviewTimerRef.current = null
+        richMarkdownDeferredRef.current = false
+        const effects: StateEffect<unknown>[] = []
+        const markdownCompartment = markdownCompartmentRef.current
+        const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
+        if (markdownCompartment) {
+          effects.push(markdownCompartment.reconfigure(markdownEditingExtensions()))
+        }
+        if (markdownSyntaxCompartment) {
+          effects.push(
+            markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
+          )
+        }
+        effects.push(comp.reconfigure(livePreviewPlugin))
+        view.dispatch({ effects })
+      }
+      return
+    }
     view.dispatch({ effects: comp.reconfigure(livePreview ? livePreviewPlugin : []) })
   }, [livePreview])
   useEffect(() => {
@@ -1136,7 +1365,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view) return
     const raf = requestAnimationFrame(() => view.requestMeasure())
     return () => cancelAnimationFrame(raf)
-  }, [editorFontSize, editorLineHeight, lineNumberMode, textFont, mode, connectionsOpen])
+  }, [
+    editorFontSize,
+    editorLineHeight,
+    lineNumberMode,
+    textFont,
+    mode,
+    connectionsOpen,
+    content?.path
+  ])
 
   // Scroll sync between editor + preview when split mode is on.
   useEffect(() => {
@@ -2051,8 +2288,59 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const showPreview = !!content && mode !== 'edit'
   const splitMode = mode === 'split'
   const hasTabs = !zenMode && tabsEnabled && tabs.length > 0
+  const tabStripMeasureKey = useMemo(
+    () =>
+      tabItems
+        .map((tab) => `${tab.path}\u0000${tab.title}\u0000${tab.pinned ? '1' : '0'}`)
+        .join('\u0001'),
+    [tabItems]
+  )
+
+  useLayoutEffect(() => {
+    if (!hasTabs || wrapTabs) {
+      setTabStripOverflowing(false)
+      return
+    }
+
+    const el = tabStripRef.current
+    if (!el) return
+
+    const measure = (): void => {
+      const next = isTabStripOverflowing(el)
+      setTabStripOverflowing((current) => (current === next ? current : next))
+    }
+
+    measure()
+
+    const observer =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    if (observer) {
+      observer.observe(el)
+      for (const child of Array.from(el.children)) {
+        observer.observe(child)
+      }
+    }
+    window.addEventListener('resize', measure)
+
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [hasTabs, wrapTabs, tabStripMeasureKey])
+
+  const tabStripClass = [
+    'workspace-tab-strip glass-header flex shrink-0 items-start gap-1 border-b border-paper-300/70 px-3 pt-2',
+    wrapTabs
+      ? 'min-h-10 flex-wrap content-start overflow-x-hidden overflow-y-visible'
+      : `${tabStripOverflowing ? 'h-14 overflow-x-auto' : 'h-10 overflow-x-hidden'} overflow-y-hidden`
+  ].join(' ')
+  const editorReady =
+    !content ||
+    !showEditor ||
+    (editorHydration?.path === content.path && editorHydration.ready)
+  const previewSourceMarkdown = showPreview ? content?.body ?? '' : ''
   const { settledMarkdown: previewMarkdown } = useSettledMarkdown(
-    content?.body ?? '',
+    previewSourceMarkdown,
     splitMode ? 75 : 0
   )
 
@@ -2146,7 +2434,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     >
       {hasTabs && (
         <div
-          className="glass-header flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-paper-300/70 px-3 pt-2"
+          ref={tabStripRef}
+          className={tabStripClass}
           onDragOver={handleTabStripDragOver}
           onDrop={handleTabStripDrop}
         >
@@ -2259,19 +2548,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     hasSelection: !sel.empty
                   })
                 }}
-              >
-                {imageDropIndicatorTop != null && (
+                >
+                  {imageDropIndicatorTop != null && (
                   <div
                     className="pointer-events-none absolute inset-x-4 z-20"
                     style={{ top: imageDropIndicatorTop }}
                   >
                     <div className="relative h-0.5 rounded-full bg-accent shadow-[0_0_0_1px_rgb(var(--z-accent)/0.18)]">
                       <div className="absolute -left-1.5 -top-1 h-2.5 w-2.5 rounded-full border border-paper-50/70 bg-accent" />
+                      </div>
                     </div>
-                  </div>
-                )}
-                <div ref={setContainerRef} className="min-h-0 min-w-0 flex-1" />
-              </div>
+                  )}
+                  {editorReady ? (
+                    <div ref={setContainerRef} className="min-h-0 min-w-0 flex-1" />
+                  ) : (
+                    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-ink-400">
+                      Preparing editor…
+                    </div>
+                  )}
+                </div>
               {showPreview && (
                 <div
                   ref={previewScrollRef}

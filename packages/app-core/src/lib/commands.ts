@@ -7,8 +7,8 @@
  * sensitive commands like "Unarchive" only show up when applicable).
  */
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
-import { promptApp } from '../components/PromptHost'
-import { confirmApp } from '../components/ConfirmHost'
+import { confirmApp } from './confirm-requests'
+import { promptApp } from './prompt-requests'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
@@ -17,7 +17,6 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
-import { foldAll, foldCode, unfoldAll, unfoldCode } from '@codemirror/language'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -25,6 +24,16 @@ const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
 const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
 const APP_RELEASES_URL = 'https://github.com/ZenNotes/zennotes/releases/latest'
 const APP_ISSUES_URL = 'https://github.com/ZenNotes/zennotes/issues'
+
+type FoldCommand = 'foldCode' | 'unfoldCode' | 'foldAll' | 'unfoldAll'
+
+async function runFoldCommand(command: FoldCommand): Promise<void> {
+  const view = useStore.getState().editorViewRef
+  if (!view) return
+  const foldModule = await import('@codemirror/language')
+  foldModule[command](view)
+  view.focus()
+}
 
 export interface Command {
   /** Stable identifier — used as React key and for analytics. */
@@ -556,13 +565,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: shortcut('vim.foldCurrent'),
       keywords: 'collapse fold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => {
-        const view = getState().editorViewRef
-        if (view) {
-          foldCode(view)
-          view.focus()
-        }
-      }
+      run: () => runFoldCommand('foldCode')
     },
     {
       id: 'fold.unfold-heading',
@@ -571,13 +574,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: shortcut('vim.unfoldCurrent'),
       keywords: 'expand unfold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => {
-        const view = getState().editorViewRef
-        if (view) {
-          unfoldCode(view)
-          view.focus()
-        }
-      }
+      run: () => runFoldCommand('unfoldCode')
     },
     {
       id: 'fold.all',
@@ -586,13 +583,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: shortcut('vim.foldAll'),
       keywords: 'collapse fold all every',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => {
-        const view = getState().editorViewRef
-        if (view) {
-          foldAll(view)
-          view.focus()
-        }
-      }
+      run: () => runFoldCommand('foldAll')
     },
     {
       id: 'fold.unfold-all',
@@ -601,13 +592,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: shortcut('vim.unfoldAll'),
       keywords: 'expand unfold all every reset',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => {
-        const view = getState().editorViewRef
-        if (view) {
-          unfoldAll(view)
-          view.focus()
-        }
-      }
+      run: () => runFoldCommand('unfoldAll')
     },
     {
       id: 'nav.back',

@@ -7,7 +7,7 @@ import { CollectionViewHeader } from './CollectionViewHeader'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { ContextMenu } from './ContextMenu'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
-import { usePrompt } from './PromptModal'
+import { promptApp } from '../lib/prompt-requests'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 
@@ -44,7 +44,6 @@ export function ArchiveView(): JSX.Element {
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const amActive = useStore(isArchiveViewActive)
-  const { prompt, modal: promptModal } = usePrompt()
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels]
@@ -162,7 +161,7 @@ export function ArchiveView(): JSX.Element {
     items.push({
       label: 'Rename…',
       onSelect: async () => {
-        const next = await prompt({
+        const next = await promptApp({
           title: 'Rename note',
           initialValue: note.title,
           okLabel: 'Rename',
@@ -178,7 +177,7 @@ export function ArchiveView(): JSX.Element {
     items.push({
       label: 'Move…',
       onSelect: async () => {
-        const target = await prompt(buildMoveNotePrompt(note, folders))
+        const target = await promptApp(buildMoveNotePrompt(note, folders))
         if (!target) return
         const dest = parseMoveNoteTarget(target)
         await moveNote(note.path, dest.folder, dest.subpath)
@@ -506,7 +505,6 @@ export function ArchiveView(): JSX.Element {
           onClose={() => setMenu(null)}
         />
       )}
-      {promptModal}
     </Fragment>
   )
 }

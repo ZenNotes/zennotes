@@ -24,7 +24,6 @@
  *   :find        — open the note picker (alias for ⌘P).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Fuse from 'fuse.js'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import {
   EditorView,
@@ -49,6 +48,10 @@ import {
   type ThemeFamily,
   type ThemeMode
 } from '../lib/themes'
+import {
+  buildNoteSearchIndex,
+  searchNoteIndex
+} from '../lib/note-search'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -613,56 +616,14 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
     inputRef.current?.focus()
   }, [])
 
-  const fuse = useMemo(
-    () =>
-      new Fuse(notes, {
-        keys: [
-          { name: 'title', weight: 0.7 },
-          { name: 'path', weight: 0.2 },
-          { name: 'tags', weight: 0.1 }
-        ],
-        threshold: 0.35,
-        ignoreLocation: true
-      }),
-    [notes]
-  )
-
-  const { freeText, tagTokens } = useMemo(() => {
-    const tags: string[] = []
-    const text: string[] = []
-    for (const tok of query.split(/\s+/)) {
-      if (!tok) continue
-      if (tok.startsWith('#') && tok.length > 1) tags.push(tok.slice(1).toLowerCase())
-      else text.push(tok)
-    }
-    return { freeText: text.join(' ').trim(), tagTokens: tags }
-  }, [query])
+  const searchIndex = useMemo(() => buildNoteSearchIndex(notes), [notes])
 
   const results = useMemo(() => {
-    const byTag = (n: NoteMeta): boolean => {
-      if (tagTokens.length === 0) return true
-      const tagsLower = n.tags.map((t) => t.toLowerCase())
-      return tagTokens.every((t) => tagsLower.includes(t))
-    }
-    const live = notes.filter((n) => n.folder !== 'trash' && byTag(n))
-    if (!freeText) {
-      // Default sort: most recently updated first, with Quick first
-      // since the capture surface is biased toward Quick by design.
-      return [...live]
-        .sort((a, b) => {
-          if (a.folder === 'quick' && b.folder !== 'quick') return -1
-          if (b.folder === 'quick' && a.folder !== 'quick') return 1
-          return b.updatedAt - a.updatedAt
-        })
-        .slice(0, 30)
-    }
-    const set = new Set(live.map((n) => n.path))
-    return fuse
-      .search(freeText)
-      .map((r) => r.item)
-      .filter((n) => set.has(n.path))
-      .slice(0, 30)
-  }, [fuse, freeText, tagTokens, notes])
+    return searchNoteIndex(searchIndex, query, {
+      limit: 30,
+      defaultOrder: 'quick-first-recent'
+    })
+  }, [query, searchIndex])
 
   useEffect(() => setActive(0), [query])
 

@@ -40,8 +40,8 @@ import {
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
-import { pickServerDirectoryApp } from './components/ServerDirectoryPickerHost'
-import { promptApp } from './components/PromptHost'
+import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
+import { promptApp } from './lib/prompt-requests'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
 import {
@@ -49,6 +49,11 @@ import {
   normalizeSystemFolderLabels
 } from './lib/system-folder-labels'
 import { recordRendererPerf } from './lib/perf'
+import {
+  initialWorkspaceRestoreContentPaths,
+  isWorkspaceVirtualTabPath,
+  workspaceRestorePrefetchContentPaths
+} from './lib/workspace-tabs'
 import {
   duplicateFolderIcons,
   folderForVaultRelativePath,
@@ -60,6 +65,10 @@ import {
   noteTitleForDate,
   rewriteFolderIconsForRename
 } from './lib/vault-layout'
+import {
+  INITIAL_VISIBLE_NOTE_PREFETCH_BATCH_SIZE,
+  selectInitialVisibleNotePrefetchPaths
+} from './lib/note-prefetch'
 import type { Panel } from './lib/vim-nav'
 import {
   allLeaves,
@@ -127,6 +136,34 @@ const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
 const MAX_NOTE_JUMP_HISTORY = 100
 const DEFAULT_SIDEBAR_WIDTH = 336
 const LEGACY_DEFAULT_SIDEBAR_WIDTHS = new Set([232, 260, 288])
+const LIST_NOTES_BRIDGE_PAGE_SIZE = 250
+
+function nextRendererTask(): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, 0))
+}
+
+async function listNotesFromBridge(): Promise<NoteMeta[]> {
+  if (!window.zen.listNotesPage) return await window.zen.listNotes()
+
+  const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const notes: NoteMeta[] = []
+  let offset = 0
+
+  for (;;) {
+    const page = await window.zen.listNotesPage({
+      requestId,
+      offset,
+      chunkSize: LIST_NOTES_BRIDGE_PAGE_SIZE
+    })
+    if (page.notes.length > 0) notes.push(...page.notes)
+    if (page.done) return notes
+    if (page.nextOffset <= offset) {
+      throw new Error('listNotesPage returned a non-advancing offset')
+    }
+    offset = page.nextOffset
+    await nextRendererTask()
+  }
+}
 
 interface Prefs {
   vimMode: boolean
@@ -145,6 +182,7 @@ interface Prefs {
   fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
   tabsEnabled: boolean
+  wrapTabs: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -269,6 +307,7 @@ const DEFAULT_PREFS: Prefs = {
   fzfBinaryPath: null,
   livePreview: true,
   tabsEnabled: true,
+  wrapTabs: false,
   themeId: DEFAULT_THEME_ID,
   themeFamily: 'gruvbox',
   themeMode: 'dark',
@@ -357,6 +396,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
     tabsEnabled:
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
+    wrapTabs:
+      typeof p.wrapTabs === 'boolean' ? p.wrapTabs : DEFAULT_PREFS.wrapTabs,
     themeId,
     themeFamily,
     themeMode,
@@ -850,6 +891,7 @@ function collectPrefs(s: {
   fzfBinaryPath: string | null
   livePreview: boolean
   tabsEnabled: boolean
+  wrapTabs: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -899,6 +941,7 @@ function collectPrefs(s: {
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
     tabsEnabled: s.tabsEnabled,
+    wrapTabs: s.wrapTabs,
     themeId: s.themeId,
     themeFamily: s.themeFamily,
     themeMode: s.themeMode,
@@ -965,18 +1008,6 @@ interface ZenRestoreState {
   sidebarOpen: boolean
   noteListOpen: boolean
   pinnedRefVisible: boolean
-}
-
-function isWorkspaceVirtualTabPath(path: string): boolean {
-  return (
-    isQuickNotesTabPath(path) ||
-    isTasksTabPath(path) ||
-    isTagsTabPath(path) ||
-    isHelpTabPath(path) ||
-    isArchiveTabPath(path) ||
-    isTrashTabPath(path) ||
-    isAssetTabPath(path)
-  )
 }
 
 function loadWorkspaceSnapshots(): Record<string, unknown> {
@@ -1236,6 +1267,7 @@ interface Store {
   fzfBinaryPath: string | null
   livePreview: boolean
   tabsEnabled: boolean
+  wrapTabs: boolean
   settingsOpen: boolean
   themeId: string
   themeFamily: ThemeFamily
@@ -1414,6 +1446,7 @@ interface Store {
   setTasksCalendarMonthAnchor: (iso: string | null) => void
   setTaskCursorIndex: (idx: number) => void
   selectNote: (relPath: string | null) => Promise<void>
+  prefetchNotes: (paths: string[]) => void
   openNoteAtOffset: (
     relPath: string,
     offset: number,
@@ -1423,6 +1456,7 @@ interface Store {
   jumpToNextNote: () => Promise<void>
   applyChange: (ev: VaultChangeEvent) => Promise<void>
   refreshNotes: () => Promise<void>
+  refreshAssets: () => Promise<void>
   updateActiveBody: (body: string) => void
   persistActive: () => Promise<void>
   formatActiveNote: () => Promise<void>
@@ -1459,6 +1493,7 @@ interface Store {
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
   setTabsEnabled: (on: boolean) => void
+  setWrapTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
   setEditorFontSize: (px: number) => void
@@ -1787,6 +1822,114 @@ function ensureActivePane(
 // Fresh empty leaf that owns the initial activePaneId. Held in module
 // scope so the state initializer below can reference it.
 const initialPane = makeLeaf()
+const MAX_PREFETCHED_NOTE_CONTENTS = 48
+const NOTE_PREFETCH_BATCH_SIZE = 12
+const INITIAL_VISIBLE_NOTE_PREFETCH_CRITICAL_BATCH_SIZE = 8
+const INITIAL_VISIBLE_NOTE_PREFETCH_BACKGROUND_DELAY_MS = 1_600
+const noteReadPromises = new Map<string, Promise<NoteContent>>()
+const prefetchedNotePaths: string[] = []
+
+function noteReadCacheKey(
+  state: Pick<Store, 'vault' | 'workspaceMode' | 'remoteWorkspaceInfo'>,
+  relPath: string
+): string {
+  return [
+    state.workspaceMode,
+    state.vault?.root ?? '',
+    state.remoteWorkspaceInfo?.baseUrl ?? '',
+    state.remoteWorkspaceInfo?.profileId ?? '',
+    relPath
+  ].join('\0')
+}
+
+function clearNoteContentReadCaches(): void {
+  noteReadPromises.clear()
+  prefetchedNotePaths.length = 0
+}
+
+function readNoteContent(relPath: string, state: Store): Promise<NoteContent> {
+  const cacheKey = noteReadCacheKey(state, relPath)
+  const pending = noteReadPromises.get(cacheKey)
+  if (pending) return pending
+
+  const next = window.zen.readNote(relPath).finally(() => {
+    noteReadPromises.delete(cacheKey)
+  })
+  noteReadPromises.set(cacheKey, next)
+  return next
+}
+
+function rememberPrefetchedPath(path: string): void {
+  const existing = prefetchedNotePaths.indexOf(path)
+  if (existing >= 0) prefetchedNotePaths.splice(existing, 1)
+  prefetchedNotePaths.push(path)
+}
+
+function prunePrefetchedContents(s: Store): Partial<Store> {
+  if (prefetchedNotePaths.length <= MAX_PREFETCHED_NOTE_CONTENTS) return {}
+
+  const contents = { ...s.noteContents }
+  const dirty = { ...s.noteDirty }
+  while (prefetchedNotePaths.length > MAX_PREFETCHED_NOTE_CONTENTS) {
+    const path = prefetchedNotePaths.shift()
+    if (!path) continue
+    const referenced =
+      s.selectedPath === path ||
+      s.pinnedRefPath === path ||
+      allLeaves(s.paneLayout).some((leaf) => leaf.tabs.includes(path))
+    if (referenced || dirty[path]) continue
+    delete contents[path]
+    delete dirty[path]
+  }
+
+  return { noteContents: contents, noteDirty: dirty }
+}
+
+function initialVisibleNotePrefetchPaths(state: Pick<Store, 'notes' | 'noteSortOrder'>): string[] {
+  return selectInitialVisibleNotePrefetchPaths(state.notes, state.noteSortOrder)
+}
+
+async function prefetchInitialVisibleNotes(state: Store): Promise<void> {
+  const paths = initialVisibleNotePrefetchPaths(state)
+  if (paths.length === 0) return
+
+  const existing = new Set(Object.keys(state.noteContents))
+  const livePaths = new Set(state.notes.map((note) => note.path))
+  const candidates = paths
+    .filter((path) => livePaths.has(path))
+    .filter((path) => !isWorkspaceVirtualTabPath(path))
+    .filter((path) => !existing.has(path))
+    .slice(0, INITIAL_VISIBLE_NOTE_PREFETCH_BATCH_SIZE)
+
+  if (candidates.length === 0) return
+
+  const criticalCandidates = candidates.slice(0, INITIAL_VISIBLE_NOTE_PREFETCH_CRITICAL_BATCH_SIZE)
+  const backgroundCandidates = candidates.slice(criticalCandidates.length)
+  const scheduleBackgroundPrefetch = (): void => {
+    if (backgroundCandidates.length === 0) return
+    window.setTimeout(() => {
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(
+          () => useStore.getState().prefetchNotes(backgroundCandidates),
+          { timeout: 2_000 }
+        )
+        return
+      }
+      useStore.getState().prefetchNotes(backgroundCandidates)
+    }, INITIAL_VISIBLE_NOTE_PREFETCH_BACKGROUND_DELAY_MS)
+  }
+
+  const startedAt = performance.now()
+  if (criticalCandidates.length > 0) {
+    useStore.getState().prefetchNotes(criticalCandidates)
+  }
+  recordRendererPerf('store.initial-prefetch', performance.now() - startedAt, {
+    requested: criticalCandidates.length,
+    backgroundQueued: backgroundCandidates.length,
+    mode: 'scheduled'
+  })
+  scheduleBackgroundPrefetch()
+}
 
 export const useStore = create<Store>((set, get) => {
   const selectNoteImpl = async (
@@ -1924,8 +2067,13 @@ export const useStore = create<Store>((set, get) => {
 
     set({ loadingNote: true })
     try {
-      const content = await window.zen.readNote(relPath)
+      const readScopeKey = noteReadCacheKey(latest, relPath)
+      const content = await readNoteContent(relPath, latest)
       const s = get()
+      if (noteReadCacheKey(s, relPath) !== readScopeKey) {
+        set({ loadingNote: false })
+        return false
+      }
       const leafNow = findLeaf(s.paneLayout, s.activePaneId)
       if (!leafNow) {
         set({ loadingNote: false })
@@ -1977,7 +2125,7 @@ export const useStore = create<Store>((set, get) => {
         continue
       }
       try {
-        const content = await window.zen.readNote(target.path)
+        const content = await readNoteContent(target.path, get())
         const latest = get()
         const leaf = findLeaf(latest.paneLayout, latest.activePaneId)
         if (!leaf) continue
@@ -2014,7 +2162,15 @@ export const useStore = create<Store>((set, get) => {
     })
   }
 
+  const scheduleAssetsRefreshForVault = (vault: VaultInfo): void => {
+    window.setTimeout(() => {
+      if (get().vault?.root !== vault.root) return
+      void get().refreshAssets()
+    }, 2000)
+  }
+
   const restoreWorkspaceForVault = async (vault: VaultInfo): Promise<void> => {
+    const startedAt = performance.now()
     const rawSnapshot = loadWorkspaceSnapshot(vault.root)
     if (!rawSnapshot || typeof rawSnapshot !== 'object') {
       set({
@@ -2025,6 +2181,8 @@ export const useStore = create<Store>((set, get) => {
         ),
         workspaceRestored: true
       })
+      scheduleAssetsRefreshForVault(vault)
+      recordRendererPerf('workspace.restore.empty', performance.now() - startedAt)
       return
     }
 
@@ -2034,18 +2192,13 @@ export const useStore = create<Store>((set, get) => {
     const unreadable = new Set<string>()
     const contents: Record<string, NoteContent> = {}
     const dirty: Record<string, boolean> = {}
-    const pathsToLoad = Array.from(
-      new Set(
-        allLeaves(layout)
-          .flatMap((leaf) => leaf.tabs)
-          .filter((path) => existingPaths.has(path))
-      )
-    )
+    const pathsToLoad = initialWorkspaceRestoreContentPaths(layout, existingPaths)
+    const initiallyLoadedPaths = new Set(pathsToLoad)
 
     await Promise.all(
       pathsToLoad.map(async (path) => {
         try {
-          contents[path] = await window.zen.readNote(path)
+          contents[path] = await readNoteContent(path, get())
           dirty[path] = false
         } catch (err) {
           unreadable.add(path)
@@ -2057,6 +2210,11 @@ export const useStore = create<Store>((set, get) => {
     if (unreadable.size > 0) {
       layout = rewritePathsInTree(layout, (path) => (unreadable.has(path) ? null : path))
     }
+    const restorePrefetchPaths = workspaceRestorePrefetchContentPaths(
+      layout,
+      existingPaths,
+      initiallyLoadedPaths
+    )
 
     const ensured = ensureActivePane(
       layout,
@@ -2092,6 +2250,16 @@ export const useStore = create<Store>((set, get) => {
       workspaceRestored: true,
       ...active
     })
+    scheduleAssetsRefreshForVault(vault)
+    recordRendererPerf('workspace.restore', performance.now() - startedAt, {
+      panes: allLeaves(ensured.layout).length,
+      eagerNotes: pathsToLoad.length,
+      deferredNotes: restorePrefetchPaths.length
+    })
+
+    if (restorePrefetchPaths.length > 0) {
+      window.setTimeout(() => get().prefetchNotes(restorePrefetchPaths), 120)
+    }
   }
 
   return {
@@ -2135,6 +2303,7 @@ export const useStore = create<Store>((set, get) => {
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
   tabsEnabled: loadPrefs().tabsEnabled,
+  wrapTabs: loadPrefs().wrapTabs,
   settingsOpen: false,
   themeId: loadPrefs().themeId,
   themeFamily: loadPrefs().themeFamily,
@@ -2194,7 +2363,13 @@ export const useStore = create<Store>((set, get) => {
   noteComments: {},
   activeCommentId: null,
 
-  setVault: (v) => set({ vault: v }),
+  setVault: (v) =>
+    set((s) => {
+      if (s.vault?.root !== v?.root || s.vault?.name !== v?.name) {
+        clearNoteContentReadCaches()
+      }
+      return { vault: v }
+    }),
   setVaultSettings: async (next) => {
     try {
       const settings = normalizeVaultSettings(await window.zen.setVaultSettings(next))
@@ -2207,14 +2382,16 @@ export const useStore = create<Store>((set, get) => {
     }
   },
   setNotes: (notes) => set({ notes }),
-  setView: (view) =>
+  setView: (view) => {
     set({
       view,
       selectedPath: null,
       activeNote: null,
       activeDirty: false,
       pendingJumpLocation: null
-    }),
+    })
+    if (view.kind === 'assets') void get().refreshAssets()
+  },
 
   openTasksView: async () => {
     const state = get()
@@ -2526,6 +2703,65 @@ export const useStore = create<Store>((set, get) => {
     await selectNoteImpl(relPath, 'push')
   },
 
+  prefetchNotes: (paths) => {
+    const state = get()
+    const existing = new Set(Object.keys(state.noteContents))
+    const livePaths = new Set(state.notes.map((note) => note.path))
+    const candidates = paths
+      .filter((path) => livePaths.has(path))
+      .filter((path) => !isWorkspaceVirtualTabPath(path))
+      .filter((path) => !existing.has(path))
+      .slice(0, NOTE_PREFETCH_BATCH_SIZE)
+
+    if (candidates.length === 0) return
+
+    const reads = candidates.map((path) => {
+      const readScopeKey = noteReadCacheKey(state, path)
+      return readNoteContent(path, state).then(
+        (content) => ({ path, readScopeKey, content }),
+        () => null
+      )
+    })
+
+    void Promise.all(reads).then((results) => {
+      const loaded = results.filter(
+        (result): result is { path: string; readScopeKey: string; content: NoteContent } =>
+          result !== null
+      )
+      if (loaded.length === 0) return
+
+      set((s) => {
+        let contents = s.noteContents
+        let dirty = s.noteDirty
+        let changed = false
+        const live = new Set(s.notes.map((note) => note.path))
+
+        for (const { path, readScopeKey, content } of loaded) {
+          if (noteReadCacheKey(s, path) !== readScopeKey) continue
+          if (contents[path]) continue
+          if (!live.has(path)) continue
+          if (!changed) {
+            contents = { ...contents }
+            dirty = { ...dirty }
+            changed = true
+          }
+          contents[path] = content
+          dirty[path] = false
+          rememberPrefetchedPath(path)
+        }
+
+        if (!changed) return s
+        const next = {
+          noteContents: contents,
+          noteDirty: dirty,
+          ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+        }
+        const pruned = prunePrefetchedContents({ ...s, ...next })
+        return { ...next, ...pruned }
+      })
+    })
+  },
+
   openNoteAtOffset: async (relPath, offset, options) => {
     const state = get()
     const anchor = Math.max(0, offset)
@@ -2553,13 +2789,19 @@ export const useStore = create<Store>((set, get) => {
 
   refreshNotes: async () => {
     try {
-      const [notes, folders, assetFiles, hasAssetsDir] = await Promise.all([
-        window.zen.listNotes(),
+      const startedAt = performance.now()
+      const [notes, folders, hasAssetsDirOnDisk] = await Promise.all([
+        listNotesFromBridge(),
         window.zen.listFolders(),
-        window.zen.listAssets(),
         window.zen.hasAssetsDir()
       ])
+      recordRendererPerf('store.refreshNotes.fetch', performance.now() - startedAt, {
+        notes: notes.length,
+        folders: folders.length,
+        hasAssetsDir: hasAssetsDirOnDisk
+      })
       set((s) => {
+        const applyStartedAt = performance.now()
         const noteMetaByPath = new Map(notes.map((note) => [note.path, note] as const))
         const existingPaths = new Set(notes.map((n) => n.path))
         // Drop tabs whose notes no longer exist — except keep the currently
@@ -2598,14 +2840,13 @@ export const useStore = create<Store>((set, get) => {
         for (const [path, isDirty] of Object.entries(s.noteDirty)) {
           if (referenced.has(path)) dirty[path] = isDirty
         }
-        return {
+        const next = {
           notes:
             s.noteSortOrder === 'none'
               ? mergeNotesPreservingOrder(s.notes, notes)
               : notes,
           folders: mergeFoldersPreservingOrder(s.folders, folders),
-          assetFiles,
-          hasAssetsDir,
+          hasAssetsDir: hasAssetsDirOnDisk || s.assetFiles.length > 0,
           paneLayout: ensured.layout,
           activePaneId: ensured.activePaneId,
           noteContents: contents,
@@ -2613,15 +2854,45 @@ export const useStore = create<Store>((set, get) => {
           pinnedRefPath,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
+        recordRendererPerf('store.refreshNotes.apply', performance.now() - applyStartedAt, {
+          notes: notes.length,
+          folders: folders.length
+        })
+        return next
       })
     } catch (err) {
       console.error('refresh failed', err)
     }
   },
 
+  refreshAssets: async () => {
+    try {
+      const startedAt = performance.now()
+      const [assetFiles, hasAssetsDirOnDisk] = await Promise.all([
+        window.zen.listAssets(),
+        window.zen.hasAssetsDir()
+      ])
+      set({
+        assetFiles,
+        hasAssetsDir: hasAssetsDirOnDisk || assetFiles.length > 0
+      })
+      recordRendererPerf('store.refreshAssets.fetch', performance.now() - startedAt, {
+        assets: assetFiles.length,
+        hasAssetsDir: hasAssetsDirOnDisk || assetFiles.length > 0
+      })
+    } catch (err) {
+      console.error('refresh assets failed', err)
+    }
+  },
+
   applyChange: async (ev) => {
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
+    if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
+      await get().refreshAssets()
       return
     }
     await Promise.all([
@@ -3193,6 +3464,10 @@ export const useStore = create<Store>((set, get) => {
     })
     savePrefs(collectPrefs(get()))
   },
+  setWrapTabs: (on) => {
+    set({ wrapTabs: on })
+    savePrefs(collectPrefs(get()))
+  },
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setTheme: ({ id, family, mode }) => {
     set({ themeId: id, themeFamily: family, themeMode: mode })
@@ -3301,7 +3576,7 @@ export const useStore = create<Store>((set, get) => {
     let dirty = s.noteDirty
     if (!contents[path]) {
       try {
-        const content = await window.zen.readNote(path)
+        const content = await readNoteContent(path, s)
         contents = { ...contents, [path]: content }
         dirty = { ...dirty, [path]: false }
       } catch (err) {
@@ -3602,7 +3877,7 @@ export const useStore = create<Store>((set, get) => {
     if (needContent) {
       set({ loadingNote: paneId === s.activePaneId })
       try {
-        const content = await window.zen.readNote(path)
+        const content = await readNoteContent(path, s)
         set((cur) => {
           const contents = { ...cur.noteContents, [path]: content }
           const dirty = { ...cur.noteDirty, [path]: false }
@@ -3657,7 +3932,7 @@ export const useStore = create<Store>((set, get) => {
     }
     if (!s.noteContents[path]) {
       try {
-        const content = await window.zen.readNote(path)
+        const content = await readNoteContent(path, s)
         set((cur) => {
           const contents = { ...cur.noteContents, [path]: content }
           const dirty = { ...cur.noteDirty, [path]: false }
@@ -3745,7 +4020,7 @@ export const useStore = create<Store>((set, get) => {
     let dirty = s.noteDirty
     if (!isWorkspaceVirtualTabPath(path) && !contents[path]) {
       try {
-        const content = await window.zen.readNote(path)
+        const content = await readNoteContent(path, s)
         contents = { ...contents, [path]: content }
         dirty = { ...dirty, [path]: false }
       } catch (err) {
@@ -3798,7 +4073,7 @@ export const useStore = create<Store>((set, get) => {
       !contents[path]
     ) {
       try {
-        const content = await window.zen.readNote(path)
+        const content = await readNoteContent(path, s0)
         contents = { ...contents, [path]: content }
         dirty = { ...dirty, [path]: false }
       } catch (err) {
@@ -4127,13 +4402,17 @@ export const useStore = create<Store>((set, get) => {
 
   init: async () => {
     if (get().initialized) return
+    const startedAt = performance.now()
     set({ initialized: true })
+    let initializedVault = false
     try {
       const remoteWorkspaceProfilesPromise = get().refreshRemoteWorkspaceProfiles()
-      const remoteWorkspaceInfo = await get().refreshWorkspaceContext()
-      const serverCapabilities = await window.zen.getServerCapabilities().catch(() => null)
+      const [remoteWorkspaceInfo, serverCapabilities] = await Promise.all([
+        get().refreshWorkspaceContext(),
+        window.zen.getServerCapabilities().catch(() => null)
+      ])
       if (!(await ensureWebServerSession(serverCapabilities))) {
-        await remoteWorkspaceProfilesPromise
+        void remoteWorkspaceProfilesPromise
         set({
           workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
           remoteWorkspaceInfo,
@@ -4141,10 +4420,13 @@ export const useStore = create<Store>((set, get) => {
           workspaceRestored: true,
           vaultSettings: DEFAULT_VAULT_SETTINGS
         })
+        recordRendererPerf('store.init', performance.now() - startedAt, {
+          hasVault: false
+        })
         return
       }
       const vault = await window.zen.getCurrentVault()
-      await remoteWorkspaceProfilesPromise
+      void remoteWorkspaceProfilesPromise
       if (vault) {
         const vaultSettings = normalizeVaultSettings(await window.zen.getVaultSettings())
         set({
@@ -4156,7 +4438,9 @@ export const useStore = create<Store>((set, get) => {
           workspaceRestored: false
         })
         await get().refreshNotes()
+        await prefetchInitialVisibleNotes(get())
         await restoreWorkspaceForVault(vault)
+        initializedVault = true
       } else {
         set({
           workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
@@ -4177,6 +4461,9 @@ export const useStore = create<Store>((set, get) => {
         vaultSettings: DEFAULT_VAULT_SETTINGS
       })
     }
+    recordRendererPerf('store.init', performance.now() - startedAt, {
+      hasVault: initializedVault
+    })
     // Default focus to the sidebar so j/k navigation works immediately
     if (get().sidebarOpen && !get().focusedPanel) {
       set({ focusedPanel: 'sidebar' })
@@ -4187,7 +4474,7 @@ export const useStore = create<Store>((set, get) => {
     const pinnedPath = get().pinnedRefPath
     if (pinnedPath && !get().noteContents[pinnedPath]) {
       try {
-        const content = await window.zen.readNote(pinnedPath)
+        const content = await readNoteContent(pinnedPath, get())
         set((s) => ({
           noteContents: { ...s.noteContents, [pinnedPath]: content },
           noteDirty: { ...s.noteDirty, [pinnedPath]: false }

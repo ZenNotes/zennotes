@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   isArchiveViewActive,
   isHelpViewActive,
@@ -35,8 +35,8 @@ import {
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
-import { usePrompt } from "./PromptModal";
-import { confirmApp } from "./ConfirmHost";
+import { confirmApp } from '../lib/confirm-requests'
+import { promptApp } from '../lib/prompt-requests'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
 import {
@@ -61,6 +61,17 @@ import {
   resolveFolderIconOption,
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
+import {
+  getSidebarEdgePrefetchPaths,
+  getInitialSidebarEntryLimit,
+  getNextSidebarEntryLimit,
+  SIDEBAR_PROGRESSIVE_RENDER_THRESHOLD,
+  SIDEBAR_PROGRESSIVE_SENTINEL_MARGIN_PX,
+} from "../lib/sidebar-progressive";
+
+const ACTIVE_TAG_PARSE_DELAY_MS = 220;
+const ACTIVE_TAG_PARSE_LARGE_BODY_CHARS = 120_000;
+const ACTIVE_TAG_PARSE_LARGE_BODY_DELAY_MS = 900;
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function")
@@ -213,6 +224,12 @@ function parseSelectionKey(key: string): SidebarSelectionItem | null {
   return null;
 }
 
+function sameStringSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((item) => rightSet.has(item));
+}
+
 function selectionSetsEqual(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return false;
   for (const key of a) {
@@ -295,6 +312,7 @@ export function Sidebar(): JSX.Element {
   const focusedPanel = useStore((s) => s.focusedPanel);
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex);
   const activeNote = useStore((s) => s.activeNote);
+  const activeDirty = useStore((s) => s.activeDirty);
   const vaultSettings = useStore((s) => s.vaultSettings);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
@@ -349,7 +367,6 @@ export function Sidebar(): JSX.Element {
   const moveNoteAction = useStore((s) => s.moveNote);
   const renameNote = useStore((s) => s.renameNote);
   const setVaultSettings = useStore((s) => s.setVaultSettings);
-  const { prompt, modal: promptModal } = usePrompt();
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
   const absolutePathLabel =
@@ -363,6 +380,12 @@ export function Sidebar(): JSX.Element {
       void openNoteInTab(assetTabPath(path));
     },
     [openNoteInTab],
+  );
+  const handleSelectNote = useCallback(
+    (path: string): void => {
+      void selectNote(path);
+    },
+    [selectNote],
   );
   const remoteLabel = useMemo(
     () => remoteWorkspaceLabel(remoteWorkspaceInfo?.baseUrl ?? null),
@@ -428,6 +451,20 @@ export function Sidebar(): JSX.Element {
   const selectedSidebarCount =
     selectedNoteMetas.length +
     selectedSidebarItems.filter((item) => item.kind === "folder").length;
+  const selectionAnchorKeyRef = useRef(selectionAnchorKey);
+  const selectedSidebarKeysRef = useRef(selectedSidebarKeys);
+  const selectedSidebarItemsRef = useRef(selectedSidebarItems);
+  const selectedSidebarCountRef = useRef(selectedSidebarCount);
+
+  useEffect(() => {
+    selectionAnchorKeyRef.current = selectionAnchorKey;
+  }, [selectionAnchorKey]);
+
+  useEffect(() => {
+    selectedSidebarKeysRef.current = selectedSidebarKeys;
+    selectedSidebarItemsRef.current = selectedSidebarItems;
+    selectedSidebarCountRef.current = selectedSidebarCount;
+  }, [selectedSidebarCount, selectedSidebarItems, selectedSidebarKeys]);
 
   useEffect(() => {
     const availableKeys = new Set<string>();
@@ -474,7 +511,7 @@ export function Sidebar(): JSX.Element {
       const key = selectionKeyForItem(item);
       if (event.shiftKey) {
         event.preventDefault();
-        const anchor = selectionAnchorKey ?? key;
+        const anchor = selectionAnchorKeyRef.current ?? key;
         setSelectedSidebarKeys(selectSidebarRange(anchor, key));
         setSelectionAnchorKey(anchor);
         return;
@@ -494,7 +531,7 @@ export function Sidebar(): JSX.Element {
       setSelectionAnchorKey(key);
       primaryAction();
     },
-    [selectSidebarRange, selectionAnchorKey],
+    [selectSidebarRange],
   );
 
   const prepareContextSelection = useCallback(
@@ -512,10 +549,12 @@ export function Sidebar(): JSX.Element {
   const dragPayloadForItem = useCallback(
     (item: SidebarSelectionItem): DragPayload => {
       const key = selectionKeyForItem(item);
-      if (selectedSidebarKeys.has(key) && selectedSidebarCount > 1) {
+      const selectedKeys = selectedSidebarKeysRef.current;
+      const selectedCount = selectedSidebarCountRef.current;
+      if (selectedKeys.has(key) && selectedCount > 1) {
         return {
           kind: "multi",
-          items: selectedSidebarItems.map((selected) =>
+          items: selectedSidebarItemsRef.current.map((selected) =>
             selected.kind === "note"
               ? { kind: "note", path: selected.path }
               : {
@@ -530,7 +569,7 @@ export function Sidebar(): JSX.Element {
         ? { kind: "note", path: item.path }
         : { kind: "folder", folder: item.folder, subpath: item.subpath };
     },
-    [selectedSidebarCount, selectedSidebarItems, selectedSidebarKeys],
+    [],
   );
 
   /**
@@ -719,8 +758,9 @@ export function Sidebar(): JSX.Element {
   // the folders index from main so empty subfolders still appear in
   // the tree alongside ones that have notes. Trash is rendered
   // separately.
-  const trees = useMemo(
-    () => ({
+  const trees = useMemo(() => {
+    const startedAt = performance.now();
+    const next = {
       quick: buildTree(
         notes.filter((n) => n.folder === "quick"),
         assetFiles.filter(
@@ -757,9 +797,14 @@ export function Sidebar(): JSX.Element {
         allFolders.filter((f) => f.folder === "trash"),
         vaultSettings,
       ),
-    }),
-    [notes, allFolders, assetFiles, vaultSettings],
-  );
+    };
+    recordRendererPerf("sidebar.tree-build", performance.now() - startedAt, {
+      notes: notes.length,
+      folders: allFolders.length,
+      assets: assetFiles.length,
+    });
+    return next;
+  }, [notes, allFolders, assetFiles, vaultSettings]);
 
   const treeSortComparator = useMemo<
     ((a: NoteMeta, b: NoteMeta) => number) | null
@@ -881,18 +926,88 @@ export function Sidebar(): JSX.Element {
     };
   }, [autoReveal, activePath, selectedPath, setCollapsedFoldersAction]);
 
-  // Aggregate hashtags across non-trash notes, with the active note
-  // re-computed from its live body.
+  const [activeBodyTagSnapshot, setActiveBodyTagSnapshot] = useState<{
+    path: string;
+    tags: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    const path = activeNote?.path ?? null;
+    const body = activeNote?.body ?? null;
+    if (!path || body == null || !activeDirty) {
+      setActiveBodyTagSnapshot((current) => (current === null ? current : null));
+      return;
+    }
+
+    let cancelled = false;
+    let idleId: number | null = null;
+    const parse = (): void => {
+      idleId = null;
+      if (cancelled) return;
+      const startedAt = performance.now();
+      const tags = extractTags(body);
+      if (cancelled) return;
+      const indexedTags =
+        useStore.getState().notes.find((note) => note.path === path)?.tags ?? [];
+      if (sameStringSet(tags, indexedTags)) {
+        setActiveBodyTagSnapshot((current) =>
+          current?.path === path ? null : current,
+        );
+      } else {
+        setActiveBodyTagSnapshot({ path, tags });
+      }
+      recordRendererPerf("sidebar.active-tags", performance.now() - startedAt, {
+        path,
+        chars: body.length,
+        tags: tags.length,
+      });
+    };
+
+    const delayMs =
+      body.length >= ACTIVE_TAG_PARSE_LARGE_BODY_CHARS
+        ? ACTIVE_TAG_PARSE_LARGE_BODY_DELAY_MS
+        : ACTIVE_TAG_PARSE_DELAY_MS;
+    const timeoutId = window.setTimeout(() => {
+      if (typeof window.requestIdleCallback === "function") {
+        idleId = window.requestIdleCallback(parse, { timeout: 1_000 });
+        return;
+      }
+      parse();
+    }, delayMs);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      if (
+        idleId != null &&
+        typeof window.cancelIdleCallback === "function"
+      ) {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+  }, [activeDirty, activeNote?.body, activeNote?.path]);
+
+  // Aggregate hashtags across non-trash notes. The active note's live
+  // body is parsed only while it has unsaved edits; clean notes use the
+  // indexed tags from note metadata and never reparse large bodies on open.
   const tags = useMemo(() => {
+    const startedAt = performance.now();
     const counter = new Map<string, number>();
+    const liveActivePath = activeBodyTagSnapshot?.path ?? null;
+    const liveActiveTags = activeBodyTagSnapshot?.tags ?? null;
     for (const n of notes) {
       if (n.folder === "trash") continue;
-      const isActive = activeNote && activeNote.path === n.path;
-      const list = isActive ? extractTags(activeNote!.body) : n.tags;
+      const list =
+        liveActivePath === n.path && liveActiveTags ? liveActiveTags : n.tags;
       for (const t of list) counter.set(t, (counter.get(t) ?? 0) + 1);
     }
-    return [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [notes, activeNote]);
+    const next = [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    recordRendererPerf("sidebar.tags", performance.now() - startedAt, {
+      notes: notes.length,
+      tags: next.length,
+    });
+    return next;
+  }, [activeBodyTagSnapshot, notes]);
 
   const bulkSelectionMenuItems = useMemo<ContextMenuItem[] | null>(() => {
     if (selectedSidebarCount <= 1) return null;
@@ -953,7 +1068,7 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"}…`,
         onSelect: async () => {
-          const target = await prompt(
+          const target = await promptApp(
             buildMoveNotePrompt(
               { title: `${liveNotes.length} notes`, path: liveNotes[0]!.path },
               allFolders,
@@ -1114,7 +1229,6 @@ export function Sidebar(): JSX.Element {
     folderLabels.trash,
     openNoteInTab,
     primaryNotesAtRoot,
-    prompt,
     refreshNotes,
     renameFolderAction,
     selectNote,
@@ -1214,7 +1328,7 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: "New folder",
         onSelect: async () => {
-          const name = await prompt({
+          const name = await promptApp({
             title: `New folder inside "${label}"`,
             placeholder: "Folder name",
             okLabel: "Create",
@@ -1304,7 +1418,7 @@ export function Sidebar(): JSX.Element {
         label: "Rename…",
         onSelect: async () => {
           const leaf = subpath.split("/").slice(-1)[0];
-          const next = await prompt({
+          const next = await promptApp({
             title: "Rename folder",
             initialValue: leaf,
             okLabel: "Rename",
@@ -1363,7 +1477,6 @@ export function Sidebar(): JSX.Element {
     refreshNotes,
     selectedPath,
     selectNote,
-    prompt,
     vaultSettings.folderIcons,
     vaultSettings,
     primaryNotesAtRoot,
@@ -1403,7 +1516,7 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: "Rename…",
         onSelect: async () => {
-          const next = await prompt({
+          const next = await promptApp({
             title: "Rename note",
             initialValue: n.title,
             okLabel: "Rename",
@@ -1419,7 +1532,7 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: "Move…",
         onSelect: async () => {
-          const target = await prompt(buildMoveNotePrompt(n, allFolders));
+          const target = await promptApp(buildMoveNotePrompt(n, allFolders));
           if (!target) return;
           const dest = parseMoveNoteTarget(target);
           await moveNoteAction(n.path, dest.folder, dest.subpath);
@@ -1545,7 +1658,6 @@ export function Sidebar(): JSX.Element {
     selectNote,
     selectedPath,
     refreshNotes,
-    prompt,
     renameNote,
     moveNoteAction,
     canRevealInFileManager,
@@ -1616,7 +1728,7 @@ export function Sidebar(): JSX.Element {
       {
         label: "Rename tag…",
         onSelect: async () => {
-          const next = await prompt({
+          const next = await promptApp({
             title: `Rename #${tag}`,
             initialValue: tag,
             okLabel: "Rename",
@@ -1650,7 +1762,7 @@ export function Sidebar(): JSX.Element {
         },
       },
     ];
-  }, [tagMenu, renameTag, deleteTag, prompt]);
+  }, [tagMenu, renameTag, deleteTag]);
 
   // A folder only shows the strong "selected" accent highlight when
   // the view matches AND no specific note is selected. Once the user
@@ -1663,26 +1775,40 @@ export function Sidebar(): JSX.Element {
       view.folder === folder &&
       view.subpath === subpath);
 
-  const openFolderMenu = (
-    e: React.MouseEvent,
-    folder: NoteFolder,
-    subpath: string,
-  ): void => {
-    e.preventDefault();
-    if (subpath) {
-      prepareContextSelection({ kind: "folder", folder, subpath });
-    } else {
-      setSelectedSidebarKeys(new Set());
-      setSelectionAnchorKey(null);
-    }
-    setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath });
-  };
+  const openFolderMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      folder: NoteFolder,
+      subpath: string,
+    ): void => {
+      e.preventDefault();
+      if (subpath) {
+        prepareContextSelection({ kind: "folder", folder, subpath });
+      } else {
+        setSelectedSidebarKeys(new Set());
+        setSelectionAnchorKey(null);
+      }
+      setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath });
+    },
+    [prepareContextSelection],
+  );
 
-  const openNoteMenu = (e: React.MouseEvent, note: NoteMeta): void => {
-    e.preventDefault();
-    prepareContextSelection({ kind: "note", path: note.path });
-    setNoteMenu({ x: e.clientX, y: e.clientY, path: note.path });
-  };
+  const openNoteMenu = useCallback(
+    (e: React.MouseEvent, note: NoteMeta): void => {
+      e.preventDefault();
+      prepareContextSelection({ kind: "note", path: note.path });
+      setNoteMenu({ x: e.clientX, y: e.clientY, path: note.path });
+    },
+    [prepareContextSelection],
+  );
+
+  const openAssetMenu = useCallback(
+    (e: React.MouseEvent, asset: AssetMeta): void => {
+      e.preventDefault();
+      setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
+    },
+    [],
+  );
 
   const isSidebarFocused = focusedPanel === "sidebar";
   // Mutable counter reset on each render — assigns sequential data-sidebar-idx to each item.
@@ -1899,7 +2025,7 @@ export function Sidebar(): JSX.Element {
                 view.kind === "folder" && !noFolders ? view.folder : "inbox";
               const parentSub =
                 view.kind === "folder" && !noFolders ? view.subpath : "";
-              const name = await prompt({
+              const name = await promptApp({
                 title: "New folder",
                 placeholder: "Folder name",
                 okLabel: "Create",
@@ -1981,13 +2107,10 @@ export function Sidebar(): JSX.Element {
             showNotes={unifiedSidebar}
             selectedPath={selectedPath}
             vaultRoot={vault?.root ?? null}
-            onSelectNote={(p) => void selectNote(p)}
+            onSelectNote={handleSelectNote}
             onOpenAsset={openAssetInTab}
             onNoteContextMenu={openNoteMenu}
-            onAssetContextMenu={(e, asset) => {
-              e.preventDefault();
-              setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
-            }}
+            onAssetContextMenu={openAssetMenu}
             sortComparator={treeSortComparator}
             onDropOnFolder={handleDropOnFolder}
             selectedKeys={selectedSidebarKeys}
@@ -2079,13 +2202,10 @@ export function Sidebar(): JSX.Element {
                 showNotes={unifiedSidebar}
                 selectedPath={selectedPath}
                 vaultRoot={vault?.root ?? null}
-                onSelectNote={(p) => void selectNote(p)}
+                onSelectNote={handleSelectNote}
                 onOpenAsset={openAssetInTab}
                 onNoteContextMenu={openNoteMenu}
-                onAssetContextMenu={(e, asset) => {
-                  e.preventDefault();
-                  setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
-                }}
+                onAssetContextMenu={openAssetMenu}
                 sortComparator={treeSortComparator}
                 onDropOnFolder={handleDropOnFolder}
                 selectedKeys={selectedSidebarKeys}
@@ -2115,13 +2235,10 @@ export function Sidebar(): JSX.Element {
               showNotes={unifiedSidebar}
               selectedPath={selectedPath}
               vaultRoot={vault?.root ?? null}
-              onSelectNote={(p) => void selectNote(p)}
+              onSelectNote={handleSelectNote}
               onOpenAsset={openAssetInTab}
               onNoteContextMenu={openNoteMenu}
-              onAssetContextMenu={(e, asset) => {
-                e.preventDefault();
-                setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path });
-              }}
+              onAssetContextMenu={openAssetMenu}
               sortComparator={treeSortComparator}
               onDropOnFolder={handleDropOnFolder}
               selectedKeys={selectedSidebarKeys}
@@ -2312,7 +2429,6 @@ export function Sidebar(): JSX.Element {
           onCancel={() => setFolderIconPicker(null)}
         />
       )}
-      {promptModal}
       {sortMenu && (
         <ContextMenu
           x={sortMenu.x}
@@ -2368,6 +2484,90 @@ type TreeRenderEntry =
   | { type: "folder"; node: TreeNode }
   | { type: "note"; note: NoteMeta }
   | { type: "asset"; asset: AssetMeta };
+
+function shouldProgressivelyRenderEntries(entries: TreeRenderEntry[]): boolean {
+  return (
+    entries.length > SIDEBAR_PROGRESSIVE_RENDER_THRESHOLD &&
+    entries.every((entry) => entry.type !== "folder")
+  );
+}
+
+function sidebarVisiblePrefetchPaths(entries: TreeRenderEntry[]): string[] {
+  return getSidebarEdgePrefetchPaths(
+    entries.map((entry) => (entry.type === "note" ? entry.note.path : null)),
+  );
+}
+
+function prefetchSidebarEdgeNotes(entries: TreeRenderEntry[], enabled: boolean): void {
+  if (!enabled || entries.length === 0) return;
+  const progressive = shouldProgressivelyRenderEntries(entries);
+  const limit = getInitialSidebarEntryLimit(entries.length, progressive);
+  const visibleEntries = progressive ? entries.slice(0, limit) : entries;
+  const paths = sidebarVisiblePrefetchPaths(visibleEntries);
+  if (paths.length === 0) return;
+  void useStore.getState().prefetchNotes(paths);
+}
+
+function useSidebarVisibleNotePrefetch(
+  entries: TreeRenderEntry[],
+  enabled: boolean,
+): void {
+  const paths = useMemo(
+    () => (enabled ? sidebarVisiblePrefetchPaths(entries) : []),
+    [enabled, entries],
+  );
+
+  useLayoutEffect(() => {
+    if (paths.length === 0) return;
+    void useStore.getState().prefetchNotes(paths);
+  }, [paths]);
+}
+
+function useProgressiveEntryLimit(
+  total: number,
+  enabled: boolean,
+): [number, (node: HTMLDivElement | null) => void] {
+  const initial = getInitialSidebarEntryLimit(total, enabled);
+  const [limit, setLimit] = useState(initial);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  useEffect(() => {
+    setLimit(getInitialSidebarEntryLimit(total, enabled));
+  }, [enabled, total]);
+
+  useEffect(() => {
+    return () => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+    };
+  }, []);
+
+  const setSentinelRef = useCallback(
+    (node: HTMLDivElement | null): void => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+
+      if (!enabled || !node || limit >= total) return;
+      if (typeof IntersectionObserver === "undefined") return;
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) return;
+          setLimit((current) => getNextSidebarEntryLimit(current, total));
+        },
+        {
+          root: null,
+          rootMargin: `${SIDEBAR_PROGRESSIVE_SENTINEL_MARGIN_PX}px 0px`,
+        },
+      );
+      observer.observe(node);
+      observerRef.current = observer;
+    },
+    [enabled, limit, total],
+  );
+
+  return [enabled ? Math.min(limit, total) : total, setSentinelRef];
+}
 
 function buildTree(
   notes: NoteMeta[],
@@ -2587,10 +2787,20 @@ function FolderTreeContents({
     () => getTreeRenderEntries(tree, showNotes, sortComparator, groupByKind),
     [tree, showNotes, sortComparator, groupByKind],
   );
+  const progressive = shouldProgressivelyRenderEntries(entries);
+  const [visibleEntryLimit, progressiveSentinelRef] = useProgressiveEntryLimit(
+    entries.length,
+    progressive,
+  );
+  const visibleEntries = useMemo(
+    () => (progressive ? entries.slice(0, visibleEntryLimit) : entries),
+    [entries, progressive, visibleEntryLimit],
+  );
+  useSidebarVisibleNotePrefetch(visibleEntries, showNotes);
 
   return (
     <>
-      {entries.map((entry) => {
+      {visibleEntries.map((entry) => {
         if (entry.type === "folder") {
           return (
             <SubTree
@@ -2653,18 +2863,22 @@ function FolderTreeContents({
             active={n.path === selectedPath}
             selected={selectedKeys.has(noteSelectionKey(n.path))}
             sidebarFocused={sidebarFocused}
-            onSelect={(e) =>
-              onSelectItem(e, { kind: "note", path: n.path }, () =>
-                onSelectNote(n.path),
-              )
-            }
-            onContextMenu={(e) => onNoteContextMenu(e, n)}
-            dragPayload={dragPayloadForItem({ kind: "note", path: n.path })}
+            onSelectItem={onSelectItem}
+            onSelectNote={onSelectNote}
+            onContextMenuNote={onNoteContextMenu}
+            dragPayloadForItem={dragPayloadForItem}
             sidebarIdx={noteIdx}
             vimHighlight={vimCursor === noteIdx}
           />
         );
       })}
+      {progressive && visibleEntryLimit < entries.length && (
+        <div
+          ref={progressiveSentinelRef}
+          className="h-px shrink-0"
+          aria-hidden="true"
+        />
+      )}
     </>
   );
 }
@@ -2713,6 +2927,16 @@ function FolderTreeRoot({
     () => getTreeRenderEntries(tree, showNotes, sortComparator, groupByKind),
     [tree, showNotes, sortComparator, groupByKind],
   );
+  const rootActive = isFolderActive(folder, "");
+  const rootProgressive = shouldProgressivelyRenderEntries(entries);
+  const rootPrefetchEntries = useMemo(
+    () =>
+      rootProgressive
+        ? entries.slice(0, getInitialSidebarEntryLimit(entries.length, rootProgressive))
+        : entries,
+    [entries, rootProgressive],
+  );
+  useSidebarVisibleNotePrefetch(rootPrefetchEntries, showNotes && (rootActive || isCollapsed));
   const hasChildren = entries.length > 0;
   const [dragHover, setDragHover] = useState(false);
   const myIdx = idxCounter.value++;
@@ -2720,7 +2944,10 @@ function FolderTreeRoot({
   const handleSelect = (): void => {
     setView({ kind: "folder", folder, subpath: "" });
     // Click toggles the expand state on every folder row.
-    if (hasChildren) toggleCollapse(rootKey);
+    if (hasChildren) {
+      if (isCollapsed) prefetchSidebarEdgeNotes(entries, showNotes);
+      toggleCollapse(rootKey);
+    }
   };
 
   return (
@@ -2729,11 +2956,14 @@ function FolderTreeRoot({
         icon={icon}
         label={label}
         count={total}
-        active={isFolderActive(folder, "")}
+        active={rootActive}
         expandable={hasChildren}
         collapsed={isCollapsed}
         depth={0}
-        onToggle={() => toggleCollapse(rootKey)}
+        onToggle={() => {
+          if (isCollapsed) prefetchSidebarEdgeNotes(entries, showNotes);
+          toggleCollapse(rootKey);
+        }}
         onSelect={handleSelect}
         onContextMenu={(e) => onContextMenu(e, folder, "")}
         dropTarget={dragHover}
@@ -2832,6 +3062,16 @@ function SubTree({
     () => getTreeRenderEntries(node, showNotes, sortComparator, groupByKind),
     [node, showNotes, sortComparator, groupByKind],
   );
+  const progressive = shouldProgressivelyRenderEntries(entries);
+  const [visibleEntryLimit, progressiveSentinelRef] = useProgressiveEntryLimit(
+    entries.length,
+    progressive,
+  );
+  const visibleEntries = useMemo(
+    () => (progressive ? entries.slice(0, visibleEntryLimit) : entries),
+    [entries, progressive, visibleEntryLimit],
+  );
+  useSidebarVisibleNotePrefetch(visibleEntries, showNotes && !isCollapsed);
   const hasChildren = entries.length > 0;
   const [dragHover, setDragHover] = useState(false);
   const myIdx = idxCounter.value++;
@@ -2842,7 +3082,10 @@ function SubTree({
   ): void => {
     onSelectItem(e, { kind: "folder", folder, subpath: node.subpath }, () => {
       setView({ kind: "folder", folder, subpath: node.subpath });
-      if (hasChildren) toggleCollapse(key);
+      if (hasChildren) {
+        if (isCollapsed) prefetchSidebarEdgeNotes(entries, showNotes);
+        toggleCollapse(key);
+      }
     });
   };
 
@@ -2856,7 +3099,10 @@ function SubTree({
         expandable={hasChildren}
         collapsed={isCollapsed}
         depth={depth}
-        onToggle={() => toggleCollapse(key)}
+        onToggle={() => {
+          if (isCollapsed) prefetchSidebarEdgeNotes(entries, showNotes);
+          toggleCollapse(key);
+        }}
         onSelect={handleSelect}
         onContextMenu={(e) => onContextMenu(e, folder, node.subpath)}
         draggable
@@ -2892,7 +3138,7 @@ function SubTree({
       />
       {!isCollapsed && (
         <>
-          {entries.map((entry) => {
+          {visibleEntries.map((entry) => {
             if (entry.type === "folder") {
               return (
                 <SubTree
@@ -2956,58 +3202,88 @@ function SubTree({
                 active={n.path === selectedPath}
                 selected={selectedKeys.has(noteSelectionKey(n.path))}
                 sidebarFocused={sidebarFocused}
-                onSelect={(e) =>
-                  onSelectItem(e, { kind: "note", path: n.path }, () =>
-                    onSelectNote(n.path),
-                  )
-                }
-                onContextMenu={(e) => onNoteContextMenu(e, n)}
-                dragPayload={dragPayloadForItem({ kind: "note", path: n.path })}
+                onSelectItem={onSelectItem}
+                onSelectNote={onSelectNote}
+                onContextMenuNote={onNoteContextMenu}
+                dragPayloadForItem={dragPayloadForItem}
                 sidebarIdx={noteIdx}
                 vimHighlight={vimCursor === noteIdx}
               />
             );
           })}
+          {progressive && visibleEntryLimit < entries.length && (
+            <div
+              ref={progressiveSentinelRef}
+              className="h-px shrink-0"
+              aria-hidden="true"
+            />
+          )}
         </>
       )}
     </div>
   );
 }
 
-function NoteLeaf({
-  note,
-  depth,
-  showSidebarChevrons,
-  active,
-  selected,
-  sidebarFocused,
-  onSelect,
-  onContextMenu,
-  dragPayload,
-  sidebarIdx,
-  vimHighlight,
-}: {
+interface NoteLeafProps {
   note: NoteMeta;
   depth: number;
   showSidebarChevrons: boolean;
   active: boolean;
   selected: boolean;
   sidebarFocused: boolean;
-  onSelect: (e: React.MouseEvent<HTMLButtonElement>) => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  dragPayload: DragPayload;
+  onSelectItem: (
+    event: React.MouseEvent | React.KeyboardEvent,
+    item: SidebarSelectionItem,
+    primaryAction: () => void,
+  ) => void;
+  onSelectNote: (path: string) => void;
+  onContextMenuNote: (e: React.MouseEvent, note: NoteMeta) => void;
+  dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
   sidebarIdx?: number;
   vimHighlight?: boolean;
-}): JSX.Element {
+}
+
+const NoteLeaf = memo(function NoteLeaf({
+  note,
+  depth,
+  showSidebarChevrons,
+  active,
+  selected,
+  sidebarFocused,
+  onSelectItem,
+  onSelectNote,
+  onContextMenuNote,
+  dragPayloadForItem,
+  sidebarIdx,
+  vimHighlight,
+}: NoteLeafProps): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
   const selectionKey = noteSelectionKey(note.path);
+  const handleSelect = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      onSelectItem(event, { kind: "note", path: note.path }, () =>
+        onSelectNote(note.path),
+      );
+    },
+    [note.path, onSelectItem, onSelectNote],
+  );
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => onContextMenuNote(event, note),
+    [note, onContextMenuNote],
+  );
+  const handleDragStart = useCallback(
+    (event: React.DragEvent<HTMLButtonElement>) => {
+      setDragPayload(event, dragPayloadForItem({ kind: "note", path: note.path }));
+    },
+    [dragPayloadForItem, note.path],
+  );
 
   return (
     <button
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
+      onClick={handleSelect}
+      onContextMenu={handleContextMenu}
       draggable
-      onDragStart={(e) => setDragPayload(e, dragPayload)}
+      onDragStart={handleDragStart}
       className={[
         "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
@@ -3082,6 +3358,25 @@ function NoteLeaf({
         <RowKeyHint active={active || selected} label="menu" keyLabel="m" />
       )}
     </button>
+  );
+}, areNoteLeafPropsEqual);
+
+function areNoteLeafPropsEqual(prev: NoteLeafProps, next: NoteLeafProps): boolean {
+  return (
+    prev.note.path === next.note.path &&
+    prev.note.title === next.note.title &&
+    prev.note.hasAttachments === next.note.hasAttachments &&
+    prev.depth === next.depth &&
+    prev.showSidebarChevrons === next.showSidebarChevrons &&
+    prev.active === next.active &&
+    prev.selected === next.selected &&
+    prev.sidebarFocused === next.sidebarFocused &&
+    prev.sidebarIdx === next.sidebarIdx &&
+    prev.vimHighlight === next.vimHighlight &&
+    prev.onSelectItem === next.onSelectItem &&
+    prev.onSelectNote === next.onSelectNote &&
+    prev.onContextMenuNote === next.onContextMenuNote &&
+    prev.dragPayloadForItem === next.dragPayloadForItem
   );
 }
 
@@ -3260,6 +3555,8 @@ function TreeRow({
             "data-sidebar-folder": sidebarData?.folder,
             "data-sidebar-subpath": sidebarData?.subpath,
             "data-sidebar-key": sidebarData?.key,
+            "data-sidebar-expandable": String(expandable),
+            "data-sidebar-collapsed": String(collapsed),
             "data-sidebar-select-key": selectionKey,
           }
         : {})}

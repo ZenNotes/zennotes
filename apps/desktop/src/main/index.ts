@@ -20,6 +20,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { IPC } from '@shared/ipc'
 import type {
+  NoteMeta,
   NoteCommentInput,
   NoteFolder,
   RemoteWorkspaceInfo,
@@ -50,6 +51,8 @@ import {
   getVaultSettings,
   hasAssetsDir,
   importFiles,
+  invalidateNoteMetaCache,
+  invalidateVaultTextSearchCache,
   listAssets,
   listFolders,
   listNotes,
@@ -161,6 +164,10 @@ const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
 const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
 const APP_RELEASES_URL = 'https://github.com/ZenNotes/zennotes/releases/latest'
 const APP_ISSUES_URL = 'https://github.com/ZenNotes/zennotes/issues'
+const userDataPathOverride = process.env['ZENNOTES_USER_DATA_PATH']?.trim()
+if (userDataPathOverride && (process.env['ZEN_PERF'] === '1' || !app.isPackaged)) {
+  app.setPath('userData', path.resolve(userDataPathOverride))
+}
 let currentZoomFactor = DEFAULT_ZOOM_FACTOR
 const pendingOpenNoteRequests: string[] = []
 const pendingFloatingNoteRequests: string[] = []
@@ -829,6 +836,8 @@ async function setVault(root: string): Promise<VaultInfo> {
     remoteWorkspaceProfileId: null
   }))
   watcher.start(root, (ev: VaultChangeEvent) => {
+    invalidateNoteMetaCache(root, ev.scope === 'vault-settings' ? undefined : ev.path)
+    invalidateVaultTextSearchCache(root)
     broadcastVaultChange(ev)
   })
   return currentVault
@@ -1315,6 +1324,40 @@ async function listFontFamilies(): Promise<string[]> {
   }
 }
 
+interface ListNotesStreamRequest {
+  requestId?: unknown
+  chunkSize?: unknown
+  offset?: unknown
+}
+
+interface ListNotesStreamState {
+  notes: NoteMeta[]
+  touchedAt: number
+}
+
+const DEFAULT_LIST_NOTES_STREAM_CHUNK_SIZE = 500
+const MAX_LIST_NOTES_STREAM_CHUNK_SIZE = 1000
+const LIST_NOTES_STREAM_STATE_TTL_MS = 60_000
+const listNotesStreamStates = new Map<string, ListNotesStreamState>()
+
+function listNotesStreamChunkSize(raw: unknown): number {
+  const parsed = Number.parseInt(String(raw ?? ''), 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_LIST_NOTES_STREAM_CHUNK_SIZE
+  return Math.min(MAX_LIST_NOTES_STREAM_CHUNK_SIZE, parsed)
+}
+
+function listNotesStreamOffset(raw: unknown): number {
+  const parsed = Number.parseInt(String(raw ?? ''), 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+}
+
+function pruneListNotesStreamStates(): void {
+  const cutoff = Date.now() - LIST_NOTES_STREAM_STATE_TTL_MS
+  for (const [requestId, state] of listNotesStreamStates) {
+    if (state.touchedAt < cutoff) listNotesStreamStates.delete(requestId)
+  }
+}
+
 function registerIpc(): void {
   const handle = <Args extends unknown[], Result>(
     channel: string,
@@ -1445,6 +1488,38 @@ function registerIpc(): void {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listNotes()
     const v = requireVault()
     return await listNotes(v.root)
+  })
+
+  handle(IPC.VAULT_LIST_NOTES_STREAM, async (_event, request: ListNotesStreamRequest) => {
+    if (typeof request?.requestId !== 'string' || request.requestId.length === 0) {
+      throw new Error('Missing list-notes stream request id')
+    }
+    const requestId = request.requestId
+    const chunkSize = listNotesStreamChunkSize(request.chunkSize)
+    const offset = listNotesStreamOffset(request.offset)
+    pruneListNotesStreamStates()
+
+    let state = listNotesStreamStates.get(requestId)
+    if (!state || offset === 0) {
+      const notes = isRemoteWorkspaceActive()
+        ? await requireRemoteWorkspaceClient().listNotes()
+        : await listNotes(requireVault().root)
+      state = { notes, touchedAt: Date.now() }
+      listNotesStreamStates.set(requestId, state)
+    } else {
+      state.touchedAt = Date.now()
+    }
+
+    const nextOffset = Math.min(state.notes.length, offset + chunkSize)
+    const done = nextOffset >= state.notes.length
+    const notes = state.notes.slice(offset, nextOffset)
+    if (done) listNotesStreamStates.delete(requestId)
+    return {
+      notes,
+      nextOffset,
+      done,
+      total: state.notes.length
+    }
   })
 
   handle(IPC.VAULT_LIST_FOLDERS, async () => {

@@ -42,7 +42,7 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
-import { Preview } from './Preview'
+import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 
 const PINNED_REF_PANE_ID = 'pinned-ref'

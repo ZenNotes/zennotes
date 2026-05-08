@@ -3,6 +3,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 function rendererManualChunk(id: string): string | undefined {
+  const normalizedId = id.split('\\').join('/')
+  if (normalizedId.endsWith('/packages/app-core/src/lib/wikilinks.ts')) {
+    return 'app-wikilinks'
+  }
+  if (normalizedId.endsWith('/packages/app-core/src/lib/local-assets.ts')) {
+    return 'app-local-assets'
+  }
+  if (normalizedId.endsWith('/packages/app-core/src/store.ts')) {
+    return 'app-store'
+  }
+
   if (!id.includes('node_modules')) return undefined
 
   if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/zustand/')) {
@@ -54,6 +65,31 @@ function rendererManualChunk(id: string): string | undefined {
   }
 
   return undefined
+}
+
+function resolveRendererModulePreloads(
+  _filename: string,
+  deps: string[],
+  context: { hostType: 'html' | 'js' }
+): string[] {
+  if (context.hostType === 'html') {
+    return deps.filter((dep) => dep.includes('vendor-react'))
+  }
+  return deps.filter((dep) => !isDeferredRendererPreload(dep))
+}
+
+function isDeferredRendererPreload(dep: string): boolean {
+  return (
+    dep.includes('NoteHoverPreview-') ||
+    dep.includes('Preview-') ||
+    dep.includes('wardley-') ||
+    dep.includes('vendor-markdown') ||
+    dep.includes('vendor-highlight') ||
+    dep.includes('vendor-d3') ||
+    dep.includes('vendor-mermaid') ||
+    dep.includes('vendor-jsxgraph') ||
+    dep.includes('vendor-function-plot')
+  )
 }
 
 export default defineConfig({
@@ -141,6 +177,9 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     chunkSizeWarningLimit: 3500,
+    modulePreload: {
+      resolveDependencies: resolveRendererModulePreloads
+    },
     sourcemap: false,
     rollupOptions: {
       output: {

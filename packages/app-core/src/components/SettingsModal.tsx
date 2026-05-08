@@ -43,7 +43,7 @@ import {
 } from '../lib/settings-search'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
-import { confirmApp } from './ConfirmHost'
+import { confirmApp } from '../lib/confirm-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 
 type SettingsCategoryId =
@@ -211,6 +211,8 @@ export function SettingsModal(): JSX.Element {
   const setLivePreview = useStore((s) => s.setLivePreview)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
+  const wrapTabs = useStore((s) => s.wrapTabs)
+  const setWrapTabs = useStore((s) => s.setWrapTabs)
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
   const setQuickNoteDateTitle = useStore((s) => s.setQuickNoteDateTitle)
   const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix)
@@ -836,6 +838,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['tabs']
         },
         {
+          id: 'wrap-note-tabs',
+          title: 'Wrap note tabs',
+          description: 'Move overflowing tabs onto additional rows instead of horizontal scrolling.',
+          keywords: ['tabs', 'wrap', 'new line', 'overflow']
+        },
+        {
           id: 'word-wrap',
           title: 'Word wrap',
           description: 'Wrap long lines to the editor width. Turn off to scroll horizontally instead.',
@@ -995,6 +1003,13 @@ export function SettingsModal(): JSX.Element {
               value={tabsEnabled}
               settingId="note-tabs"
               onChange={setTabsEnabled}
+            />
+            <ToggleRow
+              label="Wrap note tabs"
+              description="Move overflowing tabs onto additional rows instead of using a horizontal scrollbar."
+              value={wrapTabs}
+              settingId="wrap-note-tabs"
+              onChange={setWrapTabs}
             />
             <ToggleRow
               label="Word wrap"

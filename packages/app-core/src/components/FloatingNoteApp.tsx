@@ -37,7 +37,7 @@ import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { headingFolding } from '../lib/cm-heading-fold'
-import { Preview } from './Preview'
+import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PinIcon } from './icons'
 import {
   DEFAULT_THEME_ID,

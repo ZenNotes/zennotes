@@ -2,6 +2,7 @@ package vault
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVaultDefaultModesAreTight(t *testing.T) {
@@ -278,6 +280,189 @@ func TestDuplicateFolderRefusesNestedSymlink(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(v.Root(), string(FolderInbox), "source copy", "leak.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("symlink target should not be copied into duplicated folder, stat err=%v", err)
 	}
+}
+
+func TestSearchTextRefreshesAfterExternalChange(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := v.WriteNote("inbox/Search.md", "alpha only\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err := v.SearchText("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !textSearchMatchesPath(matches, meta.Path) {
+		t.Fatalf("initial search did not find %s: %#v", meta.Path, matches)
+	}
+
+	abs := filepath.Join(v.Root(), filepath.FromSlash(meta.Path))
+	if err := os.WriteFile(abs, []byte("beta only\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	future := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(abs, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	matches, err = v.SearchText("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if textSearchMatchesPath(matches, meta.Path) {
+		t.Fatalf("stale search result still found %s: %#v", meta.Path, matches)
+	}
+
+	matches, err = v.SearchText("beta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !textSearchMatchesPath(matches, meta.Path) {
+		t.Fatalf("refreshed search did not find %s: %#v", meta.Path, matches)
+	}
+}
+
+func TestListNotesUsesMatchingPersistedMetadata(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := filepath.ToSlash(filepath.Join(string(FolderInbox), "cached.md"))
+	abs := filepath.Join(v.Root(), filepath.FromSlash(rel))
+	if err := os.WriteFile(abs, []byte("# Disk Title\n\n#disk\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(v.Root(), internalVaultDir, noteMetaCacheFile)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cache := persistedNoteMetaCache{
+		Version: noteMetaCacheVersion,
+		Entries: []persistedNoteMetaEntry{{
+			Path:    rel,
+			MtimeMs: mtimeMs(info),
+			Size:    info.Size(),
+			Meta: NoteMeta{
+				Path:           rel,
+				Title:          "Cached Title",
+				Folder:         FolderInbox,
+				SiblingOrder:   0,
+				CreatedAt:      info.ModTime().UnixMilli(),
+				UpdatedAt:      info.ModTime().UnixMilli(),
+				Size:           info.Size(),
+				Tags:           []string{"cached"},
+				Wikilinks:      []string{"Cached Target"},
+				HasAttachments: false,
+				Excerpt:        "cached excerpt",
+			},
+		}},
+	}
+	raw, err := json.Marshal(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v.invalidateNoteMetaCache()
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := findNoteMeta(notes, rel)
+	if !ok {
+		t.Fatalf("note %s not found in %#v", rel, notes)
+	}
+	if meta.Title != "Cached Title" || len(meta.Tags) != 1 || meta.Tags[0] != "cached" || meta.Excerpt != "cached excerpt" {
+		t.Fatalf("did not use matching persisted metadata: %#v", meta)
+	}
+}
+
+func TestListNotesIgnoresStalePersistedMetadata(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := filepath.ToSlash(filepath.Join(string(FolderInbox), "stale.md"))
+	abs := filepath.Join(v.Root(), filepath.FromSlash(rel))
+	if err := os.WriteFile(abs, []byte("# Fresh Title\n\n#fresh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cachePath := filepath.Join(v.Root(), internalVaultDir, noteMetaCacheFile)
+	if err := os.MkdirAll(filepath.Dir(cachePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cache := persistedNoteMetaCache{
+		Version: noteMetaCacheVersion,
+		Entries: []persistedNoteMetaEntry{{
+			Path:    rel,
+			MtimeMs: 1,
+			Size:    1,
+			Meta: NoteMeta{
+				Path:           rel,
+				Title:          "Stale Title",
+				Folder:         FolderInbox,
+				SiblingOrder:   0,
+				CreatedAt:      1,
+				UpdatedAt:      1,
+				Size:           1,
+				Tags:           []string{"stale"},
+				Wikilinks:      []string{},
+				HasAttachments: false,
+				Excerpt:        "stale excerpt",
+			},
+		}},
+	}
+	raw, err := json.Marshal(cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachePath, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v.invalidateNoteMetaCache()
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, ok := findNoteMeta(notes, rel)
+	if !ok {
+		t.Fatalf("note %s not found in %#v", rel, notes)
+	}
+	if meta.Title != "stale" || len(meta.Tags) != 1 || meta.Tags[0] != "fresh" || !strings.Contains(meta.Excerpt, "Fresh Title") {
+		t.Fatalf("stale persisted metadata was not ignored: %#v", meta)
+	}
+}
+
+func findNoteMeta(notes []NoteMeta, path string) (NoteMeta, bool) {
+	for _, note := range notes {
+		if note.Path == path {
+			return note, true
+		}
+	}
+	return NoteMeta{}, false
+}
+
+func textSearchMatchesPath(matches []TextSearchMatch, path string) bool {
+	for _, match := range matches {
+		if match.Path == path {
+			return true
+		}
+	}
+	return false
 }
 
 // Compile-time assertion that ImportAsset accepts an io.Reader (silences

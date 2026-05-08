@@ -59,7 +59,7 @@ export function recordRendererPerf(
   const sample: RendererPerfSample = {
     name,
     durationMs: Math.round(durationMs * 100) / 100,
-    at: Date.now(),
+    at: Math.round(performance.now() * 100) / 100,
     ...(detail ? { detail } : {})
   }
 

@@ -31,7 +31,6 @@
     "@lezer/highlight": "^1.2.1",
     "@replit/codemirror-vim": "^6.3.0",
     "dompurify": "^3.3.4",
-    "fuse.js": "^7.0.0",
     "function-plot": "^1.25.3",
     "gray-matter": "^4.0.3",
     "highlight.js": "^11.10.0",

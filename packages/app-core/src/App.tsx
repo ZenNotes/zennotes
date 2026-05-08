@@ -1,30 +1,152 @@
-import { useEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useStore } from './store'
 import { resolveAuto } from './lib/themes'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
-import { Editor } from './components/Editor'
 import { TitleBar } from './components/TitleBar'
-import { SearchPalette } from './components/SearchPalette'
-import { VaultTextSearchPalette } from './components/VaultTextSearchPalette'
-import { CommandPalette } from './components/CommandPalette'
-import { BufferPalette } from './components/BufferPalette'
-import { OutlinePalette } from './components/OutlinePalette'
-import { SettingsModal } from './components/SettingsModal'
-import { VimNav } from './components/VimNav'
-import { EmptyVault } from './components/EmptyVault'
 import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
-import { PinnedReferencePane } from './components/PinnedReferencePane'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut } from './lib/keymaps'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 
+let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
+const EDITOR_MODULE_WARMUP_GRACE_MS = 40
+let searchPaletteModulePromise: Promise<typeof import('./components/SearchPalette')> | null = null
+const SEARCH_PALETTE_MODULE_WARMUP_DELAY_MS = 40
+
+function loadEditorModule(): Promise<typeof import('./components/Editor')> {
+  editorModulePromise ??= import('./components/Editor')
+  return editorModulePromise
+}
+
+function loadSearchPaletteModule(): Promise<typeof import('./components/SearchPalette')> {
+  searchPaletteModulePromise ??= import('./components/SearchPalette')
+  return searchPaletteModulePromise
+}
+
+function scheduleEditorModuleWarmup(): () => void {
+  let cancelled = false
+  let delayId: number | null = null
+  let frameId: number | null = null
+
+  const warmup = (): void => {
+    if (!cancelled) void loadEditorModule()
+  }
+
+  delayId = window.setTimeout(() => {
+    delayId = null
+    frameId = window.requestAnimationFrame(() => {
+      frameId = null
+      warmup()
+    })
+  }, EDITOR_MODULE_WARMUP_GRACE_MS)
+
+  return () => {
+    cancelled = true
+    if (delayId !== null) window.clearTimeout(delayId)
+    if (frameId !== null) window.cancelAnimationFrame(frameId)
+  }
+}
+
+function scheduleSearchPaletteModuleWarmup(): () => void {
+  let cancelled = false
+  let delayId: number | null = null
+  let frameId: number | null = null
+  let idleId: number | null = null
+
+  const warmup = (): void => {
+    if (!cancelled) void loadSearchPaletteModule()
+  }
+
+  delayId = window.setTimeout(() => {
+    delayId = null
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(
+        () => {
+          idleId = null
+          warmup()
+        },
+        { timeout: 300 }
+      )
+      return
+    }
+    frameId = window.requestAnimationFrame(() => {
+      frameId = null
+      warmup()
+    })
+  }, SEARCH_PALETTE_MODULE_WARMUP_DELAY_MS)
+
+  return () => {
+    cancelled = true
+    if (delayId !== null) window.clearTimeout(delayId)
+    if (frameId !== null) window.cancelAnimationFrame(frameId)
+    if (idleId !== null && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(idleId)
+    }
+  }
+}
+
+const Editor = lazy(async () => {
+  const module = await loadEditorModule()
+  return { default: module.Editor }
+})
+
+const PinnedReferencePane = lazy(async () => {
+  const module = await import('./components/PinnedReferencePane')
+  return { default: module.PinnedReferencePane }
+})
+
+const VimNav = lazy(async () => {
+  const module = await import('./components/VimNav')
+  return { default: module.VimNav }
+})
+
+const SearchPalette = lazy(async () => {
+  const module = await loadSearchPaletteModule()
+  return { default: module.SearchPalette }
+})
+
+const VaultTextSearchPalette = lazy(async () => {
+  const module = await import('./components/VaultTextSearchPalette')
+  return { default: module.VaultTextSearchPalette }
+})
+
+const CommandPalette = lazy(async () => {
+  const module = await import('./components/CommandPalette')
+  return { default: module.CommandPalette }
+})
+
+const BufferPalette = lazy(async () => {
+  const module = await import('./components/BufferPalette')
+  return { default: module.BufferPalette }
+})
+
+const OutlinePalette = lazy(async () => {
+  const module = await import('./components/OutlinePalette')
+  return { default: module.OutlinePalette }
+})
+
+const SettingsModal = lazy(async () => {
+  const module = await import('./components/SettingsModal')
+  return { default: module.SettingsModal }
+})
+
+const EmptyVault = lazy(async () => {
+  const module = await import('./components/EmptyVault')
+  return { default: module.EmptyVault }
+})
+
+function EditorLoadingFallback(): JSX.Element {
+  return <div className="min-w-0 flex-1 bg-paper-100" aria-label="Loading editor" />
+}
+
 function App(): JSX.Element {
   const mountedAtRef = useRef(performance.now())
   const workspaceReadyLoggedRef = useRef(false)
+  const searchPaletteWarmupCleanupRef = useRef<(() => void) | null>(null)
   const pendingOpenNoteRequestsRef = useRef<string[]>([])
   const vault = useStore((s) => s.vault)
   const init = useStore((s) => s.init)
@@ -45,7 +167,11 @@ function App(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activePaneId = useStore((s) => s.activePaneId)
   const view = useStore((s) => s.view)
+  const selectedPath = useStore((s) => s.selectedPath)
   const selectedTags = useStore((s) => s.selectedTags)
+  const noteRefs = useStore((s) => s.noteRefs)
+  const pinnedRefPath = useStore((s) => s.pinnedRefPath)
+  const pinnedRefVisible = useStore((s) => s.pinnedRefVisible)
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
@@ -63,10 +189,20 @@ function App(): JSX.Element {
   const darkSidebar = useStore((s) => s.darkSidebar)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
+  const activePinnedRefPath = useMemo(
+    () => (selectedPath ? noteRefs[selectedPath]?.path ?? pinnedRefPath : pinnedRefPath),
+    [noteRefs, pinnedRefPath, selectedPath]
+  )
+  const showPinnedReferencePane = !zenMode && pinnedRefVisible && !!activePinnedRefPath
 
   useEffect(() => {
     void init()
   }, [init])
+
+  useEffect(() => {
+    if (!vault) return undefined
+    return scheduleEditorModuleWarmup()
+  }, [vault])
 
   useEffect(() => {
     const raf = window.requestAnimationFrame(() => {
@@ -108,11 +244,16 @@ function App(): JSX.Element {
     if (!vault || !workspaceRestored) return
     if (!workspaceReadyLoggedRef.current) {
       workspaceReadyLoggedRef.current = true
-      requestAnimationFrame(() => {
-        recordRendererPerf('renderer.workspace.ready', performance.now() - mountedAtRef.current, {
-          hasVault: true
+      void loadEditorModule()
+        .catch(() => null)
+        .then(() => {
+          requestAnimationFrame(() => {
+            recordRendererPerf('renderer.workspace.ready', performance.now() - mountedAtRef.current, {
+              hasVault: true
+            })
+            searchPaletteWarmupCleanupRef.current ??= scheduleSearchPaletteModuleWarmup()
+          })
         })
-      })
     }
     persistWorkspace()
   }, [
@@ -126,6 +267,13 @@ function App(): JSX.Element {
     view,
     workspaceRestored
   ])
+
+  useEffect(() => {
+    return () => {
+      searchPaletteWarmupCleanupRef.current?.()
+      searchPaletteWarmupCleanupRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const flush = (): void => {
@@ -353,7 +501,9 @@ function App(): JSX.Element {
     return (
       <div className="h-screen w-screen bg-paper-100 text-ink-900">
         {!zenMode && <TitleBar />}
-        <EmptyVault />
+        <Suspense fallback={<div className="flex-1" />}>
+          <EmptyVault />
+        </Suspense>
         <PromptHost />
         <ConfirmHost />
         <ServerDirectoryPickerHost />
@@ -367,19 +517,51 @@ function App(): JSX.Element {
       <div className="flex min-h-0 flex-1">
         {!zenMode && sidebarOpen && <Sidebar />}
         {!zenMode && noteListOpen && !unifiedSidebar && <NoteList />}
-        <Editor />
-        {!zenMode && <PinnedReferencePane />}
+        <Suspense fallback={<EditorLoadingFallback />}>
+          <Editor />
+        </Suspense>
+        {showPinnedReferencePane && (
+          <Suspense fallback={null}>
+            <PinnedReferencePane />
+          </Suspense>
+        )}
       </div>
-      {searchOpen && <SearchPalette />}
-      {vaultTextSearchOpen && <VaultTextSearchPalette />}
-      {commandPaletteOpen && <CommandPalette />}
-      {bufferPaletteOpen && <BufferPalette />}
-      {outlinePaletteOpen && <OutlinePalette />}
-      {settingsOpen && <SettingsModal />}
+      {searchOpen && (
+        <Suspense fallback={null}>
+          <SearchPalette />
+        </Suspense>
+      )}
+      {vaultTextSearchOpen && (
+        <Suspense fallback={null}>
+          <VaultTextSearchPalette />
+        </Suspense>
+      )}
+      {commandPaletteOpen && (
+        <Suspense fallback={null}>
+          <CommandPalette />
+        </Suspense>
+      )}
+      {bufferPaletteOpen && (
+        <Suspense fallback={null}>
+          <BufferPalette />
+        </Suspense>
+      )}
+      {outlinePaletteOpen && (
+        <Suspense fallback={null}>
+          <OutlinePalette />
+        </Suspense>
+      )}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsModal />
+        </Suspense>
+      )}
       <PromptHost />
       <ConfirmHost />
       <ServerDirectoryPickerHost />
-      <VimNav />
+      <Suspense fallback={null}>
+        <VimNav />
+      </Suspense>
     </div>
   )
 }

@@ -34,6 +34,9 @@ var attachmentExts = map[string]bool{
 }
 
 func stripCodeContent(body string) string {
+	if !strings.Contains(body, "`") {
+		return body
+	}
 	out := fencedBlockRe.ReplaceAllString(body, "$1 ")
 	out = inlineCodeRe.ReplaceAllString(out, " ")
 	return out
@@ -41,6 +44,9 @@ func stripCodeContent(body string) string {
 
 // ExtractTags returns unique #tags from a markdown body, ignoring code.
 func ExtractTags(body string) []string {
+	if !strings.Contains(body, "#") {
+		return []string{}
+	}
 	stripped := stripCodeContent(body)
 	seen := map[string]bool{}
 	out := []string{}
@@ -58,6 +64,9 @@ func ExtractTags(body string) []string {
 
 // ExtractWikilinks returns unique [[wikilink]] targets, ignoring code.
 func ExtractWikilinks(body string) []string {
+	if !strings.Contains(body, "[[") {
+		return []string{}
+	}
 	stripped := stripCodeContent(body)
 	seen := map[string]bool{}
 	out := []string{}
@@ -82,6 +91,9 @@ func ExtractWikilinks(body string) []string {
 
 // BodyHasLocalAsset is the same cheap heuristic as the TS version.
 func BodyHasLocalAsset(body string) bool {
+	if !strings.Contains(body, "](") && !strings.Contains(body, "![[") {
+		return false
+	}
 	stripped := stripCodeContent(body)
 	for _, m := range linkRe.FindAllStringSubmatch(stripped, -1) {
 		if len(m) < 3 {
@@ -117,32 +129,45 @@ func regexpMatchScheme(href string) (bool, error) {
 
 // BuildExcerpt makes a short plaintext preview from markdown.
 func BuildExcerpt(body string) string {
-	withoutFront := frontmatterRe.ReplaceAllString(body, "")
+	withoutFront := body
+	if strings.HasPrefix(body, "---\n") {
+		withoutFront = frontmatterRe.ReplaceAllString(body, "")
+	}
 	text := stripCodeContent(withoutFront)
-	text = imageMdRe.ReplaceAllString(text, " ")
-	text = mdLinkRe.ReplaceAllString(text, "$1")
-	text = mdEmbedAltRe.ReplaceAllStringFunc(text, func(s string) string {
-		m := mdEmbedAltRe.FindStringSubmatch(s)
-		if len(m) >= 3 && m[2] != "" {
-			return m[2]
-		}
-		if len(m) >= 2 {
-			return m[1]
-		}
-		return ""
-	})
-	text = mdWikiAltRe.ReplaceAllStringFunc(text, func(s string) string {
-		m := mdWikiAltRe.FindStringSubmatch(s)
-		if len(m) >= 3 && m[2] != "" {
-			return m[2]
-		}
-		if len(m) >= 2 {
-			return m[1]
-		}
-		return ""
-	})
-	text = headingRe.ReplaceAllString(text, "")
-	text = markupTrimRe.ReplaceAllString(text, "")
+	if strings.Contains(text, "](") {
+		text = imageMdRe.ReplaceAllString(text, " ")
+		text = mdLinkRe.ReplaceAllString(text, "$1")
+	}
+	if strings.Contains(text, "![[") {
+		text = mdEmbedAltRe.ReplaceAllStringFunc(text, func(s string) string {
+			m := mdEmbedAltRe.FindStringSubmatch(s)
+			if len(m) >= 3 && m[2] != "" {
+				return m[2]
+			}
+			if len(m) >= 2 {
+				return m[1]
+			}
+			return ""
+		})
+	}
+	if strings.Contains(text, "[[") {
+		text = mdWikiAltRe.ReplaceAllStringFunc(text, func(s string) string {
+			m := mdWikiAltRe.FindStringSubmatch(s)
+			if len(m) >= 3 && m[2] != "" {
+				return m[2]
+			}
+			if len(m) >= 2 {
+				return m[1]
+			}
+			return ""
+		})
+	}
+	if strings.Contains(text, "#") {
+		text = headingRe.ReplaceAllString(text, "")
+	}
+	if strings.ContainsAny(text, "*_~>") {
+		text = markupTrimRe.ReplaceAllString(text, "")
+	}
 	text = wsCollapseRe.ReplaceAllString(text, " ")
 	text = strings.TrimSpace(text)
 	if len(text) > 220 {

@@ -1,9 +1,17 @@
-import React from 'react'
+import React, { lazy, Suspense } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
-import { FloatingNoteApp } from './components/FloatingNoteApp'
-import { QuickCaptureApp } from './components/QuickCaptureApp'
 import './styles/index.css'
+
+const FloatingNoteApp = lazy(async () => {
+  const module = await import('./components/FloatingNoteApp')
+  return { default: module.FloatingNoteApp }
+})
+
+const QuickCaptureApp = lazy(async () => {
+  const module = await import('./components/QuickCaptureApp')
+  return { default: module.QuickCaptureApp }
+})
 
 export function renderZenNotesApp(root: HTMLElement): void {
   const params = new URLSearchParams(window.location.search)
@@ -13,13 +21,15 @@ export function renderZenNotesApp(root: HTMLElement): void {
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      {isQuickCapture ? (
-        <QuickCaptureApp />
-      ) : isFloating && floatingNotePath ? (
-        <FloatingNoteApp notePath={floatingNotePath} />
-      ) : (
-        <App />
-      )}
+      <Suspense fallback={null}>
+        {isQuickCapture ? (
+          <QuickCaptureApp />
+        ) : isFloating && floatingNotePath ? (
+          <FloatingNoteApp notePath={floatingNotePath} />
+        ) : (
+          <App />
+        )}
+      </Suspense>
     </React.StrictMode>
   )
 }

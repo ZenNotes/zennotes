@@ -29,7 +29,6 @@
     "codemirror": "^6.0.1",
     "dompurify": "^3.3.4",
     "function-plot": "^1.25.3",
-    "fuse.js": "^7.0.0",
     "gray-matter": "^4.0.3",
     "highlight.js": "^11.10.0",
     "jsxgraph": "^1.12.2",

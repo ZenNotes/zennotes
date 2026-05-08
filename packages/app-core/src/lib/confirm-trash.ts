@@ -1,4 +1,4 @@
-import { confirmApp } from '../components/ConfirmHost'
+import { confirmApp } from './confirm-requests'
 
 export function confirmMoveToTrash(title?: string | null): Promise<boolean> {
   const trimmed = title?.trim()

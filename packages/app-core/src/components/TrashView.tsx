@@ -5,7 +5,7 @@ import { ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
-import { confirmApp } from './ConfirmHost'
+import { confirmApp } from '../lib/confirm-requests'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)

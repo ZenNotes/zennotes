@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Fuse from 'fuse.js'
 import { useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import {
+  buildNoteSearchIndex,
+  parseNoteSearchQuery,
+  searchNoteIndex
+} from '../lib/note-search'
 
 export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
@@ -14,58 +18,17 @@ export function SearchPalette(): JSX.Element {
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
 
-  const fuse = useMemo(
-    () =>
-      new Fuse(notes, {
-        keys: [
-          { name: 'title', weight: 0.6 },
-          { name: 'excerpt', weight: 0.3 },
-          { name: 'tags', weight: 0.1 }
-        ],
-        threshold: 0.35,
-        ignoreLocation: true,
-        includeMatches: false
-      }),
-    [notes]
-  )
+  const searchIndex = useMemo(() => buildNoteSearchIndex(notes), [notes])
 
   // Strip `#tag` tokens off the query so the user can narrow by one or
   // more tags inline: `#ops #prod migration` means "notes tagged with
   // #ops AND #prod, fuzzy-matching 'migration'". Pure-tag queries (no
   // free text) still work — in that case we just list matching notes.
-  const { freeText, tagTokens } = useMemo(() => {
-    const rawTokens = query.split(/\s+/)
-    const tags: string[] = []
-    const text: string[] = []
-    for (const tok of rawTokens) {
-      if (!tok) continue
-      if (tok.startsWith('#') && tok.length > 1) {
-        tags.push(tok.slice(1).toLowerCase())
-      } else {
-        text.push(tok)
-      }
-    }
-    return { freeText: text.join(' ').trim(), tagTokens: tags }
-  }, [query])
+  const { tagTokens } = useMemo(() => parseNoteSearchQuery(query), [query])
 
   const results = useMemo(() => {
-    const byTag = (n: NoteMeta): boolean => {
-      if (tagTokens.length === 0) return true
-      const tagsLower = n.tags.map((t) => t.toLowerCase())
-      // AND semantics for search — every hashtag token must match. This
-      // narrows the result set the more tags you add, matching how users
-      // expect search filters to compose.
-      return tagTokens.every((t) => tagsLower.includes(t))
-    }
-    const live = notes.filter((n) => n.folder !== 'trash' && byTag(n))
-    if (!freeText) return live.slice(0, 20)
-    const set = new Set(live.map((n) => n.path))
-    return fuse
-      .search(freeText)
-      .map((r) => r.item)
-      .filter((n) => set.has(n.path))
-      .slice(0, 20)
-  }, [fuse, freeText, tagTokens, notes])
+    return searchNoteIndex(searchIndex, query, { limit: 20 })
+  }, [query, searchIndex])
 
   useEffect(() => {
     inputRef.current?.focus()

@@ -1,64 +1,37 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import {
-  ServerDirectoryPickerModal,
-  type ServerDirectoryPickerOptions
-} from './ServerDirectoryPickerModal'
+  getDirectoryPickerRequest,
+  settleDirectoryPickerRequest,
+  subscribeDirectoryPickerRequests,
+  type DirectoryPickerRequest
+} from '../lib/server-directory-picker-requests'
 
-type DirectoryPickerRequest = {
-  options: ServerDirectoryPickerOptions
-  onConfirm?: (path: string) => Promise<void> | void
-  resolve: (value: string | null) => void
-}
-
-let currentRequest: DirectoryPickerRequest | null = null
-const listeners = new Set<(request: DirectoryPickerRequest | null) => void>()
-
-function emit(): void {
-  for (const listener of listeners) listener(currentRequest)
-}
-
-export function pickServerDirectoryApp(
-  options: ServerDirectoryPickerOptions,
-  onConfirm?: (path: string) => Promise<void> | void
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    currentRequest = { options, onConfirm, resolve }
-    emit()
-  })
-}
+const ServerDirectoryPickerModal = lazy(async () => {
+  const module = await import('./ServerDirectoryPickerModal')
+  return { default: module.ServerDirectoryPickerModal }
+})
 
 export function ServerDirectoryPickerHost(): JSX.Element | null {
-  const [request, setRequest] = useState<DirectoryPickerRequest | null>(currentRequest)
+  const [request, setRequest] = useState<DirectoryPickerRequest | null>(getDirectoryPickerRequest)
 
   useEffect(() => {
-    listeners.add(setRequest)
-    return () => {
-      listeners.delete(setRequest)
-    }
+    return subscribeDirectoryPickerRequests(setRequest)
   }, [])
 
   if (!request) return null
 
   return (
-    <ServerDirectoryPickerModal
-      options={request.options}
-      onSubmit={async (path) => {
-        if (request.onConfirm) {
-          await request.onConfirm(path)
-        }
-        const resolve = request.resolve
-        currentRequest = null
-        setRequest(null)
-        queueMicrotask(() => resolve(path))
-        emit()
-      }}
-      onCancel={() => {
-        const resolve = request.resolve
-        currentRequest = null
-        setRequest(null)
-        queueMicrotask(() => resolve(null))
-        emit()
-      }}
-    />
+    <Suspense fallback={null}>
+      <ServerDirectoryPickerModal
+        options={request.options}
+        onSubmit={async (path) => {
+          if (request.onConfirm) {
+            await request.onConfirm(path)
+          }
+          settleDirectoryPickerRequest(request, path)
+        }}
+        onCancel={() => settleDirectoryPickerRequest(request, null)}
+      />
+    </Suspense>
   )
 }

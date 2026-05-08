@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface PromptSuggestion {
@@ -252,45 +252,4 @@ export function PromptModal({
     </div>,
     document.body
   )
-}
-
-/**
- * Hook that returns a `prompt(opts)` function returning a Promise
- * resolving to the string the user entered (or `null` if cancelled),
- * along with the modal element to render somewhere in the tree.
- */
-export function usePrompt(): {
-  prompt: (options: PromptOptions) => Promise<string | null>
-  modal: JSX.Element | null
-} {
-  const [state, setState] = useState<{
-    options: PromptOptions
-    resolve: (v: string | null) => void
-  } | null>(null)
-
-  const prompt = useCallback(
-    (options: PromptOptions) =>
-      new Promise<string | null>((resolve) => {
-        setState({ options, resolve })
-      }),
-    []
-  )
-
-  const modal = state ? (
-    <PromptModal
-      options={state.options}
-      onSubmit={(v) => {
-        const resolve = state.resolve
-        setState(null)
-        queueMicrotask(() => resolve(v))
-      }}
-      onCancel={() => {
-        const resolve = state.resolve
-        setState(null)
-        queueMicrotask(() => resolve(null))
-      }}
-    />
-  ) : null
-
-  return { prompt, modal }
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import type { AssetMeta, NoteContent, NoteMeta, VaultInfo } from '@shared/ipc'
-import { Preview } from '@renderer/components/Preview'
+import { LazyPreview as Preview } from '@renderer/components/LazyPreview'
 import { useStore } from '@renderer/store'
 import '@renderer/styles/index.css'
 

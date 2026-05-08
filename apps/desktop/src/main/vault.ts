@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { app } from 'electron'
+import { recordMainPerf } from './perf'
 import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   AssetMeta,
@@ -37,6 +38,8 @@ const LEGACY_ATTACHMENTS_DIRS = ['_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
+const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
+const NOTE_META_CACHE_VERSION = 1
 const NOTE_COMMENTS_DIR = 'comments'
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
@@ -65,6 +68,9 @@ const execFileAsync = promisify(execFile)
 const SEARCHABLE_TEXT_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
 const COMMAND_CHECK_TIMEOUT_MS = 1500
 const SEARCH_EXEC_MAX_BUFFER = 64 * 1024 * 1024
+const SEARCH_CANDIDATE_CACHE_TTL_MS = 30_000
+const NOTE_META_READ_CONCURRENCY = 256
+const SEARCH_CANDIDATE_READ_CONCURRENCY = 256
 const SEARCH_EXECUTABLE_NAMES = {
   ripgrep: new Set(['rg', 'rg.exe']),
   fzf: new Set(['fzf', 'fzf.exe'])
@@ -130,6 +136,24 @@ interface ScoredVaultTextSearchCandidate extends VaultTextSearchCandidate {
 let cachedVaultTextSearchCapabilities:
   | { at: number; key: string; value: VaultTextSearchCapabilities }
   | null = null
+let cachedVaultTextSearchCandidates:
+  | {
+      at: number
+      key: string
+      root: string
+      value: VaultTextSearchCandidate[]
+    }
+  | null = null
+const noteMetaCache = new Map<
+  string,
+  {
+    mtimeMs: number
+    size: number
+    meta: NoteMeta
+  }
+>()
+const loadedPersistedNoteMetaCacheRoots = new Set<string>()
+const noteMetaCachePersistTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 export interface PersistedWindowState {
   x: number
@@ -330,6 +354,10 @@ export async function updateConfig(
 
 function vaultSettingsPath(root: string): string {
   return path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE)
+}
+
+function noteMetaCachePath(root: string): string {
+  return path.join(root, INTERNAL_VAULT_DIR, NOTE_META_CACHE_FILE)
 }
 
 function noteCommentsRoot(root: string): string {
@@ -585,6 +613,7 @@ function folderOf(root: string, absPath: string): NoteFolder | null {
 }
 
 function stripCodeContent(body: string): string {
+  if (!body.includes('`')) return body
   return body
     // Only treat line-start triple backticks as actual fenced blocks.
     .replace(FENCED_CODE_BLOCK_RE, '$1 ')
@@ -605,6 +634,7 @@ function localAssetTargetKind(target: string): ImportedAssetKind | null {
 
 /** Pull unique `#tags` out of markdown text, ignoring fenced/inline code. */
 function extractTags(body: string): string[] {
+  if (!body.includes('#')) return []
   const stripped = stripCodeContent(body)
   const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
   const seen = new Set<string>()
@@ -619,6 +649,7 @@ function extractTags(body: string): string[] {
  * the sidebar "has attachments" indicator. Skips fenced / inline code.
  */
 function bodyHasLocalAsset(body: string): boolean {
+  if (!body.includes('](') && !body.includes('![[')) return false
   const stripped = stripCodeContent(body)
   const linkRe = /(!?)\[[^\]]*\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g
   const embedRe = /!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
@@ -640,6 +671,7 @@ function bodyHasLocalAsset(body: string): boolean {
 /** Pull unique `[[wikilink]]` targets out of markdown text. Supports
  *  `[[target|label]]` by discarding the label. Ignores fenced/inline code. */
 function extractWikilinks(body: string): string[] {
+  if (!body.includes('[[')) return []
   const stripped = stripCodeContent(body)
   const re = /(!?)\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
   const seen = new Set<string>()
@@ -656,16 +688,22 @@ function extractWikilinks(body: string): string[] {
 
 /** Build a short plaintext preview from markdown. */
 function buildExcerpt(body: string): string {
-  const withoutFront = body.replace(/^---\n[\s\S]*?\n---\n/, '')
-  const text = stripCodeContent(withoutFront)
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/[*_~>]+/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const withoutFront = body.startsWith('---\n') ? body.replace(/^---\n[\s\S]*?\n---\n/, '') : body
+  let text = stripCodeContent(withoutFront)
+  if (text.includes('](')) {
+    text = text
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+  }
+  if (text.includes('![[')) {
+    text = text.replace(/!\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
+  }
+  if (text.includes('[[')) {
+    text = text.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => b || a)
+  }
+  if (text.includes('#')) text = text.replace(/^#{1,6}\s+/gm, '')
+  if (/[*_~>]/.test(text)) text = text.replace(/[*_~>]+/g, '')
+  text = text.replace(/\s+/g, ' ').trim()
   return text.slice(0, 220)
 }
 
@@ -738,6 +776,232 @@ function normalizeVaultTextSearchToolPaths(
 
 function capabilityCacheKey(paths: Required<VaultTextSearchToolPaths>): string {
   return JSON.stringify(paths)
+}
+
+function candidateCacheKey(
+  root: string,
+  source: 'builtin' | 'ripgrep',
+  paths: Required<VaultTextSearchToolPaths>
+): string {
+  return JSON.stringify({
+    root: path.resolve(root),
+    source,
+    paths
+  })
+}
+
+export function invalidateVaultTextSearchCache(root?: string): void {
+  if (!cachedVaultTextSearchCandidates) return
+  if (!root || path.resolve(cachedVaultTextSearchCandidates.root) === path.resolve(root)) {
+    cachedVaultTextSearchCandidates = null
+  }
+}
+
+function noteMetaCacheKey(root: string, abs: string): string {
+  return `${path.resolve(root)}\0${path.resolve(abs)}`
+}
+
+function sameMtimeMs(left: number, right: number): boolean {
+  return Math.abs(left - right) < 0.001
+}
+
+function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<NoteMeta>
+  if (
+    typeof candidate.path !== 'string' ||
+    typeof candidate.title !== 'string' ||
+    !SYSTEM_FOLDERS.has(candidate.folder as NoteFolder) ||
+    typeof candidate.siblingOrder !== 'number' ||
+    typeof candidate.createdAt !== 'number' ||
+    typeof candidate.updatedAt !== 'number' ||
+    typeof candidate.size !== 'number' ||
+    !Array.isArray(candidate.tags) ||
+    !candidate.tags.every((tag) => typeof tag === 'string') ||
+    !Array.isArray(candidate.wikilinks) ||
+    !candidate.wikilinks.every((wikilink) => typeof wikilink === 'string') ||
+    typeof candidate.hasAttachments !== 'boolean' ||
+    typeof candidate.excerpt !== 'string'
+  ) {
+    return null
+  }
+  return {
+    path: candidate.path,
+    title: candidate.title,
+    folder: candidate.folder as NoteFolder,
+    siblingOrder: candidate.siblingOrder,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    size: candidate.size,
+    tags: candidate.tags,
+    wikilinks: candidate.wikilinks,
+    hasAttachments: candidate.hasAttachments,
+    excerpt: candidate.excerpt
+  }
+}
+
+async function hydratePersistedNoteMetaCache(root: string): Promise<void> {
+  const rootAbs = path.resolve(root)
+  if (loadedPersistedNoteMetaCacheRoots.has(rootAbs)) return
+  loadedPersistedNoteMetaCacheRoots.add(rootAbs)
+
+  try {
+    const raw = await fs.readFile(noteMetaCachePath(root), 'utf8')
+    const parsed = JSON.parse(raw) as {
+      version?: unknown
+      entries?: unknown
+    }
+    if (parsed.version !== NOTE_META_CACHE_VERSION || !Array.isArray(parsed.entries)) return
+
+    for (const entry of parsed.entries) {
+      if (!entry || typeof entry !== 'object') continue
+      const candidate = entry as {
+        path?: unknown
+        mtimeMs?: unknown
+        size?: unknown
+        meta?: unknown
+      }
+      if (
+        typeof candidate.path !== 'string' ||
+        typeof candidate.mtimeMs !== 'number' ||
+        typeof candidate.size !== 'number'
+      ) {
+        continue
+      }
+      const meta = normalizeCachedNoteMeta(candidate.meta)
+      if (!meta || meta.path !== candidate.path) continue
+      try {
+        const abs = resolveSafe(root, candidate.path)
+        noteMetaCache.set(noteMetaCacheKey(root, abs), {
+          mtimeMs: candidate.mtimeMs,
+          size: candidate.size,
+          meta
+        })
+      } catch {
+        /* ignore invalid cache paths */
+      }
+    }
+  } catch {
+    /* missing or corrupt cache files should never block vault loading */
+  }
+}
+
+function snapshotNoteMetaCache(root: string, metas: NoteMeta[]): Array<{
+  path: string
+  mtimeMs: number
+  size: number
+  meta: NoteMeta
+}> {
+  const entries: Array<{ path: string; mtimeMs: number; size: number; meta: NoteMeta }> = []
+  for (const meta of metas) {
+    try {
+      const abs = resolveSafe(root, meta.path)
+      const cached = noteMetaCache.get(noteMetaCacheKey(root, abs))
+      if (!cached) continue
+      entries.push({
+        path: meta.path,
+        mtimeMs: cached.mtimeMs,
+        size: cached.size,
+        meta: { ...cached.meta, siblingOrder: meta.siblingOrder }
+      })
+    } catch {
+      /* ignore invalid paths */
+    }
+  }
+  return entries
+}
+
+async function persistNoteMetaCacheSnapshot(
+  root: string,
+  entries: Array<{ path: string; mtimeMs: number; size: number; meta: NoteMeta }>
+): Promise<void> {
+  const target = noteMetaCachePath(root)
+  const temp = `${target}.${process.pid}.${Date.now()}.tmp`
+  try {
+    await fs.mkdir(path.dirname(target), { recursive: true })
+    await fs.writeFile(
+      temp,
+      `${JSON.stringify({ version: NOTE_META_CACHE_VERSION, entries })}\n`,
+      'utf8'
+    )
+    await fs.rename(temp, target)
+  } catch {
+    await fs.rm(temp, { force: true }).catch(() => {})
+  }
+}
+
+function schedulePersistNoteMetaCache(root: string, metas: NoteMeta[]): void {
+  if (process.env.ZEN_PERF_DISABLE_PERSISTED_META_CACHE === '1') return
+  const rootAbs = path.resolve(root)
+  clearScheduledPersistNoteMetaCache(rootAbs)
+
+  const timer = setTimeout(() => {
+    noteMetaCachePersistTimers.delete(rootAbs)
+    const entries = snapshotNoteMetaCache(root, metas)
+    if (entries.length === 0) return
+    void persistNoteMetaCacheSnapshot(root, entries)
+  }, 1000)
+  if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+  noteMetaCachePersistTimers.set(rootAbs, timer)
+}
+
+function clearScheduledPersistNoteMetaCache(rootAbs: string): void {
+  const existing = noteMetaCachePersistTimers.get(rootAbs)
+  if (existing) clearTimeout(existing)
+  noteMetaCachePersistTimers.delete(rootAbs)
+}
+
+export function invalidateNoteMetaCache(root: string, rel?: string): void {
+  const rootAbs = path.resolve(root)
+  clearScheduledPersistNoteMetaCache(rootAbs)
+  if (!rel) {
+    for (const key of noteMetaCache.keys()) {
+      if (key.startsWith(`${rootAbs}\0`)) noteMetaCache.delete(key)
+    }
+    loadedPersistedNoteMetaCacheRoots.delete(rootAbs)
+    return
+  }
+
+  try {
+    noteMetaCache.delete(noteMetaCacheKey(root, resolveSafe(root, rel)))
+  } catch {
+    /* ignore invalid relative paths */
+  }
+}
+
+async function getCachedVaultTextSearchCandidates(
+  root: string,
+  source: 'builtin' | 'ripgrep',
+  paths: Required<VaultTextSearchToolPaths>,
+  collect: () => Promise<VaultTextSearchCandidate[]>
+): Promise<VaultTextSearchCandidate[]> {
+  const key = candidateCacheKey(root, source, paths)
+  const now = Date.now()
+  if (
+    cachedVaultTextSearchCandidates &&
+    cachedVaultTextSearchCandidates.key === key &&
+    now - cachedVaultTextSearchCandidates.at < SEARCH_CANDIDATE_CACHE_TTL_MS
+  ) {
+    recordMainPerf('main.vaultTextSearch.candidates.cacheHit', 0, {
+      source,
+      candidates: cachedVaultTextSearchCandidates.value.length
+    })
+    return cachedVaultTextSearchCandidates.value
+  }
+
+  const startedAt = performance.now()
+  const value = await collect()
+  cachedVaultTextSearchCandidates = {
+    at: Date.now(),
+    key,
+    root: path.resolve(root),
+    value
+  }
+  recordMainPerf('main.vaultTextSearch.candidates.refresh', performance.now() - startedAt, {
+    source,
+    candidates: value.length
+  })
+  return value
 }
 
 async function searchExecutable(
@@ -817,7 +1081,7 @@ function noteFolderFromRelPath(relPath: string): NoteFolder | null {
 }
 
 async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSearchCandidate[]> {
-  const candidates: VaultTextSearchCandidate[] = []
+  const files: Array<{ full: string; folder: NoteFolder }> = []
   const walkFolder = async (
     folder: NoteFolder,
     dirAbs: string,
@@ -840,14 +1104,28 @@ async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSe
         continue
       }
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
+      files.push({ full, folder })
+    }
+  }
 
+  for (const folder of SEARCHABLE_TEXT_FOLDERS) {
+    const topAbs = await folderRoot(root, folder)
+    const isPrimaryRoot = folder === 'inbox' && path.resolve(topAbs) === path.resolve(root)
+    await walkFolder(folder, topAbs, topAbs, isPrimaryRoot)
+  }
+
+  const candidateGroups = await mapLimit(
+    files,
+    SEARCH_CANDIDATE_READ_CONCURRENCY,
+    async ({ full, folder }) => {
       let body = ''
       try {
         body = await fs.readFile(full, 'utf8')
       } catch {
-        continue
+        return []
       }
 
+      const candidates: VaultTextSearchCandidate[] = []
       const relPath = toPosix(path.relative(root, full))
       const title = path.basename(full, path.extname(full))
       const lines = body.split('\n')
@@ -865,15 +1143,10 @@ async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSe
         })
         lineOffset += rawLine.length + 1
       }
+      return candidates
     }
-  }
-
-  for (const folder of SEARCHABLE_TEXT_FOLDERS) {
-    const topAbs = await folderRoot(root, folder)
-    const isPrimaryRoot = folder === 'inbox' && path.resolve(topAbs) === path.resolve(root)
-    await walkFolder(folder, topAbs, topAbs, isPrimaryRoot)
-  }
-  return candidates
+  )
+  return candidateGroups.flat()
 }
 
 async function collectRipgrepSearchCandidates(
@@ -1095,17 +1368,31 @@ async function readMeta(
   siblingOrder?: number
 ): Promise<NoteMeta> {
   const stat = await fs.stat(abs)
+  const relPath = toPosix(path.relative(root, abs))
+  const cacheKey = noteMetaCacheKey(root, abs)
+  const cached = noteMetaCache.get(cacheKey)
+  const resolvedSiblingOrder = siblingOrder ?? (await readSiblingOrder(abs))
+  if (
+    cached &&
+    sameMtimeMs(cached.mtimeMs, stat.mtimeMs) &&
+    cached.size === stat.size &&
+    cached.meta.path === relPath &&
+    cached.meta.folder === folder
+  ) {
+    return { ...cached.meta, siblingOrder: resolvedSiblingOrder }
+  }
+
   let body = ''
   try {
     body = await fs.readFile(abs, 'utf8')
   } catch {
     /* ignore — treat as empty */
   }
-  return {
-    path: toPosix(path.relative(root, abs)),
+  const meta: NoteMeta = {
+    path: relPath,
     title: path.basename(abs, path.extname(abs)),
     folder,
-    siblingOrder: siblingOrder ?? (await readSiblingOrder(abs)),
+    siblingOrder: resolvedSiblingOrder,
     createdAt: stat.birthtimeMs || stat.ctimeMs,
     updatedAt: stat.mtimeMs,
     size: stat.size,
@@ -1114,6 +1401,12 @@ async function readMeta(
     hasAttachments: bodyHasLocalAsset(body),
     excerpt: buildExcerpt(body)
   }
+  noteMetaCache.set(cacheKey, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+    meta
+  })
+  return meta
 }
 
 async function readSiblingOrder(abs: string): Promise<number> {
@@ -1125,6 +1418,30 @@ async function readSiblingOrder(abs: string): Promise<number> {
   } catch {
     return Number.MAX_SAFE_INTEGER
   }
+}
+
+async function mapLimit<T, U>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<U>
+): Promise<U[]> {
+  const results = new Array<U>(items.length)
+  let nextIndex = 0
+
+  const run = async (): Promise<void> => {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+      nextIndex += 1
+      results[index] = await worker(items[index], index)
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => run()
+  )
+  await Promise.all(workers)
+  return results
 }
 
 /**
@@ -1160,7 +1477,9 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
 }
 
 export async function listNotes(root: string): Promise<NoteMeta[]> {
-  const metas: NoteMeta[] = []
+  const startedAt = performance.now()
+  await hydratePersistedNoteMetaCache(root)
+  const noteFiles: Array<{ full: string; folder: NoteFolder; siblingOrder: number }> = []
   const walkFolder = async (
     folder: NoteFolder,
     dirAbs: string,
@@ -1182,7 +1501,7 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
         continue
       }
       if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-        metas.push(await readMeta(root, full, folder, index))
+        noteFiles.push({ full, folder, siblingOrder: index })
       }
     }
   }
@@ -1192,6 +1511,21 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
     const isPrimaryRoot = folder === 'inbox' && path.resolve(topAbs) === path.resolve(root)
     await walkFolder(folder, topAbs, topAbs, isPrimaryRoot)
   }
+
+  const metas = (
+    await mapLimit(noteFiles, NOTE_META_READ_CONCURRENCY, async (file) => {
+      try {
+        return await readMeta(root, file.full, file.folder, file.siblingOrder)
+      } catch {
+        return null
+      }
+    })
+  ).filter((meta): meta is NoteMeta => meta !== null)
+
+  recordMainPerf('main.vault.listNotes', performance.now() - startedAt, {
+    notes: metas.length
+  })
+  schedulePersistNoteMetaCache(root, metas)
   return metas
 }
 
@@ -1209,22 +1543,32 @@ export async function searchVaultText(
   const backend = resolveSearchBackend(preferredBackend, capabilities)
 
   if (backend === 'builtin') {
-    const ranked = rankSearchCandidates(trimmed, await collectBuiltinSearchCandidates(root), limit)
+    const candidates = await getCachedVaultTextSearchCandidates(root, 'builtin', paths, () =>
+      collectBuiltinSearchCandidates(root)
+    )
+    const ranked = rankSearchCandidates(trimmed, candidates, limit)
     return await hydrateSearchOffsets(root, trimmed, ranked)
   }
 
   if (backend === 'ripgrep') {
+    const candidates = await getCachedVaultTextSearchCandidates(root, 'ripgrep', paths, () =>
+      collectRipgrepSearchCandidates(root, paths)
+    )
     const ranked = rankSearchCandidates(
       trimmed,
-      await collectRipgrepSearchCandidates(root, paths),
+      candidates,
       limit
     )
     return await hydrateSearchOffsets(root, trimmed, ranked)
   }
 
   const candidates = capabilities.ripgrep
-    ? await collectRipgrepSearchCandidates(root, paths)
-    : await collectBuiltinSearchCandidates(root)
+    ? await getCachedVaultTextSearchCandidates(root, 'ripgrep', paths, () =>
+        collectRipgrepSearchCandidates(root, paths)
+      )
+    : await getCachedVaultTextSearchCandidates(root, 'builtin', paths, () =>
+        collectBuiltinSearchCandidates(root)
+      )
   const ranked = await runFzfSearch(trimmed, candidates, limit, paths)
   return await hydrateSearchOffsets(root, trimmed, ranked)
 }
@@ -1251,6 +1595,8 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   const abs = resolveSafe(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await fs.writeFile(abs, body, 'utf8')
+  invalidateNoteMetaCache(root, rel)
+  invalidateVaultTextSearchCache(root)
   const folder = folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
@@ -1401,6 +1747,8 @@ export async function appendToNote(
       ? `${existing}${existing.endsWith('\n') ? '' : '\n'}\n${trimmedAddition}\n`
       : `${trimmedAddition}\n\n${existing}`
   await fs.writeFile(abs, next, 'utf8')
+  invalidateNoteMetaCache(root, rel)
+  invalidateVaultTextSearchCache(root)
   return await readMeta(root, abs, folder)
 }
 
@@ -1470,6 +1818,8 @@ export async function createNote(
   const abs = path.join(dir, `${finalTitle}.md`)
   const body = `# ${finalTitle}\n\n`
   await fs.writeFile(abs, body, 'utf8')
+  invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
+  invalidateVaultTextSearchCache(root)
   return await readMeta(root, abs, folder)
 }
 
@@ -1506,6 +1856,9 @@ export async function renameNote(
   }
   const meta = await readMeta(root, target, folder)
   await moveNoteComments(root, rel, meta.path)
+  invalidateNoteMetaCache(root, rel)
+  invalidateNoteMetaCache(root, meta.path)
+  invalidateVaultTextSearchCache(root)
   return meta
 }
 
@@ -1524,6 +1877,9 @@ async function moveBetweenFolders(
   await fs.rename(abs, destAbs)
   const meta = await readMeta(root, destAbs, target)
   await moveNoteComments(root, rel, meta.path)
+  invalidateNoteMetaCache(root, rel)
+  invalidateNoteMetaCache(root, meta.path)
+  invalidateVaultTextSearchCache(root)
   return meta
 }
 
@@ -1551,6 +1907,8 @@ export async function emptyTrash(root: string): Promise<void> {
     await Promise.all(
       entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true }))
     )
+    invalidateNoteMetaCache(root)
+    invalidateVaultTextSearchCache(root)
   } catch {
     /* no trash dir yet */
   }
@@ -1560,6 +1918,8 @@ export async function deleteNote(root: string, rel: string): Promise<void> {
   const abs = resolveSafe(root, rel)
   await fs.rm(abs, { force: true })
   await removeNoteComments(root, rel)
+  invalidateNoteMetaCache(root, rel)
+  invalidateVaultTextSearchCache(root)
 }
 
 /* ---------- Folder operations ---------------------------------------- */
@@ -1642,6 +2002,8 @@ export async function renameFolder(
     )
   }
   await setVaultSettings(root, nextSettings)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
   return newClean
 }
 
@@ -1664,6 +2026,8 @@ export async function deleteFolder(
     folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean)
   }
   await setVaultSettings(root, nextSettings)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
 }
 
 /**
@@ -1702,6 +2066,8 @@ export async function duplicateFolder(
     folderIcons: duplicateFolderIcons(settings.folderIcons, topFolder, clean, newSubpath)
   }
   await setVaultSettings(root, nextSettings)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
   return newSubpath
 }
 
@@ -1754,6 +2120,8 @@ export async function generateDemoTour(root: string): Promise<VaultDemoTourResul
     await fs.writeFile(abs, asset.body, 'utf8')
   }
 
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
   return {
     notePaths: DEMO_TOUR_NOTES.map((note) => note.path),
     assetPaths: DEMO_TOUR_ASSETS.map((asset) => asset.path)
@@ -1771,6 +2139,8 @@ export async function removeDemoTour(root: string): Promise<VaultDemoTourResult>
 
   await removeDirIfEmpty(resolveSafe(root, DEMO_TOUR_DIR))
 
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
   return {
     notePaths: DEMO_TOUR_NOTES.map((note) => note.path),
     assetPaths: DEMO_TOUR_ASSETS.map((asset) => asset.path)
@@ -1778,8 +2148,6 @@ export async function removeDemoTour(root: string): Promise<VaultDemoTourResult>
 }
 
 export async function hasAssetsDir(root: string): Promise<boolean> {
-  const assets = await listAssets(root)
-  if (assets.length > 0) return true
   for (const dirName of ATTACHMENTS_DIRS) {
     try {
       const stat = await fs.stat(path.join(root, dirName))
@@ -1867,6 +2235,9 @@ export async function moveNote(
   await fs.rename(oldAbs, destAbs)
   const meta = await readMeta(root, destAbs, targetFolder)
   await moveNoteComments(root, oldRel, meta.path)
+  invalidateNoteMetaCache(root, oldRel)
+  invalidateNoteMetaCache(root, meta.path)
+  invalidateVaultTextSearchCache(root)
   return meta
 }
 
@@ -1883,6 +2254,8 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   await fs.writeFile(destAbs, body, 'utf8')
   const meta = await readMeta(root, destAbs, folder)
   await copyNoteComments(root, rel, meta.path)
+  invalidateNoteMetaCache(root, meta.path)
+  invalidateVaultTextSearchCache(root)
   return meta
 }
 

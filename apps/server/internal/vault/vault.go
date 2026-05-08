@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,8 +22,11 @@ const (
 	PrimaryAttachmentsDir = "attachements"
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
+	noteMetaCacheFile     = "note-meta-cache-v1.json"
+	noteMetaCacheVersion  = 1
 	noteCommentsDir       = "comments"
 	noteCommentsSuffix    = ".comments.json"
+	noteMetaReadLimit     = 64
 )
 
 // ErrAssetTooLarge is returned when an asset upload exceeds the
@@ -98,6 +103,12 @@ type Vault struct {
 	dirMode       fs.FileMode
 	maxAssetBytes int64
 	mu            sync.RWMutex
+	searchCacheMu sync.Mutex
+	searchCache   *textSearchCache
+	metaCacheMu   sync.Mutex
+	metaCache     map[string]noteMetaCacheEntry
+	metaCacheLoad bool
+	metaCacheGen  uint64
 }
 
 // Options tunes vault filesystem permissions and limits. Zero values
@@ -106,6 +117,68 @@ type Options struct {
 	FileMode      fs.FileMode
 	DirMode       fs.FileMode
 	MaxAssetBytes int64
+}
+
+type textSearchFile struct {
+	abs      string
+	relPosix string
+	title    string
+	folder   NoteFolder
+}
+
+type textSearchCandidate struct {
+	match     TextSearchMatch
+	lineLower string
+}
+
+type textSearchCache struct {
+	signature  uint64
+	candidates []textSearchCandidate
+}
+
+type noteMetaCacheEntry struct {
+	mtimeMs float64
+	size    int64
+	meta    NoteMeta
+}
+
+type persistedNoteMetaCache struct {
+	Version int                      `json:"version"`
+	Entries []persistedNoteMetaEntry `json:"entries"`
+}
+
+type persistedNoteMetaEntry struct {
+	Path    string   `json:"path"`
+	MtimeMs float64  `json:"mtimeMs"`
+	Size    int64    `json:"size"`
+	Meta    NoteMeta `json:"meta"`
+}
+
+func mtimeMs(info fs.FileInfo) float64 {
+	return float64(info.ModTime().UnixNano()) / 1_000_000
+}
+
+func sameMtimeMs(a, b float64) bool {
+	return math.Abs(a-b) < 0.001
+}
+
+func (v *Vault) noteMetaCachePath() string {
+	return filepath.Join(v.root, internalVaultDir, noteMetaCacheFile)
+}
+
+func (v *Vault) invalidateNoteMetaCache() {
+	v.metaCacheMu.Lock()
+	v.metaCache = map[string]noteMetaCacheEntry{}
+	v.metaCacheLoad = false
+	v.metaCacheGen++
+	v.metaCacheMu.Unlock()
+}
+
+func (v *Vault) invalidateTextSearchCache() {
+	v.searchCacheMu.Lock()
+	v.searchCache = nil
+	v.searchCacheMu.Unlock()
+	v.invalidateNoteMetaCache()
 }
 
 func New(root string, opts Options) (*Vault, error) {
@@ -130,6 +203,7 @@ func New(root string, opts Options) (*Vault, error) {
 		fileMode:      opts.FileMode,
 		dirMode:       opts.DirMode,
 		maxAssetBytes: opts.MaxAssetBytes,
+		metaCache:     map[string]noteMetaCacheEntry{},
 	}
 	if err := v.EnsureLayout(); err != nil {
 		return nil, err
@@ -348,6 +422,7 @@ func (v *Vault) SetSettings(next VaultSettings) (VaultSettings, error) {
 			return VaultSettings{}, err
 		}
 	}
+	v.invalidateTextSearchCache()
 	return cloneSettings(normalized), nil
 }
 
@@ -403,14 +478,147 @@ func (v *Vault) EnsureLayout() error {
 
 // --- Listing ---
 
+func validCachedNoteMeta(meta NoteMeta, path string) bool {
+	if meta.Path != path || meta.Title == "" || !IsValidFolder(meta.Folder) {
+		return false
+	}
+	if meta.Tags == nil || meta.Wikilinks == nil {
+		return false
+	}
+	return true
+}
+
+func (v *Vault) hydratePersistedNoteMetaCache() {
+	v.metaCacheMu.Lock()
+	if v.metaCacheLoad {
+		v.metaCacheMu.Unlock()
+		return
+	}
+	v.metaCacheLoad = true
+	v.metaCacheMu.Unlock()
+
+	raw, err := os.ReadFile(v.noteMetaCachePath())
+	if err != nil {
+		return
+	}
+	var persisted persistedNoteMetaCache
+	if err := json.Unmarshal(raw, &persisted); err != nil || persisted.Version != noteMetaCacheVersion {
+		return
+	}
+
+	entries := map[string]noteMetaCacheEntry{}
+	for _, entry := range persisted.Entries {
+		if entry.Path == "" || !validCachedNoteMeta(entry.Meta, entry.Path) {
+			continue
+		}
+		abs, err := SafeJoin(v.root, entry.Path)
+		if err != nil {
+			continue
+		}
+		entries[abs] = noteMetaCacheEntry{
+			mtimeMs: entry.MtimeMs,
+			size:    entry.Size,
+			meta:    entry.Meta,
+		}
+	}
+	if len(entries) == 0 {
+		return
+	}
+
+	v.metaCacheMu.Lock()
+	for key, entry := range entries {
+		v.metaCache[key] = entry
+	}
+	v.metaCacheMu.Unlock()
+}
+
+func (v *Vault) persistNoteMetaCacheSnapshot(metas []NoteMeta) {
+	if os.Getenv("ZEN_PERF_DISABLE_PERSISTED_META_CACHE") == "1" {
+		return
+	}
+	v.metaCacheMu.Lock()
+	generation := v.metaCacheGen
+	v.metaCacheMu.Unlock()
+	if len(metas) == 0 {
+		return
+	}
+	metas = append([]NoteMeta(nil), metas...)
+
+	go func(metas []NoteMeta, generation uint64) {
+		time.Sleep(time.Second)
+
+		entries := make([]persistedNoteMetaEntry, 0, len(metas))
+		v.metaCacheMu.Lock()
+		if v.metaCacheGen != generation {
+			v.metaCacheMu.Unlock()
+			return
+		}
+		for _, meta := range metas {
+			abs, err := SafeJoin(v.root, meta.Path)
+			if err != nil {
+				continue
+			}
+			cached, ok := v.metaCache[abs]
+			if !ok {
+				continue
+			}
+			metaCopy := cached.meta
+			metaCopy.SiblingOrder = meta.SiblingOrder
+			entries = append(entries, persistedNoteMetaEntry{
+				Path:    meta.Path,
+				MtimeMs: cached.mtimeMs,
+				Size:    cached.size,
+				Meta:    metaCopy,
+			})
+		}
+		v.metaCacheMu.Unlock()
+		if len(entries) == 0 {
+			return
+		}
+
+		target := v.noteMetaCachePath()
+		temp := fmt.Sprintf("%s.%d.%d.tmp", target, os.Getpid(), time.Now().UnixNano())
+		if err := os.MkdirAll(filepath.Dir(target), v.dirMode); err != nil {
+			return
+		}
+		data, err := json.Marshal(persistedNoteMetaCache{
+			Version: noteMetaCacheVersion,
+			Entries: entries,
+		})
+		if err != nil {
+			return
+		}
+		data = append(data, '\n')
+		if err := os.WriteFile(temp, data, v.fileMode); err != nil {
+			return
+		}
+		v.metaCacheMu.Lock()
+		stillCurrent := v.metaCacheGen == generation
+		v.metaCacheMu.Unlock()
+		if !stillCurrent {
+			_ = os.Remove(temp)
+			return
+		}
+		if err := os.Rename(temp, target); err != nil {
+			_ = os.Remove(temp)
+		}
+	}(metas, generation)
+}
+
 // ListNotes walks every top-level folder and returns metadata for each
 // note. Sibling order is the directory-listing order per folder, which
 // matches the TS version's behaviour for non-sorted filesystems.
 func (v *Vault) ListNotes() ([]NoteMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
+	v.hydratePersistedNoteMetaCache()
 
-	out := []NoteMeta{}
+	type noteFile struct {
+		folder NoteFolder
+		path   string
+	}
+
+	files := []noteFile{}
 	for _, folder := range AllFolders {
 		folderRoot, err := v.folderRoot(folder)
 		if err != nil {
@@ -449,11 +657,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
 				return nil
 			}
-			meta, err := v.readMeta(folder, path)
-			if err != nil {
-				return nil // skip unreadable files silently
-			}
-			out = append(out, meta)
+			files = append(files, noteFile{folder: folder, path: path})
 			return nil
 		})
 		if err != nil {
@@ -461,10 +665,42 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 		}
 	}
 
+	results := make([]NoteMeta, len(files))
+	ok := make([]bool, len(files))
+	limit := noteMetaReadLimit
+	if len(files) < limit {
+		limit = len(files)
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for index, file := range files {
+		wg.Add(1)
+		go func(index int, file noteFile) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			meta, err := v.readMeta(file.folder, file.path)
+			if err != nil {
+				return // skip unreadable files silently
+			}
+			results[index] = meta
+			ok[index] = true
+		}(index, file)
+	}
+	wg.Wait()
+
+	out := make([]NoteMeta, 0, len(files))
+	for index, meta := range results {
+		if ok[index] {
+			out = append(out, meta)
+		}
+	}
+
 	// sibling order per directory (by appearance in out for that dir)
 	assignSiblingOrder(out, func(m NoteMeta) string {
 		return filepath.Dir(m.Path)
 	}, func(m *NoteMeta, i int) { m.SiblingOrder = i })
+	v.persistNoteMetaCacheSnapshot(out)
 	return out, nil
 }
 
@@ -608,9 +844,6 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 func (v *Vault) HasAssetsDir() bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	if assets, err := v.ListAssets(); err == nil && len(assets) > 0 {
-		return true
-	}
 	for _, dir := range append([]string{PrimaryAttachmentsDir}, legacyAttachmentsDirs...) {
 		info, err := os.Stat(filepath.Join(v.root, dir))
 		if err == nil && info.IsDir() {
@@ -641,20 +874,34 @@ func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 	if err != nil {
 		return NoteMeta{}, err
 	}
+	rel, err := filepath.Rel(v.root, abs)
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	relPosix := filepath.ToSlash(rel)
+	statMtimeMs := mtimeMs(info)
+	v.metaCacheMu.Lock()
+	cached, ok := v.metaCache[abs]
+	if ok &&
+		sameMtimeMs(cached.mtimeMs, statMtimeMs) &&
+		cached.size == info.Size() &&
+		cached.meta.Path == relPosix &&
+		cached.meta.Folder == folder {
+		meta := cached.meta
+		v.metaCacheMu.Unlock()
+		return meta, nil
+	}
+	v.metaCacheMu.Unlock()
+
 	body, err := os.ReadFile(abs)
 	if err != nil {
 		return NoteMeta{}, err
 	}
 	bodyStr := string(body)
 
-	rel, err := filepath.Rel(v.root, abs)
-	if err != nil {
-		return NoteMeta{}, err
-	}
-	relPosix := filepath.ToSlash(rel)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
 
-	return NoteMeta{
+	meta := NoteMeta{
 		Path:           relPosix,
 		Title:          title,
 		Folder:         folder,
@@ -665,7 +912,15 @@ func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 		Wikilinks:      ExtractWikilinks(bodyStr),
 		HasAttachments: BodyHasLocalAsset(bodyStr),
 		Excerpt:        BuildExcerpt(bodyStr),
-	}, nil
+	}
+	v.metaCacheMu.Lock()
+	v.metaCache[abs] = noteMetaCacheEntry{
+		mtimeMs: statMtimeMs,
+		size:    info.Size(),
+		meta:    meta,
+	}
+	v.metaCacheMu.Unlock()
+	return meta, nil
 }
 
 func (v *Vault) ReadNote(rel string) (NoteContent, error) {
@@ -715,6 +970,7 @@ func (v *Vault) WriteNote(rel, body string) (NoteMeta, error) {
 	if err := os.WriteFile(abs, []byte(body), v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	folder, _ := v.folderOf(abs)
 	return v.readMeta(folder, abs)
 }
@@ -973,6 +1229,7 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 	if err := os.WriteFile(abs, []byte(""), v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	return v.readMeta(folder, abs)
 }
 
@@ -992,6 +1249,7 @@ func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	folder, _ := v.folderOf(newAbs)
 	meta, err := v.readMeta(folder, newAbs)
 	if err != nil {
@@ -1013,6 +1271,7 @@ func (v *Vault) DeleteNote(rel string) error {
 	if err := os.Remove(abs); err != nil {
 		return err
 	}
+	v.invalidateTextSearchCache()
 	return v.removeNoteCommentsLocked(rel)
 }
 
@@ -1050,6 +1309,7 @@ func (v *Vault) moveToTop(rel string, target NoteFolder) (NoteMeta, error) {
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	meta, err := v.readMeta(target, newAbs)
 	if err != nil {
 		return NoteMeta{}, err
@@ -1072,6 +1332,7 @@ func (v *Vault) EmptyTrash() error {
 		_ = v.removeNoteCommentsLocked(filepath.ToSlash(filepath.Join(string(FolderTrash), e.Name())))
 		_ = os.RemoveAll(filepath.Join(trashDir, e.Name()))
 	}
+	v.invalidateTextSearchCache()
 	return nil
 }
 
@@ -1088,6 +1349,7 @@ func (v *Vault) DuplicateNote(rel string) (NoteMeta, error) {
 	if err := copyFile(abs, newAbs, v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	meta, err := v.readMeta(folder, newAbs)
 	if err != nil {
 		return NoteMeta{}, err
@@ -1127,6 +1389,7 @@ func (v *Vault) MoveNote(rel string, target NoteFolder, targetSubpath string) (N
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
+	v.invalidateTextSearchCache()
 	meta, err := v.readMeta(target, newAbs)
 	if err != nil {
 		return NoteMeta{}, err
@@ -1177,6 +1440,7 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 	if err := os.Rename(oldAbs, newAbs); err != nil {
 		return "", err
 	}
+	v.invalidateTextSearchCache()
 	settings, err := v.GetSettings()
 	if err != nil {
 		return "", err
@@ -1210,6 +1474,7 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 	if err := os.RemoveAll(abs); err != nil {
 		return err
 	}
+	v.invalidateTextSearchCache()
 	settings, err := v.GetSettings()
 	if err != nil {
 		return err
@@ -1239,6 +1504,7 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	if err := copyDir(src, dst, v.fileMode, v.dirMode); err != nil {
 		return "", err
 	}
+	v.invalidateTextSearchCache()
 	settings, err := v.GetSettings()
 	if err != nil {
 		return "", err
@@ -1334,21 +1600,17 @@ func (v *Vault) SearchCapabilities() TextSearchCapabilities {
 	return TextSearchCapabilities{Ripgrep: false, Fzf: false}
 }
 
-func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return []TextSearchMatch{}, nil
-	}
-	needle := strings.ToLower(query)
-	out := []TextSearchMatch{}
+func (v *Vault) textSearchFilesLocked() (uint64, []textSearchFile, error) {
+	h := fnv.New64a()
+	files := []textSearchFile{}
 	for _, folder := range []NoteFolder{FolderInbox, FolderQuick, FolderArchive} {
 		folderRoot, err := v.folderRoot(folder)
 		if err != nil {
-			return nil, err
+			return 0, nil, err
 		}
-		isPrimaryRoot := folder == FolderInbox && filepath.Clean(folderRoot) == filepath.Clean(v.root)
+		cleanFolderRoot := filepath.Clean(folderRoot)
+		isPrimaryRoot := folder == FolderInbox && cleanFolderRoot == filepath.Clean(v.root)
+		fmt.Fprintf(h, "folder\x00%s\x00%s\x00%t\x00", folder, filepath.ToSlash(cleanFolderRoot), isPrimaryRoot)
 		_ = filepath.WalkDir(folderRoot, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil
@@ -1359,7 +1621,7 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 				}
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
-					if filepath.Clean(parent) == filepath.Clean(folderRoot) {
+					if filepath.Clean(parent) == cleanFolderRoot {
 						if shouldHidePrimaryRootName(d.Name()) {
 							return filepath.SkipDir
 						}
@@ -1369,7 +1631,7 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 			}
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
-				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
+				if filepath.Clean(parent) == cleanFolderRoot {
 					if shouldHidePrimaryRootName(d.Name()) {
 						return nil
 					}
@@ -1378,38 +1640,126 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
 				return nil
 			}
-			body, err := os.ReadFile(path)
+			info, err := d.Info()
 			if err != nil {
 				return nil
 			}
 			rel, _ := filepath.Rel(v.root, path)
 			relPosix := filepath.ToSlash(rel)
 			title := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-			lines := strings.Split(string(body), "\n")
-			offset := 0
-			for i, line := range lines {
-				if strings.Contains(strings.ToLower(line), needle) {
-					collapsed := wsCollapseRe.ReplaceAllString(line, " ")
-					collapsed = strings.TrimSpace(collapsed)
-					if len(collapsed) > 220 {
-						collapsed = collapsed[:220]
-					}
-					out = append(out, TextSearchMatch{
-						Path:       relPosix,
-						Title:      title,
-						Folder:     folder,
-						LineNumber: i + 1,
-						Offset:     offset,
-						LineText:   collapsed,
-					})
-				}
-				offset += len(line) + 1
-			}
+			modNano := info.ModTime().UnixNano()
+			size := info.Size()
+			fmt.Fprintf(h, "file\x00%s\x00%s\x00%d\x00%d\x00", folder, relPosix, size, modNano)
+			files = append(files, textSearchFile{
+				abs:      path,
+				relPosix: relPosix,
+				title:    title,
+				folder:   folder,
+			})
 			return nil
 		})
 	}
-	if len(out) > 200 {
-		out = out[:200]
+	return h.Sum64(), files, nil
+}
+
+func (v *Vault) textSearchCandidatesLocked() ([]textSearchCandidate, error) {
+	signature, files, err := v.textSearchFilesLocked()
+	if err != nil {
+		return nil, err
+	}
+
+	v.searchCacheMu.Lock()
+	if v.searchCache != nil && v.searchCache.signature == signature {
+		candidates := v.searchCache.candidates
+		v.searchCacheMu.Unlock()
+		return candidates, nil
+	}
+	v.searchCacheMu.Unlock()
+
+	groups := make([][]textSearchCandidate, len(files))
+	limit := noteMetaReadLimit
+	if len(files) < limit {
+		limit = len(files)
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for index, file := range files {
+		wg.Add(1)
+		go func(index int, file textSearchFile) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			body, err := os.ReadFile(file.abs)
+			if err != nil {
+				return
+			}
+			lines := strings.Split(string(body), "\n")
+			offset := 0
+			candidates := make([]textSearchCandidate, 0, len(lines))
+			for i, line := range lines {
+				collapsed := wsCollapseRe.ReplaceAllString(line, " ")
+				collapsed = strings.TrimSpace(collapsed)
+				if len(collapsed) > 220 {
+					collapsed = collapsed[:220]
+				}
+				candidates = append(candidates, textSearchCandidate{
+					match: TextSearchMatch{
+						Path:       file.relPosix,
+						Title:      file.title,
+						Folder:     file.folder,
+						LineNumber: i + 1,
+						Offset:     offset,
+						LineText:   collapsed,
+					},
+					lineLower: strings.ToLower(line),
+				})
+				offset += len(line) + 1
+			}
+			groups[index] = candidates
+		}(index, file)
+	}
+	wg.Wait()
+
+	candidates := []textSearchCandidate{}
+	for _, group := range groups {
+		candidates = append(candidates, group...)
+	}
+
+	v.searchCacheMu.Lock()
+	if v.searchCache != nil && v.searchCache.signature == signature {
+		candidates = v.searchCache.candidates
+	} else {
+		v.searchCache = &textSearchCache{
+			signature:  signature,
+			candidates: candidates,
+		}
+	}
+	v.searchCacheMu.Unlock()
+
+	return candidates, nil
+}
+
+func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []TextSearchMatch{}, nil
+	}
+	needle := strings.ToLower(query)
+	candidates, err := v.textSearchCandidatesLocked()
+	if err != nil {
+		return nil, err
+	}
+	out := []TextSearchMatch{}
+	for _, candidate := range candidates {
+		if !strings.Contains(candidate.lineLower, needle) {
+			continue
+		}
+		out = append(out, candidate.match)
+		if len(out) >= 200 {
+			break
+		}
 	}
 	return out, nil
 }

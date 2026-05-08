@@ -1118,6 +1118,14 @@ textarea,
   border: 2px solid transparent;
 }
 
+.workspace-tab-strip {
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.workspace-tab-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
 .drag-region {
   -webkit-app-region: drag;
 }

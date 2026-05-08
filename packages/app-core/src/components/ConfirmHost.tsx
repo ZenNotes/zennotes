@@ -1,54 +1,32 @@
-import { useEffect, useState } from 'react'
-import { ConfirmModal, type ConfirmOptions } from './ConfirmModal'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import {
+  getConfirmRequest,
+  settleConfirmRequest,
+  subscribeConfirmRequests,
+  type ConfirmRequest
+} from '../lib/confirm-requests'
 
-type ConfirmRequest = {
-  options: ConfirmOptions
-  resolve: (value: boolean) => void
-}
-
-let currentRequest: ConfirmRequest | null = null
-const listeners = new Set<(request: ConfirmRequest | null) => void>()
-
-function emit(): void {
-  for (const listener of listeners) listener(currentRequest)
-}
-
-export function confirmApp(options: ConfirmOptions): Promise<boolean> {
-  return new Promise((resolve) => {
-    currentRequest = { options, resolve }
-    emit()
-  })
-}
+const ConfirmModal = lazy(async () => {
+  const module = await import('./ConfirmModal')
+  return { default: module.ConfirmModal }
+})
 
 export function ConfirmHost(): JSX.Element | null {
-  const [request, setRequest] = useState<ConfirmRequest | null>(currentRequest)
+  const [request, setRequest] = useState<ConfirmRequest | null>(getConfirmRequest)
 
   useEffect(() => {
-    listeners.add(setRequest)
-    return () => {
-      listeners.delete(setRequest)
-    }
+    return subscribeConfirmRequests(setRequest)
   }, [])
 
   if (!request) return null
 
   return (
-    <ConfirmModal
-      options={request.options}
-      onConfirm={() => {
-        const resolve = request.resolve
-        currentRequest = null
-        setRequest(null)
-        queueMicrotask(() => resolve(true))
-        emit()
-      }}
-      onCancel={() => {
-        const resolve = request.resolve
-        currentRequest = null
-        setRequest(null)
-        queueMicrotask(() => resolve(false))
-        emit()
-      }}
-    />
+    <Suspense fallback={null}>
+      <ConfirmModal
+        options={request.options}
+        onConfirm={() => settleConfirmRequest(request, true)}
+        onCancel={() => settleConfirmRequest(request, false)}
+      />
+    </Suspense>
   )
 }

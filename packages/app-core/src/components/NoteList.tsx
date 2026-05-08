@@ -14,7 +14,7 @@ import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
-import { usePrompt } from './PromptModal'
+import { promptApp } from '../lib/prompt-requests'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import {
   assetBelongsToFolderView,
@@ -22,11 +22,7 @@ import {
   noteBelongsToFolderView
 } from '../lib/vault-layout'
 import { assetTabPath } from '../lib/asset-tabs'
-
-function escapeForAttr(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
-  return value.replace(/["\\]/g, '\\$&')
-}
+import { getScrollTopForVirtualIndex, getVirtualRange } from '../lib/virtual-list'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -50,6 +46,16 @@ function formatBytes(bytes: number): string {
 
 const ASSET_LAYOUT_KEY = 'zen:assets-layout:v1'
 type AssetLayout = 'grid' | 'list'
+type FolderEntry = { type: 'note'; note: NoteMeta } | { type: 'asset'; asset: AssetMeta }
+
+const VIRTUAL_OVERSCAN_ROWS = 8
+const FOLDER_ENTRY_ROW_HEIGHT = 76
+const ASSET_LIST_ROW_HEIGHT = 64
+const ASSET_GRID_ROW_HEIGHT = 166
+
+function folderEntryPath(entry: FolderEntry): string {
+  return entry.type === 'note' ? entry.note.path : entry.asset.path
+}
 
 export function NoteList(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -71,12 +77,12 @@ export function NoteList(): JSX.Element {
   const moveNote = useStore((s) => s.moveNote)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const openNoteInTab = useStore((s) => s.openNoteInTab)
+  const prefetchNotes = useStore((s) => s.prefetchNotes)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
-  const { prompt, modal: promptModal } = usePrompt()
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
   const absolutePathLabel =
@@ -95,6 +101,9 @@ export function NoteList(): JSX.Element {
       return 'grid'
     }
   })
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [listScrollTop, setListScrollTop] = useState(0)
+  const [listViewportHeight, setListViewportHeight] = useState(0)
 
   useEffect(() => {
     try {
@@ -103,6 +112,23 @@ export function NoteList(): JSX.Element {
       /* ignore */
     }
   }, [assetLayout])
+
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node) return
+
+    const updateSize = (): void => {
+      setListViewportHeight(node.clientHeight)
+      setListScrollTop(node.scrollTop)
+    }
+
+    updateSize()
+    if (typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
   const emptyTrash = async (): Promise<void> => {
     await window.zen.emptyTrash()
     await useStore.getState().refreshNotes()
@@ -143,7 +169,7 @@ export function NoteList(): JSX.Element {
       if (selectedPath === n.path) await selectNote(null)
     }
     const onMove = async (): Promise<void> => {
-      const target = await prompt(buildMoveNotePrompt(n, folders))
+      const target = await promptApp(buildMoveNotePrompt(n, folders))
       if (!target) return
       const dest = parseMoveNoteTarget(target)
       await moveNote(n.path, dest.folder, dest.subpath)
@@ -174,7 +200,7 @@ export function NoteList(): JSX.Element {
       items.push({
         label: 'Rename…',
         onSelect: async () => {
-          const next = await prompt({
+          const next = await promptApp({
             title: 'Rename note',
             initialValue: n.title,
             okLabel: 'Rename',
@@ -417,9 +443,7 @@ export function NoteList(): JSX.Element {
     return result
   }, [filtered, viewKey, sortComparator, noteSortOrder])
 
-  const orderedFolderEntries = useMemo<
-    Array<{ type: 'note'; note: NoteMeta } | { type: 'asset'; asset: AssetMeta }>
-  >(() => {
+  const orderedFolderEntries = useMemo<FolderEntry[]>(() => {
     if (view.kind === 'assets') {
       return filteredAssets.map((asset) => ({ type: 'asset' as const, asset }))
     }
@@ -450,6 +474,80 @@ export function NoteList(): JSX.Element {
     ]
   }, [assetSortComparator, filteredAssets, noteSortOrder, orderedFiltered, view.kind])
 
+  const notePrefetchPaths = useMemo(() => {
+    const paths = orderedFolderEntries
+      .filter((entry): entry is { type: 'note'; note: NoteMeta } => entry.type === 'note')
+      .map((entry) => entry.note.path)
+    if (paths.length === 0) return []
+    const selectedIndex = selectedPath ? paths.indexOf(selectedPath) : -1
+    const start = selectedIndex >= 0 ? selectedIndex : 0
+    return paths.slice(start, start + 12)
+  }, [orderedFolderEntries, selectedPath])
+
+  useEffect(() => {
+    if (notePrefetchPaths.length === 0) return
+    const timer = window.setTimeout(() => prefetchNotes(notePrefetchPaths), 80)
+    return () => window.clearTimeout(timer)
+  }, [notePrefetchPaths, prefetchNotes])
+
+  const folderEntryRange = useMemo(
+    () =>
+      getVirtualRange({
+        itemCount: orderedFolderEntries.length,
+        itemSize: FOLDER_ENTRY_ROW_HEIGHT,
+        scrollTop: listScrollTop,
+        viewportHeight: listViewportHeight,
+        overscan: VIRTUAL_OVERSCAN_ROWS
+      }),
+    [listScrollTop, listViewportHeight, orderedFolderEntries.length]
+  )
+  const visibleFolderEntries = useMemo(
+    () => orderedFolderEntries.slice(folderEntryRange.start, folderEntryRange.end),
+    [folderEntryRange.end, folderEntryRange.start, orderedFolderEntries]
+  )
+  const selectedEntryIndex = useMemo(() => {
+    if (!selectedPath) return -1
+    return orderedFolderEntries.findIndex((entry) => folderEntryPath(entry) === selectedPath)
+  }, [orderedFolderEntries, selectedPath])
+
+  const assetListRange = useMemo(
+    () =>
+      getVirtualRange({
+        itemCount: assetFiles.length,
+        itemSize: ASSET_LIST_ROW_HEIGHT,
+        scrollTop: listScrollTop,
+        viewportHeight: listViewportHeight,
+        overscan: VIRTUAL_OVERSCAN_ROWS
+      }),
+    [assetFiles.length, listScrollTop, listViewportHeight]
+  )
+  const visibleAssetRows = useMemo(
+    () => assetFiles.slice(assetListRange.start, assetListRange.end),
+    [assetFiles, assetListRange.end, assetListRange.start]
+  )
+  const assetGridRows = useMemo(() => {
+    const rows: AssetMeta[][] = []
+    for (let index = 0; index < assetFiles.length; index += 2) {
+      rows.push(assetFiles.slice(index, index + 2))
+    }
+    return rows
+  }, [assetFiles])
+  const assetGridRange = useMemo(
+    () =>
+      getVirtualRange({
+        itemCount: assetGridRows.length,
+        itemSize: ASSET_GRID_ROW_HEIGHT,
+        scrollTop: listScrollTop,
+        viewportHeight: listViewportHeight,
+        overscan: VIRTUAL_OVERSCAN_ROWS
+      }),
+    [assetGridRows.length, listScrollTop, listViewportHeight]
+  )
+  const visibleAssetGridRows = useMemo(
+    () => assetGridRows.slice(assetGridRange.start, assetGridRange.end),
+    [assetGridRange.end, assetGridRange.start, assetGridRows]
+  )
+
   const heading =
     view.kind === 'assets'
       ? 'Files'
@@ -466,6 +564,22 @@ export function NoteList(): JSX.Element {
 
   const isNoteListFocused = focusedPanel === 'notelist'
 
+  const scrollFolderIndexIntoView = (index: number): void => {
+    const node = scrollRef.current
+    if (!node || index < 0 || orderedFolderEntries.length === 0) return
+    const nextScrollTop = getScrollTopForVirtualIndex({
+      index,
+      itemCount: orderedFolderEntries.length,
+      itemSize: FOLDER_ENTRY_ROW_HEIGHT,
+      currentScrollTop: node.scrollTop,
+      viewportHeight: node.clientHeight
+    })
+    if (nextScrollTop !== node.scrollTop) {
+      node.scrollTop = nextScrollTop
+      setListScrollTop(nextScrollTop)
+    }
+  }
+
   useEffect(() => {
     if (!isNoteListFocused) return
     const next =
@@ -478,21 +592,17 @@ export function NoteList(): JSX.Element {
   }, [isNoteListFocused, noteListCursorIndex, orderedFolderEntries.length])
 
   useEffect(() => {
-    if (!isNoteListFocused || !selectedPath) return
-    const target = document.querySelector(
-      `[data-notelist-path="${escapeForAttr(selectedPath)}"]`
-    ) as HTMLElement | null
-    if (!target) return
-
-    const idx = Number(target.dataset.notelistIdx)
-    if (Number.isFinite(idx) && idx !== noteListCursorIndex) {
-      useStore.getState().setNoteListCursorIndex(idx)
+    if (!isNoteListFocused || selectedEntryIndex < 0) return
+    if (selectedEntryIndex !== noteListCursorIndex) {
+      useStore.getState().setNoteListCursorIndex(selectedEntryIndex)
     }
+    scrollFolderIndexIntoView(selectedEntryIndex)
+  }, [isNoteListFocused, noteListCursorIndex, selectedEntryIndex])
 
-    requestAnimationFrame(() => {
-      target.scrollIntoView({ block: 'nearest' })
-    })
-  }, [isNoteListFocused, selectedPath, noteListCursorIndex])
+  useEffect(() => {
+    if (!isNoteListFocused || noteListCursorIndex < 0 || orderedFolderEntries.length === 0) return
+    scrollFolderIndexIntoView(Math.min(noteListCursorIndex, orderedFolderEntries.length - 1))
+  }, [isNoteListFocused, noteListCursorIndex, orderedFolderEntries.length, listViewportHeight])
 
   return (
     <section
@@ -553,40 +663,63 @@ export function NoteList(): JSX.Element {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
+        onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}
+      >
         {view.kind === 'assets' ? (
           assetFiles.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-ink-400">
               No files yet. Files anywhere inside the vault show up here.
             </div>
           ) : assetLayout === 'grid' ? (
-            <div className="grid grid-cols-2 gap-2 px-1">
-              {assetFiles.map((asset) => (
-                <AssetCard
-                  key={asset.path}
-                  asset={asset}
-                  vaultRoot={vault?.root ?? null}
-                  onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
+            <div className="relative" style={{ height: assetGridRange.totalSize }}>
+              {visibleAssetGridRows.map((row, offset) => (
+                <div
+                  key={row[0]?.path ?? `asset-row-${assetGridRange.start + offset}`}
+                  className="absolute left-1 right-1 grid grid-cols-2 gap-2"
+                  style={{
+                    height: ASSET_GRID_ROW_HEIGHT - 8,
+                    transform: `translateY(${(assetGridRange.start + offset) * ASSET_GRID_ROW_HEIGHT}px)`
                   }}
-                />
+                >
+                  {row.map((asset) => (
+                    <AssetCard
+                      key={asset.path}
+                      asset={asset}
+                      vaultRoot={vault?.root ?? null}
+                      onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
+                      }}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-1">
-              {assetFiles.map((asset) => (
-                <AssetRow
+            <div className="relative" style={{ height: assetListRange.totalSize }}>
+              {visibleAssetRows.map((asset, offset) => (
+                <div
                   key={asset.path}
-                  asset={asset}
-                  vaultRoot={vault?.root ?? null}
-                  onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
+                  className="absolute inset-x-0"
+                  style={{
+                    height: ASSET_LIST_ROW_HEIGHT,
+                    transform: `translateY(${(assetListRange.start + offset) * ASSET_LIST_ROW_HEIGHT}px)`
                   }}
-                />
+                >
+                  <AssetRow
+                    asset={asset}
+                    vaultRoot={vault?.root ?? null}
+                    onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
+                    }}
+                  />
+                </div>
               ))}
             </div>
           )
@@ -597,35 +730,48 @@ export function NoteList(): JSX.Element {
               : 'No files here yet.'}
           </div>
         ) : (
-          orderedFolderEntries.map((entry, i) =>
-            entry.type === 'note' ? (
-              <NoteRow
-                key={entry.note.path}
-                note={entry.note}
-                active={entry.note.path === selectedPath}
-                onSelect={() => void selectNote(entry.note.path)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setMenu({ x: e.clientX, y: e.clientY, path: entry.note.path })
-                }}
-                noteListIdx={i}
-                vimHighlight={isNoteListFocused && noteListCursorIndex === i}
-              />
-            ) : (
-              <FolderAssetRow
-                key={entry.asset.path}
-                asset={entry.asset}
-                vaultRoot={vault?.root ?? null}
-                onOpen={() => void openNoteInTab(assetTabPath(entry.asset.path))}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  setAssetMenu({ x: e.clientX, y: e.clientY, path: entry.asset.path })
-                }}
-                noteListIdx={i}
-                vimHighlight={isNoteListFocused && noteListCursorIndex === i}
-              />
-            ),
-          )
+          <div className="relative" style={{ height: folderEntryRange.totalSize }}>
+            {visibleFolderEntries.map((entry, offset) => {
+              const i = folderEntryRange.start + offset
+              const path = folderEntryPath(entry)
+              return (
+                <div
+                  key={path}
+                  className="absolute inset-x-0"
+                  style={{
+                    height: FOLDER_ENTRY_ROW_HEIGHT,
+                    transform: `translateY(${i * FOLDER_ENTRY_ROW_HEIGHT}px)`
+                  }}
+                >
+                  {entry.type === 'note' ? (
+                    <NoteRow
+                      note={entry.note}
+                      active={entry.note.path === selectedPath}
+                      onSelect={() => void selectNote(entry.note.path)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setMenu({ x: e.clientX, y: e.clientY, path: entry.note.path })
+                      }}
+                      noteListIdx={i}
+                      vimHighlight={isNoteListFocused && noteListCursorIndex === i}
+                    />
+                  ) : (
+                    <FolderAssetRow
+                      asset={entry.asset}
+                      vaultRoot={vault?.root ?? null}
+                      onOpen={() => void openNoteInTab(assetTabPath(entry.asset.path))}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        setAssetMenu({ x: e.clientX, y: e.clientY, path: entry.asset.path })
+                      }}
+                      noteListIdx={i}
+                      vimHighlight={isNoteListFocused && noteListCursorIndex === i}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
       {menu && (
@@ -644,7 +790,6 @@ export function NoteList(): JSX.Element {
           onClose={() => setAssetMenu(null)}
         />
       )}
-      {promptModal}
 
       <ResizeHandle
         getWidth={() => noteListWidth}
@@ -679,7 +824,7 @@ function NoteRow({
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}
       className={[
-        'list-row mb-1 flex w-full flex-col gap-1 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
+        'list-row flex h-[72px] w-full flex-col gap-1 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
         active
           ? `${vimHighlight ? 'vim-cursor-on-selected ' : ''}bg-paper-200`
           : vimHighlight
@@ -737,7 +882,7 @@ function FolderAssetRow({
       onClick={onOpen}
       onContextMenu={onContextMenu}
       className={[
-        'list-row mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
+        'list-row flex h-[72px] w-full items-center gap-3 rounded-lg px-3 py-2 text-left outline-none focus:outline-none',
         vimHighlight ? 'vim-cursor' : 'hover:bg-paper-200/60'
       ].join(' ')}
       style={vimHighlight ? { boxShadow: 'inset 0 0 0 1px rgb(var(--z-accent) / 0.35)' } : undefined}
@@ -796,7 +941,7 @@ function AssetCard({
       type="button"
       onClick={onOpen}
       onContextMenu={onContextMenu}
-      className="flex min-h-[154px] flex-col overflow-hidden rounded-xl border border-paper-300/70 bg-paper-50/24 text-left transition-colors hover:border-paper-400 hover:bg-paper-100/40"
+      className="flex h-full min-h-[154px] flex-col overflow-hidden rounded-xl border border-paper-300/70 bg-paper-50/24 text-left transition-colors hover:border-paper-400 hover:bg-paper-100/40"
     >
       <div className="flex min-h-0 flex-1 items-center justify-center bg-paper-200/25">
         {asset.kind === 'image' && url ? (
@@ -841,7 +986,7 @@ function AssetRow({
       type="button"
       onClick={onOpen}
       onContextMenu={onContextMenu}
-      className="flex items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-paper-300/70 hover:bg-paper-200/45"
+      className="flex h-[60px] items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors hover:border-paper-300/70 hover:bg-paper-200/45"
     >
       <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-paper-200/45">
         {asset.kind === 'image' && url ? (

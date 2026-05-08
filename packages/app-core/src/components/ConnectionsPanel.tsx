@@ -8,8 +8,8 @@ import {
   resolveWikilinkTarget,
   suggestCreateNotePath
 } from '../lib/wikilinks'
-import { NoteHoverPreview } from './NoteHoverPreview'
-import { promptApp } from './PromptHost'
+import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
+import { promptApp } from '../lib/prompt-requests'
 
 interface MentionItem {
   note: NoteMeta

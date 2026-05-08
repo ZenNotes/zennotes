@@ -14,6 +14,8 @@ import type {
   DirectoryBrowseResult,
   FolderEntry,
   ImportedAsset,
+  ListNotesPageRequest,
+  ListNotesPageResponse,
   NoteComment,
   NoteCommentInput,
   NoteContent,
@@ -64,6 +66,7 @@ const DESKTOP_APP_INFO: ZenAppInfo = {
 }
 
 let remoteWorkspaceInfo: RemoteWorkspaceInfo | null = null
+const LIST_NOTES_STREAM_CHUNK_SIZE = 250
 
 async function refreshRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null> {
   try {
@@ -75,6 +78,30 @@ async function refreshRemoteWorkspaceInfo(): Promise<RemoteWorkspaceInfo | null>
 }
 
 void refreshRemoteWorkspaceInfo()
+
+function yieldRendererTask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0))
+}
+
+async function listNotesStreamed(): Promise<NoteMeta[]> {
+  const requestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  const notes: NoteMeta[] = []
+  let offset = 0
+
+  for (;;) {
+    const page = (await ipcRenderer.invoke(IPC.VAULT_LIST_NOTES_STREAM, {
+      requestId,
+      offset,
+      chunkSize: LIST_NOTES_STREAM_CHUNK_SIZE
+    })) as ListNotesPageResponse
+    if (Array.isArray(page.notes) && page.notes.length > 0) {
+      notes.push(...page.notes)
+    }
+    if (page.done) return notes
+    offset = page.nextOffset
+    await yieldRendererTask()
+  }
+}
 
 function stripQueryAndHash(value: string): string {
   const hashIdx = value.indexOf('#')
@@ -212,7 +239,9 @@ const api: ZenBridge = {
   setVaultSettings: (next: VaultSettings): Promise<VaultSettings> =>
     ipcRenderer.invoke(IPC.VAULT_SET_SETTINGS, next),
 
-  listNotes: (): Promise<NoteMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_NOTES),
+  listNotes: (): Promise<NoteMeta[]> => listNotesStreamed(),
+  listNotesPage: (request: ListNotesPageRequest): Promise<ListNotesPageResponse> =>
+    ipcRenderer.invoke(IPC.VAULT_LIST_NOTES_STREAM, request),
   listFolders: (): Promise<FolderEntry[]> => ipcRenderer.invoke(IPC.VAULT_LIST_FOLDERS),
   listAssets: (): Promise<AssetMeta[]> => ipcRenderer.invoke(IPC.VAULT_LIST_ASSETS),
   hasAssetsDir: (): Promise<boolean> => ipcRenderer.invoke(IPC.VAULT_HAS_ASSETS_DIR),

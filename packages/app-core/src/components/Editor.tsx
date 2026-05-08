@@ -26,7 +26,7 @@ import {
   parseMoveNoteTarget,
   validateMoveNoteTarget
 } from '../lib/move-note'
-import { promptApp } from './PromptHost'
+import { promptApp } from '../lib/prompt-requests'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
 import { focusPaneOrEdgePanel } from '../lib/pane-nav'
