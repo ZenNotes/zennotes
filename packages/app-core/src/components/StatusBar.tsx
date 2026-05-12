@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useStore } from '../store'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { backlinksForNote } from '../lib/wikilinks'
+import { countWords } from '../lib/word-count'
 
 /**
  * Footer strip showing quick stats for the active note: backlinks,
@@ -17,12 +18,7 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
 
   const { words, characters, minutes } = useMemo(() => {
     const body = note.body
-    const stripped = body
-      .replace(/^---\n[\s\S]*?\n---\n/, '')
-      .replace(/```[\s\S]*?```/g, ' ')
-      .replace(/`[^`\n]*`/g, ' ')
-    const wordArr = stripped.trim().split(/\s+/).filter(Boolean)
-    const w = wordArr.length
+    const w = countWords(body)
     const c = body.length
     const m = Math.max(1, Math.round(w / 200))
     return { words: w, characters: c, minutes: m }
