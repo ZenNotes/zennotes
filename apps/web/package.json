@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/web",
   "private": true,
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "description": "ZenNotes web client for self-hosted and hosted deployments",
   "homepage": "https://zennotes.org",
