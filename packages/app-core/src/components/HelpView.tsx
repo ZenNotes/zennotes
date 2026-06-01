@@ -343,33 +343,25 @@ export function HelpView(): JSX.Element {
       >
         <section
           id="help-overview"
-          className="overflow-hidden rounded-[32px] border border-paper-300/70 bg-paper-50/45 shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
+          className="overflow-hidden rounded-[24px] border border-paper-300/70 bg-paper-50/45 shadow-[0_12px_40px_rgba(15,23,42,0.05)]"
         >
-          <div className="bg-[radial-gradient(circle_at_top_left,rgba(214,140,82,0.18),transparent_34%),linear-gradient(180deg,rgba(255,255,255,0.28),rgba(255,255,255,0.02))] px-6 py-6 sm:px-8 sm:py-8">
-            <div className="flex flex-col gap-6">
+          <div className="bg-[radial-gradient(circle_at_top_left,rgba(214,140,82,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.02))] px-5 py-5 sm:px-6 sm:py-5">
+            <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="max-w-3xl">
                   <div className="inline-flex items-center gap-2 rounded-full border border-paper-300/70 bg-paper-100/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.24em] text-ink-500">
                     <DocumentIcon width={14} height={14} />
                     ZenNotes Manual
                   </div>
-                  <h1 className="mt-4 font-serif text-3xl font-semibold tracking-tight text-ink-900 sm:text-4xl">
+                  <h1 className="mt-2.5 font-serif text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
                     Learn the app in layers, not all at once.
                   </h1>
-                  <p className="mt-3 max-w-2xl text-sm leading-7 text-ink-600 sm:text-[15px]">
-                    Start with the onboarding cards, use the how-to section for common jobs, read
-                    the concepts section when you want the app model to make sense, and use the
-                    rest of the page as a living reference for shortcuts, commands, and settings.
-                  </p>
-                  <p className="mt-3 max-w-2xl text-xs leading-6 text-ink-500 sm:text-sm">
-                    Shortcut labels on this page are rendered for {platformLabel}. The primary app
-                    modifier is {primaryModifierLabel}, while Vim-style motions like{' '}
-                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.95em] text-ink-700">
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-500">
+                    Onboarding cards to start, how-to recipes for common jobs, concepts for the app
+                    model, and a living reference for shortcuts, commands, and settings. Labels are
+                    rendered for {platformLabel} ({primaryModifierLabel}); Vim motions like{' '}
+                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.9em] text-ink-700">
                       Ctrl-w
-                    </code>{' '}
-                    and{' '}
-                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.95em] text-ink-700">
-                      Ctrl-d
                     </code>{' '}
                     stay literal across OSes.
                   </p>
@@ -398,23 +390,16 @@ export function HelpView(): JSX.Element {
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                <HeroStat
-                  label="Start Here"
-                  value={String(HELP_QUICK_START.length)}
-                  detail="Onboarding cards for first launch and first notes."
-                />
-                <HeroStat
-                  label="How-To"
-                  value={String(HELP_HOW_TO_GUIDES.length)}
-                  detail="Common tasks written as practical recipes."
-                />
-                <HeroStat
-                  label="Reference"
-                  value={String(allCommands.length + HELP_VIM_COMMANDS.length)}
-                  detail="Command palette entries plus curated Vim and ex commands."
-                />
-              </div>
+              <p className="text-xs text-ink-500">
+                <span className="font-medium text-ink-700">{HELP_QUICK_START.length}</span> onboarding
+                {' · '}
+                <span className="font-medium text-ink-700">{HELP_HOW_TO_GUIDES.length}</span> how-to
+                {' · '}
+                <span className="font-medium text-ink-700">
+                  {allCommands.length + HELP_VIM_COMMANDS.length}
+                </span>{' '}
+                reference entries
+              </p>
 
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                 <label className="block">
@@ -480,7 +465,7 @@ export function HelpView(): JSX.Element {
                 title="Start Here"
                 subtitle="A short tutorial path for getting productive without learning the whole app first."
               >
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4">
                   {quickStart.map((card) => (
                     <InfoCard key={card.title} title={card.title} body={card.body} />
                   ))}
@@ -494,7 +479,7 @@ export function HelpView(): JSX.Element {
                 title="How-To Guides"
                 subtitle="Task-focused recipes for the jobs people repeat most often."
               >
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4">
                   {howToGuides.map((card) => (
                     <InfoCard key={card.title} title={card.title} body={card.body} />
                   ))}
@@ -508,7 +493,7 @@ export function HelpView(): JSX.Element {
                 title="Concepts"
                 subtitle="Explanations that make the app model, file model, and workflow model easier to reason about."
               >
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4">
                   {coreConcepts.map((card) => (
                     <InfoCard key={card.title} title={card.title} body={card.body} />
                   ))}
@@ -522,7 +507,7 @@ export function HelpView(): JSX.Element {
                 title="Keyboard Shortcuts"
                 subtitle={`Documented from the current input model for ${platformLabel}, not guessed.`}
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4">
                   {shortcutSections.map((section) => (
                     <div
                       key={section.id}
@@ -552,7 +537,7 @@ export function HelpView(): JSX.Element {
                 title="Vim And Ex"
                 subtitle="Short aliases, curated commands, and keyboard-first editor behavior."
               >
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+                <div className="grid gap-4">
                   <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
                     <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
                       <DocumentIcon width={15} height={15} className="text-accent" />
@@ -608,7 +593,7 @@ export function HelpView(): JSX.Element {
                         <h3 className="text-sm font-semibold text-ink-900">{group.category}</h3>
                         <span className="text-xs text-ink-400">{group.commands.length}</span>
                       </div>
-                      <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="grid gap-3">
                         {group.commands.map((command) => (
                           <div
                             key={command.id}
@@ -647,7 +632,7 @@ export function HelpView(): JSX.Element {
                 title="Command-Line Tool (zen)"
                 subtitle="Capture, search, and edit your vault from any terminal. Install once from Settings → CLI."
               >
-                <div className="grid gap-4 lg:grid-cols-2">
+                <div className="grid gap-4">
                   {cliCards.map((card) => (
                     <InfoCard key={card.title} title={card.title} body={card.body} />
                   ))}
@@ -661,7 +646,7 @@ export function HelpView(): JSX.Element {
                 title="Settings"
                 subtitle="Everything configurable from the Settings modal today."
               >
-                <div className="grid gap-4 xl:grid-cols-2">
+                <div className="grid gap-4">
                   {settingsSections.map((section) => (
                     <div
                       key={section.title}
@@ -713,11 +698,41 @@ function SectionShell({
   )
 }
 
+// Renders a help string with Markdown-style backtick code spans. Short spans
+// become inline code chips; long or multi-line spans become a code block so
+// shell commands stay readable instead of wrapping through prose.
+function renderRichText(text: string): React.ReactNode {
+  return text.split(/(`[^`]+`)/g).map((seg, i) => {
+    if (seg.length > 1 && seg.startsWith('`') && seg.endsWith('`')) {
+      const code = seg.slice(1, -1)
+      if (code.includes('\n') || code.length > 60) {
+        return (
+          <code
+            key={i}
+            className="my-2.5 block overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2.5 font-mono text-[12.5px] leading-6 text-ink-800"
+          >
+            {code}
+          </code>
+        )
+      }
+      return (
+        <code
+          key={i}
+          className="rounded-md border border-paper-300/70 bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.85em] text-ink-800"
+        >
+          {code}
+        </code>
+      )
+    }
+    return seg
+  })
+}
+
 function InfoCard({ title, body }: { title: string; body: string }): JSX.Element {
   return (
-    <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-      <h3 className="text-base font-medium text-ink-900">{title}</h3>
-      <p className="mt-2 text-sm leading-7 text-ink-500">{body}</p>
+    <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
+      <h3 className="text-[15px] font-semibold text-ink-900">{title}</h3>
+      <div className="mt-2.5 text-[15px] leading-7 text-ink-600">{renderRichText(body)}</div>
     </div>
   )
 }
@@ -771,24 +786,6 @@ function Badge({ label }: { label: string }): JSX.Element {
   )
 }
 
-function HeroStat({
-  label,
-  value,
-  detail
-}: {
-  label: string
-  value: string
-  detail: string
-}): JSX.Element {
-  return (
-    <div className="rounded-[22px] border border-paper-300/70 bg-paper-100/75 px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.03)]">
-      <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">{label}</div>
-      <div className="mt-2 text-3xl font-semibold tracking-tight text-ink-900">{value}</div>
-      <p className="mt-2 text-xs leading-6 text-ink-500">{detail}</p>
-    </div>
-  )
-}
-
 function ActionBtn({
   icon,
   label,
@@ -825,7 +822,7 @@ function CalloutCard({
         {icon}
         {title}
       </div>
-      <p className="mt-2 text-sm leading-7 text-ink-500">{body}</p>
+      <div className="mt-2 text-[15px] leading-7 text-ink-600">{renderRichText(body)}</div>
     </div>
   )
 }
