@@ -22,6 +22,26 @@ export function stepDiagramZoom(current: number, direction: 1 | -1): number {
   return clampDiagramZoom(current + DIAGRAM_ZOOM_STEP * direction)
 }
 
+// Wheel zoom scales the current zoom by a factor derived from the wheel
+// delta rather than adding a fixed step per event. Trackpads fire many
+// small-delta events per gesture, so a fixed step made them rocket to the
+// min/max almost instantly; a delta-proportional factor keeps them smooth.
+// The per-event factor is clamped so one large delta (e.g. a line-mode
+// wheel notch) can't leap more than ~10% at a time.
+export const DIAGRAM_WHEEL_ZOOM_SENSITIVITY = 0.0015
+const DIAGRAM_WHEEL_FACTOR_MIN = 0.9
+const DIAGRAM_WHEEL_FACTOR_MAX = 1.1
+
+export function zoomFromWheelDelta(currentZoom: number, deltaY: number): number {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return clampDiagramZoom(currentZoom)
+  // deltaY < 0 (scroll up) zooms in; > 0 zooms out.
+  const factor = Math.min(
+    DIAGRAM_WHEEL_FACTOR_MAX,
+    Math.max(DIAGRAM_WHEEL_FACTOR_MIN, Math.exp(-deltaY * DIAGRAM_WHEEL_ZOOM_SENSITIVITY))
+  )
+  return clampDiagramZoom(currentZoom * factor)
+}
+
 export function zoomDiagramAtPoint(
   state: DiagramPanZoomState,
   nextZoomRaw: number,

@@ -25,6 +25,7 @@ import {
   fitDiagramToViewport,
   stepDiagramZoom,
   zoomDiagramAtPoint,
+  zoomFromWheelDelta,
   type DiagramPanZoomState,
 } from "../lib/diagram-pan-zoom";
 import {
@@ -1061,15 +1062,6 @@ function DiagramPanZoomFrame({
     );
   }, []);
 
-  const zoomFromViewportPoint = useCallback(
-    (direction: 1 | -1, point: { x: number; y: number }): void => {
-      setTransform((state) =>
-        zoomDiagramAtPoint(state, stepDiagramZoom(state.zoom, direction), point),
-      );
-    },
-    [],
-  );
-
   const zoomFromCenter = useCallback(
     (direction: 1 | -1): void => {
       const viewport = viewportRef.current;
@@ -1144,13 +1136,12 @@ function DiagramPanZoomFrame({
       const viewport = viewportRef.current;
       if (!viewport) return;
       const rect = viewport.getBoundingClientRect();
-      const direction: 1 | -1 = e.deltaY < 0 ? 1 : -1;
-      zoomFromViewportPoint(direction, {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
+      const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      setTransform((state) =>
+        zoomDiagramAtPoint(state, zoomFromWheelDelta(state.zoom, e.deltaY), point),
+      );
     },
-    [zoomFromViewportPoint],
+    [],
   );
 
   const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>): void => {
