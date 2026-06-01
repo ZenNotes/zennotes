@@ -87,6 +87,11 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
       'Use the Quick Note shortcut or the command palette entry to create a fast capture note. If date-titled Quick Notes are enabled, ZenNotes names it from today’s date automatically; otherwise it creates a normal quick note and focuses the title so you can keep moving.'
   },
   {
+    title: 'Capture from anywhere with the floating window',
+    body:
+      'Press the quick capture hotkey — CommandOrControl+Shift+Space by default, configurable under Settings → Editor — to drop a small always-on-top window over whatever app you are using. You type in one place: the first line becomes the note title and the rest is the body. Mod+Enter saves the note into Quick Notes and hides the window; Mod+N saves and immediately opens a fresh blank capture so you can jot several in a row; Mod+P loads an existing note to edit instead. Editing the first line of a Quick note renames that note in place rather than creating a duplicate, and you can drag the window by its top bar to reposition it.'
+  },
+  {
     title: 'Create a note in the folder you are already in',
     body:
       'When you are browsing a folder, use the current-folder note command instead of creating in Inbox and moving later. That keeps new notes close to the project or area you were already working in.'
@@ -270,7 +275,8 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette.' },
       { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
-      { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note and focus its title.' },
+      { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note in the main window and focus its title.' },
+      { keys: 'Shift+Mod+Space', action: 'Open quick capture window', detail: 'Open the floating, always-on-top capture window. Bound system-wide (CommandOrControl+Shift+Space by default) so it works over any app; change it under Settings → Editor.' },
       { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
       { keys: 'Mod+1', action: 'Toggle sidebar', detail: 'Hide or show the left sidebar.' },
       { keys: 'Mod+2', action: 'Toggle connections', detail: 'Toggle the connections panel for the active editor pane.' },
@@ -282,6 +288,18 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Mod+0', action: 'Reset zoom', detail: 'Return the app to its default scale.' },
       { keys: 'Alt+Z', action: 'Toggle word wrap', detail: 'Switch between wrapped lines and horizontal scrolling.' },
       { keys: 'Esc', action: 'Dismiss overlay', detail: 'Close note search or the command palette when they are open.' }
+    ]
+  },
+  {
+    id: 'quick-capture-window',
+    title: 'Quick capture window',
+    description: 'These apply inside the floating capture window, opened with the quick capture hotkey.',
+    items: [
+      { keys: 'Mod+Enter', action: 'Save and hide', detail: 'Save the note into Quick Notes and hide the window. A fresh capture clears for next time; an opened note is left as you left it.' },
+      { keys: 'Mod+N', action: 'New note', detail: 'Save the current note, then open a fresh blank capture without hiding the window — for jotting several in a row.' },
+      { keys: 'Mod+P', action: 'Open a note', detail: 'Search the vault and load an existing note into the window to edit it in place.' },
+      { keys: 'Shift+Mod+P', action: 'Command palette', detail: 'Run a capture command: save, save without hiding, start a new note, or open another note.' },
+      { keys: 'Esc', action: 'Dismiss', detail: 'Close an open overlay; otherwise save and hide the window.' }
     ]
   },
   {

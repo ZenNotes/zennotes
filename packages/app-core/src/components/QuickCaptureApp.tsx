@@ -5,13 +5,20 @@
  * proper note picker, vim ex commands, and a command palette so the
  * window feels like a real ZenNotes surface, not a glorified textbox.
  *
+ * One surface: you type in the editor only. The first non-empty line is
+ * the note's title (it becomes the filename); everything is the body.
+ *
  * Modes:
- *   "new"      — empty draft; ⌘↩ creates a note in Quick.
- *   "existing" — a picked note is loaded into the editor; ⌘↩ writes
- *                back to that note in place.
+ *   "new"      — empty draft. The first save creates a note in Quick and
+ *                the window *adopts* it (→ "existing"), so subsequent
+ *                edits update that same file instead of spawning copies.
+ *   "existing" — an adopted or picker-loaded note. Saving writes back in
+ *                place; for Quick notes, editing the first line renames
+ *                the file in place rather than creating a duplicate.
  *
  * Keys:
  *   ⌘↩  / Ctrl+Enter        — save, then hide.
+ *   ⌘N  / Ctrl+N            — save the current note and start a new one.
  *   ⌘P  / Ctrl+P            — open the note picker.
  *   ⌘⇧P / Ctrl+Shift+P      — open the command palette.
  *   Esc                      — close the open overlay, else hide window.
@@ -20,11 +27,11 @@
  *   :w           — save without closing.
  *   :q           — hide the window without saving.
  *   :wq / :x     — save, then hide.
- *   :new         — discard the draft and reset to a fresh capture.
+ *   :enew        — discard the draft and reset to a fresh capture.
  *   :find        — open the note picker (alias for ⌘P).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compartment, EditorState, type Transaction } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
@@ -52,6 +59,7 @@ import {
   buildNoteSearchIndex,
   searchNoteIndex
 } from '../lib/note-search'
+import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -141,26 +149,6 @@ function applyTheme(prefs: QuickCapturePrefs): void {
   html.setAttribute('data-opaque', '')
 }
 
-function deriveTitleFromBody(body: string): string {
-  for (const raw of body.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    const heading = line.match(/^#{1,6}\s+(.+)$/u)
-    if (heading) return heading[1].trim().slice(0, 80)
-    return line.replace(/^[*\-+>\s]+/u, '').slice(0, 80)
-  }
-  const now = new Date()
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `Quick capture ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}${pad(now.getMinutes())}`
-}
-
-function buildNoteBody(title: string, body: string): string {
-  const trimmed = body.replace(/\s+$/u, '')
-  const firstLine = trimmed.split('\n', 1)[0]?.trim() ?? ''
-  if (/^#{1,6}\s+/u.test(firstLine)) return `${trimmed}\n`
-  return `# ${title}\n\n${trimmed}\n`
-}
-
 type EditingMode =
   | { kind: 'new' }
   | { kind: 'existing'; note: NoteMeta }
@@ -172,10 +160,11 @@ const NEW_MODE: EditingMode = { kind: 'new' }
 // HMR re-renders from stacking duplicate handlers.
 const vimHandlers: {
   save: null | (() => Promise<boolean>)
+  saveAndClose: null | (() => void)
   close: null | (() => void)
   newNote: null | (() => void)
   openPicker: null | (() => void)
-} = { save: null, close: null, newNote: null, openPicker: null }
+} = { save: null, saveAndClose: null, close: null, newNote: null, openPicker: null }
 
 let vimRegistered = false
 
@@ -197,25 +186,15 @@ function registerCaptureVimCommands(): void {
   Vim.defineEx('quit', 'q', () => {
     setTimeout(() => vimHandlers.close?.(), 0)
   })
+  // `:wq` and `:x` both save-and-hide through the same path as ⌘↩/Esc
+  // (`saveAndClose`), so a fresh capture clears for the next dump while
+  // an opened note is left intact. Routing through one handler keeps
+  // every "save then leave" gesture behaving identically.
   Vim.defineEx('wq', 'wq', () => {
-    setTimeout(() => {
-      void (async () => {
-        const ok = await vimHandlers.save?.()
-        if (ok !== false) vimHandlers.close?.()
-      })()
-    }, 0)
+    setTimeout(() => vimHandlers.saveAndClose?.(), 0)
   })
-  // `:x` mirrors vim semantics (write if modified, then close). For
-  // capture we treat it the same as :wq — the cost of a redundant
-  // write is negligible and the behavior is more predictable than
-  // tracking a dirty flag against an arbitrary baseline.
   Vim.defineEx('x', 'x', () => {
-    setTimeout(() => {
-      void (async () => {
-        const ok = await vimHandlers.save?.()
-        if (ok !== false) vimHandlers.close?.()
-      })()
-    }, 0)
+    setTimeout(() => vimHandlers.saveAndClose?.(), 0)
   })
   // `:enew` (rather than `:new`) so we don't shadow vim's built-in
   // `:new` (open horizontal split with empty buffer). Semantics match
@@ -232,7 +211,10 @@ function registerCaptureVimCommands(): void {
 
 export function QuickCaptureApp(): JSX.Element {
   const prefs = useMemo(() => loadPrefs(), [])
-  const [title, setTitle] = useState('')
+  // `docTitle` is the live title derived from the editor's first line —
+  // pure display, the body is the single place to type. '' means the
+  // buffer is empty / has no usable first line yet.
+  const [docTitle, setDocTitle] = useState('')
   const [mode, setMode] = useState<EditingMode>(NEW_MODE)
   const [charCount, setCharCount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
@@ -240,7 +222,6 @@ export function QuickCaptureApp(): JSX.Element {
   const [notes, setNotes] = useState<NoteMeta[]>([])
   const [overlay, setOverlay] = useState<'none' | 'search' | 'command'>('none')
   const editorRef = useRef<EditorView | null>(null)
-  const titleInputRef = useRef<HTMLInputElement | null>(null)
 
   // Apply theme + font CSS vars before paint.
   useEffect(() => {
@@ -284,18 +265,20 @@ export function QuickCaptureApp(): JSX.Element {
     return () => window.removeEventListener('focus', onFocus)
   }, [overlay])
 
+  // Programmatic replace; the editor's updateListener picks up the
+  // resulting docChange and refreshes charCount + docTitle.
   const setEditorContent = useCallback((next: string) => {
     const view = editorRef.current
     if (!view) return
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: next }
     })
-    setCharCount(next.length)
   }, [])
 
   const resetToNew = useCallback(() => {
     setMode(NEW_MODE)
-    setTitle('')
+    setDocTitle('')
+    setCharCount(0)
     setEditorContent('')
     setError(null)
     requestAnimationFrame(() => editorRef.current?.focus())
@@ -306,7 +289,6 @@ export function QuickCaptureApp(): JSX.Element {
       try {
         const content = await window.zen.readNote(note.path)
         setMode({ kind: 'existing', note })
-        setTitle(note.title)
         setEditorContent(content.body)
         setError(null)
         setOverlay('none')
@@ -323,21 +305,36 @@ export function QuickCaptureApp(): JSX.Element {
       if (submitting) return false
       const view = editorRef.current
       if (!view) return false
-      const body = view.state.doc.toString().trim()
-      const trimmedTitle = title.trim()
-      if (!body && !trimmedTitle) {
+      const plan = planQuickCaptureSave(mode, view.state.doc.toString())
+      if (plan.op === 'noop') {
         if (!opts.silent) setError('Nothing to save yet — start writing.')
         return false
       }
       setSubmitting(true)
       setError(null)
       try {
-        if (mode.kind === 'existing') {
-          await window.zen.writeNote(mode.note.path, view.state.doc.toString())
+        if (plan.op === 'create') {
+          const meta = await window.zen.createNote('quick', plan.title)
+          await window.zen.writeNote(meta.path, plan.body)
+          // Adopt the note we just created. Without this the window stays
+          // in "new" mode and the next save creates ANOTHER file — the
+          // duplicate-on-rename bug. Now further edits update in place.
+          setMode({ kind: 'existing', note: meta })
+        } else if (plan.op === 'rename') {
+          // First line changed → rename the Quick note in place. On a
+          // title clash, keep the old filename but still write the body
+          // so no keystrokes are lost.
+          let target = plan.path
+          try {
+            const meta = await window.zen.renameNote(plan.path, plan.title)
+            target = meta.path
+            setMode({ kind: 'existing', note: meta })
+          } catch (err) {
+            if (!opts.silent) setError(err instanceof Error ? err.message : String(err))
+          }
+          await window.zen.writeNote(target, plan.body)
         } else {
-          const finalTitle = trimmedTitle || deriveTitleFromBody(body)
-          const meta = await window.zen.createNote('quick', finalTitle)
-          await window.zen.writeNote(meta.path, buildNoteBody(finalTitle, body))
+          await window.zen.writeNote(plan.path, plan.body)
         }
         return true
       } catch (err) {
@@ -347,7 +344,7 @@ export function QuickCaptureApp(): JSX.Element {
         setSubmitting(false)
       }
     },
-    [mode, submitting, title]
+    [mode, submitting]
   )
 
   /** Save the buffer (if there's anything to save) and hide the window.
@@ -360,24 +357,36 @@ export function QuickCaptureApp(): JSX.Element {
       window.zen.windowClose()
       return
     }
-    const body = view.state.doc.toString().trim()
-    const trimmedTitle = title.trim()
-    if (!body && !trimmedTitle) {
+    if (!view.state.doc.toString().trim()) {
+      // Empty buffer — just hide. No nag, nothing to persist.
       window.zen.windowClose()
       return
     }
+    // `save` flips a fresh capture into "existing" mode, so record the
+    // intent up front instead of reading `mode` after the await.
+    const startedFresh = mode.kind === 'new'
     const ok = await save({ silent: true })
     if (!ok) return
-    // Fresh captures: clear so the next open is a blank canvas.
-    // Edited existing notes: leave the buffer intact — re-opening
+    // Fresh captures: reset to a blank canvas so the next open is a clean
+    // dump. Edited existing notes: leave the buffer intact — re-opening
     // should pick up where the user left off.
-    if (mode.kind === 'new') {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: '' } })
-      setTitle('')
-      setCharCount(0)
-    }
+    if (startedFresh) resetToNew()
     window.zen.windowClose()
-  }, [mode, save, title])
+  }, [mode, save, resetToNew])
+
+  /** Commit the current note (if it has any content) and open a fresh
+   *  blank capture, without hiding the window — the ⌘N path for banging
+   *  out several notes in a row. Saving first means starting a new note
+   *  never discards what you were writing; if the save fails we keep the
+   *  buffer so nothing is lost. (Vim's `:enew` is the explicit discard.) */
+  const newNote = useCallback(async () => {
+    const view = editorRef.current
+    if (view && view.state.doc.toString().trim()) {
+      const ok = await save({ silent: true })
+      if (!ok) return
+    }
+    resetToNew()
+  }, [save, resetToNew])
 
   // Mount CodeMirror once.
   const setEditorContainer = useCallback(
@@ -404,10 +413,10 @@ export function QuickCaptureApp(): JSX.Element {
           keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
-            if (upd.transactions.some((tr: Transaction) => tr.docChanged)) {
-              setCharCount(upd.state.doc.length)
-              setError(null)
-            }
+            const doc = upd.state.doc.toString()
+            setCharCount(doc.length)
+            setDocTitle(doc.trim() ? deriveTitleFromBody(doc) : '')
+            setError(null)
           })
         ]
       })
@@ -422,11 +431,12 @@ export function QuickCaptureApp(): JSX.Element {
   // registration one-shot via `vimRegistered` to avoid duplicates.
   useEffect(() => {
     vimHandlers.save = save
+    vimHandlers.saveAndClose = () => void submitAndClose()
     vimHandlers.close = () => window.zen.windowClose()
     vimHandlers.newNote = resetToNew
     vimHandlers.openPicker = () => setOverlay('search')
     registerCaptureVimCommands()
-  }, [resetToNew, save])
+  }, [resetToNew, save, submitAndClose])
 
   // Window-level chord handlers. We attach the listener exactly once
   // and read state through refs so the handler is never operating on a
@@ -441,6 +451,10 @@ export function QuickCaptureApp(): JSX.Element {
   useEffect(() => {
     submitAndCloseRef.current = submitAndClose
   }, [submitAndClose])
+  const newNoteRef = useRef(newNote)
+  useEffect(() => {
+    newNoteRef.current = newNote
+  }, [newNote])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -448,6 +462,11 @@ export function QuickCaptureApp(): JSX.Element {
       if (mod && e.key === 'Enter') {
         e.preventDefault()
         void submitAndCloseRef.current()
+        return
+      }
+      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault()
+        void newNoteRef.current()
         return
       }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
@@ -491,6 +510,16 @@ export function QuickCaptureApp(): JSX.Element {
   const targetLabel =
     mode.kind === 'existing' ? `Editing ${mode.note.title}` : 'New note in Quick'
 
+  // The title the note will be saved under. Live first-line title for
+  // fresh captures and Quick notes; the fixed filename for notes opened
+  // from other folders (the capture window never renames those).
+  const headerTitle =
+    mode.kind === 'existing'
+      ? mode.note.folder === 'quick'
+        ? docTitle || mode.note.title
+        : mode.note.title
+      : docTitle
+
   return (
     <div
       className="flex h-screen w-screen flex-col bg-paper-100 text-ink-900"
@@ -500,25 +529,21 @@ export function QuickCaptureApp(): JSX.Element {
         className="glass-header flex shrink-0 items-center gap-2 border-b border-paper-300/70 px-4 py-2.5 pl-20"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <input
-          ref={titleInputRef}
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey) {
-              e.preventDefault()
-              editorRef.current?.focus()
-            }
-          }}
-          placeholder="Untitled"
-          spellCheck={false}
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-          className="min-w-0 flex-1 bg-transparent text-sm font-medium text-ink-900 outline-none placeholder:text-ink-400"
-        />
+        {/* Read-only title derived from the first line. The whole bar is
+            the drag handle — there's no <input> here to steal the region
+            (inputs are forced -webkit-app-region: no-drag globally, which
+            is what previously left the window impossible to move). */}
+        <span
+          className={[
+            'min-w-0 flex-1 truncate text-sm font-medium',
+            headerTitle ? 'text-ink-900' : 'text-ink-400'
+          ].join(' ')}
+          title={mode.kind === 'existing' ? mode.note.path : undefined}
+        >
+          {headerTitle || 'New note'}
+        </span>
         {mode.kind === 'existing' && (
           <span
-            style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
             className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ink-500"
             title={mode.note.path}
           >
@@ -553,7 +578,7 @@ export function QuickCaptureApp(): JSX.Element {
               setOverlay('none')
               if (action === 'save') void submitAndClose()
               else if (action === 'save-no-close') void save()
-              else if (action === 'new') resetToNew()
+              else if (action === 'new') void newNote()
               else if (action === 'open') setOverlay('search')
             }}
           />
@@ -575,13 +600,13 @@ export function QuickCaptureApp(): JSX.Element {
             <kbd className="rounded bg-paper-200 px-1">{modKey}↩</kbd> save
           </span>
           <span>
+            <kbd className="rounded bg-paper-200 px-1">{modKey}N</kbd> new
+          </span>
+          <span>
             <kbd className="rounded bg-paper-200 px-1">{modKey}P</kbd> notes
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">{modKey}⇧P</kbd> cmd
-          </span>
-          <span>
-            <kbd className="rounded bg-paper-200 px-1">Esc</kbd> save &amp; hide
           </span>
         </span>
       </footer>
@@ -728,9 +753,9 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
       },
       {
         id: 'new' as CommandAction,
-        label: 'Discard draft and start a new capture',
-        hint: ':enew',
-        keywords: 'new fresh discard reset clear enew'
+        label: 'Save and start a new note',
+        hint: `${modKey}N`,
+        keywords: 'new fresh next another note save'
       },
       {
         id: 'open' as CommandAction,
