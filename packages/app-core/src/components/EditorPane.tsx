@@ -104,6 +104,7 @@ import {
   type EditorHydrationState
 } from '../lib/editor-hydration'
 import { recordRendererPerf } from '../lib/perf'
+import { rememberTabScroll, recallTabScroll } from '../lib/tab-scroll-memory'
 import { parseOutline } from '../lib/outline'
 import {
   findRenderedHeadingForOutlineLine,
@@ -616,6 +617,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const paneBodyRef = useRef<HTMLDivElement | null>(null)
   const editorSurfaceRef = useRef<HTMLDivElement | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
+  // Pending tab-scroll restore for the preview: set when a note is
+  // (re)activated, re-applied once `onRendered` reports the preview (incl.
+  // async diagrams) has reached full height. `lastProgrammaticPreviewTopRef`
+  // lets us tell our own restore scroll apart from a user scroll, so we never
+  // yank a reader who scrolled during the render window.
+  const previewRestoreTargetRef = useRef<{ path: string; top: number } | null>(null)
+  const lastProgrammaticPreviewTopRef = useRef<number | null>(null)
+  const lastRestoredPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
   const markdownCompartmentRef = useRef<Compartment | null>(null)
   const markdownSyntaxCompartmentRef = useRef<Compartment | null>(null)
@@ -865,6 +874,21 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (scrollPreviewToOutlineLine(pendingLine)) {
         pendingPreviewOutlineJumpLineRef.current = null
       }
+      return
+    }
+    // Re-apply a remembered scroll now that the preview has reached full
+    // height — async diagrams grow the page after first paint, which would
+    // otherwise have clamped the initial restore to a shorter document. Skip
+    // it if the user has scrolled since our last programmatic set.
+    const restore = previewRestoreTargetRef.current
+    if (restore && restore.path === content?.path) {
+      const el = previewScrollRef.current
+      const last = lastProgrammaticPreviewTopRef.current
+      if (el && (last == null || Math.abs(el.scrollTop - last) < 2)) {
+        el.scrollTop = restore.top
+        lastProgrammaticPreviewTopRef.current = el.scrollTop
+      }
+      previewRestoreTargetRef.current = null
       return
     }
     if (!canSyncPreviewFromEditorViewport()) return
@@ -1456,6 +1480,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
     })
     if (pathChanged && pendingJumpLocation?.path !== nextPath) {
+      // Clear scroll on a genuine tab switch; the activation effect below
+      // restores a remembered position afterward when there is one.
       view.scrollDOM.scrollTop = 0
       previewScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
     }
@@ -2665,6 +2691,80 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     previewMarkdown,
     scheduleActiveOutlineUpdate
   ])
+
+  // Remember this tab's scroll position as the user scrolls, so switching
+  // away and back (e.g. opening a diagram in a tab) restores it instead of
+  // snapping to the top. `content` is only set for real notes — virtual
+  // tabs (tasks, diagrams, …) never reach here. Capture only; the restore
+  // happens in the activation layout effect below.
+  useEffect(() => {
+    const path = content?.path
+    if (!path) return
+    const editorEl = editorReady ? viewRef.current?.scrollDOM ?? null : null
+    const previewEl = previewScrollRef.current
+    if (!editorEl && !previewEl) return
+
+    let frame = 0
+    const capture = (): void => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const prev = recallTabScroll(path)
+        rememberTabScroll(path, {
+          // Keep the other surface's value when one isn't mounted (e.g.
+          // preview-only mode has no editor scroller), so we don't clobber it.
+          editor: editorEl?.scrollTop ?? prev?.editor ?? 0,
+          preview: previewEl?.scrollTop ?? prev?.preview ?? 0
+        })
+      })
+    }
+    editorEl?.addEventListener('scroll', capture, { passive: true })
+    previewEl?.addEventListener('scroll', capture, { passive: true })
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      editorEl?.removeEventListener('scroll', capture)
+      previewEl?.removeEventListener('scroll', capture)
+    }
+  }, [content?.path, mode, editorReady])
+
+  // Restore a note tab's remembered scroll on (re)activation. Keyed on the
+  // active path, which flips note → (diagram tab) → note even though the
+  // editor view's own `pathChanged` does not — that's why opening a diagram
+  // in a tab and returning otherwise snapped the note to the top. Runs as a
+  // layout effect (after the doc-sync effect dispatches the body) so the
+  // editor is restored before paint; the preview is restored best-effort now
+  // and again from `onRendered` once async diagrams settle. Explicit jumps
+  // own the scroll, so defer to a matching `pendingJumpLocation`.
+  useLayoutEffect(() => {
+    const path = content?.path ?? null
+    // Only act on a genuine activation (path change). The `pendingJumpLocation`
+    // dep keeps this closure's value fresh, but its later clearing must not
+    // re-trigger a restore that would clobber an explicit jump.
+    if (path === lastRestoredPathRef.current) return
+    lastRestoredPathRef.current = path
+    previewRestoreTargetRef.current = null
+    lastProgrammaticPreviewTopRef.current = null
+    if (!path || pendingJumpLocation?.path === path) return
+    const remembered = recallTabScroll(path)
+    if (!remembered) return
+
+    const applyEditor = (): void => {
+      const view = viewRef.current
+      if (view) view.scrollDOM.scrollTop = remembered.editor
+    }
+    applyEditor()
+    const raf = requestAnimationFrame(applyEditor)
+
+    if (remembered.preview > 0) {
+      previewRestoreTargetRef.current = { path, top: remembered.preview }
+      const previewEl = previewScrollRef.current
+      if (previewEl) {
+        previewEl.scrollTop = remembered.preview
+        lastProgrammaticPreviewTopRef.current = previewEl.scrollTop
+      }
+    }
+    return () => cancelAnimationFrame(raf)
+  }, [content?.path, pendingJumpLocation?.path])
 
   const paneFrameClass = [
     'relative flex min-h-0 min-w-0 flex-1 flex-col',
