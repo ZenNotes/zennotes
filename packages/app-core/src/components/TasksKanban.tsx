@@ -31,6 +31,7 @@ import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
+import { InlineMarkdown } from '../lib/inline-markdown'
 
 interface Props {
   tasks: VaultTask[]
@@ -1122,7 +1123,7 @@ function TaskCard({
             task.checked ? 'text-current/50 line-through' : 'text-current/90'
           ].join(' ')}
         >
-          {task.content || '(empty task)'}
+          {task.content ? <InlineMarkdown text={task.content} /> : '(empty task)'}
         </div>
         <button
           type="button"

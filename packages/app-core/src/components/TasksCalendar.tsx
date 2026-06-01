@@ -22,6 +22,7 @@ import {
 } from '@shared/tasks'
 import { useStore } from '../store'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
+import { InlineMarkdown } from '../lib/inline-markdown'
 
 interface Props {
   tasks: VaultTask[]
@@ -451,7 +452,11 @@ function CalendarTaskRow({ task, isOverdue, buttonRef, onToggle, onOpen }: RowPr
           task.checked ? 'text-current/50 line-through' : ''
         ].join(' ')}
       >
-        {task.content || '(empty task)'}
+        {task.content ? (
+          <InlineMarkdown text={task.content} interactiveLinks={false} />
+        ) : (
+          '(empty task)'
+        )}
       </span>
       <span className="shrink-0 truncate text-[11px] text-current/45">{task.noteTitle}</span>
       {task.priority && (

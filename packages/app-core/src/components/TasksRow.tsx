@@ -1,5 +1,6 @@
 import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
+import { InlineMarkdown } from '../lib/inline-markdown'
 
 interface Props {
   task: VaultTask
@@ -94,7 +95,7 @@ export function TasksRow({
             task.checked ? 'text-current/50 line-through' : 'text-current/90'
           ].join(' ')}
         >
-          {task.content || '(empty task)'}
+          {task.content ? <InlineMarkdown text={task.content} /> : '(empty task)'}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-current/50">
           <span className="truncate">{task.noteTitle}</span>
