@@ -10,7 +10,9 @@
 # Base images pinned by digest. Refresh with Renovate/Dependabot or by
 # running `docker inspect --format='{{index .RepoDigests 0}}' <image>`
 # after a deliberate `docker pull` of the desired floating tag.
-FROM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS web-build
+# web-build emits a platform-agnostic static bundle, so always run it on the
+# native build platform (never under emulation) regardless of the target arch.
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f AS web-build
 WORKDIR /app
 
 COPY package.json package-lock.json turbo.json tsconfig.base.json tsconfig.json tailwind.config.js postcss.config.js ./
@@ -29,7 +31,9 @@ COPY packages packages
 
 RUN npm run build --workspace @zennotes/web
 
-FROM golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 AS server-build
+# Run the Go toolchain on the native build platform and cross-compile to the
+# target arch (CGO is off, so this is a fast pure-Go cross-build — no QEMU).
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine@sha256:1699c10032ca2582ec89a24a1312d986a3f094aed3d5c1147b19880afe40e052 AS server-build
 WORKDIR /app
 
 COPY apps/server/go.mod apps/server/go.sum ./apps/server/
@@ -40,8 +44,11 @@ WORKDIR /app
 COPY apps/server apps/server
 COPY --from=web-build /app/apps/web/dist/ /app/apps/server/web/dist/
 
+# TARGETARCH is provided by buildx (e.g. amd64, arm64) for the image being built.
+ARG TARGETARCH
 ENV CGO_ENABLED=0 \
     GOOS=linux \
+    GOARCH=$TARGETARCH \
     GOFLAGS=-trimpath
 
 WORKDIR /app/apps/server
