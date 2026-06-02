@@ -1,7 +1,7 @@
 {
   "name": "zennotes-monorepo",
   "private": true,
-  "version": "2.0.5",
+  "version": "2.0.6",
   "description": "ZenNotes monorepo for desktop, web, and self-hosted server builds",
   "packageManager": "npm@10.9.2",
   "engines": {
