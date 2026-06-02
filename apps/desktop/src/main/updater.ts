@@ -1,4 +1,6 @@
-import { app, BrowserWindow, Notification } from 'electron'
+import { app, BrowserWindow, Notification, shell } from 'electron'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import electronUpdater, {
   type AppUpdater,
   type ProgressInfo,
@@ -7,6 +9,7 @@ import electronUpdater, {
 import { IPC, type AppUpdateState } from '@shared/ipc'
 
 const { autoUpdater } = electronUpdater
+const execFileAsync = promisify(execFile)
 const UPDATE_CHECK_MAX_ATTEMPTS = 3
 const UPDATE_CHECK_RETRY_DELAY_MS = 1500
 const BACKGROUND_UPDATE_CHECK_DELAY_MS = 8000
@@ -18,6 +21,7 @@ let startupCheckTimer: NodeJS.Timeout | null = null
 let backgroundCheckScheduled = false
 let notifiedAvailableVersion: string | null = null
 let notifiedDownloadedVersion: string | null = null
+let downloadedFilePath: string | null = null
 let updateState: AppUpdateState = makeState({
   phase: 'unsupported',
   message: 'Updates are only available in packaged builds.'
@@ -210,6 +214,14 @@ export function initAppUpdater(): void {
   updater.on('download-progress', handleDownloadProgress)
   updater.on('update-downloaded', (info) => {
     lastInfo = info
+    downloadedFilePath = info.downloadedFile ?? null
+    // deb/rpm/pacman installs need root. electron-updater's on-quit auto-install
+    // shells out to a non-interactive `sudo`, which fails in a GUI session with
+    // no graphical askpass (issue #60). We install those formats ourselves from
+    // installAppUpdate(), so suppress the broken on-quit path for them.
+    if (process.platform === 'linux' && linuxNeedsRootInstall(downloadedFilePath)) {
+      updater!.autoInstallOnAppQuit = false
+    }
     setUpdateState(
       nextStateFromInfo(
         'downloaded',
@@ -314,5 +326,148 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
 
 export function installAppUpdate(): void {
   if (!updater || updateState.phase !== 'downloaded') return
+  // On Linux, deb/rpm/pacman packages require root to install. electron-updater's
+  // quitAndInstall() shells out to a non-interactive `sudo`, which fails with
+  // "Command sudo exited with code 1" in a desktop session that has no graphical
+  // askpass (issue #60). Install those formats ourselves via a graphical prompt.
+  if (process.platform === 'linux' && linuxNeedsRootInstall(downloadedFilePath)) {
+    void installLinuxPackageUpdate(downloadedFilePath as string)
+    return
+  }
   updater.quitAndInstall()
+}
+
+export type LinuxPackageFormat = 'appimage' | 'deb' | 'rpm' | 'pacman' | 'unknown'
+
+export function linuxPackageFormat(file: string | null): LinuxPackageFormat {
+  if (!file) return 'unknown'
+  const lower = file.toLowerCase()
+  if (lower.endsWith('.appimage')) return 'appimage'
+  if (lower.endsWith('.deb')) return 'deb'
+  if (lower.endsWith('.rpm')) return 'rpm'
+  if (lower.endsWith('.pacman') || /\.pkg\.tar\.(zst|xz|gz)$/.test(lower)) return 'pacman'
+  return 'unknown'
+}
+
+// AppImage updates run from userspace and need no elevation; only the system
+// package formats do.
+export function linuxNeedsRootInstall(file: string | null): boolean {
+  const format = linuxPackageFormat(file)
+  return format === 'deb' || format === 'rpm' || format === 'pacman'
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+export function elevatedInstallScript(format: LinuxPackageFormat, file: string): string | null {
+  const target = shellQuote(file)
+  switch (format) {
+    case 'deb':
+      // Install directly; if dependencies are missing, let apt resolve them.
+      return `dpkg -i ${target} || apt-get install -f -y`
+    case 'rpm':
+      return `rpm -U --force ${target}`
+    case 'pacman':
+      return `pacman -U --noconfirm ${target}`
+    default:
+      return null
+  }
+}
+
+export function manualInstallHint(format: LinuxPackageFormat, file: string): string {
+  switch (format) {
+    case 'deb':
+      return `sudo dpkg -i "${file}"`
+    case 'rpm':
+      return `sudo rpm -U "${file}"`
+    case 'pacman':
+      return `sudo pacman -U "${file}"`
+    default:
+      return `install "${file}" with your package manager`
+  }
+}
+
+function revealDownloadedPackage(file: string): void {
+  try {
+    shell.showItemInFolder(file)
+  } catch {
+    // Best effort — the path is already included in the message.
+  }
+}
+
+async function installLinuxPackageUpdate(file: string): Promise<void> {
+  const format = linuxPackageFormat(file)
+  const script = elevatedInstallScript(format, file)
+  if (!script) {
+    // Unknown format — defer to electron-updater's own handling.
+    updater?.quitAndInstall()
+    return
+  }
+
+  setUpdateState(
+    nextStateFromInfo(
+      'downloaded',
+      lastInfo,
+      `Installing ZenNotes ${lastInfo?.version ?? ''}… approve the administrator prompt to finish.`
+    )
+  )
+
+  try {
+    // pkexec shows a graphical password prompt and runs the install as root.
+    await execFileAsync('pkexec', ['sh', '-c', script])
+  } catch (error) {
+    handleLinuxInstallFailure(format, file, error)
+    return
+  }
+
+  // The package was replaced on disk; relaunch into the new version.
+  app.relaunch()
+  app.quit()
+}
+
+function handleLinuxInstallFailure(
+  format: LinuxPackageFormat,
+  file: string,
+  error: unknown
+): void {
+  const code = (error as { code?: string | number }).code
+  const hint = manualInstallHint(format, file)
+
+  // pkexec isn't installed (no graphical askpass available).
+  if (code === 'ENOENT') {
+    revealDownloadedPackage(file)
+    setUpdateState(
+      nextStateFromInfo(
+        'error',
+        lastInfo,
+        `Couldn't install automatically: pkexec (graphical sudo) isn't available on this system. The update was downloaded to ${file} — install it manually with: ${hint}, then reopen ZenNotes.`
+      )
+    )
+    return
+  }
+
+  // pkexec exits 126/127 when the auth dialog is dismissed or not authorized.
+  // Keep the update ready so the user can retry.
+  if (code === 126 || code === 127) {
+    setUpdateState(
+      nextStateFromInfo(
+        'downloaded',
+        lastInfo,
+        'Update install was canceled. Click “Install and Relaunch” to try again.'
+      )
+    )
+    return
+  }
+
+  // dpkg/apt (or rpm/pacman) failed.
+  revealDownloadedPackage(file)
+  const detail = error instanceof Error ? error.message.trim() : String(error)
+  setUpdateState(
+    nextStateFromInfo(
+      'error',
+      lastInfo,
+      `Update install failed: ${detail || 'unknown error'}. The package is at ${file} — you can install it manually with: ${hint}.`
+    )
+  )
 }
