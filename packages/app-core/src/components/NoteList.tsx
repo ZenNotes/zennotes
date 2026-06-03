@@ -68,6 +68,7 @@ export function NoteList(): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings)
   const selectedPath = useStore((s) => s.selectedPath)
   const selectNote = useStore((s) => s.selectNote)
+  const previewNote = useStore((s) => s.previewNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
   const toggleNoteList = useStore((s) => s.toggleNoteList)
   const refreshNotes = useStore((s) => s.refreshNotes)
@@ -856,7 +857,10 @@ export function NoteList(): JSX.Element {
                     <NoteRow
                       note={entry.note}
                       active={entry.note.path === selectedPath}
-                      onSelect={() => void selectNote(entry.note.path)}
+                      onSelect={() =>
+                        void (tabsEnabled ? previewNote : selectNote)(entry.note.path)
+                      }
+                      onOpenPermanent={() => void selectNote(entry.note.path)}
                       onContextMenu={(e) => {
                         e.preventDefault()
                         setMenu({ x: e.clientX, y: e.clientY, path: entry.note.path })
@@ -915,6 +919,7 @@ function NoteRow({
   note,
   active,
   onSelect,
+  onOpenPermanent,
   onContextMenu,
   noteListIdx,
   vimHighlight
@@ -922,6 +927,8 @@ function NoteRow({
   note: NoteMeta
   active: boolean
   onSelect: () => void
+  /** Double-click: open as a permanent tab instead of a preview. */
+  onOpenPermanent?: () => void
   onContextMenu: (e: React.MouseEvent) => void
   noteListIdx?: number
   vimHighlight?: boolean
@@ -929,6 +936,7 @@ function NoteRow({
   return (
     <button
       onClick={onSelect}
+      onDoubleClick={onOpenPermanent}
       onContextMenu={onContextMenu}
       draggable
       onDragStart={(e) => setDragPayload(e, { kind: 'note', path: note.path })}

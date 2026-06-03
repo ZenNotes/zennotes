@@ -397,6 +397,7 @@ export function Sidebar(): JSX.Element {
   const setAutoReveal = useStore((s) => s.setAutoReveal);
   const unifiedSidebar = useStore((s) => s.unifiedSidebar);
   const selectNote = useStore((s) => s.selectNote);
+  const previewNote = useStore((s) => s.previewNote);
   const selectedPath = useStore((s) => s.selectedPath);
   const tabsEnabled = useStore((s) => s.tabsEnabled);
   const openNoteInTab = useStore((s) => s.openNoteInTab);
@@ -461,9 +462,12 @@ export function Sidebar(): JSX.Element {
   );
   const handleSelectNote = useCallback(
     (path: string): void => {
-      void selectNote(path);
+      // Single click opens a VS Code-style preview tab; without tabs there
+      // is nothing to preview, so fall back to a plain open.
+      if (tabsEnabled) void previewNote(path);
+      else void selectNote(path);
     },
-    [selectNote],
+    [previewNote, selectNote, tabsEnabled],
   );
   const remoteLabel = useMemo(
     () => remoteWorkspaceLabel(remoteWorkspaceInfo?.baseUrl ?? null),
@@ -3800,6 +3804,9 @@ const NoteLeaf = memo(function NoteLeaf({
 }: NoteLeafProps): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
   const selectionKey = noteSelectionKey(note.path);
+  // Zustand actions are stable references, so pulling this here keeps the
+  // memoized row cheap without threading another prop through the tree.
+  const openNotePermanent = useStore((s) => s.selectNote);
   const handleSelect = useCallback(
     (event: React.MouseEvent<HTMLButtonElement>) => {
       onSelectItem(event, { kind: "note", path: note.path }, () =>
@@ -3808,6 +3815,10 @@ const NoteLeaf = memo(function NoteLeaf({
     },
     [note.path, onSelectItem, onSelectNote],
   );
+  const handleDoubleClick = useCallback(() => {
+    // Double click keeps the note open as a permanent tab (VS Code-style).
+    void openNotePermanent(note.path);
+  }, [note.path, openNotePermanent]);
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => onContextMenuNote(event, note),
     [note, onContextMenuNote],
@@ -3822,6 +3833,7 @@ const NoteLeaf = memo(function NoteLeaf({
   return (
     <button
       onClick={handleSelect}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       draggable
       onDragStart={handleDragStart}

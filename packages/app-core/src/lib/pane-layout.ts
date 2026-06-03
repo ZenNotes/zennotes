@@ -19,6 +19,11 @@ export interface PaneLeaf {
    *  occupy the prefix of `tabs` in the same order as `pinnedTabs`. */
   pinnedTabs: string[]
   activeTab: string | null
+  /** VS Code-style preview tab — at most one per pane. Single-click opens
+   *  reuse this slot instead of adding tabs; the tab promotes to permanent
+   *  on double-click, edit, or pin. Invariant: always a member of `tabs`
+   *  (and never of `pinnedTabs`), or null/undefined. */
+  previewTab?: string | null
 }
 
 export interface PaneSplit {
@@ -46,7 +51,8 @@ export function makeLeaf(tabs: string[] = [], activeTab: string | null = null): 
     id: nextPaneId(),
     tabs: [...tabs],
     pinnedTabs: [],
-    activeTab: activeTab ?? tabs[0] ?? null
+    activeTab: activeTab ?? tabs[0] ?? null,
+    previewTab: null
   }
 }
 
@@ -252,11 +258,19 @@ export function rewritePathsInTree(
       }
     }
     if (!nextActive) nextActive = nextTabs[0]
+    let nextPreview: string | null = null
+    if (leaf.previewTab) {
+      const mappedPreview = fn(leaf.previewTab)
+      if (mappedPreview && nextTabs.includes(mappedPreview)) {
+        nextPreview = mappedPreview
+      }
+    }
     return enforcePinnedPrefix({
       ...leaf,
       tabs: nextTabs,
       pinnedTabs: nextPinned,
-      activeTab: nextActive
+      activeTab: nextActive,
+      previewTab: nextPreview
     })
   })
   return result ?? makeLeaf()
@@ -340,7 +354,8 @@ export function leafWithoutTab(leaf: PaneLeaf, path: string): PaneLeaf | null {
     activeTab = tabs[Math.min(idx, tabs.length - 1)] ?? tabs[0] ?? null
   }
   const pinnedTabs = leaf.pinnedTabs.filter((p) => p !== path)
-  return { ...leaf, tabs, pinnedTabs, activeTab }
+  const previewTab = leaf.previewTab === path ? null : leaf.previewTab
+  return { ...leaf, tabs, pinnedTabs, activeTab, previewTab }
 }
 
 /**
@@ -386,15 +401,19 @@ export function leafWithReorderedTab(
       ...remainingPinned.slice(insertInPinnedAt)
     ]
   }
-  return enforcePinnedPrefix({ ...leaf, tabs, pinnedTabs })
+  // Dragging a preview tab into the pinned zone promotes it.
+  const previewTab = pinLand && leaf.previewTab === dragPath ? null : leaf.previewTab
+  return enforcePinnedPrefix({ ...leaf, tabs, pinnedTabs, previewTab })
 }
 
-/** Pin an already-open tab. Moves it to the end of the pinned prefix. */
+/** Pin an already-open tab. Moves it to the end of the pinned prefix.
+ *  Pinning a preview tab promotes it (a pinned tab can't be transient). */
 export function leafWithPinnedTab(leaf: PaneLeaf, path: string): PaneLeaf {
   if (!leaf.tabs.includes(path)) return leaf
   if (leaf.pinnedTabs.includes(path)) return leaf
   const pinnedTabs = [...leaf.pinnedTabs, path]
-  return enforcePinnedPrefix({ ...leaf, pinnedTabs })
+  const previewTab = leaf.previewTab === path ? null : leaf.previewTab
+  return enforcePinnedPrefix({ ...leaf, pinnedTabs, previewTab })
 }
 
 /** Unpin a tab. It moves to the start of the unpinned zone. */
@@ -402,4 +421,31 @@ export function leafWithUnpinnedTab(leaf: PaneLeaf, path: string): PaneLeaf {
   if (!leaf.pinnedTabs.includes(path)) return leaf
   const pinnedTabs = leaf.pinnedTabs.filter((p) => p !== path)
   return enforcePinnedPrefix({ ...leaf, pinnedTabs })
+}
+
+/**
+ * Open `path` as the pane's preview tab (VS Code-style single-click open).
+ *
+ * - Already open (preview or permanent): just focus it, keeping its status.
+ * - A preview tab exists: the new path takes over its tab slot in place.
+ * - No preview tab yet: append to the unpinned zone, marked as preview.
+ */
+export function leafWithPreviewTab(leaf: PaneLeaf, path: string): PaneLeaf {
+  if (leaf.tabs.includes(path)) {
+    if (leaf.activeTab === path) return leaf
+    return { ...leaf, activeTab: path }
+  }
+  const prev = leaf.previewTab
+  if (prev && prev !== path && leaf.tabs.includes(prev) && !leaf.pinnedTabs.includes(prev)) {
+    const tabs = leaf.tabs.map((t) => (t === prev ? path : t))
+    return { ...leaf, tabs, previewTab: path, activeTab: path }
+  }
+  const added = leafWithAddedTab(leaf, path)
+  return { ...added, previewTab: path }
+}
+
+/** Clear the preview flag for `path` so it becomes a permanent tab. */
+export function leafWithPromotedTab(leaf: PaneLeaf, path: string): PaneLeaf {
+  if (leaf.previewTab !== path) return leaf
+  return { ...leaf, previewTab: null }
 }

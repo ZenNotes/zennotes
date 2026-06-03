@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TASKS_TAB_PATH, type VaultTask } from '@shared/tasks'
+import { findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
 
 function makeTask(content: string, taskIndex = 0): VaultTask {
   return {
@@ -389,5 +390,69 @@ describe('importDroppedMarkdownFiles (web import-as-note)', () => {
 
     expect(createNote).toHaveBeenCalledWith('inbox', 'Empty')
     expect(writeNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('preview tabs (VS Code-style open flow)', () => {
+  function activeLeaf(store: { paneLayout: PaneLayout; activePaneId: string }): PaneLeaf {
+    const leaf = findLeaf(store.paneLayout, store.activePaneId)
+    if (!leaf) throw new Error('no active leaf')
+    return leaf
+  }
+
+  it('previews replace each other; a permanent re-open promotes the preview', async () => {
+    const noteA = { ...makeNote('alpha'), path: 'inbox/A.md', title: 'A' }
+    const noteB = { ...makeNote('beta'), path: 'inbox/B.md', title: 'B' }
+    installZen({
+      readNote: vi
+        .fn()
+        .mockImplementation((path: string) =>
+          Promise.resolve(path === 'inbox/A.md' ? noteA : noteB)
+        )
+    })
+
+    const { useStore } = await loadStore()
+
+    // Single click: open A as the preview tab.
+    await useStore.getState().previewNote('inbox/A.md')
+    let leaf = activeLeaf(useStore.getState())
+    expect(leaf.tabs).toEqual(['inbox/A.md'])
+    expect(leaf.previewTab).toBe('inbox/A.md')
+
+    // Single click on B: it takes over A's preview slot.
+    await useStore.getState().previewNote('inbox/B.md')
+    leaf = activeLeaf(useStore.getState())
+    expect(leaf.tabs).toEqual(['inbox/B.md'])
+    expect(leaf.previewTab).toBe('inbox/B.md')
+
+    // Double click / Enter on the note that is already the active preview:
+    // the permanent open must promote it (regression: the already-active
+    // fast path used to return early without promoting).
+    await useStore.getState().selectNote('inbox/B.md')
+    leaf = activeLeaf(useStore.getState())
+    expect(leaf.tabs).toEqual(['inbox/B.md'])
+    expect(leaf.previewTab).toBeNull()
+
+    // The next preview opens alongside the promoted tab instead of replacing it.
+    await useStore.getState().previewNote('inbox/A.md')
+    leaf = activeLeaf(useStore.getState())
+    expect(leaf.tabs).toEqual(['inbox/B.md', 'inbox/A.md'])
+    expect(leaf.previewTab).toBe('inbox/A.md')
+  })
+
+  it('editing the previewed note promotes it', async () => {
+    const noteA = { ...makeNote('alpha'), path: 'inbox/A.md', title: 'A' }
+    installZen({
+      readNote: vi.fn().mockResolvedValue(noteA),
+      writeNote: vi.fn().mockResolvedValue({ ...noteA, updatedAt: 2 })
+    })
+
+    const { useStore } = await loadStore()
+
+    await useStore.getState().previewNote('inbox/A.md')
+    expect(activeLeaf(useStore.getState()).previewTab).toBe('inbox/A.md')
+
+    useStore.getState().updateNoteBody('inbox/A.md', 'alpha edited')
+    expect(activeLeaf(useStore.getState()).previewTab).toBeNull()
   })
 })

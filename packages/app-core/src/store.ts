@@ -94,10 +94,13 @@ import {
   findLeavesContaining,
   leafWithAddedTab,
   leafWithPinnedTab,
+  leafWithPreviewTab,
+  leafWithPromotedTab,
   leafWithReorderedTab,
   leafWithUnpinnedTab,
   leafWithoutTab,
   makeLeaf,
+  mapLeaves,
   replaceLeaf,
   rewritePathsInTree,
   splitLeaf,
@@ -1561,6 +1564,9 @@ interface Store {
   setTasksCalendarMonthAnchor: (iso: string | null) => void
   setTaskCursorIndex: (idx: number) => void
   selectNote: (relPath: string | null) => Promise<void>
+  /** Open a note as the active pane's VS Code-style preview tab: it reuses
+   *  the existing preview slot and promotes on double-click, edit, or pin. */
+  previewNote: (relPath: string) => Promise<void>
   prefetchNotes: (paths: string[]) => void
   openNoteAtOffset: (
     relPath: string,
@@ -1747,6 +1753,8 @@ interface Store {
    *  strip and protects it from "Close Others" / "Close Tabs to Right". */
   pinTabInPane: (paneId: string, path: string) => void
   unpinTabInPane: (paneId: string, path: string) => void
+  /** Promote a preview tab to a permanent tab (double-click on the tab). */
+  promoteTabInPane: (paneId: string, path: string) => void
   toggleTabPin: (paneId: string, path: string) => void
   /** Update an open note's body (typed into any pane). Flags dirty. */
   updateNoteBody: (path: string, body: string) => void
@@ -2101,12 +2109,20 @@ async function prefetchInitialVisibleNotes(state: Store): Promise<void> {
 export const useStore = create<Store>((set, get) => {
   const selectNoteImpl = async (
     relPath: string | null,
-    historyMode: 'push' | 'preserve' = 'push'
+    historyMode: 'push' | 'preserve' = 'push',
+    opts?: { preview?: boolean }
   ): Promise<boolean> => {
     const startedAt = performance.now()
     const state = get()
     const activeLeaf = findLeaf(state.paneLayout, state.activePaneId)
     if (!activeLeaf) return false
+
+    // Preview opens reuse the pane's preview slot; permanent opens promote
+    // the path if it was previously sitting in that slot.
+    const addTabToLeaf = (l: PaneLeaf, path: string): PaneLeaf =>
+      opts?.preview
+        ? leafWithPreviewTab(l, path)
+        : leafWithPromotedTab(leafWithAddedTab(l, path), path)
 
     if (!relPath) {
       const nextLayout =
@@ -2168,12 +2184,20 @@ export const useStore = create<Store>((set, get) => {
     ) {
       if (!activeLeaf.tabs.includes(relPath)) {
         const layout =
-          updateLeaf(state.paneLayout, activeLeaf.id, (l) => leafWithAddedTab(l, relPath)) ??
+          updateLeaf(state.paneLayout, activeLeaf.id, (l) => addTabToLeaf(l, relPath)) ??
           state.paneLayout
         set({
           paneLayout: layout,
           ...activeFieldsFrom(layout, state.activePaneId, state.noteContents, state.noteDirty)
         })
+      } else if (!opts?.preview && activeLeaf.previewTab === relPath) {
+        // Permanent re-open of the tab that is currently previewing (e.g.
+        // double-click or Enter right after a single click) promotes it.
+        const layout =
+          updateLeaf(state.paneLayout, activeLeaf.id, (l) =>
+            leafWithPromotedTab(l, relPath)
+          ) ?? state.paneLayout
+        set({ paneLayout: layout })
       }
       recordRendererPerf('note.open.cached', performance.now() - startedAt, {
         path: relPath
@@ -2183,7 +2207,7 @@ export const useStore = create<Store>((set, get) => {
 
     if (state.noteContents[relPath]) {
       const nextLayout =
-        updateLeaf(state.paneLayout, activeLeaf.id, (l) => leafWithAddedTab(l, relPath)) ??
+        updateLeaf(state.paneLayout, activeLeaf.id, (l) => addTabToLeaf(l, relPath)) ??
         state.paneLayout
       set({
         paneLayout: nextLayout,
@@ -2247,7 +2271,7 @@ export const useStore = create<Store>((set, get) => {
         return false
       }
       const nextLayout =
-        updateLeaf(s.paneLayout, leafNow.id, (l) => leafWithAddedTab(l, relPath)) ??
+        updateLeaf(s.paneLayout, leafNow.id, (l) => addTabToLeaf(l, relPath)) ??
         s.paneLayout
       const contents = { ...s.noteContents, [relPath]: content }
       const dirty = { ...s.noteDirty, [relPath]: false }
@@ -2880,6 +2904,10 @@ export const useStore = create<Store>((set, get) => {
     await selectNoteImpl(relPath, 'push')
   },
 
+  previewNote: async (relPath) => {
+    await selectNoteImpl(relPath, 'push', { preview: true })
+  },
+
   prefetchNotes: (paths) => {
     const state = get()
     const existing = new Set(Object.keys(state.noteContents))
@@ -3218,10 +3246,18 @@ export const useStore = create<Store>((set, get) => {
       if (!existing || existing.body === body) return s
       const contents = { ...s.noteContents, [path]: { ...existing, body } }
       const dirty = { ...s.noteDirty, [path]: true }
+      // Editing a preview tab promotes it to a permanent tab (VS Code
+      // behavior) so the edit can't be displaced by the next preview.
+      // Cheap guard first: this runs on every keystroke.
+      const needsPromote = allLeaves(s.paneLayout).some((l) => l.previewTab === path)
+      const layout = needsPromote
+        ? (mapLeaves(s.paneLayout, (l) => leafWithPromotedTab(l, path)) ?? s.paneLayout)
+        : s.paneLayout
       return {
         noteContents: contents,
         noteDirty: dirty,
-        ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+        ...(layout !== s.paneLayout ? { paneLayout: layout } : {}),
+        ...activeFieldsFrom(layout, s.activePaneId, contents, dirty)
       }
     })
     // Debounced disk write.
@@ -4603,6 +4639,15 @@ export const useStore = create<Store>((set, get) => {
         paneLayout: nextLayout,
         ...activeFieldsFrom(nextLayout, s.activePaneId, s.noteContents, s.noteDirty)
       }
+    })
+  },
+  promoteTabInPane: (paneId, path) => {
+    set((s) => {
+      const nextLayout = updateLeaf(s.paneLayout, paneId, (l) =>
+        leafWithPromotedTab(l, path)
+      )
+      if (!nextLayout || nextLayout === s.paneLayout) return s
+      return { paneLayout: nextLayout }
     })
   },
   toggleTabPin: (paneId, path) => {

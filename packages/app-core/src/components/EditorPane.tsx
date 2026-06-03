@@ -524,6 +524,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const isActive = useStore((s) => s.activePaneId === paneId)
   const tabs = pane.tabs
   const pinnedTabs = pane.pinnedTabs
+  const previewTab = pane.previewTab ?? null
   const activeTab = pane.activeTab
 
   const content = useStore((s) => (activeTab ? s.noteContents[activeTab] ?? null : null))
@@ -548,6 +549,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const openNoteInPane = useStore((s) => s.openNoteInPane)
   const toggleTabPin = useStore((s) => s.toggleTabPin)
   const unpinTabInPane = useStore((s) => s.unpinTabInPane)
+  const promoteTabInPane = useStore((s) => s.promoteTabInPane)
   const updateNoteBody = useStore((s) => s.updateNoteBody)
   const persistNote = useStore((s) => s.persistNote)
   const trashActive = useStore((s) => s.trashActive)
@@ -2047,6 +2049,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         const base = {
           path,
           pinned: pinnedSet.has(path),
+          preview: path === previewTab,
           isQuick: false,
           isTasks: false,
           isTag: false,
@@ -2121,7 +2124,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
       })
     },
-    [tabs, pinnedTabs, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash]
+    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -2285,6 +2288,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       path: string
       title: string
       pinned: boolean
+      preview: boolean
       isQuick: boolean
       isTasks: boolean
       isTag: boolean
@@ -2403,6 +2407,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             )}
             <button
               onClick={() => void focusTabInPane(paneId, tab.path)}
+              onDoubleClick={() => {
+                if (tab.preview) promoteTabInPane(paneId, tab.path)
+              }}
+              title={tab.preview ? `${tab.title} — preview (double-click to keep open)` : undefined}
               className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-1.5 text-left"
             >
               {tab.isTasks && (
@@ -2429,7 +2437,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               {tab.isDiagram && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
-              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+              <span className={['min-w-0 flex-1 truncate', tab.preview ? 'italic' : ''].join(' ')}>
+                {tab.title}
+              </span>
             </button>
             <button
               type="button"
@@ -2458,6 +2468,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       movePaneTab,
       openNoteInPane,
       paneId,
+      promoteTabInPane,
       reorderTabInPane,
       tabDropIndicator,
       tabs,
