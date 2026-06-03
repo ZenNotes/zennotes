@@ -25,6 +25,8 @@ If you are new to ZenNotes, read these first:
 ## How-to guides
 
 - [Open Markdown Files with ZenNotes](./how-to/open-markdown-files.md)
+- [Use Container Blocks in Your Notes](./how-to/use-container-blocks.md)
+- [Add a Remark Plugin to the Markdown Renderer](./how-to/add-remark-plugin.md)
 - [Self-Host with Docker](./how-to/self-host-with-docker.md)
 - [Use ZenNotes with Raycast on macOS](./how-to/use-raycast.md)
 - [Connect Desktop to a Remote ZenNotes Server](./how-to/connect-desktop-to-remote-server.md)
@@ -35,6 +37,7 @@ If you are new to ZenNotes, read these first:
 
 - [Settings Reference](./reference/settings-reference.md)
 - [Tasks Reference](./reference/tasks-reference.md)
+- [Markdown Extensions Reference](./reference/markdown-extensions-reference.md)
 - [Vault and Folder Model](./reference/vault-and-folder-model.md)
 - [Runtime and Package Map](./reference/runtime-and-package-map.md)
 - [Security Reference](./reference/security-reference.md)
@@ -42,6 +45,7 @@ If you are new to ZenNotes, read these first:
 ## Explanation
 
 - [How ZenNotes Works](./explanation/how-zennotes-works.md)
+- [The Markdown Pipeline](./explanation/markdown-pipeline.md)
 - [Security Model](./explanation/security-model.md)
 - [Team Collaboration Plan](./explanation/team-collaboration-plan.md) (proposed — not yet implemented)
 - [Monorepo Architecture](./monorepo-architecture.md)
