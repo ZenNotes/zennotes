@@ -1,14 +1,27 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    "types": [
+      "vite/client"
+    ],
     "baseUrl": ".",
     "paths": {
-      "@shared/*": ["../shared-domain/src/*"],
-      "@bridge-contract/*": ["../bridge-contract/src/*"]
-    }
+      "@shared/*": [
+        "../shared-domain/src/*"
+      ],
+      "@bridge-contract/*": [
+        "../bridge-contract/src/*"
+      ]
+    },
+    "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*"
+  ]
 }

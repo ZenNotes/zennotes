@@ -1,6 +1,7 @@
 /* KaTeX + highlight.js are pulled in by the markdown pipeline. */
 @import "katex/dist/katex.min.css";
 @import "highlight.js/styles/atom-one-light.css";
+@import "../../../src/shared/customBoxes.css";
 
 @tailwind base;
 @tailwind components;

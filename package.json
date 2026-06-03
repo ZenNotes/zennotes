@@ -33,6 +33,13 @@
     "dist:linux": "npm run dist:linux --workspace @zennotes/desktop"
   },
   "devDependencies": {
-    "turbo": "^2.5.8"
-  }
+    "@types/markdown-it": "^14.1.2",
+    "@types/markdown-it-container": "^4.0.0",
+    "markdown-it": "^14.2.0",
+    "markdown-it-container": "^4.0.0",
+    "ts-node": "^10.9.2",
+    "turbo": "^2.5.8",
+    "typescript": "^6.0.3"
+  },
+  "type": "module"
 }

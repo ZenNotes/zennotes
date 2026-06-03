@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import remarkMath from 'remark-math'
 import remarkFrontmatter from 'remark-frontmatter'
+import remarkDirective from 'remark-directive'
 import remarkRehype from 'remark-rehype'
 import rehypeRaw from 'rehype-raw'
 import rehypeKatex from 'rehype-katex'
@@ -15,6 +16,8 @@ import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
 import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
+import remarkBoxes from './remark-boxes'
+import remarkScholarly from './remark-scholarly'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -385,6 +388,9 @@ const processor = unified()
   .use(remarkGfm)
   .use(remarkBreaks)
   .use(remarkMath)
+  .use(remarkDirective)
+  .use(remarkBoxes)
+  .use(remarkScholarly)
   .use(remarkWikilinks)
   .use(remarkHashtags)
   .use(remarkCallouts)
