@@ -13,6 +13,7 @@ import {
 import { assetTabPath } from "../lib/asset-tabs";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
 import { renderDiagrams } from "../lib/diagram-renderers";
+import { attachInlineDiagramPanZoom } from "../lib/inline-diagram-pan-zoom";
 import {
   CODE_COPY_BUTTON_SELECTOR,
   CODE_FOLD_BUTTON_SELECTOR,
@@ -267,12 +268,17 @@ function prepareMermaidShell(el: HTMLElement, source: string): HTMLDivElement {
   el.innerHTML = "";
 
   if (!expanded) {
+    // Toolbar row above the diagram: inline zoom controls slot in to the
+    // left of the Expand button (see attachInlineDiagramPanZoom).
+    const toolbar = document.createElement("div");
+    toolbar.className = "zen-diagram-toolbar";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "zen-diagram-expand";
     button.setAttribute("aria-label", "Open diagram in a larger view");
     button.textContent = "Expand";
-    el.appendChild(button);
+    toolbar.appendChild(button);
+    el.appendChild(toolbar);
   }
 
   const surface = document.createElement("div");
@@ -315,6 +321,9 @@ async function renderMermaidBlocks(
     try {
       const { svg } = await mermaid.render(id, source);
       surface.innerHTML = svg;
+      // Inline pan/zoom (Cmd/Ctrl+wheel, drag, dblclick reset). The
+      // expanded modal has its own React pan/zoom frame.
+      if (!opts.expanded) attachInlineDiagramPanZoom(surface);
     } catch (err) {
       surface.innerHTML = `<pre class="whitespace-pre-wrap text-xs text-[color:rgb(var(--z-red))]">Mermaid error: ${
         (err as Error).message

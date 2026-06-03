@@ -1782,14 +1782,73 @@ textarea,
   color: rgb(var(--z-fg-1));
 }
 .zen-diagram-surface {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
   width: 100%;
 }
-.zen-diagram-expand {
-  align-self: flex-end;
+/* Inline pan/zoom layer (mermaid + TikZ): the content div fills the
+   viewport so the shared zoom-at-cursor math stays exact, and the
+   transform clips inside the surface instead of reflowing the note. */
+.zen-diagram-inline-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  transform-origin: 0 0;
+}
+.zen-diagram-inline-zoomed {
+  overflow: hidden;
+  cursor: grab;
+  outline: none;
+}
+.zen-diagram-inline-zoomed:active {
+  cursor: grabbing;
+}
+.zen-diagram-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 0.5rem;
+}
+.zen-diagram-zoom-controls {
+  display: inline-flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgb(var(--z-bg-3) / 0.8);
+  border-radius: 9999px;
+  background: rgb(var(--z-bg) / 0.9);
+}
+/* Fallback: a surface without a toolbar gets the controls as an overlay. */
+.zen-diagram-surface > .zen-diagram-zoom-controls {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+}
+.zen-diagram-zoom-controls button {
+  padding: 0.35rem 0.55rem;
+  color: rgb(var(--z-fg-2));
+  font-size: 12px;
+  line-height: 1;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.zen-diagram-zoom-controls button:hover {
+  background: rgb(var(--z-bg-1));
+  color: rgb(var(--z-fg-1));
+}
+.zen-diagram-zoom-controls .zen-diagram-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.zen-diagram-expand {
   border: 1px solid rgb(var(--z-bg-3) / 0.8);
   border-radius: 9999px;
   background: rgb(var(--z-bg) / 0.9);

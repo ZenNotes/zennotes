@@ -11,6 +11,8 @@
  * Every library is loaded once, lazily, and memoized.
  */
 
+import { attachInlineDiagramPanZoom } from "./inline-diagram-pan-zoom";
+
 function prepareDiagramShell(
   el: HTMLElement,
   kind: "tikz" | "jsxgraph" | "function-plot",
@@ -22,12 +24,17 @@ function prepareDiagramShell(
   el.innerHTML = "";
 
   if (!expanded) {
+    // Toolbar row above the diagram: inline zoom controls slot in to the
+    // left of the Expand button (see attachInlineDiagramPanZoom).
+    const toolbar = document.createElement("div");
+    toolbar.className = "zen-diagram-toolbar";
     const button = document.createElement("button");
     button.type = "button";
     button.className = "zen-diagram-expand";
     button.setAttribute("aria-label", "Open diagram in a larger view");
     button.textContent = "Expand";
-    el.appendChild(button);
+    toolbar.appendChild(button);
+    el.appendChild(toolbar);
   }
 
   const surface = document.createElement("div");
@@ -309,6 +316,12 @@ async function renderTikzBlock(el: HTMLElement): Promise<void> {
       // blue get remapped to the active ZenNotes palette, and unfilled text
       // falls back to the current foreground color.
       tintTikzSvg(surface);
+      // Inline pan/zoom (Cmd/Ctrl+wheel, drag, dblclick reset); the
+      // expanded modal has its own React pan/zoom frame. JSXGraph and
+      // function-plot are excluded — both ship native mouse interactions.
+      if (el.dataset.zenDiagramExpanded !== "true") {
+        attachInlineDiagramPanZoom(surface);
+      }
     } else {
       surface.innerHTML = `<pre class="zen-diagram-error">TikZ error: ${escapeHtml(result.error ?? "Unknown error")}</pre>`;
     }
