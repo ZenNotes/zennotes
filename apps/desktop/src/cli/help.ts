@@ -137,7 +137,8 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
   {
     heading: 'VAULT',
     rows: [
-      { name: 'vault info', description: 'Vault path + per-folder counts', flags: '--json' }
+      { name: 'vault info', description: 'Vault path + per-folder counts', flags: '--json' },
+      { name: 'vault list', description: 'Known vaults; the default is marked with *', flags: '--json' }
     ]
   },
   {
@@ -161,6 +162,7 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
 ]
 
 const GLOBAL_FLAGS: CommandRow[] = [
+  { name: '--vault <name|path>', description: 'Target a specific vault (see `zen vault list`)' },
   { name: '--json', description: 'Emit machine-readable JSON output' },
   { name: '--no-color', description: 'Disable ANSI color even on a TTY' },
   { name: '--help, -h', description: 'Show this help' },
@@ -168,7 +170,8 @@ const GLOBAL_FLAGS: CommandRow[] = [
 ]
 
 const ENVIRONMENT: CommandRow[] = [
-  { name: 'ZENNOTES_VAULT', description: 'Override the resolved vault root' },
+  { name: 'ZENNOTES_VAULT', description: 'Default vault root when --vault is not given' },
+  { name: 'ZENNOTES_CONFIG_DIR', description: 'Override the ZenNotes config directory' },
   { name: 'NO_COLOR', description: 'Disable ANSI color (industry standard)' }
 ]
 
@@ -177,6 +180,7 @@ const EXAMPLES: string[] = [
   'pbpaste | zen append "inbox/Daily.md" --body -',
   'zen search "deadline" --json | jq \'.[].path\'',
   'zen list --tag idea --limit 5',
+  'zen list --vault work --limit 5',
   'zen task list --unchecked --tag work',
   'zen open ~/Downloads/notes.md'
 ]

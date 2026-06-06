@@ -181,6 +181,11 @@ export interface VaultTask {
 /* ---------- Path + config helpers ------------------------------------ */
 
 function userDataDir(): string {
+  // Test/automation hook: point the CLI and MCP server at an explicit
+  // config directory instead of the per-OS Electron location.
+  const override = process.env.ZENNOTES_CONFIG_DIR?.trim()
+  if (override) return path.resolve(override)
+
   // Mirror Electron's `app.getPath('userData')` for product name "ZenNotes".
   const home = os.homedir()
   switch (process.platform) {
@@ -193,18 +198,118 @@ function userDataDir(): string {
   }
 }
 
-export async function readVaultRootFromConfig(): Promise<string | null> {
+async function readConfigFile(): Promise<Record<string, unknown> | null> {
   const configPath = path.join(userDataDir(), 'zennotes.config.json')
   try {
     const raw = await fs.readFile(configPath, 'utf8')
-    const parsed = JSON.parse(raw) as { vaultRoot?: unknown }
-    return typeof parsed.vaultRoot === 'string' && parsed.vaultRoot.trim() ? parsed.vaultRoot : null
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
   } catch {
     return null
   }
 }
 
-export async function resolveVaultRoot(): Promise<string> {
+export async function readVaultRootFromConfig(): Promise<string | null> {
+  const parsed = await readConfigFile()
+  const vaultRoot = parsed?.vaultRoot
+  return typeof vaultRoot === 'string' && vaultRoot.trim() ? vaultRoot : null
+}
+
+export interface KnownVault {
+  root: string
+  name: string
+  lastOpenedAt: number | null
+}
+
+/**
+ * Every vault the app knows about: the `localVaults` list it maintains,
+ * plus the active `vaultRoot` if it isn't listed (legacy configs).
+ * Sorted most recently opened first.
+ */
+export async function readKnownVaultsFromConfig(): Promise<KnownVault[]> {
+  const parsed = await readConfigFile()
+  const seen = new Set<string>()
+  const out: KnownVault[] = []
+
+  const rawList = Array.isArray(parsed?.localVaults) ? parsed.localVaults : []
+  for (const entry of rawList) {
+    if (!entry || typeof entry !== 'object') continue
+    const { root, name, lastOpenedAt } = entry as Record<string, unknown>
+    if (typeof root !== 'string' || !root.trim()) continue
+    const resolved = path.resolve(root)
+    if (seen.has(resolved)) continue
+    seen.add(resolved)
+    out.push({
+      root: resolved,
+      name: typeof name === 'string' && name.trim() ? name : path.basename(resolved),
+      lastOpenedAt: typeof lastOpenedAt === 'number' ? lastOpenedAt : null
+    })
+  }
+
+  const active = typeof parsed?.vaultRoot === 'string' ? parsed.vaultRoot.trim() : ''
+  if (active && !seen.has(path.resolve(active))) {
+    const resolved = path.resolve(active)
+    out.push({ root: resolved, name: path.basename(resolved), lastOpenedAt: null })
+  }
+
+  out.sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))
+  return out
+}
+
+function expandHome(target: string): string {
+  if (target === '~') return os.homedir()
+  if (target.startsWith('~/') || target.startsWith(`~${path.sep}`)) {
+    return path.join(os.homedir(), target.slice(2))
+  }
+  return target
+}
+
+/**
+ * Resolve a `--vault` selector to a vault root. Names from the app's
+ * known-vault list match first (case-insensitive); anything else is
+ * treated as a directory path. Errors name the available vaults so a
+ * typo is self-correcting.
+ */
+export async function resolveVaultSelector(selector: string): Promise<string> {
+  const trimmed = selector.trim()
+  const known = await readKnownVaultsFromConfig()
+
+  const byName = known.filter((vault) => vault.name.toLowerCase() === trimmed.toLowerCase())
+  if (byName.length === 1) {
+    const root = byName[0].root
+    try {
+      const stat = await fs.stat(root)
+      if (stat.isDirectory()) return root
+    } catch {
+      // fall through to the descriptive error below
+    }
+    throw new Error(
+      `Vault "${byName[0].name}" points to ${root}, which is missing. Open it in ZenNotes again or pass a path.`
+    )
+  }
+  if (byName.length > 1) {
+    const roots = byName.map((vault) => vault.root).join(', ')
+    throw new Error(`Multiple vaults are named "${trimmed}" (${roots}). Pass the path instead.`)
+  }
+
+  const abs = path.resolve(expandHome(trimmed))
+  try {
+    const stat = await fs.stat(abs)
+    if (stat.isDirectory()) return abs
+  } catch {
+    // not a directory either — build the descriptive error below
+  }
+
+  const names = known.map((vault) => vault.name).join(', ')
+  throw new Error(
+    names
+      ? `No vault named "${trimmed}". Known vaults: ${names}. You can also pass a directory path.`
+      : `No vault named "${trimmed}" and no such directory. Pass a vault directory path.`
+  )
+}
+
+export async function resolveVaultRoot(selector?: string): Promise<string> {
+  if (selector?.trim()) return resolveVaultSelector(selector)
   const fromEnv = process.env.ZENNOTES_VAULT?.trim()
   if (fromEnv) return path.resolve(fromEnv)
   const fromConfig = await readVaultRootFromConfig()

@@ -15,7 +15,7 @@
  */
 
 import { resolveVaultRoot } from '../mcp/vault-ops.js'
-import { parse, type ParsedArgs } from './args.js'
+import { getString, parse, type ParsedArgs } from './args.js'
 import { emitError } from './format.js'
 import { renderHelp, renderVersion } from './help.js'
 import {
@@ -43,7 +43,7 @@ import {
 } from './commands/folders.js'
 import { cmdTaskList, cmdTaskToggle } from './commands/tasks.js'
 import { cmdTagFind, cmdTagList } from './commands/tags.js'
-import { cmdVaultInfo } from './commands/vault.js'
+import { cmdVaultInfo, cmdVaultList } from './commands/vault.js'
 import { cmdCapture } from './commands/capture.js'
 import { cmdOpen } from './commands/open.js'
 import { cmdMcp } from './commands/mcp.js'
@@ -74,9 +74,25 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
 
+  const key = subcommand ? `${command} ${subcommand}` : command
+
   // Every other command needs the vault root. Resolving here lets us
   // emit a single, clean error if the user hasn't configured one.
-  const vault = NO_VAULT_COMMANDS.has(command) ? '' : await resolveVaultRoot()
+  // `--vault <name|path>` selects among the app's known vaults and
+  // always wins (an invalid selector errors loudly, never falls back).
+  // `open` is special: it works without a vault (arbitrary markdown
+  // files), but uses one when available so the vault-relative paths
+  // `zen list` prints open from any directory. `vault list` enumerates
+  // vaults, so it must work before any vault is configured.
+  const vaultSelector = getString(parsed, 'vault')
+  let vault = ''
+  if (vaultSelector) {
+    vault = await resolveVaultRoot(vaultSelector)
+  } else if (command === 'open') {
+    vault = await resolveVaultRoot().catch(() => '')
+  } else if (!NO_VAULT_COMMANDS.has(command) && key !== 'vault list') {
+    vault = await resolveVaultRoot()
+  }
   const dispatch: Record<string, (v: string, args: ParsedArgs) => Promise<void>> = {
     list: cmdList,
     read: cmdRead,
@@ -104,11 +120,11 @@ async function main(argv: string[]): Promise<number> {
     'task list': cmdTaskList,
     'task toggle': cmdTaskToggle,
     'vault info': cmdVaultInfo,
+    'vault list': cmdVaultList,
     capture: cmdCapture,
     open: cmdOpen
   }
 
-  const key = subcommand ? `${command} ${subcommand}` : command
   const handler = dispatch[key]
   if (!handler) {
     emitError(`Unknown command: zen ${key}. Run \`zen --help\` for usage.`)
@@ -126,7 +142,7 @@ function peelSubcommand(
     folder: ['list', 'create', 'rename', 'delete'],
     tag: ['list', 'find'],
     task: ['list', 'toggle'],
-    vault: ['info']
+    vault: ['info', 'list']
   }
   const choices = SUBCOMMANDS[command]
   if (!choices) return { subcommand: null, parsed: parse(rest) }

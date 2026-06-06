@@ -19,6 +19,9 @@ let tmpDir: string
 let mdFile: string
 let markdownFile: string
 let txtFile: string
+let vaultDir: string
+let vaultNoteRel: string
+let vaultSpacedRel: string
 
 beforeAll(async () => {
   tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zen-open-'))
@@ -28,6 +31,13 @@ beforeAll(async () => {
   await fsp.writeFile(mdFile, '# hi\n')
   await fsp.writeFile(markdownFile, '# hello\n')
   await fsp.writeFile(txtFile, 'hi\n')
+
+  vaultDir = path.join(tmpDir, 'vault')
+  vaultNoteRel = 'inbox/Today.md'
+  vaultSpacedRel = 'inbox/demo/03 — Tables and Task Lists.md'
+  await fsp.mkdir(path.join(vaultDir, 'inbox', 'demo'), { recursive: true })
+  await fsp.writeFile(path.join(vaultDir, vaultNoteRel), '# today\n')
+  await fsp.writeFile(path.join(vaultDir, vaultSpacedRel), '# tables\n')
 })
 
 afterAll(async () => {
@@ -86,6 +96,44 @@ describe('cmdOpen', () => {
 
   it('rejects the whole batch if any file is invalid', async () => {
     await expect(cmdOpen('', makeArgs([mdFile, txtFile]))).rejects.toThrow(/markdown/)
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('resolves vault-relative paths like the ones zen list prints', async () => {
+    await cmdOpen(vaultDir, makeArgs([vaultNoteRel]))
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([path.join(vaultDir, vaultNoteRel)])
+  })
+
+  it('still resolves absolute paths when a vault is active', async () => {
+    await cmdOpen(vaultDir, makeArgs([mdFile]))
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([mdFile])
+  })
+
+  it('re-joins an unquoted path that the shell split on spaces', async () => {
+    // `zen open inbox/demo/03 — Tables and Task Lists.md` (no quotes)
+    // arrives as six positionals.
+    const tokens = vaultSpacedRel.split(' ')
+    expect(tokens.length).toBeGreaterThan(1)
+
+    await cmdOpen(vaultDir, makeArgs(tokens))
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([path.join(vaultDir, vaultSpacedRel)])
+  })
+
+  it('reports the failing token and the joined attempt when nothing matches', async () => {
+    await expect(cmdOpen(vaultDir, makeArgs(['inbox/nope', 'really.md']))).rejects.toThrow(
+      /No such file: inbox\/nope[\s\S]*also tried as one path/
+    )
+    expect(spawn).not.toHaveBeenCalled()
+  })
+
+  it('still validates markdown extensions after vault resolution', async () => {
+    await fsp.writeFile(path.join(vaultDir, 'inbox', 'plain.txt'), 'hi\n')
+    await expect(cmdOpen(vaultDir, makeArgs(['inbox/plain.txt']))).rejects.toThrow(/markdown/)
     expect(spawn).not.toHaveBeenCalled()
   })
 })
