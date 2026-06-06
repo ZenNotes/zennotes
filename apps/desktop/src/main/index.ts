@@ -358,10 +358,22 @@ function flushWindowNoteOpens(win: BrowserWindow): void {
   for (const relPath of list) dispatchOpenNoteRequest(win, relPath)
 }
 
+// Full workspace windows created via createWindow. Utility windows —
+// quick capture, floating notes, PDF export, external-file editors —
+// inherit the vault session in windowVaults so they can read the vault,
+// but they must never be picked as the target for opening a note: a
+// Finder "Open in ZenNotes" that lands in the hidden quick-capture
+// panel looks like the app opened a quick note instead of the file.
+const workspaceWindowIds = new Set<number>()
+
+function isWorkspaceWindow(win: BrowserWindow): boolean {
+  return workspaceWindowIds.has(win.id)
+}
+
 function findWindowForVaultRoot(root: string): BrowserWindow | null {
   const target = path.resolve(root)
   for (const win of BrowserWindow.getAllWindows()) {
-    if (win.isDestroyed()) continue
+    if (win.isDestroyed() || !isWorkspaceWindow(win)) continue
     const vault = windowVaults.vaultForWindow(win.id)
     if (vault && path.resolve(vault.root) === target) return win
   }
@@ -870,6 +882,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     }
   })
 
+  workspaceWindowIds.add(win.id)
+
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = win
     mainWindowReadyForAppEvents = false
@@ -915,13 +929,19 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   win.on('close', flushWindowStatePersist)
   win.on('closed', () => {
     if (persistWindowStateTimer) clearTimeout(persistWindowStateTimer)
+    workspaceWindowIds.delete(win.id)
     windowVaults.clearWindow(win.id)
     readyWindowIds.delete(win.id)
     pendingWindowNoteOpens.delete(win.id)
     if (mainWindow === win) {
+      // Promote only a real workspace window — never quick capture,
+      // floating notes, or other utility windows. With none left,
+      // mainWindow stays null and the next open recreates one.
       mainWindow =
-        BrowserWindow.getAllWindows().find((candidate) => candidate.id !== win.id && !candidate.isDestroyed()) ??
-        null
+        BrowserWindow.getAllWindows().find(
+          (candidate) =>
+            candidate.id !== win.id && !candidate.isDestroyed() && isWorkspaceWindow(candidate)
+        ) ?? null
       mainWindowReadyForAppEvents = mainWindow != null
     }
   })
@@ -3097,7 +3117,13 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) void ensureMainWindow()
+    // Count only real workspace windows: a hidden quick-capture panel
+    // (or other utility window) must not stop the dock click from
+    // bringing back a usable window.
+    const hasWorkspaceWindow = BrowserWindow.getAllWindows().some(
+      (win) => !win.isDestroyed() && isWorkspaceWindow(win)
+    )
+    if (!hasWorkspaceWindow) void ensureMainWindow()
   })
 
   app.on('new-window-for-tab', () => {
