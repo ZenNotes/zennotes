@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   absolutePath,
   appendToNote,
+  archiveNote,
   deleteAsset,
   duplicateAsset,
   ensureVaultLayout,
@@ -15,13 +16,16 @@ import {
   listNotes,
   listFolders,
   moveAsset,
+  moveToTrash,
   rememberLocalVault,
   renameAsset,
   renameFolder,
   restoreDeletedAsset,
+  restoreFromTrash,
   searchVaultText,
   searchVaultTextCapabilities,
   setVaultSettings,
+  unarchiveNote,
   writeNote
 } from './vault'
 
@@ -609,5 +613,89 @@ describe('listNotes metadata cache', () => {
     expect(note?.title).toBe('stale')
     expect(note?.tags).toEqual(['fresh'])
     expect(note?.excerpt).toContain('Fresh Title')
+  })
+})
+
+describe('archive / trash round-trips', () => {
+  async function makeVaultWithNestedNote(): Promise<{ root: string }> {
+    const root = await makeTempDir('zennotes-folder-moves-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'inbox', 'demo'), { recursive: true })
+    await writeFile(path.join(root, 'inbox', 'demo', 'Tables.md'), '# Tables\n', 'utf8')
+    return { root }
+  }
+
+  it('archives a nested note into the matching archive subfolder', async () => {
+    const { root } = await makeVaultWithNestedNote()
+
+    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
+
+    expect(archived.path).toBe('archive/demo/Tables.md')
+    await expect(readFile(path.join(root, 'archive', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
+      '# Tables\n'
+    )
+  })
+
+  it('unarchive returns the note to the subfolder it came from', async () => {
+    const { root } = await makeVaultWithNestedNote()
+
+    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
+    const restored = await unarchiveNote(root, archived.path)
+
+    expect(restored.path).toBe('inbox/demo/Tables.md')
+    await expect(readFile(path.join(root, 'inbox', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
+      '# Tables\n'
+    )
+  })
+
+  it('trash and restore preserve the subfolder too', async () => {
+    const { root } = await makeVaultWithNestedNote()
+
+    const trashed = await moveToTrash(root, 'inbox/demo/Tables.md')
+    expect(trashed.path).toBe('trash/demo/Tables.md')
+
+    const restored = await restoreFromTrash(root, trashed.path)
+    expect(restored.path).toBe('inbox/demo/Tables.md')
+  })
+
+  it('top-level notes keep round-tripping at the top level', async () => {
+    const root = await makeTempDir('zennotes-folder-moves-top-')
+    await ensureVaultLayout(root)
+    await writeFile(path.join(root, 'inbox', 'Solo.md'), '# Solo\n', 'utf8')
+
+    const archived = await archiveNote(root, 'inbox/Solo.md')
+    expect(archived.path).toBe('archive/Solo.md')
+
+    const restored = await unarchiveNote(root, archived.path)
+    expect(restored.path).toBe('inbox/Solo.md')
+  })
+
+  it('de-duplicates titles within the destination subfolder', async () => {
+    const { root } = await makeVaultWithNestedNote()
+    await mkdir(path.join(root, 'archive', 'demo'), { recursive: true })
+    await writeFile(path.join(root, 'archive', 'demo', 'Tables.md'), '# Other\n', 'utf8')
+
+    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
+
+    expect(archived.path).toMatch(/^archive\/demo\/Tables .+\.md$/)
+    await expect(readFile(path.join(root, 'archive', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
+      '# Other\n'
+    )
+  })
+
+  it('preserves subfolders in root-primary mode', async () => {
+    const root = await makeTempDir('zennotes-folder-moves-rootmode-')
+    await ensureVaultLayout(root)
+    const settings = await getVaultSettings(root)
+    await setVaultSettings(root, { ...settings, primaryNotesLocation: 'root' })
+    await mkdir(path.join(root, 'projects'), { recursive: true })
+    await writeFile(path.join(root, 'projects', 'Plan.md'), '# Plan\n', 'utf8')
+
+    const archived = await archiveNote(root, 'projects/Plan.md')
+    expect(archived.path).toBe('archive/projects/Plan.md')
+
+    const restored = await unarchiveNote(root, archived.path)
+    expect(restored.path).toBe('projects/Plan.md')
+    await expect(readFile(path.join(root, 'projects', 'Plan.md'), 'utf8')).resolves.toBe('# Plan\n')
   })
 })

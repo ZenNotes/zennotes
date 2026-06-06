@@ -2399,6 +2399,20 @@ export async function renameNote(
   return meta
 }
 
+/**
+ * The note's directory relative to its top-level folder root ('' when
+ * it sits at the folder root). Carried along on archive/trash moves so
+ * the reverse move puts the note back in the subfolder it came from.
+ */
+async function folderSubpathOf(root: string, abs: string): Promise<string> {
+  const folder = folderOf(root, abs)
+  if (!folder) return ''
+  const sourceRoot = await folderRoot(root, folder)
+  const relDir = path.relative(sourceRoot, path.dirname(abs))
+  if (!relDir || relDir.startsWith('..') || path.isAbsolute(relDir)) return ''
+  return toPosix(relDir)
+}
+
 async function moveBetweenFolders(
   root: string,
   rel: string,
@@ -2406,7 +2420,12 @@ async function moveBetweenFolders(
 ): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const filename = path.basename(abs)
-  const destDir = await folderRoot(root, target)
+  // Mirror the source subfolder in the destination: archiving
+  // inbox/demo/X.md lands at archive/demo/X.md, so unarchiving (or
+  // restoring from trash) returns it to demo/ instead of the top level.
+  const subpath = await folderSubpathOf(root, abs)
+  const targetRoot = await folderRoot(root, target)
+  const destDir = subpath ? resolveSafe(targetRoot, subpath) : targetRoot
   await fs.mkdir(destDir, { recursive: true })
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)

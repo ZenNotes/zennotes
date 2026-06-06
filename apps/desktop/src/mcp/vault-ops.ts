@@ -501,6 +501,20 @@ export async function renameNote(root: string, rel: string, nextTitle: string): 
   return await readMeta(root, target, folder)
 }
 
+/**
+ * The note's directory relative to its top-level folder root ('' when
+ * it sits at the folder root). Mirrors main/vault.ts: archive/trash
+ * moves carry the subfolder along so the reverse move restores it.
+ */
+async function folderSubpathOf(root: string, abs: string): Promise<string> {
+  const folder = folderOf(root, abs)
+  if (!folder) return ''
+  const sourceRoot = await folderRoot(root, folder)
+  const relDir = path.relative(sourceRoot, path.dirname(abs))
+  if (!relDir || relDir.startsWith('..') || path.isAbsolute(relDir)) return ''
+  return toPosix(relDir)
+}
+
 async function moveBetweenFolders(
   root: string,
   rel: string,
@@ -508,7 +522,9 @@ async function moveBetweenFolders(
 ): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const filename = path.basename(abs)
-  const destDir = await folderRoot(root, target)
+  const subpath = await folderSubpathOf(root, abs)
+  const targetRoot = await folderRoot(root, target)
+  const destDir = subpath ? resolveSafe(targetRoot, subpath) : targetRoot
   await fs.mkdir(destDir, { recursive: true })
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)

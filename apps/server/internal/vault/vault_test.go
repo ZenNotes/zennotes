@@ -468,3 +468,69 @@ func textSearchMatchesPath(matches []TextSearchMatch, path string) bool {
 // Compile-time assertion that ImportAsset accepts an io.Reader (silences
 // unused-import lints if the asset tests are stripped down later).
 var _ = io.Reader(bytes.NewReader(nil))
+
+func TestArchiveRoundTripPreservesSubfolder(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "demo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "demo", "Tables.md"), []byte("# Tables\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	archived, err := v.ArchiveNote("inbox/demo/Tables.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.Path != "archive/demo/Tables.md" {
+		t.Fatalf("archived path = %q, want archive/demo/Tables.md", archived.Path)
+	}
+
+	restored, err := v.UnarchiveNote(archived.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Path != "inbox/demo/Tables.md" {
+		t.Fatalf("unarchived path = %q, want inbox/demo/Tables.md", restored.Path)
+	}
+}
+
+func TestTrashRoundTripPreservesSubfolder(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.EnsureLayout(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "demo"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "demo", "Tables.md"), []byte("# Tables\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	trashed, err := v.MoveToTrash("inbox/demo/Tables.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trashed.Path != "trash/demo/Tables.md" {
+		t.Fatalf("trashed path = %q, want trash/demo/Tables.md", trashed.Path)
+	}
+
+	restored, err := v.RestoreFromTrash(trashed.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Path != "inbox/demo/Tables.md" {
+		t.Fatalf("restored path = %q, want inbox/demo/Tables.md", restored.Path)
+	}
+}

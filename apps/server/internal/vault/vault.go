@@ -1278,19 +1278,39 @@ func (v *Vault) DeleteNote(rel string) error {
 // --- Trash / Restore / Archive / Unarchive / Duplicate / Move ---
 
 func (v *Vault) MoveToTrash(rel string) (NoteMeta, error) {
-	return v.moveToTop(rel, FolderTrash)
+	return v.moveBetweenFolders(rel, FolderTrash)
 }
 func (v *Vault) RestoreFromTrash(rel string) (NoteMeta, error) {
-	return v.moveToTop(rel, FolderInbox)
+	return v.moveBetweenFolders(rel, FolderInbox)
 }
 func (v *Vault) ArchiveNote(rel string) (NoteMeta, error) {
-	return v.moveToTop(rel, FolderArchive)
+	return v.moveBetweenFolders(rel, FolderArchive)
 }
 func (v *Vault) UnarchiveNote(rel string) (NoteMeta, error) {
-	return v.moveToTop(rel, FolderInbox)
+	return v.moveBetweenFolders(rel, FolderInbox)
 }
 
-func (v *Vault) moveToTop(rel string, target NoteFolder) (NoteMeta, error) {
+// folderSubpathOf returns the note's directory relative to its top-level
+// folder root ("" when it sits at the folder root). Carried along on
+// archive/trash moves so the reverse move restores the subfolder.
+// Mirrors folderSubpathOf in apps/desktop/src/main/vault.ts.
+func (v *Vault) folderSubpathOf(abs string) string {
+	folder, ok := v.folderOf(abs)
+	if !ok {
+		return ""
+	}
+	sourceRoot, err := v.folderRoot(folder)
+	if err != nil {
+		return ""
+	}
+	relDir, err := filepath.Rel(sourceRoot, filepath.Dir(abs))
+	if err != nil || relDir == "." || strings.HasPrefix(relDir, "..") || filepath.IsAbs(relDir) {
+		return ""
+	}
+	return relDir
+}
+
+func (v *Vault) moveBetweenFolders(rel string, target NoteFolder) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	abs, err := SafeJoin(v.root, rel)
@@ -1298,9 +1318,20 @@ func (v *Vault) moveToTop(rel string, target NoteFolder) (NoteMeta, error) {
 		return NoteMeta{}, err
 	}
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	destDir, err := v.folderRoot(target)
+	// Mirror the source subfolder in the destination so a round-trip
+	// (archive → unarchive, trash → restore) puts the note back where
+	// it came from instead of at the folder's top level.
+	subpath := v.folderSubpathOf(abs)
+	targetRoot, err := v.folderRoot(target)
 	if err != nil {
 		return NoteMeta{}, err
+	}
+	destDir := targetRoot
+	if subpath != "" {
+		destDir, err = SafeJoin(targetRoot, subpath)
+		if err != nil {
+			return NoteMeta{}, err
+		}
 	}
 	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
 		return NoteMeta{}, err
