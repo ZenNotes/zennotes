@@ -213,6 +213,8 @@ export function SettingsModal(): JSX.Element {
   const setRipgrepBinaryPath = useStore((s) => s.setRipgrepBinaryPath)
   const fzfBinaryPath = useStore((s) => s.fzfBinaryPath)
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
+  const calendarEnabled = useStore((s) => s.calendarEnabled)
+  const setCalendarEnabled = useStore((s) => s.setCalendarEnabled)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
@@ -1379,6 +1381,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['weekly notes', 'this week']
         },
         {
+          id: 'calendar-enabled',
+          title: 'Enable calendar',
+          description: 'Shows a month grid in the sidebar for navigating daily and weekly notes.',
+          keywords: ['calendar', 'sidebar', 'daily notes', 'weekly notes']
+        },
+        {
           id: 'inbox-label',
           title: 'Inbox label',
           description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
@@ -1713,6 +1721,19 @@ export function SettingsModal(): JSX.Element {
                 Open this week
               </button>
             </div>
+          </Section>
+
+          <Section
+            title="Calendar"
+            description="A calendar panel in the sidebar for navigating daily and weekly notes."
+          >
+            <ToggleRow
+              label="Enable calendar"
+              description="Shows a month grid in the sidebar for navigating daily and weekly notes."
+              value={calendarEnabled}
+              settingId="calendar-enabled"
+              onChange={setCalendarEnabled}
+            />
           </Section>
 
           <Section

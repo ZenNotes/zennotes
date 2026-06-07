@@ -381,8 +381,9 @@ export function Sidebar(): JSX.Element {
   const setTagsCollapsed = useStore((s) => s.setTagsCollapsed);
   const calendarCollapsed = useStore((s) => s.calendarCollapsed);
   const setCalendarCollapsed = useStore((s) => s.setCalendarCollapsed);
+  const calendarEnabled = useStore((s) => s.calendarEnabled);
   const { dailyNotes, weeklyNotes } = normalizeVaultSettings(vaultSettings);
-  const calendarVisible = dailyNotes.enabled || weeklyNotes.enabled;
+  const calendarVisible = calendarEnabled && (dailyNotes.enabled || weeklyNotes.enabled);
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons);
   const createFolderAction = useStore((s) => s.createFolder);
   const renameFolderAction = useStore((s) => s.renameFolder);

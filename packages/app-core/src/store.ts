@@ -331,6 +331,8 @@ interface Prefs {
   tagsCollapsed: boolean
   /** Sidebar Calendar section collapsed. Persisted. */
   calendarCollapsed: boolean
+  /** Show the calendar panel in the sidebar. Persisted. */
+  calendarEnabled: boolean
   /** Last selected view inside the Tasks tab. List is the v1 default. */
   tasksViewMode: TasksViewMode
   /** Column source used when the Tasks Kanban view is active. */
@@ -427,6 +429,7 @@ const DEFAULT_PREFS: Prefs = {
   contentAlign: 'center',
   tagsCollapsed: false,
   calendarCollapsed: false,
+  calendarEnabled: true,
   tasksViewMode: 'list',
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
@@ -613,6 +616,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.calendarCollapsed === 'boolean'
         ? p.calendarCollapsed
         : DEFAULT_PREFS.calendarCollapsed,
+    calendarEnabled:
+      typeof p.calendarEnabled === 'boolean' ? p.calendarEnabled : DEFAULT_PREFS.calendarEnabled,
     tasksViewMode:
       p.tasksViewMode && VALID_TASKS_VIEW_MODES.includes(p.tasksViewMode)
         ? p.tasksViewMode
@@ -1030,6 +1035,7 @@ function collectPrefs(s: {
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
   calendarCollapsed: boolean
+  calendarEnabled: boolean
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
@@ -1083,6 +1089,7 @@ function collectPrefs(s: {
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
     calendarCollapsed: s.calendarCollapsed,
+    calendarEnabled: s.calendarEnabled,
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
@@ -1464,6 +1471,8 @@ interface Store {
   tagsCollapsed: boolean
   /** Sidebar Calendar section collapsed. Persisted. */
   calendarCollapsed: boolean
+  /** Show the calendar panel in the sidebar. Persisted. */
+  calendarEnabled: boolean
 
   /** Vault-wide Tasks view state. Populated lazily when the view is opened
    *  and kept incrementally fresh via the chokidar watcher while the view
@@ -1716,6 +1725,7 @@ interface Store {
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
   setCalendarCollapsed: (collapsed: boolean) => void
+  setCalendarEnabled: (enabled: boolean) => void
   openDailyNoteForDate: (date: Date) => Promise<void>
   openWeeklyNoteForDate: (date: Date) => Promise<void>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
@@ -2553,6 +2563,7 @@ export const useStore = create<Store>((set, get) => {
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
   calendarCollapsed: loadPrefs().calendarCollapsed,
+  calendarEnabled: loadPrefs().calendarEnabled,
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
@@ -4238,6 +4249,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setCalendarCollapsed: (collapsed) => {
     set({ calendarCollapsed: collapsed })
+    savePrefs(collectPrefs(get()))
+  },
+  setCalendarEnabled: (enabled) => {
+    set({ calendarEnabled: enabled })
     savePrefs(collectPrefs(get()))
   },
   completeOnboarding: () => {
