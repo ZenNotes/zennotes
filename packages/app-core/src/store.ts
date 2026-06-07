@@ -329,6 +329,8 @@ interface Prefs {
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
+  /** Sidebar Calendar section collapsed. Persisted. */
+  calendarCollapsed: boolean
   /** Last selected view inside the Tasks tab. List is the v1 default. */
   tasksViewMode: TasksViewMode
   /** Column source used when the Tasks Kanban view is active. */
@@ -424,6 +426,7 @@ const DEFAULT_PREFS: Prefs = {
   noteRefs: {},
   contentAlign: 'center',
   tagsCollapsed: false,
+  calendarCollapsed: false,
   tasksViewMode: 'list',
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
@@ -606,6 +609,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.contentAlign,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
+    calendarCollapsed:
+      typeof p.calendarCollapsed === 'boolean'
+        ? p.calendarCollapsed
+        : DEFAULT_PREFS.calendarCollapsed,
     tasksViewMode:
       p.tasksViewMode && VALID_TASKS_VIEW_MODES.includes(p.tasksViewMode)
         ? p.tasksViewMode
@@ -1022,6 +1029,7 @@ function collectPrefs(s: {
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
+  calendarCollapsed: boolean
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
@@ -1074,6 +1082,7 @@ function collectPrefs(s: {
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
+    calendarCollapsed: s.calendarCollapsed,
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
@@ -1453,6 +1462,8 @@ interface Store {
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
   tagsCollapsed: boolean
+  /** Sidebar Calendar section collapsed. Persisted. */
+  calendarCollapsed: boolean
 
   /** Vault-wide Tasks view state. Populated lazily when the view is opened
    *  and kept incrementally fresh via the chokidar watcher while the view
@@ -1704,6 +1715,9 @@ interface Store {
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
+  setCalendarCollapsed: (collapsed: boolean) => void
+  openDailyNoteForDate: (date: Date) => Promise<void>
+  openWeeklyNoteForDate: (date: Date) => Promise<void>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
   /** Re-open the first-run onboarding wizard. Persists. */
@@ -2538,6 +2552,7 @@ export const useStore = create<Store>((set, get) => {
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
+  calendarCollapsed: loadPrefs().calendarCollapsed,
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
@@ -4003,11 +4018,11 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  openTodayDailyNote: async () => {
+  openDailyNoteForDate: async (date) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.dailyNotes.enabled) return
-    const title = noteTitleForDate()
+    const title = noteTitleForDate(date)
     const subpath = normalizeDailyNotesDirectory(settings.dailyNotes.directory)
     const existing = state.notes.find(
       (note) =>
@@ -4028,11 +4043,15 @@ export const useStore = create<Store>((set, get) => {
     await get().createAndOpen('inbox', subpath, { title })
   },
 
-  openThisWeekWeeklyNote: async () => {
+  openTodayDailyNote: async () => {
+    await get().openDailyNoteForDate(new Date())
+  },
+
+  openWeeklyNoteForDate: async (date) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.weeklyNotes.enabled) return
-    const title = weeklyNoteTitle()
+    const title = weeklyNoteTitle(date)
     const subpath = normalizeWeeklyNotesDirectory(settings.weeklyNotes.directory)
     const existing = state.notes.find(
       (note) =>
@@ -4051,6 +4070,10 @@ export const useStore = create<Store>((set, get) => {
       return
     }
     await get().createAndOpen('inbox', subpath, { title })
+  },
+
+  openThisWeekWeeklyNote: async () => {
+    await get().openWeeklyNoteForDate(new Date())
   },
 
   setTemplatePaletteOpen: (open) =>
@@ -4211,6 +4234,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setTagsCollapsed: (collapsed) => {
     set({ tagsCollapsed: collapsed })
+    savePrefs(collectPrefs(get()))
+  },
+  setCalendarCollapsed: (collapsed) => {
+    set({ calendarCollapsed: collapsed })
     savePrefs(collectPrefs(get()))
   },
   completeOnboarding: () => {

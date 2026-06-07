@@ -38,6 +38,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
+import { DailyNotesCalendar } from './DailyNotesCalendar'
 import { promptApp } from '../lib/prompt-requests'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
@@ -378,6 +379,10 @@ export function Sidebar(): JSX.Element {
   const deleteTag = useStore((s) => s.deleteTag);
   const tagsCollapsed = useStore((s) => s.tagsCollapsed);
   const setTagsCollapsed = useStore((s) => s.setTagsCollapsed);
+  const calendarCollapsed = useStore((s) => s.calendarCollapsed);
+  const setCalendarCollapsed = useStore((s) => s.setCalendarCollapsed);
+  const { dailyNotes, weeklyNotes } = normalizeVaultSettings(vaultSettings);
+  const calendarVisible = dailyNotes.enabled || weeklyNotes.enabled;
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons);
   const createFolderAction = useStore((s) => s.createFolder);
   const renameFolderAction = useStore((s) => s.renameFolder);
@@ -2739,6 +2744,33 @@ export function Sidebar(): JSX.Element {
               groupByKind={groupByKind}
               showSidebarChevrons={showSidebarChevrons}
             />
+          )}
+
+          {/* Daily Notes Calendar */}
+          {calendarVisible && (
+            <div className="mt-5">
+              <button
+                type="button"
+                onClick={() => setCalendarCollapsed(!calendarCollapsed)}
+                title={calendarCollapsed ? "Show calendar" : "Hide calendar"}
+                aria-expanded={!calendarCollapsed}
+                className="flex w-full items-center gap-1 rounded px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
+              >
+                {showSidebarChevrons && (
+                  <span
+                    aria-hidden
+                    className="inline-block transition-transform"
+                    style={{
+                      transform: calendarCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                    }}
+                  >
+                    ▾
+                  </span>
+                )}
+                <span>Calendar</span>
+              </button>
+              {!calendarCollapsed && <DailyNotesCalendar />}
+            </div>
           )}
 
           {/* Tag pills */}
