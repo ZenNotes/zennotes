@@ -1,0 +1,55 @@
+name: AUR package check
+
+# Verifies packaging/aur/PKGBUILD actually builds, in a real Arch container —
+# so the AUR package can be validated without owning a Linux machine.
+on:
+  push:
+    paths:
+      - "packaging/aur/**"
+      - ".github/workflows/aur-check.yml"
+  pull_request:
+    paths:
+      - "packaging/aur/**"
+  workflow_dispatch:
+
+jobs:
+  makepkg:
+    name: makepkg (Arch)
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      # base-devel has makepkg but not git; install it before checkout.
+      - name: Install tooling
+        run: pacman -Syu --noconfirm git sudo namcap
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build the package
+        run: |
+          set -euxo pipefail
+          # makepkg refuses to run as root — build as an unprivileged user with
+          # passwordless sudo so `-s` can install the declared dependencies.
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          install -d -o builder -g builder /tmp/build
+          cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO /tmp/build/
+          chown -R builder:builder /tmp/build
+          cd /tmp/build
+          sudo -u builder makepkg -s --noconfirm --noprogressbar
+          ls -la ./*.pkg.tar.*
+
+      - name: Lint (non-blocking)
+        run: |
+          cd /tmp/build
+          namcap PKGBUILD || true
+          namcap ./*.pkg.tar.* || true
+
+      - name: Verify .SRCINFO is in sync
+        run: |
+          cd /tmp/build
+          sudo -u builder makepkg --printsrcinfo > .SRCINFO.generated
+          if ! diff -u .SRCINFO .SRCINFO.generated; then
+            echo "::error::.SRCINFO is out of date — run 'makepkg --printsrcinfo > .SRCINFO'." >&2
+            exit 1
+          fi

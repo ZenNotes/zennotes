@@ -16,7 +16,7 @@
 
 pkgname=zennotes-bin
 _appname=ZenNotes
-pkgver=2.0.9
+pkgver=2.1.0
 pkgrel=1
 pkgdesc="Keyboard-first, local-first Markdown notes with vim motions and live preview"
 arch=('x86_64')
@@ -28,8 +28,8 @@ provides=('zennotes')
 conflicts=('zennotes')
 options=('!strip')
 source=("${_appname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/${_appname}-${pkgver}-linux-x86_64.AppImage")
-# sha256 of the v2.0.9 x86_64 AppImage. Regenerate with `updpkgsums` on each bump.
-sha256sums=('537f0281b115c5f77b86ffc0a3becde6472aeea855677cfefec3ca323b7e3d58')
+# sha256 of the v2.1.0 x86_64 AppImage. Regenerate with `updpkgsums` on each bump.
+sha256sums=('8c6312a2ff122387773e8003b9d86d1b8d27d6b71292dd4ad496448ef5bd4f0d')
 
 package() {
   cd "${srcdir}"
