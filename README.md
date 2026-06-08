@@ -13,10 +13,61 @@ ZenNotes is a keyboard-first Markdown notes app with a shared product core and m
 ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, daily notes, and MCP integration on top of the files you already own.
 On macOS, the first-party `zen` CLI also powers launcher workflows such as the Raycast extension.
 
-Download the latest desktop build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest).  
+Grab the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest) — see [Install](#install) below.  
 Website: [zennotes.org](https://zennotes.org)
 
 Detailed in-repo documentation lives under [docs/README.md](docs/README.md).
+
+## Install
+
+All desktop installers are attached to each [GitHub Release](https://github.com/ZenNotes/zennotes/releases/latest). The app auto-updates, so you only download once. (Replace `<version>` with the current release, e.g. `2.1.0`.)
+
+### macOS
+
+Download the `.dmg` for your chip, open it, and drag **ZenNotes** to Applications. Builds are signed and notarized.
+
+- Apple Silicon: `ZenNotes-<version>-mac-arm64.dmg`
+- Intel: `ZenNotes-<version>-mac-x64.dmg`
+
+### Windows
+
+Download and run `ZenNotes-<version>-win-x64.exe`.
+
+### Linux
+
+Pick whatever suits your distro:
+
+- **Arch / CachyOS / Manjaro — AUR (recommended):**
+  ```sh
+  yay -S zennotes-bin     # or: paru -S zennotes-bin
+  ```
+  Installs cleanly without `libfuse2`.
+- **Arch — native package:**
+  ```sh
+  sudo pacman -U ZenNotes-<version>-linux-x86_64.pacman
+  ```
+- **Debian / Ubuntu:**
+  ```sh
+  sudo apt install ./ZenNotes-<version>-linux-amd64.deb
+  ```
+- **Any distro — AppImage:**
+  ```sh
+  chmod +x ZenNotes-<version>-linux-x86_64.AppImage
+  ./ZenNotes-<version>-linux-x86_64.AppImage
+  ```
+  AppImages need **FUSE 2**. On distros that ship only FUSE 3 (Arch, CachyOS, Fedora), either install it (`sudo pacman -S fuse2`, `sudo dnf install fuse`) or run without FUSE:
+  ```sh
+  ./ZenNotes-<version>-linux-x86_64.AppImage --appimage-extract-and-run
+  ```
+  (Or just use the AUR / `.pacman` / `.deb` package, which sidestep this entirely.)
+
+### `zen` CLI
+
+The desktop app installs a `zen` command-line companion from **Settings → CLI** — list, read, search, capture, edit, archive/trash notes, plus tasks, folders, and MCP. On macOS it can also install the Raycast extension locally.
+
+### Self-hosted web app
+
+ZenNotes also runs as a self-hosted web app backed by a Go server. See [Local development](#local-development) to run the web client and server.
 
 ## What ZenNotes is for
 
