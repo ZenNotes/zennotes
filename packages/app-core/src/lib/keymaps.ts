@@ -42,6 +42,7 @@ export type KeymapId =
   | "vim.leaderInsertTemplate"
   | "vim.leaderDailyNote"
   | "vim.leaderWeeklyNote"
+  | "vim.leaderCalendar"
   | "vim.panePrefix"
   | "vim.paneFocusLeft"
   | "vim.paneFocusDown"
@@ -419,6 +420,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader: this week's note",
     description: "Open or create this week's weekly note.",
     defaultBinding: "w",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCalendar",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: toggle calendar",
+    description: "Toggle the calendar panel for the active daily or weekly note.",
+    defaultBinding: "c",
     vimOnly: true,
     maxTokens: 1,
   },

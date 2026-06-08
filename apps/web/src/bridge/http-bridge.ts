@@ -926,6 +926,15 @@ async function setQuickCaptureHotkey(
   }
 }
 
+async function getQuickCapturePinned(): Promise<boolean> {
+  return false
+}
+
+async function setQuickCapturePinned(_pinned: boolean): Promise<boolean> {
+  // No native always-on-top window in the web build.
+  return false
+}
+
 async function renderTikz(_source: string): Promise<TikzRenderResponse> {
   return { ok: false, error: 'TikZ rendering is not available in the web build yet.' }
 }
@@ -1151,6 +1160,8 @@ export const httpBridge: ZenBridge = {
   toggleQuickCapture,
   getQuickCaptureHotkey,
   setQuickCaptureHotkey,
+  getQuickCapturePinned,
+  setQuickCapturePinned,
   renderTikz,
 
   mcpGetRuntime,

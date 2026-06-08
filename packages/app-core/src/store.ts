@@ -211,19 +211,26 @@ function isDeletedAssetRecord(value: unknown): value is DeletedAsset {
   )
 }
 
+/** Which weekday the calendar grid starts on. `locale` derives it from the
+ *  user's locale (falling back to Monday). */
+export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
+const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
+
 /** The editor-pane right-side panels whose width the user can drag-resize. */
-export type RightPanelId = 'outline' | 'connections' | 'comments'
+export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
+  calendar: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
 export const MAX_RIGHT_PANEL_WIDTH = 640
 export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
-  comments: 360
+  comments: 360,
+  calendar: 280
 }
 
 function clampPanelWidth(px: number): number {
@@ -234,11 +241,19 @@ function normalizePanelWidths(value: unknown): PanelWidths {
   const v = (value ?? {}) as Partial<Record<RightPanelId, unknown>>
   const pick = (key: RightPanelId): number =>
     typeof v[key] === 'number' ? clampPanelWidth(v[key] as number) : DEFAULT_PANEL_WIDTHS[key]
-  return { outline: pick('outline'), connections: pick('connections'), comments: pick('comments') }
+  return {
+    outline: pick('outline'),
+    connections: pick('connections'),
+    comments: pick('comments'),
+    calendar: pick('calendar')
+  }
 }
 
 interface Prefs {
   vimMode: boolean
+  /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
+   *  Empty disables it. */
+  vimInsertEscape: string
   keymapOverrides: KeymapOverrides
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
@@ -329,6 +344,13 @@ interface Prefs {
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
+  /** Auto-show the calendar panel when the active note is a daily or
+   *  weekly note. Persisted. */
+  autoCalendarPanel: boolean
+  /** Which weekday the calendar grid starts on. Persisted. */
+  calendarWeekStart: CalendarWeekStart
+  /** Show the ISO week-number column in the calendar. Persisted. */
+  calendarShowWeekNumbers: boolean
   /** Last selected view inside the Tasks tab. List is the v1 default. */
   tasksViewMode: TasksViewMode
   /** Column source used when the Tasks Kanban view is active. */
@@ -376,6 +398,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
+  vimInsertEscape: '',
   keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
@@ -424,6 +447,9 @@ const DEFAULT_PREFS: Prefs = {
   noteRefs: {},
   contentAlign: 'center',
   tagsCollapsed: false,
+  autoCalendarPanel: true,
+  calendarWeekStart: 'monday',
+  calendarShowWeekNumbers: true,
   tasksViewMode: 'list',
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
@@ -446,6 +472,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       : DEFAULT_PREFS.themeId
   return {
     vimMode: typeof p.vimMode === 'boolean' ? p.vimMode : DEFAULT_PREFS.vimMode,
+    vimInsertEscape:
+      typeof p.vimInsertEscape === 'string'
+        ? p.vimInsertEscape.trim().slice(0, 5)
+        : DEFAULT_PREFS.vimInsertEscape,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
     whichKeyHints:
       typeof p.whichKeyHints === 'boolean'
@@ -606,6 +636,18 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.contentAlign,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
+    autoCalendarPanel:
+      typeof p.autoCalendarPanel === 'boolean'
+        ? p.autoCalendarPanel
+        : DEFAULT_PREFS.autoCalendarPanel,
+    calendarWeekStart:
+      p.calendarWeekStart && VALID_CALENDAR_WEEK_STARTS.includes(p.calendarWeekStart)
+        ? p.calendarWeekStart
+        : DEFAULT_PREFS.calendarWeekStart,
+    calendarShowWeekNumbers:
+      typeof p.calendarShowWeekNumbers === 'boolean'
+        ? p.calendarShowWeekNumbers
+        : DEFAULT_PREFS.calendarShowWeekNumbers,
     tasksViewMode:
       p.tasksViewMode && VALID_TASKS_VIEW_MODES.includes(p.tasksViewMode)
         ? p.tasksViewMode
@@ -977,6 +1019,7 @@ async function rewriteTagAcrossVault(
 /** Snapshot prefs-shaped fields out of the live store. */
 function collectPrefs(s: {
   vimMode: boolean
+  vimInsertEscape: string
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1022,6 +1065,9 @@ function collectPrefs(s: {
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
+  autoCalendarPanel: boolean
+  calendarWeekStart: CalendarWeekStart
+  calendarShowWeekNumbers: boolean
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
@@ -1029,6 +1075,7 @@ function collectPrefs(s: {
 }): Prefs {
   return {
     vimMode: s.vimMode,
+    vimInsertEscape: s.vimInsertEscape,
     keymapOverrides: s.keymapOverrides,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
@@ -1074,6 +1121,9 @@ function collectPrefs(s: {
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
+    autoCalendarPanel: s.autoCalendarPanel,
+    calendarWeekStart: s.calendarWeekStart,
+    calendarShowWeekNumbers: s.calendarShowWeekNumbers,
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
@@ -1373,6 +1423,8 @@ interface Store {
   zenMode: boolean
   zenRestoreState: ZenRestoreState | null
   vimMode: boolean
+  /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
+  vimInsertEscape: string
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1453,6 +1505,13 @@ interface Store {
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
   tagsCollapsed: boolean
+  /** Auto-show the calendar panel when the active note is a daily or
+   *  weekly note. Persisted. */
+  autoCalendarPanel: boolean
+  /** Which weekday the calendar grid starts on. Persisted. */
+  calendarWeekStart: CalendarWeekStart
+  /** Show the ISO week-number column in the calendar. Persisted. */
+  calendarShowWeekNumbers: boolean
 
   /** Vault-wide Tasks view state. Populated lazily when the view is opened
    *  and kept incrementally fresh via the chokidar watcher while the view
@@ -1621,6 +1680,7 @@ interface Store {
   toggleNoteList: () => void
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
+  setVimInsertEscape: (sequence: string) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
@@ -1704,6 +1764,11 @@ interface Store {
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
+  setAutoCalendarPanel: (enabled: boolean) => void
+  setCalendarWeekStart: (start: CalendarWeekStart) => void
+  setCalendarShowWeekNumbers: (show: boolean) => void
+  openDailyNoteForDate: (date: Date) => Promise<void>
+  openWeeklyNoteForDate: (date: Date) => Promise<void>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
   /** Re-open the first-run onboarding wizard. Persists. */
@@ -2492,6 +2557,7 @@ export const useStore = create<Store>((set, get) => {
   zenMode: false,
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
+  vimInsertEscape: loadPrefs().vimInsertEscape,
   keymapOverrides: loadPrefs().keymapOverrides,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
@@ -2538,6 +2604,9 @@ export const useStore = create<Store>((set, get) => {
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
+  autoCalendarPanel: loadPrefs().autoCalendarPanel,
+  calendarWeekStart: loadPrefs().calendarWeekStart,
+  calendarShowWeekNumbers: loadPrefs().calendarShowWeekNumbers,
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
@@ -3686,6 +3755,10 @@ export const useStore = create<Store>((set, get) => {
     set({ vimMode: on })
     savePrefs(collectPrefs(get()))
   },
+  setVimInsertEscape: (sequence) => {
+    set({ vimInsertEscape: sequence.trim().slice(0, 5) })
+    savePrefs(collectPrefs(get()))
+  },
   setKeymapBinding: (id, binding) => {
     set((s) => {
       const nextOverrides = { ...s.keymapOverrides }
@@ -4003,11 +4076,11 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  openTodayDailyNote: async () => {
+  openDailyNoteForDate: async (date) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.dailyNotes.enabled) return
-    const title = noteTitleForDate()
+    const title = noteTitleForDate(date)
     const subpath = normalizeDailyNotesDirectory(settings.dailyNotes.directory)
     const existing = state.notes.find(
       (note) =>
@@ -4028,11 +4101,15 @@ export const useStore = create<Store>((set, get) => {
     await get().createAndOpen('inbox', subpath, { title })
   },
 
-  openThisWeekWeeklyNote: async () => {
+  openTodayDailyNote: async () => {
+    await get().openDailyNoteForDate(new Date())
+  },
+
+  openWeeklyNoteForDate: async (date) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.weeklyNotes.enabled) return
-    const title = weeklyNoteTitle()
+    const title = weeklyNoteTitle(date)
     const subpath = normalizeWeeklyNotesDirectory(settings.weeklyNotes.directory)
     const existing = state.notes.find(
       (note) =>
@@ -4051,6 +4128,10 @@ export const useStore = create<Store>((set, get) => {
       return
     }
     await get().createAndOpen('inbox', subpath, { title })
+  },
+
+  openThisWeekWeeklyNote: async () => {
+    await get().openWeeklyNoteForDate(new Date())
   },
 
   setTemplatePaletteOpen: (open) =>
@@ -4211,6 +4292,18 @@ export const useStore = create<Store>((set, get) => {
   },
   setTagsCollapsed: (collapsed) => {
     set({ tagsCollapsed: collapsed })
+    savePrefs(collectPrefs(get()))
+  },
+  setAutoCalendarPanel: (enabled) => {
+    set({ autoCalendarPanel: enabled })
+    savePrefs(collectPrefs(get()))
+  },
+  setCalendarWeekStart: (start) => {
+    set({ calendarWeekStart: start })
+    savePrefs(collectPrefs(get()))
+  },
+  setCalendarShowWeekNumbers: (show) => {
+    set({ calendarShowWeekNumbers: show })
     savePrefs(collectPrefs(get()))
   },
   completeOnboarding: () => {

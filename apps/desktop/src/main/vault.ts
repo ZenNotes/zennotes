@@ -208,6 +208,9 @@ export interface PersistedConfig {
   /** Electron accelerator string for the system-wide quick capture hotkey.
    *  Empty string disables the global shortcut. */
   quickCaptureHotkey: string
+  /** When true, the quick-capture window stays pinned on top of all windows
+   *  and does not auto-hide when it loses focus. */
+  quickCapturePinned: boolean
 }
 
 export const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'
@@ -221,7 +224,8 @@ const DEFAULT_CONFIG: PersistedConfig = {
   remoteWorkspaceProfiles: [],
   windowState: null,
   zoomFactor: 1,
-  quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY
+  quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY,
+  quickCapturePinned: false
 }
 
 let configWriteQueue = Promise.resolve()
@@ -340,6 +344,7 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     typeof candidate.quickCaptureHotkey === 'string'
       ? candidate.quickCaptureHotkey.trim()
       : DEFAULT_QUICK_CAPTURE_HOTKEY
+  const quickCapturePinned = candidate.quickCapturePinned === true
   return {
     workspaceMode: candidate.workspaceMode === 'remote' ? 'remote' : 'local',
     vaultRoot: typeof candidate.vaultRoot === 'string' ? candidate.vaultRoot : null,
@@ -355,7 +360,8 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     remoteWorkspaceProfiles,
     windowState: normalizeWindowState(candidate.windowState),
     zoomFactor,
-    quickCaptureHotkey
+    quickCaptureHotkey,
+    quickCapturePinned
   }
 }
 

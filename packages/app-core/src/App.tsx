@@ -8,7 +8,7 @@ import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
-import { matchesShortcut } from './lib/keymaps'
+import { matchesShortcut, matchesSequenceToken } from './lib/keymaps'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
@@ -537,6 +537,14 @@ function App(): JSX.Element {
         return
       }
       if (matchesShortcut(e, overrides, 'global.closeActiveTab')) {
+        // On Linux/Windows `Mod+W` (close tab) resolves to Ctrl+W, which also
+        // is the vim pane-focus prefix (`<C-w>hjkl`) and insert-mode word
+        // delete. When vim mode is on, reserve that key for vim — VimNav's
+        // capture-phase handler arms the prefix; close tabs via :q / :bd / the
+        // command palette. On macOS close-tab is Cmd+W, so this never triggers.
+        if (state.vimMode && matchesSequenceToken(e, overrides, 'vim.panePrefix')) {
+          return
+        }
         e.preventDefault()
         void state.closeActiveNote()
         return

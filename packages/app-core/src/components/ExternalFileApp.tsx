@@ -17,6 +17,7 @@ import { Vim, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { searchKeymap } from '@codemirror/search'
@@ -217,7 +218,8 @@ export function ExternalFileApp(): JSX.Element {
     }
     externalFileHandlers.close = (): void => window.zen.windowClose()
     registerExternalFileVimCommands()
-  }, [persist, currentBody])
+    applyVimInsertEscape(prefs.vimInsertEscape)
+  }, [persist, currentBody, prefs.vimInsertEscape])
 
   const title = useMemo(() => (content ? titleFromName(content.name) : 'Untitled'), [content])
 

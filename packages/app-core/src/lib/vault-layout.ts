@@ -8,7 +8,7 @@ import {
   type NoteMeta,
   type VaultSettings
 } from '@shared/ipc'
-import { getISOWeek, getISOWeekYear } from './template-render'
+import { getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
 
 const SYSTEM_FOLDERS = new Set<NoteFolder>(['inbox', 'quick', 'archive', 'trash'])
 const RESERVED_ROOT_NAMES = new Set<string>([
@@ -211,6 +211,47 @@ export function noteTitleForDate(date = new Date()): string {
 
 export function weeklyNoteTitle(date = new Date()): string {
   return `${getISOWeekYear(date)}-W${pad(getISOWeek(date))}`
+}
+
+const DAILY_TITLE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+const WEEKLY_TITLE_RE = /^(\d{4})-W(\d{2})$/
+
+export interface DateNoteInfo {
+  kind: 'daily' | 'weekly'
+  /** Daily: that calendar day. Weekly: the Monday of that ISO week. */
+  date: Date
+}
+
+/**
+ * Classify a note as a daily or weekly note, or `null` if it is neither.
+ * A note qualifies only when its title matches the date/week format, it lives
+ * in the configured daily/weekly directory, and that feature is enabled — so a
+ * stray note titled `2026-06-08` outside the daily folder is not treated as one.
+ */
+export function classifyDateNote(
+  note: Pick<NoteMeta, 'folder' | 'path' | 'title'>,
+  settings: VaultSettings | null | undefined
+): DateNoteInfo | null {
+  const normalized = normalizeVaultSettings(settings)
+  const subpath = noteFolderSubpath(note, settings)
+
+  if (normalized.dailyNotes.enabled && subpath === normalized.dailyNotes.directory) {
+    const m = DAILY_TITLE_RE.exec(note.title)
+    if (m) {
+      const [, y, mo, d] = m
+      return { kind: 'daily', date: new Date(Number(y), Number(mo) - 1, Number(d)) }
+    }
+  }
+
+  if (normalized.weeklyNotes.enabled && subpath === normalized.weeklyNotes.directory) {
+    const m = WEEKLY_TITLE_RE.exec(note.title)
+    if (m) {
+      const [, y, w] = m
+      return { kind: 'weekly', date: mondayOfISOWeek(Number(y), Number(w)) }
+    }
+  }
+
+  return null
 }
 
 export function folderForVaultRelativePath(

@@ -193,6 +193,9 @@ export interface ZenBridge {
   toggleQuickCapture(): Promise<void>
   getQuickCaptureHotkey(): Promise<string>
   setQuickCaptureHotkey(hotkey: string): Promise<{ ok: boolean; hotkey: string; error?: string }>
+  /** Whether the quick-capture window stays pinned on top (won't hide on blur). */
+  getQuickCapturePinned(): Promise<boolean>
+  setQuickCapturePinned(pinned: boolean): Promise<boolean>
   renderTikz(source: string): Promise<TikzRenderResponse>
 
   mcpGetRuntime(): Promise<McpServerRuntime>

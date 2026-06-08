@@ -29,6 +29,7 @@ import { Vim, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
@@ -88,6 +89,7 @@ export const paperHighlight = HighlightStyle.define([
 
 export interface FloatingPrefs {
   vimMode: boolean
+  vimInsertEscape: string
   livePreview: boolean
   themeId: string
   themeFamily: ThemeFamily
@@ -104,6 +106,7 @@ export interface FloatingPrefs {
 export function loadFloatingPrefs(): FloatingPrefs {
   const fallback: FloatingPrefs = {
     vimMode: true,
+    vimInsertEscape: '',
     livePreview: true,
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
@@ -385,7 +388,8 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
       window.zen.windowClose()
     }
     registerFloatingVimCommands()
-  }, [persist])
+    applyVimInsertEscape(prefs.vimInsertEscape)
+  }, [persist, prefs.vimInsertEscape])
 
   const title = useMemo(() => {
     if (content?.title) return content.title

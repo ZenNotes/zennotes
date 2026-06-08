@@ -60,11 +60,14 @@ import {
   searchNoteIndex
 } from '../lib/note-search'
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
+import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { PinIcon } from './icons'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
 interface QuickCapturePrefs {
   vimMode: boolean
+  vimInsertEscape: string
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -78,6 +81,7 @@ interface QuickCapturePrefs {
 function loadPrefs(): QuickCapturePrefs {
   const fallback: QuickCapturePrefs = {
     vimMode: true,
+    vimInsertEscape: '',
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
     themeMode: 'dark',
@@ -436,7 +440,8 @@ export function QuickCaptureApp(): JSX.Element {
     vimHandlers.newNote = resetToNew
     vimHandlers.openPicker = () => setOverlay('search')
     registerCaptureVimCommands()
-  }, [resetToNew, save, submitAndClose])
+    applyVimInsertEscape(prefs.vimInsertEscape)
+  }, [resetToNew, save, submitAndClose, prefs.vimInsertEscape])
 
   // Window-level chord handlers. We attach the listener exactly once
   // and read state through refs so the handler is never operating on a
@@ -507,6 +512,26 @@ export function QuickCaptureApp(): JSX.Element {
   }, [])
   const modKey = isMacPlatform ? '⌘' : 'Ctrl'
 
+  // Pin state — when on, the window stays on top of all windows and no longer
+  // auto-hides on blur, so it behaves like a floating sticky note.
+  const [pinned, setPinned] = useState(false)
+  useEffect(() => {
+    let active = true
+    void window.zen.getQuickCapturePinned().then((value) => {
+      if (active) setPinned(value)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+  const togglePinned = useCallback(() => {
+    setPinned((prev) => {
+      const next = !prev
+      void window.zen.setQuickCapturePinned(next)
+      return next
+    })
+  }, [])
+
   const targetLabel =
     mode.kind === 'existing' ? `Editing ${mode.note.title}` : 'New note in Quick'
 
@@ -550,6 +575,22 @@ export function QuickCaptureApp(): JSX.Element {
             {mode.note.folder}
           </span>
         )}
+        <button
+          type="button"
+          onClick={togglePinned}
+          title={pinned ? 'Unpin — auto-hide when it loses focus' : 'Pin on top of all windows'}
+          aria-label={pinned ? 'Unpin quick capture' : 'Pin quick capture on top'}
+          aria-pressed={pinned}
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+          className={[
+            'flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors',
+            pinned
+              ? 'bg-accent/15 text-accent'
+              : 'text-ink-400 hover:bg-paper-200 hover:text-ink-700'
+          ].join(' ')}
+        >
+          <PinIcon width={15} height={15} />
+        </button>
       </header>
 
       <div className="relative min-h-0 min-w-0 flex-1">

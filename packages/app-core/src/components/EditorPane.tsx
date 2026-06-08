@@ -50,6 +50,7 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
@@ -70,6 +71,7 @@ import { wikilinkSource } from '../lib/cm-wikilinks'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
+import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
@@ -117,6 +119,7 @@ import {
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
+  CalendarIcon,
   CheckSquareIcon,
   CloseIcon,
   DocumentIcon,
@@ -136,8 +139,10 @@ import {
   resolveSystemFolderLabels
 } from '../lib/system-folder-labels'
 import {
+  classifyDateNote,
   isPrimaryNotesAtRoot,
-  noteFolderSubpath
+  noteFolderSubpath,
+  normalizeVaultSettings
 } from '../lib/vault-layout'
 import {
   dragHasAttachmentFile,
@@ -198,7 +203,8 @@ function markdownEditingExtensions(): Extension[] {
     markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
     markdownListIndentPlugin,
     orderedListRenumber,
-    headingFolding()
+    headingFolding(),
+    codeBlockFontPlugin
   ]
 }
 
@@ -584,6 +590,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
+  const vaultSettings = useStore((s) => s.vaultSettings)
+  const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
 
   const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
   const mode = paneModeForPath(modesByPath, activeTab)
@@ -591,6 +599,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  // The calendar panel is a date navigator. It auto-opens while the pane shows
+  // a daily/weekly note, but stays available (Obsidian-style) on any note as
+  // long as the daily or weekly feature is enabled.
+  const isDateNote = useMemo(
+    () => (content ? classifyDateNote(content, vaultSettings) != null : false),
+    [content, vaultSettings]
+  )
+  const calendarAvailable = useMemo(() => {
+    const s = normalizeVaultSettings(vaultSettings)
+    return s.dailyNotes.enabled || s.weeklyNotes.enabled
+  }, [vaultSettings])
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null)
   const [selectionCommentAction, setSelectionCommentAction] =
     useState<SelectionCommentAction>(null)
@@ -720,18 +740,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCommentsOpen((open) => !open)
   }, [])
 
-  const closeRightPanels = useCallback(() => {
-    setConnectionsOpen(false)
-    setConnectionPreview(null)
-    setCommentsOpen(false)
-    setCommentDraft(null)
-    setActiveCommentId(null)
-    setOutlineOpen(false)
-    if (focusedPanel === 'connections' || focusedPanel === 'hoverpreview') {
-      setFocusedPanel('editor')
-      viewRef.current?.focus()
-    }
-  }, [focusedPanel, setActiveCommentId, setConnectionPreview, setFocusedPanel])
+  const toggleCalendarPanel = useCallback(() => {
+    setCalendarOpen((open) => !open)
+  }, [])
+
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
     setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
@@ -765,6 +777,29 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:toggle-comments', handler)
     return () => window.removeEventListener('zen:toggle-comments', handler)
   }, [isActive, toggleCommentsPanel])
+
+  // `zen:toggle-calendar` — same active-pane routing as the panels above.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      toggleCalendarPanel()
+    }
+    window.addEventListener('zen:toggle-calendar', handler)
+    return () => window.removeEventListener('zen:toggle-calendar', handler)
+  }, [isActive, toggleCalendarPanel])
+
+  // Auto-show the calendar when this pane lands on a daily/weekly note. On other
+  // notes we leave it as-is (Obsidian-style persistence) so it stays open while
+  // you browse, and only force it closed when the feature is turned off entirely.
+  // Keyed on the note identity (not every render) so a manual `leader c` / icon
+  // close sticks until the note changes.
+  useEffect(() => {
+    if (!calendarAvailable) {
+      setCalendarOpen(false)
+      return
+    }
+    if (isDateNote && autoCalendarPanel) setCalendarOpen(true)
+  }, [content?.path, isDateNote, autoCalendarPanel, calendarAvailable])
 
   useEffect(() => {
     if (!isActive) return
@@ -2480,7 +2515,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     () => comments.filter((comment) => comment.resolvedAt == null).length,
     [comments]
   )
-  const rightPanelOpen = connectionsOpen || commentsOpen || outlineOpen
 
   const toolbar = useMemo(() => {
     if (!content) return null
@@ -2514,6 +2548,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         >
           <ListTreeIcon />
         </IconBtn>
+        {calendarAvailable && (
+          <IconBtn
+            title={calendarOpen ? 'Hide calendar' : 'Show calendar'}
+            active={calendarOpen}
+            onClick={toggleCalendarPanel}
+          >
+            <CalendarIcon />
+          </IconBtn>
+        )}
         <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
           <FileDownIcon />
         </IconBtn>
@@ -2533,11 +2576,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
           <TrashIcon />
         </IconBtn>
-        {rightPanelOpen && (
-          <IconBtn title="Close right panel" onClick={closeRightPanels}>
-            <CloseIcon />
-          </IconBtn>
-        )}
       </div>
     )
   }, [
@@ -2551,8 +2589,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     toggleCommentsPanel,
     outlineOpen,
     toggleOutlinePanel,
-    rightPanelOpen,
-    closeRightPanels,
+    calendarAvailable,
+    calendarOpen,
+    toggleCalendarPanel,
     trashActive,
     archiveActive,
     restoreActive,
@@ -2987,6 +3026,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onJump={jumpToOutlineLine}
           />
         )}
+        {content && calendarOpen && calendarAvailable && !zenMode && (
+          <CalendarPanel note={content} />
+        )}
       </div>
       {content &&
         showEditor &&
@@ -3271,17 +3313,21 @@ function IconBtn({
 }): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
-      title={title}
+      aria-label={title}
       aria-pressed={active}
       className={[
-        'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+        'group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors',
         active
           ? 'bg-paper-200 text-ink-900'
           : 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
       ].join(' ')}
     >
-      {children}
+      <span className="pointer-events-none">{children}</span>
+      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
+        {title}
+      </span>
     </button>
   )
 }

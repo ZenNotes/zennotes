@@ -18,6 +18,17 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('javascript:alert(1)')
   })
 
+  it('preserves GFM table column alignment through render + sanitize', () => {
+    const html = renderMarkdown(
+      ['| L | C | R |', '|:--|:-:|--:|', '| 1 | 2 | 3 |'].join('\n')
+    )
+
+    // remark-gfm emits the `align` attribute on aligned cells; the sanitizer
+    // must keep it so the CSS attribute selectors can honor the alignment.
+    expect(html).toContain('align="center"')
+    expect(html).toContain('align="right"')
+  })
+
   it('preserves task checkboxes, wikilink metadata, and diagram placeholders', () => {
     const html = renderMarkdown(
       [

@@ -198,6 +198,8 @@ export function SettingsModal(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
+  const vimInsertEscape = useStore((s) => s.vimInsertEscape)
+  const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -248,6 +250,12 @@ export function SettingsModal(): JSX.Element {
   const deleteRemoteWorkspaceProfile = useStore((s) => s.deleteRemoteWorkspaceProfile)
   const openTodayDailyNote = useStore((s) => s.openTodayDailyNote)
   const openThisWeekWeeklyNote = useStore((s) => s.openThisWeekWeeklyNote)
+  const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
+  const setAutoCalendarPanel = useStore((s) => s.setAutoCalendarPanel)
+  const calendarWeekStart = useStore((s) => s.calendarWeekStart)
+  const setCalendarWeekStart = useStore((s) => s.setCalendarWeekStart)
+  const calendarShowWeekNumbers = useStore((s) => s.calendarShowWeekNumbers)
+  const setCalendarShowWeekNumbers = useStore((s) => s.setCalendarShowWeekNumbers)
   const customTemplates = useStore((s) => s.customTemplates)
   const deleteCustomTemplate = useStore((s) => s.deleteCustomTemplate)
   const allTemplates = useMemo(
@@ -838,6 +846,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'motions']
         },
         {
+          id: 'vim-insert-escape',
+          title: 'Exit insert mode with',
+          description: 'Map a key sequence like jk or jj to Escape in insert mode.',
+          keywords: ['vim', 'jk', 'jj', 'escape', 'insert mode', 'esc']
+        },
+        {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
@@ -946,6 +960,14 @@ export function SettingsModal(): JSX.Element {
             />
             {vimMode ? (
               <>
+                <TextInputRow
+                  label="Exit insert mode with"
+                  description="Type this key sequence in insert mode to act as Escape, e.g. jk or jj. Leave empty to disable."
+                  value={vimInsertEscape}
+                  placeholder="jk"
+                  settingId="vim-insert-escape"
+                  onChange={(next) => setVimInsertEscape(next ?? '')}
+                />
                 <ToggleRow
                   label="Leader key hints"
                   description="Show a which-key style guide after pressing the Leader key so the next available actions stay visible."
@@ -1379,6 +1401,24 @@ export function SettingsModal(): JSX.Element {
           keywords: ['weekly notes', 'this week']
         },
         {
+          id: 'auto-calendar-panel',
+          title: 'Show calendar in daily & weekly notes',
+          description: 'Auto-open a calendar panel on the right while viewing a daily or weekly note.',
+          keywords: ['calendar', 'daily notes', 'weekly notes', 'date', 'navigate']
+        },
+        {
+          id: 'calendar-week-start',
+          title: 'Calendar starts week on',
+          description: 'Which weekday the calendar grid begins with.',
+          keywords: ['calendar', 'week start', 'monday', 'sunday', 'locale']
+        },
+        {
+          id: 'calendar-week-numbers',
+          title: 'Show week numbers',
+          description: 'Display the ISO week-number column in the calendar.',
+          keywords: ['calendar', 'week numbers', 'iso week', 'weekly notes']
+        },
+        {
           id: 'inbox-label',
           title: 'Inbox label',
           description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
@@ -1713,6 +1753,32 @@ export function SettingsModal(): JSX.Element {
                 Open this week
               </button>
             </div>
+            <ToggleRow
+              label="Show calendar in daily & weekly notes"
+              description="Auto-open a calendar panel on the right while viewing a daily or weekly note, for jumping between dates. Toggle it anytime with the calendar icon or the leader-c shortcut."
+              value={autoCalendarPanel}
+              settingId="auto-calendar-panel"
+              onChange={setAutoCalendarPanel}
+            />
+            <SegmentedRow
+              label="Calendar starts week on"
+              description="Which weekday the calendar grid begins with."
+              value={calendarWeekStart}
+              settingId="calendar-week-start"
+              options={[
+                { value: 'monday', label: 'Monday' },
+                { value: 'sunday', label: 'Sunday' },
+                { value: 'locale', label: 'Locale' }
+              ]}
+              onChange={setCalendarWeekStart}
+            />
+            <ToggleRow
+              label="Show week numbers"
+              description="Display the ISO week-number column in the calendar. Click a week number to open or create its weekly note."
+              value={calendarShowWeekNumbers}
+              settingId="calendar-week-numbers"
+              onChange={setCalendarShowWeekNumbers}
+            />
           </Section>
 
           <Section

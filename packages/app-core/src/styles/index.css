@@ -1263,9 +1263,16 @@ textarea,
 .cm-editor .cm-vim-panel {
   background: rgb(var(--z-bg-softer)) !important;
   color: rgb(var(--z-fg)) !important;
-  font-family:
-    "SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo,
-    Consolas, monospace !important;
+  font-family: var(
+    --z-mono-font,
+    "SF Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace
+  ) !important;
   border-top: 1px solid rgb(var(--z-bg-3));
   padding: 4px 10px !important;
 }
@@ -1306,9 +1313,16 @@ textarea,
   padding: 8px 10px !important;
   background: rgb(var(--z-bg-softer)) !important;
   color: rgb(var(--z-fg)) !important;
-  font-family:
-    "SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo,
-    Consolas, monospace !important;
+  font-family: var(
+    --z-mono-font,
+    "SF Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace
+  ) !important;
   font-size: 12px;
   line-height: 1;
 }
@@ -1694,6 +1708,23 @@ textarea,
   /* No explicit color — lets inline code inherit foreground and lets
      inner language tokens (keyword/string/etc.) show their own color
      inside fenced code blocks. */
+}
+
+/* Fenced/indented code-block lines render in the configured monospace font,
+   matching inline code and the rendered preview. Covers tokens and the plain
+   whitespace between them (color-only `tok-*` rules can't). */
+.cm-editor .cm-line.cm-code-block-line,
+.cm-editor .cm-line.cm-code-block-line span {
+  font-family: var(
+    --z-mono-font,
+    "SF Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace
+  );
 }
 
 /* --- Fenced code-block syntax tokens --------------------------------- */
@@ -2198,6 +2229,21 @@ textarea,
   border: 1px solid theme("colors.paper.300");
   padding: 0.5em 0.75em;
   text-align: left;
+}
+/* GFM column alignment (`:--`, `:-:`, `--:`) is emitted as the `align`
+   attribute, a low-specificity presentational hint that the rule above
+   would otherwise override. Honor it with matching attribute selectors. */
+.prose-zen th[align="left"],
+.prose-zen td[align="left"] {
+  text-align: left;
+}
+.prose-zen th[align="center"],
+.prose-zen td[align="center"] {
+  text-align: center;
+}
+.prose-zen th[align="right"],
+.prose-zen td[align="right"] {
+  text-align: right;
 }
 .prose-zen th {
   background: theme("colors.paper.200");

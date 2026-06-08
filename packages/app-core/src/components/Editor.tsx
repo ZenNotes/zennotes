@@ -31,7 +31,7 @@ import {
 import { promptApp } from '../lib/prompt-requests'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
-import { focusPaneOrEdgePanel } from '../lib/pane-nav'
+import { focusPaneInDirection, focusPaneOrEdgePanel } from '../lib/pane-nav'
 import { requestPaneMode } from '../lib/pane-mode'
 import {
   getKeymapBinding,
@@ -40,6 +40,7 @@ import {
   type KeymapOverrides
 } from '../lib/keymaps'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
+import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -431,6 +432,22 @@ function registerVimCommands(): void {
       path
     })
   })
+
+  // Pane focus ex commands — a keyboard path that doesn't depend on the
+  // `Ctrl+W` prefix (which collides with close-tab on Linux/Windows).
+  // `:wincmd {h,j,k,l}` mirrors vim; the `:pane_focus_*` names match the
+  // command palette wording.
+  const focusDir = (dir: 'h' | 'j' | 'k' | 'l'): void => {
+    focusPaneInDirection(dir)
+  }
+  Vim.defineEx('wincmd', 'winc', (_cm: unknown, params: { argString?: string } | undefined) => {
+    const dir = (params?.argString ?? '').trim().toLowerCase()[0]
+    if (dir === 'h' || dir === 'j' || dir === 'k' || dir === 'l') focusDir(dir)
+  })
+  Vim.defineEx('pane_focus_left', 'pane_focus_left', () => focusDir('h'))
+  Vim.defineEx('pane_focus_down', 'pane_focus_down', () => focusDir('j'))
+  Vim.defineEx('pane_focus_up', 'pane_focus_up', () => focusDir('k'))
+  Vim.defineEx('pane_focus_right', 'pane_focus_right', () => focusDir('l'))
 
   Vim.defineAction('goToDefinition', (cm: ReturnType<typeof getCM>) => {
     const view = (cm as unknown as { cm6?: EditorView }).cm6
@@ -1210,6 +1227,7 @@ export function Editor(): JSX.Element {
   const paneLayout = useStore((s) => s.paneLayout)
   const activeNote = useStore((s) => s.activeNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
 
   useEffect(() => {
@@ -1220,6 +1238,10 @@ export function Editor(): JSX.Element {
     registerVimCommands()
     syncVimKeymaps(keymapOverrides)
   }, [keymapOverrides])
+
+  useEffect(() => {
+    applyVimInsertEscape(vimInsertEscape)
+  }, [vimInsertEscape])
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">

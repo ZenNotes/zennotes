@@ -439,6 +439,10 @@ const api: ZenBridge = {
     hotkey: string
   ): Promise<{ ok: boolean; hotkey: string; error?: string }> =>
     ipcRenderer.invoke(IPC.APP_SET_QUICK_CAPTURE_HOTKEY, hotkey),
+  getQuickCapturePinned: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.APP_GET_QUICK_CAPTURE_PINNED),
+  setQuickCapturePinned: (pinned: boolean): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.APP_SET_QUICK_CAPTURE_PINNED, pinned),
   renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
     ipcRenderer.invoke(IPC.TIKZ_RENDER, source),
 

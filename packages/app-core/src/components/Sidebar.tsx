@@ -19,6 +19,7 @@ import { isQuickNotesTabPath } from "@shared/quick-notes";
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
+  CalendarIcon,
   ChevronRightIcon,
   CheckSquareIcon,
   CloseIcon,
@@ -970,6 +971,19 @@ export function Sidebar(): JSX.Element {
         vaultSettings,
       ),
     };
+    // Daily/Weekly directories are surfaced in their own pinned, date-grouped
+    // section above NOTES (see DateNotesNav), so drop them from the inbox tree
+    // to avoid showing them twice.
+    const ds = normalizeVaultSettings(vaultSettings);
+    const hideSubpaths = new Set<string>();
+    if (ds.dailyNotes.enabled) hideSubpaths.add(ds.dailyNotes.directory);
+    if (ds.weeklyNotes.enabled) hideSubpaths.add(ds.weeklyNotes.directory);
+    if (hideSubpaths.size) {
+      next.inbox = {
+        ...next.inbox,
+        children: next.inbox.children.filter((c) => !hideSubpaths.has(c.subpath)),
+      };
+    }
     recordRendererPerf("sidebar.tree-build", performance.now() - startedAt, {
       notes: notes.length,
       folders: allFolders.length,
@@ -977,6 +991,82 @@ export function Sidebar(): JSX.Element {
     });
     return next;
   }, [notes, allFolders, assetFiles, vaultSettings]);
+
+  // Daily/weekly notes grouped for the pinned date-nav: daily by year → month →
+  // day, weekly by year → week, all newest-first.
+  const dateNav = useMemo(() => {
+    const s = normalizeVaultSettings(vaultSettings);
+    const dailyDir = s.dailyNotes.directory;
+    const weeklyDir = s.weeklyNotes.directory;
+    const daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[] =
+      [];
+    const weekly: { year: number; notes: NoteMeta[] }[] = [];
+
+    if (s.dailyNotes.enabled) {
+      const byYear = new Map<number, Map<number, NoteMeta[]>>();
+      for (const n of notes) {
+        if (n.folder !== "inbox") continue;
+        if (noteFolderSubpath(n, vaultSettings) !== dailyDir) continue;
+        const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(n.title);
+        if (!m) continue;
+        const year = Number(m[1]);
+        const month = Number(m[2]) - 1;
+        let months = byYear.get(year);
+        if (!months) byYear.set(year, (months = new Map()));
+        (months.get(month) ?? months.set(month, []).get(month)!).push(n);
+      }
+      for (const [year, months] of [...byYear.entries()].sort((a, b) => b[0] - a[0])) {
+        let total = 0;
+        const mlist = [...months.entries()]
+          .sort((a, b) => b[0] - a[0])
+          .map(([month, ns]) => {
+            ns.sort((a, b) => b.title.localeCompare(a.title));
+            total += ns.length;
+            return { month, notes: ns };
+          });
+        daily.push({ year, total, months: mlist });
+      }
+    }
+
+    if (s.weeklyNotes.enabled) {
+      const byYear = new Map<number, NoteMeta[]>();
+      for (const n of notes) {
+        if (n.folder !== "inbox") continue;
+        if (noteFolderSubpath(n, vaultSettings) !== weeklyDir) continue;
+        if (!/^\d{4}-W\d{2}$/.test(n.title)) continue;
+        const year = Number(n.title.slice(0, 4));
+        (byYear.get(year) ?? byYear.set(year, []).get(year)!).push(n);
+      }
+      for (const [year, ns] of [...byYear.entries()].sort((a, b) => b[0] - a[0])) {
+        ns.sort((a, b) => b.title.localeCompare(a.title));
+        weekly.push({ year, notes: ns });
+      }
+    }
+
+    return {
+      dailyEnabled: s.dailyNotes.enabled,
+      weeklyEnabled: s.weeklyNotes.enabled,
+      dailyDir,
+      weeklyDir,
+      dailyLabel: dailyDir.split("/").pop() || dailyDir,
+      weeklyLabel: weeklyDir.split("/").pop() || weeklyDir,
+      daily,
+      weekly,
+      dailyTotal: daily.reduce((sum, y) => sum + y.total, 0),
+      weeklyTotal: weekly.reduce((sum, y) => sum + y.notes.length, 0),
+    };
+  }, [notes, vaultSettings]);
+
+  // Local (session) expand state for the pinned date-nav, default all collapsed.
+  const [dateNavExpanded, setDateNavExpanded] = useState<Set<string>>(() => new Set());
+  const toggleDateNav = useCallback((key: string) => {
+    setDateNavExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const treeSortComparator = useMemo<
     ((a: NoteMeta, b: NoteMeta) => number) | null
@@ -2629,6 +2719,24 @@ export function Sidebar(): JSX.Element {
                 <PlusIcon width={16} height={16} strokeWidth={2.5} />
               </button>
             }
+          />
+
+          <DateNotesNav
+            dateNav={dateNav}
+            expanded={dateNavExpanded}
+            onToggle={toggleDateNav}
+            dailyIcon={<CalendarIcon />}
+            weeklyIcon={<CalendarIcon />}
+            isFolderActive={isFolderActive}
+            selectedPath={selectedPath}
+            selectedKeys={selectedSidebarKeys}
+            sidebarFocused={isSidebarFocused}
+            showSidebarChevrons={showSidebarChevrons}
+            onSelectNote={handleSelectNote}
+            onSelectItem={handleSidebarItemSelect}
+            onNoteContextMenu={openNoteMenu}
+            dragPayloadForItem={dragPayloadForItem}
+            onRootContextMenu={(e, subpath) => openFolderMenu(e, "inbox", subpath)}
           />
 
           <div className="mt-1">
@@ -4646,6 +4754,197 @@ function IconBtn({
       </span>
     </button>
   );
+}
+
+interface DateNavData {
+  dailyEnabled: boolean;
+  weeklyEnabled: boolean;
+  dailyDir: string;
+  weeklyDir: string;
+  dailyLabel: string;
+  weeklyLabel: string;
+  daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[];
+  weekly: { year: number; notes: NoteMeta[] }[];
+  dailyTotal: number;
+  weeklyTotal: number;
+}
+
+/**
+ * Pinned, date-grouped navigator for daily/weekly notes, shown above the NOTES
+ * section. Daily notes nest year → month → day, weekly notes year → week, all
+ * newest-first and collapsed by default so the sidebar stays compact no matter
+ * how many notes exist. Reuses TreeRow (group headers) and NoteLeaf (leaves).
+ */
+function DateNotesNav({
+  dateNav,
+  expanded,
+  onToggle,
+  dailyIcon,
+  weeklyIcon,
+  isFolderActive,
+  selectedPath,
+  selectedKeys,
+  sidebarFocused,
+  showSidebarChevrons,
+  onSelectNote,
+  onSelectItem,
+  onNoteContextMenu,
+  dragPayloadForItem,
+  onRootContextMenu,
+}: {
+  dateNav: DateNavData;
+  expanded: Set<string>;
+  onToggle: (key: string) => void;
+  dailyIcon: JSX.Element;
+  weeklyIcon: JSX.Element;
+  isFolderActive: (folder: NoteFolder, subpath: string) => boolean;
+  selectedPath: string | null;
+  selectedKeys: Set<string>;
+  sidebarFocused: boolean;
+  showSidebarChevrons: boolean;
+  onSelectNote: (path: string) => void;
+  onSelectItem: (
+    event: React.MouseEvent | React.KeyboardEvent,
+    item: SidebarSelectionItem,
+    primaryAction: () => void,
+  ) => void;
+  onNoteContextMenu: (e: React.MouseEvent, note: NoteMeta) => void;
+  dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
+  onRootContextMenu?: (e: React.MouseEvent, subpath: string) => void;
+}): JSX.Element | null {
+  const rows: JSX.Element[] = [];
+  const monthName = (year: number, month: number): string =>
+    new Date(year, month, 1).toLocaleDateString(undefined, { month: "long" });
+  const groupRow = (
+    key: string,
+    label: string,
+    count: number,
+    depth: number,
+    onSelect: () => void,
+    icon: JSX.Element,
+    active: boolean,
+    chevron: boolean,
+    onContextMenu?: (e: React.MouseEvent) => void,
+  ): JSX.Element => (
+    <TreeRow
+      key={key}
+      icon={icon}
+      label={label}
+      count={count}
+      active={active}
+      expandable
+      collapsed={!expanded.has(key)}
+      depth={depth}
+      onToggle={() => onToggle(key)}
+      onSelect={onSelect}
+      onContextMenu={onContextMenu}
+      reserveLeadingSlot={chevron}
+      showExpandChevron={chevron}
+    />
+  );
+  const leaf = (note: NoteMeta, depth: number): JSX.Element => (
+    <NoteLeaf
+      key={note.path}
+      note={note}
+      depth={depth}
+      showSidebarChevrons={showSidebarChevrons}
+      active={note.path === selectedPath}
+      selected={selectedKeys.has(noteSelectionKey(note.path))}
+      sidebarFocused={sidebarFocused}
+      onSelectItem={onSelectItem}
+      onSelectNote={onSelectNote}
+      onContextMenuNote={onNoteContextMenu}
+      dragPayloadForItem={dragPayloadForItem}
+    />
+  );
+
+  if (dateNav.dailyEnabled && dateNav.dailyTotal > 0) {
+    rows.push(
+      groupRow(
+        "d",
+        dateNav.dailyLabel,
+        dateNav.dailyTotal,
+        0,
+        () => onToggle("d"),
+        dailyIcon,
+        isFolderActive("inbox", dateNav.dailyDir),
+        false,
+        onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.dailyDir) : undefined,
+      ),
+    );
+    if (expanded.has("d")) {
+      for (const yg of dateNav.daily) {
+        const yKey = `d:${yg.year}`;
+        rows.push(
+          groupRow(
+            yKey,
+            String(yg.year),
+            yg.total,
+            1,
+            () => onToggle(yKey),
+            <FolderGlyphIcon open={expanded.has(yKey)} />,
+            false,
+            showSidebarChevrons,
+          ),
+        );
+        if (expanded.has(yKey)) {
+          for (const mg of yg.months) {
+            const mKey = `d:${yg.year}:${mg.month}`;
+            rows.push(
+              groupRow(
+                mKey,
+                monthName(yg.year, mg.month),
+                mg.notes.length,
+                2,
+                () => onToggle(mKey),
+                <FolderGlyphIcon open={expanded.has(mKey)} />,
+                false,
+                showSidebarChevrons,
+              ),
+            );
+            if (expanded.has(mKey)) for (const n of mg.notes) rows.push(leaf(n, 3));
+          }
+        }
+      }
+    }
+  }
+
+  if (dateNav.weeklyEnabled && dateNav.weeklyTotal > 0) {
+    rows.push(
+      groupRow(
+        "w",
+        dateNav.weeklyLabel,
+        dateNav.weeklyTotal,
+        0,
+        () => onToggle("w"),
+        weeklyIcon,
+        isFolderActive("inbox", dateNav.weeklyDir),
+        false,
+        onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.weeklyDir) : undefined,
+      ),
+    );
+    if (expanded.has("w")) {
+      for (const yg of dateNav.weekly) {
+        const yKey = `w:${yg.year}`;
+        rows.push(
+          groupRow(
+            yKey,
+            String(yg.year),
+            yg.notes.length,
+            1,
+            () => onToggle(yKey),
+            <FolderGlyphIcon open={expanded.has(yKey)} />,
+            false,
+            showSidebarChevrons,
+          ),
+        );
+        if (expanded.has(yKey)) for (const n of yg.notes) rows.push(leaf(n, 2));
+      }
+    }
+  }
+
+  if (rows.length === 0) return null;
+  return <div className="mt-1 flex flex-col">{rows}</div>;
 }
 
 function RowKeyHint({

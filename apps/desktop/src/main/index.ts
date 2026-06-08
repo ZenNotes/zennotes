@@ -2542,6 +2542,19 @@ function registerIpc(): void {
     return { ok: result.ok, hotkey: trimmed, error: result.error }
   })
 
+  handle(IPC.APP_GET_QUICK_CAPTURE_PINNED, async () => {
+    const cfg = await loadConfig()
+    quickCapturePinned = cfg.quickCapturePinned
+    return quickCapturePinned
+  })
+
+  handle(IPC.APP_SET_QUICK_CAPTURE_PINNED, async (_e, pinned: boolean) => {
+    quickCapturePinned = pinned === true
+    applyQuickCapturePinned()
+    await updateConfig((cfg) => ({ ...cfg, quickCapturePinned }))
+    return quickCapturePinned
+  })
+
   handle(IPC.TIKZ_RENDER, async (_e, source: string) => {
     const result = await renderTikz(source)
     if (result.ok) return { ok: true, svg: result.svg }
@@ -2674,6 +2687,9 @@ function openFloatingNoteWindow(relPath: string): void {
 let quickCaptureWindow: BrowserWindow | null = null
 let quickCaptureQuitting = false
 let registeredQuickCaptureHotkey: string | null = null
+/** When true, the quick-capture window stays pinned on top and does not
+ *  auto-hide on blur. Mirrors PersistedConfig.quickCapturePinned. */
+let quickCapturePinned = false
 
 function ensureQuickCaptureWindow(): BrowserWindow {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed()) return quickCaptureWindow
@@ -2709,6 +2725,12 @@ function ensureQuickCaptureWindow(): BrowserWindow {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   }
 
+  // Restore the persisted pin state for this freshly created window.
+  void loadConfig().then((cfg) => {
+    quickCapturePinned = cfg.quickCapturePinned
+    applyQuickCapturePinned()
+  })
+
   win.on('close', (event) => {
     if (quickCaptureQuitting) return
     event.preventDefault()
@@ -2720,7 +2742,9 @@ function ensureQuickCaptureWindow(): BrowserWindow {
   })
   win.on('blur', () => {
     // Focus-out hides the panel so the user's flow snaps back to whatever
-    // they were doing — same UX as Spotlight / Raycast.
+    // they were doing — same UX as Spotlight / Raycast. When pinned, the
+    // panel stays put so it floats on top while you work in other windows.
+    if (quickCapturePinned) return
     if (!win.isDestroyed() && win.isVisible()) win.hide()
   })
 
@@ -2743,6 +2767,14 @@ function ensureQuickCaptureWindow(): BrowserWindow {
 
   quickCaptureWindow = win
   return win
+}
+
+/** Reflect the current pin state on the live quick-capture window. Pinned uses
+ *  a higher always-on-top level so it floats above other apps and fullscreen. */
+function applyQuickCapturePinned(): void {
+  const win = quickCaptureWindow
+  if (!win || win.isDestroyed()) return
+  win.setAlwaysOnTop(true, quickCapturePinned ? 'screen-saver' : 'floating')
 }
 
 function showQuickCaptureWindow(): void {
@@ -3031,6 +3063,15 @@ async function runMenuUpdateCheck(): Promise<void> {
             : 'ZenNotes Updates',
     detail: state.message
   })
+}
+
+// On some Linux setups (notably NVIDIA + Fedora) Chromium's VAAPI probe fails
+// with "vaInitialize failed: unknown libva error" because the driver doesn't
+// expose a working libva. We don't use GPU video decode, so disable the VAAPI
+// features to avoid the error and the failed-probe noise. Linux-only; must run
+// before `app.whenReady()`.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
 }
 
 app.whenReady().then(async () => {

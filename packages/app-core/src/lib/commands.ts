@@ -17,6 +17,7 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
+import { normalizeVaultSettings } from './vault-layout'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -490,6 +491,20 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () => !!getState().activeNote,
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-comments'))
+      }
+    },
+    {
+      id: 'view.calendar-panel',
+      title: 'Toggle Calendar Panel',
+      category: 'View',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderCalendar') : undefined,
+      keywords: 'calendar daily weekly date navigate month week',
+      when: () => {
+        const s = normalizeVaultSettings(getState().vaultSettings)
+        return s.dailyNotes.enabled || s.weeklyNotes.enabled
+      },
+      run: () => {
+        window.dispatchEvent(new Event('zen:toggle-calendar'))
       }
     },
     {

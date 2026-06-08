@@ -89,6 +89,8 @@ export const IPC = {
   APP_PLATFORM: 'app:platform',
   APP_GET_QUICK_CAPTURE_HOTKEY: 'app:get-quick-capture-hotkey',
   APP_SET_QUICK_CAPTURE_HOTKEY: 'app:set-quick-capture-hotkey',
+  APP_GET_QUICK_CAPTURE_PINNED: 'app:get-quick-capture-pinned',
+  APP_SET_QUICK_CAPTURE_PINNED: 'app:set-quick-capture-pinned',
   APP_READ_EXTERNAL_FILE: 'app:read-external-file',
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',

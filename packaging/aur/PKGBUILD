@@ -1,0 +1,74 @@
+# Maintainer: Adib Hanna <adibhanna@gmail.com>
+#
+# AUR package for ZenNotes (yay -S zennotes-bin).
+#
+# This is a -bin package: it downloads the official AppImage from the GitHub
+# release and *extracts* it at build time (--appimage-extract), then installs the
+# unpacked app to /opt. Extraction does not need FUSE, so the resulting install
+# runs on CachyOS / Arch without libfuse2 — sidestepping the AppImage-won't-start
+# problem entirely.
+#
+# Before publishing a new version:
+#   1. bump pkgver to match the GitHub release tag (without the leading "v"),
+#   2. run `updpkgsums` to fill in sha256sums (or `makepkg -g`),
+#   3. regenerate .SRCINFO: `makepkg --printsrcinfo > .SRCINFO`,
+#   4. test with `makepkg -si` on an Arch/CachyOS box.
+
+pkgname=zennotes-bin
+_appname=ZenNotes
+pkgver=2.0.9
+pkgrel=1
+pkgdesc="Keyboard-first, local-first Markdown notes with vim motions and live preview"
+arch=('x86_64')
+url="https://github.com/ZenNotes/zennotes"
+license=('MIT')
+# Electron bundles its own runtime; these are the shared libs it links against.
+depends=('gtk3' 'nss' 'alsa-lib' 'libxss')
+provides=('zennotes')
+conflicts=('zennotes')
+options=('!strip')
+source=("${_appname}-${pkgver}.AppImage::${url}/releases/download/v${pkgver}/${_appname}-${pkgver}-linux-x86_64.AppImage")
+# sha256 of the v2.0.9 x86_64 AppImage. Regenerate with `updpkgsums` on each bump.
+sha256sums=('537f0281b115c5f77b86ffc0a3becde6472aeea855677cfefec3ca323b7e3d58')
+
+package() {
+  cd "${srcdir}"
+
+  chmod +x "${_appname}-${pkgver}.AppImage"
+  # FUSE-free extraction — no libfuse2 required on the build host.
+  ./"${_appname}-${pkgver}.AppImage" --appimage-extract >/dev/null
+
+  # Install the unpacked app under /opt.
+  install -dm755 "${pkgdir}/opt/${pkgname}"
+  cp -a squashfs-root/. "${pkgdir}/opt/${pkgname}/"
+
+  # The Chromium sandbox helper must be setuid-root to work without --no-sandbox.
+  if [ -f "${pkgdir}/opt/${pkgname}/chrome-sandbox" ]; then
+    chmod 4755 "${pkgdir}/opt/${pkgname}/chrome-sandbox"
+  fi
+
+  # CLI launcher.
+  install -dm755 "${pkgdir}/usr/bin"
+  ln -s "/opt/${pkgname}/AppRun" "${pkgdir}/usr/bin/zennotes"
+
+  # Desktop entry — repoint Exec/Icon at the installed paths.
+  local desktop
+  desktop=$(find squashfs-root -maxdepth 1 -name '*.desktop' | head -n1)
+  if [ -n "${desktop}" ]; then
+    install -Dm644 "${desktop}" "${pkgdir}/usr/share/applications/zennotes.desktop"
+    sed -i \
+      -e 's|^Exec=.*|Exec=zennotes %U|' \
+      -e 's|^Icon=.*|Icon=zennotes|' \
+      "${pkgdir}/usr/share/applications/zennotes.desktop"
+  fi
+
+  # Icons shipped inside the AppImage.
+  local size icon
+  for size in 16 32 48 64 128 256 512; do
+    icon="squashfs-root/usr/share/icons/hicolor/${size}x${size}/apps/${_appname}.png"
+    if [ -f "${icon}" ]; then
+      install -Dm644 "${icon}" \
+        "${pkgdir}/usr/share/icons/hicolor/${size}x${size}/apps/zennotes.png"
+    fi
+  done
+}

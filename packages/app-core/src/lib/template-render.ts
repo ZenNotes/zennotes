@@ -33,44 +33,17 @@ const CURSOR_TOKEN = '{{cursor}}'
 
 const TOKEN_RE = /\{\{\s*([^}]+?)\s*\}\}/g
 
-const WEEKDAYS = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday'
-]
-const WEEKDAYS_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December'
-]
-const MONTHS_SHORT = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec'
-]
+// Month and weekday names follow the host locale so daily-note templates read
+// naturally for non-English users (e.g. `{{date:dddd D MMMM}}` →
+// "lundi 9 juin"). Numeric tokens stay locale-neutral, and the daily-note title
+// itself remains ISO `YYYY-MM-DD` for file-friendly sorting and searching.
+function localeName(
+  date: Date,
+  field: 'month' | 'weekday',
+  width: 'long' | 'short'
+): string {
+  return date.toLocaleDateString(undefined, { [field]: width })
+}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -98,7 +71,6 @@ export function formatDate(date: Date, format: string): string {
   const year = date.getFullYear()
   const month = date.getMonth()
   const day = date.getDate()
-  const dow = date.getDay()
   const hours = date.getHours()
   const minutes = date.getMinutes()
   const seconds = date.getSeconds()
@@ -110,9 +82,9 @@ export function formatDate(date: Date, format: string): string {
       case 'YY':
         return pad2(year % 100)
       case 'MMMM':
-        return MONTHS[month]
+        return localeName(date, 'month', 'long')
       case 'MMM':
-        return MONTHS_SHORT[month]
+        return localeName(date, 'month', 'short')
       case 'MM':
         return pad2(month + 1)
       case 'M':
@@ -122,9 +94,9 @@ export function formatDate(date: Date, format: string): string {
       case 'D':
         return String(day)
       case 'dddd':
-        return WEEKDAYS[dow]
+        return localeName(date, 'weekday', 'long')
       case 'ddd':
-        return WEEKDAYS_SHORT[dow]
+        return localeName(date, 'weekday', 'short')
       case 'HH':
         return pad2(hours)
       case 'mm':
@@ -155,6 +127,19 @@ export function getISOWeek(date: Date): number {
 /** ISO 8601 week-year (may differ from the calendar year at year boundaries). */
 export function getISOWeekYear(date: Date): number {
   return isoWeekParts(date).year
+}
+
+/**
+ * Inverse of {@link getISOWeek}: the Monday (local midnight) of the given ISO
+ * week-year and week number. Jan 4th is always in ISO week 1, so we anchor to
+ * its Monday and step forward whole weeks.
+ */
+export function mondayOfISOWeek(weekYear: number, week: number): Date {
+  const jan4 = new Date(Date.UTC(weekYear, 0, 4))
+  const dayNum = jan4.getUTCDay() || 7 // Sunday -> 7
+  const monday = new Date(jan4)
+  monday.setUTCDate(jan4.getUTCDate() - (dayNum - 1) + (week - 1) * 7)
+  return new Date(monday.getUTCFullYear(), monday.getUTCMonth(), monday.getUTCDate())
 }
 
 function substituteTokens(input: string, title: string, now: Date): string {
