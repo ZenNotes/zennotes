@@ -84,6 +84,12 @@ jobs:
             fi
           done
 
+      - name: Install Linux packaging tools
+        if: matrix.name == 'Linux'
+        # `bsdtar` (libarchive-tools) is required by electron-builder's pacman
+        # target to generate the package .MTREE; it isn't on ubuntu-latest.
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+
       - name: Build release artifacts
         run: ${{ matrix.command }}
 
