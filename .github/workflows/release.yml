@@ -103,7 +103,7 @@ jobs:
             files+=("$file")
           done < <(
             find dist -maxdepth 1 -type f \
-              \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.blockmap' -o -name 'latest*.yml' -o -name 'latest*.yaml' \)
+              \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.pacman' -o -name '*.blockmap' -o -name 'latest*.yml' -o -name 'latest*.yaml' \)
           )
           if [ "${#files[@]}" -eq 0 ]; then
             echo "No release artifacts found in dist/" >&2
