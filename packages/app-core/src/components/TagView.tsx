@@ -281,7 +281,7 @@ export function TagView(): JSX.Element {
       <div className="flex items-center gap-2 border-b border-current/10 px-4 py-3">
         <TagIcon width={18} height={18} />
         <h1 className="text-sm font-semibold">Tags</h1>
-        <span className="ml-2 rounded bg-current/10 px-1.5 py-0.5 text-[11px] text-current/60">
+        <span className="ml-2 rounded bg-current/10 px-1.5 py-0.5 text-xs text-current/60">
           {matching.length} {matching.length === 1 ? 'note' : 'notes'}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -316,11 +316,11 @@ export function TagView(): JSX.Element {
           result set. Click any chip to toggle; shows un-selected tags in
           a quieter style so the user can pick more without leaving. */}
       <div className="flex flex-wrap items-center gap-1.5 border-b border-current/10 px-4 py-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-current/40">
+        <span className="text-2xs font-semibold uppercase tracking-wider text-current/40">
           Selected
         </span>
         {selectedTags.length === 0 ? (
-          <span className="text-[11px] text-current/50">
+          <span className="text-xs text-current/50">
             Click a tag below to start narrowing.
           </span>
         ) : (
@@ -329,7 +329,7 @@ export function TagView(): JSX.Element {
               key={`sel-${t}`}
               type="button"
               onClick={() => toggleTagSelection(t)}
-              className="flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-[11px] text-accent hover:bg-accent/30"
+              className="flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent ring-1 ring-accent/30 hover:bg-accent/30"
               title="Remove from selection"
             >
               <span>#{t}</span>
@@ -339,7 +339,7 @@ export function TagView(): JSX.Element {
         )}
         {allTags.length > selectedTags.length && (
           <>
-            <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider text-current/40">
+            <span className="ml-2 text-2xs font-semibold uppercase tracking-wider text-current/40">
               Add
             </span>
             {allTags
@@ -349,7 +349,7 @@ export function TagView(): JSX.Element {
                   key={`pick-${t}`}
                   type="button"
                   onClick={() => toggleTagSelection(t)}
-                  className="rounded-full bg-current/5 px-2 py-0.5 text-[11px] text-current/70 hover:bg-current/15 hover:text-current/90"
+                  className="rounded-full bg-current/5 px-2 py-0.5 text-xs text-current/70 hover:bg-current/15 hover:text-current/90"
                 >
                   #{t}
                   <span className="ml-1 text-current/40">{count}</span>
@@ -400,16 +400,16 @@ export function TagView(): JSX.Element {
                   <div className="truncate text-sm text-current/90">
                     {note.title || '(untitled)'}
                   </div>
-                  <div className="mt-0.5 truncate text-[11px] text-current/50">
+                  <div className="mt-0.5 truncate text-xs text-current/50">
                     {folderLabel(note) || note.folder}
                   </div>
                   {note.excerpt && (
-                    <div className="mt-0.5 truncate text-[11px] text-current/40">
+                    <div className="mt-0.5 truncate text-xs text-current/40">
                       {note.excerpt}
                     </div>
                   )}
                 </div>
-                <span className="shrink-0 text-[11px] text-current/40">
+                <span className="shrink-0 text-xs text-current/40">
                   {formatDate(note.updatedAt)}
                 </span>
               </button>
@@ -452,7 +452,7 @@ export function TagView(): JSX.Element {
           />
         </form>
       ) : (
-        <div className="border-t border-current/10 px-4 py-1.5 text-[11px] text-current/40">
+        <div className="border-t border-current/10 px-4 py-1.5 text-xs text-current/40">
           j/k move · Enter/o open · click chips to toggle · / filter · : command · Esc close
         </div>
       )}

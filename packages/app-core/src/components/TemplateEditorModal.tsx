@@ -6,7 +6,6 @@
  * normal-mode key — so in-progress work is never lost; use Cancel or Save.
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
@@ -23,6 +22,8 @@ import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
+import { Modal } from './ui/Modal'
+import { Button } from './ui/Button'
 
 const SKELETON = `---
 name: New Template
@@ -172,66 +173,56 @@ export function TemplateEditorModal({
     }
   }
 
-  return createPortal(
-    <div
-      data-template-editor
-      className="fixed inset-0 z-[80] flex items-start justify-center bg-black/45 pt-[10vh] backdrop-blur-sm"
-      // Don't close on backdrop click — avoids losing in-progress work. Use
-      // Cancel or Save.
-      onClick={(e) => e.stopPropagation()}
+  return (
+    // Esc is the Vim normal-mode key, and backdrop clicks must not discard
+    // in-progress work — so this modal closes only via Cancel/Save.
+    <Modal
+      size="xl"
+      layer="popover"
+      align="center"
+      onClose={onClose}
+      closeOnEsc={false}
+      closeOnBackdrop={false}
+      className="flex flex-col"
+      data={{ 'data-template-editor': '' }}
     >
-      <div
-        className="flex w-[min(900px,94vw)] flex-col overflow-hidden rounded-xl bg-paper-100 shadow-float ring-1 ring-paper-300"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b border-paper-300/70 px-5 py-3">
-          <div className="text-sm font-semibold text-ink-900">
-            {sourcePath ? 'Edit template' : 'New template'}
-          </div>
-          <div className="text-xs text-ink-500">
-            {vimMode ? 'Vim · ' : ''}YAML frontmatter + markdown body
-          </div>
+      <div className="flex items-center justify-between border-b border-paper-300/70 px-5 py-3">
+        <div className="text-sm font-semibold text-ink-900">
+          {sourcePath ? 'Edit template' : 'New template'}
         </div>
-        <div className="grid max-h-[60vh] grid-cols-2">
-          <div ref={setEditorContainer} className="h-[60vh] overflow-hidden border-r border-paper-300/50 bg-paper-50" />
-          <div className="h-[60vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-[13px] leading-relaxed text-ink-700">
-            {preview || <span className="text-ink-400">Preview…</span>}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-paper-300/50 bg-paper-50 px-5 py-2.5">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-ink-400">
-            Variables
-          </span>
-          {TEMPLATE_VARIABLES.map((variable) => (
-            <button
-              key={variable.name}
-              type="button"
-              title={variable.detail}
-              onClick={() => insertVariable(variable.insert)}
-              className="rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 font-mono text-[11px] text-ink-700 hover:bg-paper-200 hover:text-ink-900"
-            >
-              {variable.insert}
-            </button>
-          ))}
-          <span className="text-[11px] text-ink-400">— or type {'{{'} to autocomplete</span>
-        </div>
-        <div className="flex justify-end gap-2 border-t border-paper-300/50 bg-paper-50 px-5 py-3">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-sm text-ink-800 hover:bg-paper-200"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void save()}
-            disabled={saving}
-            className="rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-paper-50 hover:bg-ink-800 disabled:opacity-50"
-          >
-            Save
-          </button>
+        <div className="text-xs text-ink-500">
+          {vimMode ? 'Vim · ' : ''}YAML frontmatter + markdown body
         </div>
       </div>
-    </div>,
-    document.body
+      <div className="grid max-h-[60vh] grid-cols-2">
+        <div ref={setEditorContainer} className="h-[60vh] overflow-hidden border-r border-paper-300/50 bg-paper-50" />
+        <div className="h-[60vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-sm leading-relaxed text-ink-700">
+          {preview || <span className="text-ink-500">Preview…</span>}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-paper-300/50 bg-paper-50 px-5 py-2.5">
+        <span className="form-label">Variables</span>
+        {TEMPLATE_VARIABLES.map((variable) => (
+          <button
+            key={variable.name}
+            type="button"
+            title={variable.detail}
+            onClick={() => insertVariable(variable.insert)}
+            className="rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 font-mono text-xs text-ink-700 hover:bg-paper-200 hover:text-ink-900"
+          >
+            {variable.insert}
+          </button>
+        ))}
+        <span className="text-xs text-ink-500">— or type {'{{'} to autocomplete</span>
+      </div>
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={() => void save()} disabled={saving}>
+          Save
+        </Button>
+      </Modal.Footer>
+    </Modal>
   )
 }

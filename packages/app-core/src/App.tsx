@@ -209,7 +209,7 @@ function AppUpdateNotice({
       <span className="h-2 w-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_4px_rgb(var(--z-accent)/0.12)]" />
       <span className="min-w-0 truncate font-medium">{label}</span>
       {updateState?.phase === 'downloading' && (
-        <span className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-[11px] font-medium text-ink-600">
+        <span className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-xs font-medium text-ink-600">
           {Math.round(updateState.progressPercent ?? 0)}%
         </span>
       )}

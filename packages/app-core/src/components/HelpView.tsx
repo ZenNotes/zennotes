@@ -343,13 +343,13 @@ export function HelpView(): JSX.Element {
       >
         <section
           id="help-overview"
-          className="overflow-hidden rounded-[24px] border border-paper-300/70 bg-paper-50/45 shadow-[0_12px_40px_rgba(15,23,42,0.05)]"
+          className="overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-50/45 shadow-[0_12px_40px_rgba(15,23,42,0.05)]"
         >
           <div className="bg-[radial-gradient(circle_at_top_left,rgba(214,140,82,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.02))] px-5 py-5 sm:px-6 sm:py-5">
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="max-w-3xl">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-paper-300/70 bg-paper-100/80 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.24em] text-ink-500">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-paper-300/70 bg-paper-100/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-ink-500">
                     <DocumentIcon width={14} height={14} />
                     ZenNotes Manual
                   </div>
@@ -449,7 +449,7 @@ export function HelpView(): JSX.Element {
         </section>
 
         {!hasMatches && (
-          <section className="rounded-[28px] border border-paper-300/70 bg-paper-50/45 px-6 py-8 text-center shadow-[0_18px_48px_rgba(15,23,42,0.05)]">
+          <section className="rounded-3xl border border-paper-300/70 bg-paper-50/45 px-6 py-8 text-center shadow-[0_18px_48px_rgba(15,23,42,0.05)]">
             <h2 className="font-serif text-2xl text-ink-900">No help topics matched.</h2>
             <p className="mt-2 text-sm text-ink-500">
               Clear the filter to see the full manual again.
@@ -511,7 +511,7 @@ export function HelpView(): JSX.Element {
                   {shortcutSections.map((section) => (
                     <div
                       key={section.id}
-                      className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
+                      className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
                     >
                       <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
                       <p className="mt-1 text-xs leading-6 text-ink-500">{section.description}</p>
@@ -538,7 +538,7 @@ export function HelpView(): JSX.Element {
                 subtitle="Short aliases, curated commands, and keyboard-first editor behavior."
               >
                 <div className="grid gap-4">
-                  <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
+                  <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
                     <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
                       <DocumentIcon width={15} height={15} className="text-accent" />
                       Curated ex commands
@@ -597,7 +597,7 @@ export function HelpView(): JSX.Element {
                         {group.commands.map((command) => (
                           <div
                             key={command.id}
-                            className="rounded-[22px] border border-paper-300/70 bg-paper-50/55 px-4 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.03)]"
+                            className="rounded-3xl border border-paper-300/70 bg-paper-50/55 px-4 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.03)]"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="min-w-0">
@@ -608,7 +608,7 @@ export function HelpView(): JSX.Element {
                                   {command.when && <Badge label="Contextual" />}
                                 </div>
                               </div>
-                              <span className="rounded-full bg-paper-100/85 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                              <span className="rounded-full bg-paper-100/85 px-2 py-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-500">
                                 {command.id}
                               </span>
                             </div>
@@ -650,7 +650,7 @@ export function HelpView(): JSX.Element {
                   {settingsSections.map((section) => (
                     <div
                       key={section.title}
-                      className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
+                      className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
                     >
                       <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
                       <div className="mt-4 space-y-3">
@@ -709,7 +709,7 @@ function renderRichText(text: string): React.ReactNode {
         return (
           <code
             key={i}
-            className="my-2.5 block overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2.5 font-mono text-[12.5px] leading-6 text-ink-800"
+            className="my-2.5 block overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2.5 font-mono text-xs leading-6 text-ink-800"
           >
             {code}
           </code>
@@ -730,9 +730,9 @@ function renderRichText(text: string): React.ReactNode {
 
 function InfoCard({ title, body }: { title: string; body: string }): JSX.Element {
   return (
-    <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-      <h3 className="text-[15px] font-semibold text-ink-900">{title}</h3>
-      <div className="mt-2.5 text-[15px] leading-7 text-ink-600">{renderRichText(body)}</div>
+    <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
+      <h3 className="text-base font-semibold text-ink-900">{title}</h3>
+      <div className="mt-2.5 text-base leading-7 text-ink-600">{renderRichText(body)}</div>
     </div>
   )
 }
@@ -767,7 +767,7 @@ function Keycap({
   return (
     <span
       className={[
-        'inline-flex items-center rounded-lg border px-2 py-1 font-mono text-[11px]',
+        'inline-flex items-center rounded-lg border px-2 py-1 font-mono text-xs',
         subtle
           ? 'border-paper-300/80 bg-paper-50/80 text-ink-500'
           : 'border-paper-300 bg-paper-100 text-ink-800'
@@ -780,7 +780,7 @@ function Keycap({
 
 function Badge({ label }: { label: string }): JSX.Element {
   return (
-    <span className="rounded-full border border-paper-300/80 bg-paper-50/80 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-ink-500">
+    <span className="rounded-full border border-paper-300/80 bg-paper-50/80 px-2 py-1 text-2xs font-medium uppercase tracking-[0.16em] text-ink-500">
       {label}
     </span>
   )
@@ -817,12 +817,12 @@ function CalloutCard({
   body: string
 }): JSX.Element {
   return (
-    <div className="rounded-[24px] border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
+    <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
       <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
         {icon}
         {title}
       </div>
-      <div className="mt-2 text-[15px] leading-7 text-ink-600">{renderRichText(body)}</div>
+      <div className="mt-2 text-base leading-7 text-ink-600">{renderRichText(body)}</div>
     </div>
   )
 }

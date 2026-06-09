@@ -188,7 +188,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
       onContextMenu={(e) => e.preventDefault()}
     >
       {query && (
-        <div className="mb-1 flex items-center gap-1 rounded-md bg-paper-200/80 px-2 py-1 font-mono text-[11px] text-ink-700">
+        <div className="mb-1 flex items-center gap-1 rounded-md bg-paper-200/80 px-2 py-1 font-mono text-xs text-ink-700">
           <span className="text-ink-400">filter</span>
           <span className="flex-1 truncate text-ink-900">{query}</span>
           <span className="text-ink-400">{visible.length}</span>
@@ -239,7 +239,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
               {item.hint && (
                 <span
                   className={[
-                    'shrink-0 text-[11px]',
+                    'shrink-0 text-xs',
                     active && !item.danger ? 'text-ink-600' : 'text-ink-400'
                   ].join(' ')}
                 >

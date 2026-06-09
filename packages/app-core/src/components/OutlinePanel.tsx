@@ -60,7 +60,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
     >
       <PanelResizeHandle onStart={startResize} />
       <div className="border-b border-paper-300/60 px-4 py-4">
-        <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-400">
           Outline
         </div>
         <div className="mt-2 text-xs text-ink-500">
@@ -106,7 +106,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
                   >
                     <span
                       className={[
-                        'shrink-0 text-[10px] uppercase tracking-wide',
+                        'shrink-0 text-2xs uppercase tracking-wide',
                         isActive ? 'text-accent/75' : 'text-ink-400'
                       ].join(' ')}
                     >

@@ -18,6 +18,7 @@ import { isTasksTabPath } from '@shared/tasks'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { Modal } from './ui/Modal'
 
 function isVirtualPath(path: string | null): boolean {
   if (!path) return true
@@ -78,15 +79,8 @@ export function OutlinePalette(): JSX.Element {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[15vh] backdrop-blur-sm"
-      onClick={close}
-    >
-      <div
-        className="w-[min(560px,90vw)] overflow-hidden rounded-xl bg-paper-100 shadow-float ring-1 ring-paper-300/70"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-paper-300/70 px-4 py-3">
+    <Modal size="md" layer="palette" onClose={close} closeOnEsc={false}>
+      <div className="border-b border-paper-300/70 px-4 py-3">
           <input
             ref={inputRef}
             value={query}
@@ -134,16 +128,16 @@ export function OutlinePalette(): JSX.Element {
                 ].join(' ')}
                 style={{ paddingLeft: `${16 + (item.level - 1) * 14}px` }}
               >
-                <span className="shrink-0 text-[11px] uppercase tracking-wide text-ink-400">
+                <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
                   H{item.level}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-ink-900">{item.text}</span>
-                <span className="shrink-0 text-[11px] text-ink-400">L{item.line}</span>
+                <span className="shrink-0 text-xs text-ink-400">L{item.line}</span>
               </button>
             ))
           )}
         </div>
-        <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-[11px] text-ink-500">
+        <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
             <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
@@ -155,7 +149,6 @@ export function OutlinePalette(): JSX.Element {
             <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
           </span>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

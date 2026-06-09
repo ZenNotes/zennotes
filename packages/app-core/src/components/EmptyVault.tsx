@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import { Button } from './ui/Button'
 import appIcon from '../assets/zennotes-app-icon.png'
 
 export function EmptyVault(): JSX.Element {
@@ -17,7 +18,7 @@ export function EmptyVault(): JSX.Element {
         <img
           src={appIcon}
           alt="ZenNotes app icon"
-          className="h-[72px] w-[72px] rounded-[18px] shadow-panel"
+          className="h-[72px] w-[72px] rounded-2xl shadow-panel"
         />
         <div>
           <h1 className="font-serif text-2xl font-semibold text-ink-900">Welcome to ZenNotes</h1>
@@ -42,19 +43,23 @@ export function EmptyVault(): JSX.Element {
           )}
         </div>
         <div className="flex flex-wrap items-center justify-center gap-3">
-          <button
+          <Button
+            variant="primary"
+            size="md"
             onClick={() => void openVaultPicker()}
-            className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-paper-50 shadow-panel hover:bg-ink-800"
+            className="shadow-panel"
           >
             {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
-          </button>
+          </Button>
           {canConnectRemote && (
-            <button
+            <Button
+              variant="secondary"
+              size="md"
               onClick={() => void connectRemoteWorkspace()}
-              className="rounded-lg border border-paper-300 bg-paper-100 px-4 py-2 text-sm font-medium text-ink-900 shadow-panel hover:bg-paper-200"
+              className="shadow-panel"
             >
               Connect to ZenNotes Server
-            </button>
+            </Button>
           )}
         </div>
         {workspaceSetupError && (

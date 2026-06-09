@@ -7,6 +7,7 @@ import {
   type VaultSettings
 } from '@shared/ipc'
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
+import { Button } from './ui/Button'
 import appIcon from '../assets/zennotes-app-icon.png'
 
 type StepId = 'welcome' | 'vim' | 'theme' | 'vault' | 'layout' | 'done'
@@ -274,13 +275,9 @@ export function OnboardingWizard(): JSX.Element {
         </div>
 
         <div className="flex items-center justify-end text-xs text-ink-500">
-          <button
-            type="button"
-            onClick={skip}
-            className="rounded-md px-2 py-1 text-ink-500 transition-colors hover:text-ink-800"
-          >
+          <Button variant="ghost" size="sm" onClick={skip}>
             Skip setup
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -346,7 +343,7 @@ function StepRail({
             />
             <span
               className={[
-                'text-[10px] font-medium uppercase tracking-[0.12em] transition-colors',
+                'text-2xs font-medium uppercase tracking-[0.12em] transition-colors',
                 active
                   ? 'text-ink-900'
                   : reachable
@@ -374,9 +371,7 @@ function StepHeading({
 }): JSX.Element {
   return (
     <div className="mb-6">
-      <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
-        {eyebrow}
-      </div>
+      <div className="form-label">{eyebrow}</div>
       <h2 className="mt-2 font-serif text-2xl font-semibold text-ink-900">{title}</h2>
       {subtitle && <p className="mt-3 max-w-prose text-sm leading-6 text-ink-600">{subtitle}</p>}
     </div>
@@ -403,29 +398,21 @@ function StepFooter({
       {hideBack ? (
         <span />
       ) : (
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg px-3 py-2 text-sm text-ink-600 transition-colors hover:bg-paper-200/60 hover:text-ink-900"
-        >
+        <Button variant="ghost" size="sm" onClick={onBack}>
           ← Back
-        </button>
+        </Button>
       )}
       <div className="flex items-center gap-3">
         {hint && <span className="text-xs text-ink-500">{hint}</span>}
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="md"
           onClick={onPrimary}
           disabled={primaryDisabled}
-          className={[
-            'rounded-lg px-4 py-2 text-sm font-medium shadow-panel transition-colors',
-            primaryDisabled
-              ? 'cursor-not-allowed bg-paper-300 text-ink-500'
-              : 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-          ].join(' ')}
+          className="shadow-panel"
         >
           {primaryLabel}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -438,7 +425,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }): JSX.Element {
         <img
           src={appIcon}
           alt="ZenNotes app icon"
-          className="h-[72px] w-[72px] rounded-[18px] shadow-panel"
+          className="h-[72px] w-[72px] rounded-2xl shadow-panel"
         />
         <div className="mt-5">
           <h1 className="font-serif text-3xl font-semibold text-ink-900">Welcome to ZenNotes</h1>
@@ -466,9 +453,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }): JSX.Element {
 function Tile({ label, value }: { label: string; value: string }): JSX.Element {
   return (
     <div className="rounded-xl border border-paper-300/60 bg-paper-100/60 px-4 py-3 text-left">
-      <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-ink-500">
-        {label}
-      </div>
+      <div className="form-label">{label}</div>
       <div className="mt-1 text-sm font-medium text-ink-900">{value}</div>
     </div>
   )
@@ -599,9 +584,7 @@ function ThemeStep({
         subtitle="Each family has light + dark variants. Auto follows your system."
       />
       <div className="mb-5">
-        <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-          Mode
-        </div>
+        <div className="form-label mb-2">Mode</div>
         <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
           {(['light', 'dark', 'auto'] as ThemeMode[]).map((mode) => (
             <button
@@ -621,9 +604,7 @@ function ThemeStep({
         </div>
       </div>
 
-      <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-        Family
-      </div>
+      <div className="form-label mb-2">Family</div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {FAMILY_DESCRIPTORS.map((d) => (
           <ThemeFamilyTile
@@ -638,9 +619,7 @@ function ThemeStep({
 
       {variants.length > 1 && (
         <div className="mt-5">
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-            Variant
-          </div>
+          <div className="form-label mb-2">Variant</div>
           <div className="flex flex-wrap gap-2">
             {variants.map((variant) => {
               const selected = variant.id === themeId
@@ -700,7 +679,7 @@ function ThemeFamilyTile({
         className="flex h-12 w-full items-center justify-between overflow-hidden rounded-lg px-2"
         style={{ background: swatch.bg }}
       >
-        <span className="text-[11px] font-medium" style={{ color: swatch.fg }}>
+        <span className="text-xs font-medium" style={{ color: swatch.fg }}>
           Aa
         </span>
         <span className="h-3 w-3 rounded-full" style={{ background: swatch.accent }} />
@@ -742,21 +721,23 @@ function VaultStep({
       />
 
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          size="md"
           onClick={() => void openVaultPicker()}
-          className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-paper-50 shadow-panel transition-colors hover:bg-ink-800"
+          className="shadow-panel"
         >
           {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
-        </button>
+        </Button>
         {canConnectRemote && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="md"
             onClick={() => void connectRemoteWorkspace()}
-            className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-4 py-2 text-sm font-medium text-ink-900 shadow-panel transition-colors hover:bg-paper-200"
+            className="shadow-panel"
           >
             Connect to ZenNotes Server
-          </button>
+          </Button>
         )}
       </div>
 
@@ -846,9 +827,7 @@ function LayoutStep({
 
       <div className="space-y-6">
         <div>
-          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-            Primary notes location
-          </div>
+          <div className="form-label mb-2">Primary notes location</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ChoiceCard
               selected={primaryLocation === 'inbox'}
@@ -867,9 +846,7 @@ function LayoutStep({
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
-              Daily notes
-            </div>
+            <div className="form-label">Daily notes</div>
             <button
               type="button"
               role="switch"
@@ -962,30 +939,23 @@ function DoneStep({
       </div>
 
       <div className="mt-8 flex items-center justify-between gap-4">
-        <button
-          type="button"
-          onClick={onBack}
-          className="rounded-lg px-3 py-2 text-sm text-ink-600 transition-colors hover:bg-paper-200/60 hover:text-ink-900"
-        >
+        <Button variant="ghost" size="sm" onClick={onBack}>
           ← Back
-        </button>
+        </Button>
         <div className="flex items-center gap-3">
           {hasVault && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="md"
               onClick={onOpenHelp}
-              className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-4 py-2 text-sm font-medium text-ink-900 shadow-panel transition-colors hover:bg-paper-200"
+              className="shadow-panel"
             >
               Open the help guide
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            onClick={onFinish}
-            className="rounded-lg bg-ink-900 px-4 py-2 text-sm font-medium text-paper-50 shadow-panel transition-colors hover:bg-ink-800"
-          >
+          <Button variant="primary" size="md" onClick={onFinish} className="shadow-panel">
             {hasVault ? 'Start writing' : 'Finish'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

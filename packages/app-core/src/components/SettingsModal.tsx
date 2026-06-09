@@ -50,6 +50,7 @@ import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
+import { Button } from './ui/Button'
 
 type SettingsCategoryId =
   | 'appearance'
@@ -738,7 +739,7 @@ export function SettingsModal(): JSX.Element {
           >
             <div className="flex flex-col gap-5 px-5 py-5">
               <div {...settingsSearchTargetProps('theme-family')}>
-                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
                   Family
                 </div>
                 <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
@@ -760,7 +761,7 @@ export function SettingsModal(): JSX.Element {
               </div>
 
               <div {...settingsSearchTargetProps('theme-mode')}>
-                <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
                   Mode
                 </div>
                 <div className="inline-flex rounded-xl border border-paper-300/70 bg-paper-100/75 p-1">
@@ -783,7 +784,7 @@ export function SettingsModal(): JSX.Element {
 
               {visibleVariants.length > 1 && (
                 <div {...settingsSearchTargetProps('theme-variant')}>
-                  <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+                  <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
                     {themeFamily === 'gruvbox'
                       ? 'Contrast'
                       : themeFamily === 'catppuccin'
@@ -1461,7 +1462,7 @@ export function SettingsModal(): JSX.Element {
                   {vault?.root ?? 'No vault selected'}
                 </div>
                 {workspaceMode === 'remote' && remoteWorkspaceInfo?.baseUrl && (
-                  <div className="mt-1 truncate text-[11px] text-ink-400">
+                  <div className="mt-1 truncate text-xs text-ink-400">
                     Connected to {remoteWorkspaceInfo.baseUrl}
                   </div>
                 )}
@@ -1541,13 +1542,13 @@ export function SettingsModal(): JSX.Element {
                                 {profile.name}
                               </div>
                               {isCurrent && (
-                                <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700">
+                                <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">
                                   Connected
                                 </span>
                               )}
                             </div>
                             <div className="mt-1 truncate text-xs text-ink-500">{profile.baseUrl}</div>
-                            <div className="mt-1 truncate text-[11px] text-ink-400">
+                            <div className="mt-1 truncate text-xs text-ink-400">
                               {profile.vaultPath ? profile.vaultPath : 'Vault picked when connecting'}
                             </div>
                           </div>
@@ -1875,13 +1876,14 @@ export function SettingsModal(): JSX.Element {
                     Stored as a markdown file in `.zennotes/templates`.
                   </div>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => setTemplateEditor({})}
-                  className="shrink-0 rounded-xl bg-ink-900 px-3.5 py-2 text-xs font-medium text-paper-50 hover:bg-ink-800"
+                  className="shrink-0"
                 >
                   New template
-                </button>
+                </Button>
               </div>
             ) : (
               <InlineNote>
@@ -1902,12 +1904,12 @@ export function SettingsModal(): JSX.Element {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {template.builtin && (
-                    <span className="rounded-md bg-paper-200 px-2 py-1 text-[11px] uppercase tracking-wide text-ink-400">
+                    <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
                       Built-in
                     </span>
                   )}
                   {!template.builtin && template.builtinId && (
-                    <span className="rounded-md bg-paper-200 px-2 py-1 text-[11px] uppercase tracking-wide text-ink-400">
+                    <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
                       Customized
                     </span>
                   )}
@@ -2065,13 +2067,13 @@ export function SettingsModal(): JSX.Element {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+                    <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
                       Updates
                     </div>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <span
                         className={[
-                          'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                          'rounded-full border px-2.5 py-1 text-xs font-medium',
                           updatePhaseBadgeClass(appUpdateState?.phase ?? 'idle')
                         ].join(' ')}
                       >
@@ -2181,7 +2183,7 @@ export function SettingsModal(): JSX.Element {
                 className="mt-4 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-4 text-center"
                 {...settingsSearchTargetProps('lumary-labs')}
               >
-                <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+                <span className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
                   Built by
                 </span>
                 <a
@@ -2227,17 +2229,17 @@ export function SettingsModal(): JSX.Element {
   return (
     <>
       <div
-        className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-4 pt-[7vh] backdrop-blur-md"
+        className="fixed inset-0 z-modal flex items-start justify-center bg-black/45 px-4 pt-[7vh] backdrop-blur-md"
         onClick={() => setSettingsOpen(false)}
       >
         <div
           ref={ref}
-          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-paper-300/70 bg-paper-100 shadow-float"
+          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float"
           onClick={(e) => e.stopPropagation()}
         >
         <aside className="flex min-h-0 flex-col border-r border-paper-300/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
           <div className="border-b border-paper-300/55 px-4 py-4">
-            <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
+            <div className="text-xs font-medium uppercase tracking-[0.22em] text-ink-500">
               Settings
             </div>
             <div className="mt-3">
@@ -2293,12 +2295,12 @@ export function SettingsModal(): JSX.Element {
                     <div className="flex min-w-0 items-center justify-between gap-2">
                       <div className="truncate text-sm font-medium">{result.title}</div>
                       {result.type === 'setting' && (
-                        <span className="shrink-0 rounded-full border border-paper-300/60 bg-paper-100/70 px-2 py-0.5 text-[10px] font-medium text-ink-500">
+                        <span className="shrink-0 rounded-full border border-paper-300/60 bg-paper-100/70 px-2 py-0.5 text-2xs font-medium text-ink-500">
                           {result.category.title}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-ink-500">
+                    <div className="mt-1 line-clamp-2 text-xs leading-5 text-ink-500">
                       {result.description}
                     </div>
                   </button>
@@ -2312,7 +2314,7 @@ export function SettingsModal(): JSX.Element {
             </nav>
           </div>
 
-          <div className="border-t border-paper-300/55 px-4 py-3 text-[11px] leading-5 text-ink-500">
+          <div className="border-t border-paper-300/55 px-4 py-3 text-xs leading-5 text-ink-500">
             Settings save automatically on this device.
           </div>
         </aside>
@@ -2320,10 +2322,10 @@ export function SettingsModal(): JSX.Element {
         <div className="flex min-h-0 flex-col">
           <div className="flex items-start justify-between gap-4 border-b border-paper-300/60 px-7 py-5">
             <div>
-              <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-ink-500">
+              <div className="text-xs font-medium uppercase tracking-[0.22em] text-ink-500">
                 {visibleCategory ? visibleCategory.title : 'Settings'}
               </div>
-              <h2 className="mt-1 font-serif text-[28px] font-semibold leading-tight text-ink-900">
+              <h2 className="mt-1 font-serif text-3xl font-semibold leading-tight text-ink-900">
                 {visibleCategory?.title ?? 'Settings'}
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-500">
@@ -2331,19 +2333,21 @@ export function SettingsModal(): JSX.Element {
                   'Search the navigation on the left to jump to a settings section.'}
               </p>
             </div>
-            <button
+            <Button
+              variant="secondary"
+              size="md"
               onClick={() => setSettingsOpen(false)}
-              className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-2 text-sm font-medium text-ink-900 transition-colors hover:bg-paper-200"
+              className="shrink-0"
             >
               Done
-            </button>
+            </Button>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
             {visibleCategory ? (
               visibleCategory.content
             ) : (
-              <div className="flex h-full min-h-[280px] items-center justify-center rounded-[24px] border border-dashed border-paper-300/70 bg-paper-50/35 px-6 text-center text-sm leading-6 text-ink-500">
+              <div className="flex h-full min-h-[280px] items-center justify-center rounded-3xl border border-dashed border-paper-300/70 bg-paper-50/35 px-6 text-center text-sm leading-6 text-ink-500">
                 Try a broader search term, or clear the search field to browse every settings section.
               </div>
             )}
@@ -2420,7 +2424,7 @@ function KeymapSettings({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col rounded-[22px] border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+      <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -2457,7 +2461,7 @@ function KeymapSettings({
         <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-paper-300/45">
           {groups.map((group) => (
             <div key={group.group}>
-              <div className="px-5 pt-4 text-[11px] font-medium uppercase tracking-[0.18em] text-ink-500">
+              <div className="px-5 pt-4 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
                 {group.label}
               </div>
               <div className="pb-4">
@@ -2478,12 +2482,12 @@ function KeymapSettings({
                             {definition.title}
                           </span>
                           {inactive && (
-                            <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-500">
+                            <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-ink-500">
                               {definition.vimOnly ? 'Vim only' : 'Non-Vim only'}
                             </span>
                           )}
                           {custom && (
-                            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-accent">
+                            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-accent">
                               Custom
                             </span>
                           )}
@@ -2610,7 +2614,7 @@ function KeymapRecorderModal({
     : 'Press a key…'
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-toast flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
       <div className="w-[min(440px,92vw)] overflow-hidden rounded-2xl border border-paper-300/70 bg-paper-100 shadow-float">
         <div className="border-b border-paper-300/60 px-5 py-4">
           <div className="text-base font-semibold text-ink-900">{definition.title}</div>
@@ -2618,7 +2622,7 @@ function KeymapRecorderModal({
         </div>
         <div className="px-5 py-4">
           <div className="rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-4">
-            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-500">
+            <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
               Recording
             </div>
             <div className="mt-2 text-2xl font-semibold text-ink-900">{display}</div>
@@ -2651,19 +2655,14 @@ function KeymapRecorderModal({
             >
               Cancel
             </button>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               disabled={!binding}
               onClick={() => onSave(binding)}
-              className={[
-                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                binding
-                  ? 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-                  : 'cursor-not-allowed bg-paper-300 text-ink-500'
-              ].join(' ')}
             >
               Save
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -2686,14 +2685,14 @@ function Section({
   return (
     <section className="space-y-3" {...settingsSearchTargetProps(settingId)}>
       <div>
-        <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-ink-500">
+        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">
           {title}
         </div>
         {description && (
           <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">{description}</p>
         )}
       </div>
-      <div className="overflow-hidden rounded-[22px] border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+      <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
         <div className="divide-y divide-paper-300/45">{children}</div>
       </div>
     </section>
@@ -3127,7 +3126,7 @@ function FontRow({
         createPortal(
           <div
             id="zen-font-portal"
-            className="fixed z-[80] flex max-h-[320px] flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
+            className="fixed z-popover flex max-h-[320px] flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
             style={{ left: rect.left, top: rect.top, width: rect.width }}
           >
             <div className="border-b border-paper-300/60 p-2">
@@ -3494,7 +3493,7 @@ function CliSettings(): JSX.Element {
                 <span className="text-sm font-medium text-ink-900">zen</span>
                 <span
                   className={[
-                    'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]',
+                    'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
                     statusChipClass(chip.tone)
                   ].join(' ')}
                 >
@@ -3514,7 +3513,7 @@ function CliSettings(): JSX.Element {
                 <div className="mt-1.5 text-xs leading-5 text-amber-500">{status.reason}</div>
               )}
               {!installed && status.pathHint && (
-                <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] leading-5 text-ink-700">
+                <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-ink-700">
                   <div className="font-medium text-amber-600">
                     {status.defaultTarget.replace(/\/[^/]+$/, '')} is not on your PATH.
                   </div>
@@ -3522,13 +3521,13 @@ function CliSettings(): JSX.Element {
                     After install, run this once so your shell can find <code className="font-mono">zen</code>:
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-[11px] text-ink-900">
+                    <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-xs text-ink-900">
                       {status.pathHint}
                     </code>
                     <button
                       type="button"
                       onClick={() => copyToClipboard(status.pathHint ?? '')}
-                      className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-[11px] font-medium text-ink-700 hover:bg-paper-200"
+                      className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
                     >
                       Copy
                     </button>
@@ -3552,33 +3551,28 @@ function CliSettings(): JSX.Element {
                   {busy ? 'Working…' : 'Uninstall'}
                 </button>
               ) : (
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void onInstall()}
                   disabled={busy || isUnavailable}
-                  className={[
-                    'rounded-xl px-3.5 py-1.5 text-xs font-medium transition-colors',
-                    busy || isUnavailable
-                      ? 'cursor-not-allowed bg-paper-300 text-ink-500'
-                      : 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-                  ].join(' ')}
                 >
                   {busy ? 'Installing…' : 'Install'}
-                </button>
+                </Button>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-[11px] text-ink-500">
-            <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-ink-400">
+          <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-xs text-ink-500">
+            <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-400">
               Path
             </span>
-            <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-[11px] text-ink-800">
+            <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-xs text-ink-800">
               {status.installedAt ?? status.defaultTarget}
             </code>
             <button
               type="button"
               onClick={() => copyToClipboard(status.installedAt ?? status.defaultTarget)}
-              className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-[11px] font-medium text-ink-700 hover:bg-paper-200"
+              className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
             >
               Copy
             </button>
@@ -3596,7 +3590,7 @@ function CliSettings(): JSX.Element {
         description="A handful of the most useful commands. Quote paths with spaces, or pass them with `--path`. Run `zen --help` for the full list."
         settingId="cli-quick-reference"
       >
-        <div className="space-y-2 px-5 py-4 font-mono text-[12px] leading-6 text-ink-800">
+        <div className="space-y-2 px-5 py-4 font-mono text-xs leading-6 text-ink-800">
           <div>zen list --tag idea</div>
           <div>zen read "inbox/Project.md"</div>
           <div>zen read --path "hellointerview/system design.md"</div>
@@ -3695,7 +3689,7 @@ function RaycastExtensionSettings({
               <span className="text-sm font-medium text-ink-900">ZenNotes for Raycast</span>
               <span
                 className={[
-                  'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]',
+                  'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
                   statusChipClass(chip.tone)
                 ].join(' ')}
               >
@@ -3703,7 +3697,7 @@ function RaycastExtensionSettings({
               </span>
             </div>
             <div className="mt-1 text-xs leading-5 text-ink-500">{detail}</div>
-            <div className="mt-1 text-[11px] leading-5 text-ink-400">{toolchainDetail}</div>
+            <div className="mt-1 text-xs leading-5 text-ink-400">{toolchainDetail}</div>
             {!cliInstalled && (
               <div className="mt-1.5 text-xs leading-5 text-amber-500">
                 Install the <code className="font-mono">zen</code> CLI above first. The Raycast
@@ -3714,32 +3708,28 @@ function RaycastExtensionSettings({
               <div className="mt-1.5 text-xs leading-5 text-amber-500">{status.reason}</div>
             )}
           </div>
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => void onInstall()}
             disabled={installDisabled}
-            className={[
-              'shrink-0 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-colors',
-              installDisabled
-                ? 'cursor-not-allowed bg-paper-300 text-ink-500'
-                : 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-            ].join(' ')}
+            className="shrink-0"
           >
             {installLabel}
-          </button>
+          </Button>
         </div>
 
-        <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-[11px] text-ink-500">
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-ink-400">
+        <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-xs text-ink-500">
+          <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-400">
             Local copy
           </span>
-          <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-[11px] text-ink-800">
+          <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-xs text-ink-800">
             {status.extensionPath}
           </code>
           <button
             type="button"
             onClick={() => copyToClipboard(status.extensionPath)}
-            className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-[11px] font-medium text-ink-700 hover:bg-paper-200"
+            className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
           >
             Copy
           </button>
@@ -3871,7 +3861,7 @@ function McpSettings(): JSX.Element {
             <div className="flex items-center gap-2">
               <span
                 className={[
-                  'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]',
+                  'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
                   serverStatusClass
                 ].join(' ')}
               >
@@ -3895,7 +3885,7 @@ function McpSettings(): JSX.Element {
           </div>
           {showCommand && (
             <div className="mt-3 flex items-start gap-2">
-              <code className="min-w-0 flex-1 break-all rounded-lg border border-paper-300/70 bg-paper-50/80 px-3 py-2 font-mono text-[11px] leading-5 text-ink-900">
+              <code className="min-w-0 flex-1 break-all rounded-lg border border-paper-300/70 bg-paper-50/80 px-3 py-2 font-mono text-xs leading-5 text-ink-900">
                 {commandPreview}
               </code>
               <button
@@ -4010,14 +4000,14 @@ function McpInstructionsEditor(): JSX.Element {
     >
       <div className="space-y-3 px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-ink-500">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-ink-500">
             <span>Prompt</span>
             {payload?.isCustom ? (
-              <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-medium tracking-[0.14em] text-accent">
+              <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium tracking-[0.14em] text-accent">
                 Custom
               </span>
             ) : (
-              <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-[10px] font-medium tracking-[0.14em] text-ink-500">
+              <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-2xs font-medium tracking-[0.14em] text-ink-500">
                 Default
               </span>
             )}
@@ -4049,32 +4039,27 @@ function McpInstructionsEditor(): JSX.Element {
             >
               Revert
             </button>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => void save()}
               disabled={!dirty || saving}
-              className={[
-                'rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors',
-                dirty && !saving
-                  ? 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-                  : 'cursor-not-allowed bg-paper-300 text-ink-500'
-              ].join(' ')}
             >
               {saving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
           </div>
         </div>
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           spellCheck={false}
-          className="h-[360px] w-full resize-y rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-[12px] leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+          className="h-[360px] w-full resize-y rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-xs leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
           placeholder="Loading…"
         />
-        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-ink-500">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-500">
           <span>
             Saved at:{' '}
-            <code className="font-mono text-[11px] text-ink-600">
+            <code className="font-mono text-xs text-ink-600">
               {payload?.filePath ?? '—'}
             </code>
           </span>
@@ -4131,7 +4116,7 @@ function McpClientRow({
             <span className="text-sm font-medium text-ink-900">{title}</span>
             <span
               className={[
-                'rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em]',
+                'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
                 statusChipClass(chip.tone)
               ].join(' ')}
             >
@@ -4174,28 +4159,23 @@ function McpClientRow({
               </button>
             </>
           ) : (
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={onInstall}
               disabled={busy || entryMissing}
-              className={[
-                'rounded-xl px-3.5 py-1.5 text-xs font-medium transition-colors',
-                busy || entryMissing
-                  ? 'cursor-not-allowed bg-paper-300 text-ink-500'
-                  : 'bg-ink-900 text-paper-50 hover:bg-ink-800'
-              ].join(' ')}
             >
               {busy ? 'Installing…' : 'Install'}
-            </button>
+            </Button>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-[11px] text-ink-500">
-        <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-ink-400">
+      <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-xs text-ink-500">
+        <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-400">
           Config
         </span>
         <code
-          className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-600"
+          className="min-w-0 flex-1 truncate font-mono text-xs text-ink-600"
           title={status.configPath}
         >
           {status.configPath}
@@ -4203,7 +4183,7 @@ function McpClientRow({
         <button
           type="button"
           onClick={onCopyConfigPath}
-          className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-[10px] font-medium text-ink-700 transition-colors hover:bg-paper-200"
+          className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-2xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
         >
           Copy
         </button>

@@ -968,7 +968,7 @@ function ExpandedDiagramModal({
   return createPortal(
     <div
       className={[
-        "fixed inset-0 z-[80] flex bg-black/60 backdrop-blur-sm",
+        "fixed inset-0 z-popover flex bg-black/60 backdrop-blur-sm",
         fullScreen
           ? "items-start justify-center p-0"
           : "items-center justify-center p-4 md:p-6",

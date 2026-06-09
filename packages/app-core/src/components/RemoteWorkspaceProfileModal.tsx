@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import type { RemoteWorkspaceProfileInput } from '@shared/ipc'
+import { Modal } from './ui/Modal'
+import { Button } from './ui/Button'
 
 export interface RemoteWorkspaceProfileModalOptions {
   title: string
@@ -74,14 +75,9 @@ export function RemoteWorkspaceProfileModal({
     }
   }, [authToken, clearAuthToken, name, normalizedBaseUrl, onSubmit, options.initialValue?.id, submitting, vaultPath])
 
+  // Esc handled by Modal; we keep Enter (→ submit) here. closeOnEsc stays true.
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onCancel()
-        return
-      }
       if (e.key === 'Enter') {
         e.preventDefault()
         e.stopPropagation()
@@ -90,126 +86,96 @@ export function RemoteWorkspaceProfileModal({
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [onCancel, submit])
+  }, [submit])
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[74] flex items-start justify-center bg-black/45 pt-[14vh] backdrop-blur-sm"
-      onClick={onCancel}
-    >
-      <div
-        className="w-[min(520px,94vw)] overflow-hidden rounded-xl bg-paper-100 shadow-float ring-1 ring-paper-300"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 pt-5">
-          <div className="text-sm font-semibold text-ink-900">{options.title}</div>
-          {options.description && (
-            <div className="mt-1 text-xs leading-5 text-ink-500">{options.description}</div>
+  return (
+    // Opened from within the workspace switcher (atop other chrome) → nested layer.
+    <Modal size="md" layer="nested" onClose={onCancel}>
+      <Modal.Header title={options.title} description={options.description} />
+      <div className="space-y-4 px-5 py-4">
+        <label className="block">
+          <div className="form-label mb-1">Label</div>
+          <input
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value)
+              setError(null)
+            }}
+            placeholder="Optional. Example: Home Server"
+            className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
+          />
+          <div className="form-hint mt-1 leading-5">
+            Leave this blank if you want ZenNotes to name the remote from the server or vault.
+          </div>
+        </label>
+        <label className="block">
+          <div className="form-label mb-1">Server URL</div>
+          <input
+            value={baseUrl}
+            onChange={(e) => {
+              setBaseUrl(e.target.value)
+              setError(null)
+            }}
+            placeholder="http://localhost:7878"
+            className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <div className="form-label mb-1">Auth token</div>
+          <input
+            value={authToken}
+            onChange={(e) => {
+              setAuthToken(e.target.value)
+              setError(null)
+            }}
+            placeholder="Optional"
+            className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
+          />
+          {options.hasStoredCredential && !authToken.trim() && (
+            <div className="form-hint mt-1 leading-5">
+              A token is already stored securely for this remote. Leave this blank to keep it, or enter a new one to replace it.
+            </div>
           )}
-        </div>
-        <div className="space-y-4 px-5 py-4">
-          <label className="block">
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
-              Label
-            </div>
-            <input
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value)
-                setError(null)
-              }}
-              placeholder="Optional. Example: Home Server"
-              className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
-            />
-            <div className="mt-1 text-[11px] leading-5 text-ink-400">
-              Leave this blank if you want ZenNotes to name the remote from the server or vault.
-            </div>
-          </label>
-          <label className="block">
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
-              Server URL
-            </div>
-            <input
-              value={baseUrl}
-              onChange={(e) => {
-                setBaseUrl(e.target.value)
-                setError(null)
-              }}
-              placeholder="http://localhost:7878"
-              className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
-            />
-          </label>
-          <label className="block">
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
-              Auth token
-            </div>
-            <input
-              value={authToken}
-              onChange={(e) => {
-                setAuthToken(e.target.value)
-                setError(null)
-              }}
-              placeholder="Optional"
-              className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
-            />
-            {options.hasStoredCredential && !authToken.trim() && (
-              <div className="mt-1 text-[11px] leading-5 text-ink-400">
-                A token is already stored securely for this remote. Leave this blank to keep it, or enter a new one to replace it.
-              </div>
-            )}
-            {options.hasStoredCredential && (
-              <label className="mt-2 flex items-center gap-2 text-[11px] text-ink-500">
-                <input
-                  type="checkbox"
-                  checked={clearAuthToken}
-                  onChange={(e) => {
-                    setClearAuthToken(e.target.checked)
-                    setError(null)
-                  }}
-                  className="h-3.5 w-3.5 rounded border-paper-300 bg-paper-50 text-accent focus:ring-accent"
-                />
-                Clear the stored token for this remote
-              </label>
-            )}
-          </label>
-          <label className="block">
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
-              Vault folder
-            </div>
-            <input
-              value={vaultPath}
-              onChange={(e) => {
-                setVaultPath(e.target.value)
-                setError(null)
-              }}
-              placeholder="Optional. If blank, ZenNotes will ask when you connect."
-              className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
-            />
-            <div className="mt-1 text-[11px] leading-5 text-ink-400">
-              Leave this blank if you want to choose the vault folder when you connect.
-            </div>
-          </label>
-          {error && <div className="text-xs text-red-700">{error}</div>}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-paper-300/50 bg-paper-50 px-5 py-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-sm text-ink-800 hover:bg-paper-200"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => void submit()}
-            className="rounded-md bg-ink-900 px-3 py-1.5 text-sm font-medium text-paper-50 hover:bg-ink-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {options.submitLabel ?? 'Save'}
-          </button>
-        </div>
+          {options.hasStoredCredential && (
+            <label className="mt-2 flex items-center gap-2 text-xs text-ink-500">
+              <input
+                type="checkbox"
+                checked={clearAuthToken}
+                onChange={(e) => {
+                  setClearAuthToken(e.target.checked)
+                  setError(null)
+                }}
+                className="h-3.5 w-3.5 rounded border-paper-300 bg-paper-50 text-accent focus:ring-accent"
+              />
+              Clear the stored token for this remote
+            </label>
+          )}
+        </label>
+        <label className="block">
+          <div className="form-label mb-1">Vault folder</div>
+          <input
+            value={vaultPath}
+            onChange={(e) => {
+              setVaultPath(e.target.value)
+              setError(null)
+            }}
+            placeholder="Optional. If blank, ZenNotes will ask when you connect."
+            className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
+          />
+          <div className="form-hint mt-1 leading-5">
+            Leave this blank if you want to choose the vault folder when you connect.
+          </div>
+        </label>
+        {error && <div className="text-xs text-danger">{error}</div>}
       </div>
-    </div>,
-    document.body
+      <Modal.Footer>
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" disabled={submitting} onClick={() => void submit()}>
+          {options.submitLabel ?? 'Save'}
+        </Button>
+      </Modal.Footer>
+    </Modal>
   )
 }

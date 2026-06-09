@@ -854,7 +854,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
             <option value="folder">Folder</option>
           </select>
         </div>
-        <div className="text-[11px] text-current/40">
+        <div className="text-xs text-current/40">
           {dndEnabled
             ? 'Drag cards to move · h/l column · j/k card · Space toggle · Enter open'
             : 'h/l column · j/k card · Space toggle · Enter open'}
@@ -918,10 +918,10 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 text-[11px] text-current/50">
+                <div className="flex items-center gap-1.5 text-xs text-current/50">
                   <span>{column.tasks.length}</span>
                   {column.badge?.kind === 'overdue' && column.badge.value > 0 && (
-                    <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-medium text-rose-300">
+                    <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">
                       {column.badge.value} overdue
                     </span>
                   )}
@@ -933,7 +933,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                 className="min-h-0 flex-1 overflow-y-auto p-2"
               >
                 {column.tasks.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-[11px] text-current/40">
+                  <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-xs text-current/40">
                     nothing here
                   </div>
                 ) : (
@@ -970,7 +970,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
         })}
       </div>
       {!dndEnabled && (
-        <div className="shrink-0 border-t border-paper-300/45 px-3 py-1.5 text-[11px] text-current/40">
+        <div className="shrink-0 border-t border-paper-300/45 px-3 py-1.5 text-xs text-current/40">
           Folder grouping is read-only — move a task across folders by moving its source note in
           the sidebar.
         </div>
@@ -1145,7 +1145,7 @@ function TaskCard({
           <ArrowUpRightIcon width={12} height={12} />
         </button>
       </div>
-      <div className="mt-1 flex items-center gap-2 pl-6 text-[11px] text-current/50">
+      <div className="mt-1 flex items-center gap-2 pl-6 text-xs text-current/50">
         <span className="truncate">{task.noteTitle}</span>
         {task.priority && (
           <span

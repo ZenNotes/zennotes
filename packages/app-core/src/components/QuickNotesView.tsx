@@ -209,7 +209,7 @@ export function QuickNotesView(): JSX.Element {
 
         <section
           ref={rootRef}
-          className="overflow-hidden rounded-[24px] border border-paper-300/70 bg-paper-50/34 shadow-[0_12px_42px_rgba(15,23,42,0.06)]"
+          className="overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-50/34 shadow-[0_12px_42px_rgba(15,23,42,0.06)]"
         >
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
@@ -250,12 +250,12 @@ export function QuickNotesView(): JSX.Element {
                     <div className="min-w-0 flex-1 pt-0.5">
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
                         <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>
-                        <span className="text-[11px] uppercase tracking-[0.16em] text-ink-400">
+                        <span className="text-xs uppercase tracking-[0.16em] text-ink-500">
                           {formatDate(note.updatedAt)}
                         </span>
                       </div>
-                      <div className="mt-0.5 truncate text-[11px] text-ink-400">{note.path}</div>
-                      <div className="mt-1 line-clamp-1 text-[13px] leading-5 text-ink-600">
+                      <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
+                      <div className="mt-1 line-clamp-1 text-sm leading-5 text-ink-600">
                         {note.excerpt || 'Empty note'}
                       </div>
                     </div>
@@ -266,7 +266,7 @@ export function QuickNotesView(): JSX.Element {
                           e.stopPropagation()
                           void openNote(note.path)
                         }}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-paper-100/85 px-2.5 py-1 text-[11px] font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-paper-100/85 px-2.5 py-1 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
                       >
                         <ArrowUpRightIcon width={13} height={13} />
                         Open

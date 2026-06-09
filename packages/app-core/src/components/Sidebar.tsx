@@ -169,7 +169,7 @@ function SidebarSectionHeading({
   return (
     <div
       className={[
-        "rounded-lg px-2 pb-2 pt-4 text-[11px] font-medium uppercase tracking-wide transition-colors",
+        "rounded-lg px-2 pb-2 pt-4 text-xs font-medium uppercase tracking-wide transition-colors",
         dragHover ? "bg-accent/10 text-accent" : "text-ink-500",
       ].join(" ")}
       onDragOver={
@@ -2502,7 +2502,7 @@ export function Sidebar(): JSX.Element {
                 {vault?.name ?? "ZenNotes"}
               </div>
               {workspaceMode === "remote" && (
-                <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-500">
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-500">
                   <span className="inline-flex items-center gap-1 rounded-full border border-paper-300/70 bg-paper-100/80 px-1.5 py-0.5 font-medium text-ink-700">
                     <ArrowUpRightIcon className="h-3 w-3" />
                     Remote
@@ -2521,7 +2521,7 @@ export function Sidebar(): JSX.Element {
                 {vault?.name ?? "ZenNotes"}
               </div>
               {workspaceMode === "remote" && (
-                <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-500">
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-500">
                   <span className="inline-flex items-center gap-1 rounded-full border border-paper-300/70 bg-paper-100/80 px-1.5 py-0.5 font-medium text-ink-700">
                     <ArrowUpRightIcon className="h-3 w-3" />
                     Remote
@@ -2554,7 +2554,7 @@ export function Sidebar(): JSX.Element {
         >
           <SearchIcon />
           <span className="flex-1 truncate">Search</span>
-          <kbd className="rounded bg-paper-200 px-1 py-0.5 text-[10px] text-ink-500">
+          <kbd className="rounded bg-paper-200 px-1 py-0.5 text-2xs text-ink-500">
             ⌘P
           </kbd>
         </button>
@@ -2857,7 +2857,7 @@ export function Sidebar(): JSX.Element {
                 onClick={() => setTagsCollapsed(!tagsCollapsed)}
                 title={tagsCollapsed ? "Show tags" : "Hide tags"}
                 aria-expanded={!tagsCollapsed}
-                className="flex w-full items-center gap-1 rounded px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
+                className="flex w-full items-center gap-1 rounded px-2 pb-2 text-xs font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
               >
                 {showSidebarChevrons && (
                   <span
@@ -2873,7 +2873,7 @@ export function Sidebar(): JSX.Element {
                   </span>
                 )}
                 <span>Tags</span>
-                <span className="ml-1 text-ink-400 normal-case tracking-normal">
+                <span className="ml-1 text-ink-500 normal-case tracking-normal">
                   {tags.length}
                 </span>
               </button>
@@ -2916,7 +2916,7 @@ export function Sidebar(): JSX.Element {
                         #{tag}
                         <span
                           className={[
-                            "ml-1 text-[10px]",
+                            "ml-1 text-2xs",
                             active && !isSidebarFocused
                               ? "text-white/80"
                               : "text-ink-500",
@@ -3998,7 +3998,7 @@ const NoteLeaf = memo(function NoteLeaf({
                 : "text-white/70"
               : selected
                 ? "text-accent/75"
-                : "text-ink-400",
+                : "text-ink-500",
           ].join(" ")}
         >
           <svg
@@ -4028,7 +4028,7 @@ const NoteLeaf = memo(function NoteLeaf({
                 : "text-white/70"
               : selected
                 ? "text-accent/75"
-              : "text-ink-400",
+              : "text-ink-500",
           ].join(" ")}
         >
           <svg
@@ -4144,8 +4144,8 @@ function AssetLeaf({
       {extension && (
         <span
           className={[
-            "shrink-0 pr-2 text-[10px] uppercase tracking-wide",
-            sidebarFocused && vimHighlight ? "text-ink-700" : "text-ink-400",
+            "shrink-0 pr-2 text-2xs uppercase tracking-wide",
+            sidebarFocused && vimHighlight ? "text-ink-700" : "text-ink-500",
           ].join(" ")}
         >
           {extension}
@@ -4307,7 +4307,7 @@ function TreeRow({
           title="Symlinked into this vault"
           className={[
             "shrink-0",
-            strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-400",
+            strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-500",
           ].join(" ")}
         >
           <svg
@@ -4337,7 +4337,7 @@ function TreeRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-400",
+            strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -4470,7 +4470,7 @@ function ArchiveSidebarRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-400",
+            strongActive ? "text-white/80" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -4548,7 +4548,7 @@ function TrashSidebarRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-400",
+            strongActive ? "text-white/80" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -4624,7 +4624,7 @@ function SidebarRow({
         <span
           className={[
             "text-xs",
-            strongActive ? "text-white/80" : "text-ink-400",
+            strongActive ? "text-white/80" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -4672,7 +4672,7 @@ function SidebarFooterAction({
       title={resolvedTitle}
       aria-label={resolvedTitle}
       className={[
-        "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium leading-none transition-colors whitespace-nowrap",
+        "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4699,7 +4699,7 @@ function SidebarFooterAction({
       {typeof count === "number" && (
         <span
           className={[
-            "rounded-full px-1.5 py-0.5 text-[10px]",
+            "rounded-full px-1.5 py-0.5 text-2xs",
             strongActive
               ? "bg-white/12 text-white/80"
               : "bg-paper-200/80 text-ink-500",
@@ -4711,7 +4711,7 @@ function SidebarFooterAction({
       {badgeLabel && (
         <span
           className={[
-            "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+            "rounded-full px-1.5 py-0.5 text-2xs font-semibold",
             strongActive
               ? "bg-white/16 text-white"
               : "bg-accent/12 text-accent",
@@ -4749,7 +4749,7 @@ function IconBtn({
       ].join(" ")}
     >
       <span className="pointer-events-none">{children}</span>
-      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
+      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
         {title}
       </span>
     </button>
@@ -4961,13 +4961,13 @@ function RowKeyHint({
   return (
     <span
       className={[
-        "pointer-events-none shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] leading-none",
+        "pointer-events-none shrink-0 rounded-md border px-1.5 py-0.5 text-2xs leading-none",
         active
           ? "border-white/25 bg-white/12 text-white/80"
           : "border-paper-300/70 bg-paper-100/75 text-ink-500",
       ].join(" ")}
     >
-      <span className="font-mono text-[10px]">{keyLabel}</span>
+      <span className="font-mono text-2xs">{keyLabel}</span>
       {!compact && label ? <span className="ml-1">{label}</span> : null}
     </span>
   );
