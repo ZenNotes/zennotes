@@ -494,10 +494,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.comments-panel',
       title: 'Toggle Comments Panel',
       category: 'View',
+      shortcut: shortcut('global.toggleCommentsPanel'),
       keywords: 'comments annotations discussion margin review',
       when: () => !!getState().activeNote,
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-comments'))
+      }
+    },
+    {
+      id: 'editor.add-comment',
+      title: 'Add Comment to Selection',
+      category: 'Editor',
+      shortcut: shortcut('global.addComment'),
+      keywords: 'comment annotate selection note review',
+      when: () => !!getState().activeNote,
+      run: () => {
+        window.dispatchEvent(new Event('zen:add-comment'))
       }
     },
     {

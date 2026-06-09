@@ -9,6 +9,7 @@ import { ConfirmHost } from './components/ConfirmHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut, matchesSequenceToken } from './lib/keymaps'
+import { focusPaneOrEdgePanel } from './lib/pane-nav'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
@@ -596,6 +597,36 @@ function App(): JSX.Element {
         e.preventDefault()
         window.dispatchEvent(new Event('zen:toggle-outline'))
         return
+      }
+      // ⇧⌘C — toggle the comments panel in the active pane
+      if (matchesShortcut(e, overrides, 'global.toggleCommentsPanel')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:toggle-comments'))
+        return
+      }
+      // ⌥⌘M — comment the current selection (or line) without the mouse
+      if (matchesShortcut(e, overrides, 'global.addComment')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:add-comment'))
+        return
+      }
+      // ⌥h/j/k/l — focus the neighbouring pane/panel. Works regardless of vim
+      // mode (unlike <C-w>hjkl) and never needs the command palette.
+      {
+        const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
+          ? 'h'
+          : matchesShortcut(e, overrides, 'global.focusPaneDown')
+            ? 'j'
+            : matchesShortcut(e, overrides, 'global.focusPaneUp')
+              ? 'k'
+              : matchesShortcut(e, overrides, 'global.focusPaneRight')
+                ? 'l'
+                : null
+        if (paneDir) {
+          e.preventDefault()
+          focusPaneOrEdgePanel(paneDir)
+          return
+        }
       }
       if (matchesShortcut(e, overrides, 'global.modeEdit')) {
         e.preventDefault()

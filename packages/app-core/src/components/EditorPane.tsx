@@ -1031,6 +1031,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return draft
   }, [content, paneId, setActiveCommentId, setActivePane, setFocusedPanel])
 
+  // `zen:add-comment` — keyboard shortcut (⌥⌘M) / palette command to start a
+  // comment on the current selection (or line) in the active pane, no mouse.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      captureCommentDraft()
+    }
+    window.addEventListener('zen:add-comment', handler)
+    return () => window.removeEventListener('zen:add-comment', handler)
+  }, [isActive, captureCommentDraft])
+
   const jumpToComment = useCallback((comment: NoteComment) => {
     const view = viewRef.current
     setActivePane(paneId)
