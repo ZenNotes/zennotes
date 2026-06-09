@@ -23,6 +23,8 @@ import type {
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
+import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
+import { databaseTabPath } from '@shared/databases'
 import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
 import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
@@ -1533,6 +1535,11 @@ interface Store {
   /** First-of-month anchor (ISO YYYY-MM-01) for the Calendar view's grid. */
   tasksCalendarMonthAnchor: string | null
 
+  /** Hydrated CSV databases keyed by their vault-relative `.csv` path. */
+  databases: Record<string, DatabaseDoc>
+  /** In-flight load flags keyed by `.csv` path. */
+  databasesLoading: Record<string, boolean>
+
   /** Tags currently selected in the Tags view. The view shows every non-
    *  trash note carrying *any* of these (union), so toggling more tags
    *  widens the result set. Cleared when the Tags tab closes. */
@@ -1587,6 +1594,18 @@ interface Store {
   openArchiveView: () => Promise<void>
   /** Open the built-in Trash tab in the active pane. */
   openTrashView: () => Promise<void>
+  /** Read a CSV database (CSV + sidecar) into `databases` if not already loaded. */
+  loadDatabase: (csvPath: string) => Promise<void>
+  /** Load a database and open it as a tab in the active pane. */
+  openDatabase: (csvPath: string) => Promise<void>
+  /** Create a new empty database and open it. */
+  createDatabase: (folder: NoteFolder, title?: string) => Promise<void>
+  /** Optimistically replace a database's rows and debounce-persist the CSV. */
+  updateDatabaseRows: (csvPath: string, next: DatabaseDoc) => void
+  /** Optimistically replace a database's schema/views and debounce-persist sidecar + CSV. */
+  updateDatabaseSchema: (csvPath: string, next: DatabaseDoc) => void
+  /** Re-read a database from disk after an external change (skips our own write echoes). */
+  syncDatabaseFromDisk: (csvPath: string) => Promise<void>
   /** Add or remove a tag from the Tags view selection without touching
    *  pane layout. No-op if the selection is already in that state. */
   toggleTagSelection: (tag: string) => void
@@ -1890,6 +1909,53 @@ const PATH_SAVE_DEBOUNCE_MS = 350
  * completion and echo arrival get rolled back to the older disk body.
  */
 const lastWrittenByPath = new Map<string, string>()
+
+// --- CSV database debounced persistence + echo suppression ---
+const DATABASE_SAVE_DEBOUNCE_MS = 400
+const databaseSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+/** A pending write that touched the schema must persist the sidecar too. */
+const databaseWriteKind = new Map<string, 'rows' | 'schema'>()
+/** When we last wrote a database; used to ignore the watcher echo of our own write. */
+const lastDatabaseWriteAt = new Map<string, number>()
+
+function databaseToSidecar(doc: DatabaseDoc): DatabaseSidecar {
+  return {
+    version: 1,
+    idFieldId: doc.idFieldId,
+    fields: doc.fields,
+    views: doc.views,
+    activeViewId: doc.activeViewId
+  }
+}
+
+function scheduleDatabaseWrite(
+  csvPath: string,
+  kind: 'rows' | 'schema',
+  getDoc: () => DatabaseDoc | undefined
+): void {
+  const prev = databaseWriteKind.get(csvPath)
+  databaseWriteKind.set(csvPath, kind === 'schema' || prev === 'schema' ? 'schema' : 'rows')
+  const existing = databaseSaveTimers.get(csvPath)
+  if (existing) clearTimeout(existing)
+  databaseSaveTimers.set(
+    csvPath,
+    setTimeout(() => {
+      databaseSaveTimers.delete(csvPath)
+      const writeKind = databaseWriteKind.get(csvPath) ?? 'rows'
+      databaseWriteKind.delete(csvPath)
+      const doc = getDoc()
+      if (!doc) return
+      const done = (): void => {
+        lastDatabaseWriteAt.set(csvPath, Date.now())
+      }
+      const write =
+        writeKind === 'schema'
+          ? window.zen.writeDatabaseSchema(csvPath, databaseToSidecar(doc), doc.rows)
+          : window.zen.writeDatabaseRows(csvPath, doc.rows)
+      void write.catch((err) => console.error('database write failed', err)).finally(done)
+    }, DATABASE_SAVE_DEBOUNCE_MS)
+  )
+}
 
 function normalizeServerBaseUrl(value: string): string {
   const trimmed = value.trim()
@@ -2617,6 +2683,8 @@ export const useStore = create<Store>((set, get) => {
   taskCursorIndex: 0,
   tasksCalendarSelectedDate: null,
   tasksCalendarMonthAnchor: null,
+  databases: {},
+  databasesLoading: {},
   selectedTags: [],
   focusedPanel: null,
   sidebarCursorIndex: 0,
@@ -2753,6 +2821,56 @@ export const useStore = create<Store>((set, get) => {
     await get().openNoteInPane(state.activePaneId, TRASH_TAB_PATH)
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
+  },
+  loadDatabase: async (csvPath) => {
+    if (get().databasesLoading[csvPath]) return
+    set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: true } }))
+    try {
+      const doc = await window.zen.openDatabase(csvPath)
+      set((s) => ({ databases: { ...s.databases, [csvPath]: doc } }))
+    } catch (err) {
+      console.error('loadDatabase failed', err)
+    } finally {
+      set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: false } }))
+    }
+  },
+  openDatabase: async (csvPath) => {
+    await get().loadDatabase(csvPath)
+    await get().openNoteInPane(get().activePaneId, databaseTabPath(csvPath))
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
+  },
+  createDatabase: async (folder, title) => {
+    try {
+      const doc = await window.zen.createDatabase(folder, title)
+      set((s) => ({ databases: { ...s.databases, [doc.path]: doc } }))
+      await get().openNoteInPane(get().activePaneId, databaseTabPath(doc.path))
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      set({ focusedPanel: 'editor' })
+    } catch (err) {
+      console.error('createDatabase failed', err)
+    }
+  },
+  updateDatabaseRows: (csvPath, next) => {
+    set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
+    scheduleDatabaseWrite(csvPath, 'rows', () => get().databases[csvPath])
+  },
+  updateDatabaseSchema: (csvPath, next) => {
+    set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
+    scheduleDatabaseWrite(csvPath, 'schema', () => get().databases[csvPath])
+  },
+  syncDatabaseFromDisk: async (csvPath) => {
+    if (!get().databases[csvPath]) return
+    // Ignore the watcher echo of a write we just made.
+    if (Date.now() - (lastDatabaseWriteAt.get(csvPath) ?? 0) < 1500) return
+    // Don't clobber edits that are still mid-debounce.
+    if (databaseSaveTimers.has(csvPath)) return
+    try {
+      const doc = await window.zen.openDatabase(csvPath)
+      set((s) => (s.databases[csvPath] ? { databases: { ...s.databases, [csvPath]: doc } } : {}))
+    } catch (err) {
+      console.error('syncDatabaseFromDisk failed', err)
+    }
   },
 
   toggleTagSelection: (tag) => {
@@ -3213,6 +3331,10 @@ export const useStore = create<Store>((set, get) => {
   applyChange: async (ev) => {
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    if (ev.scope === 'database') {
+      await get().syncDatabaseFromDisk(ev.path)
       return
     }
     const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')

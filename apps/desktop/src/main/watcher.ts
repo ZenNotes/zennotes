@@ -1,6 +1,7 @@
 import path from 'node:path'
 import chokidar, { FSWatcher } from 'chokidar'
 import type { NoteFolder, VaultChangeEvent, VaultChangeKind } from '@shared/ipc'
+import { databaseCsvPathFor } from '@shared/databases'
 import { folderForRelativePath } from './vault'
 
 const ATTACHMENTS_DIRS = new Set(['attachements', '_assets'])
@@ -76,6 +77,18 @@ export class VaultWatcher {
           path: commentsPath,
           folder: folderForRelativePath(commentsPath) ?? 'inbox',
           scope: 'comments'
+        })
+        return
+      }
+      // A `.csv` data file or its `.csv.base.json` sidecar — normalize both to
+      // the canonical `.csv` path so the renderer re-hydrates the right database.
+      const dbCsvPath = databaseCsvPathFor(toPosix(path.relative(this.root, absPath)))
+      if (dbCsvPath) {
+        onEvent({
+          kind,
+          path: dbCsvPath,
+          folder: folderForRelativePath(dbCsvPath) ?? 'inbox',
+          scope: 'database'
         })
         return
       }

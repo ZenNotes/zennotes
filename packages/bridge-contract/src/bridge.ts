@@ -36,6 +36,12 @@ import type {
 import type { CustomTemplateFile, WriteTemplateInput } from './templates'
 import type { VaultTask } from '@zennotes/shared-domain/tasks'
 import type {
+  DatabaseDoc,
+  DatabaseSidecar,
+  DatabaseSummary,
+  DbRow
+} from '@zennotes/shared-domain/databases'
+import type {
   McpClientId,
   McpClientStatus,
   McpInstructionsPayload,
@@ -129,6 +135,11 @@ export interface ZenBridge {
   writeNoteComments(relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]>
   scanTasks(): Promise<VaultTask[]>
   scanTasksForPath(relPath: string): Promise<VaultTask[]>
+  openDatabase(relPath: string): Promise<DatabaseDoc>
+  writeDatabaseRows(relPath: string, rows: DbRow[]): Promise<DatabaseDoc>
+  writeDatabaseSchema(relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
+  createDatabase(folder: string, title?: string): Promise<DatabaseDoc>
+  listDatabases(): Promise<DatabaseSummary[]>
   writeNote(relPath: string, body: string): Promise<NoteMeta>
   appendToNote(relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta>
   createNote(folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta>

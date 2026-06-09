@@ -33,6 +33,7 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
+import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -571,6 +572,42 @@ export async function saveConfig(cfg: PersistedConfig): Promise<void> {
   }
 }
 
+/**
+ * Atomically write a file: temp file + fsync + `.bak` of the previous good
+ * copy + rename. Same durability as `saveConfig`, exposed for the databases
+ * feature (CSV + sidecar) where external editors and data loss matter.
+ */
+export async function writeFileAtomic(absPath: string, data: string): Promise<void> {
+  const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`
+  await fs.mkdir(path.dirname(absPath), { recursive: true })
+  const handle = await fs.open(tmp, 'w')
+  try {
+    await handle.writeFile(data, 'utf8')
+    try {
+      await handle.sync()
+    } catch (syncErr) {
+      console.warn('fsync failed for atomic write', syncErr)
+    }
+  } finally {
+    await handle.close()
+  }
+  try {
+    await fs.copyFile(absPath, `${absPath}.bak`)
+  } catch (err) {
+    if (!isMissingFileError(err)) console.warn('Failed to refresh backup', err)
+  }
+  try {
+    await fs.rename(tmp, absPath)
+  } catch (err) {
+    try {
+      await fs.unlink(tmp)
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
+}
+
 export async function updateConfig(
   updater: (cfg: PersistedConfig) => PersistedConfig | Promise<PersistedConfig>
 ): Promise<PersistedConfig> {
@@ -621,6 +658,16 @@ function noteCommentsRoot(root: string): string {
 
 function noteCommentsPath(root: string, rel: string): string {
   return resolveSafe(noteCommentsRoot(root), `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
+}
+
+/** Absolute path of a database's `.csv` data file (a normal vault file). */
+export function databaseDataPath(root: string, rel: string): string {
+  return resolveSafe(root, toPosix(rel))
+}
+
+/** Absolute path of a database's co-located `.csv.base.json` sidecar. */
+export function databaseSidecarPath(root: string, rel: string): string {
+  return resolveSafe(root, `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
 }
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {

@@ -75,12 +75,14 @@ import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
+import { DatabaseView } from './DatabaseView'
 import { TagView } from './TagView'
 import { HelpView } from './HelpView'
 import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
 import { QuickNotesView } from './QuickNotesView'
 import { isTasksTabPath } from '@shared/tasks'
+import { isDatabaseTabPath, databaseTitleFromTab } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -2092,7 +2094,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isArchive: false,
           isTrash: false,
           isAsset: false,
-          isDiagram: false
+          isDiagram: false,
+          isDatabase: false
         }
         if (isTasksTabPath(path)) {
           return {
@@ -2149,6 +2152,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ...base,
             title: diagramTitleFromTabPath(path),
             isDiagram: true
+          }
+        }
+        if (isDatabaseTabPath(path)) {
+          return {
+            ...base,
+            title: databaseTitleFromTab(path),
+            isDatabase: true
           }
         }
         const meta = path === content?.path ? content : notes.find((n) => n.path === path)
@@ -2226,7 +2236,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isArchiveTabPath(path) ||
       isTrashTabPath(path) ||
       isAssetTabPath(path) ||
-      isDiagramTabPath(path)
+      isDiagramTabPath(path) ||
+      isDatabaseTabPath(path)
     ) {
       return [
         { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
@@ -2921,6 +2932,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
           ) : activeTab && isDiagramTabPath(activeTab) ? (
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
+          ) : activeTab && isDatabaseTabPath(activeTab) ? (
+            <DatabaseView tabPath={activeTab} />
           ) : content ? (
             <div
               className={[
