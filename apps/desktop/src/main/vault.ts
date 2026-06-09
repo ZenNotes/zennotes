@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { app } from 'electron'
 import { recordMainPerf } from './perf'
+import { resolveCommandViaLoginShell } from './login-shell-path'
 import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
@@ -1300,7 +1301,16 @@ async function searchExecutable(
   paths: Required<VaultTextSearchToolPaths>
 ): Promise<string | null> {
   const configured = kind === 'ripgrep' ? paths.ripgrepPath : paths.fzfPath
-  if (!configured) return kind === 'ripgrep' ? 'rg' : 'fzf'
+  if (!configured) {
+    // Auto mode. GUI apps launched from Finder/Dock inherit only a minimal
+    // PATH (/usr/bin:/bin:/usr/sbin:/sbin), so the bare command name often
+    // isn't resolvable even when rg/fzf are installed in a non-standard place
+    // (Homebrew, cargo, nix, …). Resolve through the user's login shell so the
+    // absolute path flows into both detection and execution; fall back to the
+    // bare name so an already-correct PATH (and Windows) keeps working. (#73)
+    const command = kind === 'ripgrep' ? 'rg' : 'fzf'
+    return (await resolveCommandViaLoginShell(command)) ?? command
+  }
   if (!path.isAbsolute(configured)) return null
 
   const normalized = path.resolve(configured)
