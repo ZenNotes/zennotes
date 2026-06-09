@@ -1656,6 +1656,21 @@ textarea,
 .cm-editor .tok-meta {
   color: rgb(var(--z-fg));
 }
+
+/* Leading YAML frontmatter — render as compact, muted "properties" (see
+ * cm-frontmatter.ts) instead of full-size body text. */
+.cm-editor .cm-frontmatter-line {
+  font-size: 0.8em;
+  line-height: 1.55;
+  color: rgb(var(--z-grey-1));
+  background: rgb(var(--z-bg-1) / 0.35);
+}
+.cm-editor .cm-frontmatter-line :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
+  color: inherit;
+}
+.cm-editor .cm-frontmatter-fence {
+  color: rgb(var(--z-grey-0) / 0.5);
+}
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,
 .cm-editor .tok-heading2,

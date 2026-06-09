@@ -23,7 +23,15 @@ import {
   type DbRow,
   type DbView
 } from '@shared/databases'
-import { databaseDataPath, databaseSidecarPath, writeFileAtomic } from './vault'
+import type { NoteFolder } from '@shared/ipc'
+import {
+  databaseDataPath,
+  databaseSidecarPath,
+  folderRoot,
+  sanitizeNoteTitle,
+  uniqueTitle,
+  writeFileAtomic
+} from './vault'
 
 const SCHEMA_SAMPLE_ROWS = 50
 
@@ -62,7 +70,15 @@ function normalizeSidecar(raw: unknown): DatabaseSidecar | null {
     typeof obj.activeViewId === 'string' && views.some((v) => v.id === obj.activeViewId)
       ? obj.activeViewId
       : views[0].id
-  return { version: 1, idFieldId, fields, views, activeViewId }
+  const pages =
+    obj.pages && typeof obj.pages === 'object'
+      ? (Object.fromEntries(
+          Object.entries(obj.pages as Record<string, unknown>).filter(
+            ([, v]) => typeof v === 'string'
+          )
+        ) as Record<string, string>)
+      : undefined
+  return { version: 1, idFieldId, fields, views, activeViewId, ...(pages ? { pages } : {}) }
 }
 
 async function readSidecar(root: string, rel: string): Promise<DatabaseSidecar | null> {
@@ -76,13 +92,46 @@ async function readSidecar(root: string, rel: string): Promise<DatabaseSidecar |
   }
 }
 
-function hydrate(rel: string, sidecar: DatabaseSidecar, rows: DbRow[]): DatabaseDoc {
+function hydrate(
+  rel: string,
+  sidecar: DatabaseSidecar,
+  rows: DbRow[],
+  pageHasContent?: Record<string, boolean>
+): DatabaseDoc {
   return {
     ...sidecar,
     path: toPosix(rel),
     title: titleFromPath(rel),
-    rows
+    rows,
+    ...(pageHasContent ? { pageHasContent } : {})
   }
+}
+
+/** True if a note has body content beyond its frontmatter + a single title heading. */
+function noteHasBody(text: string): boolean {
+  let body = text
+  const fm = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(body)
+  if (fm) body = body.slice(fm[0].length)
+  body = body.replace(/^\s*#[^\n]*\r?\n?/, '') // drop a single leading heading
+  return body.trim().length > 0
+}
+
+async function readPageContentFlags(
+  root: string,
+  pages?: Record<string, string>
+): Promise<Record<string, boolean> | undefined> {
+  if (!pages || Object.keys(pages).length === 0) return undefined
+  const flags: Record<string, boolean> = {}
+  await Promise.all(
+    Object.entries(pages).map(async ([rowId, notePath]) => {
+      try {
+        flags[rowId] = noteHasBody(await fs.readFile(databaseDataPath(root, notePath), 'utf8'))
+      } catch {
+        /* missing note → leave unset (treated as empty) */
+      }
+    })
+  )
+  return flags
 }
 
 async function persistSidecar(root: string, rel: string, sidecar: DatabaseSidecar): Promise<void> {
@@ -111,7 +160,8 @@ export async function readDatabase(root: string, rel: string): Promise<DatabaseD
   const existing = await readSidecar(root, rel)
   if (existing) {
     const rows = parseRows(csvText, existing.fields, existing.idFieldId, randomUUID)
-    return hydrate(rel, existing, rows)
+    const pageHasContent = await readPageContentFlags(root, existing.pages)
+    return hydrate(rel, existing, rows, pageHasContent)
   }
 
   // Adopt a plain CSV: infer + materialize.
@@ -157,21 +207,31 @@ export async function writeDatabaseSchema(
   return hydrate(rel, normalized, rows.map((r) => ({ ...r })))
 }
 
-/** Create a new empty database (`id` + `Name` fields) and return it hydrated. */
+/**
+ * Create a new empty database (`id` + `Name` fields) under `folder`/`subpath`
+ * and return it hydrated. Uses `folderRoot` so a root-mode vault creates at the
+ * vault root rather than inventing an `inbox/` directory.
+ */
 export async function createDatabase(
   root: string,
-  folder: string,
+  folder: NoteFolder,
+  subpath: string,
   title?: string
 ): Promise<DatabaseDoc> {
   const safeTitle = (title ?? 'Untitled Database').trim() || 'Untitled Database'
   const baseName = safeTitle.replace(/[\\/:*?"<>|]/g, '-')
-  // Resolve a non-colliding path under the folder.
-  let rel = `${folder}/${baseName}.csv`
+  const topAbs = await folderRoot(root, folder)
+  const cleanSub = toPosix(subpath).replace(/^\/+|\/+$/g, '')
+  const dirAbs = cleanSub ? path.join(topAbs, cleanSub) : topAbs
+  const dirRel = toPosix(path.relative(root, dirAbs))
+  const makeRel = (name: string): string => (dirRel ? `${dirRel}/${name}.csv` : `${name}.csv`)
+  // Resolve a non-colliding path under the directory.
+  let rel = makeRel(baseName)
   let n = 2
   for (;;) {
     try {
       await fs.access(databaseDataPath(root, rel))
-      rel = `${folder}/${baseName} ${n++}.csv`
+      rel = makeRel(`${baseName} ${n++}`)
     } catch {
       break
     }
@@ -191,6 +251,30 @@ export async function createDatabase(
   await persistSidecar(root, rel, sidecar)
   await writeFileAtomic(databaseDataPath(root, rel), serializeRows([], fields))
   return hydrate(rel, sidecar, [])
+}
+
+/**
+ * Create a "page" note for a database record under a per-database folder
+ * (`<db dir>/<DbName>/<title>.md`) with the given pre-composed body, and return
+ * its vault-relative path. The pages folder sits next to the `.csv`.
+ */
+export async function createRecordPage(
+  root: string,
+  csvPath: string,
+  title: string,
+  body: string
+): Promise<string> {
+  const posix = toPosix(csvPath)
+  const slash = posix.lastIndexOf('/')
+  const dbDir = slash >= 0 ? posix.slice(0, slash) : ''
+  const dbName = (slash >= 0 ? posix.slice(slash + 1) : posix).replace(/\.csv$/i, '')
+  const pagesDirRel = dbDir ? `${dbDir}/${dbName}` : dbName
+  const dirAbs = databaseDataPath(root, pagesDirRel) // resolveSafe + posix
+  await fs.mkdir(dirAbs, { recursive: true })
+  const finalTitle = await uniqueTitle(dirAbs, sanitizeNoteTitle(title))
+  const noteRel = `${pagesDirRel}/${finalTitle}.md`
+  await fs.writeFile(databaseDataPath(root, noteRel), body, 'utf8')
+  return noteRel
 }
 
 /** List `.csv` databases in the vault (skips sidecars, trash, and `.zennotes`). */

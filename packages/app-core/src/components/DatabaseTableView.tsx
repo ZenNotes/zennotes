@@ -1,4 +1,13 @@
-import { useMemo, useRef, useState, useEffect } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+  useEffect,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
+import { createPortal } from 'react-dom'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType } from '@shared/databases'
 import { filterRows, sortRows } from '@shared/database-transforms'
 import { useStore } from '../store'
@@ -19,7 +28,8 @@ import {
 } from '../lib/database-cells'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { IconButton } from './ui/Button'
-import { MoreIcon, TrashIcon, PlusIcon } from './icons'
+import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: 'Text',
@@ -39,10 +49,26 @@ interface Props {
 export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
+  const openRecordPage = useStore((s) => s.openRecordPage)
+  const renameRecordPage = useStore((s) => s.renameRecordPage)
+
+  const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
 
   const [editing, setEditing] = useState<{ rowId: string; fieldId: string } | null>(null)
   const [renamingField, setRenamingField] = useState<string | null>(null)
   const [fieldMenu, setFieldMenu] = useState<{ fieldId: string; x: number; y: number } | null>(null)
+  const [rowMenu, setRowMenu] = useState<{ rowId: string; x: number; y: number } | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  // --- Vim-style keyboard grid ---------------------------------------------
+  // The grid is the focus owner; cells bubble their key events up to it. A
+  // `data-zen-db-grid` marker tells the global VimNav layer to yield so motions
+  // aren't stolen by sidebar/note-list navigation.
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const [active, setActive] = useState<{ row: number; col: number }>({ row: 0, col: 0 })
+  const gPending = useRef(false)
+  const dPending = useRef(false)
+  const prevEditing = useRef<typeof editing>(null)
 
   const map = useMemo(() => fieldsById(doc), [doc])
   const columns = useMemo(() => {
@@ -57,6 +83,29 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
     return sortRows(filterRows(doc.rows, view.filters, map), view.sorts, map)
   }, [doc.rows, view.filters, view.sorts, map])
 
+  const anySelected = selected.size > 0
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
+  const toggleRow = (id: string): void =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))
+  const deleteSelected = (): void => {
+    let next = doc
+    for (const id of selected) next = deleteRow(next, id)
+    updateDatabaseRows(csvPath, next)
+    setSelected(new Set())
+  }
+
+  // Open a record's page note, then move the cursor into its editor (otherwise
+  // focus lingers on the table / sidebar after the tab swaps).
+  const openPage = (rowId: string): void => {
+    void openRecordPage(csvPath, rowId).then(() => focusEditorNormalMode())
+  }
+
   const commitCell = (rowId: string, field: DbField, value: string): void => {
     if (field.type === 'select' || field.type === 'multiSelect') {
       // Ensure each chosen value exists as an option (schema), then set the cell.
@@ -68,11 +117,170 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
     } else {
       updateDatabaseRows(csvPath, setCell(doc, rowId, field.id, value))
     }
+    // Keep the linked page note's filename in step with the title field.
+    if (field.id === titleFieldId && doc.pages?.[rowId]) {
+      void renameRecordPage(csvPath, rowId)
+    }
+  }
+
+  // Keep the active cell within bounds as rows/columns change.
+  useEffect(() => {
+    setActive((a) => ({
+      row: Math.max(0, Math.min(a.row, rows.length - 1)),
+      col: Math.max(0, Math.min(a.col, columns.length - 1))
+    }))
+  }, [rows.length, columns.length])
+
+  // Scroll the active cell into view as it moves.
+  useEffect(() => {
+    const el = gridRef.current?.querySelector('[data-active-cell="true"]') as HTMLElement | null
+    el?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [active])
+
+  // When an inline edit ends (Esc/Enter blurs the input to <body>), return
+  // focus to the grid so motions resume. Skip if the user clicked elsewhere.
+  useEffect(() => {
+    if (prevEditing.current && !editing) {
+      const a = document.activeElement
+      if (a === document.body || (gridRef.current && a && gridRef.current.contains(a))) {
+        gridRef.current?.focus({ preventScroll: true })
+      }
+    }
+    prevEditing.current = editing
+  }, [editing])
+
+  // Focus the grid when a database tab first renders so vim motions work
+  // immediately (otherwise focus lingers on the sidebar / tab strip).
+  useEffect(() => {
+    gridRef.current?.focus({ preventScroll: true })
+  }, [csvPath])
+
+  const onGridKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (editing) return // the cell's own input owns keys while editing
+    if (e.metaKey || e.ctrlKey || e.altKey) return // leave global shortcuts alone
+    const lastRow = rows.length - 1
+    const lastCol = columns.length - 1
+    const clampRow = (n: number): number => Math.max(0, Math.min(n, lastRow))
+    const clampCol = (n: number): number => Math.max(0, Math.min(n, lastCol))
+    const move = (row: number, col: number): void => {
+      e.preventDefault()
+      setActive({ row: clampRow(row), col: clampCol(col) })
+    }
+    const cell = (): { row: DbRow; field: DbField } | null => {
+      const row = rows[active.row]
+      const field = columns[active.col]
+      return row && field ? { row, field } : null
+    }
+    const toggleCheckbox = (row: DbRow, field: DbField): void =>
+      commitCell(row.id, field, isCheckboxTrue(row.cells[field.id] ?? '') ? 'false' : 'true')
+
+    // Reset pending multi-key sequences when a different key arrives.
+    if (gPending.current && e.key !== 'g') gPending.current = false
+    if (dPending.current && e.key !== 'd') dPending.current = false
+
+    switch (e.key) {
+      case 'j':
+      case 'ArrowDown':
+        return move(active.row + 1, active.col)
+      case 'k':
+      case 'ArrowUp':
+        return move(active.row - 1, active.col)
+      case 'h':
+      case 'ArrowLeft':
+        return move(active.row, active.col - 1)
+      case 'l':
+      case 'ArrowRight':
+        return move(active.row, active.col + 1)
+      case '0':
+      case '^':
+        return move(active.row, 0)
+      case '$':
+        return move(active.row, lastCol)
+      case 'G':
+        return move(lastRow, active.col)
+      case 'g':
+        e.preventDefault()
+        if (gPending.current) {
+          gPending.current = false
+          return move(0, active.col)
+        }
+        gPending.current = true
+        return
+      case 'd': {
+        e.preventDefault()
+        if (!dPending.current) {
+          dPending.current = true
+          return
+        }
+        dPending.current = false
+        const c = cell()
+        if (c) updateDatabaseRows(csvPath, deleteRow(doc, c.row.id))
+        return
+      }
+      case 'Enter':
+      case 'i': {
+        const c = cell()
+        if (!c) return
+        e.preventDefault()
+        if (c.field.type === 'checkbox') return toggleCheckbox(c.row, c.field)
+        setEditing({ rowId: c.row.id, fieldId: c.field.id })
+        return
+      }
+      case ' ': {
+        const c = cell()
+        if (!c) return
+        e.preventDefault()
+        if (c.field.type === 'checkbox') return toggleCheckbox(c.row, c.field)
+        return toggleRow(c.row.id)
+      }
+      case 'x': {
+        const c = cell()
+        if (!c) return
+        e.preventDefault()
+        return toggleRow(c.row.id)
+      }
+      case 'o': {
+        const c = cell()
+        if (!c) return
+        e.preventDefault()
+        return openPage(c.row.id)
+      }
+      case 'a': {
+        e.preventDefault()
+        updateDatabaseRows(csvPath, addRow(doc))
+        setActive((s) => ({ row: rows.length, col: s.col }))
+        return
+      }
+      case 'Escape':
+        e.preventDefault()
+        if (selected.size > 0) {
+          setSelected(new Set())
+          return
+        }
+        gridRef.current?.blur()
+        return
+      default:
+        return
+    }
   }
 
   const sortIndicator = (fieldId: string): string => {
     const s = view.sorts.find((x) => x.fieldId === fieldId)
     return s ? (s.direction === 'asc' ? ' ↑' : ' ↓') : ''
+  }
+
+  const rowMenuItems = (rowId: string): ContextMenuItem[] => {
+    const multi = selected.has(rowId) && selected.size > 1
+    return [
+      { label: 'Open page', onSelect: () => openPage(rowId) },
+      { kind: 'separator' },
+      {
+        label: multi ? `Delete ${selected.size} rows` : 'Delete row',
+        danger: true,
+        onSelect: () =>
+          multi ? deleteSelected() : updateDatabaseRows(csvPath, deleteRow(doc, rowId))
+      }
+    ]
   }
 
   const fieldMenuItems = (field: DbField): ContextMenuItem[] => [
@@ -96,15 +304,51 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
   ]
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead className="sticky top-0 z-10 bg-paper-100">
-          <tr className="border-b border-paper-300/70">
-            <th className="w-8 border-r border-paper-300/40" />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {anySelected && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs">
+          <span className="font-medium text-ink-700">{selected.size} selected</span>
+          <button
+            type="button"
+            onClick={deleteSelected}
+            className="flex items-center gap-1 rounded px-1.5 py-1 font-medium text-danger hover:bg-danger/10"
+          >
+            <TrashIcon className="h-3.5 w-3.5" /> Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="text-ink-500 hover:text-ink-900"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+      <div
+        ref={gridRef}
+        tabIndex={0}
+        role="grid"
+        data-zen-db-grid
+        onKeyDown={onGridKeyDown}
+        className="min-h-0 flex-1 overflow-auto outline-none focus:outline-none"
+      >
+        <table className="w-full border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-paper-100">
+            <tr className="border-b border-paper-300/70">
+              <th className="group/sa w-10 border-r border-paper-300/40 align-middle">
+                <div
+                  className={[
+                    'flex items-center justify-center',
+                    anySelected ? '' : 'opacity-0 group-hover/sa:opacity-100'
+                  ].join(' ')}
+                >
+                  <DbCheckbox checked={allSelected} onChange={toggleAll} title="Select all" />
+                </div>
+              </th>
             {columns.map((field) => (
               <th
                 key={field.id}
-                className="group/h min-w-[8rem] border-r border-paper-300/40 px-2 py-1.5 text-left font-medium text-ink-600"
+                className="group/h min-w-32 border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500"
               >
                 {renamingField === field.id ? (
                   <input
@@ -130,7 +374,7 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
                       title={`${field.name} · ${FIELD_TYPE_LABELS[field.type]}`}
                     >
                       {field.name}
-                      <span className="text-ink-400">{sortIndicator(field.id)}</span>
+                      <span className="text-accent">{sortIndicator(field.id)}</span>
                     </button>
                     <IconButton
                       size="sm"
@@ -150,33 +394,116 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.id} className="group/row border-b border-paper-300/30 hover:bg-paper-200/30">
-              <td className="border-r border-paper-300/40 text-center align-middle">
-                <IconButton
-                  size="sm"
-                  variant="ghost"
-                  className="opacity-0 group-hover/row:opacity-100"
-                  title="Delete row"
-                  onClick={() => updateDatabaseRows(csvPath, deleteRow(doc, row.id))}
-                >
-                  <TrashIcon className="h-3.5 w-3.5" />
-                </IconButton>
-              </td>
-              {columns.map((field) => (
-                <td key={field.id} className="border-r border-paper-300/40 p-0 align-top">
-                  <Cell
-                    field={field}
-                    value={row.cells[field.id] ?? ''}
-                    editing={editing?.rowId === row.id && editing?.fieldId === field.id}
-                    onStartEdit={() => setEditing({ rowId: row.id, fieldId: field.id })}
-                    onEndEdit={() => setEditing(null)}
-                    onCommit={(v) => commitCell(row.id, field, v)}
-                  />
+          {rows.map((row, rowIndex) => {
+            const isSel = selected.has(row.id)
+            return (
+              <tr
+                key={row.id}
+                onContextMenu={(e) => {
+                  // Let the native menu through while editing a cell's input.
+                  if ((e.target as HTMLElement).closest('input, textarea')) return
+                  e.preventDefault()
+                  setRowMenu({ rowId: row.id, x: e.clientX, y: e.clientY })
+                }}
+                className={[
+                  'group/row border-b border-paper-300/30',
+                  isSel ? 'bg-accent/8' : 'hover:bg-paper-200/30'
+                ].join(' ')}
+              >
+                <td className="w-10 border-r border-paper-300/40 align-middle">
+                  <div
+                    className={[
+                      'flex items-center justify-center',
+                      isSel || anySelected ? '' : 'opacity-0 group-hover/row:opacity-100'
+                    ].join(' ')}
+                  >
+                    <DbCheckbox checked={isSel} onChange={() => toggleRow(row.id)} title="Select row" />
+                  </div>
                 </td>
-              ))}
-            </tr>
-          ))}
+                {columns.map((field, colIndex) => {
+                  const isActive = active.row === rowIndex && active.col === colIndex
+                  const tdClassName = [
+                    'relative border-r border-paper-300/40 p-0 align-top',
+                    isActive ? 'ring-2 ring-inset ring-accent' : ''
+                  ].join(' ')
+                  // Keep keyboard focus on the grid container (not the inner
+                  // button) so vim motions keep working; sync active to the click.
+                  const onCellMouseDown = (e: ReactMouseEvent): void => {
+                    if ((e.target as HTMLElement).closest('input, textarea')) {
+                      setActive({ row: rowIndex, col: colIndex })
+                      return
+                    }
+                    e.preventDefault()
+                    setActive({ row: rowIndex, col: colIndex })
+                    gridRef.current?.focus({ preventScroll: true })
+                  }
+                  const cell = (
+                    <Cell
+                      field={field}
+                      value={row.cells[field.id] ?? ''}
+                      editing={editing?.rowId === row.id && editing?.fieldId === field.id}
+                      onStartEdit={() => setEditing({ rowId: row.id, fieldId: field.id })}
+                      onEndEdit={() => setEditing(null)}
+                      onCommit={(v) => commitCell(row.id, field, v)}
+                    />
+                  )
+                  if (field.id !== titleFieldId) {
+                    return (
+                      <td
+                        key={field.id}
+                        data-active-cell={isActive}
+                        onMouseDown={onCellMouseDown}
+                        className={tdClassName}
+                      >
+                        {cell}
+                      </td>
+                    )
+                  }
+                  // Title cell: a Notion-style page icon on the left whose glyph
+                  // reflects whether the record's linked note has body content.
+                  const hasContent = !!doc.pageHasContent?.[row.id]
+                  const PageGlyph = hasContent ? DocumentTextIcon : DocumentIcon
+                  return (
+                    <td
+                      key={field.id}
+                      data-active-cell={isActive}
+                      onMouseDown={onCellMouseDown}
+                      className={tdClassName}
+                    >
+                      <div className="flex items-start">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openPage(row.id)
+                          }}
+                          title={hasContent ? 'Open page' : 'Open page (empty)'}
+                          className={[
+                            'flex shrink-0 items-center pl-2 pr-1 pt-2 transition-colors hover:text-accent',
+                            hasContent ? 'text-ink-500' : 'text-ink-400'
+                          ].join(' ')}
+                        >
+                          <PageGlyph className="h-4 w-4" />
+                        </button>
+                        <div className="min-w-0 flex-1">{cell}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openPage(row.id)
+                        }}
+                        title="Open page"
+                        className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
+                      >
+                        <ArrowUpRightIcon className="h-3 w-3" /> Open
+                      </button>
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
           <tr>
             <td colSpan={columns.length + 1} className="px-2 py-1.5">
               <button
@@ -190,6 +517,7 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
           </tr>
         </tbody>
       </table>
+      </div>
 
       {fieldMenu && (
         <ContextMenu
@@ -199,11 +527,63 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
           onClose={() => setFieldMenu(null)}
         />
       )}
+
+      {rowMenu && (
+        <ContextMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          items={rowMenuItems(rowMenu.rowId)}
+          onClose={() => setRowMenu(null)}
+        />
+      )}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
+
+function DbCheckbox({
+  checked,
+  onChange,
+  title
+}: {
+  checked: boolean
+  onChange: () => void
+  title?: string
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      title={title}
+      onClick={(e) => {
+        e.stopPropagation()
+        onChange()
+      }}
+      className={[
+        'flex h-4 w-4 items-center justify-center rounded border transition-colors',
+        checked
+          ? 'border-accent bg-accent text-white'
+          : 'border-paper-400 text-transparent hover:border-ink-500'
+      ].join(' ')}
+    >
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M5 12l5 5L20 7" />
+      </svg>
+    </button>
+  )
+}
 
 interface CellProps {
   field: DbField
@@ -270,16 +650,26 @@ function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellP
   )
 }
 
+const SELECT_PANEL_WIDTH = 224
+
 function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellProps): JSX.Element {
   const multi = field.type === 'multiSelect'
   const selected = multi ? splitMultiSelect(value) : value ? [value] : []
-  const ref = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const [rect, setRect] = useState<DOMRect | null>(null)
   const [draft, setDraft] = useState('')
+
+  useEffect(() => {
+    setRect(editing && triggerRef.current ? triggerRef.current.getBoundingClientRect() : null)
+  }, [editing])
 
   useEffect(() => {
     if (!editing) return
     const onDown = (e: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onEndEdit()
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t) || panelRef.current?.contains(t)) return
+      onEndEdit()
     }
     window.addEventListener('mousedown', onDown, true)
     return () => window.removeEventListener('mousedown', onDown, true)
@@ -303,7 +693,10 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
         <span className="text-ink-400">—</span>
       ) : (
         selected.map((v) => (
-          <span key={v} className="rounded-full bg-accent/15 px-2 py-0.5 text-2xs font-medium text-accent ring-1 ring-accent/30">
+          <span
+            key={v}
+            className="rounded-full bg-accent/15 px-2 py-0.5 text-2xs font-medium text-accent ring-1 ring-accent/30"
+          >
             {optionLabel(field, v)}
           </span>
         ))
@@ -311,49 +704,76 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
     </div>
   )
 
-  if (!editing) {
-    return (
-      <button type="button" onClick={onStartEdit} className="block h-full w-full px-2 py-1.5 text-left">
-        {chips}
-      </button>
-    )
-  }
+  // Portal the option list to the body so the table's overflow doesn't clip it;
+  // flip above the cell when there isn't room below.
+  const placeAbove = !!rect && rect.bottom > window.innerHeight - 280
+  const panelStyle: CSSProperties = rect
+    ? {
+        position: 'fixed',
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - SELECT_PANEL_WIDTH - 8)),
+        width: Math.max(rect.width, SELECT_PANEL_WIDTH),
+        ...(placeAbove ? { bottom: window.innerHeight - rect.top + 4 } : { top: rect.bottom + 4 })
+      }
+    : {}
 
   return (
-    <div ref={ref} className="relative">
-      <div className="px-2 py-1.5 ring-1 ring-inset ring-accent">{chips}</div>
-      <div className="absolute left-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-lg border border-paper-300 bg-paper-100 py-1 shadow-float">
-        <div className="max-h-56 overflow-y-auto">
-          {(field.options ?? []).map((opt) => (
-            <button
-              key={opt.id}
-              type="button"
-              onClick={() => toggle(opt.value)}
-              className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-paper-200"
-            >
-              <span className="truncate text-ink-900">{opt.label ?? opt.value}</span>
-              {selected.includes(opt.value) && <span className="text-accent">✓</span>}
-            </button>
-          ))}
-        </div>
-        <div className="border-t border-paper-300/60 p-1.5">
-          <input
-            value={draft}
-            placeholder="Add option…"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation()
-              if (e.key === 'Enter' && draft.trim()) {
-                toggle(draft.trim().replace(/,/g, ' '))
-                setDraft('')
-              } else if (e.key === 'Escape') {
-                onEndEdit()
-              }
-            }}
-            className="w-full rounded border border-paper-300 bg-paper-50 px-2 py-1 text-sm text-ink-900 outline-none focus:border-accent"
-          />
-        </div>
-      </div>
-    </div>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={onStartEdit}
+        className={[
+          'block h-full w-full px-2 py-1.5 text-left',
+          editing ? 'ring-1 ring-inset ring-accent' : ''
+        ].join(' ')}
+      >
+        {chips}
+      </button>
+      {editing &&
+        rect &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={panelStyle}
+            className="z-popover overflow-hidden rounded-lg border border-paper-300 bg-paper-100 py-1 shadow-float"
+          >
+            <div className="max-h-60 overflow-y-auto">
+              {(field.options ?? []).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => toggle(opt.value)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-paper-200"
+                >
+                  <span className="truncate text-ink-900">{opt.label ?? opt.value}</span>
+                  {selected.includes(opt.value) && <span className="text-accent">✓</span>}
+                </button>
+              ))}
+              {(field.options ?? []).length === 0 && (
+                <div className="px-3 py-2 text-xs text-ink-500">No options yet — add one below.</div>
+              )}
+            </div>
+            <div className="border-t border-paper-300/60 p-1.5">
+              <input
+                autoFocus
+                value={draft}
+                placeholder="Add option…"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter' && draft.trim()) {
+                    toggle(draft.trim().replace(/,/g, ' '))
+                    setDraft('')
+                  } else if (e.key === 'Escape') {
+                    onEndEdit()
+                  }
+                }}
+                className="w-full rounded border border-paper-300 bg-paper-50 px-2 py-1 text-sm text-ink-900 outline-none focus:border-accent"
+              />
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   )
 }

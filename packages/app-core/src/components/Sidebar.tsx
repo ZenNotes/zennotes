@@ -367,6 +367,7 @@ export function Sidebar(): JSX.Element {
   const tagsViewActive = useStore(isTagsViewActive);
   const setSearchOpen = useStore((s) => s.setSearchOpen);
   const createAndOpen = useStore((s) => s.createAndOpen);
+  const createDatabase = useStore((s) => s.createDatabase);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
@@ -1574,6 +1575,12 @@ export function Sidebar(): JSX.Element {
           openTemplatePaletteForFolder(folder, subpath);
         },
       },
+      {
+        label: "New database",
+        onSelect: async () => {
+          await createDatabase(folder, subpath);
+        },
+      },
     ];
     if (folder === "quick" && isTop) {
       items.push({
@@ -1747,6 +1754,7 @@ export function Sidebar(): JSX.Element {
     allFolders,
     vault,
     createAndOpen,
+    createDatabase,
     openTemplatePaletteForFolder,
     openArchiveView,
     openQuickNotesView,
@@ -1785,6 +1793,12 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
+        label: "New database",
+        onSelect: async () => {
+          await createDatabase("inbox", "");
+        },
+      },
+      {
         label: "New folder",
         onSelect: async () => {
           const name = await promptApp({
@@ -1803,7 +1817,7 @@ export function Sidebar(): JSX.Element {
         },
       },
     ],
-    [createAndOpen, openTemplatePaletteForFolder, createFolderAction],
+    [createAndOpen, createDatabase, openTemplatePaletteForFolder, createFolderAction],
   );
 
   const noteMenuItems = useMemo<ContextMenuItem[]>(() => {

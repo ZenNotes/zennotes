@@ -13,7 +13,8 @@ import {
   splitMultiSelect,
   isCheckboxTrue
 } from '../lib/database-cells'
-import { PlusIcon } from './icons'
+import { PlusIcon, ArrowUpRightIcon } from './icons'
+import { IconButton } from './ui/Button'
 
 interface Props {
   csvPath: string
@@ -29,6 +30,7 @@ interface Props {
 export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
+  const openRecordPage = useStore((s) => s.openRecordPage)
 
   const selectFields = doc.fields.filter((f) => f.type === 'select')
   const groupField =
@@ -54,7 +56,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ink-500">
         <p>Group the board by a Select field.</p>
-        <p className="text-xs text-ink-400">Add a Select field in the Table view, then come back.</p>
+        <p className="text-xs text-ink-500">Add a Select field in the Table view, then come back.</p>
       </div>
     )
   }
@@ -112,11 +114,11 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
               <span className="truncate text-xs font-semibold uppercase tracking-wide text-ink-600">
                 {columnLabel(col.key)}
               </span>
-              <span className="text-xs text-ink-400">{col.rows.length}</span>
+              <span className="text-xs text-ink-500">{col.rows.length}</span>
             </div>
             <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2">
               {col.rows.length === 0 ? (
-                <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-xs text-ink-400">
+                <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-xs text-ink-500">
                   empty
                 </div>
               ) : (
@@ -127,12 +129,26 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
                     onDragStart={() => setDragRow(row.id)}
                     onDragEnd={() => setDragRow(null)}
                     className={[
-                      'cursor-grab rounded-md border border-paper-300/60 bg-paper-100/85 px-2.5 py-1.5 active:cursor-grabbing',
+                      'group/card cursor-grab rounded-md border border-paper-300/60 bg-paper-100/85 px-2.5 py-1.5 active:cursor-grabbing',
                       dragRow === row.id ? 'opacity-50' : 'hover:bg-paper-200/60'
                     ].join(' ')}
                   >
-                    <div className="truncate text-sm text-ink-900">
-                      {titleField ? row.cells[titleField.id] || '—' : '—'}
+                    <div className="flex items-start justify-between gap-1">
+                      <div className="min-w-0 flex-1 truncate text-sm text-ink-900">
+                        {titleField ? row.cells[titleField.id] || '—' : '—'}
+                      </div>
+                      <IconButton
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 opacity-0 group-hover/card:opacity-100"
+                        title="Open as page"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          void openRecordPage(csvPath, row.id)
+                        }}
+                      >
+                        <ArrowUpRightIcon className="h-3.5 w-3.5" />
+                      </IconButton>
                     </div>
                     {cardFields.length > 0 && (
                       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-2xs text-ink-500">

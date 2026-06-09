@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createDatabase, readDatabase, writeDatabaseRows } from './databases'
+import { createDatabase, createRecordPage, readDatabase, writeDatabaseRows } from './databases'
 
 const tmpDirs: string[] = []
 async function makeVault(): Promise<string> {
@@ -19,30 +19,30 @@ afterEach(async () => {
 describe('createDatabase + readDatabase', () => {
   it('creates a .csv + sidecar and reads it back', async () => {
     const root = await makeVault()
-    const doc = await createDatabase(root, 'inbox', 'Projects')
-    expect(doc.path).toBe('inbox/Projects.csv')
+    const doc = await createDatabase(root, 'inbox', '', 'Projects')
+    expect(doc.path.endsWith('Projects.csv')).toBe(true)
     expect(doc.title).toBe('Projects')
     expect(doc.fields.map((f) => f.name)).toEqual(['id', 'Name'])
     expect(doc.rows).toEqual([])
     expect(doc.views).toHaveLength(1)
 
     // both files exist on disk
-    await expect(readFile(path.join(root, 'inbox/Projects.csv'), 'utf8')).resolves.toContain('id,Name')
+    await expect(readFile(path.join(root, doc.path), 'utf8')).resolves.toContain('id,Name')
     const sidecar = JSON.parse(
-      await readFile(path.join(root, 'inbox/Projects.csv.base.json'), 'utf8')
+      await readFile(path.join(root, `${doc.path}.base.json`), 'utf8')
     )
     expect(sidecar.version).toBe(1)
     expect(sidecar.fields).toHaveLength(2)
 
     // re-open yields the same shape
-    const reopened = await readDatabase(root, 'inbox/Projects.csv')
+    const reopened = await readDatabase(root, doc.path)
     expect(reopened.idFieldId).toBe(doc.idFieldId)
   })
 
   it('avoids filename collisions', async () => {
     const root = await makeVault()
-    const a = await createDatabase(root, 'inbox', 'Notes')
-    const b = await createDatabase(root, 'inbox', 'Notes')
+    const a = await createDatabase(root, 'inbox', '', 'Notes')
+    const b = await createDatabase(root, 'inbox', '', 'Notes')
     expect(a.path).not.toBe(b.path)
   })
 })
@@ -50,7 +50,7 @@ describe('createDatabase + readDatabase', () => {
 describe('writeDatabaseRows round-trip', () => {
   it('persists rows (incl. embedded commas) and reads them back', async () => {
     const root = await makeVault()
-    const doc = await createDatabase(root, 'inbox', 'Tasks')
+    const doc = await createDatabase(root, 'inbox', '', 'Tasks')
     const idField = doc.fields.find((f) => f.id === doc.idFieldId)!
     const nameField = doc.fields.find((f) => f.name === 'Name')!
 
@@ -63,6 +63,22 @@ describe('writeDatabaseRows round-trip', () => {
     const reread = await readDatabase(root, doc.path)
     expect(reread.rows.map((r) => r.cells[nameField.id])).toEqual(['Alpha, with comma', 'Beta'])
     expect(reread.rows.map((r) => r.id)).toEqual(['r1', 'r2'])
+  })
+})
+
+describe('createRecordPage', () => {
+  it('creates a page note in a per-database folder', async () => {
+    const root = await makeVault()
+    const doc = await createDatabase(root, 'inbox', '', 'Projects')
+    const noteRel = await createRecordPage(
+      root,
+      doc.path,
+      'My Task',
+      '---\nName: My Task\n---\n# My Task\n'
+    )
+    expect(noteRel.endsWith('.md')).toBe(true)
+    expect(noteRel).toContain('Projects/') // pages folder named after the db
+    await expect(readFile(path.join(root, noteRel), 'utf8')).resolves.toContain('# My Task')
   })
 })
 

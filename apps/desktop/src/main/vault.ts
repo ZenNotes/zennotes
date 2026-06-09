@@ -573,9 +573,10 @@ export async function saveConfig(cfg: PersistedConfig): Promise<void> {
 }
 
 /**
- * Atomically write a file: temp file + fsync + `.bak` of the previous good
- * copy + rename. Same durability as `saveConfig`, exposed for the databases
- * feature (CSV + sidecar) where external editors and data loss matter.
+ * Atomically write a file: temp file + fsync + rename. The rename is atomic, so
+ * readers never see a half-written file. Exposed for the databases feature
+ * (CSV + sidecar). No `.bak` is left behind — those files live next to the
+ * user's data and are just clutter.
  */
 export async function writeFileAtomic(absPath: string, data: string): Promise<void> {
   const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`
@@ -590,11 +591,6 @@ export async function writeFileAtomic(absPath: string, data: string): Promise<vo
     }
   } finally {
     await handle.close()
-  }
-  try {
-    await fs.copyFile(absPath, `${absPath}.bak`)
-  } catch (err) {
-    if (!isMissingFileError(err)) console.warn('Failed to refresh backup', err)
   }
   try {
     await fs.rename(tmp, absPath)
@@ -892,7 +888,7 @@ function shouldHidePrimaryRootEntry(name: string): boolean {
   return HIDDEN_PRIMARY_ROOT_NAMES.has(name)
 }
 
-async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
+export async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
   if (folder === 'inbox') return await primaryNotesRoot(root)
   return path.join(root, folder)
 }
@@ -2199,7 +2195,7 @@ export async function appendToNote(
   return await readMeta(root, abs, folder)
 }
 
-async function uniqueTitle(dir: string, baseTitle: string): Promise<string> {
+export async function uniqueTitle(dir: string, baseTitle: string): Promise<string> {
   let candidate = baseTitle
   let n = 1
   while (true) {
@@ -2372,7 +2368,7 @@ function pastedImageBuffer(data: PastedImageInput['data']): Buffer {
  * strip path separators, control chars, and reserved characters so a title
  * like "RFC / Design Doc" cannot escape into a nonexistent subdirectory.
  */
-function sanitizeNoteTitle(raw: string | undefined): string {
+export function sanitizeNoteTitle(raw: string | undefined): string {
   return (
     (raw ?? '')
       .replace(/[\\/:\u0000-\u001f*?"<>|]/g, '-')

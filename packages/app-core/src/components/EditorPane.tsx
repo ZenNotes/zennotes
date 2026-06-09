@@ -50,6 +50,7 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
   orderedListRenumber,
@@ -82,7 +83,7 @@ import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
 import { QuickNotesView } from './QuickNotesView'
 import { isTasksTabPath } from '@shared/tasks'
-import { isDatabaseTabPath, databaseTitleFromTab } from '@shared/databases'
+import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -204,6 +205,7 @@ function markdownEditingExtensions(): Extension[] {
   return [
     markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: true }),
     markdownListIndentPlugin,
+    frontmatterStyle,
     orderedListRenumber,
     headingFolding(),
     codeBlockFontPlugin
@@ -2929,7 +2931,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ) : isTrashTabPath(activeTab) ? (
             <TrashView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
-            <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
+            isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
+              <DatabaseView tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)} />
+            ) : (
+              <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
+            )
           ) : activeTab && isDiagramTabPath(activeTab) ? (
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
           ) : activeTab && isDatabaseTabPath(activeTab) ? (

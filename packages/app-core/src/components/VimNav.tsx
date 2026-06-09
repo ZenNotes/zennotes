@@ -280,6 +280,9 @@ export function VimNav(): JSX.Element | null {
       // Never steal keys from normal text-entry fields such as the
       // inline note title, prompt inputs, or textarea-based controls.
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // The database/table view runs its own vim-style motion grid; yield to it
+      // so sidebar/note-list navigation doesn't steal j/k/h/l etc.
+      if (target?.closest('[data-zen-db-grid]')) return
       // CodeMirror's editor surface is contenteditable; keep global
       // hint/navigation bindings working there. Only skip other
       // unrelated contenteditable widgets.

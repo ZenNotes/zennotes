@@ -103,6 +103,8 @@ export interface DatabaseSidecar {
   fields: DbField[]
   views: DbView[]
   activeViewId: string
+  /** Row id → vault path of that record's "page" note (created on demand). */
+  pages?: Record<string, string>
 }
 
 /** Cells are raw CSV strings keyed by DbField.id. */
@@ -119,6 +121,11 @@ export interface DatabaseDoc extends DatabaseSidecar {
   /** Basename without `.csv`. */
   title: string
   rows: DbRow[]
+  /**
+   * Row id → whether that record's linked page note has body content (beyond
+   * frontmatter + the title heading). Derived on read; not persisted.
+   */
+  pageHasContent?: Record<string, boolean>
 }
 
 /** Lightweight listing entry for database discovery (sidebar / quick-open). */
@@ -164,6 +171,19 @@ export function databaseTitleFromTab(path: string | null | undefined): string {
 /** True for the sidecar file path (`*.csv.base.json`). */
 export function isDatabaseSidecarPath(relPath: string): boolean {
   return relPath.toLowerCase().endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)
+}
+
+/**
+ * True for files that belong to a database but aren't the user-facing `.csv` —
+ * the sidecar and any `.bak` backups. These are hidden from the note list.
+ */
+export function isDatabaseInternalPath(relPath: string): boolean {
+  const l = relPath.toLowerCase()
+  return (
+    l.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`) ||
+    l.endsWith('.csv.bak') ||
+    l.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}.bak`)
+  )
 }
 
 /** True for a database data file (`*.csv`, but not the sidecar). */

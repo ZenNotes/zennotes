@@ -110,6 +110,7 @@ import {
   writeDatabaseRows,
   writeDatabaseSchema,
   createDatabase,
+  createRecordPage,
   listDatabases
 } from './databases'
 import type { DatabaseSidecar, DbRow } from '@shared/databases'
@@ -2191,10 +2192,21 @@ function registerIpc(): void {
     }
   )
 
-  handle(IPC.VAULT_CREATE_DATABASE, async (_e, folder: string, title?: string) => {
-    ensureLocalForDatabases()
-    return await createDatabase(requireVault().root, folder, title)
-  })
+  handle(
+    IPC.VAULT_CREATE_DATABASE,
+    async (_e, folder: NoteFolder, subpath: string, title?: string) => {
+      ensureLocalForDatabases()
+      return await createDatabase(requireVault().root, folder, subpath, title)
+    }
+  )
+
+  handle(
+    IPC.VAULT_CREATE_RECORD_PAGE,
+    async (_e, csvPath: string, title: string, body: string) => {
+      ensureLocalForDatabases()
+      return await createRecordPage(requireVault().root, csvPath, title, body)
+    }
+  )
 
   handle(IPC.VAULT_LIST_DATABASES, async () => {
     ensureLocalForDatabases()

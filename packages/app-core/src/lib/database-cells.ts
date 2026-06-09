@@ -39,6 +39,38 @@ export function fieldsById(doc: DatabaseDoc): Map<string, DbField> {
   return new Map(doc.fields.map((f) => [f.id, f]))
 }
 
+/** A record's display title: the first non-id field's value (fallback "Untitled"). */
+export function recordTitle(doc: DatabaseDoc, row: DbRow): string {
+  const titleField = doc.fields.find((f) => f.id !== doc.idFieldId)
+  const v = titleField ? (row.cells[titleField.id] ?? '').trim() : ''
+  return v || 'Untitled'
+}
+
+function yamlScalar(value: string): string {
+  if (value === '') return '""'
+  if (/[:#"'\n]|^\s|\s$/.test(value)) return JSON.stringify(value)
+  return value
+}
+
+/**
+ * Compose a record "page" note: the record's properties as flat YAML
+ * frontmatter followed by `body` (the freeform page). The id field and the
+ * title field are omitted — the title is the page's `# heading`, so repeating
+ * it as a `Name:` property would be redundant. Empty values render as a blank
+ * `key:` rather than `key: ""`.
+ */
+export function composePageBody(doc: DatabaseDoc, row: DbRow, body: string): string {
+  const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
+  const lines = ['---']
+  for (const f of doc.fields) {
+    if (f.id === doc.idFieldId || f.id === titleFieldId) continue
+    const v = row.cells[f.id] ?? ''
+    lines.push(v ? `${f.name}: ${yamlScalar(v)}` : `${f.name}:`)
+  }
+  lines.push('---')
+  return `${lines.join('\n')}\n${body.replace(/^\n+/, '')}`
+}
+
 // --- row mutations (→ updateDatabaseRows) -------------------------------
 
 export function setCell(doc: DatabaseDoc, rowId: string, fieldId: string, value: string): DatabaseDoc {
@@ -155,6 +187,19 @@ export function updateView(doc: DatabaseDoc, viewId: string, patch: Partial<DbVi
     ...doc,
     views: doc.views.map((v) => (v.id === viewId ? ({ ...v, ...patch } as DbView) : v))
   }
+}
+
+export function renameView(doc: DatabaseDoc, viewId: string, name: string): DatabaseDoc {
+  const trimmed = name.trim()
+  if (!trimmed) return doc
+  return updateView(doc, viewId, { name: trimmed })
+}
+
+export function removeView(doc: DatabaseDoc, viewId: string): DatabaseDoc {
+  if (doc.views.length <= 1) return doc // keep at least one view
+  const views = doc.views.filter((v) => v.id !== viewId)
+  const activeViewId = doc.activeViewId === viewId ? views[0].id : doc.activeViewId
+  return { ...doc, views, activeViewId }
 }
 
 export function addView(doc: DatabaseDoc, type: 'table' | 'board'): DatabaseDoc {
