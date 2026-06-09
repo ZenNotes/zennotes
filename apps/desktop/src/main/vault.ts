@@ -33,6 +33,7 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
+import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -571,6 +572,38 @@ export async function saveConfig(cfg: PersistedConfig): Promise<void> {
   }
 }
 
+/**
+ * Atomically write a file: temp file + fsync + rename. The rename is atomic, so
+ * readers never see a half-written file. Exposed for the databases feature
+ * (CSV + sidecar). No `.bak` is left behind — those files live next to the
+ * user's data and are just clutter.
+ */
+export async function writeFileAtomic(absPath: string, data: string): Promise<void> {
+  const tmp = `${absPath}.${process.pid}.${Date.now()}.tmp`
+  await fs.mkdir(path.dirname(absPath), { recursive: true })
+  const handle = await fs.open(tmp, 'w')
+  try {
+    await handle.writeFile(data, 'utf8')
+    try {
+      await handle.sync()
+    } catch (syncErr) {
+      console.warn('fsync failed for atomic write', syncErr)
+    }
+  } finally {
+    await handle.close()
+  }
+  try {
+    await fs.rename(tmp, absPath)
+  } catch (err) {
+    try {
+      await fs.unlink(tmp)
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
+}
+
 export async function updateConfig(
   updater: (cfg: PersistedConfig) => PersistedConfig | Promise<PersistedConfig>
 ): Promise<PersistedConfig> {
@@ -621,6 +654,16 @@ function noteCommentsRoot(root: string): string {
 
 function noteCommentsPath(root: string, rel: string): string {
   return resolveSafe(noteCommentsRoot(root), `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
+}
+
+/** Absolute path of a database's `.csv` data file (a normal vault file). */
+export function databaseDataPath(root: string, rel: string): string {
+  return resolveSafe(root, toPosix(rel))
+}
+
+/** Absolute path of a database's co-located `.csv.base.json` sidecar. */
+export function databaseSidecarPath(root: string, rel: string): string {
+  return resolveSafe(root, `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
 }
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
@@ -845,7 +888,7 @@ function shouldHidePrimaryRootEntry(name: string): boolean {
   return HIDDEN_PRIMARY_ROOT_NAMES.has(name)
 }
 
-async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
+export async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
   if (folder === 'inbox') return await primaryNotesRoot(root)
   return path.join(root, folder)
 }
@@ -2152,7 +2195,7 @@ export async function appendToNote(
   return await readMeta(root, abs, folder)
 }
 
-async function uniqueTitle(dir: string, baseTitle: string): Promise<string> {
+export async function uniqueTitle(dir: string, baseTitle: string): Promise<string> {
   let candidate = baseTitle
   let n = 1
   while (true) {
@@ -2325,7 +2368,7 @@ function pastedImageBuffer(data: PastedImageInput['data']): Buffer {
  * strip path separators, control chars, and reserved characters so a title
  * like "RFC / Design Doc" cannot escape into a nonexistent subdirectory.
  */
-function sanitizeNoteTitle(raw: string | undefined): string {
+export function sanitizeNoteTitle(raw: string | undefined): string {
   return (
     (raw ?? '')
       .replace(/[\\/:\u0000-\u001f*?"<>|]/g, '-')

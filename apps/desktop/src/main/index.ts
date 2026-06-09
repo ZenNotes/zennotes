@@ -105,6 +105,15 @@ import {
   setRemoteWorkspaceSecret
 } from './secret-store'
 import { scanAllTasks, scanTasksForPath } from './tasks'
+import {
+  readDatabase,
+  writeDatabaseRows,
+  writeDatabaseSchema,
+  createDatabase,
+  createRecordPage,
+  listDatabases
+} from './databases'
+import type { DatabaseSidecar, DbRow } from '@shared/databases'
 import { VaultWatcher } from './watcher'
 import { WindowVaultRegistry } from './window-vaults'
 import { renderTikz } from './tikz'
@@ -2156,6 +2165,52 @@ function registerIpc(): void {
     }
     const v = requireVault()
     return await scanTasksForPath(v.root, relPath)
+  })
+
+  // Databases are local-vault only for now (no remote-server endpoints yet).
+  const ensureLocalForDatabases = (): void => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Databases are not yet supported on remote vaults')
+    }
+  }
+
+  handle(IPC.VAULT_OPEN_DATABASE, async (_e, relPath: string) => {
+    ensureLocalForDatabases()
+    return await readDatabase(requireVault().root, relPath)
+  })
+
+  handle(IPC.VAULT_WRITE_DATABASE_ROWS, async (_e, relPath: string, rows: DbRow[]) => {
+    ensureLocalForDatabases()
+    return await writeDatabaseRows(requireVault().root, relPath, rows)
+  })
+
+  handle(
+    IPC.VAULT_WRITE_DATABASE_SCHEMA,
+    async (_e, relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]) => {
+      ensureLocalForDatabases()
+      return await writeDatabaseSchema(requireVault().root, relPath, sidecar, rows)
+    }
+  )
+
+  handle(
+    IPC.VAULT_CREATE_DATABASE,
+    async (_e, folder: NoteFolder, subpath: string, title?: string) => {
+      ensureLocalForDatabases()
+      return await createDatabase(requireVault().root, folder, subpath, title)
+    }
+  )
+
+  handle(
+    IPC.VAULT_CREATE_RECORD_PAGE,
+    async (_e, csvPath: string, title: string, body: string) => {
+      ensureLocalForDatabases()
+      return await createRecordPage(requireVault().root, csvPath, title, body)
+    }
+  )
+
+  handle(IPC.VAULT_LIST_DATABASES, async () => {
+    ensureLocalForDatabases()
+    return await listDatabases(requireVault().root)
   })
 
   handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {

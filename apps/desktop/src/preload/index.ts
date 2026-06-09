@@ -46,6 +46,7 @@ import type {
   VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import type { DatabaseDoc, DatabaseSidecar, DatabaseSummary, DbRow } from '@shared/databases'
 import type {
   McpClientId,
   McpClientStatus,
@@ -298,6 +299,21 @@ const api: ZenBridge = {
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
   scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
     ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),
+  openDatabase: (relPath: string): Promise<DatabaseDoc> =>
+    ipcRenderer.invoke(IPC.VAULT_OPEN_DATABASE, relPath),
+  writeDatabaseRows: (relPath: string, rows: DbRow[]): Promise<DatabaseDoc> =>
+    ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_ROWS, relPath, rows),
+  writeDatabaseSchema: (
+    relPath: string,
+    sidecar: DatabaseSidecar,
+    rows: DbRow[]
+  ): Promise<DatabaseDoc> =>
+    ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_SCHEMA, relPath, sidecar, rows),
+  createDatabase: (folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc> =>
+    ipcRenderer.invoke(IPC.VAULT_CREATE_DATABASE, folder, subpath, title),
+  createRecordPage: (csvPath: string, title: string, body: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.VAULT_CREATE_RECORD_PAGE, csvPath, title, body),
+  listDatabases: (): Promise<DatabaseSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_DATABASES),
   writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body),
   appendToNote: (relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta> =>

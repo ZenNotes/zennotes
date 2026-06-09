@@ -103,6 +103,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().createAndOpen('inbox', '', { focusTitle: true })
     },
     {
+      id: 'database.new',
+      title: 'New Database',
+      category: 'Note',
+      keywords: 'database table csv records spreadsheet board kanban base',
+      run: () => getState().createDatabase('inbox', '')
+    },
+    {
       id: 'note.daily.today',
       title: "Open Today's Daily Note",
       category: 'Note',

@@ -29,6 +29,21 @@ export const SearchIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const TableIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="3" y="3" width="18" height="18" rx="2" />
+    <path d="M3 9h18M3 15h18M9 3v18" />
+  </I>
+)
+
+export const DatabaseIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <ellipse cx="12" cy="5" rx="8" ry="3" />
+    <path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" />
+    <path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" />
+  </I>
+)
+
 export const InboxIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
@@ -285,6 +300,15 @@ export const DocumentIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
     <path d="M14 3v5h5" />
+  </I>
+)
+
+export const DocumentTextIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />
+    <path d="M14 3v5h5" />
+    <path d="M9 13h6" />
+    <path d="M9 17h6" />
   </I>
 )
 

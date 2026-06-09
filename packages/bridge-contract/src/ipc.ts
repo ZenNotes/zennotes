@@ -65,6 +65,12 @@ export const IPC = {
   VAULT_REVEAL_ASSETS_DIR: 'vault:reveal-assets-dir',
   VAULT_SCAN_TASKS: 'vault:scan-tasks',
   VAULT_SCAN_TASKS_FOR: 'vault:scan-tasks-for',
+  VAULT_OPEN_DATABASE: 'vault:open-database',
+  VAULT_WRITE_DATABASE_ROWS: 'vault:write-database-rows',
+  VAULT_WRITE_DATABASE_SCHEMA: 'vault:write-database-schema',
+  VAULT_CREATE_DATABASE: 'vault:create-database',
+  VAULT_CREATE_RECORD_PAGE: 'vault:create-record-page',
+  VAULT_LIST_DATABASES: 'vault:list-databases',
   APP_LIST_FONTS: 'app:list-fonts',
   APP_ICON_DATA_URL: 'app:icon-data-url',
   APP_OPEN_SETTINGS: 'app:open-settings',
@@ -522,7 +528,7 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
-export type VaultChangeScope = 'content' | 'vault-settings' | 'comments'
+export type VaultChangeScope = 'content' | 'vault-settings' | 'comments' | 'database'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind

@@ -59,6 +59,7 @@ import type {
   VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import type { DatabaseDoc, DatabaseSummary } from '@shared/databases'
 import type {
   McpClientId,
   McpClientStatus,
@@ -559,6 +560,27 @@ function scanTasks(): Promise<VaultTask[]> {
 
 function scanTasksForPath(relPath: string): Promise<VaultTask[]> {
   return jsonRequest<VaultTask[]>(`/tasks/for?path=${encodeURIComponent(relPath)}`)
+}
+
+// Databases are desktop-only for now (no server-side CSV endpoints yet).
+const DATABASES_WEB_MSG = 'Databases are only available in the desktop app right now.'
+function openDatabase(): Promise<DatabaseDoc> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function writeDatabaseRows(): Promise<DatabaseDoc> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function writeDatabaseSchema(): Promise<DatabaseDoc> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function createDatabase(): Promise<DatabaseDoc> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function createRecordPage(): Promise<string> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function listDatabases(): Promise<DatabaseSummary[]> {
+  return Promise.resolve([])
 }
 
 // --------------------------------------------------------------------
@@ -1109,6 +1131,12 @@ export const httpBridge: ZenBridge = {
   writeNoteComments,
   scanTasks,
   scanTasksForPath,
+  openDatabase,
+  writeDatabaseRows,
+  writeDatabaseSchema,
+  createDatabase,
+  createRecordPage,
+  listDatabases,
   writeNote,
   appendToNote,
   createNote,

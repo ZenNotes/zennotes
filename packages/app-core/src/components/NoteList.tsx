@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import type { AssetMeta, NoteMeta } from '@shared/ipc'
+import { isDatabaseCsvPath } from '@shared/databases'
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
@@ -82,6 +83,7 @@ export function NoteList(): JSX.Element {
   const moveNote = useStore((s) => s.moveNote)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const openNoteInTab = useStore((s) => s.openNoteInTab)
+  const openDatabase = useStore((s) => s.openDatabase)
   const prefetchNotes = useStore((s) => s.prefetchNotes)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
@@ -305,6 +307,10 @@ export function NoteList(): JSX.Element {
     const abs = [root.replace(/[\\/]+$/, ''), ...asset.path.split('/').filter(Boolean)].join(sep)
     const currentDir = asset.path.split('/').slice(0, -1).join('/')
     const openAsset = async (): Promise<void> => {
+      if (isDatabaseCsvPath(asset.path)) {
+        await openDatabase(asset.path)
+        return
+      }
       await openNoteInTab(assetTabPath(asset.path))
     }
 
@@ -793,7 +799,11 @@ export function NoteList(): JSX.Element {
                       key={asset.path}
                       asset={asset}
                       vaultRoot={vault?.root ?? null}
-                      onOpen={() => void openNoteInTab(assetTabPath(asset.path))}
+                      onOpen={() =>
+                        void (isDatabaseCsvPath(asset.path)
+                          ? openDatabase(asset.path)
+                          : openNoteInTab(assetTabPath(asset.path)))
+                      }
                       onContextMenu={(e) => {
                         e.preventDefault()
                         setAssetMenu({ x: e.clientX, y: e.clientY, path: asset.path })
