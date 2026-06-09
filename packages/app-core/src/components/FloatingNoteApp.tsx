@@ -437,7 +437,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           className="flex shrink-0 items-center gap-1"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-[11px]">
+          <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
             {(['edit', 'preview'] as const).map((m) => (
               <button
                 key={m}

@@ -260,12 +260,12 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
         <div className="text-sm font-semibold text-current/85">
           {formatMonthLabel(monthAnchor)}
         </div>
-        <div className="text-[11px] text-current/40">
+        <div className="text-xs text-current/40">
           h/j/k/l move · [ ] month · gt today · Enter open
         </div>
       </div>
 
-      <div className="grid shrink-0 grid-cols-7 px-3 pt-2 text-[10px] uppercase tracking-wide text-current/40">
+      <div className="grid shrink-0 grid-cols-7 px-3 pt-2 text-2xs uppercase tracking-wide text-current/40">
         {WEEKDAY_LABELS.map((d) => (
           <div key={d} className="px-1 py-1 text-center">
             {d}
@@ -304,7 +304,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                   {cell.getDate()}
                 </span>
                 {cellTasks.length > 0 && (
-                  <span className="rounded bg-paper-300/60 px-1 text-[9px] text-current/60">
+                  <span className="rounded bg-paper-300/60 px-1 text-2xs text-current/60">
                     {cellTasks.length}
                   </span>
                 )}
@@ -329,7 +329,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                     />
                   ))}
                   {cellTasks.length > 6 && (
-                    <span className="text-[9px] text-current/50">+{cellTasks.length - 6}</span>
+                    <span className="text-2xs text-current/50">+{cellTasks.length - 6}</span>
                   )}
                 </div>
               )}
@@ -349,7 +349,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
                   day: 'numeric'
                 })}
           </h2>
-          <span className="text-[11px] text-current/40">
+          <span className="text-xs text-current/40">
             {selectedTasks.length} task{selectedTasks.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -458,11 +458,11 @@ function CalendarTaskRow({ task, isOverdue, buttonRef, onToggle, onOpen }: RowPr
           '(empty task)'
         )}
       </span>
-      <span className="shrink-0 truncate text-[11px] text-current/45">{task.noteTitle}</span>
+      <span className="shrink-0 truncate text-xs text-current/45">{task.noteTitle}</span>
       {task.priority && (
         <span
           className={[
-            'shrink-0 text-[11px] font-medium',
+            'shrink-0 text-xs font-medium',
             task.priority === 'high'
               ? 'text-rose-400'
               : task.priority === 'med'

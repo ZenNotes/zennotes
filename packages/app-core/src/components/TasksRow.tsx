@@ -97,7 +97,7 @@ export function TasksRow({
         >
           {task.content ? <InlineMarkdown text={task.content} /> : '(empty task)'}
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[11px] text-current/50">
+        <div className="mt-0.5 flex items-center gap-2 text-xs text-current/50">
           <span className="truncate">{task.noteTitle}</span>
           {task.waiting && (
             <span className="rounded bg-current/10 px-1.5 py-0.5 text-purple-300">
@@ -127,7 +127,7 @@ export function TasksRow({
         {isCursor && (
           // Inline key hints — only on the cursor row so the strip stays
           // quiet and acts as an in-line cheat sheet for the user.
-          <div className="flex items-center gap-1 text-[10px] text-current/60">
+          <div className="flex items-center gap-1 text-2xs text-current/60">
             <KeyHint keyLabel="Space" label={task.checked ? 'uncheck' : 'check'} />
             <KeyHint keyLabel="⏎" label="open" />
           </div>
@@ -159,7 +159,7 @@ export function TasksRow({
 function KeyHint({ keyLabel, label }: { keyLabel: string; label: string }): JSX.Element {
   return (
     <span className="pointer-events-none flex items-center gap-1 rounded-md border border-current/20 bg-current/5 px-1.5 py-0.5 leading-none">
-      <span className="font-mono text-[10px] text-current/90">{keyLabel}</span>
+      <span className="font-mono text-2xs text-current/90">{keyLabel}</span>
       <span className="text-current/60">{label}</span>
     </span>
   )

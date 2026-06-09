@@ -241,7 +241,7 @@ export function ExternalFileApp(): JSX.Element {
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
             />
           )}
-          <span className="truncate text-[11px] text-ink-400">Not in a vault</span>
+          <span className="truncate text-xs text-ink-400">Not in a vault</span>
         </div>
         <div
           className="flex shrink-0 items-center gap-1"
@@ -252,12 +252,12 @@ export function ExternalFileApp(): JSX.Element {
             onClick={moveToVault}
             disabled={moving}
             title="Move this file into your vault"
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-ink-600 hover:bg-paper-200 hover:text-ink-900 disabled:opacity-50"
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 hover:text-ink-900 disabled:opacity-50"
           >
             <InboxIcon width={13} height={13} />
             {moving ? 'Moving…' : 'Move to Vault'}
           </button>
-          <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-[11px]">
+          <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
             {(['edit', 'preview'] as const).map((m) => (
               <button
                 key={m}
@@ -285,7 +285,7 @@ export function ExternalFileApp(): JSX.Element {
       </header>
 
       {moveError && (
-        <div className="shrink-0 border-b border-paper-300/70 bg-rose-500/10 px-4 py-1.5 text-[12px] text-rose-600">
+        <div className="shrink-0 border-b border-paper-300/70 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-600">
           {moveError}
         </div>
       )}

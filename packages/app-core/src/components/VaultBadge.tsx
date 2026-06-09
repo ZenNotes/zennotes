@@ -36,7 +36,7 @@ export function VaultBadge({
 
   return (
     <div
-      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-[8px] font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_6px_14px_-6px_rgba(0,0,0,0.35)]"
+      className="relative flex shrink-0 items-center justify-center overflow-hidden rounded-lg font-semibold text-white shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_6px_14px_-6px_rgba(0,0,0,0.35)]"
       style={{
         width: size,
         height: size,

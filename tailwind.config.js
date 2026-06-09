@@ -32,7 +32,13 @@ export default {
           DEFAULT: 'rgb(var(--z-accent) / <alpha-value>)',
           soft: 'rgb(var(--z-accent-soft) / <alpha-value>)',
           muted: 'rgb(var(--z-accent-muted) / <alpha-value>)'
-        }
+        },
+        // Themed semantic colors — follow the active theme via the same
+        // CSS custom properties, so danger/success/warning are no longer
+        // hardcoded to Tailwind's static red/green/yellow.
+        danger: 'rgb(var(--z-red) / <alpha-value>)',
+        success: 'rgb(var(--z-green) / <alpha-value>)',
+        warning: 'rgb(var(--z-yellow) / <alpha-value>)'
       },
       fontFamily: {
         sans: [
@@ -60,6 +66,31 @@ export default {
         panel:
           '0 1px 0 0 rgb(var(--z-shadow) / 0.04), 0 8px 28px -12px rgb(var(--z-shadow) / 0.18)',
         float: '0 20px 60px -20px rgb(var(--z-shadow) / 0.28)'
+      },
+      // Type scale. Tailwind's built-in steps (xs=12, sm=14, base=16, lg=18,
+      // xl=20, 2xl=24, 3xl=30) are kept; we add an 11px floor for genuinely
+      // secondary micro-text (uppercase labels, key hints, dense grids).
+      fontSize: {
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }]
+      },
+      // Documented elevation scale — replaces ad-hoc z-[50/70/72/74].
+      zIndex: {
+        dropdown: '40',
+        palette: '50',
+        modal: '70',
+        nested: '75',
+        popover: '80',
+        toast: '90'
+      },
+      // Dialog width scale — Modal maps its `size` prop onto these.
+      maxWidth: {
+        'dialog-xs': '420px',
+        'dialog-sm': '440px',
+        'dialog-md': '560px',
+        'dialog-lg': '720px',
+        'dialog-xl': '900px',
+        'dialog-2xl': '1120px',
+        'dialog-3xl': '1360px'
       }
     }
   },

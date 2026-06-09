@@ -6,6 +6,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+ * Shared component utilities
+ * --------------------------------------------------------------------------
+ * Single source of truth for small, repeated UI treatments. Form/eyebrow
+ * labels previously shipped in three slightly different variants; these two
+ * classes unify them (de-emphasized, uppercase, ink-500 — not ink-400).
+ * =======================================================================*/
+@layer components {
+  .form-label {
+    @apply text-2xs font-medium uppercase tracking-wide text-ink-500;
+  }
+
+  .form-hint {
+    @apply text-xs text-ink-400;
+  }
+}
+
 .task-kanban-column.is-drop-target {
   border-color: rgb(var(--z-accent) / 0.62);
   box-shadow: 0 0 0 1px rgb(var(--z-accent) / 0.28);

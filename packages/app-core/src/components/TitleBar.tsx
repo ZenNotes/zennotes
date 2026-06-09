@@ -42,7 +42,7 @@ export function TitleBar(): JSX.Element {
       <div className="flex flex-1 items-center justify-center gap-2 text-center tracking-wide">
         <span className="truncate">{title}</span>
         {workspaceMode === 'remote' && (
-          <span className="rounded-full border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-ink-700">
+          <span className="rounded-full border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-ink-700">
             Remote
           </span>
         )}

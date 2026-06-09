@@ -156,15 +156,15 @@ export function NoteHoverPreview({
       <div className="border-b border-paper-300/60 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-400">
+            <div className="text-xs font-medium uppercase tracking-[0.14em] text-ink-400">
               Hover Preview
             </div>
             <div className="mt-1 truncate text-sm font-semibold text-ink-900">{note.title}</div>
-            <div className="mt-0.5 truncate text-[11px] text-ink-500">{note.path}</div>
+            <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
           </div>
           {interactive && (
-            <span className="shrink-0 rounded-md border border-paper-300/70 bg-paper-50/70 px-1.5 py-0.5 text-[10px] leading-none text-ink-500">
-              <span className="font-mono text-[10px]">esc</span>
+            <span className="shrink-0 rounded-md border border-paper-300/70 bg-paper-50/70 px-1.5 py-0.5 text-2xs leading-none text-ink-500">
+              <span className="font-mono text-2xs">esc</span>
               <span className="ml-1">back</span>
             </span>
           )}

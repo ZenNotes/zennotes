@@ -30,7 +30,7 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
 
   return (
     <div
-      className="flex h-8 shrink-0 items-center justify-end gap-5 px-6 text-[11px] text-ink-500"
+      className="flex h-8 shrink-0 items-center justify-end gap-5 px-6 text-xs text-ink-500"
       style={{ borderTop: '1px solid var(--glass-stroke)' }}
     >
       <Stat>

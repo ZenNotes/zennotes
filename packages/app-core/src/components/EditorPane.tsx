@@ -3289,7 +3289,7 @@ function EmptyPaneState({
             >
               <PanelLeftIcon width={16} height={16} />
               <span>Show sidebar</span>
-              <span className="rounded-md border border-paper-300/80 bg-paper-50/80 px-1.5 py-0.5 font-mono text-[11px] text-ink-500">
+              <span className="rounded-md border border-paper-300/80 bg-paper-50/80 px-1.5 py-0.5 font-mono text-xs text-ink-500">
                 ⌘1
               </span>
             </button>
@@ -3325,7 +3325,7 @@ function IconBtn({
       ].join(' ')}
     >
       <span className="pointer-events-none">{children}</span>
-      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-[11px] font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
+      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
         {title}
       </span>
     </button>

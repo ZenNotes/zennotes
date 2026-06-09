@@ -193,7 +193,7 @@ export function CommentsPanel({
       <div className="border-b border-paper-300/60 px-5 py-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-ink-400">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">
               Comments
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs text-ink-500">
@@ -317,7 +317,7 @@ export function CommentsPanel({
               />
             ))}
             {resolved.length > 0 && unresolved.length > 0 && (
-              <div className="px-1 pt-1 text-[11px] font-medium uppercase tracking-[0.14em] text-ink-400">
+              <div className="px-1 pt-1 text-xs font-medium uppercase tracking-[0.14em] text-ink-400">
                 Resolved
               </div>
             )}
@@ -414,7 +414,7 @@ function CommentCard({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold text-ink-900">You</span>
-            <span className="shrink-0 text-[11px] text-ink-400">
+            <span className="shrink-0 text-xs text-ink-400">
               {dateFormatter.format(new Date(comment.updatedAt))}
             </span>
           </div>
@@ -591,7 +591,7 @@ function IconTextButton({
         <kbd
           aria-hidden="true"
           className={[
-            'pointer-events-none absolute -bottom-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded border border-paper-300/80 bg-paper-50 px-1 font-mono text-[8px] leading-none text-ink-600 shadow-[0_4px_10px_-8px_rgb(var(--z-shadow)/0.9)] transition-opacity',
+            'pointer-events-none absolute -bottom-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded border border-paper-300/80 bg-paper-50 px-1 font-mono text-2xs leading-none text-ink-600 shadow-[0_4px_10px_-8px_rgb(var(--z-shadow)/0.9)] transition-opacity',
             showShortcut ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'
           ].join(' ')}
         >
@@ -600,7 +600,7 @@ function IconTextButton({
       )}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300/75 bg-paper-100 px-2 py-1 text-[11px] font-medium text-ink-800 opacity-0 shadow-float transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+        className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300/75 bg-paper-100 px-2 py-1 text-xs font-medium text-ink-800 opacity-0 shadow-float transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
       >
         {title}
       </span>
@@ -618,7 +618,7 @@ function CommentKeyHint({
   return (
     <span
       title={label}
-      className="shrink-0 rounded-md border border-paper-300/60 bg-paper-100/80 px-1.5 py-0.5 text-[10px] leading-none text-ink-500"
+      className="shrink-0 rounded-md border border-paper-300/60 bg-paper-100/80 px-1.5 py-0.5 text-2xs leading-none text-ink-500"
     >
       <kbd className="font-mono text-ink-700">{keyLabel}</kbd>
     </span>
@@ -635,7 +635,7 @@ function InlineShortcut({
   return (
     <kbd
       className={[
-        'rounded border px-1 font-mono text-[9px] leading-4',
+        'rounded border px-1 font-mono text-2xs leading-4',
         tone === 'light'
           ? 'border-white/30 bg-white/12 text-white/80'
           : 'border-paper-300/80 bg-paper-50 text-ink-500'

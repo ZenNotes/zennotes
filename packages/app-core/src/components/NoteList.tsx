@@ -10,6 +10,7 @@ import {
 } from './icons'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { ResizeHandle } from './ResizeHandle'
+import { Button, IconButton } from './ui/Button'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
@@ -723,7 +724,7 @@ export function NoteList(): JSX.Element {
       <header className="glass-header flex h-12 shrink-0 items-center justify-between px-4">
         <div className="flex items-baseline gap-2">
           <h2 className="text-sm font-semibold text-ink-900">{heading}</h2>
-          <span className="text-xs text-ink-400">
+          <span className="text-xs text-ink-500">
             {view.kind === 'assets' ? assetFiles.length : orderedFolderEntries.length}
           </span>
         </div>
@@ -746,29 +747,22 @@ export function NoteList(): JSX.Element {
               ))}
             </div>
           ) : view.kind === 'folder' && view.folder === 'trash' && filtered.length > 0 && (
-            <button
-              onClick={() => void emptyTrash()}
-              className="rounded-md px-2 py-1 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-800"
-            >
+            <Button variant="ghost" size="sm" onClick={() => void emptyTrash()}>
               Empty
-            </button>
+            </Button>
           )}
           {view.kind !== 'assets' && (
-            <button
-              className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
+            <IconButton
+              size="sm"
               title="New note"
               onClick={() => void createAndOpen(newTarget.folder, newTarget.subpath)}
             >
               <PlusIcon />
-            </button>
+            </IconButton>
           )}
-          <button
-            className="flex h-6 w-6 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-800"
-            title="Hide note list"
-            onClick={toggleNoteList}
-          >
+          <IconButton size="sm" title="Hide note list" onClick={toggleNoteList}>
             <ColumnsIcon />
-          </button>
+          </IconButton>
         </div>
       </header>
 
@@ -780,7 +774,7 @@ export function NoteList(): JSX.Element {
       >
         {view.kind === 'assets' ? (
           assetFiles.length === 0 ? (
-            <div className="px-4 py-10 text-center text-sm text-ink-400">
+            <div className="px-4 py-10 text-center text-sm text-ink-500">
               No files yet. Files anywhere inside the vault show up here.
             </div>
           ) : assetLayout === 'grid' ? (
@@ -834,7 +828,7 @@ export function NoteList(): JSX.Element {
             </div>
           )
         ) : orderedFolderEntries.length === 0 ? (
-          <div className="px-4 py-10 text-center text-sm text-ink-400">
+          <div className="px-4 py-10 text-center text-sm text-ink-500">
             {view.kind === 'folder' && view.folder === 'trash'
               ? `${folderLabels.trash} is empty.`
               : 'No files here yet.'}
@@ -966,7 +960,7 @@ function NoteRow({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>
-        <span className="shrink-0 text-[11px] text-ink-400">{formatDate(note.updatedAt)}</span>
+        <span className="shrink-0 text-xs text-ink-500">{formatDate(note.updatedAt)}</span>
       </div>
       <span className="line-clamp-2 text-xs text-ink-500">
         {note.excerpt || 'Empty note'}
@@ -1021,7 +1015,7 @@ function FolderAssetRow({
             loading="lazy"
           />
         ) : (
-          <span className="text-[10px] uppercase tracking-[0.16em] text-ink-500">
+          <span className="text-2xs uppercase tracking-[0.16em] text-ink-500">
             {asset.kind}
           </span>
         )}
@@ -1030,7 +1024,7 @@ function FolderAssetRow({
         <div className="truncate text-sm font-medium text-ink-900">{asset.name}</div>
         <div className="truncate text-xs text-ink-500">{asset.path}</div>
       </div>
-      <div className="shrink-0 text-[10px] uppercase tracking-wide text-ink-400">
+      <div className="form-label shrink-0">
         {extension || formatBytes(asset.size)}
       </div>
     </button>
@@ -1073,14 +1067,14 @@ function AssetCard({
             loading="lazy"
           />
         ) : (
-          <div className="px-4 text-xs uppercase tracking-[0.18em] text-ink-400">
+          <div className="px-4 text-xs uppercase tracking-[0.18em] text-ink-500">
             {asset.kind}
           </div>
         )}
       </div>
       <div className="border-t border-paper-300/70 px-3 py-2">
         <div className="truncate text-sm font-medium text-ink-900">{asset.name}</div>
-        <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-ink-500">
+        <div className="mt-0.5 flex items-center justify-between gap-2 text-xs text-ink-500">
           <span className="truncate">{asset.path}</span>
           <span className="shrink-0">{formatBytes(asset.size)}</span>
         </div>
@@ -1120,14 +1114,14 @@ function AssetRow({
             loading="lazy"
           />
         ) : (
-          <span className="text-[10px] uppercase tracking-[0.16em] text-ink-500">{asset.kind}</span>
+          <span className="text-2xs uppercase tracking-[0.16em] text-ink-500">{asset.kind}</span>
         )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-ink-900">{asset.name}</div>
         <div className="truncate text-xs text-ink-500">{asset.path}</div>
       </div>
-      <div className="shrink-0 text-[11px] text-ink-400">
+      <div className="shrink-0 text-xs text-ink-500">
         {formatBytes(asset.size)}
       </div>
     </button>

@@ -360,7 +360,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       <PanelResizeHandle onStart={startResize} />
 
       <div className="border-b border-paper-300/60 px-4 py-4">
-        <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-ink-400">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-400">
           Calendar
         </div>
         <div className="mt-2 flex items-center justify-between">
@@ -393,7 +393,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
           <button
             type="button"
             onClick={() => setAnchor(new Date(today.getFullYear(), today.getMonth(), 1))}
-            className="mt-2 w-full rounded px-2 py-1 text-[11px] text-ink-500 transition-colors hover:bg-paper-200 hover:text-accent"
+            className="mt-2 w-full rounded px-2 py-1 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-accent"
           >
             Today
           </button>
@@ -402,7 +402,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
           <button
             type="button"
             onClick={() => setAnchor(new Date(refDate.getFullYear(), refDate.getMonth(), 1))}
-            className="mt-1 w-full rounded px-2 py-1 text-[11px] text-ink-500 transition-colors hover:bg-paper-200 hover:text-accent"
+            className="mt-1 w-full rounded px-2 py-1 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-accent"
           >
             Back to {monthLabel(refDate)}
           </button>
@@ -412,14 +412,14 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <div className={`grid ${gridCols} gap-y-1`}>
           {showWeekNumbers && (
-            <div className="flex items-center justify-center text-[9px] font-medium uppercase text-ink-400">
+            <div className="flex items-center justify-center text-2xs font-medium uppercase text-ink-400">
               W
             </div>
           )}
           {dayLabels.map((label, i) => (
             <div
               key={`${label}-${i}`}
-              className="text-center text-[9px] font-medium uppercase text-ink-400"
+              className="text-center text-2xs font-medium uppercase text-ink-400"
             >
               {label}
             </div>
@@ -443,7 +443,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
                 onMouseLeave={clearHover}
                 title={`Open ${weeklyNoteTitle(monday)}`}
                 className={[
-                  'relative flex flex-col items-center rounded py-1 text-[11px] leading-tight transition-colors',
+                  'relative flex flex-col items-center rounded py-1 text-xs leading-tight transition-colors',
                   isActiveWeek
                     ? 'bg-accent font-semibold text-white'
                     : 'text-ink-400 hover:bg-paper-200',
@@ -467,7 +467,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
             ) : (
               <div
                 key={`w${rowIdx}`}
-                className="flex items-center justify-center text-[9px] text-ink-400"
+                className="flex items-center justify-center text-2xs text-ink-400"
               >
                 {weekNum}
               </div>
@@ -494,7 +494,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
                   disabled={!dailyEnabled}
                   title={iso}
                   className={[
-                    'relative flex flex-col items-center rounded py-1 text-[11px] leading-tight transition-colors',
+                    'relative flex flex-col items-center rounded py-1 text-xs leading-tight transition-colors',
                     !dailyEnabled
                       ? inMonth
                         ? 'cursor-default text-ink-600'
@@ -539,11 +539,11 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
         >
           <div className="truncate text-xs font-semibold text-ink-900">{hover.meta.title}</div>
           {hover.meta.excerpt ? (
-            <div className="mt-1 line-clamp-4 text-[11px] leading-5 text-ink-500">
+            <div className="mt-1 line-clamp-4 text-xs leading-5 text-ink-500">
               {hover.meta.excerpt}
             </div>
           ) : (
-            <div className="mt-1 text-[11px] italic text-ink-400">Empty note</div>
+            <div className="mt-1 text-xs italic text-ink-400">Empty note</div>
           )}
         </div>
       )}

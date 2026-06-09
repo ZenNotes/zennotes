@@ -19,6 +19,7 @@ import {
   type VaultSwitcherEntry
 } from '../lib/vault-switcher'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { Modal } from './ui/Modal'
 
 type Mode = 'main' | 'theme' | 'vault'
 
@@ -263,16 +264,9 @@ export function CommandPalette(): JSX.Element {
         : 'Pick a vault'
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 pt-[12vh] backdrop-blur-sm"
-      onClick={() => closePalette()}
-    >
-      <div
-        className="w-[min(640px,92vw)] overflow-hidden rounded-xl bg-paper-100 shadow-float ring-1 ring-paper-300/70"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {mode !== 'main' && (
-          <div className="flex items-center gap-2 border-b border-paper-300/70 bg-paper-200/40 px-4 py-2 text-[11px] text-ink-500">
+    <Modal size="md" layer="palette" onClose={() => closePalette()} closeOnEsc={false}>
+      {mode !== 'main' && (
+          <div className="flex items-center gap-2 border-b border-paper-300/70 bg-paper-200/40 px-4 py-2 text-xs text-ink-500">
             <button
               type="button"
               onClick={returnToMain}
@@ -343,12 +337,12 @@ export function CommandPalette(): JSX.Element {
             commandResults.map((cmd, i) => (
               <Fragment key={cmd.id}>
                 {recentCommands.length > 0 && i === 0 && (
-                  <div className="px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                  <div className="px-4 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-ink-400">
                     Recent
                   </div>
                 )}
                 {recentCommands.length > 0 && i === recentCommands.length && (
-                  <div className="mt-1 border-t border-paper-300/60 px-4 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-ink-400">
+                  <div className="mt-1 border-t border-paper-300/60 px-4 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-ink-400">
                     All Commands
                   </div>
                 )}
@@ -361,14 +355,14 @@ export function CommandPalette(): JSX.Element {
                     i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                   ].join(' ')}
                 >
-                  <span className="shrink-0 text-[11px] uppercase tracking-wide text-ink-400">
+                  <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
                     {cmd.category}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
                     {cmd.title}
                   </span>
                   {cmd.shortcut && (
-                    <span className="shrink-0 rounded bg-paper-200/80 px-1.5 py-0.5 text-[11px] text-ink-500">
+                    <span className="shrink-0 rounded bg-paper-200/80 px-1.5 py-0.5 text-xs text-ink-500">
                       {cmd.shortcut}
                     </span>
                   )}
@@ -391,19 +385,19 @@ export function CommandPalette(): JSX.Element {
                     i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                   ].join(' ')}
                 >
-                  <span className="shrink-0 text-[11px] uppercase tracking-wide text-ink-400">
+                  <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
                     {familyTitle}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
                     {theme.label}
                   </span>
-                  <span className="shrink-0 text-[11px] text-ink-400">
+                  <span className="shrink-0 text-xs text-ink-400">
                     {theme.mode}
                   </span>
                   {isOriginal && (
                     <span
                       aria-label="Active before preview"
-                      className="shrink-0 text-[11px] text-accent"
+                      className="shrink-0 text-xs text-accent"
                     >
                       current
                     </span>
@@ -423,17 +417,17 @@ export function CommandPalette(): JSX.Element {
                   i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                 ].join(' ')}
               >
-                <span className="shrink-0 text-[11px] uppercase tracking-wide text-ink-400">
+                <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
                   {entry.kind === 'local' ? 'Local' : 'Remote'}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
                   {entry.name}
                 </span>
-                <span className="min-w-0 max-w-[45%] truncate text-[11px] text-ink-400">
+                <span className="min-w-0 max-w-[45%] truncate text-xs text-ink-400">
                   {entry.location}
                 </span>
                 {entry.current && (
-                  <span className="shrink-0 text-[11px] text-accent">
+                  <span className="shrink-0 text-xs text-accent">
                     current
                   </span>
                 )}
@@ -441,7 +435,7 @@ export function CommandPalette(): JSX.Element {
             ))
           )}
         </div>
-        <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-[11px] text-ink-500">
+        <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
             <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
@@ -455,7 +449,6 @@ export function CommandPalette(): JSX.Element {
             {mode === 'main' ? 'close' : mode === 'theme' ? 'revert' : 'back'}
           </span>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

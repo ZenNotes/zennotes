@@ -569,7 +569,7 @@ export function QuickCaptureApp(): JSX.Element {
         </span>
         {mode.kind === 'existing' && (
           <span
-            className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ink-500"
+            className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-ink-500"
             title={mode.note.path}
           >
             {mode.note.folder}
@@ -626,7 +626,7 @@ export function QuickCaptureApp(): JSX.Element {
         )}
       </div>
 
-      <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-paper-300/70 px-4 py-1.5 text-[11px] text-ink-500">
+      <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-paper-300/70 px-4 py-1.5 text-xs text-ink-500">
         <span className="truncate">
           {error ? (
             <span className="text-red-500">{error}</span>
@@ -746,11 +746,11 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
                   isActive ? 'bg-paper-200 text-ink-900' : 'text-ink-700 hover:bg-paper-200/60'
                 ].join(' ')}
               >
-                <span className="shrink-0 text-[10px] uppercase tracking-wide text-ink-400">
+                <span className="shrink-0 text-2xs uppercase tracking-wide text-ink-400">
                   {note.folder}
                 </span>
                 <span className="truncate">{note.title}</span>
-                <span className="ml-auto truncate text-[10px] text-ink-400">{note.path}</span>
+                <span className="ml-auto truncate text-2xs text-ink-400">{note.path}</span>
               </button>
             )
           })
@@ -868,7 +868,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
                 ].join(' ')}
               >
                 <span className="truncate">{cmd.label}</span>
-                <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-[10px] text-ink-500">
+                <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-2xs text-ink-500">
                   {cmd.hint}
                 </kbd>
               </button>
