@@ -24,8 +24,10 @@ import {
   foldService,
   foldEffect,
   unfoldEffect,
-  foldedRanges
+  foldedRanges,
+  syntaxTree
 } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 import type { EditorState, Extension } from '@codemirror/state'
 import {
   Decoration,
@@ -101,11 +103,30 @@ function fixFatCursorHeight(view: EditorView): void {
   }
 }
 
+/**
+ * A `#` the markdown parser places inside a fenced or indented code block is
+ * not a heading (e.g. a bash `# comment` or shell prompt) — the line-text
+ * regex alone can't tell them apart, so heading folding/styling must consult
+ * the syntax tree and skip those lines (#83).
+ */
+function isInsideCodeBlock(state: EditorState, pos: number): boolean {
+  for (
+    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1);
+    node;
+    node = node.parent
+  ) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') return true
+  }
+  return false
+}
+
 function headingLevelAt(state: EditorState, lineNumber: number): number | null {
   if (lineNumber < 1 || lineNumber > state.doc.lines) return null
-  const text = state.doc.line(lineNumber).text
-  const match = text.match(HEADING_RE)
-  return match ? match[1].length : null
+  const line = state.doc.line(lineNumber)
+  const match = line.text.match(HEADING_RE)
+  if (!match) return null
+  if (isInsideCodeBlock(state, line.from)) return null
+  return match[1].length
 }
 
 function rangeForHeading(
