@@ -10,7 +10,7 @@ ZenNotes is a keyboard-first Markdown notes app with a shared product core and m
 - a self-hosted web app backed by a Go server
 - a future hosted deployment mode built on the same web/server stack
 
-ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, daily notes, and MCP integration on top of the files you already own.
+ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, daily notes, CSV databases (Notion-style Table + Board views over plain `.csv` files), and MCP integration on top of the files you already own.
 On macOS, the first-party `zen` CLI also powers launcher workflows such as the Raycast extension.
 
 Grab the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest) — see [Install](#install) below.  
@@ -20,7 +20,7 @@ Detailed in-repo documentation lives under [docs/README.md](docs/README.md).
 
 ## Install
 
-All desktop installers are attached to each [GitHub Release](https://github.com/ZenNotes/zennotes/releases/latest). The app auto-updates, so you only download once. (Replace `<version>` with the current release, e.g. `2.1.0`.)
+All desktop installers are attached to each [GitHub Release](https://github.com/ZenNotes/zennotes/releases/latest). The app auto-updates, so you only download once. (Replace `<version>` with the current release, e.g. `2.2.0`.)
 
 ### macOS
 
