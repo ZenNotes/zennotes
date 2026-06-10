@@ -1780,7 +1780,7 @@ interface Store {
    *  has no titleTemplate and no explicit title is supplied. */
   createFromTemplate: (
     template: NoteTemplate,
-    opts?: { folder?: NoteFolder; subpath?: string; title?: string }
+    opts?: { folder?: NoteFolder; subpath?: string; title?: string; date?: Date }
   ) => Promise<void>
   saveActiveNoteAsTemplate: () => Promise<void>
   setWordWrap: (on: boolean) => void
@@ -4295,7 +4295,7 @@ export const useStore = create<Store>((set, get) => {
     }
     const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
     if (template) {
-      await get().createFromTemplate(template, { folder: 'inbox', subpath, title })
+      await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
       return
     }
     await get().createAndOpen('inbox', subpath, { title })
@@ -4324,7 +4324,7 @@ export const useStore = create<Store>((set, get) => {
     }
     const template = resolveTemplate(state.customTemplates, settings.weeklyNotes.templateId)
     if (template) {
-      await get().createFromTemplate(template, { folder: 'inbox', subpath, title })
+      await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
       return
     }
     await get().createAndOpen('inbox', subpath, { title })
@@ -4419,7 +4419,7 @@ export const useStore = create<Store>((set, get) => {
       // 2. Title.
       let title = opts?.title?.trim() ?? ''
       if (!title && template.titleTemplate) {
-        title = renderTitle(template.titleTemplate, { title: '' })
+        title = renderTitle(template.titleTemplate, { title: '', now: opts?.date })
       }
       if (!title) {
         const entered = await promptApp({
@@ -4432,7 +4432,7 @@ export const useStore = create<Store>((set, get) => {
         title = entered.trim()
       }
       if (!title) title = template.name
-      const { body, cursorOffset } = renderTemplate(template.body, { title })
+      const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
       const meta = await window.zen.createNote(folder, title, subpath)
       // Write the rendered body before opening so the editor never flashes the
       // default `# Title` scaffold (mirrors importDroppedMarkdownFiles).
