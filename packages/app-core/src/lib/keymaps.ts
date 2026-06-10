@@ -18,6 +18,12 @@ export type KeymapId =
   | "global.toggleSidebar"
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
+  | "global.toggleCommentsPanel"
+  | "global.addComment"
+  | "global.focusPaneLeft"
+  | "global.focusPaneRight"
+  | "global.focusPaneUp"
+  | "global.focusPaneDown"
   | "global.modeEdit"
   | "global.modeSplit"
   | "global.modePreview"
@@ -178,6 +184,60 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Toggle outline panel",
     description: "Toggle the outline panel in the active pane.",
     defaultBinding: "Mod+3",
+  },
+  {
+    id: "global.toggleCommentsPanel",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Toggle comments panel",
+    description: "Toggle the comments panel in the active pane.",
+    defaultBinding: "Mod+Shift+C",
+  },
+  {
+    id: "global.addComment",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Add comment to selection",
+    description: "Start a comment on the selected text (or current line).",
+    defaultBinding: "Mod+Alt+M",
+  },
+  {
+    id: "global.focusPaneLeft",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Focus pane left",
+    description: "Move focus to the pane/panel on the left. Works without vim mode.",
+    defaultBinding: "Alt+H",
+  },
+  {
+    id: "global.focusPaneDown",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Focus pane down",
+    description: "Move focus to the pane/panel below. Works without vim mode.",
+    defaultBinding: "Alt+J",
+  },
+  {
+    id: "global.focusPaneUp",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Focus pane up",
+    description: "Move focus to the pane/panel above. Works without vim mode.",
+    defaultBinding: "Alt+K",
+  },
+  {
+    id: "global.focusPaneRight",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Focus pane right",
+    description: "Move focus to the pane/panel on the right. Works without vim mode.",
+    defaultBinding: "Alt+L",
   },
   {
     id: "global.modeEdit",
