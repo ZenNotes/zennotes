@@ -315,7 +315,8 @@
 :root[data-theme="solarized-dark"],
 :root[data-theme="one-dark"],
 :root[data-theme="nord-dark"],
-:root[data-theme="tokyo-night-storm"] {
+:root[data-theme="tokyo-night-storm"],
+:root[data-theme="black-metal"] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
   --z-glass-a3: 0.32;
@@ -944,6 +945,68 @@
   --z-blue: 122 162 247;
   --z-purple: 187 154 247; /* magenta    #bb9af7 */
   --z-aqua: 125 207 255; /* cyan       #7dcfff */
+  --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Black Metal — https://github.com/metalelf0/black-metal-theme-neovim
+ * Monochrome: a true-black canvas, soft grey ink, one muted teal accent.
+ * Semantic colors are kept (desaturated) so danger/success stay legible.
+ * ======================================================================== */
+
+/* ---- Black Metal (dark — repo default: bathory) ------------------------ */
+:root[data-theme="black-metal"] {
+  color-scheme: dark;
+  --z-bg: 0 0 0; /* #000000 — true black (OLED) */
+  --z-bg-softer: 0 0 0;
+  --z-bg-1: 18 18 18; /* #121212 — raised surfaces */
+  --z-bg-2: 30 30 30; /* #1e1e1e */
+  --z-bg-3: 51 51 51; /* #333333 — borders / selection */
+  --z-bg-4: 80 80 80; /* #505050 */
+  --z-fg: 193 193 193; /* #c1c1c1 — soft white, not pure white */
+  --z-fg-1: 209 209 209;
+  --z-fg-2: 136 136 136; /* #888888 */
+  --z-grey-2: 153 153 153; /* #999999 */
+  --z-grey-1: 112 112 112;
+  --z-grey-0: 80 80 80;
+  --z-grey-dim: 51 51 51;
+  --z-accent: 95 135 135; /* #5f8787 — signature muted teal */
+  --z-accent-soft: 251 203 151; /* #fbcb97 — amber */
+  --z-accent-muted: 231 138 67; /* #e78a43 — orange */
+  --z-red: 197 122 122; /* desaturated brick (danger stays legible) */
+  --z-green: 130 158 130; /* muted sage */
+  --z-yellow: 198 178 130; /* muted gold */
+  --z-blue: 119 153 187; /* #7799bb — steel (links) */
+  --z-purple: 155 145 165;
+  --z-aqua: 95 135 135; /* #5f8787 */
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Black Metal · Day (light monochrome paper) ------------------------ */
+:root[data-theme="black-metal-day"] {
+  color-scheme: light;
+  --z-bg: 244 244 242;
+  --z-bg-softer: 234 234 232;
+  --z-bg-1: 255 255 255;
+  --z-bg-2: 226 226 224;
+  --z-bg-3: 206 206 204; /* borders */
+  --z-bg-4: 168 168 166;
+  --z-fg: 26 26 26; /* near-black ink */
+  --z-fg-1: 51 51 51;
+  --z-fg-2: 102 102 102;
+  --z-grey-2: 112 112 112;
+  --z-grey-1: 140 140 140;
+  --z-grey-0: 168 168 166;
+  --z-grey-dim: 206 206 204;
+  --z-accent: 79 115 115; /* #4f7373 — deep teal, readable on paper */
+  --z-accent-soft: 176 120 64;
+  --z-accent-muted: 150 92 44;
+  --z-red: 168 78 78;
+  --z-green: 92 124 92;
+  --z-yellow: 150 120 56;
+  --z-blue: 74 104 142;
+  --z-purple: 120 102 142;
+  --z-aqua: 79 115 115;
   --z-shadow: 0 0 0;
 }
 

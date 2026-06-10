@@ -483,7 +483,8 @@ export function SettingsModal(): JSX.Element {
       { id: 'solarized', label: 'Solarized' },
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
-      { id: 'tokyo-night', label: 'Tokyo Night' }
+      { id: 'tokyo-night', label: 'Tokyo Night' },
+      { id: 'black-metal', label: 'Black Metal' }
     ],
     []
   )
@@ -543,7 +544,8 @@ export function SettingsModal(): JSX.Element {
       'solarized',
       'one',
       'nord',
-      'tokyo-night'
+      'tokyo-night',
+      'black-metal'
     ]
     if (simpleFamilies.includes(themeFamily)) return []
     return THEMES.filter((t) => t.family === themeFamily)
@@ -561,7 +563,8 @@ export function SettingsModal(): JSX.Element {
       solarized: { light: 'solarized-light', dark: 'solarized-dark' },
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
-      'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' }
+      'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
+      'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
     const targetId = preferred[family][effectiveMode]
     setTheme({ id: targetId, family, mode: themeMode })
