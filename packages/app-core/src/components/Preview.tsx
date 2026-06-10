@@ -700,9 +700,15 @@ export const Preview = memo(function Preview({
       } catch {
         /* render errors are surfaced inline per block */
       }
-      await renderDiagrams(stage, { themeKey: effectiveMode, expanded: false });
       if (cancelled) return;
+      // Attach to the live document BEFORE rendering diagrams. JSXGraph binds to
+      // a real element via document.getElementById and sizes the board from the
+      // laid-out container, so a detached buffer yields "HTML container element
+      // not found" and zero-size boards (#68). Mermaid renders to inline SVG, so
+      // it is safe to render in the detached buffer above.
       root.replaceChildren(...Array.from(stage.childNodes));
+      await renderDiagrams(root, { themeKey: effectiveMode, expanded: false });
+      if (cancelled) return;
       requestAnimationFrame(() => {
         if (!cancelled) onRenderedRef.current?.();
       });
