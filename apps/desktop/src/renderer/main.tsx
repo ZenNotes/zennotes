@@ -17,14 +17,20 @@ function renderBootError(message: string): void {
   root.appendChild(pre)
 }
 
+// Once the app has mounted, a stray async error must NOT blow away the whole
+// UI — `renderBootError` wipes #root, so reserve it for failures that happen
+// *before* the app is up. After boot we only log, so e.g. a transient
+// clipboard rejection no longer forces a relaunch (#79).
+let booted = false
+
 window.addEventListener('error', (event) => {
   console.error('[desktop-renderer] uncaught error', event.error ?? event.message)
-  renderBootError(String(event.error?.stack ?? event.error ?? event.message))
+  if (!booted) renderBootError(String(event.error?.stack ?? event.error ?? event.message))
 })
 
 window.addEventListener('unhandledrejection', (event) => {
   console.error('[desktop-renderer] unhandled rejection', event.reason)
-  renderBootError(String(event.reason?.stack ?? event.reason))
+  if (!booted) renderBootError(String(event.reason?.stack ?? event.reason))
 })
 
 try {
@@ -42,6 +48,7 @@ try {
   } else {
     renderZenNotesApp(root)
   }
+  booted = true
 } catch (error) {
   console.error('[desktop-renderer] boot failed', error)
   renderBootError(String(error instanceof Error ? error.stack ?? error.message : error))

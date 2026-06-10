@@ -3164,15 +3164,25 @@ app.whenReady().then(async () => {
     })
   })
 
-  // Auto-grant the Local Font Access permission so `queryLocalFonts()`
-  // can enumerate system fonts without a prompt. This is our own app
-  // talking to our own vault — no third-party surface.
+  // Permissions this app grants to its own renderer (deny everything else —
+  // it's our app talking to our own vault, no third-party surface):
+  //   - 'local-fonts'   → queryLocalFonts() for the font picker
+  //   - clipboard read/write → copy buttons and vim's "+y / "+p registers
+  //     (without this, navigator.clipboard throws NotAllowedError, which on
+  //     macOS and Wayland broke yank/paste to the system clipboard — #79)
+  const GRANTED_PERMISSIONS = new Set<string>([
+    'local-fonts',
+    'clipboard-read',
+    'clipboard-sanitized-write'
+  ])
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    // 'local-fonts' is not in Electron's published permission union yet,
-    // but Chromium emits it when the renderer calls `queryLocalFonts()`.
-    if ((permission as string) === 'local-fonts') return callback(true)
-    callback(false)
+    callback(GRANTED_PERMISSIONS.has(permission as string))
   })
+  // writeText()/readText() gate on the synchronous check handler, not the
+  // async request handler — grant the same set here or they still fail.
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+    GRANTED_PERMISSIONS.has(permission as string)
+  )
 
   // macOS dock icon. `BrowserWindow.icon` has no effect on macOS — the
   // dock picks up whatever the running binary advertises. During
