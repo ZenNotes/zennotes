@@ -563,6 +563,29 @@ export const Preview = memo(function Preview({
         window.open(href, "_blank");
         return;
       }
+      // In-page anchors — footnote refs / back-refs and heading links. The
+      // browser's default hash navigation doesn't scroll an element that lives
+      // inside the preview's own overflow:auto container, so resolve the target
+      // and scroll it ourselves. This is what made footnotes feel dead in the
+      // (split) preview, and it works both ways: ref → definition and the ↩
+      // back-ref → reference (#69).
+      if (href.startsWith("#") && href.length > 1) {
+        e.preventDefault();
+        const id = decodeURIComponent(href.slice(1));
+        const dest =
+          root.querySelector<HTMLElement>(`#${CSS.escape(id)}`) ??
+          root.querySelector<HTMLElement>(`[name="${CSS.escape(id)}"]`);
+        if (dest) {
+          dest.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Brief highlight so the jump is obvious in a long note.
+          dest.style.transition = "background-color 700ms ease";
+          dest.style.backgroundColor = "rgb(var(--z-accent) / 0.22)";
+          window.setTimeout(() => {
+            dest.style.backgroundColor = "";
+          }, 900);
+        }
+        return;
+      }
       e.preventDefault();
     };
     const onMouseOver = (e: MouseEvent): void => {
