@@ -2233,13 +2233,12 @@ textarea,
 }
 .prose-zen .zen-code-block-toolbar {
   position: absolute;
-  top: max(2px, calc((var(--z-code-toolbar-line) - 24px) / 2));
+  top: 8px;
   right: 8px;
-  left: 8px;
   z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 .prose-zen .zen-code-fold-button,
