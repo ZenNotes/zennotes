@@ -13,6 +13,7 @@ import {
 } from '../lib/command-history'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { canReturnToCommandList } from '../lib/command-palette-mode'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
@@ -265,7 +266,7 @@ export function CommandPalette(): JSX.Element {
 
   return (
     <Modal size="md" layer="palette" onClose={() => closePalette()} closeOnEsc={false}>
-      {mode !== 'main' && (
+      {canReturnToCommandList(mode, initialMode) && (
           <div className="flex items-center gap-2 border-b border-paper-300/70 bg-paper-200/40 px-4 py-2 text-xs text-ink-500">
             <button
               type="button"
@@ -313,7 +314,7 @@ export function CommandPalette(): JSX.Element {
               } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
-                if (mode !== 'main') {
+                if (canReturnToCommandList(mode, initialMode)) {
                   returnToMain()
                   return
                 }
@@ -448,7 +449,11 @@ export function CommandPalette(): JSX.Element {
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">esc</kbd>{' '}
-            {mode === 'main' ? 'close' : mode === 'theme' ? 'revert' : 'back'}
+            {!canReturnToCommandList(mode, initialMode)
+              ? 'close'
+              : mode === 'theme'
+                ? 'revert'
+                : 'back'}
           </span>
         </div>
     </Modal>
