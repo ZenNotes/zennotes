@@ -383,12 +383,14 @@ export function VaultTextSearchPalette(): JSX.Element {
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 if (results.length === 0) return
                 setActive((value) => Math.min(results.length - 1, value + 1))
                 return
               }
               if (isPalettePreviousKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 if (results.length === 0) return
                 setActive((value) => Math.max(0, value - 1))
                 return

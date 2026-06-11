@@ -41,6 +41,7 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
@@ -201,6 +202,7 @@ export function PinnedReferencePane(): JSX.Element | null {
                 ? 'wikilink-cmd-option'
                 : 'slash-cmd-option'
           }),
+          completionNavKeymap,
           keymap.of([
             {
               key: 'Mod-f',

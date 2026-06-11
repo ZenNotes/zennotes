@@ -50,6 +50,7 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
@@ -1303,6 +1304,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 ? 'wikilink-cmd-option'
                 : 'slash-cmd-option'
           }),
+          completionNavKeymap,
           keymap.of([
             {
               key: 'Mod-f',

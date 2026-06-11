@@ -64,9 +64,11 @@ export function SearchPalette(): JSX.Element {
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
               } else if (isPalettePreviousKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))
               } else if (e.key === 'Enter') {
                 e.preventDefault()
@@ -124,7 +126,8 @@ export function SearchPalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd>{' '}
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+J/K</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open

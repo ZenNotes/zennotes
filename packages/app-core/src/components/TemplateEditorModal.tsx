@@ -22,6 +22,7 @@ import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -134,6 +135,7 @@ export function TemplateEditorModal({
           addToOptions: [{ render: slashCommandRender.render, position: 0 }],
           optionClass: () => 'slash-cmd-option'
         }),
+        completionNavKeymap,
         keymap.of([indentWithTab, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
         editorTheme,
         EditorView.updateListener.of((upd) => {
