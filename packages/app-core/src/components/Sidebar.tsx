@@ -2668,7 +2668,7 @@ export function Sidebar(): JSX.Element {
         }}
       >
         <div
-          className="flex flex-col pb-2"
+          className="flex min-h-full flex-col pb-2"
           onContextMenu={(e) => {
             if (e.target === e.currentTarget) {
               e.preventDefault();
@@ -2863,9 +2863,10 @@ export function Sidebar(): JSX.Element {
             />
           )}
 
-          {/* Tag pills */}
+          {/* Tag pills — pushed to the bottom of the tree area, just above
+              the footer, via mt-auto (the wrapper is min-h-full flex-col). */}
           {tags.length > 0 && (
-            <div className="mt-5">
+            <div className="mt-auto pt-5">
               <button
                 type="button"
                 onClick={() => setTagsCollapsed(!tagsCollapsed)}
