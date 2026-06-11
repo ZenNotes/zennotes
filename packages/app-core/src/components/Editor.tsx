@@ -563,6 +563,7 @@ function registerVimCommands(): void {
  * - `:bd[elete]`, `:bc`  close the active tab (alias for `:q` on notes)
  * - `:buffers`, `:ls`    open the buffer switcher
  * - `:outline`            open the heading outline palette
+ * - `:closepanel`, `:closep`  close the open right-hand panel
  * - `:trash`              open the Trash view
  * - `:only`              close every other tab in the active pane
  * - `:qa[ll]`            close every tab, everywhere
@@ -688,6 +689,11 @@ function registerVimNoteCommands(): void {
     })
   }
   Vim.defineEx('outline', 'outline', openOutline)
+  // `:closepanel` / `:closep` closes whichever right-hand panel (connections,
+  // outline, comments, or calendar) is open in the active pane.
+  Vim.defineEx('closepanel', 'closep', () => {
+    window.dispatchEvent(new Event('zen:close-right-panel'))
+  })
   const setZenMode = (next: 'toggle' | 'on' | 'off'): void => {
     requestAnimationFrame(() => {
       const state = useStore.getState()

@@ -527,6 +527,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'view.close-right-panel',
+      title: 'Close Right Panel',
+      category: 'View',
+      keywords: 'close hide dismiss right panel pane connections comments outline calendar',
+      when: () => !!getState().activeNote,
+      run: () => {
+        window.dispatchEvent(new Event('zen:close-right-panel'))
+      }
+    },
+    {
       id: 'view.mode.edit',
       title: 'Switch to Edit Mode',
       category: 'View',

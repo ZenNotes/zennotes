@@ -793,6 +793,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener('zen:toggle-calendar', handler)
   }, [isActive, toggleCalendarPanel])
 
+  // `zen:close-right-panel` — Esc (when a right panel is focused) or the
+  // "Close right panel" command dismiss whichever right-hand panel is open in
+  // the active pane and return focus to the editor.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      setConnectionsOpen(false)
+      setOutlineOpen(false)
+      setCommentsOpen(false)
+      setCalendarOpen(false)
+      setConnectionPreview(null)
+      const panel = useStore.getState().focusedPanel
+      if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
+        setFocusedPanel('editor')
+      }
+    }
+    window.addEventListener('zen:close-right-panel', handler)
+    return () => window.removeEventListener('zen:close-right-panel', handler)
+  }, [isActive, setConnectionPreview, setFocusedPanel])
+
   // Auto-show the calendar when this pane lands on a daily/weekly note. On other
   // notes we leave it as-is (Obsidian-style persistence) so it stays open while
   // you browse, and only force it closed when the feature is turned off entirely.
