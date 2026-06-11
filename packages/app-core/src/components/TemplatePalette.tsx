@@ -20,11 +20,12 @@ export function TemplatePalette(): JSX.Element {
   const setOpen = useStore((s) => s.setTemplatePaletteOpen)
   const createFromTemplate = useStore((s) => s.createFromTemplate)
   const customTemplates = useStore((s) => s.customTemplates)
+  const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
   const mode = useStore((s) => s.templatePaletteMode)
 
   const templates = useMemo(
-    () => mergeTemplates(BUILTIN_TEMPLATES, customTemplates),
-    [customTemplates]
+    () => mergeTemplates(hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES, customTemplates),
+    [customTemplates, hideBuiltinTemplates]
   )
 
   const [query, setQuery] = useState('')

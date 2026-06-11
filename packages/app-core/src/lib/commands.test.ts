@@ -95,3 +95,32 @@ describe('vault commands', () => {
     expect(commands.some((cmd) => cmd.id === 'app.vault.switch')).toBe(true)
   })
 })
+
+describe('built-in template commands (#112)', () => {
+  it('offers Remove when built-ins show, and Restore once they are hidden', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+
+    useStore.setState({ hideBuiltinTemplates: false })
+    const shown = buildCommands()
+    expect(shown.find((c) => c.id === 'template.removeBuiltins')?.title).toBe(
+      'Remove Built-in Templates'
+    )
+    expect(shown.some((c) => c.id === 'template.restoreBuiltins')).toBe(false)
+
+    useStore.setState({ hideBuiltinTemplates: true })
+    const hidden = buildCommands()
+    expect(hidden.find((c) => c.id === 'template.restoreBuiltins')?.title).toBe(
+      'Restore Built-in Templates'
+    )
+    expect(hidden.some((c) => c.id === 'template.removeBuiltins')).toBe(false)
+  })
+
+  it('Restore brings the built-ins back (no confirmation)', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ hideBuiltinTemplates: true })
+    await buildCommands()
+      .find((c) => c.id === 'template.restoreBuiltins')
+      ?.run()
+    expect(useStore.getState().hideBuiltinTemplates).toBe(false)
+  })
+})

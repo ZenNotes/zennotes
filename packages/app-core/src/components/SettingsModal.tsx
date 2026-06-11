@@ -259,9 +259,11 @@ export function SettingsModal(): JSX.Element {
   const setCalendarShowWeekNumbers = useStore((s) => s.setCalendarShowWeekNumbers)
   const customTemplates = useStore((s) => s.customTemplates)
   const deleteCustomTemplate = useStore((s) => s.deleteCustomTemplate)
+  const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
+  const setHideBuiltinTemplates = useStore((s) => s.setHideBuiltinTemplates)
   const allTemplates = useMemo(
-    () => mergeTemplates(BUILTIN_TEMPLATES, customTemplates),
-    [customTemplates]
+    () => mergeTemplates(hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES, customTemplates),
+    [customTemplates, hideBuiltinTemplates]
   )
   const supportsCustomTemplates =
     zenBridge.getCapabilities().supportsCustomTemplates && workspaceMode !== 'remote'
@@ -309,6 +311,21 @@ export function SettingsModal(): JSX.Element {
     })
     if (!confirmed) return
     await deleteCustomTemplate(template.sourcePath)
+  }
+  const toggleBuiltinTemplates = async (): Promise<void> => {
+    if (hideBuiltinTemplates) {
+      setHideBuiltinTemplates(false)
+      return
+    }
+    const confirmed = await confirmApp({
+      title: 'Remove all built-in templates?',
+      description:
+        'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.',
+      confirmLabel: 'Remove',
+      danger: true
+    })
+    if (!confirmed) return
+    setHideBuiltinTemplates(true)
   }
   const themeId = useStore((s) => s.themeId)
   const themeFamily = useStore((s) => s.themeFamily)
@@ -1893,6 +1910,26 @@ export function SettingsModal(): JSX.Element {
                 Custom templates require a local vault. Built-in templates still work here.
               </InlineNote>
             )}
+            <div className="flex items-center justify-between gap-4 border-t border-paper-300/40 px-5 py-4">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-ink-900">
+                  {hideBuiltinTemplates ? 'Built-in templates are hidden' : 'Built-in templates'}
+                </div>
+                <div className="mt-1 text-xs leading-5 text-ink-500">
+                  {hideBuiltinTemplates
+                    ? 'The shipped templates are hidden from the picker and palette — your custom ones still show. Restore them anytime.'
+                    : 'Hide every shipped template from the picker and palette. Your custom templates are unaffected.'}
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void toggleBuiltinTemplates()}
+                className="shrink-0"
+              >
+                {hideBuiltinTemplates ? 'Restore built-in templates' : 'Remove built-in templates'}
+              </Button>
+            </div>
             {allTemplates.map((template) => (
               <div
                 key={template.id}

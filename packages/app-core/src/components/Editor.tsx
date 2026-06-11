@@ -381,7 +381,10 @@ function registerVimCommands(): void {
       state.setTemplatePaletteOpen(true)
       return
     }
-    const all = mergeTemplates(BUILTIN_TEMPLATES, state.customTemplates)
+    const all = mergeTemplates(
+      state.hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES,
+      state.customTemplates
+    )
     const lower = arg.toLowerCase()
     const match =
       all.find((t) => t.name.toLowerCase() === lower) ??

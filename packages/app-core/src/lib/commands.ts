@@ -145,6 +145,32 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openTemplatePaletteForInsert()
     },
     {
+      id: 'template.removeBuiltins',
+      title: 'Remove Built-in Templates',
+      category: 'Note',
+      keywords: 'template built-in builtin remove hide delete clear shipped default',
+      when: () => !getState().hideBuiltinTemplates,
+      run: async () => {
+        const ok = await confirmApp({
+          title: 'Remove all built-in templates?',
+          description:
+            'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.',
+          confirmLabel: 'Remove',
+          danger: true
+        })
+        if (!ok) return
+        getState().setHideBuiltinTemplates(true)
+      }
+    },
+    {
+      id: 'template.restoreBuiltins',
+      title: 'Restore Built-in Templates',
+      category: 'Note',
+      keywords: 'template built-in builtin restore bring back show shipped default',
+      when: () => getState().hideBuiltinTemplates,
+      run: () => getState().setHideBuiltinTemplates(false)
+    },
+    {
       id: 'template.saveCurrent',
       title: 'Save Current Note as Template…',
       category: 'Note',

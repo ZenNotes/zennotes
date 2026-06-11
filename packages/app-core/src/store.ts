@@ -277,6 +277,7 @@ interface Prefs {
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
+  hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
   themeId: string
@@ -416,6 +417,7 @@ const DEFAULT_PREFS: Prefs = {
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
   livePreview: true,
+  hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
   themeId: DEFAULT_THEME_ID,
@@ -513,6 +515,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.fzfBinaryPath,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
+    hideBuiltinTemplates:
+      typeof p.hideBuiltinTemplates === 'boolean'
+        ? p.hideBuiltinTemplates
+        : DEFAULT_PREFS.hideBuiltinTemplates,
     tabsEnabled:
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
     wrapTabs:
@@ -1059,6 +1065,7 @@ function collectPrefs(s: {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
   themeId: string
@@ -1115,6 +1122,7 @@ function collectPrefs(s: {
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
+    hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
     themeId: s.themeId,
@@ -1464,6 +1472,7 @@ interface Store {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
   settingsOpen: boolean
@@ -1742,6 +1751,7 @@ interface Store {
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
+  setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -2684,6 +2694,7 @@ export const useStore = create<Store>((set, get) => {
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
+  hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
   settingsOpen: false,
@@ -4050,6 +4061,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setLivePreview: (on) => {
     set({ livePreview: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setHideBuiltinTemplates: (hidden) => {
+    set({ hideBuiltinTemplates: hidden })
     savePrefs(collectPrefs(get()))
   },
   setTabsEnabled: (on) => {
