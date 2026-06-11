@@ -36,6 +36,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
+  | "vim.leaderSearchGroup"
   | "vim.leaderSearchVaultText"
   | "vim.leaderToggleSidebar"
   | "vim.leaderNoteOutline"
@@ -354,15 +355,26 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 1,
   },
   {
+    id: "vim.leaderSearchGroup",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: search…",
+    description: "Open the search leader group (text search, etc.).",
+    defaultBinding: "s",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
     id: "vim.leaderSearchVaultText",
     kind: "sequence",
     scope: "leader",
     group: "vim",
-    title: "Leader: search vault text",
-    description: "Open fuzzy vault text search across note contents.",
-    defaultBinding: "s t",
+    title: "Leader search: vault text",
+    description: "Open fuzzy vault text search across note contents (under the search group).",
+    defaultBinding: "t",
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 1,
   },
   {
     id: "vim.leaderToggleSidebar",
@@ -631,11 +643,11 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
   {
     id: "vim.hintMode",
     kind: "sequence",
-    scope: "vim-editor",
+    scope: "leader",
     group: "vim",
-    title: "Hint mode",
-    description: "Show jump labels for clickable targets.",
-    defaultBinding: "f",
+    title: "Leader: hint mode",
+    description: "Show jump labels for clickable targets (jump to any button or link).",
+    defaultBinding: "h",
     vimOnly: true,
     maxTokens: 1,
   },

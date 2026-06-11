@@ -156,6 +156,31 @@ describe('leader keymap definitions', () => {
       defaultBinding: 'v'
     })
   })
+
+  it('binds hint mode to leader h so bare f stays a Vim motion (#107)', () => {
+    expect(getKeymapDefinition('vim.hintMode')).toMatchObject({
+      scope: 'leader',
+      title: 'Leader: hint mode',
+      defaultBinding: 'h'
+    })
+  })
+
+  it('keeps search notes on leader f', () => {
+    expect(getKeymapDefinition('vim.leaderSearchNotes')).toMatchObject({
+      title: 'Leader: search notes',
+      defaultBinding: 'f'
+    })
+  })
+
+  it('nests vault text search under the leader s search group (s then t)', () => {
+    expect(getKeymapDefinition('vim.leaderSearchGroup')).toMatchObject({
+      scope: 'leader',
+      defaultBinding: 's'
+    })
+    expect(getKeymapDefinition('vim.leaderSearchVaultText')).toMatchObject({
+      defaultBinding: 't'
+    })
+  })
 })
 
 describe('buffer keymap definitions', () => {

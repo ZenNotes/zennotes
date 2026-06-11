@@ -47,13 +47,11 @@ export function VimNav(): JSX.Element | null {
   // All control-flow flags are refs so the handler never stales.
   const ctrlWPending = useRef(false)
   const jumpTopPending = useRef(0)
-  const leaderTextSearchPending = useRef(0)
   const previousBufferPending = useRef(0)
   const nextBufferPending = useRef(0)
-  const leaderPending = useRef<'leader' | 'leader-l' | null>(null)
+  const leaderPending = useRef<'leader' | 'leader-l' | 'leader-s' | null>(null)
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
   const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
-  const leaderTextSearchTimer = useRef<ReturnType<typeof setTimeout>>()
   const previousBufferTimer = useRef<ReturnType<typeof setTimeout>>()
   const nextBufferTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaderTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -61,7 +59,7 @@ export function VimNav(): JSX.Element | null {
   // Hint mode needs a render (to mount HintOverlay), so it's state.
   const [hintActive, setHintActive] = useState(false)
   const [whichKeyState, setWhichKeyState] = useState<{
-    stage: 'leader' | 'leader-l'
+    stage: 'leader' | 'leader-l' | 'leader-s'
     allowEditorActions: boolean
   } | null>(null)
   const hintRef = useRef(false)
@@ -127,12 +125,10 @@ export function VimNav(): JSX.Element | null {
   const resetLeader = useCallback(() => {
     leaderPending.current = null
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
-    leaderTextSearchPending.current = 0
-    if (leaderTextSearchTimer.current) clearTimeout(leaderTextSearchTimer.current)
     setWhichKeyState(null)
   }, [])
   const armLeader = useCallback(
-    (stage: 'leader' | 'leader-l', allowEditorActions: boolean) => {
+    (stage: 'leader' | 'leader-l' | 'leader-s', allowEditorActions: boolean) => {
       leaderPending.current = stage
       setWhichKeyState({ stage, allowEditorActions })
       if (leaderTimer.current) clearTimeout(leaderTimer.current)
@@ -157,6 +153,15 @@ export function VimNav(): JSX.Element | null {
       }
       ]
     }
+    if (whichKeyState.stage === 'leader-s') {
+      return [
+        {
+          keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchVaultText'),
+          label: 'Search vault text',
+          detail: 'Fuzzy-search note contents across the vault.'
+        }
+      ]
+    }
 
     const items: WhichKeyItem[] = [
       {
@@ -170,9 +175,14 @@ export function VimNav(): JSX.Element | null {
         detail: 'Open the vault-wide note search palette.'
       },
       {
-        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchVaultText'),
-        label: 'Search vault text',
-        detail: 'Fuzzy-search note contents across the vault.'
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchGroup'),
+        label: 'Search…',
+        detail: 'Open the search group — then `t` for vault text search.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.hintMode'),
+        label: 'Hint mode',
+        detail: 'Show jump labels to click any button or link by keyboard.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleSidebar'),
@@ -242,7 +252,6 @@ export function VimNav(): JSX.Element | null {
     nextBufferPending.current = 0
     if (ctrlWTimer.current) clearTimeout(ctrlWTimer.current)
     if (jumpTopTimer.current) clearTimeout(jumpTopTimer.current)
-    if (leaderTextSearchTimer.current) clearTimeout(leaderTextSearchTimer.current)
     if (previousBufferTimer.current) clearTimeout(previousBufferTimer.current)
     if (nextBufferTimer.current) clearTimeout(nextBufferTimer.current)
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
@@ -556,23 +565,17 @@ export function VimNav(): JSX.Element | null {
         isEditorInsertMode(state.editorViewRef, state.vimMode)
 
       if (leaderPending.current === 'leader') {
-        if (
-          advanceSequence(
-            e,
-            getKeymapBinding(overrides, 'vim.leaderSearchVaultText'),
-            leaderTextSearchPending,
-            leaderTextSearchTimer,
-            () => {
-              resetLeader()
-              state.setVaultTextSearchOpen(true)
-            },
-            () => {
-              e.preventDefault()
-              e.stopImmediatePropagation()
-            },
-            stickyWhichKeyHints ? 5000 : whichKeyHintTimeoutMs
-          )
-        ) {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderSearchGroup')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          armLeader('leader-s', editorNormalMode)
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderSearchNotes')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.setSearchOpen(true)
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.leaderOpenBuffers')) {
@@ -582,11 +585,11 @@ export function VimNav(): JSX.Element | null {
           state.setBufferPaletteOpen(true)
           return
         }
-        if (matchesSequenceToken(e, overrides, 'vim.leaderSearchNotes')) {
+        if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          state.setSearchOpen(true)
+          setHint(true)
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.leaderToggleSidebar')) {
@@ -668,6 +671,17 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.formatActiveNote()
+          return
+        }
+        resetLeader()
+      }
+
+      if (leaderPending.current === 'leader-s') {
+        if (matchesSequenceToken(e, overrides, 'vim.leaderSearchVaultText')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          state.setVaultTextSearchOpen(true)
           return
         }
         resetLeader()
@@ -775,14 +789,9 @@ export function VimNav(): JSX.Element | null {
           return
         }
 
-        if (
-          matchesSequenceToken(e, overrides, 'vim.hintMode') &&
-          !isEditorInsertMode(state.editorViewRef, state.vimMode)
-        ) {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          setHint(true)
-        }
+        // `f` (and operator+motion sequences like df/cf/yf) are Vim find-char
+        // motions here — hint mode lives on the leader (<leader>f) so it never
+        // hijacks them. (#107)
         return
       }
 
@@ -818,14 +827,6 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
-      // ------- No panel focused → f for hints ---------------------------
-      if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
-        const tag = (document.activeElement as HTMLElement)?.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        setHint(true)
-      }
     }
 
     window.addEventListener('keydown', handler, true)
@@ -873,7 +874,6 @@ export function VimNav(): JSX.Element | null {
       matchesSequenceToken(e, overrides, 'nav.back') ||
       matchesSequenceToken(e, overrides, 'nav.toggleFolder') ||
       matchesSequenceToken(e, overrides, 'nav.filter') ||
-      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
       key === 'Enter' ||
       key === 'Escape' ||
       key === 'ArrowDown' ||
@@ -940,10 +940,6 @@ export function VimNav(): JSX.Element | null {
       state.setSearchOpen(true)
       return
     }
-    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
-      setHint(true)
-      return
-    }
     if (wantsContextMenu) {
       openContextMenuForIndexedElement(items[currentPos])
       return
@@ -969,7 +965,6 @@ export function VimNav(): JSX.Element | null {
       matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
       matchesSequenceToken(e, overrides, 'nav.back') ||
       matchesSequenceToken(e, overrides, 'nav.filter') ||
-      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
       key === 'Enter' ||
       key === 'Escape' ||
       key === 'ArrowDown' ||
@@ -1049,10 +1044,6 @@ export function VimNav(): JSX.Element | null {
     }
     if (matchesSequenceToken(e, overrides, 'nav.filter')) {
       state.setSearchOpen(true)
-      return
-    }
-    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
-      setHint(true)
       return
     }
     if (wantsContextMenu) {
@@ -1181,7 +1172,6 @@ export function VimNav(): JSX.Element | null {
       matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
       matchesSequenceToken(e, overrides, 'nav.back') ||
       matchesSequenceToken(e, overrides, 'nav.filter') ||
-      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
       key === 'Enter' ||
       key === 'o' ||
       key === 'e' ||
@@ -1213,10 +1203,6 @@ export function VimNav(): JSX.Element | null {
     }
     if (matchesSequenceToken(e, overrides, 'nav.filter')) {
       state.setSearchOpen(true)
-      return
-    }
-    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
-      setHint(true)
       return
     }
 
@@ -1391,7 +1377,6 @@ export function VimNav(): JSX.Element | null {
       matchesSequenceToken(e, overrides, 'nav.moveUp') ||
       matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
       sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
-      matchesSequenceToken(e, overrides, 'vim.hintMode') ||
       matchesSequenceToken(e, overrides, 'nav.filter') ||
       wantsContextMenu
     ) {
@@ -1452,9 +1437,6 @@ export function VimNav(): JSX.Element | null {
     if (wantsContextMenu) {
       openActiveTabContextMenu(state)
       return
-    }
-    if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
-      setHint(true)
     }
   }
 
@@ -1830,10 +1812,19 @@ export function VimNav(): JSX.Element | null {
   if (whichKeyHintsEnabled && whichKeyState) {
     const leaderDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderPrefix')
     const noteActionsDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions')
+    const searchGroupDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderSearchGroup')
+    const subPrefix =
+      whichKeyState.stage === 'leader-s' ? searchGroupDisplay : noteActionsDisplay
     return (
       <WhichKeyOverlay
-        prefix={whichKeyState.stage === 'leader' ? leaderDisplay : `${leaderDisplay} ${noteActionsDisplay}`}
-        title={whichKeyState.stage === 'leader' ? 'Leader' : 'Leader · Note Actions'}
+        prefix={whichKeyState.stage === 'leader' ? leaderDisplay : `${leaderDisplay} ${subPrefix}`}
+        title={
+          whichKeyState.stage === 'leader'
+            ? 'Leader'
+            : whichKeyState.stage === 'leader-s'
+              ? 'Leader · Search'
+              : 'Leader · Note Actions'
+        }
         detail={
           stickyWhichKeyHints
             ? `Press a key to continue. Press ${leaderDisplay} again or Esc to close.`
