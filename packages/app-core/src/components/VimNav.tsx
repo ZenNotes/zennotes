@@ -5,6 +5,7 @@ import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
   clearEditorPendingVimStatus,
   getVisiblePanels,
+  hintTargetOpensNote,
   isEditorInsertMode,
   isEditorFocused,
   resolveNextPanel
@@ -26,6 +27,7 @@ import {
   findTabContextMenuTarget
 } from '../lib/keyboard-context-menu'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -67,7 +69,15 @@ export function VimNav(): JSX.Element | null {
     hintRef.current = v
     setHintActive(v)
   }, [])
-  const exitHints = useCallback(() => setHint(false), [setHint])
+  const exitHints = useCallback(
+    (activated?: HTMLElement) => {
+      setHint(false)
+      // #100: if the hint opened a note — a sidebar note row or a note tab —
+      // land in the editor instead of the sidebar row / tab you clicked.
+      if (hintTargetOpensNote(activated)) focusEditorNormalMode()
+    },
+    [setHint]
+  )
   const focusEditor = useCallback(() => {
     const state = useStore.getState()
     state.setFocusedPanel('editor')

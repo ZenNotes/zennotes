@@ -1,6 +1,21 @@
 import type { EditorView } from '@codemirror/view'
 import { getCM } from '@replit/codemirror-vim'
 import type { NoteFolder, NoteMeta } from '@shared/ipc'
+import { isWorkspaceVirtualTabPath } from './workspace-tabs'
+
+/**
+ * True when a Vim-hint (`<leader>h`) target opens a note the editor should land
+ * on — a sidebar note/asset row (`data-sidebar-path`) or a note tab
+ * (`data-tab-path` that isn't a virtual tab). Folders, the Tasks/Tags tabs, and
+ * plain buttons return false, so they keep their own focus. (#100)
+ */
+export function hintTargetOpensNote(element: HTMLElement | null | undefined): boolean {
+  if (!element) return false
+  const sidebarPath = element.closest('[data-sidebar-path]')?.getAttribute('data-sidebar-path')
+  if (sidebarPath && !isWorkspaceVirtualTabPath(sidebarPath)) return true
+  const tabPath = element.closest('[data-tab-path]')?.getAttribute('data-tab-path')
+  return !!tabPath && !isWorkspaceVirtualTabPath(tabPath)
+}
 
 // ---------------------------------------------------------------------------
 // Panel types & navigation
