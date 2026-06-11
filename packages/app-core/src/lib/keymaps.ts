@@ -13,7 +13,6 @@ export type KeymapId =
   | "global.searchNotesNonVim"
   | "global.commandPalette"
   | "global.newQuickNote"
-  | "global.openQuickCapture"
   | "global.openSettings"
   | "global.toggleSidebar"
   | "global.toggleConnections"
@@ -138,16 +137,6 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "New quick note",
     description: "Create a quick capture note and focus its title.",
     defaultBinding: "Shift+Mod+N",
-  },
-  {
-    id: "global.openQuickCapture",
-    kind: "shortcut",
-    scope: "app",
-    group: "global",
-    title: "Open quick capture window",
-    description:
-      "Open the floating capture window. Also bound system-wide; configure that hotkey under Settings → Editor.",
-    defaultBinding: "Shift+Mod+Space",
   },
   {
     id: "global.openSettings",
