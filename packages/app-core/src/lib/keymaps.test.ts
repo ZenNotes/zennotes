@@ -169,4 +169,15 @@ describe('buffer keymap definitions', () => {
       defaultBinding: '] b'
     })
   })
+
+  it('defaults Vim tab navigation to gt and gT', () => {
+    expect(getKeymapDefinition('vim.tabNext')).toMatchObject({
+      title: 'Next tab',
+      defaultBinding: 'g t'
+    })
+    expect(getKeymapDefinition('vim.tabPrevious')).toMatchObject({
+      title: 'Previous tab',
+      defaultBinding: 'g T'
+    })
+  })
 })

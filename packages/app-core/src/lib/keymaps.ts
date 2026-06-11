@@ -59,6 +59,8 @@ export type KeymapId =
   | "vim.historyForward"
   | "vim.bufferPrevious"
   | "vim.bufferNext"
+  | "vim.tabPrevious"
+  | "vim.tabNext"
   | "vim.hintMode"
   | "vim.goToDefinition"
   | "vim.foldCurrent"
@@ -601,6 +603,28 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Next buffer",
     description: "Move to the next open buffer, or a recent note when only one buffer is open.",
     defaultBinding: "] b",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.tabPrevious",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Previous tab",
+    description: "Go to the previous tab in the active pane (Vim-style gT).",
+    defaultBinding: "g T",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.tabNext",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Next tab",
+    description: "Go to the next tab in the active pane (Vim-style gt).",
+    defaultBinding: "g t",
     vimOnly: true,
     maxTokens: 2,
   },
