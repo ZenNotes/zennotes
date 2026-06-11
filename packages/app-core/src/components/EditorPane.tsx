@@ -2965,14 +2965,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <TrashView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
-              <DatabaseView tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)} />
+              <DatabaseView
+                tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)}
+                isActive={isActive}
+              />
             ) : (
               <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
             )
           ) : activeTab && isDiagramTabPath(activeTab) ? (
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
           ) : activeTab && isDatabaseTabPath(activeTab) ? (
-            <DatabaseView tabPath={activeTab} />
+            <DatabaseView tabPath={activeTab} isActive={isActive} />
           ) : content ? (
             <div
               className={[

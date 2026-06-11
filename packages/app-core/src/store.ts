@@ -24,7 +24,12 @@ import type {
 import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
-import { databaseTabPath, isDatabaseInternalPath } from '@shared/databases'
+import {
+  databaseTabPath,
+  isDatabaseInternalPath,
+  isDatabaseTabPath,
+  isDatabaseCsvPath
+} from '@shared/databases'
 import { parseFrontmatter } from '@shared/template-files'
 import { recordTitle, composePageBody } from './lib/database-cells'
 import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
@@ -32,7 +37,7 @@ import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
-import { isAssetTabPath } from './lib/asset-tabs'
+import { isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
 import {
   FENCE_RE,
   TASK_LINE_RE,
@@ -821,11 +826,33 @@ function getVisiblePreviewScrollElement(): HTMLElement | null {
   ) ?? null
 }
 
+/**
+ * A database surface that can be the active tab: either a `zen://database/…`
+ * tab (opened via "New Database") or a `.csv` opened directly as an asset tab
+ * (`zen://asset/Foo.csv`), which EditorPane renders as a database grid. Both
+ * must round-trip through the note jump history so Ctrl+O returns to the grid.
+ */
+function isDatabaseSurfaceTabPath(path: string | null | undefined): path is string {
+  if (!path) return false
+  if (isDatabaseTabPath(path)) return true
+  return isAssetTabPath(path) && isDatabaseCsvPath(assetPathFromTab(path) ?? '')
+}
+
+/**
+ * Tabs worth recording in the note jump history (Ctrl+O / Ctrl+I): real notes,
+ * plus database surfaces — so opening a row's record page and pressing Ctrl+O
+ * jumps back to the grid. Other virtual tabs (tasks, tags, plain assets…) stay
+ * excluded.
+ */
+function isJumpHistoryTabPath(path: string | null | undefined): path is string {
+  return !!path && (!isWorkspaceVirtualTabPath(path) || isDatabaseSurfaceTabPath(path))
+}
+
 function captureNoteJumpLocation(state: {
   selectedPath: string | null
   editorViewRef: EditorView | null
 }): NoteJumpLocation | null {
-  if (!state.selectedPath || isWorkspaceVirtualTabPath(state.selectedPath)) return null
+  if (!isJumpHistoryTabPath(state.selectedPath)) return null
   const selection = state.editorViewRef?.state.selection.main
   return {
     path: state.selectedPath,
@@ -2351,15 +2378,13 @@ export const useStore = create<Store>((set, get) => {
         paneLayout: nextLayout,
         noteBackstack:
           historyMode === 'push' &&
-          state.selectedPath !== null &&
-          !isWorkspaceVirtualTabPath(state.selectedPath) &&
+          isJumpHistoryTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
             ? appendNoteJumpHistory(state.noteBackstack, captureNoteJumpLocation(state))
             : state.noteBackstack,
         noteForwardstack:
           historyMode === 'push' &&
-          state.selectedPath !== null &&
-          !isWorkspaceVirtualTabPath(state.selectedPath) &&
+          isJumpHistoryTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
             ? []
             : state.noteForwardstack,
@@ -2386,8 +2411,7 @@ export const useStore = create<Store>((set, get) => {
     const latest = get()
     const shouldPushHistory =
       historyMode === 'push' &&
-      latest.selectedPath !== null &&
-      !isWorkspaceVirtualTabPath(latest.selectedPath) &&
+      isJumpHistoryTabPath(latest.selectedPath) &&
       latest.selectedPath !== relPath
     const nextBackstack = shouldPushHistory
       ? appendNoteJumpHistory(latest.noteBackstack, captureNoteJumpLocation(latest))
@@ -2450,8 +2474,29 @@ export const useStore = create<Store>((set, get) => {
     set({ loadingNote: true })
     while (source.length > 0) {
       const target = source.pop() ?? null
-      if (!target || target.path === get().selectedPath || isWorkspaceVirtualTabPath(target.path)) {
+      if (
+        !target ||
+        target.path === get().selectedPath ||
+        (isWorkspaceVirtualTabPath(target.path) && !isDatabaseSurfaceTabPath(target.path))
+      ) {
         continue
+      }
+      // A database surface in the history — e.g. the grid a record page was
+      // opened from. Reopen the tab instead of loading note content, and record
+      // the current location on the opposite stack so the jump stays reversible.
+      if (isDatabaseSurfaceTabPath(target.path)) {
+        const latest = get()
+        const opposite =
+          direction === 'back' ? latest.noteForwardstack : latest.noteBackstack
+        const nextOpposite = appendNoteJumpHistory(opposite, captureNoteJumpLocation(latest))
+        set({
+          loadingNote: false,
+          pendingJumpLocation: null,
+          noteBackstack: direction === 'back' ? source : nextOpposite,
+          noteForwardstack: direction === 'back' ? nextOpposite : source
+        })
+        await selectNoteImpl(target.path, 'preserve')
+        return
       }
       try {
         const content = await readNoteContent(target.path, get())

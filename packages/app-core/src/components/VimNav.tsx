@@ -281,8 +281,16 @@ export function VimNav(): JSX.Element | null {
       // inline note title, prompt inputs, or textarea-based controls.
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
       // The database/table view runs its own vim-style motion grid; yield to it
-      // so sidebar/note-list navigation doesn't steal j/k/h/l etc.
-      if (target?.closest('[data-zen-db-grid]')) return
+      // so sidebar/note-list navigation doesn't steal j/k/h/l etc. — EXCEPT the
+      // pane prefix (Ctrl+W) and its pending direction key, so the grid can hand
+      // off to pane/tab navigation (Ctrl+W k → tabs) like every other surface.
+      if (
+        target?.closest('[data-zen-db-grid]') &&
+        !ctrlWPending.current &&
+        sequenceTokenFromEvent(e) !== panePrefixToken
+      ) {
+        return
+      }
       // CodeMirror's editor surface is contenteditable; keep global
       // hint/navigation bindings working there. Only skip other
       // unrelated contenteditable widgets.

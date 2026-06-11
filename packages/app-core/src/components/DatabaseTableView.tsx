@@ -44,13 +44,17 @@ interface Props {
   csvPath: string
   doc: DatabaseDoc
   view: DbView
+  /** True when this grid is the active pane's content — drives auto-focus. */
+  isActive: boolean
 }
 
-export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
+export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const openRecordPage = useStore((s) => s.openRecordPage)
   const renameRecordPage = useStore((s) => s.renameRecordPage)
+  const focusedPanel = useStore((s) => s.focusedPanel)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
 
   const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
 
@@ -149,18 +153,42 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
     prevEditing.current = editing
   }, [editing])
 
-  // Focus the grid when a database tab first renders so vim motions work
-  // immediately (otherwise focus lingers on the sidebar / tab strip).
+  // Claim keyboard focus for the grid whenever it is the active pane's content
+  // region — on first open, after a Ctrl+O jump back from a record page, after
+  // a workspace restore (reopening the app), when the window regains focus, and
+  // when focus comes back *down* from the tab strip (Ctrl+J / j, which sets
+  // focusedPanel to 'editor') — so vim motions work without clicking a row.
+  // Bails while the tab strip is the focused region (Ctrl+K moved up there) and
+  // while an interactive control (a cell editor, a header button) owns focus,
+  // so it never yanks the caret out from under the user. rAF lets the opening
+  // click / restore settle so it can't steal focus back.
   useEffect(() => {
-    gridRef.current?.focus({ preventScroll: true })
-  }, [csvPath])
+    if (!isActive || focusedPanel === 'tabs') return
+    const claimFocus = (): void => {
+      const a = document.activeElement as HTMLElement | null
+      if (a && a !== document.body && a.closest('input, textarea, button, [contenteditable="true"]'))
+        return
+      gridRef.current?.focus({ preventScroll: true })
+    }
+    const raf = requestAnimationFrame(claimFocus)
+    window.addEventListener('focus', claimFocus)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('focus', claimFocus)
+    }
+  }, [isActive, csvPath, focusedPanel])
 
   const onGridKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (editing) return // the cell's own input owns keys while editing
+    // A focused text field inside the grid — the column-name editor, or any
+    // cell input — owns its keys too: don't let h/j/k/l motions swallow typed
+    // letters (e.g. the "l" in "url"), and let the arrow keys move the caret. (#110)
+    const target = e.target as HTMLElement | null
+    if (target?.closest('input, textarea') || target?.isContentEditable) return
     if (e.metaKey || e.ctrlKey || e.altKey) return // leave global shortcuts alone
     const lastRow = rows.length - 1
     const lastCol = columns.length - 1
-    const clampRow = (n: number): number => Math.max(0, Math.min(n, lastRow))
+    const clampRow = (n: number): number => Math.max(-1, Math.min(n, lastRow)) // -1 = column-header row
     const clampCol = (n: number): number => Math.max(0, Math.min(n, lastCol))
     const move = (row: number, col: number): void => {
       e.preventDefault()
@@ -219,9 +247,15 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
       }
       case 'Enter':
       case 'i': {
+        e.preventDefault()
+        if (active.row < 0) {
+          // On the column header — rename the field, keyboard-only.
+          const field = columns[active.col]
+          if (field) setRenamingField(field.id)
+          return
+        }
         const c = cell()
         if (!c) return
-        e.preventDefault()
         if (c.field.type === 'checkbox') return toggleCheckbox(c.row, c.field)
         setEditing({ rowId: c.row.id, fieldId: c.field.id })
         return
@@ -244,6 +278,25 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
         if (!c) return
         e.preventDefault()
         return openPage(c.row.id)
+      }
+      case 'm': {
+        // Open the context menu (like the sidebar's `m`), anchored to the
+        // active header or cell. On a header → field menu; on a cell → row menu.
+        e.preventDefault()
+        if (active.row < 0) {
+          const field = columns[active.col]
+          if (!field) return
+          const r = gridRef.current
+            ?.querySelector<HTMLElement>('[data-active-header="true"]')
+            ?.getBoundingClientRect()
+          return setFieldMenu({ fieldId: field.id, x: r?.left ?? 0, y: r?.bottom ?? 0 })
+        }
+        const c = cell()
+        if (!c) return
+        const r = gridRef.current
+          ?.querySelector<HTMLElement>('[data-active-cell="true"]')
+          ?.getBoundingClientRect()
+        return setRowMenu({ rowId: c.row.id, x: r?.left ?? 0, y: r?.bottom ?? 0 })
       }
       case 'a': {
         e.preventDefault()
@@ -304,7 +357,19 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
   ]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-1 flex-col"
+      onMouseDown={(e) => {
+        // Clicking empty space anywhere in the table view (e.g. the large area
+        // below the rows) keeps keyboard focus on the grid so vim motions keep
+        // working without clicking a row. Cells, headers, and controls manage
+        // their own focus, so leave those clicks alone.
+        const t = e.target as HTMLElement
+        if (t.closest('input, textarea, button, a, [contenteditable="true"], td, th')) return
+        e.preventDefault()
+        gridRef.current?.focus({ preventScroll: true })
+      }}
+    >
       {anySelected && (
         <div className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs">
           <span className="font-medium text-ink-700">{selected.size} selected</span>
@@ -330,6 +395,12 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
         role="grid"
         data-zen-db-grid
         onKeyDown={onGridKeyDown}
+        // The grid is this pane's content region — mark it as the focused
+        // 'editor' panel so vim pane navigation (Ctrl+W k → tabs, Ctrl+W h/l →
+        // adjacent pane) treats it like the editor on every other surface.
+        onFocus={() => {
+          if (useStore.getState().focusedPanel !== 'editor') setFocusedPanel('editor')
+        }}
         className="min-h-0 flex-1 overflow-auto outline-none focus:outline-none"
       >
         <table className="w-full border-collapse text-sm">
@@ -345,10 +416,14 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
                   <DbCheckbox checked={allSelected} onChange={toggleAll} title="Select all" />
                 </div>
               </th>
-            {columns.map((field) => (
+            {columns.map((field, colIndex) => (
               <th
                 key={field.id}
-                className="group/h min-w-32 border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500"
+                data-active-header={active.row < 0 && active.col === colIndex}
+                className={[
+                  'group/h min-w-32 border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500',
+                  active.row < 0 && active.col === colIndex ? 'ring-2 ring-inset ring-accent' : ''
+                ].join(' ')}
               >
                 {renamingField === field.id ? (
                   <input
@@ -358,10 +433,14 @@ export function DatabaseTableView({ csvPath, doc, view }: Props): JSX.Element {
                     onBlur={(e) => {
                       updateDatabaseSchema(csvPath, renameField(doc, field.id, e.currentTarget.value))
                       setRenamingField(null)
+                      gridRef.current?.focus({ preventScroll: true })
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') e.currentTarget.blur()
-                      else if (e.key === 'Escape') setRenamingField(null)
+                      else if (e.key === 'Escape') {
+                        setRenamingField(null)
+                        gridRef.current?.focus({ preventScroll: true })
+                      }
                     }}
                     className="w-full rounded border border-accent bg-paper-50 px-1 py-0.5 text-sm text-ink-900 outline-none"
                   />

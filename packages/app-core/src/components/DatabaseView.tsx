@@ -14,19 +14,27 @@ import { DatabaseTableView } from './DatabaseTableView'
 import { DatabaseBoardView } from './DatabaseBoardView'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { Button, IconButton } from './ui/Button'
-import { DatabaseIcon, TableIcon, KanbanIcon, PlusIcon } from './icons'
+import { DatabaseIcon, TableIcon, KanbanIcon, PlusIcon, PanelLeftIcon } from './icons'
 
 /**
  * Host for a CSV database tab: loads the database, renders the header
  * (title + view switcher + add controls) and the active view.
  */
-export function DatabaseView({ tabPath }: { tabPath: string }): JSX.Element {
+export function DatabaseView({
+  tabPath,
+  isActive = true
+}: {
+  tabPath: string
+  isActive?: boolean
+}): JSX.Element {
   const csvPath = csvPathFromDatabaseTab(tabPath)
   const doc = useStore((s) => (csvPath ? s.databases[csvPath] : undefined))
   const loading = useStore((s) => (csvPath ? !!s.databasesLoading[csvPath] : false))
   const loadDatabase = useStore((s) => s.loadDatabase)
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const toggleSidebar = useStore((s) => s.toggleSidebar)
   const [viewMenu, setViewMenu] = useState<{ viewId: string; x: number; y: number } | null>(null)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [rawMode, setRawMode] = useState(false)
@@ -65,6 +73,11 @@ export function DatabaseView({ tabPath }: { tabPath: string }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
       <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
+        {!sidebarOpen && isActive && (
+          <IconButton size="sm" title="Show sidebar (⌘1)" onClick={() => toggleSidebar()}>
+            <PanelLeftIcon className="h-4 w-4" />
+          </IconButton>
+        )}
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
         <h2 className="truncate text-sm font-semibold text-ink-900">{doc.title}</h2>
         <span className="shrink-0 text-xs text-ink-500">{doc.rows.length}</span>
@@ -158,7 +171,7 @@ export function DatabaseView({ tabPath }: { tabPath: string }): JSX.Element {
             {serializeRows(doc.rows, doc.fields)}
           </pre>
         ) : activeView.type === 'table' ? (
-          <DatabaseTableView csvPath={csvPath} doc={doc} view={activeView} />
+          <DatabaseTableView csvPath={csvPath} doc={doc} view={activeView} isActive={isActive} />
         ) : (
           <DatabaseBoardView csvPath={csvPath} doc={doc} view={activeView} />
         )}
