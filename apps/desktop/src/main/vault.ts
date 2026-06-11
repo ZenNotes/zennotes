@@ -7,6 +7,11 @@ import { app } from 'electron'
 import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
 import {
+  resolveWikilinkTarget,
+  rewriteWikilinksForRename,
+  type RenameNoteRef
+} from './wikilink-rename'
+import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
@@ -2430,7 +2435,11 @@ export async function renameNote(
   const dir = path.dirname(abs)
   const trimmed = sanitizeNoteTitle(nextTitle)
   const target = path.join(dir, `${trimmed}.md`)
-  if (target !== abs) {
+  const willRename = target !== abs
+  // Snapshot the vault before the rename so inbound [[wikilinks]] still
+  // resolve to this note under its current name; we rewrite them afterwards.
+  const notesBefore = willRename ? await listNotes(root) : []
+  if (willRename) {
     // Check for conflicts, but allow case-only renames on case-insensitive FS
     try {
       await fs.access(target)
@@ -2455,7 +2464,44 @@ export async function renameNote(
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
+  if (willRename) {
+    await updateInboundWikilinks(root, notesBefore, rel, meta.title)
+  }
   return meta
+}
+
+/**
+ * Rewrite every `[[wikilink]]` across the vault that pointed to a note's old
+ * name so it points to the new one. `notesBefore` is the pre-rename snapshot
+ * (the renamed note still under `oldPath`), used so links resolve to what they
+ * currently target. Only notes that actually link to it are read and rewritten.
+ */
+async function updateInboundWikilinks(
+  root: string,
+  notesBefore: NoteMeta[],
+  oldPath: string,
+  newTitle: string
+): Promise<void> {
+  const refs: RenameNoteRef[] = notesBefore.map((n) => ({
+    path: n.path,
+    title: n.title,
+    folder: n.folder
+  }))
+  const candidates = notesBefore.filter(
+    (n) =>
+      n.path !== oldPath &&
+      n.folder !== 'trash' &&
+      (n.wikilinks ?? []).some((t) => resolveWikilinkTarget(refs, t)?.path === oldPath)
+  )
+  for (const candidate of candidates) {
+    try {
+      const content = await readNote(root, candidate.path)
+      const { body, changed } = rewriteWikilinksForRename(content.body, refs, oldPath, newTitle)
+      if (changed > 0) await writeNote(root, candidate.path, body)
+    } catch (err) {
+      console.error('updateInboundWikilinks: failed for', candidate.path, err)
+    }
+  }
 }
 
 /**

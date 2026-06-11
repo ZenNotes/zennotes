@@ -1254,6 +1254,22 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 }
 
 func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
+	// Snapshot the vault before the rename (ListNotes takes its own read lock)
+	// so inbound [[wikilinks]] still resolve to this note under its current name.
+	notesBefore, _ := v.ListNotes()
+	meta, err := v.renameNoteFile(rel, nextTitle)
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	if meta.Path != rel {
+		// ReadNote / WriteNote take their own locks, so this runs after the
+		// rename's write lock has been released.
+		v.rewriteInboundWikilinks(notesBefore, rel, meta.Title)
+	}
+	return meta, nil
+}
+
+func (v *Vault) renameNoteFile(rel, nextTitle string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	abs, err := SafeJoin(v.root, rel)
@@ -1279,6 +1295,35 @@ func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
 		return NoteMeta{}, err
 	}
 	return meta, nil
+}
+
+// rewriteInboundWikilinks rewrites every note that linked to the renamed note's
+// old name so it points to the new title. Only notes that actually link to it
+// are read and rewritten.
+func (v *Vault) rewriteInboundWikilinks(notesBefore []NoteMeta, oldPath, newTitle string) {
+	for _, n := range notesBefore {
+		if n.Path == oldPath || n.Folder == FolderTrash {
+			continue
+		}
+		linksToIt := false
+		for _, t := range n.Wikilinks {
+			if r, ok := wikiResolveTarget(notesBefore, t); ok && r.Path == oldPath {
+				linksToIt = true
+				break
+			}
+		}
+		if !linksToIt {
+			continue
+		}
+		content, err := v.ReadNote(n.Path)
+		if err != nil {
+			continue
+		}
+		body, changed := rewriteWikilinksForRename(content.Body, notesBefore, oldPath, newTitle)
+		if changed > 0 {
+			_, _ = v.WriteNote(n.Path, body)
+		}
+	}
 }
 
 func (v *Vault) DeleteNote(rel string) error {
