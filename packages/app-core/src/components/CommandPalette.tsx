@@ -12,7 +12,7 @@ import {
   RECENT_COMMAND_COUNT
 } from '../lib/command-history'
 import { rankItems } from '../lib/fuzzy-score'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
@@ -36,6 +36,7 @@ export function CommandPalette(): JSX.Element {
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles)
   const currentVault = useStore((s) => s.vault)
   const workspaceMode = useStore((s) => s.workspaceMode)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo)
   const initialMode = useStore((s) => s.commandPaletteInitialMode)
   const refreshLocalVaults = useStore((s) => s.refreshLocalVaults)
@@ -438,7 +439,7 @@ export function CommandPalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd>{' '}

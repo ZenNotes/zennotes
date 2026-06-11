@@ -19,7 +19,7 @@ import {
   type McpServerRuntime
 } from '@shared/mcp-clients'
 import { useStore } from '../store'
-import type { LineNumberMode, WhichKeyHintMode } from '../store'
+import type { LineNumberMode, PaletteNavKeys, WhichKeyHintMode } from '../store'
 import type { KeymapDefinition, KeymapId, KeymapOverrides } from '../lib/keymaps'
 import {
   formatKeymapBinding,
@@ -201,6 +201,8 @@ export function SettingsModal(): JSX.Element {
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
+  const setPaletteNavKeys = useStore((s) => s.setPaletteNavKeys)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -856,6 +858,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['vim', 'jk', 'jj', 'escape', 'insert mode', 'esc']
         },
         {
+          id: 'palette-navigation-keys',
+          title: 'Panel navigation keys',
+          description: 'Choose whether Ctrl+N/P, Ctrl+J/K, or both move through panels and editor completions.',
+          keywords: ['palette', 'panel', 'completion', 'ctrl n', 'ctrl p', 'ctrl j', 'ctrl k', 'navigation']
+        },
+        {
           id: 'leader-key-hints',
           title: 'Leader key hints',
           description: 'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
@@ -971,6 +979,18 @@ export function SettingsModal(): JSX.Element {
                   placeholder="jk"
                   settingId="vim-insert-escape"
                   onChange={(next) => setVimInsertEscape(next ?? '')}
+                />
+                <SegmentedRow
+                  label="Panel navigation keys"
+                  description="Choose which Ctrl shortcuts move through panels and editor completions."
+                  value={paletteNavKeys}
+                  settingId="palette-navigation-keys"
+                  options={[
+                    { value: 'ctrl-np', label: 'Ctrl+N/P' },
+                    { value: 'ctrl-jk', label: 'Ctrl+J/K' },
+                    { value: 'both', label: 'Both' }
+                  ]}
+                  onChange={(next) => setPaletteNavKeys(next as PaletteNavKeys)}
                 />
                 <ToggleRow
                   label="Leader key hints"

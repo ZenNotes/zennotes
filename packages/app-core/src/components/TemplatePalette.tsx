@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { mergeTemplates } from '@shared/template-files'
@@ -21,6 +21,7 @@ export function TemplatePalette(): JSX.Element {
   const createFromTemplate = useStore((s) => s.createFromTemplate)
   const customTemplates = useStore((s) => s.customTemplates)
   const mode = useStore((s) => s.templatePaletteMode)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
 
   const templates = useMemo(
     () => mergeTemplates(BUILTIN_TEMPLATES, customTemplates),
@@ -130,7 +131,7 @@ export function TemplatePalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> create

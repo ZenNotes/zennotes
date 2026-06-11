@@ -40,6 +40,7 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
+import { paletteCompletionKeymaps, paletteNavModeClass } from '../lib/palette-nav'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
@@ -196,10 +197,10 @@ export function PinnedReferencePane(): JSX.Element | null {
             override: [slashCommandSource, dateShortcutSource, wikilinkSource],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
-            optionClass: (completion) =>
-              (completion as { _kind?: string })._kind === 'wikilink'
-                ? 'wikilink-cmd-option'
-                : 'slash-cmd-option'
+            optionClass: (completion) => {
+              if ((completion as { _kind?: string })._kind !== 'wikilink') return 'slash-cmd-option'
+              return `wikilink-cmd-option ${paletteNavModeClass(useStore.getState().paletteNavKeys)}`
+            }
           }),
           keymap.of([
             {
@@ -215,7 +216,8 @@ export function PinnedReferencePane(): JSX.Element | null {
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
-            ...completionKeymap
+            ...completionKeymap,
+            ...paletteCompletionKeymaps()
           ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return

@@ -60,7 +60,7 @@ import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@code
 import { headingFolding } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
+import { autocompletion, completionKeymap, completionStatus, moveCompletionSelection } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
@@ -110,6 +110,7 @@ import {
 } from '../lib/editor-hydration'
 import { recordRendererPerf } from '../lib/perf'
 import { rememberTabScroll, recallTabScroll } from '../lib/tab-scroll-memory'
+import { isPaletteNavShortcutKey, isPaletteNextKey, isPalettePreviousKey, paletteCompletionKeymaps, paletteNavModeClass } from '../lib/palette-nav'
 import { parseOutline } from '../lib/outline'
 import {
   findRenderedHeadingForOutlineLine,
@@ -1298,10 +1299,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             override: [slashCommandSource, dateShortcutSource, wikilinkSource],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
-            optionClass: (completion) =>
-              (completion as { _kind?: string })._kind === 'wikilink'
-                ? 'wikilink-cmd-option'
-                : 'slash-cmd-option'
+            optionClass: (completion) => {
+              if ((completion as { _kind?: string })._kind !== 'wikilink') return 'slash-cmd-option'
+              return `wikilink-cmd-option ${paletteNavModeClass(useStore.getState().paletteNavKeys)}`
+            }
           }),
           keymap.of([
             {
@@ -1317,7 +1318,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ...defaultKeymap,
             ...historyKeymap,
             ...searchKeymap,
-            ...completionKeymap
+            ...completionKeymap,
+            ...paletteCompletionKeymaps()
           ]),
           EditorView.domEventHandlers({
             mousedown: (event) => {
@@ -1375,6 +1377,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   event.preventDefault()
                   event.stopPropagation()
                   openEditorContextMenu()
+                  return true
+                }
+              }
+              if (completionStatus(view.state) === 'active') {
+                if (isPaletteNextKey(event)) {
+                  moveCompletionSelection(true)(view)
+                  event.preventDefault()
+                  return true
+                }
+                if (isPalettePreviousKey(event)) {
+                  moveCompletionSelection(false)(view)
+                  event.preventDefault()
+                  return true
+                }
+                if (isPaletteNavShortcutKey(event)) {
+                  event.preventDefault()
+                  event.stopPropagation()
                   return true
                 }
               }

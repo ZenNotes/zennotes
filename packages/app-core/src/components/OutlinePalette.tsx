@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import { parseOutline, type OutlineItem } from '../lib/outline'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -36,6 +36,7 @@ export function OutlinePalette(): JSX.Element {
   const setOpen = useStore((s) => s.setOutlinePaletteOpen)
   const selectedPath = useStore((s) => s.selectedPath)
   const noteContents = useStore((s) => s.noteContents)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
 
   const body =
     selectedPath && !isVirtualPath(selectedPath) ? noteContents[selectedPath]?.body ?? '' : ''
@@ -140,7 +141,7 @@ export function OutlinePalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> jump

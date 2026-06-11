@@ -3075,8 +3075,28 @@ textarea,
   max-height: 320px !important;
 }
 
-.cm-tooltip-autocomplete:has(.wikilink-cmd-option)::after {
-  content: "Type | to change display text  ·  Use /path/to/note for exact links";
+.cm-tooltip-autocomplete:has(.wikilink-cmd-option.palette-nav-ctrl-np)::after {
+  content: "Ctrl+N/P move  ·  Type | to change display text  ·  Use /path/to/note for exact links";
+  display: block;
+  padding: 10px 12px 8px;
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  font-size: 12px;
+  color: rgb(var(--z-fg-2));
+  text-align: center;
+}
+
+.cm-tooltip-autocomplete:has(.wikilink-cmd-option.palette-nav-ctrl-jk)::after {
+  content: "Ctrl+J/K move  ·  Type | to change display text  ·  Use /path/to/note for exact links";
+  display: block;
+  padding: 10px 12px 8px;
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  font-size: 12px;
+  color: rgb(var(--z-fg-2));
+  text-align: center;
+}
+
+.cm-tooltip-autocomplete:has(.wikilink-cmd-option.palette-nav-both)::after {
+  content: "Ctrl+N/P or J/K move  ·  Type | to change display text  ·  Use /path/to/note for exact links";
   display: block;
   padding: 10px 12px 8px;
   border-top: 1px solid rgb(var(--z-bg-3) / 0.7);

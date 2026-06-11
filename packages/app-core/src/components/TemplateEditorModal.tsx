@@ -12,14 +12,15 @@ import { vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
-import { autocompletion, completionKeymap } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import { parseFrontmatter, slugifyTemplateName } from '@shared/template-files'
 import { renderTemplate } from '../lib/template-render'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { paletteCompletionKeymaps } from '../lib/palette-nav'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { Modal } from './ui/Modal'
@@ -134,7 +135,7 @@ export function TemplateEditorModal({
           addToOptions: [{ render: slashCommandRender.render, position: 0 }],
           optionClass: () => 'slash-cmd-option'
         }),
-        keymap.of([indentWithTab, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([indentWithTab, ...completionKeymap, ...paletteCompletionKeymaps(), ...defaultKeymap, ...historyKeymap]),
         editorTheme,
         EditorView.updateListener.of((upd) => {
           if (upd.docChanged) setRaw(upd.state.doc.toString())

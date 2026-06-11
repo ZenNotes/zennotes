@@ -14,6 +14,7 @@ import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
 import { focusEditorNormalMode } from './lib/editor-focus'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
+import { shouldBlockGlobalPaletteNavShortcut } from './lib/palette-nav-shortcuts'
 import {
   appUpdateNoticeLabel,
   appUpdatePrimaryActionLabel,
@@ -474,6 +475,11 @@ function App(): JSX.Element {
             return
           }
         }
+      }
+      if (shouldBlockGlobalPaletteNavShortcut(e)) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
       }
 
       if (matchesShortcut(e, overrides, 'global.commandPalette')) {

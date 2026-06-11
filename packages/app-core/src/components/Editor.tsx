@@ -61,10 +61,29 @@ const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
   'zR'
 ]
 
+/**
+ * Mappings that apply in ALL contexts (no `context` property set) and
+ * conflict with native keybindings. `Vim.unmap(key, 'insert')` can't
+ * remove them because the vim unmap check (`entry.context === ctx`)
+ * fails when both are undefined. Pass no ctx so `undefined === undefined`
+ * matches the context-less entry.
+ */
+const VIM_MAPPINGS_TO_CLEAR_ALL_CONTEXTS = [
+  '<C-n>',
+  '<C-p>'
+]
+
 function clearKnownVimMappings(): void {
   for (const binding of DEFAULT_VIM_MAPPINGS_TO_CLEAR) {
     try {
       Vim.unmap(binding, 'normal')
+    } catch {
+      /* ignore */
+    }
+  }
+  for (const binding of VIM_MAPPINGS_TO_CLEAR_ALL_CONTEXTS) {
+    try {
+      Vim.unmap(binding, undefined as unknown as string)
     } catch {
       /* ignore */
     }

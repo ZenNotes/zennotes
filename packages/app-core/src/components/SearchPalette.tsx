@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import {
   buildNoteSearchIndex,
   parseNoteSearchQuery,
@@ -14,6 +14,7 @@ export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -124,7 +125,7 @@ export function SearchPalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open

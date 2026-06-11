@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import {
   allLeaves,
   findLeafWithActiveTab,
@@ -200,6 +200,7 @@ export function BufferPalette(): JSX.Element {
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
 
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
   // Select primitives separately so each selector returns a stable
   // reference; compute the derived entries list with useMemo. Returning
   // a freshly-built array from a single selector would trip zustand's
@@ -343,7 +344,7 @@ export function BufferPalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> switch

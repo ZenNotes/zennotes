@@ -6,7 +6,7 @@ import type {
 } from '@shared/ipc'
 import { useStore } from '../store'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
-import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isPaletteNextKey, isPalettePreviousKey, paletteNavHintLabel } from '../lib/palette-nav'
 import { recordRendererPerf } from '../lib/perf'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
@@ -145,6 +145,7 @@ export function VaultTextSearchPalette(): JSX.Element {
   const backend = useStore((s) => s.vaultTextSearchBackend)
   const ripgrepBinaryPath = useStore((s) => s.ripgrepBinaryPath)
   const fzfBinaryPath = useStore((s) => s.fzfBinaryPath)
+  const paletteNavKeys = useStore((s) => s.paletteNavKeys)
   const [capabilities, setCapabilities] = useState<VaultTextSearchCapabilities | null>(null)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<VaultTextSearchMatch[]>([])
@@ -466,7 +467,7 @@ export function VaultTextSearchPalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">{paletteNavHintLabel(paletteNavKeys)}</kbd> move
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open

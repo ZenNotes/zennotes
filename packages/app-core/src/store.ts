@@ -127,6 +127,7 @@ export type NoteSortOrder =
 
 export type LineNumberMode = 'off' | 'absolute' | 'relative'
 export type WhichKeyHintMode = 'timed' | 'sticky'
+export type PaletteNavKeys = 'ctrl-np' | 'ctrl-jk' | 'both'
 export type CommandPaletteInitialMode = 'main' | 'vault'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -153,6 +154,7 @@ const VALID_SORTS: NoteSortOrder[] = [
 ]
 const VALID_LINE_NUMBER_MODES: LineNumberMode[] = ['off', 'absolute', 'relative']
 const VALID_WHICH_KEY_HINT_MODES: WhichKeyHintMode[] = ['timed', 'sticky']
+const VALID_PALETTE_NAV_KEYS: PaletteNavKeys[] = ['ctrl-np', 'ctrl-jk', 'both']
 const VALID_VAULT_TEXT_SEARCH_BACKENDS: VaultTextSearchBackendPreference[] = [
   'auto',
   'builtin',
@@ -258,6 +260,8 @@ interface Prefs {
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
    *  Empty disables it. */
   vimInsertEscape: string
+  /** Which keys navigate palette results and editor autocompletions. */
+  paletteNavKeys: PaletteNavKeys
   keymapOverrides: KeymapOverrides
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
@@ -403,6 +407,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
+  paletteNavKeys: 'both',
   keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
@@ -480,6 +485,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimInsertEscape === 'string'
         ? p.vimInsertEscape.trim().slice(0, 5)
         : DEFAULT_PREFS.vimInsertEscape,
+    paletteNavKeys:
+      p.paletteNavKeys && VALID_PALETTE_NAV_KEYS.includes(p.paletteNavKeys)
+        ? p.paletteNavKeys
+        : DEFAULT_PREFS.paletteNavKeys,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
     whichKeyHints:
       typeof p.whichKeyHints === 'boolean'
@@ -1021,65 +1030,11 @@ async function rewriteTagAcrossVault(
 }
 
 /** Snapshot prefs-shaped fields out of the live store. */
-function collectPrefs(s: {
-  vimMode: boolean
-  vimInsertEscape: string
-  keymapOverrides: KeymapOverrides
-  whichKeyHints: boolean
-  whichKeyHintMode: WhichKeyHintMode
-  whichKeyHintTimeoutMs: number
-  vaultTextSearchBackend: VaultTextSearchBackendPreference
-  ripgrepBinaryPath: string | null
-  fzfBinaryPath: string | null
-  livePreview: boolean
-  tabsEnabled: boolean
-  wrapTabs: boolean
-  themeId: string
-  themeFamily: ThemeFamily
-  themeMode: ThemeMode
-  editorFontSize: number
-  editorLineHeight: number
-  previewMaxWidth: number
-  lineNumberMode: LineNumberMode
-  interfaceFont: string | null
-  textFont: string | null
-  monoFont: string | null
-  systemFolderLabels: SystemFolderLabels
-  sidebarWidth: number
-  noteListWidth: number
-  noteSortOrder: NoteSortOrder
-  groupByKind: boolean
-  autoReveal: boolean
-  unifiedSidebar: boolean
-  darkSidebar: boolean
-  showSidebarChevrons: boolean
-  collapsedFolders: string[]
-  pinnedRefPath: string | null
-  pinnedRefVisible: boolean
-  pinnedRefWidth: number
-  panelWidths: PanelWidths
-  pinnedRefMode: 'edit' | 'preview'
-  quickNoteDateTitle: boolean
-  quickNoteTitlePrefix: string | null
-  wordWrap: boolean
-  previewSmoothScroll: boolean
-  editorMaxWidth: number
-  pdfEmbedInEditMode: 'compact' | 'full'
-  pinnedRefKind: 'note' | 'asset'
-  noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
-  contentAlign: 'center' | 'left'
-  tagsCollapsed: boolean
-  autoCalendarPanel: boolean
-  calendarWeekStart: CalendarWeekStart
-  calendarShowWeekNumbers: boolean
-  tasksViewMode: TasksViewMode
-  kanbanGroupBy: KanbanGroupBy
-  kanbanColumnTitles: Record<string, string>
-  hasCompletedOnboarding: boolean
-}): Prefs {
+function collectPrefs(s: Prefs): Prefs {
   return {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
+    paletteNavKeys: s.paletteNavKeys,
     keymapOverrides: s.keymapOverrides,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
@@ -1429,6 +1384,8 @@ interface Store {
   vimMode: boolean
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
   vimInsertEscape: string
+  /** Which keys navigate palette results and editor autocompletions. Persisted. */
+  paletteNavKeys: PaletteNavKeys
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1706,6 +1663,7 @@ interface Store {
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
+  setPaletteNavKeys: (keys: PaletteNavKeys) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
@@ -2631,6 +2589,7 @@ export const useStore = create<Store>((set, get) => {
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
+  paletteNavKeys: loadPrefs().paletteNavKeys,
   keymapOverrides: loadPrefs().keymapOverrides,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
@@ -3957,6 +3916,11 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimInsertEscape: (sequence) => {
     set({ vimInsertEscape: sequence.trim().slice(0, 5) })
+    savePrefs(collectPrefs(get()))
+  },
+  setPaletteNavKeys: (keys) => {
+    if (!VALID_PALETTE_NAV_KEYS.includes(keys)) return
+    set({ paletteNavKeys: keys })
     savePrefs(collectPrefs(get()))
   },
   setKeymapBinding: (id, binding) => {
