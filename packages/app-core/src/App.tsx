@@ -669,7 +669,7 @@ function App(): JSX.Element {
 
   if (!hasCompletedOnboarding) {
     return (
-      <div className="h-screen w-screen bg-paper-100 text-ink-900">
+      <div className="zn-app-shell w-screen bg-paper-100 text-ink-900">
         {!zenMode && <TitleBar />}
         <Suspense fallback={<div className="flex-1" />}>
           <OnboardingWizard />
@@ -684,7 +684,7 @@ function App(): JSX.Element {
 
   if (!vault) {
     return (
-      <div className="h-screen w-screen bg-paper-100 text-ink-900">
+      <div className="zn-app-shell w-screen bg-paper-100 text-ink-900">
         {!zenMode && <TitleBar />}
         <Suspense fallback={<div className="flex-1" />}>
           <EmptyVault />
@@ -698,7 +698,7 @@ function App(): JSX.Element {
   }
 
   return (
-    <div className="flex h-screen w-screen flex-col bg-paper-100 text-ink-900">
+    <div className="zn-app-shell flex w-screen flex-col bg-paper-100 text-ink-900">
       {!zenMode && <TitleBar />}
       <div className="flex min-h-0 flex-1">
         {!zenMode && sidebarOpen && <Sidebar />}

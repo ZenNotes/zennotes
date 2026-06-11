@@ -2954,7 +2954,7 @@ export function Sidebar(): JSX.Element {
        *  from the command palette and (for Settings) ⌘,. Trash lives in
        *  the main tree above and opens its dedicated recovery view. */}
       <div
-        className="mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
+        className="zn-sidebar-footer-safe mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
         style={{ borderTop: "1px solid var(--glass-stroke)" }}
       >
         {hasAssetsDir && canRevealInFileManager && (
