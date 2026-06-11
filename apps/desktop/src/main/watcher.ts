@@ -102,10 +102,24 @@ export class VaultWatcher {
       })
     }
 
+    // Directory create/remove. An empty folder produces no file event, so
+    // surface it explicitly — otherwise another client sharing this vault
+    // (e.g. the web app) wouldn't see the folder until a manual refresh.
+    const dirHandler = (kind: VaultChangeKind) => (absPath: string) => {
+      if (!this.root) return
+      if (path.basename(absPath).startsWith('.')) return
+      const rel = toPosix(path.relative(this.root, absPath))
+      const folder = folderForRelativePath(rel)
+      if (!folder) return
+      onEvent({ kind, path: rel, folder, scope: 'folder' })
+    }
+
     this.watcher
       .on('add', handler('add'))
       .on('change', handler('change'))
       .on('unlink', handler('unlink'))
+      .on('addDir', dirHandler('add'))
+      .on('unlinkDir', dirHandler('unlink'))
   }
 
   stop(): void {

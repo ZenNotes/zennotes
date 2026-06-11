@@ -3406,6 +3406,13 @@ export const useStore = create<Store>((set, get) => {
       if (ev.kind !== 'change') await get().refreshAssets()
       return
     }
+    if (ev.scope === 'folder') {
+      // A folder was created/removed/renamed externally (e.g. in another
+      // client sharing this vault). An empty folder produces no note event,
+      // so refresh the tree explicitly — refreshNotes() re-lists folders.
+      await get().refreshNotes()
+      return
+    }
     const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
     if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
       await get().refreshAssets()
