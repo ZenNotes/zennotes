@@ -2436,6 +2436,8 @@ function KeymapSettings({
   onSetBinding: (id: KeymapId, binding: string | null) => void
   onResetAll: () => void
 }): JSX.Element {
+  const vimMappings = useStore((s)=> s.vimMappings)
+  const setVimMappings = useStore((s)=> s.setVimMappings)
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<KeymapDefinition | null>(null)
 
@@ -2465,6 +2467,21 @@ function KeymapSettings({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
+        <div className="z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur flex flex-col gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-ink-900">.vimrc</div>
+            <div className="mt-1 text-xs leading-5 text-ink-500">
+              Paste in your config here, one mapping per line. This will only apply into vim motions.
+            </div>
+          </div>
+           <textarea
+              value={vimMappings}
+              onChange={(e) => setVimMappings(e.target.value)}
+              placeholder={"noremap L $\nnoremap H ^\n\" comment"}
+              spellCheck={false}
+              className="h-40 w-full resize-y rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-xs leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+            /> 
+        </div>
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
