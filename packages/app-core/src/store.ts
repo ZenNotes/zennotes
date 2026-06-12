@@ -263,6 +263,8 @@ interface Prefs {
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
    *  Empty disables it. */
   vimInsertEscape: string
+  /* Stores .vimrc style mapping as plaintext */
+  vimMappings: string
   keymapOverrides: KeymapOverrides
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
@@ -409,6 +411,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
+  vimMappings: '',
   keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
@@ -483,6 +486,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       : DEFAULT_PREFS.themeId
   return {
     vimMode: typeof p.vimMode === 'boolean' ? p.vimMode : DEFAULT_PREFS.vimMode,
+    vimMappings: typeof p.vimMappings === 'string' ? p.vimMappings : DEFAULT_PREFS.vimMappings,
     vimInsertEscape:
       typeof p.vimInsertEscape === 'string'
         ? p.vimInsertEscape.trim().slice(0, 5)
@@ -1057,6 +1061,7 @@ async function rewriteTagAcrossVault(
 function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
+  vimMappings: string
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1114,6 +1119,7 @@ function collectPrefs(s: {
   return {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
+    vimMappings: s.vimMappings,
     keymapOverrides: s.keymapOverrides,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
@@ -1464,6 +1470,7 @@ interface Store {
   vimMode: boolean
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
   vimInsertEscape: string
+  vimMappings: string
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1742,6 +1749,7 @@ interface Store {
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
+  setVimMappings: (mappings: string) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
@@ -2686,6 +2694,7 @@ export const useStore = create<Store>((set, get) => {
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
+  vimMappings: loadPrefs().vimMappings,
   keymapOverrides: loadPrefs().keymapOverrides,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
@@ -4021,6 +4030,9 @@ export const useStore = create<Store>((set, get) => {
   setVimInsertEscape: (sequence) => {
     set({ vimInsertEscape: sequence.trim().slice(0, 5) })
     savePrefs(collectPrefs(get()))
+  },
+  setVimMappings: (mappings) =>{
+    set({vimMappings: mappings.trim()})
   },
   setKeymapBinding: (id, binding) => {
     set((s) => {
