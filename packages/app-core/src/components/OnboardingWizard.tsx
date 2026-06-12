@@ -583,25 +583,56 @@ function ThemeStep({
         title="Pick your theme"
         subtitle="Each family has light + dark variants. Auto follows your system."
       />
-      <div className="mb-5">
-        <div className="form-label mb-2">Mode</div>
-        <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
-          {(['light', 'dark', 'auto'] as ThemeMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => applyMode(mode)}
-              className={[
-                'rounded-lg px-3 py-1.5 text-xs capitalize transition-colors',
-                themeMode === mode
-                  ? 'bg-paper-50 text-ink-900 shadow-sm'
-                  : 'text-ink-600 hover:text-ink-900'
-              ].join(' ')}
-            >
-              {mode}
-            </button>
-          ))}
+      <div className="mb-5 flex flex-wrap gap-8">
+        <div>
+          <div className="form-label mb-2">Mode</div>
+          <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
+            {(['light', 'dark', 'auto'] as ThemeMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => applyMode(mode)}
+                className={[
+                  'rounded-lg px-3 py-1.5 text-xs capitalize transition-colors',
+                  themeMode === mode
+                    ? 'bg-paper-50 text-ink-900 shadow-sm'
+                    : 'text-ink-600 hover:text-ink-900'
+                ].join(' ')}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {variants.length > 1 && (
+          <div>
+            <div className="form-label mb-2">Variant</div>
+            <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
+              {variants.map((variant) => {
+                const selected = variant.id === themeId
+                return (
+                  <button
+                    key={variant.id}
+                    type="button"
+                    onClick={() =>
+                      setTheme({ id: variant.id, family: themeFamily, mode: themeMode })
+                    }
+                    aria-pressed={selected}
+                    className={[
+                      'rounded-lg px-3 py-1.5 text-xs transition-colors',
+                      selected
+                        ? 'bg-paper-50 text-ink-900 shadow-sm'
+                        : 'text-ink-600 hover:text-ink-900'
+                    ].join(' ')}
+                  >
+                    {variant.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="form-label mb-2">Family</div>
@@ -616,35 +647,6 @@ function ThemeStep({
           />
         ))}
       </div>
-
-      {variants.length > 1 && (
-        <div className="mt-5">
-          <div className="form-label mb-2">Variant</div>
-          <div className="flex flex-wrap gap-2">
-            {variants.map((variant) => {
-              const selected = variant.id === themeId
-              return (
-                <button
-                  key={variant.id}
-                  type="button"
-                  onClick={() =>
-                    setTheme({ id: variant.id, family: themeFamily, mode: themeMode })
-                  }
-                  aria-pressed={selected}
-                  className={[
-                    'rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                    selected
-                      ? 'border-accent/60 bg-accent/10 text-ink-900 shadow-[0_0_0_2px_rgb(var(--z-accent)/0.25)_inset]'
-                      : 'border-paper-300/60 bg-paper-100/60 text-ink-700 hover:bg-paper-200/60'
-                  ].join(' ')}
-                >
-                  {variant.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
 
       <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
     </div>
