@@ -15,6 +15,7 @@ On macOS, the first-party `zen` CLI also powers launcher workflows such as the R
 
 Grab the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest) — see [Install](#install) below.  
 Website: [zennotes.org](https://zennotes.org)
+Support development: [GitHub Sponsors](https://github.com/sponsors/adibhanna)
 
 Detailed in-repo documentation lives under [docs/README.md](docs/README.md).
 
