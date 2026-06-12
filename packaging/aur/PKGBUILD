@@ -35,7 +35,7 @@ package() {
 
   # Install application
   install -dm755 "${pkgdir}/opt/${pkgname}"
-  # tar.gz preserves permissions (unlike squashfs extraction), so the
+  # tar.gz preserves permissions (unlike squashfs extraction)
   # chmod workarounds from #70/#74/#92 are no longer needed.
   cp -a "${_extracted}/." "${pkgdir}/opt/${pkgname}/"
 
