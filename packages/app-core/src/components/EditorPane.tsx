@@ -2521,6 +2521,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             e.preventDefault()
             setTabMenu({ x: e.clientX, y: e.clientY, path: tab.path })
           }}
+          onMouseDown={(e) => {
+            if (e.button === 1) {
+              e.preventDefault()
+            }
+          }}
+          onAuxClick={(e) => {
+            if (e.button === 1) {
+              e.preventDefault()
+              void closeTabInPane(paneId, tab.path)
+            }
+          }}
         >
           {tabDropIndicator?.path === tab.path && (
             <div
