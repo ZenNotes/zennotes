@@ -24,7 +24,12 @@ import type {
 import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
-import { databaseTabPath, isDatabaseInternalPath } from '@shared/databases'
+import {
+  databaseTabPath,
+  isDatabaseInternalPath,
+  isDatabaseTabPath,
+  isDatabaseCsvPath
+} from '@shared/databases'
 import { parseFrontmatter } from '@shared/template-files'
 import { recordTitle, composePageBody } from './lib/database-cells'
 import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
@@ -32,7 +37,7 @@ import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
-import { isAssetTabPath } from './lib/asset-tabs'
+import { isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
 import {
   FENCE_RE,
   TASK_LINE_RE,
@@ -272,6 +277,7 @@ interface Prefs {
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
+  hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
   themeId: string
@@ -411,6 +417,7 @@ const DEFAULT_PREFS: Prefs = {
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
   livePreview: true,
+  hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
   themeId: DEFAULT_THEME_ID,
@@ -508,6 +515,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.fzfBinaryPath,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
+    hideBuiltinTemplates:
+      typeof p.hideBuiltinTemplates === 'boolean'
+        ? p.hideBuiltinTemplates
+        : DEFAULT_PREFS.hideBuiltinTemplates,
     tabsEnabled:
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
     wrapTabs:
@@ -821,11 +832,33 @@ function getVisiblePreviewScrollElement(): HTMLElement | null {
   ) ?? null
 }
 
+/**
+ * A database surface that can be the active tab: either a `zen://database/…`
+ * tab (opened via "New Database") or a `.csv` opened directly as an asset tab
+ * (`zen://asset/Foo.csv`), which EditorPane renders as a database grid. Both
+ * must round-trip through the note jump history so Ctrl+O returns to the grid.
+ */
+function isDatabaseSurfaceTabPath(path: string | null | undefined): path is string {
+  if (!path) return false
+  if (isDatabaseTabPath(path)) return true
+  return isAssetTabPath(path) && isDatabaseCsvPath(assetPathFromTab(path) ?? '')
+}
+
+/**
+ * Tabs worth recording in the note jump history (Ctrl+O / Ctrl+I): real notes,
+ * plus database surfaces — so opening a row's record page and pressing Ctrl+O
+ * jumps back to the grid. Other virtual tabs (tasks, tags, plain assets…) stay
+ * excluded.
+ */
+function isJumpHistoryTabPath(path: string | null | undefined): path is string {
+  return !!path && (!isWorkspaceVirtualTabPath(path) || isDatabaseSurfaceTabPath(path))
+}
+
 function captureNoteJumpLocation(state: {
   selectedPath: string | null
   editorViewRef: EditorView | null
 }): NoteJumpLocation | null {
-  if (!state.selectedPath || isWorkspaceVirtualTabPath(state.selectedPath)) return null
+  if (!isJumpHistoryTabPath(state.selectedPath)) return null
   const selection = state.editorViewRef?.state.selection.main
   return {
     path: state.selectedPath,
@@ -1032,6 +1065,7 @@ function collectPrefs(s: {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
   themeId: string
@@ -1088,6 +1122,7 @@ function collectPrefs(s: {
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
+    hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
     themeId: s.themeId,
@@ -1437,6 +1472,7 @@ interface Store {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
   settingsOpen: boolean
@@ -1715,6 +1751,7 @@ interface Store {
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
+  setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -2351,15 +2388,13 @@ export const useStore = create<Store>((set, get) => {
         paneLayout: nextLayout,
         noteBackstack:
           historyMode === 'push' &&
-          state.selectedPath !== null &&
-          !isWorkspaceVirtualTabPath(state.selectedPath) &&
+          isJumpHistoryTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
             ? appendNoteJumpHistory(state.noteBackstack, captureNoteJumpLocation(state))
             : state.noteBackstack,
         noteForwardstack:
           historyMode === 'push' &&
-          state.selectedPath !== null &&
-          !isWorkspaceVirtualTabPath(state.selectedPath) &&
+          isJumpHistoryTabPath(state.selectedPath) &&
           state.selectedPath !== relPath
             ? []
             : state.noteForwardstack,
@@ -2386,8 +2421,7 @@ export const useStore = create<Store>((set, get) => {
     const latest = get()
     const shouldPushHistory =
       historyMode === 'push' &&
-      latest.selectedPath !== null &&
-      !isWorkspaceVirtualTabPath(latest.selectedPath) &&
+      isJumpHistoryTabPath(latest.selectedPath) &&
       latest.selectedPath !== relPath
     const nextBackstack = shouldPushHistory
       ? appendNoteJumpHistory(latest.noteBackstack, captureNoteJumpLocation(latest))
@@ -2450,8 +2484,29 @@ export const useStore = create<Store>((set, get) => {
     set({ loadingNote: true })
     while (source.length > 0) {
       const target = source.pop() ?? null
-      if (!target || target.path === get().selectedPath || isWorkspaceVirtualTabPath(target.path)) {
+      if (
+        !target ||
+        target.path === get().selectedPath ||
+        (isWorkspaceVirtualTabPath(target.path) && !isDatabaseSurfaceTabPath(target.path))
+      ) {
         continue
+      }
+      // A database surface in the history — e.g. the grid a record page was
+      // opened from. Reopen the tab instead of loading note content, and record
+      // the current location on the opposite stack so the jump stays reversible.
+      if (isDatabaseSurfaceTabPath(target.path)) {
+        const latest = get()
+        const opposite =
+          direction === 'back' ? latest.noteForwardstack : latest.noteBackstack
+        const nextOpposite = appendNoteJumpHistory(opposite, captureNoteJumpLocation(latest))
+        set({
+          loadingNote: false,
+          pendingJumpLocation: null,
+          noteBackstack: direction === 'back' ? source : nextOpposite,
+          noteForwardstack: direction === 'back' ? nextOpposite : source
+        })
+        await selectNoteImpl(target.path, 'preserve')
+        return
       }
       try {
         const content = await readNoteContent(target.path, get())
@@ -2639,6 +2694,7 @@ export const useStore = create<Store>((set, get) => {
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
+  hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
   settingsOpen: false,
@@ -3406,6 +3462,13 @@ export const useStore = create<Store>((set, get) => {
       if (ev.kind !== 'change') await get().refreshAssets()
       return
     }
+    if (ev.scope === 'folder') {
+      // A folder was created/removed/renamed externally (e.g. in another
+      // client sharing this vault). An empty folder produces no note event,
+      // so refresh the tree explicitly — refreshNotes() re-lists folders.
+      await get().refreshNotes()
+      return
+    }
     const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
     if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
       await get().refreshAssets()
@@ -3998,6 +4061,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setLivePreview: (on) => {
     set({ livePreview: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setHideBuiltinTemplates: (hidden) => {
+    set({ hideBuiltinTemplates: hidden })
     savePrefs(collectPrefs(get()))
   },
   setTabsEnabled: (on) => {

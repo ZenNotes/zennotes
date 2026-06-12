@@ -2,6 +2,8 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TASKS_TAB_PATH, type VaultTask } from '@shared/tasks'
+import { databaseTabPath } from '@shared/databases'
+import { assetTabPath } from './lib/asset-tabs'
 import { findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
 
 function makeTask(content: string, taskIndex = 0): VaultTask {
@@ -454,5 +456,33 @@ describe('preview tabs (VS Code-style open flow)', () => {
 
     useStore.getState().updateNoteBody('inbox/A.md', 'alpha edited')
     expect(activeLeaf(useStore.getState()).previewTab).toBeNull()
+  })
+})
+
+describe('note jump history with database tabs', () => {
+  // A database can be the active tab two ways: the `zen://database/…` tab
+  // ("New Database"), or a `.csv` opened directly as an asset tab
+  // (`zen://asset/Foo.csv`) that renders as a grid. Both must round-trip so
+  // Ctrl+O from a record page returns to the grid.
+  it.each([
+    ['database tab', databaseTabPath('Projects.csv')],
+    ['csv asset tab', assetTabPath('Projects.csv')]
+  ])('Ctrl+O (jumpToPreviousNote) returns to the %s a record page was opened from', async (_label, dbTab) => {
+    installZen()
+    const { useStore } = await loadStore()
+
+    // Open the database surface, then open a record page note from it.
+    await useStore.getState().selectNote(dbTab)
+    expect(useStore.getState().selectedPath).toBe(dbTab)
+
+    await useStore.getState().selectNote('inbox/Note.md')
+    expect(useStore.getState().selectedPath).toBe('inbox/Note.md')
+    // The database must be recorded as a back-target (it is a virtual tab, so
+    // without the database-surface exception it would be dropped here).
+    expect(useStore.getState().noteBackstack.map((l) => l.path)).toContain(dbTab)
+
+    // Ctrl+O → jump back to the grid.
+    await useStore.getState().jumpToPreviousNote()
+    expect(useStore.getState().selectedPath).toBe(dbTab)
   })
 })

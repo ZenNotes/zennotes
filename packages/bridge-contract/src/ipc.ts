@@ -528,7 +528,7 @@ export interface FolderEntry {
 }
 
 export type VaultChangeKind = 'add' | 'change' | 'unlink'
-export type VaultChangeScope = 'content' | 'vault-settings' | 'comments' | 'database'
+export type VaultChangeScope = 'content' | 'vault-settings' | 'comments' | 'database' | 'folder'
 
 export interface VaultChangeEvent {
   kind: VaultChangeKind

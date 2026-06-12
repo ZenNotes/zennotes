@@ -28,6 +28,11 @@ type Watcher struct {
 	subs   map[chan vault.ChangeEvent]struct{}
 	closed bool
 	stopCh chan struct{}
+	// dirs tracks the absolute paths we believe are directories, so a
+	// remove/rename event (which can't be os.Stat'd) can still be recognized
+	// as a folder change. Only touched from the single loop goroutine (and
+	// Start, before the loop begins), so it needs no separate lock.
+	dirs map[string]struct{}
 }
 
 func Start(root string) (*Watcher, error) {
@@ -40,6 +45,7 @@ func Start(root string) (*Watcher, error) {
 		fs:     fsw,
 		subs:   map[chan vault.ChangeEvent]struct{}{},
 		stopCh: make(chan struct{}),
+		dirs:   map[string]struct{}{},
 	}
 	// Recursively add all existing directories under the vault.
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -52,6 +58,7 @@ func Start(root string) (*Watcher, error) {
 				return filepath.SkipDir
 			}
 			_ = fsw.Add(path)
+			w.dirs[path] = struct{}{}
 		}
 		return nil
 	})
@@ -138,8 +145,21 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	if statErr == nil && info.IsDir() {
 		if ev.Op&fsnotify.Create != 0 {
 			_ = w.fs.Add(ev.Name)
+			w.dirs[ev.Name] = struct{}{}
+			// An empty folder produces no note event, so clients would never
+			// learn about it until a manual refresh. Surface it explicitly.
+			w.broadcastFolder(ev.Name, "add")
 		}
 		return
+	}
+	// A removed/renamed path we had tracked as a directory. We can't os.Stat
+	// it anymore, so the tracking set is what tells us it was a folder.
+	if statErr != nil {
+		if _, ok := w.dirs[ev.Name]; ok {
+			delete(w.dirs, ev.Name)
+			w.broadcastFolder(ev.Name, "unlink")
+			return
+		}
 	}
 	relPosix := w.relativePath(ev.Name)
 	if relPosix == "" {
@@ -215,6 +235,23 @@ func eventKind(ev fsnotify.Event) string {
 	default:
 		return ""
 	}
+}
+
+func (w *Watcher) broadcastFolder(absPath, kind string) {
+	rel := w.relativePath(absPath)
+	if rel == "" {
+		return
+	}
+	folder, ok := vault.FolderForRelativePath(rel)
+	if !ok {
+		return
+	}
+	w.broadcast(vault.ChangeEvent{
+		Kind:   kind,
+		Path:   rel,
+		Folder: folder,
+		Scope:  "folder",
+	})
 }
 
 func (w *Watcher) broadcast(change vault.ChangeEvent) {

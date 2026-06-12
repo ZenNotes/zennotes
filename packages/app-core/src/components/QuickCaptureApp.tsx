@@ -61,6 +61,7 @@ import {
 } from '../lib/note-search'
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { PinIcon } from './icons'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -694,10 +695,10 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
+    if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
-    } else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key.toLowerCase() === 'p')) {
+    } else if (isPalettePreviousKey(e)) {
       e.preventDefault()
       setActive((i) => Math.max(0, i - 1))
     } else if (e.key === 'Enter') {
@@ -819,10 +820,10 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'ArrowDown' || (e.ctrlKey && e.key.toLowerCase() === 'n')) {
+    if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
-    } else if (e.key === 'ArrowUp' || (e.ctrlKey && e.key.toLowerCase() === 'p')) {
+    } else if (isPalettePreviousKey(e)) {
       e.preventDefault()
       setActive((i) => Math.max(0, i - 1))
     } else if (e.key === 'Enter') {

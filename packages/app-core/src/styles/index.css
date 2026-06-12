@@ -23,6 +23,27 @@
   }
 }
 
+/* ===========================================================================
+ * Web client: full-height shell + mobile safe areas
+ * --------------------------------------------------------------------------
+ * Mobile browsers resolve 100vh to the *large* viewport (toolbar retracted),
+ * so a 100vh app shell lays its footer below the visible fold while the
+ * browser's bottom toolbar is showing. 100dvh tracks the actually-visible
+ * height; the 100vh line above it is the fallback for engines without dvh.
+ * Desktop is unaffected (dvh == vh there). See #116.
+ * =======================================================================*/
+.zn-app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Keep the sidebar footer's controls above the iOS home indicator once
+ * viewport-fit=cover lets content extend into the safe area. 0 on desktop. */
+.zn-sidebar-footer-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: content-box;
+}
+
 .task-kanban-column.is-drop-target {
   border-color: rgb(var(--z-accent) / 0.62);
   box-shadow: 0 0 0 1px rgb(var(--z-accent) / 0.28);

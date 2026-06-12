@@ -110,7 +110,7 @@ export function HintOverlay({
   onActivate,
   onCancel
 }: {
-  onActivate: () => void
+  onActivate: (element?: HTMLElement) => void
   onCancel: () => void
 }): JSX.Element | null {
   const [buffer, setBuffer] = useState('')
@@ -152,7 +152,7 @@ export function HintOverlay({
       const t = setTimeout(() => {
         target.element.click()
         target.element.focus()
-        onActivate()
+        onActivate(target.element)
       }, 50)
       return () => clearTimeout(t)
     }

@@ -227,8 +227,14 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	return VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes: DailyNotesSettings{
-			Enabled:   settings.DailyNotes.Enabled,
-			Directory: settings.DailyNotes.Directory,
+			Enabled:    settings.DailyNotes.Enabled,
+			Directory:  settings.DailyNotes.Directory,
+			TemplateID: settings.DailyNotes.TemplateID,
+		},
+		WeeklyNotes: WeeklyNotesSettings{
+			Enabled:    settings.WeeklyNotes.Enabled,
+			Directory:  settings.WeeklyNotes.Directory,
+			TemplateID: settings.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
 	}
@@ -238,6 +244,14 @@ func normalizeDailyNotesDirectory(value string) string {
 	trimmed := strings.Trim(value, "/")
 	if trimmed == "" {
 		return DefaultDailyNotesDirectory
+	}
+	return trimmed
+}
+
+func normalizeWeeklyNotesDirectory(value string) string {
+	trimmed := strings.Trim(value, "/")
+	if trimmed == "" {
+		return DefaultWeeklyNotesDirectory
 	}
 	return trimmed
 }
@@ -268,8 +282,14 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			return value.PrimaryNotesLocation
 		}()),
 		DailyNotes: DailyNotesSettings{
-			Enabled:   value.DailyNotes.Enabled,
-			Directory: normalizeDailyNotesDirectory(value.DailyNotes.Directory),
+			Enabled:    value.DailyNotes.Enabled,
+			Directory:  normalizeDailyNotesDirectory(value.DailyNotes.Directory),
+			TemplateID: value.DailyNotes.TemplateID,
+		},
+		WeeklyNotes: WeeklyNotesSettings{
+			Enabled:    value.WeeklyNotes.Enabled,
+			Directory:  normalizeWeeklyNotesDirectory(value.WeeklyNotes.Directory),
+			TemplateID: value.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
 	}
@@ -1234,6 +1254,22 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 }
 
 func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
+	// Snapshot the vault before the rename (ListNotes takes its own read lock)
+	// so inbound [[wikilinks]] still resolve to this note under its current name.
+	notesBefore, _ := v.ListNotes()
+	meta, err := v.renameNoteFile(rel, nextTitle)
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	if meta.Path != rel {
+		// ReadNote / WriteNote take their own locks, so this runs after the
+		// rename's write lock has been released.
+		v.rewriteInboundWikilinks(notesBefore, rel, meta.Title)
+	}
+	return meta, nil
+}
+
+func (v *Vault) renameNoteFile(rel, nextTitle string) (NoteMeta, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	abs, err := SafeJoin(v.root, rel)
@@ -1259,6 +1295,35 @@ func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
 		return NoteMeta{}, err
 	}
 	return meta, nil
+}
+
+// rewriteInboundWikilinks rewrites every note that linked to the renamed note's
+// old name so it points to the new title. Only notes that actually link to it
+// are read and rewritten.
+func (v *Vault) rewriteInboundWikilinks(notesBefore []NoteMeta, oldPath, newTitle string) {
+	for _, n := range notesBefore {
+		if n.Path == oldPath || n.Folder == FolderTrash {
+			continue
+		}
+		linksToIt := false
+		for _, t := range n.Wikilinks {
+			if r, ok := wikiResolveTarget(notesBefore, t); ok && r.Path == oldPath {
+				linksToIt = true
+				break
+			}
+		}
+		if !linksToIt {
+			continue
+		}
+		content, err := v.ReadNote(n.Path)
+		if err != nil {
+			continue
+		}
+		body, changed := rewriteWikilinksForRename(content.Body, notesBefore, oldPath, newTitle)
+		if changed > 0 {
+			_, _ = v.WriteNote(n.Path, body)
+		}
+	}
 }
 
 func (v *Vault) DeleteNote(rel string) error {
@@ -1479,6 +1544,7 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes:           settings.DailyNotes,
+		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
 	})
 	if err != nil {
@@ -1513,6 +1579,7 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes:           settings.DailyNotes,
+		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
 	})
 	return err
@@ -1545,6 +1612,7 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes:           settings.DailyNotes,
+		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
 	})
 	if err != nil {

@@ -13,7 +13,6 @@ export type KeymapId =
   | "global.searchNotesNonVim"
   | "global.commandPalette"
   | "global.newQuickNote"
-  | "global.openQuickCapture"
   | "global.openSettings"
   | "global.toggleSidebar"
   | "global.toggleConnections"
@@ -37,6 +36,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
+  | "vim.leaderSearchGroup"
   | "vim.leaderSearchVaultText"
   | "vim.leaderToggleSidebar"
   | "vim.leaderNoteOutline"
@@ -60,6 +60,8 @@ export type KeymapId =
   | "vim.historyForward"
   | "vim.bufferPrevious"
   | "vim.bufferNext"
+  | "vim.tabPrevious"
+  | "vim.tabNext"
   | "vim.hintMode"
   | "vim.goToDefinition"
   | "vim.foldCurrent"
@@ -138,16 +140,6 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "New quick note",
     description: "Create a quick capture note and focus its title.",
     defaultBinding: "Shift+Mod+N",
-  },
-  {
-    id: "global.openQuickCapture",
-    kind: "shortcut",
-    scope: "app",
-    group: "global",
-    title: "Open quick capture window",
-    description:
-      "Open the floating capture window. Also bound system-wide; configure that hotkey under Settings → Editor.",
-    defaultBinding: "Shift+Mod+Space",
   },
   {
     id: "global.openSettings",
@@ -363,15 +355,26 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 1,
   },
   {
+    id: "vim.leaderSearchGroup",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: search…",
+    description: "Open the search leader group (text search, etc.).",
+    defaultBinding: "s",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
     id: "vim.leaderSearchVaultText",
     kind: "sequence",
     scope: "leader",
     group: "vim",
-    title: "Leader: search vault text",
-    description: "Open fuzzy vault text search across note contents.",
-    defaultBinding: "s t",
+    title: "Leader search: vault text",
+    description: "Open fuzzy vault text search across note contents (under the search group).",
+    defaultBinding: "t",
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 1,
   },
   {
     id: "vim.leaderToggleSidebar",
@@ -616,13 +619,35 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 2,
   },
   {
-    id: "vim.hintMode",
+    id: "vim.tabPrevious",
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Hint mode",
-    description: "Show jump labels for clickable targets.",
-    defaultBinding: "f",
+    title: "Previous tab",
+    description: "Go to the previous tab in the active pane (Vim-style gT).",
+    defaultBinding: "g T",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.tabNext",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Next tab",
+    description: "Go to the next tab in the active pane (Vim-style gt).",
+    defaultBinding: "g t",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.hintMode",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: hint mode",
+    description: "Show jump labels for clickable targets (jump to any button or link).",
+    defaultBinding: "h",
     vimOnly: true,
     maxTokens: 1,
   },

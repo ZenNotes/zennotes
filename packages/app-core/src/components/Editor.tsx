@@ -210,6 +210,20 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       )
     },
     {
+      id: 'vim.tabPrevious',
+      action: 'previousBuffer',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.tabPrevious'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
+      id: 'vim.tabNext',
+      action: 'nextBuffer',
+      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.tabNext'))].filter(
+        (binding): binding is string => !!binding
+      )
+    },
+    {
       id: 'vim.foldCurrent',
       action: 'foldHeadingAtCursor',
       bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.foldCurrent'))].filter(
@@ -367,7 +381,10 @@ function registerVimCommands(): void {
       state.setTemplatePaletteOpen(true)
       return
     }
-    const all = mergeTemplates(BUILTIN_TEMPLATES, state.customTemplates)
+    const all = mergeTemplates(
+      state.hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES,
+      state.customTemplates
+    )
     const lower = arg.toLowerCase()
     const match =
       all.find((t) => t.name.toLowerCase() === lower) ??
@@ -560,9 +577,12 @@ function registerVimCommands(): void {
  * - `:mv`, `:move`       move the active note to another Inbox/Archive path
  * - `:bn[ext]`           next tab in the active pane
  * - `:bp[rev]`           previous tab in the active pane
+ * - `:tabn[ext]`         next tab (alias of :bn; also gt)
+ * - `:tabp[revious]`     previous tab (alias of :bp; also gT)
  * - `:bd[elete]`, `:bc`  close the active tab (alias for `:q` on notes)
  * - `:buffers`, `:ls`    open the buffer switcher
  * - `:outline`            open the heading outline palette
+ * - `:closepanel`, `:closep`  close the open right-hand panel
  * - `:trash`              open the Trash view
  * - `:only`              close every other tab in the active pane
  * - `:qa[ll]`            close every tab, everywhere
@@ -659,6 +679,9 @@ function registerVimNoteCommands(): void {
 
   Vim.defineEx('bnext', 'bn', () => navigateActiveBuffer(useStore.getState(), 1))
   Vim.defineEx('bprev', 'bp', () => navigateActiveBuffer(useStore.getState(), -1))
+  // Vim tab aliases over the same active-pane tab navigation.
+  Vim.defineEx('tabnext', 'tabn', () => navigateActiveBuffer(useStore.getState(), 1))
+  Vim.defineEx('tabprevious', 'tabp', () => navigateActiveBuffer(useStore.getState(), -1))
   // Vim aliases: :bNext and :bfirst/:blast — rare, skipped.
 
   const closeActiveTabLikeQuit = (): void => {
@@ -688,6 +711,11 @@ function registerVimNoteCommands(): void {
     })
   }
   Vim.defineEx('outline', 'outline', openOutline)
+  // `:closepanel` / `:closep` closes whichever right-hand panel (connections,
+  // outline, comments, or calendar) is open in the active pane.
+  Vim.defineEx('closepanel', 'closep', () => {
+    window.dispatchEvent(new Event('zen:close-right-panel'))
+  })
   const setZenMode = (next: 'toggle' | 'on' | 'off'): void => {
     requestAnimationFrame(() => {
       const state = useStore.getState()
@@ -830,6 +858,10 @@ const MANUAL_EX_NAMES = new Set([
   'bn',
   'bprev',
   'bp',
+  'tabnext',
+  'tabn',
+  'tabprevious',
+  'tabp',
   'bdelete',
   'bd',
   'bclose',

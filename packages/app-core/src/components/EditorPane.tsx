@@ -50,6 +50,7 @@ import {
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
@@ -792,6 +793,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener('zen:toggle-calendar', handler)
   }, [isActive, toggleCalendarPanel])
 
+  // `zen:close-right-panel` — Esc (when a right panel is focused) or the
+  // "Close right panel" command dismiss whichever right-hand panel is open in
+  // the active pane and return focus to the editor.
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      setConnectionsOpen(false)
+      setOutlineOpen(false)
+      setCommentsOpen(false)
+      setCalendarOpen(false)
+      setConnectionPreview(null)
+      const panel = useStore.getState().focusedPanel
+      if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
+        setFocusedPanel('editor')
+      }
+    }
+    window.addEventListener('zen:close-right-panel', handler)
+    return () => window.removeEventListener('zen:close-right-panel', handler)
+  }, [isActive, setConnectionPreview, setFocusedPanel])
+
   // Auto-show the calendar when this pane lands on a daily/weekly note. On other
   // notes we leave it as-is (Obsidian-style persistence) so it stays open while
   // you browse, and only force it closed when the feature is turned off entirely.
@@ -1303,6 +1324,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 ? 'wikilink-cmd-option'
                 : 'slash-cmd-option'
           }),
+          completionNavKeymap,
           keymap.of([
             {
               key: 'Mod-f',
@@ -2943,14 +2965,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <TrashView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
-              <DatabaseView tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)} />
+              <DatabaseView
+                tabPath={databaseTabPath(assetPathFromTab(activeTab) as string)}
+                isActive={isActive}
+              />
             ) : (
               <AssetTabView tabPath={activeTab} vaultRoot={vault?.root ?? null} />
             )
           ) : activeTab && isDiagramTabPath(activeTab) ? (
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
           ) : activeTab && isDatabaseTabPath(activeTab) ? (
-            <DatabaseView tabPath={activeTab} />
+            <DatabaseView tabPath={activeTab} isActive={isActive} />
           ) : content ? (
             <div
               className={[

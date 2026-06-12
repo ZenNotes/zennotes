@@ -285,9 +285,11 @@ export function BufferPalette(): JSX.Element {
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
               } else if (isPalettePreviousKey(e)) {
                 e.preventDefault()
+                e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))
               } else if (e.key === 'Enter') {
                 e.preventDefault()
