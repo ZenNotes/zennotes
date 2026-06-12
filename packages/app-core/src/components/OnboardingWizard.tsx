@@ -562,7 +562,7 @@ function ThemeStep({
 
   // Some families ship multiple flavors of the same mode (Gruvbox hard/medium/
   // soft, GitHub default/dimmed/high-contrast, Catppuccin frappe/macchiato/
-  // mocha, etc.). Expose them as a contrast picker beneath Family.
+  // mocha, etc.). Expose them as a contrast picker beside the Mode selector.
   const resolvedMode: 'light' | 'dark' =
     themeMode === 'light'
       ? 'light'
@@ -592,6 +592,7 @@ function ThemeStep({
                 key={mode}
                 type="button"
                 onClick={() => applyMode(mode)}
+                aria-pressed={themeMode === mode}
                 className={[
                   'rounded-lg px-3 py-1.5 text-xs capitalize transition-colors',
                   themeMode === mode
