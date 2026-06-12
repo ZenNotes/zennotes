@@ -44,6 +44,7 @@ import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
+let appliedVimMappingLhs: string[] = []
 
 const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
   'gd',
@@ -164,6 +165,36 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
   const nextTop = Math.max(0, Math.min(maxTop, scroller.scrollTop + (forward ? half : -half)))
   view.dispatch({ selection: { anchor: range.head } })
   scroller.scrollTop = nextTop
+}
+
+function applyVimMappings(raw: string): void {
+  for (const lhs of appliedVimMappingLhs) {
+    try {
+      Vim.unmap(lhs, 'normal')
+    } catch { 
+      /* ignore */ 
+    }
+  }
+  appliedVimMappingLhs = []
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('"')) continue
+    const [cmd, lhs, rhs] = trimmed.split(/\s+/)
+    if (!lhs) continue
+    try {
+      if ((cmd === 'noremap' || cmd === 'nnoremap') && rhs) {
+        Vim.noremap(lhs, rhs, 'normal')
+        appliedVimMappingLhs.push(lhs)
+      } else if ((cmd === 'map' || cmd === 'nmap') && rhs) {
+        Vim.map(lhs, rhs, 'normal')
+        appliedVimMappingLhs.push(lhs)
+      } else if (cmd === 'unmap' || cmd === 'nunmap') {
+        Vim.unmap(lhs, 'normal')
+      }
+    } catch { 
+      /* ignore bad mappings */ 
+    }
+  }
 }
 
 function syncVimKeymaps(overrides: KeymapOverrides): void {
@@ -1261,6 +1292,8 @@ export function Editor(): JSX.Element {
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
+  const vimMappings = useStore((s) => s.vimMappings)
+  const vimMode = useStore((s)=> s.vimMode)
 
   useEffect(() => {
     registerVimCommands()
@@ -1274,6 +1307,11 @@ export function Editor(): JSX.Element {
   useEffect(() => {
     applyVimInsertEscape(vimInsertEscape)
   }, [vimInsertEscape])
+
+  useEffect(() => {
+    if (!vimMode) return
+    applyVimMappings(vimMappings)
+  }, [vimMappings, vimMode])
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">
