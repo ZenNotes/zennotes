@@ -10,7 +10,7 @@
 
 pkgname=zennotes-bin
 _appname=ZenNotes
-pkgver=2.3.0
+pkgver=2.4.0
 pkgrel=1
 pkgdesc="Keyboard-first, local-first Markdown notes with vim motions and live preview"
 arch=('x86_64')
@@ -35,6 +35,8 @@ package() {
 
   # Install application
   install -dm755 "${pkgdir}/opt/${pkgname}"
+  # tar.gz preserves permissions (unlike squashfs extraction), so the
+  # chmod workarounds from #70/#74/#92 are no longer needed.
   cp -a "${_extracted}/." "${pkgdir}/opt/${pkgname}/"
 
   # Chromium sandbox
