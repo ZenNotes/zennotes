@@ -41,10 +41,10 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PinIcon } from './icons'
 import {
-  DEFAULT_THEME_ID,
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
   THEMES,
-  resolveAuto,
-  type ThemeFamily,
+  resolveThemeId,
   type ThemeMode
 } from '../lib/themes'
 
@@ -91,8 +91,8 @@ export interface FloatingPrefs {
   vimMode: boolean
   vimInsertEscape: string
   livePreview: boolean
-  themeId: string
-  themeFamily: ThemeFamily
+  themeLightId: string
+  themeDarkId: string
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
@@ -108,8 +108,8 @@ export function loadFloatingPrefs(): FloatingPrefs {
     vimMode: true,
     vimInsertEscape: '',
     livePreview: true,
-    themeId: DEFAULT_THEME_ID,
-    themeFamily: 'gruvbox',
+    themeLightId: DEFAULT_LIGHT_THEME_ID,
+    themeDarkId: DEFAULT_DARK_THEME_ID,
     themeMode: 'dark',
     editorFontSize: 16,
     editorLineHeight: 1.7,
@@ -132,7 +132,10 @@ export function loadFloatingPrefs(): FloatingPrefs {
     return {
       ...fallback,
       ...parsed,
-      themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
+      themeLightId:
+        typeof parsed.themeLightId === 'string' ? parsed.themeLightId : fallback.themeLightId,
+      themeDarkId:
+        typeof parsed.themeDarkId === 'string' ? parsed.themeDarkId : fallback.themeDarkId,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       lineNumberMode
     }
@@ -158,11 +161,8 @@ export function lineNumberExtension(mode: LineNumberMode): Extension {
 export function applyTheme(prefs: FloatingPrefs): void {
   const html = document.documentElement
   const mql = window.matchMedia('(prefers-color-scheme: dark)')
-  let id = prefs.themeId
-  if (prefs.themeMode === 'auto') {
-    id = resolveAuto(prefs.themeFamily, mql.matches, prefs.themeId)
-  }
-  if (!THEMES.some((t) => t.id === id)) id = DEFAULT_THEME_ID
+  let id = resolveThemeId(prefs.themeLightId, prefs.themeDarkId, prefs.themeMode, mql.matches)
+  if (!THEMES.some((t) => t.id === id)) id = DEFAULT_DARK_THEME_ID
   html.dataset.theme = id
   html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))

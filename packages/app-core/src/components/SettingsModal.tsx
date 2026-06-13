@@ -30,7 +30,7 @@ import {
   sequenceTokenFromEvent,
   shortcutBindingFromEvent
 } from '../lib/keymaps'
-import { resolveAuto, THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
+import { findTheme, THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
 import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
@@ -327,8 +327,8 @@ export function SettingsModal(): JSX.Element {
     if (!confirmed) return
     setHideBuiltinTemplates(true)
   }
-  const themeId = useStore((s) => s.themeId)
-  const themeFamily = useStore((s) => s.themeFamily)
+  const themeLightId = useStore((s) => s.themeLightId)
+  const themeDarkId = useStore((s) => s.themeDarkId)
   const themeMode = useStore((s) => s.themeMode)
   const setTheme = useStore((s) => s.setTheme)
   const editorFontSize = useStore((s) => s.editorFontSize)
@@ -506,21 +506,9 @@ export function SettingsModal(): JSX.Element {
     []
   )
 
-  // Variants to show in the variant picker.
-  //  - Gruvbox ships paired light/dark variants per contrast level, so
-  //    we scope to the effective mode (hard+light / hard+dark / …).
-  //  - Apple has only two variants (light / dark), which the Mode
-  //    selector already handles — the variant picker stays hidden.
-  //  - Catppuccin and GitHub each ship variants that ARE the theme
-  //    choice (Latte, Frappé, Macchiato, Mocha / Dark, Dark Dimmed,
-  //    Dark HC, Light, Light HC, …). Show them all regardless of mode
-  //    so users can pick any variant and have the mode auto-align.
-  // Track `prefers-color-scheme` so the picker reflects what the user
-  // actually sees while in Auto mode. Without this, the contrast row
-  // falls back to whatever mode the *stored* themeId belongs to — which
-  // can drift away from the rendered theme (resolveAuto picks based on
-  // family + system) and makes clicking a contrast variant feel like
-  // it's flipping the whole theme to the wrong mode.
+  // Light and dark are chosen independently (Apple light + Gruvbox dark, etc.).
+  // Track `prefers-color-scheme` so we can mark which side is currently live
+  // while the Mode toggle sits on Auto.
   const [prefersDark, setPrefersDark] = useState(() =>
     typeof window !== 'undefined'
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -533,88 +521,33 @@ export function SettingsModal(): JSX.Element {
     return () => mql.removeEventListener('change', onChange)
   }, [])
 
-  /** What mode the app is *actually rendering* right now. */
-  const effectiveMode: 'light' | 'dark' = useMemo(() => {
-    if (themeMode === 'auto') return prefersDark ? 'dark' : 'light'
-    return themeMode
-  }, [themeMode, prefersDark])
+  /** Which side (light/dark) the app is actually rendering right now. */
+  const effectiveMode: 'light' | 'dark' =
+    themeMode === 'auto' ? (prefersDark ? 'dark' : 'light') : themeMode
 
-  /** Variant id to compare against when highlighting selection. In Auto
-   *  mode this is whatever `resolveAuto` produced, since the stored
-   *  themeId may not match what's painted on screen. */
-  const renderedThemeId = useMemo(
-    () =>
-      themeMode === 'auto' ? resolveAuto(themeFamily, prefersDark, themeId) : themeId,
-    [themeId, themeFamily, themeMode, prefersDark]
-  )
-
-  const visibleVariants = useMemo(() => {
-    if (themeFamily === 'gruvbox') {
-      return THEMES.filter(
-        (t) => t.family === 'gruvbox' && t.mode === effectiveMode
-      )
-    }
-    // Families with only a light/dark pair don't need a variant picker —
-    // the Mode selector above already handles the toggle.
-    const simpleFamilies: ThemeFamily[] = [
-      'apple',
-      'solarized',
-      'one',
-      'nord',
-      'tokyo-night',
-      'black-metal'
-    ]
-    if (simpleFamilies.includes(themeFamily)) return []
-    return THEMES.filter((t) => t.family === themeFamily)
-  }, [themeFamily, effectiveMode])
-
-  const pickFamily = (family: ThemeFamily): void => {
-    // When family changes, keep the mode the same and pick the canonical
-    // first variant in that family (medium for gruvbox, default for
-    // catppuccin/github).
-    const preferred: Record<ThemeFamily, { light: string; dark: string }> = {
-      apple: { light: 'apple-light', dark: 'apple-dark' },
-      gruvbox: { light: 'light-medium', dark: 'dark-medium' },
-      catppuccin: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
-      github: { light: 'github-light', dark: 'github-dark' },
-      solarized: { light: 'solarized-light', dark: 'solarized-dark' },
-      one: { light: 'one-light', dark: 'one-dark' },
-      nord: { light: 'nord-light', dark: 'nord-dark' },
-      'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
-      'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
-    }
-    const targetId = preferred[family][effectiveMode]
-    setTheme({ id: targetId, family, mode: themeMode })
+  // Canonical starter variant for each family, per appearance. Picking a
+  // family snaps that side to this id; the contrast/flavor row then refines it.
+  const PREFERRED_THEME_ID: Record<ThemeFamily, { light: string; dark: string }> = {
+    apple: { light: 'apple-light', dark: 'apple-dark' },
+    gruvbox: { light: 'light-medium', dark: 'dark-medium' },
+    catppuccin: { light: 'catppuccin-latte', dark: 'catppuccin-mocha' },
+    github: { light: 'github-light', dark: 'github-dark' },
+    solarized: { light: 'solarized-light', dark: 'solarized-dark' },
+    one: { light: 'one-light', dark: 'one-dark' },
+    nord: { light: 'nord-light', dark: 'nord-dark' },
+    'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
+    'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
   }
 
-  const pickMode = (mode: ThemeMode): void => {
-    if (mode === 'auto') {
-      setTheme({ id: themeId, family: themeFamily, mode: 'auto' })
-      return
-    }
-    // Flip to the mode-equivalent variant in the same family. For
-    // Gruvbox we also try to preserve the user's chosen contrast.
-    const currentVariant = THEMES.find((t) => t.id === themeId)?.variant
-    const candidate =
-      THEMES.find(
-        (t) =>
-          t.family === themeFamily &&
-          t.mode === mode &&
-          t.variant === currentVariant
-      ) ?? THEMES.find((t) => t.family === themeFamily && t.mode === mode)
-    if (candidate) setTheme({ id: candidate.id, family: themeFamily, mode })
+  const pickMode = (mode: ThemeMode): void => setTheme({ mode })
+
+  const pickFamily = (side: 'light' | 'dark', family: ThemeFamily): void => {
+    const id = PREFERRED_THEME_ID[family][side]
+    setTheme(side === 'light' ? { lightId: id } : { darkId: id })
   }
 
-  const pickVariant = (id: string): void => {
-    const t = THEMES.find((x) => x.id === id)
-    if (!t) return
-    // Preserve the user's mode toggle. In Auto we keep the mode auto and
-    // store the picked variant — `resolveAuto` will carry the variant
-    // forward when the system flips light/dark. In an explicit mode the
-    // variant's native mode already matches because the picker filtered
-    // by `effectiveMode`.
-    const nextMode: ThemeMode = themeMode === 'auto' ? 'auto' : t.mode
-    setTheme({ id: t.id, family: t.family, mode: nextMode })
+  const pickVariant = (side: 'light' | 'dark', id: string): void => {
+    setTheme(side === 'light' ? { lightId: id } : { darkId: id })
   }
 
   const ref = useRef<HTMLDivElement | null>(null)
@@ -736,8 +669,7 @@ export function SettingsModal(): JSX.Element {
           id: 'theme-variant',
           title: 'Theme variant',
           description: 'Choose a family-specific contrast, flavor, or variant.',
-          keywords: ['variant', 'contrast', 'flavor'],
-          available: visibleVariants.length > 1
+          keywords: ['variant', 'contrast', 'flavor']
         },
         {
           id: 'dark-sidebar',
@@ -758,28 +690,6 @@ export function SettingsModal(): JSX.Element {
             description="Pick the visual system ZenNotes uses across the app."
           >
             <div className="flex flex-col gap-5 px-5 py-5">
-              <div {...settingsSearchTargetProps('theme-family')}>
-                <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                  Family
-                </div>
-                <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
-                  {familyOptions.map((f) => (
-                    <button
-                      key={f.id}
-                      onClick={() => pickFamily(f.id)}
-                      className={[
-                        'rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
-                        themeFamily === f.id
-                          ? 'border-accent/45 bg-accent/10 text-ink-900'
-                          : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
-                      ].join(' ')}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div {...settingsSearchTargetProps('theme-mode')}>
                 <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
                   Mode
@@ -800,35 +710,33 @@ export function SettingsModal(): JSX.Element {
                     </button>
                   ))}
                 </div>
+                <p className="mt-2 text-xs leading-5 text-ink-500">
+                  Light and dark are picked independently below. Auto follows your
+                  system appearance and switches between them.
+                </p>
               </div>
 
-              {visibleVariants.length > 1 && (
-                <div {...settingsSearchTargetProps('theme-variant')}>
-                  <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                    {themeFamily === 'gruvbox'
-                      ? 'Contrast'
-                      : themeFamily === 'catppuccin'
-                        ? 'Flavor'
-                        : 'Variant'}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {visibleVariants.map((v) => (
-                      <button
-                        key={v.id}
-                        onClick={() => pickVariant(v.id)}
-                        className={[
-                          'rounded-xl border px-3 py-1.5 text-xs transition-colors',
-                          renderedThemeId === v.id
-                            ? 'border-accent/45 bg-accent/10 text-ink-900'
-                            : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
-                        ].join(' ')}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div {...settingsSearchTargetProps('theme-family')}>
+                <ThemeSidePicker
+                  side="light"
+                  sideId={themeLightId}
+                  familyOptions={familyOptions}
+                  isActive={effectiveMode === 'light'}
+                  onPickFamily={(family) => pickFamily('light', family)}
+                  onPickVariant={(id) => pickVariant('light', id)}
+                />
+              </div>
+
+              <div {...settingsSearchTargetProps('theme-variant')}>
+                <ThemeSidePicker
+                  side="dark"
+                  sideId={themeDarkId}
+                  familyOptions={familyOptions}
+                  isActive={effectiveMode === 'dark'}
+                  onPickFamily={(family) => pickFamily('dark', family)}
+                  onPickVariant={(id) => pickVariant('dark', id)}
+                />
+              </div>
             </div>
           </Section>
 
@@ -2708,6 +2616,82 @@ function KeymapRecorderModal({
       </div>
     </div>,
     document.body
+  )
+}
+
+/** Family grid + contrast/flavor row for one appearance side (light or dark).
+ *  Light and dark each get their own picker so they can be freely combined. */
+function ThemeSidePicker({
+  side,
+  sideId,
+  familyOptions,
+  isActive,
+  onPickFamily,
+  onPickVariant
+}: {
+  side: 'light' | 'dark'
+  sideId: string
+  familyOptions: { id: ThemeFamily; label: string }[]
+  isActive: boolean
+  onPickFamily: (family: ThemeFamily) => void
+  onPickVariant: (id: string) => void
+}): JSX.Element {
+  const sideFamily = findTheme(sideId).family
+  const variants = THEMES.filter((t) => t.family === sideFamily && t.mode === side)
+  const variantLabel =
+    sideFamily === 'gruvbox' ? 'Contrast' : sideFamily === 'catppuccin' ? 'Flavor' : 'Variant'
+  return (
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
+          {side === 'light' ? 'Light theme' : 'Dark theme'}
+        </span>
+        {isActive && (
+          <span className="rounded-full border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-accent">
+            Now showing
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+        {familyOptions.map((f) => (
+          <button
+            key={f.id}
+            onClick={() => onPickFamily(f.id)}
+            className={[
+              'rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
+              sideFamily === f.id
+                ? 'border-accent/45 bg-accent/10 text-ink-900'
+                : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
+            ].join(' ')}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+      {variants.length > 1 && (
+        <div className="mt-3">
+          <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
+            {variantLabel}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {variants.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => onPickVariant(v.id)}
+                className={[
+                  'rounded-xl border px-3 py-1.5 text-xs transition-colors',
+                  sideId === v.id
+                    ? 'border-accent/45 bg-accent/10 text-ink-900'
+                    : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
+                ].join(' ')}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 

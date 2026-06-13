@@ -14,7 +14,7 @@ import {
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { canReturnToCommandList } from '../lib/command-palette-mode'
-import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
+import { resolveThemeId, THEMES, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
   type VaultSwitcherEntry
@@ -25,9 +25,27 @@ import { Modal } from './ui/Modal'
 type Mode = 'main' | 'theme' | 'vault'
 
 interface ThemeSnapshot {
-  id: string
-  family: ThemeFamily
+  lightId: string
+  darkId: string
   mode: ThemeMode
+}
+
+/** The current OS dark-mode preference, read fresh (the palette previews
+ *  themes live, so we must resolve against the system at click time). */
+function systemPrefersDark(): boolean {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+/** Map a theme option to a per-mode store update: pick its slot and flip the
+ *  mode so the choice renders immediately while previewing/committing. */
+function themeSelectionFor(t: ThemeOption): {
+  lightId?: string
+  darkId?: string
+  mode: ThemeMode
+} {
+  return t.mode === 'dark'
+    ? { darkId: t.id, mode: 'dark' }
+    : { lightId: t.id, mode: 'light' }
 }
 
 export function CommandPalette(): JSX.Element {
@@ -148,7 +166,13 @@ export function CommandPalette(): JSX.Element {
       setActive(vaultResults.length > 0 ? 0 : -1)
       return
     }
-    const currentId = useStore.getState().themeId
+    const s = useStore.getState()
+    const currentId = resolveThemeId(
+      s.themeLightId,
+      s.themeDarkId,
+      s.themeMode,
+      systemPrefersDark()
+    )
     const idx = themeResults.findIndex((t) => t.id === currentId)
     setActive(idx)
   }, [query, mode, themeResults, vaultResults.length])
@@ -169,16 +193,22 @@ export function CommandPalette(): JSX.Element {
     // prevents re-running `setTheme` each time the filter narrows and
     // we re-sync the cursor onto the currently-applied theme.
     const s = useStore.getState()
-    if (s.themeId === theme.id) return
-    setTheme({ id: theme.id, family: theme.family, mode: theme.mode })
+    const currentId = resolveThemeId(
+      s.themeLightId,
+      s.themeDarkId,
+      s.themeMode,
+      systemPrefersDark()
+    )
+    if (currentId === theme.id) return
+    setTheme(themeSelectionFor(theme))
   }, [active, mode, themeResults, setTheme])
 
   /* -------- Lifecycle: enter / leave theme mode -------- */
   const enterThemeMode = (): void => {
     const s = useStore.getState()
     originalThemeRef.current = {
-      id: s.themeId,
-      family: s.themeFamily,
+      lightId: s.themeLightId,
+      darkId: s.themeDarkId,
       mode: s.themeMode
     }
     committedRef.current = false
@@ -241,7 +271,7 @@ export function CommandPalette(): JSX.Element {
   }
 
   const commitTheme = (theme: ThemeOption): void => {
-    setTheme({ id: theme.id, family: theme.family, mode: theme.mode })
+    setTheme(themeSelectionFor(theme))
     committedRef.current = true
     setOpen(false)
     focusEditorNormalMode()
@@ -374,7 +404,11 @@ export function CommandPalette(): JSX.Element {
             ))
           ) : mode === 'theme' ? (
             themeResults.map((theme, i) => {
-              const isOriginal = theme.id === originalThemeRef.current?.id
+              const snap = originalThemeRef.current
+              const originalId = snap
+                ? resolveThemeId(snap.lightId, snap.darkId, snap.mode, systemPrefersDark())
+                : null
+              const isOriginal = theme.id === originalId
               const familyTitle =
                 theme.family.charAt(0).toUpperCase() + theme.family.slice(1)
               return (

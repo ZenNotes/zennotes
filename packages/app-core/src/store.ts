@@ -48,7 +48,16 @@ import {
   toggleTaskAtIndex,
   type TaskPriority as TaskLinePriority
 } from '@shared/tasklists'
-import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
+import {
+  DEFAULT_DARK_THEME_ID,
+  DEFAULT_LIGHT_THEME_ID,
+  DEFAULT_THEME_ID,
+  findTheme,
+  resolveAuto,
+  THEMES,
+  type ThemeFamily,
+  type ThemeMode
+} from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
@@ -280,8 +289,8 @@ interface Prefs {
   hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
-  themeId: string
-  themeFamily: ThemeFamily
+  themeLightId: string
+  themeDarkId: string
   themeMode: ThemeMode
   editorFontSize: number    // px — affects editor + preview
   editorLineHeight: number  // unitless multiplier
@@ -420,8 +429,8 @@ const DEFAULT_PREFS: Prefs = {
   hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
-  themeId: DEFAULT_THEME_ID,
-  themeFamily: 'gruvbox',
+  themeLightId: DEFAULT_LIGHT_THEME_ID,
+  themeDarkId: DEFAULT_DARK_THEME_ID,
   themeMode: 'dark',
   editorFontSize: 16,
   editorLineHeight: 1.7,
@@ -469,18 +478,36 @@ const DEFAULT_PREFS: Prefs = {
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
 function normalizePrefs(p: Partial<Prefs>): Prefs {
-  const themeFamily: ThemeFamily =
-    p.themeFamily && VALID_FAMILIES.includes(p.themeFamily)
-      ? p.themeFamily
-      : DEFAULT_PREFS.themeFamily
   const themeMode: ThemeMode =
     p.themeMode && VALID_MODES.includes(p.themeMode)
       ? p.themeMode
       : DEFAULT_PREFS.themeMode
-  const themeId =
-    p.themeId && THEMES.some((t) => t.id === p.themeId)
-      ? p.themeId
-      : DEFAULT_PREFS.themeId
+  // Light and dark are now picked independently. Honour the new per-mode
+  // fields when present and valid for their side; otherwise migrate from the
+  // legacy single `themeId`/`themeFamily` so existing installs look unchanged:
+  // seed each side from the legacy pick, carrying its variant via resolveAuto.
+  const legacyShape = p as Partial<{ themeId: string; themeFamily: ThemeFamily }>
+  const legacyFamily: ThemeFamily =
+    legacyShape.themeFamily && VALID_FAMILIES.includes(legacyShape.themeFamily)
+      ? legacyShape.themeFamily
+      : 'gruvbox'
+  const legacyId =
+    legacyShape.themeId && THEMES.some((t) => t.id === legacyShape.themeId)
+      ? legacyShape.themeId
+      : DEFAULT_THEME_ID
+  const legacyMode = findTheme(legacyId).mode
+  const validForMode = (id: unknown, mode: 'light' | 'dark'): id is string =>
+    typeof id === 'string' && THEMES.some((t) => t.id === id && t.mode === mode)
+  const themeLightId = validForMode(p.themeLightId, 'light')
+    ? p.themeLightId
+    : legacyMode === 'light'
+      ? legacyId
+      : resolveAuto(legacyFamily, false, legacyId)
+  const themeDarkId = validForMode(p.themeDarkId, 'dark')
+    ? p.themeDarkId
+    : legacyMode === 'dark'
+      ? legacyId
+      : resolveAuto(legacyFamily, true, legacyId)
   return {
     vimMode: typeof p.vimMode === 'boolean' ? p.vimMode : DEFAULT_PREFS.vimMode,
     vimInsertEscape:
@@ -523,8 +550,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
     wrapTabs:
       typeof p.wrapTabs === 'boolean' ? p.wrapTabs : DEFAULT_PREFS.wrapTabs,
-    themeId,
-    themeFamily,
+    themeLightId,
+    themeDarkId,
     themeMode,
     editorFontSize:
       typeof p.editorFontSize === 'number'
@@ -1068,8 +1095,8 @@ function collectPrefs(s: {
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
-  themeId: string
-  themeFamily: ThemeFamily
+  themeLightId: string
+  themeDarkId: string
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
@@ -1125,8 +1152,8 @@ function collectPrefs(s: {
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
-    themeId: s.themeId,
-    themeFamily: s.themeFamily,
+    themeLightId: s.themeLightId,
+    themeDarkId: s.themeDarkId,
     themeMode: s.themeMode,
     editorFontSize: s.editorFontSize,
     editorLineHeight: s.editorLineHeight,
@@ -1476,8 +1503,8 @@ interface Store {
   tabsEnabled: boolean
   wrapTabs: boolean
   settingsOpen: boolean
-  themeId: string
-  themeFamily: ThemeFamily
+  themeLightId: string
+  themeDarkId: string
   themeMode: ThemeMode
   editorFontSize: number
   editorLineHeight: number
@@ -1755,7 +1782,7 @@ interface Store {
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
-  setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
+  setTheme: (next: { lightId?: string; darkId?: string; mode?: ThemeMode }) => void
   setEditorFontSize: (px: number) => void
   setEditorLineHeight: (mult: number) => void
   setPreviewMaxWidth: (px: number) => void
@@ -2698,8 +2725,8 @@ export const useStore = create<Store>((set, get) => {
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
   settingsOpen: false,
-  themeId: loadPrefs().themeId,
-  themeFamily: loadPrefs().themeFamily,
+  themeLightId: loadPrefs().themeLightId,
+  themeDarkId: loadPrefs().themeDarkId,
   themeMode: loadPrefs().themeMode,
   editorFontSize: loadPrefs().editorFontSize,
   editorLineHeight: loadPrefs().editorLineHeight,
@@ -4107,8 +4134,12 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setSettingsOpen: (open) => set({ settingsOpen: open }),
-  setTheme: ({ id, family, mode }) => {
-    set({ themeId: id, themeFamily: family, themeMode: mode })
+  setTheme: (next) => {
+    set((s) => ({
+      themeLightId: next.lightId ?? s.themeLightId,
+      themeDarkId: next.darkId ?? s.themeDarkId,
+      themeMode: next.mode ?? s.themeMode
+    }))
     savePrefs(collectPrefs(get()))
   },
   setEditorFontSize: (px) => {

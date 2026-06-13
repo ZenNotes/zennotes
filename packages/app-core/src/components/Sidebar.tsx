@@ -345,6 +345,7 @@ export function Sidebar(): JSX.Element {
   const allFolders = useStore((s) => s.folders);
   const hasAssetsDir = useStore((s) => s.hasAssetsDir);
   const focusedPanel = useStore((s) => s.focusedPanel);
+  const vimMode = useStore((s) => s.vimMode);
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex);
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
@@ -2334,7 +2335,12 @@ export function Sidebar(): JSX.Element {
   // Mutable counter reset on each render — assigns sequential data-sidebar-idx to each item.
   const idxCounter = useRef<{ value: number }>({ value: 0 });
   idxCounter.current.value = 0;
-  const vimCursor = isSidebarFocused ? sidebarCursorIndex : -1;
+  // The keyboard-nav cursor (row highlight + "m" menu hint), the active-note
+  // de-emphasis, and the panel focus ring are all Vim-navigation chrome — only
+  // surface them when Vim mode is on. Without this gate they appear on any mouse
+  // focus of the sidebar even for users who never use Vim.
+  const sidebarKbFocused = vimMode && isSidebarFocused;
+  const vimCursor = sidebarKbFocused ? sidebarCursorIndex : -1;
   const vaultHeaderIdx = canSwitchVaults ? idxCounter.current.value++ : -1;
   const vaultHeaderVimHighlight = vimCursor === vaultHeaderIdx;
   // VimNav clamps cursor position via Math.min/Math.max on each
@@ -2486,7 +2492,7 @@ export function Sidebar(): JSX.Element {
 
   return (
     <aside
-      className={`glass-sidebar relative flex shrink-0 flex-col pt-3${isSidebarFocused ? " panel-focused" : ""}`}
+      className={`glass-sidebar relative flex shrink-0 flex-col pt-3${sidebarKbFocused ? " panel-focused" : ""}`}
       style={{ width: sidebarWidth }}
       onMouseDownCapture={(e) => {
         syncSidebarCursorFromTarget(e.target);
@@ -2681,7 +2687,7 @@ export function Sidebar(): JSX.Element {
             onClick={() => void openTasksView()}
             sidebarIdx={idxCounter.current.value++}
             vimHighlight={vimCursor === idxCounter.current.value - 1}
-            sidebarFocused={isSidebarFocused}
+            sidebarFocused={sidebarKbFocused}
           />
 
           <FolderTreeRoot
@@ -2711,7 +2717,7 @@ export function Sidebar(): JSX.Element {
             dragPayloadForItem={dragPayloadForItem}
             idxCounter={idxCounter.current}
             vimCursor={vimCursor}
-            sidebarFocused={isSidebarFocused}
+            sidebarFocused={sidebarKbFocused}
             groupByKind={groupByKind}
             showSidebarChevrons={showSidebarChevrons}
             headerAction={
@@ -2744,7 +2750,7 @@ export function Sidebar(): JSX.Element {
             isFolderActive={isFolderActive}
             selectedPath={selectedPath}
             selectedKeys={selectedSidebarKeys}
-            sidebarFocused={isSidebarFocused}
+            sidebarFocused={sidebarKbFocused}
             showSidebarChevrons={showSidebarChevrons}
             onSelectNote={handleSelectNote}
             onSelectItem={handleSidebarItemSelect}
@@ -2769,7 +2775,7 @@ export function Sidebar(): JSX.Element {
               onContextMenu={(e) => openFolderMenu(e, "archive", "")}
               sidebarIdx={idxCounter.current.value++}
               vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={isSidebarFocused}
+              sidebarFocused={sidebarKbFocused}
             />
 
             <TrashSidebarRow
@@ -2783,7 +2789,7 @@ export function Sidebar(): JSX.Element {
               onContextMenu={(e) => openFolderMenu(e, "trash", "")}
               sidebarIdx={idxCounter.current.value++}
               vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={isSidebarFocused}
+              sidebarFocused={sidebarKbFocused}
             />
           </div>
 
@@ -2824,7 +2830,7 @@ export function Sidebar(): JSX.Element {
                 dragPayloadForItem={dragPayloadForItem}
                 idxCounter={idxCounter.current}
                 vimCursor={vimCursor}
-                sidebarFocused={isSidebarFocused}
+                sidebarFocused={sidebarKbFocused}
                 groupByKind={groupByKind}
                 showSidebarChevrons={showSidebarChevrons}
               />
@@ -2857,7 +2863,7 @@ export function Sidebar(): JSX.Element {
               dragPayloadForItem={dragPayloadForItem}
               idxCounter={idxCounter.current}
               vimCursor={vimCursor}
-              sidebarFocused={isSidebarFocused}
+              sidebarFocused={sidebarKbFocused}
               groupByKind={groupByKind}
               showSidebarChevrons={showSidebarChevrons}
             />
@@ -2917,7 +2923,7 @@ export function Sidebar(): JSX.Element {
                           active
                             ? isVimHighlight
                               ? "vim-cursor-on-active bg-accent text-white"
-                              : isSidebarFocused
+                              : sidebarKbFocused
                                 ? "text-accent"
                                 : "bg-accent text-white"
                             : isVimHighlight
@@ -2932,7 +2938,7 @@ export function Sidebar(): JSX.Element {
                         <span
                           className={[
                             "ml-1 text-2xs",
-                            active && !isSidebarFocused
+                            active && !sidebarKbFocused
                               ? "text-white/80"
                               : "text-ink-500",
                           ].join(" ")}
@@ -2965,7 +2971,7 @@ export function Sidebar(): JSX.Element {
             onClick={() => void revealAssetsDir()}
             sidebarIdx={idxCounter.current.value++}
             vimHighlight={vimCursor === idxCounter.current.value - 1}
-            sidebarFocused={isSidebarFocused}
+            sidebarFocused={sidebarKbFocused}
             sidebarData={{ type: "assets" }}
           />
         )}
@@ -2977,7 +2983,7 @@ export function Sidebar(): JSX.Element {
           onClick={() => void openHelpView()}
           sidebarIdx={idxCounter.current.value++}
           vimHighlight={vimCursor === idxCounter.current.value - 1}
-          sidebarFocused={isSidebarFocused}
+          sidebarFocused={sidebarKbFocused}
           sidebarData={{ type: "help" }}
         />
         <SidebarFooterAction
@@ -2988,7 +2994,7 @@ export function Sidebar(): JSX.Element {
           onClick={() => setSettingsOpen(true)}
           sidebarIdx={idxCounter.current.value++}
           vimHighlight={vimCursor === idxCounter.current.value - 1}
-          sidebarFocused={isSidebarFocused}
+          sidebarFocused={sidebarKbFocused}
           sidebarData={{ type: "settings" }}
         />
       </div>

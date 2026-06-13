@@ -102,9 +102,31 @@ export const THEMES: ThemeOption[] = [
 ]
 
 export const DEFAULT_THEME_ID = 'dark-hard'
+/** Default theme shown when the effective appearance is light. */
+export const DEFAULT_LIGHT_THEME_ID = 'light-hard'
+/** Default theme shown when the effective appearance is dark. */
+export const DEFAULT_DARK_THEME_ID = 'dark-hard'
 
 export function findTheme(id: string): ThemeOption {
   return THEMES.find((t) => t.id === id) ?? THEMES[1] // fallback: light-medium
+}
+
+/**
+ * Resolve the concrete `data-theme` id from the user's per-mode selection.
+ *
+ * The app stores two independent picks — one theme for light appearance and
+ * one for dark — plus a mode. This lets light and dark be freely combined
+ * (e.g. Apple light + Gruvbox Material dark). Explicit `light`/`dark` modes
+ * force that side; `auto` follows the system `prefers-color-scheme`.
+ */
+export function resolveThemeId(
+  lightId: string,
+  darkId: string,
+  mode: ThemeMode,
+  prefersDark: boolean
+): string {
+  const wantDark = mode === 'dark' || (mode === 'auto' && prefersDark)
+  return wantDark ? darkId : lightId
 }
 
 /**

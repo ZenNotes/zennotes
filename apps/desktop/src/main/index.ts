@@ -46,7 +46,6 @@ import {
   createFolder,
   createNote,
   deleteAsset,
-  DEFAULT_QUICK_CAPTURE_HOTKEY,
   deleteFolder,
   deleteNote,
   duplicateAsset,
@@ -3215,7 +3214,11 @@ app.whenReady().then(async () => {
 
   try {
     const cfg = await loadConfig()
-    const desired = cfg.quickCaptureHotkey || DEFAULT_QUICK_CAPTURE_HOTKEY
+    // Empty string is a deliberate "disabled" state — `loadConfig` already
+    // substitutes the default when the field is missing/invalid, so honour the
+    // stored value verbatim instead of `||`-falling-back (which resurrects the
+    // default hotkey on every restart after the user disabled it).
+    const desired = cfg.quickCaptureHotkey
     const result = registerQuickCaptureHotkey(desired)
     if (!result.ok) console.warn(result.error ?? `Failed to bind ${desired}`)
   } catch (err) {

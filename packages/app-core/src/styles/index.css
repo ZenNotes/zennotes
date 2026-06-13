@@ -1264,6 +1264,25 @@ textarea,
   height: 100%;
   contain: layout style;
 }
+/* WYSIWYG (Edit mode) — Obsidian-style live preview reads as prose, so the
+   body uses a proportional font while code stays monospace (the
+   `.cm-code-block-line` / `.tok-monospace` rules below pin --z-mono-font and
+   win by specificity). Honors a custom Text font when set; otherwise falls
+   back to the system sans stack. Split/Preview keep the monospace default. */
+.cm-wysiwyg .cm-editor {
+  font-family: var(
+    --z-text-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif
+  );
+}
 .cm-editor.cm-focused {
   outline: none !important;
 }
@@ -1840,6 +1859,305 @@ textarea,
     Consolas,
     monospace
   );
+}
+
+/* --- WYSIWYG code-block card + language flair (Edit mode only) -------- */
+/* Give fenced code blocks a continuous "card": a shared background with side
+   borders, the first/last line rounding the top/bottom. Mirrors Obsidian's
+   HyperMD-codeblock-bg, scoped to Edit (WYSIWYG) — Split stays raw. */
+.cm-wysiwyg .cm-code-block-line {
+  position: relative;
+  background: rgb(var(--z-bg-2) / 0.55);
+  border-left: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-right: 1px solid rgb(var(--z-bg-3) / 0.7);
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.cm-wysiwyg .cm-code-block-begin {
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+.cm-wysiwyg .cm-code-block-end {
+  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+/* Language label pinned top-right of the block; clicking it copies the code,
+   so there is no separate copy or fold control. */
+.cm-wysiwyg .cm-code-flair {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  z-index: 2;
+  padding: 1px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgb(var(--z-grey-1));
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.cm-wysiwyg .cm-code-flair:hover {
+  background: rgb(var(--z-bg-3) / 0.85);
+  color: rgb(var(--z-fg));
+}
+.cm-wysiwyg .cm-code-flair.is-copied {
+  color: rgb(var(--z-accent));
+}
+
+/* --- WYSIWYG live table widget (Edit mode) --------------------------- */
+/* A GFM pipe table rendered as a real, editable <table>. Mirrors Obsidian's
+   cm-table-widget: rounded bordered grid, header tint, hover add-buttons, and
+   in-cell editing. Source stays authoritative; see cm-table.ts. */
+.cm-table-widget {
+  /* Use PADDING, not vertical margin, for the block gap: CodeMirror measures a
+     block widget's height via offsetHeight, which excludes margins — a vertical
+     margin here desyncs the height map and makes clicks below the table land a
+     line high. The padding also leaves room for the hover grips (top/left) and
+     add-buttons (right/bottom).
+     The negative LEFT margin cancels the left padding so the table content
+     still lines up with the body text (and matches Preview) instead of sitting
+     ~2 chars indented. Horizontal margin is safe — only vertical margin breaks
+     the height measurement. */
+  margin: 0 0 0 -16px;
+  padding: 16px;
+  overflow-x: auto;
+  white-space: normal;
+  font-family: var(
+    --z-text-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    "PingFang SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif
+  );
+  font-size: 0.94em;
+}
+.cm-table-wrapper {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+.cm-table-widget table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+.cm-table-widget th,
+.cm-table-widget td {
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  padding: 0;
+  vertical-align: top;
+  min-width: 64px;
+  position: relative;
+}
+.cm-table-widget th {
+  background: rgb(var(--z-bg-2) / 0.7);
+  font-weight: 600;
+}
+.cm-table-widget .cm-table-cell {
+  padding: 5px 10px;
+  outline: none;
+  min-height: 1.5em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.cm-table-widget .cm-table-cell:focus {
+  background: rgb(var(--z-accent) / 0.1);
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.45);
+}
+/* Rendered inline markdown inside idle cells (the source pipeline emits real
+   <code>/<strong>/<em>/<a> tags, so style them to match the editor chrome). */
+.cm-table-widget .cm-table-cell code {
+  font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
+  font-size: 0.92em;
+  background: rgb(var(--z-bg-2));
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.cm-table-widget .cm-table-cell strong {
+  font-weight: 700;
+}
+.cm-table-widget .cm-table-cell em {
+  font-style: italic;
+}
+.cm-table-widget .cm-table-cell a {
+  color: rgb(var(--z-accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+}
+.cm-table-widget td[align="center"] .cm-table-cell,
+.cm-table-widget th[align="center"] .cm-table-cell {
+  text-align: center;
+}
+.cm-table-widget td[align="right"] .cm-table-cell,
+.cm-table-widget th[align="right"] .cm-table-cell {
+  text-align: right;
+}
+/* Hover add-buttons: a thin "+" rail along the right edge (column) and the
+   bottom edge (row) of the grid. */
+.cm-table-widget .cm-table-add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  background: rgb(var(--z-bg-1) / 0.9);
+  color: rgb(var(--z-grey-1));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
+  border-radius: 5px;
+}
+.cm-table-widget:hover .cm-table-add {
+  opacity: 1;
+}
+.cm-table-widget .cm-table-add:hover {
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+  border-color: transparent;
+}
+.cm-table-widget .cm-table-add-col {
+  top: 0;
+  right: 0;
+  width: 13px;
+  height: 100%;
+}
+.cm-table-widget .cm-table-add-row {
+  left: 0;
+  bottom: 0;
+  height: 13px;
+  /* Span the grid, not the button rail on the right. */
+  width: calc(100% - 14px);
+}
+
+/* Drag-to-reorder grips: row grip left of each body row, column grip above
+   each header cell. Hidden until you hover the row/column. */
+.cm-table-widget .cm-table-row-handle,
+.cm-table-widget .cm-table-col-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(var(--z-bg-2));
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  color: rgb(var(--z-grey-1));
+  cursor: grab;
+  opacity: 0;
+  z-index: 3;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 1;
+  user-select: none;
+}
+.cm-table-widget .cm-table-row-handle::before {
+  content: "⠿";
+}
+.cm-table-widget .cm-table-col-handle::before {
+  content: "⠿";
+  transform: rotate(90deg);
+}
+.cm-table-widget .cm-table-row-handle {
+  right: 100%;
+  top: 0;
+  height: 100%;
+  width: 12px;
+  border-start-start-radius: 4px;
+  border-end-start-radius: 4px;
+}
+.cm-table-widget .cm-table-col-handle {
+  bottom: 100%;
+  left: 0;
+  width: 100%;
+  height: 12px;
+}
+.cm-table-widget tbody tr:hover .cm-table-row-handle,
+.cm-table-widget thead th:hover .cm-table-col-handle,
+.cm-table-widget .cm-table-row-handle:hover,
+.cm-table-widget .cm-table-col-handle:hover {
+  opacity: 1;
+}
+.cm-table-widget.is-dragging .cm-table-row-handle,
+.cm-table-widget.is-dragging .cm-table-col-handle {
+  opacity: 0;
+}
+.cm-table-widget .cm-table-row-handle:active,
+.cm-table-widget .cm-table-col-handle:active {
+  cursor: grabbing;
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+  border-color: transparent;
+}
+/* Accent drop indicator shown while dragging. */
+.cm-table-widget .cm-table-drop-indicator {
+  position: absolute;
+  background: rgb(var(--z-accent));
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 2px;
+}
+.cm-table-widget .cm-table-drop-row {
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-1px);
+}
+.cm-table-widget .cm-table-drop-col {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+}
+
+/* Table context menu (right-click) — self-contained, theme-aware. */
+.cm-table-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 190px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgb(var(--z-bg-softer));
+  border: 1px solid rgb(var(--z-bg-3) / 0.7);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 13px;
+  color: rgb(var(--z-fg));
+}
+.cm-table-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-table-menu-item:hover:not(:disabled) {
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+}
+.cm-table-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cm-table-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgb(var(--z-bg-3) / 0.7);
 }
 
 /* --- Fenced code-block syntax tokens --------------------------------- */
@@ -2760,14 +3078,18 @@ textarea,
 /* Inline hashtags */
 .prose-zen .hashtag {
   display: inline-block;
-  background: theme("colors.paper.200");
-  color: theme("colors.ink.700");
-  padding: 0 6px;
-  border-radius: 999px;
-  font-size: 0.85em;
-  font-weight: 500;
+  color: rgb(var(--z-accent));
+  background-color: rgb(var(--z-accent) / 0.1);
+  padding: 0.25em 0.65em;
+  border-radius: 2em;
+  font-size: 0.8em;
+  font-weight: inherit;
+  line-height: 1;
   text-decoration: none;
   border-bottom: none !important;
+}
+.prose-zen .hashtag:hover {
+  background-color: rgb(var(--z-accent) / 0.2);
 }
 
 /* Callouts (Obsidian style) */
@@ -3382,4 +3704,117 @@ textarea,
 }
 .prose-zen .prose-heading-fold-arrow.is-folded {
   color: rgb(var(--z-accent));
+}
+
+/* ===================================================================== *
+ * WYSIWYG (Edit mode) — Obsidian-fidelity typography.                    *
+ * Heading scale, weights, and line-heights are ported from Obsidian's    *
+ * stylesheet. Scoped to `.cm-wysiwyg .cm-editor` so the extra class beats *
+ * the base `.cm-editor` rules and Split (source mode) is untouched.      *
+ * ===================================================================== */
+
+/* Headings — Obsidian scale: tighter line-height, h1 bold / h2–h6 semibold.
+   line-height is driven through --z-heading-line-height so the fold-arrow
+   centering math (which reads that var) stays aligned. No vertical padding on
+   the line: it offsets CodeMirror's click→position mapping. */
+.cm-wysiwyg .cm-editor .cm-heading-line {
+  /* Size the fold arrow off the heading font, not the (now tighter)
+     line-height, so it doesn't shrink relative to Split mode. The factor
+     1.02 ≈ 0.6 × 1.7 reproduces Split's original arrow size. */
+  --z-heading-fold-arrow-size: clamp(
+    16px,
+    calc(var(--z-heading-font-size) * 1.02),
+    28px
+  );
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h1 {
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.802);
+  --z-heading-line-height: 1.2;
+  font-size: 1.802em;
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h2 {
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.602);
+  --z-heading-line-height: 1.2;
+  font-size: 1.602em;
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h3 {
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.424);
+  --z-heading-line-height: 1.3;
+  font-size: 1.424em;
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h4 {
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.266);
+  --z-heading-line-height: 1.4;
+  font-size: 1.266em;
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h5 {
+  --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.125);
+  --z-heading-line-height: 1.5;
+  font-size: 1.125em;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.cm-wysiwyg .cm-editor .cm-heading-line-h6 {
+  --z-heading-font-size: var(--z-editor-font-size, 16px);
+  --z-heading-line-height: 1.5;
+  font-size: 1em;
+  color: rgb(var(--z-fg));
+}
+/* h1 stays bold (700); h2–h6 semibold (600), matching Obsidian. */
+.cm-wysiwyg .cm-editor .cm-heading-line-h2 .tok-heading2,
+.cm-wysiwyg .cm-editor .cm-heading-line-h3 .tok-heading3,
+.cm-wysiwyg .cm-editor .cm-heading-line-h4 .tok-heading4,
+.cm-wysiwyg .cm-editor .cm-heading-line-h5 .tok-heading5,
+.cm-wysiwyg .cm-editor .cm-heading-line-h6 .tok-heading6 {
+  font-weight: 600;
+}
+
+/* Blockquote — left accent bar, upright (not italic), muted text. */
+.cm-wysiwyg .cm-editor .cm-wq-quote {
+  border-left: 3px solid rgb(var(--z-accent) / 0.45);
+  padding-left: 16px;
+  color: rgb(var(--z-fg-2));
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote .tok-quote {
+  font-style: normal;
+  color: inherit;
+}
+
+/* Unordered-list bullet rendered in place of `-` / `*` / `+`. */
+.cm-wysiwyg .cm-editor .cm-wq-bullet {
+  color: rgb(var(--z-grey-1));
+  font-weight: 700;
+}
+
+/* Horizontal rule rendered in place of `---` / `***` / `___`. */
+.cm-wysiwyg .cm-editor .cm-wq-hr {
+  display: inline-block;
+  width: 100%;
+  height: 0;
+  vertical-align: middle;
+  border-top: 2px solid rgb(var(--z-bg-3));
+}
+
+/* Links — subtle underline like Obsidian (accent color is set above). */
+.cm-wysiwyg .cm-editor .tok-link,
+.cm-wysiwyg .cm-editor .tok-url {
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+  text-underline-offset: 2px;
+}
+
+/* Inline hashtags rendered as clickable pills — Obsidian's `.tag` style:
+   accent text on a faint accent tint, pill radius. */
+.cm-wysiwyg .cm-editor .cm-hashtag {
+  color: rgb(var(--z-accent));
+  background-color: rgb(var(--z-accent) / 0.1);
+  padding: 0.25em 0.65em;
+  border-radius: 2em;
+  font-size: 0.8em;
+  font-weight: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .cm-hashtag:hover {
+  background-color: rgb(var(--z-accent) / 0.2);
 }

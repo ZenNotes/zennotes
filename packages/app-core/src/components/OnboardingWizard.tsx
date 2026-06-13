@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { resolveAuto, THEMES, type ThemeFamily, type ThemeMode } from '../lib/themes'
+import {
+  findTheme,
+  resolveAuto,
+  resolveThemeId,
+  THEMES,
+  type ThemeFamily,
+  type ThemeMode
+} from '../lib/themes'
 import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   type PrimaryNotesLocation,
@@ -105,10 +112,19 @@ export function OnboardingWizard(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
-  const themeFamily = useStore((s) => s.themeFamily)
+  const themeLightId = useStore((s) => s.themeLightId)
+  const themeDarkId = useStore((s) => s.themeDarkId)
   const themeMode = useStore((s) => s.themeMode)
-  const themeId = useStore((s) => s.themeId)
   const setTheme = useStore((s) => s.setTheme)
+  // Onboarding is a one-time setup screen, so resolving the active theme
+  // against the system once at render is enough (no live listener needed).
+  const activeThemeId = resolveThemeId(
+    themeLightId,
+    themeDarkId,
+    themeMode,
+    prefersDarkSystem()
+  )
+  const activeThemeFamily = findTheme(activeThemeId).family
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const workspaceSetupError = useStore((s) => s.workspaceSetupError)
@@ -228,9 +244,9 @@ export function OnboardingWizard(): JSX.Element {
           )}
           {stepId === 'theme' && (
             <ThemeStep
-              themeFamily={themeFamily}
+              themeFamily={activeThemeFamily}
               themeMode={themeMode}
-              themeId={themeId}
+              themeId={activeThemeId}
               setTheme={setTheme}
               onBack={goBack}
               onNext={goNext}
@@ -536,28 +552,22 @@ function ThemeStep({
   themeFamily: ThemeFamily
   themeMode: ThemeMode
   themeId: string
-  setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
+  setTheme: (next: { lightId?: string; darkId?: string; mode?: ThemeMode }) => void
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
+  // Onboarding picks one family for both appearances; users split light/dark
+  // later in Settings. Seed both slots with that family's light + dark variants.
   const applyFamily = (family: ThemeFamily): void => {
-    const prefersDark =
-      themeMode === 'dark' ||
-      (themeMode === 'auto' &&
-        typeof window !== 'undefined' &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    const id = resolveAuto(family, prefersDark, themeId)
-    setTheme({ id, family, mode: themeMode })
+    setTheme({
+      lightId: resolveAuto(family, false, themeId),
+      darkId: resolveAuto(family, true, themeId),
+      mode: themeMode
+    })
   }
 
   const applyMode = (mode: ThemeMode): void => {
-    const prefersDark =
-      mode === 'dark' ||
-      (mode === 'auto' &&
-        typeof window !== 'undefined' &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches)
-    const id = resolveAuto(themeFamily, prefersDark, themeId)
-    setTheme({ id, family: themeFamily, mode })
+    setTheme({ mode })
   }
 
   // Some families ship multiple flavors of the same mode (Gruvbox hard/medium/
@@ -617,7 +627,11 @@ function ThemeStep({
                     key={variant.id}
                     type="button"
                     onClick={() =>
-                      setTheme({ id: variant.id, family: themeFamily, mode: themeMode })
+                      setTheme(
+                        variant.mode === 'dark'
+                          ? { darkId: variant.id }
+                          : { lightId: variant.id }
+                      )
                     }
                     aria-pressed={selected}
                     className={[

@@ -67,6 +67,10 @@ import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
+import { tablePlugin } from '../lib/cm-table'
+import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
+import { hashtagExtension } from '../lib/cm-hashtags'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
@@ -217,6 +221,22 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
   return [
     syntaxHighlighting(paperHighlight),
     syntaxHighlighting(defaultHighlightStyle, { fallback: true })
+  ]
+}
+
+/**
+ * WYSIWYG-only extensions — active only in Edit mode (the live-preview /
+ * "所见即所得" mode). Split keeps a raw source editor paired with the preview,
+ * so none of these load there. Table widgets and code-block cards get
+ * appended here as they land.
+ */
+function wysiwygExtensions(): Extension[] {
+  return [
+    livePreviewPlugin,
+    codeBlockFlairPlugin,
+    tablePlugin,
+    wysiwygBlocksPlugin,
+    ...hashtagExtension
   ]
 }
 
@@ -584,7 +604,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const pendingJumpLocation = useStore((s) => s.pendingJumpLocation)
   const clearPendingJumpLocation = useStore((s) => s.clearPendingJumpLocation)
   const vimMode = useStore((s) => s.vimMode)
-  const livePreview = useStore((s) => s.livePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
@@ -1293,7 +1312,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
       const initialBody = initialContent?.body ?? ''
       const deferInitialRichMarkdown =
-        initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS && !s0.livePreview
+        initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
+        modeRef.current !== 'edit'
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
       const state = EditorState.create({
@@ -1311,7 +1331,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            s0.livePreview && !deferInitialRichMarkdown ? livePreviewPlugin : []
+            modeRef.current === 'edit' && !deferInitialRichMarkdown
+              ? wysiwygExtensions()
+              : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
@@ -1450,8 +1472,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownCompartment.reconfigure(markdownEditingExtensions()),
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
-          if (useStore.getState().livePreview) {
-            restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+          if (modeRef.current === 'edit') {
+            restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
         }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
@@ -1517,11 +1539,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const markdownCompartment = markdownCompartmentRef.current
     const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
     const livePreviewCompartment = livePreviewCompartmentRef.current
-    const livePreviewEnabled = useStore.getState().livePreview
+    const richEditing = modeRef.current === 'edit'
     const deferRichMarkdown =
       pathChanged &&
       nextBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
-      !livePreviewEnabled &&
+      !richEditing &&
       !!markdownCompartment &&
       !!markdownSyntaxCompartment
     const effects: StateEffect<unknown>[] = []
@@ -1542,8 +1564,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownCompartment.reconfigure(markdownEditingExtensions()),
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
-      if (livePreviewEnabled && livePreviewCompartment) {
-        effects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+      if (richEditing && livePreviewCompartment) {
+        effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
       }
     }
     const dispatchStartedAt = performance.now()
@@ -1589,15 +1611,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownCompartment.reconfigure(markdownEditingExtensions()),
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
-        if (useStore.getState().livePreview && livePreviewCompartment) {
-          restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+        if (modeRef.current === 'edit' && livePreviewCompartment) {
+          restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
         }
         view.dispatch({
           effects: restoreEffects
         })
       }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
     }
-  }, [content?.body, content?.path, livePreview, pendingJumpLocation?.path])
+  }, [content?.body, content?.path, mode, pendingJumpLocation?.path])
 
   useEffect(() => {
     if (!content) return
@@ -1622,12 +1644,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
   }, [vimMode])
+  // WYSIWYG (live-preview) extensions are active only in Edit mode; Split
+  // and Preview keep the raw source editor. Reconfigure when the mode flips.
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
     if (!view || !comp) return
+    const richEditing = mode === 'edit'
     if (deferredLivePreviewTimerRef.current != null) {
-      if (livePreview) {
+      if (richEditing) {
         clearTimeout(deferredLivePreviewTimerRef.current)
         deferredLivePreviewTimerRef.current = null
         richMarkdownDeferredRef.current = false
@@ -1642,13 +1667,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(livePreviewPlugin))
+        effects.push(comp.reconfigure(wysiwygExtensions()))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(livePreview ? livePreviewPlugin : []) })
-  }, [livePreview])
+    view.dispatch({ effects: comp.reconfigure(richEditing ? wysiwygExtensions() : []) })
+  }, [mode])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current
@@ -3020,7 +3045,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     </div>
                   )}
                   {editorReady ? (
-                    <div ref={setContainerRef} className="min-h-0 min-w-0 flex-1" />
+                    <div
+                      ref={setContainerRef}
+                      className={[
+                        'min-h-0 min-w-0 flex-1',
+                        // WYSIWYG (live-preview) styling — proportional body
+                        // font, code-block cards, rendered tables — applies
+                        // only in Edit mode. Split keeps the raw source look.
+                        mode === 'edit' ? 'cm-wysiwyg' : ''
+                      ].join(' ')}
+                    />
                   ) : (
                     <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-ink-400">
                       Preparing editor…

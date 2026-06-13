@@ -716,6 +716,11 @@ function computeDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         const name = node.name
+        // Tables are owned by the live table widget (cm-table.ts), which
+        // block-replaces the whole table. Hiding marks inside it here would
+        // produce overlapping replace decorations and crash the view, so skip
+        // the entire Table subtree.
+        if (name === 'Table') return false
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE
@@ -763,9 +768,9 @@ function computeDecorations(view: EditorView): DecorationSet {
           const linkRange = enclosingLinkRange(node)
           if (linkRange && selectionTouchesRange(state, linkRange.from, linkRange.to)) return
         } else if (activeLines.has(line)) {
-          const keepHeadingMarkerHidden =
-            name === 'HeaderMark' && !selectionTouchesRange(state, node.from, node.to)
-          if (!keepHeadingMarkerHidden) return
+          // Obsidian-style: the line the cursor is on reveals its raw source,
+          // including the leading `#`/`>` markers, so it reads as the source.
+          return
         }
 
         let start = node.from

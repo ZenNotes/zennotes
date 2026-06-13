@@ -86,6 +86,7 @@ export function NoteList(): JSX.Element {
   const openDatabase = useStore((s) => s.openDatabase)
   const prefetchNotes = useStore((s) => s.prefetchNotes)
   const focusedPanel = useStore((s) => s.focusedPanel)
+  const vimMode = useStore((s) => s.vimMode)
   const noteListCursorIndex = useStore((s) => s.noteListCursorIndex)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
@@ -681,6 +682,11 @@ export function NoteList(): JSX.Element {
       : { folder: 'inbox' as const, subpath: '' }
 
   const isNoteListFocused = focusedPanel === 'notelist'
+  // Vim-navigation cursor chrome (row highlight, accent outline, panel ring) is
+  // only meaningful when Vim mode is on; otherwise it appears on plain mouse
+  // focus for users who never navigate by keyboard. Gate the visuals — but keep
+  // the functional `isNoteListFocused` for scroll-into-view bookkeeping.
+  const noteListKbFocused = vimMode && isNoteListFocused
 
   const scrollFolderIndexIntoView = (index: number): void => {
     const node = scrollRef.current
@@ -722,7 +728,7 @@ export function NoteList(): JSX.Element {
 
   return (
     <section
-      className={`glass-column relative flex shrink-0 flex-col${isNoteListFocused ? ' panel-focused' : ''}`}
+      className={`glass-column relative flex shrink-0 flex-col${noteListKbFocused ? ' panel-focused' : ''}`}
       style={{ width: noteListWidth }}
       onMouseDownCapture={() => setFocusedPanel('notelist')}
       onFocusCapture={() => setFocusedPanel('notelist')}
@@ -870,7 +876,7 @@ export function NoteList(): JSX.Element {
                         setMenu({ x: e.clientX, y: e.clientY, path: entry.note.path })
                       }}
                       noteListIdx={i}
-                      vimHighlight={isNoteListFocused && noteListCursorIndex === i}
+                      vimHighlight={noteListKbFocused && noteListCursorIndex === i}
                     />
                   ) : (
                     <FolderAssetRow
@@ -882,7 +888,7 @@ export function NoteList(): JSX.Element {
                         setAssetMenu({ x: e.clientX, y: e.clientY, path: entry.asset.path })
                       }}
                       noteListIdx={i}
-                      vimHighlight={isNoteListFocused && noteListCursorIndex === i}
+                      vimHighlight={noteListKbFocused && noteListCursorIndex === i}
                     />
                   )}
                 </div>

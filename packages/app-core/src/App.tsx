@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useStore } from './store'
-import { resolveAuto } from './lib/themes'
+import { resolveThemeId } from './lib/themes'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
 import { TitleBar } from './components/TitleBar'
@@ -261,8 +261,8 @@ function App(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
-  const themeId = useStore((s) => s.themeId)
-  const themeFamily = useStore((s) => s.themeFamily)
+  const themeLightId = useStore((s) => s.themeLightId)
+  const themeDarkId = useStore((s) => s.themeDarkId)
   const themeMode = useStore((s) => s.themeMode)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
@@ -391,18 +391,14 @@ function App(): JSX.Element {
     return () => window.removeEventListener('beforeunload', flush)
   }, [flushDirtyNotes])
 
-  // Apply theme: set html[data-theme=...] based on mode/family/id.
-  // When mode === 'auto', we mirror `prefers-color-scheme` and also
-  // react to changes while the app is running.
+  // Apply theme: set html[data-theme=...] from the per-mode light/dark picks.
+  // When mode === 'auto', we mirror `prefers-color-scheme` and also react to
+  // changes while the app is running.
   useEffect(() => {
     const html = document.documentElement
     const mql = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = (): void => {
-      let id = themeId
-      if (themeMode === 'auto') {
-        id = resolveAuto(themeFamily, mql.matches, themeId)
-      }
-      html.dataset.theme = id
+      html.dataset.theme = resolveThemeId(themeLightId, themeDarkId, themeMode, mql.matches)
     }
     apply()
     if (themeMode === 'auto') {
@@ -410,7 +406,7 @@ function App(): JSX.Element {
       return () => mql.removeEventListener('change', apply)
     }
     return undefined
-  }, [themeId, themeFamily, themeMode])
+  }, [themeLightId, themeDarkId, themeMode])
 
   // Apply editor font size + line height + all three font families as
   // CSS variables. Each family has its own fallback stack so leaving it

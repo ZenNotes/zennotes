@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
-import { resolveAuto, THEMES } from "../lib/themes";
+import { resolveThemeId, THEMES } from "../lib/themes";
 import { resolveWikilinkTarget } from "../lib/wikilinks";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
@@ -333,8 +333,8 @@ async function renderMermaidBlocks(
 }
 
 function usePreviewDiagramThemeMode(): "light" | "dark" {
-  const themeId = useStore((s) => s.themeId);
-  const themeFamily = useStore((s) => s.themeFamily);
+  const themeLightId = useStore((s) => s.themeLightId);
+  const themeDarkId = useStore((s) => s.themeDarkId);
   const themeMode = useStore((s) => s.themeMode);
   // Track the OS-level preference so `mode: 'auto'` themes still pick
   // the right mermaid palette when the system toggles between light/dark.
@@ -350,10 +350,9 @@ function usePreviewDiagramThemeMode(): "light" | "dark" {
     return () => mql.removeEventListener("change", handler);
   }, []);
   return useMemo(() => {
-    const resolvedId =
-      themeMode === "auto" ? resolveAuto(themeFamily, prefersDark, themeId) : themeId;
+    const resolvedId = resolveThemeId(themeLightId, themeDarkId, themeMode, prefersDark);
     return THEMES.find((t) => t.id === resolvedId)?.mode ?? "light";
-  }, [themeId, themeFamily, themeMode, prefersDark]);
+  }, [themeLightId, themeDarkId, themeMode, prefersDark]);
 }
 
 export const Preview = memo(function Preview({
