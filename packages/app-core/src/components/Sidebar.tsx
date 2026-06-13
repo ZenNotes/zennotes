@@ -2553,12 +2553,6 @@ export function Sidebar(): JSX.Element {
           </div>
         )}
         <div className="flex items-center gap-0.5">
-          <IconBtn
-            title="New note (choose folder)"
-            onClick={() => void createNoteInChosenFolder()}
-          >
-            <PlusIcon />
-          </IconBtn>
           <IconBtn title="Hide sidebar (⌘1)" onClick={toggleSidebar}>
             <PanelLeftIcon />
           </IconBtn>
