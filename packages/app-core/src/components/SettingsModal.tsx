@@ -2436,8 +2436,8 @@ function KeymapSettings({
   onSetBinding: (id: KeymapId, binding: string | null) => void
   onResetAll: () => void
 }): JSX.Element {
-  const vimMappings = useStore((s)=> s.vimMappings)
-  const setVimMappings = useStore((s)=> s.setVimMappings)
+  const vimMappings = useStore((s) => s.vimMappings)
+  const setVimMappings = useStore((s) => s.setVimMappings)
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<KeymapDefinition | null>(null)
 
@@ -2471,16 +2471,17 @@ function KeymapSettings({
           <div className="min-w-0">
             <div className="text-sm font-medium text-ink-900">.vimrc</div>
             <div className="mt-1 text-xs leading-5 text-ink-500">
-              Paste in your config here, one mapping per line. This will only apply into vim motions.
+              Extend custom key mappings using Vimscript syntax. Supports
+              noremap, map, and unmap across normal, visual, and insert modes.
             </div>
           </div>
-           <textarea
-              value={vimMappings}
-              onChange={(e) => setVimMappings(e.target.value)}
-              placeholder={"noremap L $\nnoremap H ^\n\" comment"}
-              spellCheck={false}
-              className="h-40 w-full resize-y rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-xs leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
-            /> 
+          <textarea
+            value={vimMappings}
+            onChange={(e) => setVimMappings(e.target.value)}
+            placeholder={'noremap L $\nnoremap H ^\n" comment'}
+            spellCheck={false}
+            className="h-40 w-full resize-none rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-xs leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+          />
         </div>
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">

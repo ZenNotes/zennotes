@@ -37,14 +37,23 @@ import {
   getKeymapBinding,
   getSequenceTokens,
   type KeymapId,
-  type KeymapOverrides
-} from '../lib/keymaps'
-import { navigateActiveBuffer } from '../lib/buffer-navigation'
-import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+  type KeymapOverrides,
+} from '../lib/keymaps';
+import { navigateActiveBuffer } from '../lib/buffer-navigation';
+import { applyVimInsertEscape } from '../lib/vim-insert-escape';
+import {
+  type AppliedVimMapping,
+  type VimMapCmd,
+  type VimUnmapCmd,
+  VIM_MAP_CMD_MODES,
+  VIM_NOREMAP_CMDS,
+  VIM_UNMAP_CMD_MODES,
+  VIM_UNMAP_CMDS,
+} from '../lib/vim-mappings'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
-let appliedVimMappingLhs: string[] = []
+let appliedVimMappings: AppliedVimMapping[] = []
 
 const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
   'gd',
@@ -167,32 +176,44 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
   scroller.scrollTop = nextTop
 }
 
-function applyVimMappings(raw: string): void {
-  for (const lhs of appliedVimMappingLhs) {
+function applyVimMappings(raw: string, overrides: KeymapOverrides): void {
+  for (const { lhs, mode } of appliedVimMappings) {
     try {
-      Vim.unmap(lhs, 'normal')
-    } catch { 
-      /* ignore */ 
+      Vim.unmap(lhs, mode)
+    } catch {
+      /* ignore */
     }
   }
-  appliedVimMappingLhs = []
-  for (const line of raw.split('\n')) {
+  appliedVimMappings = []
+
+  const leaderKey =
+    toVimSequence(getKeymapBinding(overrides, 'vim.leaderPrefix')) ?? '<Space>'
+  const resolve = (token: string): string =>
+    token.replace(/<leader>/gi, leaderKey)
+
+  const sanitized = raw.trim()
+  for (const line of sanitized.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('"')) continue
-    const [cmd, lhs, rhs] = trimmed.split(/\s+/)
+    const parts = trimmed.split(/\s+/)
+    const cmd = parts[0]
+    const lhs = parts[1] ? resolve(parts[1]) : undefined
+    const rhs = parts[2] ? resolve(parts[2]) : undefined
     if (!lhs) continue
     try {
-      if ((cmd === 'noremap' || cmd === 'nnoremap') && rhs) {
-        Vim.noremap(lhs, rhs, 'normal')
-        appliedVimMappingLhs.push(lhs)
-      } else if ((cmd === 'map' || cmd === 'nmap') && rhs) {
-        Vim.map(lhs, rhs, 'normal')
-        appliedVimMappingLhs.push(lhs)
-      } else if (cmd === 'unmap' || cmd === 'nunmap') {
-        Vim.unmap(lhs, 'normal')
+      if (VIM_UNMAP_CMDS.has(cmd as VimUnmapCmd)) {
+        Vim.unmap(lhs, VIM_UNMAP_CMD_MODES[cmd as VimUnmapCmd])
+      } else {
+        const mode = VIM_MAP_CMD_MODES[cmd as VimMapCmd]
+        if (mode && rhs) {
+          VIM_NOREMAP_CMDS.has(cmd as VimMapCmd)
+            ? Vim.noremap(lhs, rhs, mode)
+            : Vim.map(lhs, rhs, mode)
+          appliedVimMappings.push({ lhs, mode })
+        }
       }
-    } catch { 
-      /* ignore bad mappings */ 
+    } catch {
+      /* ignore bad mappings */
     }
   }
 }
@@ -1293,7 +1314,7 @@ export function Editor(): JSX.Element {
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const zenMode = useStore((s) => s.zenMode)
   const vimMappings = useStore((s) => s.vimMappings)
-  const vimMode = useStore((s)=> s.vimMode)
+  const vimMode = useStore((s) => s.vimMode)
 
   useEffect(() => {
     registerVimCommands()
@@ -1310,8 +1331,8 @@ export function Editor(): JSX.Element {
 
   useEffect(() => {
     if (!vimMode) return
-    applyVimMappings(vimMappings)
-  }, [vimMappings, vimMode])
+    applyVimMappings(vimMappings, keymapOverrides)
+  }, [vimMappings, vimMode, keymapOverrides])
 
   return (
     <section className="flex min-w-0 flex-1 flex-col">

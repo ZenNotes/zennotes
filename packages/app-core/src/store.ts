@@ -4032,7 +4032,7 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setVimMappings: (mappings) =>{
-    set({vimMappings: mappings.trim()})
+    set({vimMappings: mappings})
   },
   setKeymapBinding: (id, binding) => {
     set((s) => {
