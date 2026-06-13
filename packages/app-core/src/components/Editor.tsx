@@ -20,13 +20,16 @@ import type { PaneLayout, PaneSplit } from '../lib/pane-layout'
 import {
   parseCreateNotePath,
   resolveWikilinkTarget,
-  suggestCreateNotePath
+  suggestCreateNotePath,
 } from '../lib/wikilinks'
-import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
+import {
+  classifyLocalAssetHref,
+  resolveAssetVaultRelativePath,
+} from '../lib/local-assets'
 import {
   buildMoveNotePrompt,
   parseMoveNoteTarget,
-  validateMoveNoteTarget
+  validateMoveNoteTarget,
 } from '../lib/move-note'
 import { promptApp } from '../lib/prompt-requests'
 import { StatusBar } from './StatusBar'
@@ -35,12 +38,13 @@ import { focusPaneInDirection, focusPaneOrEdgePanel } from '../lib/pane-nav'
 import { requestPaneMode } from '../lib/pane-mode'
 import {
   getKeymapBinding,
+  getKeymapDefinitions,
   getSequenceTokens,
   type KeymapId,
   type KeymapOverrides,
-} from '../lib/keymaps';
-import { navigateActiveBuffer } from '../lib/buffer-navigation';
-import { applyVimInsertEscape } from '../lib/vim-insert-escape';
+} from '../lib/keymaps'
+import { navigateActiveBuffer } from '../lib/buffer-navigation'
+import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import {
   type AppliedVimMapping,
   type VimMapCmd,
@@ -49,6 +53,7 @@ import {
   VIM_NOREMAP_CMDS,
   VIM_UNMAP_CMD_MODES,
   VIM_UNMAP_CMDS,
+  toVimSequence,
 } from '../lib/vim-mappings'
 
 let vimCommandsRegistered = false
@@ -68,7 +73,7 @@ const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
   'zc',
   'zo',
   'zM',
-  'zR'
+  'zR',
 ]
 
 function clearKnownVimMappings(): void {
@@ -81,56 +86,13 @@ function clearKnownVimMappings(): void {
   }
 }
 
-function toVimKeyName(base: string): string {
-  if (base === 'Space') return 'Space'
-  if (base === 'Enter') return 'CR'
-  if (base === 'Esc' || base === 'Escape') return 'Esc'
-  if (base === 'Tab') return 'Tab'
-  if (base === 'ArrowUp') return 'Up'
-  if (base === 'ArrowDown') return 'Down'
-  if (base === 'ArrowLeft') return 'Left'
-  if (base === 'ArrowRight') return 'Right'
-  return base
-}
-
-function toVimSequenceToken(token: string): string | null {
-  const parts = token
-    .split('+')
-    .map((part) => part.trim())
-    .filter(Boolean)
-  if (parts.length === 0) return null
-  const base = parts.pop()
-  if (!base) return null
-  const keyName = toVimKeyName(base)
-  if (parts.length === 0) {
-    if (base.length === 1) return base
-    return `<${keyName}>`
-  }
-  const modifiers = parts
-    .map((part) => {
-      if (part === 'Ctrl') return 'C'
-      if (part === 'Alt') return 'A'
-      if (part === 'Shift') return 'S'
-      if (part === 'Meta' || part === 'Mod') return 'D'
-      return null
-    })
-    .filter(Boolean) as string[]
-  const normalizedKey = base.length === 1 ? base.toLowerCase() : keyName
-  return `<${[...modifiers, normalizedKey].join('-')}>`
-}
-
-function toVimSequence(binding: string): string | null {
-  const tokens = binding
-    .split(/\s+/)
-    .map((token) => token.trim())
-    .filter(Boolean)
-    .map((token) => toVimSequenceToken(token))
-  if (tokens.length === 0 || tokens.some((token) => !token)) return null
-  return tokens.join('')
-}
-
-function paneMapBindings(overrides: KeymapOverrides, actionId: KeymapId): string[] {
-  const prefixBinding = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))
+function paneMapBindings(
+  overrides: KeymapOverrides,
+  actionId: KeymapId,
+): string[] {
+  const prefixBinding = toVimSequence(
+    getKeymapBinding(overrides, 'vim.panePrefix'),
+  )
   const actionBinding = toVimSequence(getKeymapBinding(overrides, actionId))
   if (!prefixBinding || !actionBinding) return []
   const bindings = [`${prefixBinding}${actionBinding}`]
@@ -171,7 +133,10 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
     range = next
   }
   const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
-  const nextTop = Math.max(0, Math.min(maxTop, scroller.scrollTop + (forward ? half : -half)))
+  const nextTop = Math.max(
+    0,
+    Math.min(maxTop, scroller.scrollTop + (forward ? half : -half)),
+  )
   view.dispatch({ selection: { anchor: range.head } })
   scroller.scrollTop = nextTop
 }
@@ -219,105 +184,106 @@ function applyVimMappings(raw: string, overrides: KeymapOverrides): void {
 }
 
 function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> = [
-    {
-      id: 'vim.goToDefinition',
-      action: 'goToDefinition',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.goToDefinition'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.paneFocusLeft',
-      action: 'focusPaneLeft',
-      bindings: paneMapBindings(overrides, 'vim.paneFocusLeft')
-    },
-    {
-      id: 'vim.paneFocusDown',
-      action: 'focusPaneDown',
-      bindings: paneMapBindings(overrides, 'vim.paneFocusDown')
-    },
-    {
-      id: 'vim.paneFocusUp',
-      action: 'focusPaneUp',
-      bindings: paneMapBindings(overrides, 'vim.paneFocusUp')
-    },
-    {
-      id: 'vim.paneFocusRight',
-      action: 'focusPaneRight',
-      bindings: paneMapBindings(overrides, 'vim.paneFocusRight')
-    },
-    {
-      id: 'vim.bufferPrevious',
-      action: 'previousBuffer',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.bufferPrevious'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.bufferNext',
-      action: 'nextBuffer',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.bufferNext'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.tabPrevious',
-      action: 'previousBuffer',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.tabPrevious'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.tabNext',
-      action: 'nextBuffer',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.tabNext'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.foldCurrent',
-      action: 'foldHeadingAtCursor',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.foldCurrent'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.unfoldCurrent',
-      action: 'unfoldHeadingAtCursor',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.unfoldCurrent'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.foldAll',
-      action: 'foldAllHeadings',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.foldAll'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'vim.unfoldAll',
-      action: 'unfoldAllHeadings',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'vim.unfoldAll'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'nav.halfPageDown',
-      action: 'zenHalfPageDown',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'nav.halfPageDown'))].filter(
-        (binding): binding is string => !!binding
-      )
-    },
-    {
-      id: 'nav.halfPageUp',
-      action: 'zenHalfPageUp',
-      bindings: [toVimSequence(getKeymapBinding(overrides, 'nav.halfPageUp'))].filter(
-        (binding): binding is string => !!binding
-      )
-    }
-  ]
+  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> =
+    [
+      {
+        id: 'vim.goToDefinition',
+        action: 'goToDefinition',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.goToDefinition')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.paneFocusLeft',
+        action: 'focusPaneLeft',
+        bindings: paneMapBindings(overrides, 'vim.paneFocusLeft'),
+      },
+      {
+        id: 'vim.paneFocusDown',
+        action: 'focusPaneDown',
+        bindings: paneMapBindings(overrides, 'vim.paneFocusDown'),
+      },
+      {
+        id: 'vim.paneFocusUp',
+        action: 'focusPaneUp',
+        bindings: paneMapBindings(overrides, 'vim.paneFocusUp'),
+      },
+      {
+        id: 'vim.paneFocusRight',
+        action: 'focusPaneRight',
+        bindings: paneMapBindings(overrides, 'vim.paneFocusRight'),
+      },
+      {
+        id: 'vim.bufferPrevious',
+        action: 'previousBuffer',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.bufferPrevious')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.bufferNext',
+        action: 'nextBuffer',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.bufferNext')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.tabPrevious',
+        action: 'previousBuffer',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.tabPrevious')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.tabNext',
+        action: 'nextBuffer',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.tabNext')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.foldCurrent',
+        action: 'foldHeadingAtCursor',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.foldCurrent')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.unfoldCurrent',
+        action: 'unfoldHeadingAtCursor',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.unfoldCurrent')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.foldAll',
+        action: 'foldAllHeadings',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.foldAll')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'vim.unfoldAll',
+        action: 'unfoldAllHeadings',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'vim.unfoldAll')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'nav.halfPageDown',
+        action: 'zenHalfPageDown',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'nav.halfPageDown')),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: 'nav.halfPageUp',
+        action: 'zenHalfPageUp',
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, 'nav.halfPageUp')),
+        ].filter((binding): binding is string => !!binding),
+      },
+    ]
 
   for (const mapping of mappings) {
     for (const binding of syncedVimBindings[mapping.id] ?? []) {
@@ -328,7 +294,13 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       }
     }
     for (const binding of mapping.bindings) {
-      Vim.mapCommand(binding, 'action', mapping.action, {}, { context: 'normal' })
+      Vim.mapCommand(
+        binding,
+        'action',
+        mapping.action,
+        {},
+        { context: 'normal' },
+      )
     }
     syncedVimBindings[mapping.id] = mapping.bindings
   }
@@ -337,7 +309,8 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
 function unwrapMdUrl(url: string): string {
   // Markdown wraps URLs with spaces in angle brackets: `[x](<a b.pdf>)`.
   const trimmed = url.trim()
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed.slice(1, -1)
+  if (trimmed.startsWith('<') && trimmed.endsWith('>'))
+    return trimmed.slice(1, -1)
   return trimmed
 }
 
@@ -425,7 +398,7 @@ function registerVimCommands(): void {
   // prefix of `template`) is registered as its own command sharing the handler.
   const runTemplateEx = (
     _cm: unknown,
-    params: { argString?: string } | undefined
+    params: { argString?: string } | undefined,
   ): void => {
     const state = useStore.getState()
     const arg = (params?.argString ?? '').trim()
@@ -435,7 +408,7 @@ function registerVimCommands(): void {
     }
     const all = mergeTemplates(
       state.hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES,
-      state.customTemplates
+      state.customTemplates,
     )
     const lower = arg.toLowerCase()
     const match =
@@ -475,7 +448,7 @@ function registerVimCommands(): void {
       }
       state.setSelectedTags(args)
       void state.openTagView()
-    }
+    },
   )
 
   // Vim-style window splits. `:split` clones the current tab into a
@@ -488,7 +461,7 @@ function registerVimCommands(): void {
     void state.splitPaneWithTab({
       targetPaneId: state.activePaneId,
       edge: 'bottom',
-      path
+      path,
     })
   })
   Vim.defineEx('vsplit', 'vs', () => {
@@ -498,7 +471,7 @@ function registerVimCommands(): void {
     void state.splitPaneWithTab({
       targetPaneId: state.activePaneId,
       edge: 'right',
-      path
+      path,
     })
   })
 
@@ -509,10 +482,15 @@ function registerVimCommands(): void {
   const focusDir = (dir: 'h' | 'j' | 'k' | 'l'): void => {
     focusPaneInDirection(dir)
   }
-  Vim.defineEx('wincmd', 'winc', (_cm: unknown, params: { argString?: string } | undefined) => {
-    const dir = (params?.argString ?? '').trim().toLowerCase()[0]
-    if (dir === 'h' || dir === 'j' || dir === 'k' || dir === 'l') focusDir(dir)
-  })
+  Vim.defineEx(
+    'wincmd',
+    'winc',
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const dir = (params?.argString ?? '').trim().toLowerCase()[0]
+      if (dir === 'h' || dir === 'j' || dir === 'k' || dir === 'l')
+        focusDir(dir)
+    },
+  )
   Vim.defineEx('pane_focus_left', 'pane_focus_left', () => focusDir('h'))
   Vim.defineEx('pane_focus_down', 'pane_focus_down', () => focusDir('j'))
   Vim.defineEx('pane_focus_up', 'pane_focus_up', () => focusDir('k'))
@@ -571,21 +549,27 @@ function registerVimCommands(): void {
         } catch (err) {
           return (err as Error).message
         }
-      }
+      },
     }).then(async (value) => {
       if (!value) return
       try {
         const parsed = parseCreateNotePath(value)
         const existing = state.notes.find(
-          (note) => note.folder !== 'trash' && note.path.toLowerCase() === parsed.relPath.toLowerCase()
+          (note) =>
+            note.folder !== 'trash' &&
+            note.path.toLowerCase() === parsed.relPath.toLowerCase(),
         )
         if (existing) {
           await state.selectNote(existing.path)
           state.setFocusedPanel('editor')
-          requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
+          requestAnimationFrame(() =>
+            useStore.getState().editorViewRef?.focus(),
+          )
           return
         }
-        await state.createAndOpen(parsed.folder, parsed.subpath, { title: parsed.title })
+        await state.createAndOpen(parsed.folder, parsed.subpath, {
+          title: parsed.title,
+        })
         state.setFocusedPanel('editor')
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
       } catch (err) {
@@ -641,7 +625,11 @@ function registerVimCommands(): void {
  * - `:h[elp]`            open the built-in Help manual
  */
 function registerVimNoteCommands(): void {
-  const getActiveLeaf = (): { id: string; tabs: string[]; activeTab: string | null } | null => {
+  const getActiveLeaf = (): {
+    id: string
+    tabs: string[]
+    activeTab: string | null
+  } | null => {
     const s = useStore.getState()
     const leaves = allLeavesFlat(s.paneLayout)
     return leaves.find((l) => l.id === s.activePaneId) ?? null
@@ -663,7 +651,7 @@ function registerVimNoteCommands(): void {
     const existing = state.notes.find(
       (n) =>
         n.folder !== 'trash' &&
-        n.path.toLowerCase() === parsed.relPath.toLowerCase()
+        n.path.toLowerCase() === parsed.relPath.toLowerCase(),
     )
     if (existing) {
       await state.selectNote(existing.path)
@@ -672,7 +660,7 @@ function registerVimNoteCommands(): void {
       return
     }
     await state.createAndOpen(parsed.folder, parsed.subpath, {
-      title: parsed.title
+      title: parsed.title,
     })
     state.setFocusedPanel('editor')
     requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
@@ -683,7 +671,7 @@ function registerVimNoteCommands(): void {
     'e',
     (_cm: unknown, params: { argString?: string } | undefined) => {
       void openOrCreateByPath(params?.argString ?? '')
-    }
+    },
   )
 
   // `:new` shadows vim's "horizontal split empty buffer" — for a notes
@@ -694,11 +682,13 @@ function registerVimNoteCommands(): void {
     (_cm: unknown, params: { argString?: string } | undefined) => {
       const arg = (params?.argString ?? '').trim()
       if (!arg) {
-        void useStore.getState().createAndOpen('inbox', '', { focusTitle: true })
+        void useStore
+          .getState()
+          .createAndOpen('inbox', '', { focusTitle: true })
         return
       }
       void openOrCreateByPath(arg)
-    }
+    },
   )
 
   const moveActiveNote = async (raw: string): Promise<void> => {
@@ -709,7 +699,8 @@ function registerVimNoteCommands(): void {
     const value = raw.trim()
     let target = value
     if (!target) {
-      target = (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? ''
+      target =
+        (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? ''
       if (!target) return
     }
 
@@ -722,18 +713,29 @@ function registerVimNoteCommands(): void {
     await state.moveNote(active.path, dest.folder, dest.subpath)
   }
 
-  const runMoveEx = (_cm: unknown, params: { argString?: string } | undefined): void => {
+  const runMoveEx = (
+    _cm: unknown,
+    params: { argString?: string } | undefined,
+  ): void => {
     void moveActiveNote(params?.argString ?? '')
   }
 
   Vim.defineEx('move', 'move', runMoveEx)
   Vim.defineEx('mv', 'mv', runMoveEx)
 
-  Vim.defineEx('bnext', 'bn', () => navigateActiveBuffer(useStore.getState(), 1))
-  Vim.defineEx('bprev', 'bp', () => navigateActiveBuffer(useStore.getState(), -1))
+  Vim.defineEx('bnext', 'bn', () =>
+    navigateActiveBuffer(useStore.getState(), 1),
+  )
+  Vim.defineEx('bprev', 'bp', () =>
+    navigateActiveBuffer(useStore.getState(), -1),
+  )
   // Vim tab aliases over the same active-pane tab navigation.
-  Vim.defineEx('tabnext', 'tabn', () => navigateActiveBuffer(useStore.getState(), 1))
-  Vim.defineEx('tabprevious', 'tabp', () => navigateActiveBuffer(useStore.getState(), -1))
+  Vim.defineEx('tabnext', 'tabn', () =>
+    navigateActiveBuffer(useStore.getState(), 1),
+  )
+  Vim.defineEx('tabprevious', 'tabp', () =>
+    navigateActiveBuffer(useStore.getState(), -1),
+  )
   // Vim aliases: :bNext and :bfirst/:blast — rare, skipped.
 
   const closeActiveTabLikeQuit = (): void => {
@@ -787,22 +789,34 @@ function registerVimNoteCommands(): void {
       requestPaneMode(mode)
     })
   }
-  Vim.defineEx('view', 'view', (_cm: unknown, params: { argString?: string } | undefined) => {
-    const nextMode = (params?.argString ?? '').trim().toLowerCase()
-    if (nextMode === 'edit' || nextMode === 'split' || nextMode === 'preview') {
-      setPaneMode(nextMode)
-    }
-  })
-  Vim.defineEx('zen', 'zen', (_cm: unknown, params: { argString?: string } | undefined) => {
-    const nextMode = (params?.argString ?? '').trim().toLowerCase()
-    if (!nextMode || nextMode === 'toggle') {
-      setZenMode('toggle')
-      return
-    }
-    if (nextMode === 'on' || nextMode === 'off') {
-      setZenMode(nextMode)
-    }
-  })
+  Vim.defineEx(
+    'view',
+    'view',
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const nextMode = (params?.argString ?? '').trim().toLowerCase()
+      if (
+        nextMode === 'edit' ||
+        nextMode === 'split' ||
+        nextMode === 'preview'
+      ) {
+        setPaneMode(nextMode)
+      }
+    },
+  )
+  Vim.defineEx(
+    'zen',
+    'zen',
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const nextMode = (params?.argString ?? '').trim().toLowerCase()
+      if (!nextMode || nextMode === 'toggle') {
+        setZenMode('toggle')
+        return
+      }
+      if (nextMode === 'on' || nextMode === 'off') {
+        setZenMode(nextMode)
+      }
+    },
+  )
   Vim.defineEx('zenmode', 'zenmode', () => setZenMode('toggle'))
   Vim.defineEx('editmode', 'editmode', () => setPaneMode('edit'))
   Vim.defineEx('splitmode', 'splitmode', () => setPaneMode('split'))
@@ -844,7 +858,9 @@ function registerVimNoteCommands(): void {
   // on the current heading; `:foldall` / `:unfoldall` cover the whole
   // note. We map vim's `zc` / `zo` / `zM` / `zR` keys explicitly so the
   // advertised fold chords work regardless of what CM-Vim ships by default.
-  const runFold = (cmd: (view: { state: unknown; dispatch: unknown }) => boolean): void => {
+  const runFold = (
+    cmd: (view: { state: unknown; dispatch: unknown }) => boolean,
+  ): void => {
     const view = useStore.getState().editorViewRef
     if (!view) return
     cmd(view as unknown as Parameters<typeof foldCode>[0])
@@ -855,10 +871,10 @@ function registerVimNoteCommands(): void {
   Vim.defineAction('foldAllHeadings', () => runFold(foldAll as never))
   Vim.defineAction('unfoldAllHeadings', () => runFold(unfoldAll as never))
   Vim.defineAction('zenHalfPageDown', (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, true)
+    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, true),
   )
   Vim.defineAction('zenHalfPageUp', (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, false)
+    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, false),
   )
   Vim.defineEx('fold', 'fold', () => runFold(foldCode as never))
   Vim.defineEx('unfold', 'unfold', () => runFold(unfoldCode as never))
@@ -870,12 +886,13 @@ function registerVimNoteCommands(): void {
  *  `allLeaves` helper (which lives in `lib/pane-layout`). Duplicated
  *  locally to avoid a new import chain. */
 function allLeavesFlat(
-  node: PaneLayout
+  node: PaneLayout,
 ): Array<{ id: string; tabs: string[]; activeTab: string | null }> {
   if (node.kind === 'leaf') {
     return [{ id: node.id, tabs: node.tabs, activeTab: node.activeTab }]
   }
-  const out: Array<{ id: string; tabs: string[]; activeTab: string | null }> = []
+  const out: Array<{ id: string; tabs: string[]; activeTab: string | null }> =
+    []
   for (const child of node.children) out.push(...allLeavesFlat(child))
   return out
 }
@@ -941,7 +958,7 @@ const MANUAL_EX_NAMES = new Set([
   'wall',
   'wa',
   'help',
-  'h'
+  'h',
 ])
 
 function commandIdToExName(id: string): string {
@@ -999,11 +1016,11 @@ function registerCommandPaletteEx(): void {
       const ranked = rankItems(commands, query, [
         { get: (c) => c.title, weight: 1 },
         { get: (c) => c.keywords ?? '', weight: 0.6 },
-        { get: (c) => c.category, weight: 0.4 }
+        { get: (c) => c.category, weight: 0.4 },
       ])
       const first = ranked.find((c) => !c.when || c.when())
       if (first) runCommand(first)
-    }
+    },
   )
   names.add('cmd')
 
@@ -1053,7 +1070,7 @@ function ensureWildmenu(): Wildmenu {
     'box-shadow: 0 10px 30px rgba(0,0,0,0.35)',
     'font: 12px/1.4 var(--z-mono-font, ui-monospace, Menlo, monospace)',
     'color: rgb(var(--z-fg))',
-    'backdrop-filter: blur(6px)'
+    'backdrop-filter: blur(6px)',
   ].join(';')
 
   const list = document.createElement('div')
@@ -1088,7 +1105,11 @@ interface ExCompletionMatch {
   apply: string
 }
 
-function renderWildmenu(matches: ExCompletionMatch[], cycleIdx: number, anchor: HTMLElement): void {
+function renderWildmenu(
+  matches: ExCompletionMatch[],
+  cycleIdx: number,
+  anchor: HTMLElement,
+): void {
   const menu = ensureWildmenu()
   if (matches.length === 0) {
     menu.root.style.display = 'none'
@@ -1111,7 +1132,7 @@ function renderWildmenu(matches: ExCompletionMatch[], cycleIdx: number, anchor: 
       'white-space: nowrap',
       isActive
         ? 'background: rgb(var(--z-accent) / 0.85); color: white'
-        : 'color: rgb(var(--z-fg))'
+        : 'color: rgb(var(--z-fg))',
     ].join(';')
     menu.list.appendChild(row)
   })
@@ -1128,7 +1149,7 @@ function renderWildmenu(matches: ExCompletionMatch[], cycleIdx: number, anchor: 
   positionWildmenu(anchor)
 
   const activeRow = menu.list.querySelector<HTMLDivElement>(
-    `[data-idx="${cycleIdx}"]`
+    `[data-idx="${cycleIdx}"]`,
   )
   if (activeRow) activeRow.scrollIntoView({ block: 'nearest' })
 }
@@ -1155,7 +1176,7 @@ let exCycle: ExTabCycle | null = null
 function completeCommandArgs(
   input: string,
   command: string,
-  options: string[]
+  options: string[],
 ): ExCompletionMatch[] | null {
   const match = input.match(/^([A-Za-z0-9_]+)(\s+)([^ ]*)$/)
   if (!match) return null
@@ -1166,7 +1187,7 @@ function completeCommandArgs(
     : options
   return filtered.map((option) => ({
     label: option,
-    apply: `${commandName}${whitespace}${option}`
+    apply: `${commandName}${whitespace}${option}`,
   }))
 }
 
@@ -1214,7 +1235,12 @@ function installExTabCompletion(): void {
         // the app shouldn't clobber our state (modifier keys fire even
         // when the input is focused too, so we ignore those explicitly
         // instead of resetting on them).
-        if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') {
+        if (
+          e.key === 'Shift' ||
+          e.key === 'Control' ||
+          e.key === 'Alt' ||
+          e.key === 'Meta'
+        ) {
           return
         }
         const target = e.target as HTMLElement | null
@@ -1244,7 +1270,8 @@ function installExTabCompletion(): void {
       e.stopImmediatePropagation()
 
       const step = e.shiftKey ? -1 : 1
-      const fresh = !exCycle || exCycle.input !== target || exCycle.basePrefix === null
+      const fresh =
+        !exCycle || exCycle.input !== target || exCycle.basePrefix === null
 
       if (fresh) {
         exCycle = {
@@ -1254,7 +1281,7 @@ function installExTabCompletion(): void {
           // exactly the prefix we want to filter by.
           basePrefix: target.value,
           matches: computeExMatches(target.value),
-          cycleIdx: step === 1 ? 0 : -1 // sentinel; normalized below
+          cycleIdx: step === 1 ? 0 : -1, // sentinel; normalized below
         }
       } else if (exCycle) {
         exCycle.cycleIdx += step
@@ -1282,7 +1309,7 @@ function installExTabCompletion(): void {
       // Render / refresh the wildmenu with the highlighted match.
       renderWildmenu(cycle.matches, idx, target)
     },
-    true
+    true,
   )
 
   // Hide the wildmenu when the ex prompt's own input is detached from
@@ -1373,7 +1400,7 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
         index: handleIndex,
         startClient: isRow ? e.clientX : e.clientY,
         startSizes: split.sizes.slice(),
-        totalPx
+        totalPx,
       }
       const onMove = (ev: MouseEvent): void => {
         const st = dragState.current
@@ -1411,7 +1438,7 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
       document.body.style.cursor = isRow ? 'col-resize' : 'row-resize'
       document.body.style.userSelect = 'none'
     },
-    [isRow, resizeSplit, split.id, split.sizes]
+    [isRow, resizeSplit, split.id, split.sizes],
   )
 
   const nodes = useMemo(() => {
@@ -1421,11 +1448,13 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
       out.push(
         <div
           key={child.id}
-          className={['flex min-h-0 min-w-0', isRow ? '' : 'flex-col'].join(' ')}
+          className={['flex min-h-0 min-w-0', isRow ? '' : 'flex-col'].join(
+            ' ',
+          )}
           style={{ flex: `${basis} 1 0`, minWidth: 0, minHeight: 0 }}
         >
           <PaneTreeView node={child} />
-        </div>
+        </div>,
       )
       if (i < split.children.length - 1) {
         out.push(
@@ -1433,7 +1462,7 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
             key={`handle-${child.id}`}
             orientation={isRow ? 'vertical' : 'horizontal'}
             onMouseDown={onHandleMouseDown(i)}
-          />
+          />,
         )
       }
     })
@@ -1443,7 +1472,10 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
   return (
     <div
       ref={containerRef}
-      className={['flex min-h-0 min-w-0 flex-1', isRow ? 'flex-row' : 'flex-col'].join(' ')}
+      className={[
+        'flex min-h-0 min-w-0 flex-1',
+        isRow ? 'flex-row' : 'flex-col',
+      ].join(' ')}
     >
       {nodes}
     </div>
@@ -1457,7 +1489,7 @@ function PaneSplitView({ split }: { split: PaneSplit }): JSX.Element {
  */
 function ResizeDivider({
   orientation,
-  onMouseDown
+  onMouseDown,
 }: {
   orientation: 'vertical' | 'horizontal'
   onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -1470,9 +1502,7 @@ function ResizeDivider({
       onMouseDown={onMouseDown}
       className={[
         'group relative z-10 shrink-0 select-none bg-paper-300/70 transition-colors hover:bg-accent/60 active:bg-accent',
-        isVertical
-          ? 'w-px cursor-col-resize'
-          : 'h-px cursor-row-resize'
+        isVertical ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
       ].join(' ')}
     >
       {/* Wider hit zone centered on the divider line. */}
@@ -1481,7 +1511,7 @@ function ResizeDivider({
           'absolute',
           isVertical
             ? 'top-0 bottom-0 -left-1 w-[9px]'
-            : 'left-0 right-0 -top-1 h-[9px]'
+            : 'left-0 right-0 -top-1 h-[9px]',
         ].join(' ')}
       />
     </div>
