@@ -781,6 +781,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   // beat VimNav's global handler (which otherwise hijacks h/j/k/l).
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      // While the Vim hint overlay is open it owns the keyboard; yield to it. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName

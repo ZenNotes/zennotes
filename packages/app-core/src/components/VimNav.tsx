@@ -536,12 +536,7 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
-      // ------- Tasks / Tag view active → defer to its own window handler
-      // Both panels install capture-phase window keydowns that handle
-      // j/k/gg/G/Enter/o/Esc/etc. themselves. We bail here so VimNav
-      // doesn't swallow those keys with stale sidebar routing. Exception:
-      // let `f` (hint mode) fall through — a global affordance that
-      // should still work anywhere, and its handler sits further down.
+      // Cancel a pending leader sequence on Escape or a second leader press.
       if (leaderPending.current && e.key === 'Escape') {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -557,8 +552,20 @@ export function VimNav(): JSX.Element | null {
         resetLeader()
         return
       }
+      // ------- Tasks / Tag view active → defer to its own window handler
+      // Both panels install capture-phase window keydowns that handle
+      // j/k/gg/G/Enter/x/Esc/etc. themselves, so we bail and let them — with
+      // one exception: leader input. The leader (Space) and any in-progress
+      // leader sequence fall through to the leader logic below so <leader>h
+      // (hint mode) and every other leader command work in these panels too.
+      // VimNav consumes the leader keypress before TasksView sees it, so the
+      // leader no longer collides with Space-to-toggle. (#151)
       const panelViewActive = isTasksViewActive(state) || isTagsViewActive(state)
-      if (panelViewActive && e.key !== 'f') {
+      if (
+        panelViewActive &&
+        !leaderPending.current &&
+        sequenceTokenFromEvent(e) !== leaderToken
+      ) {
         return
       }
 
@@ -697,6 +704,13 @@ export function VimNav(): JSX.Element | null {
         resetLeader()
       }
 
+      // In the tasks/tags panels, only leader input is handled above; hand
+      // every other key (including a just-reset leader sequence) back to the
+      // panel's own capture handler. (#151)
+      if (panelViewActive && sequenceTokenFromEvent(e) !== leaderToken) {
+        return
+      }
+
       if (
         sequenceTokenFromEvent(e) === leaderToken &&
         !editorInsertMode
@@ -800,7 +814,7 @@ export function VimNav(): JSX.Element | null {
         }
 
         // `f` (and operator+motion sequences like df/cf/yf) are Vim find-char
-        // motions here — hint mode lives on the leader (<leader>f) so it never
+        // motions here — hint mode lives on the leader (<leader>h) so it never
         // hijacks them. (#107)
         return
       }

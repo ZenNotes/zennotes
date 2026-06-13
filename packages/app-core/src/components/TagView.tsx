@@ -190,6 +190,9 @@ export function TagView(): JSX.Element {
   useEffect(() => {
     if (!amActive) return
     const handler = (e: KeyboardEvent): void => {
+      // While the Vim hint overlay is open it owns the keyboard; don't let
+      // tag navigation (or Esc closing the view) steal its keys. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const focused = document.activeElement as HTMLElement | null
       if (focused) {
         const t = focused.tagName
@@ -205,13 +208,11 @@ export function TagView(): JSX.Element {
       }
 
       if (k === 'Escape') {
-        if (filter) {
-          consume()
-          setFilter('')
-          return
-        }
+        // Tags is a tab like a note tab — Esc clears an active filter but must
+        // never close the tab (other tabs don't close on Esc). Close with :q,
+        // the header ✕, or ⌘W. (#151)
         consume()
-        closeTagView()
+        if (filter) setFilter('')
         return
       }
       if (matchesSequenceToken(e, overrides, 'nav.filter')) {
@@ -453,7 +454,7 @@ export function TagView(): JSX.Element {
         </form>
       ) : (
         <div className="border-t border-current/10 px-4 py-1.5 text-xs text-current/40">
-          j/k move · Enter/o open · click chips to toggle · / filter · : command · Esc close
+          j/k move · Enter/o open · click chips to toggle · / filter · : command · :q close
         </div>
       )}
     </div>

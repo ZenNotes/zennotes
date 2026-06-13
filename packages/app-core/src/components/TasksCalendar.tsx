@@ -132,6 +132,8 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
   // sidebar bindings (same trick TasksView's list mode uses).
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      // While the Vim hint overlay is open it owns the keyboard; yield to it. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName

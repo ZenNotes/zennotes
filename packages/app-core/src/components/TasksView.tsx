@@ -202,6 +202,9 @@ export function TasksView(): JSX.Element {
   useEffect(() => {
     if (!isActivePanel) return
     const handler = (e: KeyboardEvent): void => {
+      // While the Vim hint overlay is open it owns the keyboard; don't let
+      // task navigation (or Esc closing the view) steal its keys. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -217,13 +220,11 @@ export function TasksView(): JSX.Element {
       }
 
       if (key === 'Escape') {
-        if (filter) {
-          consume()
-          setFilter('')
-          return
-        }
+        // Tasks is a tab like a note tab — Esc clears an active filter but must
+        // never close the tab (other tabs don't close on Esc). Close with :q,
+        // the header ✕, or ⌘W. (#151)
         consume()
-        closeTasksView()
+        if (filter) setFilter('')
         return
       }
 
@@ -501,10 +502,10 @@ export function TasksView(): JSX.Element {
       ) : (
         <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
           {viewMode === 'list'
-            ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close'
+            ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · :q close'
             : viewMode === 'calendar'
-              ? 'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · Esc close'
-              : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · Esc close'}
+              ? 'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · :q close'
+              : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · :q close'}
         </div>
       )}
     </div>
