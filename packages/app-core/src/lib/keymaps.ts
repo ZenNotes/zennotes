@@ -1,7 +1,13 @@
 import { toVimSequence } from './vim-mappings'
 
 export type KeymapKind = 'shortcut' | 'sequence'
-export type KeymapScope = 'app' | 'leader' | 'pane' | 'vim-editor' | 'lists' | 'views'
+export type KeymapScope =
+  | 'app'
+  | 'leader'
+  | 'pane'
+  | 'vim-editor'
+  | 'lists'
+  | 'views'
 export type KeymapGroup = 'global' | 'vim' | 'navigation' | 'view-actions'
 
 export type KeymapId =
@@ -197,7 +203,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'app',
     group: 'global',
     title: 'Focus pane left',
-    description: 'Move focus to the pane/panel on the left. Works without vim mode.',
+    description:
+      'Move focus to the pane/panel on the left. Works without vim mode.',
     defaultBinding: 'Alt+H'
   },
   {
@@ -224,7 +231,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'app',
     group: 'global',
     title: 'Focus pane right',
-    description: 'Move focus to the pane/panel on the right. Works without vim mode.',
+    description:
+      'Move focus to the pane/panel on the right. Works without vim mode.',
     defaultBinding: 'Alt+L'
   },
   {
@@ -367,7 +375,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'leader',
     group: 'vim',
     title: 'Leader search: vault text',
-    description: 'Open fuzzy vault text search across note contents (under the search group).',
+    description:
+      'Open fuzzy vault text search across note contents (under the search group).',
     defaultBinding: 't',
     vimOnly: true,
     maxTokens: 1
@@ -488,7 +497,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'leader',
     group: 'vim',
     title: 'Leader: toggle calendar',
-    description: 'Toggle the calendar panel for the active daily or weekly note.',
+    description:
+      'Toggle the calendar panel for the active daily or weekly note.',
     defaultBinding: 'c',
     vimOnly: true,
     maxTokens: 1
@@ -598,7 +608,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'vim-editor',
     group: 'vim',
     title: 'Previous buffer',
-    description: 'Move to the previous open buffer, or a recent note when only one buffer is open.',
+    description:
+      'Move to the previous open buffer, or a recent note when only one buffer is open.',
     defaultBinding: '[ b',
     vimOnly: true,
     maxTokens: 2
@@ -609,7 +620,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'vim-editor',
     group: 'vim',
     title: 'Next buffer',
-    description: 'Move to the next open buffer, or a recent note when only one buffer is open.',
+    description:
+      'Move to the next open buffer, or a recent note when only one buffer is open.',
     defaultBinding: '] b',
     vimOnly: true,
     maxTokens: 2
@@ -642,7 +654,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'leader',
     group: 'vim',
     title: 'Leader: hint mode',
-    description: 'Show jump labels for clickable targets (jump to any button or link).',
+    description:
+      'Show jump labels for clickable targets (jump to any button or link).',
     defaultBinding: 'h',
     vimOnly: true,
     maxTokens: 1
@@ -728,7 +741,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'lists',
     group: 'navigation',
     title: 'Jump to top',
-    description: 'Jump to the first visible row or to the top of preview content.',
+    description:
+      'Jump to the first visible row or to the top of preview content.',
     defaultBinding: 'g g',
     maxTokens: 2
   },
@@ -738,7 +752,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'lists',
     group: 'navigation',
     title: 'Jump to bottom',
-    description: 'Jump to the last visible row or to the bottom of preview content.',
+    description:
+      'Jump to the last visible row or to the bottom of preview content.',
     defaultBinding: 'G',
     maxTokens: 1
   },
@@ -808,7 +823,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'lists',
     group: 'navigation',
     title: 'Focus filter or search',
-    description: 'Focus the local filter or open note search from panel navigation.',
+    description:
+      'Focus the local filter or open note search from panel navigation.',
     defaultBinding: '/',
     maxTokens: 1
   },
@@ -848,7 +864,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: 'views',
     group: 'view-actions',
     title: 'Delete selected result',
-    description: 'Permanently delete or move the selected item to trash, depending on the view.',
+    description:
+      'Permanently delete or move the selected item to trash, depending on the view.',
     defaultBinding: 'x',
     maxTokens: 1
   },
@@ -1169,7 +1186,10 @@ export function normalizeSequenceBinding(input: string): string | null {
   return tokens.join(' ')
 }
 
-export function normalizeKeymapBinding(id: KeymapId, input: string): string | null {
+export function normalizeKeymapBinding(
+  id: KeymapId,
+  input: string
+): string | null {
   const definition = getKeymapDefinition(id)
   const normalized =
     definition.kind === 'shortcut'
@@ -1179,7 +1199,11 @@ export function normalizeKeymapBinding(id: KeymapId, input: string): string | nu
   if (definition.kind === 'sequence' && definition.maxTokens) {
     const tokenCount = normalized.split(/\s+/).filter(Boolean).length
     if (tokenCount > definition.maxTokens) {
-      return normalized.split(/\s+/).filter(Boolean).slice(0, definition.maxTokens).join(' ')
+      return normalized
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, definition.maxTokens)
+        .join(' ')
     }
   }
   return normalized
@@ -1232,10 +1256,15 @@ export function sequenceTokenFromEvent(event: KeyboardEvent): string | null {
   if (event.altKey) modifiers.push('Alt')
   if (event.metaKey) modifiers.push('Meta')
   if (event.shiftKey && base.length !== 1) modifiers.push('Shift')
-  return normalizeSequenceToken(modifiers.length > 0 ? `${modifiers.join('+')}+${base}` : base)
+  return normalizeSequenceToken(
+    modifiers.length > 0 ? `${modifiers.join('+')}+${base}` : base
+  )
 }
 
-export function matchesShortcutBinding(event: KeyboardEvent, binding: string): boolean {
+export function matchesShortcutBinding(
+  event: KeyboardEvent,
+  binding: string
+): boolean {
   const normalized = shortcutBindingFromEvent(event)
   return !!normalized && normalized === binding
 }
@@ -1263,7 +1292,9 @@ export function formatKeyToken(token: string, mac = isMacPlatform()): string {
   if (token.includes('+')) {
     const parts = token.split('+')
     const base = parts.pop() ?? token
-    const prefix = parts.map((part) => formatKeyToken(part, mac)).join(mac ? '' : '+')
+    const prefix = parts
+      .map((part) => formatKeyToken(part, mac))
+      .join(mac ? '' : '+')
     return `${prefix}${mac ? '' : prefix ? '+' : ''}${formatKeyToken(base, mac)}`
   }
   if (token === 'Mod') return mac ? '⌘' : 'Ctrl'
@@ -1320,7 +1351,9 @@ export function getKeymapDefinitionsByGroup(): Array<{
   }))
 }
 
-export function findConflictingKeymaps(overrides: KeymapOverrides): Map<KeymapId, KeymapId[]> {
+export function findConflictingKeymaps(
+  overrides: KeymapOverrides
+): Map<KeymapId, KeymapId[]> {
   const byKey = new Map<string, KeymapDefinition[]>()
   for (const def of KEYMAP_DEFINITIONS) {
     const key = `${def.kind}:${def.scope}:${getKeymapBinding(overrides, def.id)}`
@@ -1352,9 +1385,13 @@ export function findConflictingKeymaps(overrides: KeymapOverrides): Map<KeymapId
  *
  * @returns
  */
-export function getAppVimSequenceMap(overrides: KeymapOverrides): Map<string, KeymapDefinition> {
+export function getAppVimSequenceMap(
+  overrides: KeymapOverrides
+): Map<string, KeymapDefinition> {
   const map = new Map<string, KeymapDefinition>()
-  const leaderKey = toVimSequence(getKeymapBinding(overrides, 'vim.leaderPrefix'))!
+  const leaderKey = toVimSequence(
+    getKeymapBinding(overrides, 'vim.leaderPrefix')
+  )!
   const paneKey = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))!
 
   for (const def of KEYMAP_DEFINITIONS) {
