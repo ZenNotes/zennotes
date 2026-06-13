@@ -391,6 +391,53 @@ describe('local vault shortcuts', () => {
     expect(useStore.getState().hasAssetsDir).toBe(true)
   })
 
+  it('switches from a remote workspace to a local vault that shares the server path', async () => {
+    // A localhost server reports the served folder's real on-disk path as the
+    // vault root, so the current remote vault.root can equal a local vault's
+    // path. Switching back to local must not be blocked by that coincidence.
+    const sharedRoot = '/Users/test/Shared'
+    const openLocalVault = vi
+      .fn()
+      .mockResolvedValue({ root: sharedRoot, name: 'Shared' })
+    installZen({
+      openLocalVault,
+      getRemoteWorkspaceInfo: vi.fn().mockResolvedValue(null),
+      getVaultSettings: vi.fn().mockResolvedValue({}),
+      listLocalVaults: vi.fn().mockResolvedValue([]),
+      listAssets: vi.fn().mockResolvedValue([]),
+      hasAssetsDir: vi.fn().mockResolvedValue(false)
+    })
+
+    const { useStore } = await loadStore()
+    useStore.setState({
+      vault: { root: sharedRoot, name: 'Shared' },
+      workspaceMode: 'remote'
+    })
+
+    await useStore.getState().openLocalVault(sharedRoot)
+
+    expect(openLocalVault).toHaveBeenCalledWith(sharedRoot)
+    expect(useStore.getState().workspaceMode).toBe('local')
+    expect(useStore.getState().vault).toEqual({ root: sharedRoot, name: 'Shared' })
+  })
+
+  it('ignores reopening the current local vault', async () => {
+    const openLocalVault = vi
+      .fn()
+      .mockResolvedValue({ root: '/Users/test/Notes', name: 'Notes' })
+    installZen({ openLocalVault })
+
+    const { useStore } = await loadStore()
+    useStore.setState({
+      vault: { root: '/Users/test/Notes', name: 'Notes' },
+      workspaceMode: 'local'
+    })
+
+    await useStore.getState().openLocalVault('/Users/test/Notes')
+
+    expect(openLocalVault).not.toHaveBeenCalled()
+  })
+
   it('closes the current local vault and clears workspace state', async () => {
     const closeVault = vi.fn().mockResolvedValue(null)
     const listLocalVaults = vi.fn().mockResolvedValue([])

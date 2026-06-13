@@ -5517,7 +5517,12 @@ export const useStore = create<Store>((set, get) => {
 
   openLocalVault: async (root: string) => {
     const trimmed = root.trim()
-    if (!trimmed || trimmed === get().vault?.root) return
+    if (!trimmed) return
+    // Only a no-op when we are already in this exact local vault. In remote
+    // mode vault.root holds the server-reported path, which for a localhost
+    // server equals the local vault's own path -- comparing against it here
+    // would wrongly block switching back from remote to local.
+    if (get().workspaceMode === 'local' && trimmed === get().vault?.root) return
     try {
       await get().flushDirtyNotes()
       set({ workspaceSetupError: null })
