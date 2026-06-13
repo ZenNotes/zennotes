@@ -55,10 +55,7 @@ export const VIM_UNMAP_CMDS = new Set<VimUnmapCmd>([
   'iunmap'
 ])
 
-export type VimMappingDiagnosticKind =
-  | 'unknown-command'
-  | 'missing-rhs'
-  | 'app-conflict'
+export type VimMappingDiagnosticKind = 'unknown-command' | 'missing-rhs' | 'app-conflict'
 
 export interface VimMappingDiagnostic {
   kind: VimMappingDiagnosticKind
@@ -120,8 +117,7 @@ export function diagnoseVimMappings(
   leaderKey: string,
   seqMap: Map<string, KeymapDefinition>
 ): VimMappingDiagnostic[] {
-  const resolve = (token: string): string =>
-    token.replace(/<leader>/gi, leaderKey)
+  const resolve = (token: string): string => token.replace(/<leader>/gi, leaderKey)
 
   const diagnostics: VimMappingDiagnostic[] = []
 
