@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.adibhanna.zennotes</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>ZenNotes</name>
+  <summary>Keyboard-first Markdown notes app</summary>
+  <description>
+    <p>
+      ZenNotes is a keyboard-first Markdown notes app that keeps your notes as
+      ordinary Markdown files on disk. It adds Vim-friendly editing, split and
+      preview workflows, tasks, tags, archive/trash, diagrams, search, daily
+      notes and CSV databases (Notion-style Table and Board views over plain
+      .csv files) on top of the files you already own.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.adibhanna.zennotes.desktop</launchable>
+  <url type="homepage">https://zennotes.org</url>
+  <url type="bugtracker">https://github.com/ZenNotes/zennotes/issues</url>
+  <url type="vcs-browser">https://github.com/ZenNotes/zennotes</url>
+  <developer id="com.adibhanna">
+    <name>Adib Hanna</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.3.0" date="2026-06-13"/>
+  </releases>
+</component>
