@@ -151,8 +151,9 @@ function applyVimMappings(raw: string, overrides: KeymapOverrides): void {
   }
   appliedVimMappings = []
 
-  const leaderKey =
-    toVimSequence(getKeymapBinding(overrides, 'vim.leaderPrefix')) ?? '<Space>'
+  const leaderKey = toVimSequence(
+    getKeymapBinding(overrides, 'vim.leaderPrefix'),
+  )!
   const resolve = (token: string): string =>
     token.replace(/<leader>/gi, leaderKey)
 
