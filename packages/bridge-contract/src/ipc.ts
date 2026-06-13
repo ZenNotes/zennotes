@@ -79,6 +79,8 @@ export const IPC = {
   APP_ZOOM_IN: 'app:zoom-in',
   APP_ZOOM_OUT: 'app:zoom-out',
   APP_ZOOM_RESET: 'app:zoom-reset',
+  APP_GET_WINDOW_CHROME_SETTINGS: 'app:get-window-chrome-settings',
+  APP_SET_WINDOW_CHROME_SETTINGS: 'app:set-window-chrome-settings',
   APP_UPDATER_GET_STATE: 'app-updater:get-state',
   APP_UPDATER_CHECK: 'app-updater:check',
   APP_UPDATER_CHECK_WITH_UI: 'app-updater:check-with-ui',

@@ -447,6 +447,10 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.APP_MOVE_EXTERNAL_FILE_TO_VAULT),
   openMarkdownFile: (absPath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.APP_OPEN_MARKDOWN_FILE, absPath),
+  getHideNativeTitleBar: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.APP_GET_WINDOW_CHROME_SETTINGS),
+  setHideNativeTitleBar: (hide: boolean): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.APP_SET_WINDOW_CHROME_SETTINGS, hide),
   toggleQuickCapture: (): Promise<void> =>
     ipcRenderer.invoke(IPC.WINDOW_TOGGLE_QUICK_CAPTURE),
   getQuickCaptureHotkey: (): Promise<string> =>

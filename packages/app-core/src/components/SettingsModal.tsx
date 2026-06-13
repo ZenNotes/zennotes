@@ -194,6 +194,7 @@ function formatReleaseNotesForDisplay(notes: string | null): string | null {
 export function SettingsModal(): JSX.Element {
   const zenBridge = getZenBridge()
   const appInfo = zenBridge.getAppInfo()
+  const isLinuxDesktop = appInfo.runtime === 'desktop' && zenBridge.platformSync() === 'linux'
   const supportsRemoteWorkspace =
     appInfo.runtime === 'desktop' && zenBridge.getCapabilities().supportsRemoteWorkspace
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
@@ -351,6 +352,7 @@ export function SettingsModal(): JSX.Element {
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
+  const [hideNativeTitleBar, setHideNativeTitleBar] = useState(true)
   const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -379,6 +381,20 @@ export function SettingsModal(): JSX.Element {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!isLinuxDesktop || !zenBridge.getHideNativeTitleBar) return
+    void zenBridge.getHideNativeTitleBar().then(
+      (hide) => setHideNativeTitleBar(hide),
+      () => setHideNativeTitleBar(true)
+    )
+  }, [isLinuxDesktop, zenBridge])
+
+  const persistHideNativeTitleBar = (hideNativeTitleBar: boolean): void => {
+    setHideNativeTitleBar(hideNativeTitleBar)
+    if (!zenBridge.setHideNativeTitleBar) return
+    void zenBridge.setHideNativeTitleBar(hideNativeTitleBar).then(setHideNativeTitleBar)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -749,6 +765,13 @@ export function SettingsModal(): JSX.Element {
           title: 'Sidebar arrows',
           description: 'Show disclosure arrows for collapsible folders and sidebar sections.',
           keywords: ['chevrons', 'disclosure']
+        },
+        {
+          id: 'native-linux-title-bar',
+          title: 'Native Linux title bar',
+          description: 'Use the GTK title bar instead of ZenNotes custom window chrome after restart.',
+          keywords: ['linux', 'gtk', 'title bar', 'header bar', 'native', 'window chrome'],
+          available: isLinuxDesktop
         }
       ],
       content: (
@@ -850,6 +873,15 @@ export function SettingsModal(): JSX.Element {
               settingId="sidebar-arrows"
               onChange={setShowSidebarChevrons}
             />
+            {isLinuxDesktop && (
+              <ToggleRow
+                label="Native Linux title bar"
+                description="Use the GTK title bar instead of ZenNotes custom window chrome. Applies after restart or when opening a new workspace window."
+                value={!hideNativeTitleBar}
+                settingId="native-linux-title-bar"
+                onChange={(useNative) => persistHideNativeTitleBar(!useNative)}
+              />
+            )}
           </Section>
         </div>
       )

@@ -79,6 +79,8 @@ export interface ZenBridge {
   zoomInApp(): Promise<number>
   zoomOutApp(): Promise<number>
   resetAppZoom(): Promise<number>
+  getHideNativeTitleBar?(): Promise<boolean>
+  setHideNativeTitleBar?(hide: boolean): Promise<boolean>
   getAppUpdateState(): Promise<AppUpdateState>
   checkForAppUpdates(): Promise<AppUpdateState>
   checkForAppUpdatesWithUi(): Promise<void>
