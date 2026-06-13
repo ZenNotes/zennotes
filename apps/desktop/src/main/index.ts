@@ -2992,10 +2992,12 @@ function installAppMenu(): void {
         { role: 'minimize' },
         { role: 'zoom' },
         { type: 'separator' },
-        { role: 'toggleTabBar' },
-        { role: 'selectNextTab' },
-        { role: 'selectPreviousTab' },
-        { role: 'mergeAllWindows' },
+        // Electron 41 leaves these macOS tab roles unlabeled unless the
+        // template supplies text, which renders as blank Window menu rows.
+        { role: 'toggleTabBar', label: 'Toggle Tab Bar' },
+        { role: 'selectNextTab', label: 'Show Next Tab' },
+        { role: 'selectPreviousTab', label: 'Show Previous Tab' },
+        { role: 'mergeAllWindows', label: 'Merge All Windows' },
         { type: 'separator' },
         { role: 'front' }
       ]
