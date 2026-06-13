@@ -2068,7 +2068,7 @@ export function SettingsModal(): JSX.Element {
                       </button>
                     )}
                     <a
-                      href={appInfo.homepage ?? 'https://github.com/ZenNotes/zennotes/releases/latest'}
+                      href={appInfo.homepage ?? 'https://github.com/songgnqing/zennotes/releases/latest'}
                       target="_blank"
                       rel="noreferrer"
                       className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"

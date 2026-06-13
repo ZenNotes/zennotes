@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -12,12 +12,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ZenNotes/zennotes.git"
+    "url": "git+https://github.com/songgnqing/zennotes.git"
   },
   "bugs": {
-    "url": "https://github.com/ZenNotes/zennotes/issues"
+    "url": "https://github.com/songgnqing/zennotes/issues"
   },
-  "homepage": "https://github.com/ZenNotes/zennotes/releases/latest",
+  "homepage": "https://github.com/songgnqing/zennotes/releases/latest",
   "engines": {
     "node": ">=22"
   },
@@ -158,7 +158,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "ZenNotes",
+        "owner": "songgnqing",
         "repo": "zennotes"
       }
     ],

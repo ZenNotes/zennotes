@@ -210,9 +210,9 @@ const MAC_WINDOW_BACKGROUND_COLOR = '#1f1f1f'
 const MAIN_WINDOW_TABBING_IDENTIFIER = 'zennotes-vault-window'
 const APP_WEBSITE_URL = 'https://zennotes.org'
 const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
-const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
-const APP_RELEASES_URL = 'https://github.com/ZenNotes/zennotes/releases/latest'
-const APP_ISSUES_URL = 'https://github.com/ZenNotes/zennotes/issues'
+const APP_REPOSITORY_URL = 'https://github.com/songgnqing/zennotes'
+const APP_RELEASES_URL = 'https://github.com/songgnqing/zennotes/releases/latest'
+const APP_ISSUES_URL = 'https://github.com/songgnqing/zennotes/issues'
 const userDataPathOverride = process.env['ZENNOTES_USER_DATA_PATH']?.trim()
 if (userDataPathOverride && (process.env['ZEN_PERF'] === '1' || !app.isPackaged)) {
   app.setPath('userData', path.resolve(userDataPathOverride))

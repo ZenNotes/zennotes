@@ -22,9 +22,9 @@ import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
 const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
-const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
-const APP_RELEASES_URL = 'https://github.com/ZenNotes/zennotes/releases/latest'
-const APP_ISSUES_URL = 'https://github.com/ZenNotes/zennotes/issues'
+const APP_REPOSITORY_URL = 'https://github.com/songgnqing/zennotes'
+const APP_RELEASES_URL = 'https://github.com/songgnqing/zennotes/releases/latest'
+const APP_ISSUES_URL = 'https://github.com/songgnqing/zennotes/issues'
 
 type FoldCommand = 'foldCode' | 'unfoldCode' | 'foldAll' | 'unfoldAll'
 
