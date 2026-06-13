@@ -491,6 +491,15 @@ export function Sidebar(): JSX.Element {
       }),
     [localVaults, remoteWorkspaceInfo, remoteWorkspaceProfiles, vault, workspaceMode],
   );
+  // Name the active vault in the header exactly as the switcher does. In remote
+  // mode vault.name is the server-side vault folder (e.g. "workspace"), not the
+  // connection the user named (e.g. "Home"); the current switcher entry already
+  // resolves that profile name, so reuse it to keep the header label and badge
+  // in sync with the switcher (#153).
+  const headerVaultName =
+    vaultSwitcherEntries.find((entry) => entry.current)?.name ??
+    vault?.name ??
+    "ZenNotes";
   const primaryNotesAtRoot = useMemo(
     () => isPrimaryNotesAtRoot(vaultSettings),
     [vaultSettings],
@@ -2537,10 +2546,10 @@ export function Sidebar(): JSX.Element {
             data-sidebar-idx={vaultHeaderIdx}
             data-sidebar-type="vault"
           >
-            <VaultBadge name={vault?.name ?? "ZenNotes"} size={28} />
+            <VaultBadge name={headerVaultName} size={28} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-ink-800">
-                {vault?.name ?? "ZenNotes"}
+                {headerVaultName}
               </div>
               {workspaceMode === "remote" && (
                 <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-500">
@@ -2556,10 +2565,10 @@ export function Sidebar(): JSX.Element {
           </button>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
-            <VaultBadge name={vault?.name ?? "ZenNotes"} size={28} />
+            <VaultBadge name={headerVaultName} size={28} />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-ink-800">
-                {vault?.name ?? "ZenNotes"}
+                {headerVaultName}
               </div>
               {workspaceMode === "remote" && (
                 <div className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-500">

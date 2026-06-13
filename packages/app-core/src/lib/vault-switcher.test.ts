@@ -111,4 +111,35 @@ describe('buildVaultSwitcherEntries', () => {
       ['local', 'Work', false]
     ])
   })
+
+  it('names the current remote vault after the profile, not the server vault folder (#153)', () => {
+    // The sidebar header derives its label and badge from the current entry's
+    // name. In remote mode the server reports a vault folder name ("workspace"),
+    // but the header should show the connection the user named ("Home").
+    const entries = buildVaultSwitcherEntries({
+      localVaults: [],
+      remoteProfiles: [
+        {
+          id: 'home',
+          name: 'Home',
+          baseUrl: 'https://home.example.com',
+          hasCredential: true,
+          vaultPath: null,
+          lastConnectedAt: 1
+        }
+      ],
+      currentVault: { root: '/srv/workspace', name: 'workspace' },
+      workspaceMode: 'remote',
+      remoteWorkspaceInfo: {
+        mode: 'remote',
+        baseUrl: 'https://home.example.com',
+        authConfigured: true,
+        capabilities: null,
+        profileId: 'home'
+      }
+    })
+
+    const current = entries.find((entry) => entry.current)
+    expect(current?.name).toBe('Home')
+  })
 })
