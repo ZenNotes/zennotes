@@ -3803,6 +3803,30 @@ textarea,
   text-underline-offset: 2px;
 }
 
+/* Wikilinks — Obsidian internal-link style: accent underlined text, clickable
+   (brackets hidden via decorations in cm-wikilink-render.ts). */
+.cm-wysiwyg .cm-editor .cm-wikilink {
+  color: rgb(var(--z-accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .cm-wikilink:hover {
+  text-decoration-color: rgb(var(--z-accent));
+}
+/* Revealed `[[ ]]` / `|` markers when editing a wikilink — quiet grey, upright,
+   no underline (the inner brackets otherwise inherit the italic/underline link
+   highlight, which left one bracket slanted). */
+.cm-wysiwyg .cm-editor .cm-wikilink-bracket {
+  /* !important so it wins regardless of how CodeMirror nests the highlight
+     span (the inner LinkMark otherwise stays italic/underlined). */
+  color: rgb(var(--z-grey-1)) !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+  opacity: 0.7;
+}
+
 /* Inline hashtags rendered as clickable pills — Obsidian's `.tag` style:
    accent text on a faint accent tint, pill radius. */
 .cm-wysiwyg .cm-editor .cm-hashtag {

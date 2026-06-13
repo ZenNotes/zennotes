@@ -177,6 +177,14 @@ export const MoreIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const MoreVerticalIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <circle cx="12" cy="5" r="1" />
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="12" cy="19" r="1" />
+  </I>
+)
+
 export const PencilIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M12 20h9" />

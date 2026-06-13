@@ -71,6 +71,7 @@ import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
+import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
@@ -134,6 +135,7 @@ import {
   FileDownIcon,
   FeedbackIcon,
   ListTreeIcon,
+  MoreVerticalIcon,
   PanelLeftIcon,
   PanelRightIcon,
   PinIcon,
@@ -236,7 +238,8 @@ function wysiwygExtensions(): Extension[] {
     codeBlockFlairPlugin,
     tablePlugin,
     wysiwygBlocksPlugin,
-    ...hashtagExtension
+    ...hashtagExtension,
+    ...wikilinkRenderExtension
   ]
 }
 
@@ -641,6 +644,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [paneDropEdge, setPaneDropEdge] = useState<PaneEdge | null>(null)
   const [tabDropIndicator, setTabDropIndicator] = useState<TabDropIndicator>(null)
   const [tabMenu, setTabMenu] = useState<{ x: number; y: number; path: string } | null>(null)
+  // Overflow "⋯" menu in the editor toolbar — collapses the export / archive /
+  // trash actions into a dropdown so they don't crowd the toolbar.
+  const [overflowMenu, setOverflowMenu] = useState<{ x: number; y: number } | null>(null)
+  // Timestamp of the last overflow-menu close. A click on the "⋯" button while
+  // the menu is open first fires the menu's outside-mousedown (which closes it),
+  // then the button's click — without this guard that click would immediately
+  // reopen the menu, so it could never be toggled shut from the button.
+  const overflowMenuCloseAtRef = useRef(0)
   // Right-click menu for editor text (Copy/Cut/Paste/Select All/Undo/Redo).
   // Null when closed. Captures selection state at click time so menu items
   // reflect what was actually selected.
@@ -2589,7 +2600,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   const toolbar = useMemo(() => {
     if (!content) return null
-    const folder = content.folder
     return (
       <div className="flex items-center gap-1 text-ink-500">
         <ToggleGroup mode={mode} onChange={applyPaneMode} />
@@ -2628,24 +2638,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <CalendarIcon />
           </IconBtn>
         )}
-        <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
-          <FileDownIcon />
-        </IconBtn>
-        {folder === 'trash' ? (
-          <IconBtn title="Restore" onClick={() => void restoreActive()}>
-            <ArrowUpRightIcon />
-          </IconBtn>
-        ) : folder === 'archive' ? (
-          <IconBtn title="Unarchive" onClick={() => void unarchiveActive()}>
-            <ArrowUpRightIcon />
-          </IconBtn>
-        ) : (
-          <IconBtn title={folderLabels.archive} onClick={() => void archiveActive()}>
-            <ArchiveIcon />
-          </IconBtn>
-        )}
-        <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
-          <TrashIcon />
+        <IconBtn
+          title="More actions"
+          active={!!overflowMenu}
+          onClick={(e) => {
+            // Same click that just closed the menu (via outside-mousedown) —
+            // swallow it so the button toggles shut instead of reopening.
+            if (performance.now() - overflowMenuCloseAtRef.current < 250) return
+            const rect = e.currentTarget.getBoundingClientRect()
+            setOverflowMenu({ x: rect.right, y: rect.bottom + 4 })
+          }}
+        >
+          <MoreVerticalIcon />
         </IconBtn>
       </div>
     )
@@ -2663,11 +2667,59 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     calendarAvailable,
     calendarOpen,
     toggleCalendarPanel,
-    trashActive,
-    archiveActive,
+    overflowMenu
+  ])
+
+  // Export / archive (or restore / unarchive) / trash, collapsed into the
+  // toolbar's "⋯" overflow menu. Folder-dependent middle action mirrors the
+  // breadcrumb's note-state logic.
+  const overflowMenuItems = useMemo<ContextMenuItem[]>(() => {
+    if (!content) return []
+    const folder = content.folder
+    const items: ContextMenuItem[] = [
+      {
+        label: 'Export as PDF',
+        hint: '⇧⌘E',
+        icon: <FileDownIcon width={15} height={15} />,
+        onSelect: () => void exportActiveNotePdf()
+      }
+    ]
+    if (folder === 'trash') {
+      items.push({
+        label: 'Restore',
+        icon: <ArrowUpRightIcon width={15} height={15} />,
+        onSelect: () => void restoreActive()
+      })
+    } else if (folder === 'archive') {
+      items.push({
+        label: 'Unarchive',
+        icon: <ArrowUpRightIcon width={15} height={15} />,
+        onSelect: () => void unarchiveActive()
+      })
+    } else {
+      items.push({
+        label: folderLabels.archive,
+        icon: <ArchiveIcon width={15} height={15} />,
+        onSelect: () => void archiveActive()
+      })
+    }
+    items.push({ kind: 'separator' })
+    items.push({
+      label: `Move to ${folderLabels.trash.toLowerCase()}`,
+      danger: true,
+      icon: <TrashIcon width={15} height={15} />,
+      onSelect: () => void trashActive()
+    })
+    return items
+  }, [
+    content,
+    folderLabels.archive,
+    folderLabels.trash,
+    exportActiveNotePdf,
     restoreActive,
     unarchiveActive,
-    exportActiveNotePdf
+    archiveActive,
+    trashActive
   ])
 
   const showEditor = !!content && mode !== 'preview'
@@ -3142,6 +3194,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <FeedbackIcon width={16} height={16} />
           </button>
         )}
+      {overflowMenu && (
+        <ContextMenu
+          x={overflowMenu.x}
+          y={overflowMenu.y}
+          items={overflowMenuItems}
+          onClose={() => {
+            overflowMenuCloseAtRef.current = performance.now()
+            setOverflowMenu(null)
+          }}
+        />
+      )}
       {tabMenu && (
         <ContextMenu
           x={tabMenu.x}
@@ -3396,7 +3459,7 @@ function IconBtn({
   active = false
 }: {
   children: JSX.Element
-  onClick: () => void
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
   title: string
   active?: boolean
 }): JSX.Element {

@@ -721,6 +721,14 @@ function computeDecorations(view: EditorView): DecorationSet {
         // produce overlapping replace decorations and crash the view, so skip
         // the entire Table subtree.
         if (name === 'Table') return false
+        // The inner `[text]` of an Obsidian `[[wikilink]]` parses as a shortcut
+        // link; the wikilink render plugin (cm-wikilink-render.ts) owns the
+        // whole token, so skip it here to avoid double-hiding / overlap.
+        if (name === 'Link') {
+          const before = state.doc.sliceString(node.from - 1, node.from)
+          const after = state.doc.sliceString(node.to, node.to + 1)
+          if (before === '[' && after === ']') return false
+        }
         const isPrefix = PREFIX_HIDE_WITH_SPACE.has(name)
         const isSimple = SIMPLE_HIDE.has(name)
         const isUrl = name === URL_NODE
