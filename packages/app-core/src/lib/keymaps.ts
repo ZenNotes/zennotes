@@ -113,7 +113,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Search notes',
     description: 'Open the vault-wide note search palette.',
-    defaultBinding: 'Mod+P',
+    defaultBinding: 'Mod+P'
   },
   {
     id: 'global.searchNotesNonVim',
@@ -123,7 +123,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Search notes in non-Vim mode',
     description: 'Extra direct search shortcut when Vim mode is off.',
     defaultBinding: 'Mod+F',
-    nonVimOnly: true,
+    nonVimOnly: true
   },
   {
     id: 'global.commandPalette',
@@ -132,7 +132,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Open command palette',
     description: 'Open the command palette.',
-    defaultBinding: 'Shift+Mod+P',
+    defaultBinding: 'Shift+Mod+P'
   },
   {
     id: 'global.newQuickNote',
@@ -141,7 +141,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'New quick note',
     description: 'Create a quick capture note and focus its title.',
-    defaultBinding: 'Shift+Mod+N',
+    defaultBinding: 'Shift+Mod+N'
   },
   {
     id: 'global.openSettings',
@@ -150,7 +150,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Open settings',
     description: 'Open the Settings modal.',
-    defaultBinding: 'Mod+,',
+    defaultBinding: 'Mod+,'
   },
   {
     id: 'global.toggleSidebar',
@@ -159,7 +159,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle sidebar',
     description: 'Hide or show the left sidebar.',
-    defaultBinding: 'Mod+1',
+    defaultBinding: 'Mod+1'
   },
   {
     id: 'global.toggleConnections',
@@ -168,7 +168,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle connections panel',
     description: 'Toggle the connections panel in the active pane.',
-    defaultBinding: 'Mod+2',
+    defaultBinding: 'Mod+2'
   },
   {
     id: 'global.toggleOutlinePanel',
@@ -177,7 +177,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle outline panel',
     description: 'Toggle the outline panel in the active pane.',
-    defaultBinding: 'Mod+3',
+    defaultBinding: 'Mod+3'
   },
   {
     id: 'global.toggleCommentsPanel',
@@ -186,7 +186,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle comments panel',
     description: 'Toggle the comments panel in the active pane.',
-    defaultBinding: 'Mod+Shift+C',
+    defaultBinding: 'Mod+Shift+C'
   },
   {
     id: 'global.addComment',
@@ -195,7 +195,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Add comment to selection',
     description: 'Start a comment on the selected text (or current line).',
-    defaultBinding: 'Mod+Alt+M',
+    defaultBinding: 'Mod+Alt+M'
   },
   {
     id: 'global.focusPaneLeft',
@@ -205,7 +205,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Focus pane left',
     description:
       'Move focus to the pane/panel on the left. Works without vim mode.',
-    defaultBinding: 'Alt+H',
+    defaultBinding: 'Alt+H'
   },
   {
     id: 'global.focusPaneDown',
@@ -214,7 +214,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Focus pane down',
     description: 'Move focus to the pane/panel below. Works without vim mode.',
-    defaultBinding: 'Alt+J',
+    defaultBinding: 'Alt+J'
   },
   {
     id: 'global.focusPaneUp',
@@ -223,7 +223,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Focus pane up',
     description: 'Move focus to the pane/panel above. Works without vim mode.',
-    defaultBinding: 'Alt+K',
+    defaultBinding: 'Alt+K'
   },
   {
     id: 'global.focusPaneRight',
@@ -233,7 +233,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Focus pane right',
     description:
       'Move focus to the pane/panel on the right. Works without vim mode.',
-    defaultBinding: 'Alt+L',
+    defaultBinding: 'Alt+L'
   },
   {
     id: 'global.modeEdit',
@@ -242,7 +242,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Switch to editor mode',
     description: 'Show only the markdown editor for the active note.',
-    defaultBinding: 'Mod+4',
+    defaultBinding: 'Mod+4'
   },
   {
     id: 'global.modeSplit',
@@ -251,7 +251,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Switch to split mode',
     description: 'Show the editor and rendered preview side by side.',
-    defaultBinding: 'Mod+5',
+    defaultBinding: 'Mod+5'
   },
   {
     id: 'global.modePreview',
@@ -260,7 +260,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Switch to preview mode',
     description: 'Show only the rendered preview for the active note.',
-    defaultBinding: 'Mod+6',
+    defaultBinding: 'Mod+6'
   },
   {
     id: 'global.toggleZenMode',
@@ -269,7 +269,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle Zen mode',
     description: 'Hide or restore the app chrome.',
-    defaultBinding: 'Mod+.',
+    defaultBinding: 'Mod+.'
   },
   {
     id: 'global.closeActiveTab',
@@ -278,7 +278,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Close active tab',
     description: 'Close the current note or virtual tab.',
-    defaultBinding: 'Mod+W',
+    defaultBinding: 'Mod+W'
   },
   {
     id: 'global.toggleWordWrap',
@@ -287,7 +287,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Toggle word wrap',
     description: 'Switch between wrapped lines and horizontal scrolling.',
-    defaultBinding: 'Alt+Z',
+    defaultBinding: 'Alt+Z'
   },
   {
     id: 'global.exportNotePdf',
@@ -296,7 +296,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Export note as PDF',
     description: 'Export the active note as a PDF file.',
-    defaultBinding: 'Shift+Mod+E',
+    defaultBinding: 'Shift+Mod+E'
   },
   {
     id: 'global.zoomIn',
@@ -305,7 +305,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Zoom in',
     description: 'Increase the app zoom factor.',
-    defaultBinding: 'Mod+=',
+    defaultBinding: 'Mod+='
   },
   {
     id: 'global.zoomOut',
@@ -314,7 +314,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Zoom out',
     description: 'Decrease the app zoom factor.',
-    defaultBinding: 'Mod+-',
+    defaultBinding: 'Mod+-'
   },
   {
     id: 'global.zoomReset',
@@ -323,7 +323,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: 'global',
     title: 'Reset zoom',
     description: 'Restore the app zoom factor to its default size.',
-    defaultBinding: 'Mod+0',
+    defaultBinding: 'Mod+0'
   },
   {
     id: 'vim.leaderPrefix',
@@ -334,7 +334,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Start leader mode and leader hints.',
     defaultBinding: 'Space',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderOpenBuffers',
@@ -345,7 +345,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the buffer switcher.',
     defaultBinding: 'o',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderSearchNotes',
@@ -356,7 +356,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open note search from any panel.',
     defaultBinding: 'f',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderSearchGroup',
@@ -367,7 +367,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the search leader group (text search, etc.).',
     defaultBinding: 's',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderSearchVaultText',
@@ -379,7 +379,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       'Open fuzzy vault text search across note contents (under the search group).',
     defaultBinding: 't',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderToggleSidebar',
@@ -390,7 +390,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Show or hide the left sidebar.',
     defaultBinding: 'e',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderNoteOutline',
@@ -401,7 +401,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the note outline palette.',
     defaultBinding: 'p',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderSwitchVault',
@@ -412,7 +412,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the command palette vault switcher.',
     defaultBinding: 'v',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderNoteActions',
@@ -423,7 +423,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the note-local leader group.',
     defaultBinding: 'l',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderFormatNote',
@@ -434,7 +434,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Format the active note from the editor.',
     defaultBinding: 'f',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderQuickCapture',
@@ -445,7 +445,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the floating quick capture window.',
     defaultBinding: 'q',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderTemplatePicker',
@@ -456,7 +456,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the template picker to create a note.',
     defaultBinding: 't',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderInsertTemplate',
@@ -467,7 +467,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Render a template into the current note.',
     defaultBinding: 'i',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderDailyNote',
@@ -478,7 +478,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: "Open or create today's daily note.",
     defaultBinding: 'd',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderWeeklyNote',
@@ -489,7 +489,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: "Open or create this week's weekly note.",
     defaultBinding: 'w',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.leaderCalendar',
@@ -501,7 +501,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       'Toggle the calendar panel for the active daily or weekly note.',
     defaultBinding: 'c',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.panePrefix',
@@ -512,7 +512,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Start pane focus and split commands.',
     defaultBinding: 'Ctrl+W',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneFocusLeft',
@@ -523,7 +523,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Move focus to the panel or pane on the left.',
     defaultBinding: 'h',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneFocusDown',
@@ -534,7 +534,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Move focus to the panel or pane below.',
     defaultBinding: 'j',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneFocusUp',
@@ -545,7 +545,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Move focus to the panel or pane above.',
     defaultBinding: 'k',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneFocusRight',
@@ -556,7 +556,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Move focus to the panel or pane on the right.',
     defaultBinding: 'l',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneSplitRight',
@@ -567,7 +567,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Clone the current tab into a pane on the right.',
     defaultBinding: 'v',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.paneSplitDown',
@@ -578,7 +578,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Clone the current tab into a pane below.',
     defaultBinding: 's',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.historyBack',
@@ -589,7 +589,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Jump to the previous note location in history.',
     defaultBinding: 'Ctrl+O',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.historyForward',
@@ -600,7 +600,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Jump forward in note history.',
     defaultBinding: 'Ctrl+I',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.bufferPrevious',
@@ -612,7 +612,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       'Move to the previous open buffer, or a recent note when only one buffer is open.',
     defaultBinding: '[ b',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.bufferNext',
@@ -624,7 +624,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       'Move to the next open buffer, or a recent note when only one buffer is open.',
     defaultBinding: '] b',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.tabPrevious',
@@ -635,7 +635,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Go to the previous tab in the active pane (Vim-style gT).',
     defaultBinding: 'g T',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.tabNext',
@@ -646,7 +646,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Go to the next tab in the active pane (Vim-style gt).',
     defaultBinding: 'g t',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.hintMode',
@@ -658,7 +658,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       'Show jump labels for clickable targets (jump to any button or link).',
     defaultBinding: 'h',
     vimOnly: true,
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'vim.goToDefinition',
@@ -669,7 +669,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Open the note, URL, or asset under the cursor.',
     defaultBinding: 'g d',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.foldCurrent',
@@ -680,7 +680,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Collapse the heading section at the cursor.',
     defaultBinding: 'z c',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.unfoldCurrent',
@@ -691,7 +691,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Expand the heading section at the cursor.',
     defaultBinding: 'z o',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.foldAll',
@@ -702,7 +702,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Collapse every heading section in the note.',
     defaultBinding: 'z M',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'vim.unfoldAll',
@@ -713,7 +713,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description: 'Expand every heading section in the note.',
     defaultBinding: 'z R',
     vimOnly: true,
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'nav.moveDown',
@@ -723,7 +723,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Move selection down',
     description: 'Move the current row cursor or panel selection down.',
     defaultBinding: 'j',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.moveUp',
@@ -733,7 +733,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Move selection up',
     description: 'Move the current row cursor or panel selection up.',
     defaultBinding: 'k',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.jumpTop',
@@ -744,7 +744,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       'Jump to the first visible row or to the top of preview content.',
     defaultBinding: 'g g',
-    maxTokens: 2,
+    maxTokens: 2
   },
   {
     id: 'nav.jumpBottom',
@@ -755,7 +755,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       'Jump to the last visible row or to the bottom of preview content.',
     defaultBinding: 'G',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.halfPageDown',
@@ -765,7 +765,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Half-page down',
     description: 'Scroll preview content down by half a viewport.',
     defaultBinding: 'Ctrl+d',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.halfPageUp',
@@ -775,7 +775,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Half-page up',
     description: 'Scroll preview content up by half a viewport.',
     defaultBinding: 'Ctrl+u',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.openSideItem',
@@ -785,7 +785,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Open sidebar or note-list item',
     description: 'Open the current sidebar or note-list selection.',
     defaultBinding: 'l',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.openResult',
@@ -795,7 +795,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Open result',
     description: 'Open the selected note or result in a view.',
     defaultBinding: 'o',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.back',
@@ -805,7 +805,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Back out',
     description: 'Collapse, move left, or return focus toward the editor.',
     defaultBinding: 'h',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.toggleFolder',
@@ -815,7 +815,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Toggle folder',
     description: 'Expand or collapse the current sidebar folder.',
     defaultBinding: 'o',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.filter',
@@ -826,7 +826,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       'Focus the local filter or open note search from panel navigation.',
     defaultBinding: '/',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.contextMenu',
@@ -836,7 +836,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Open context menu',
     description: 'Open the contextual actions menu for the current row.',
     defaultBinding: 'm',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.peekPreview',
@@ -846,7 +846,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Peek preview',
     description: 'Open the hover preview for the selected connection.',
     defaultBinding: 'p',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.restore',
@@ -856,7 +856,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Restore trashed note',
     description: 'Restore the selected trashed note.',
     defaultBinding: 'r',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.delete',
@@ -867,7 +867,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       'Permanently delete or move the selected item to trash, depending on the view.',
     defaultBinding: 'x',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.toggleTask',
@@ -877,7 +877,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Toggle task',
     description: 'Check or uncheck the selected task.',
     defaultBinding: 'x',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.localEx',
@@ -887,7 +887,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Open local ex prompt',
     description: 'Open the view-specific ex prompt in Tasks or Tags.',
     defaultBinding: ':',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.newQuickNote',
@@ -897,7 +897,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'New quick note from Quick Notes view',
     description: 'Create a new quick note from the Quick Notes list tab.',
     defaultBinding: 'n',
-    maxTokens: 1,
+    maxTokens: 1
   },
   {
     id: 'nav.unarchive',
@@ -907,8 +907,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: 'Unarchive selected note',
     description: 'Move the selected archived note back to Inbox.',
     defaultBinding: 'u',
-    maxTokens: 1,
-  },
+    maxTokens: 1
+  }
 ]
 
 for (const definition of KEYMAP_DEFINITIONS) {
@@ -920,14 +920,14 @@ for (const definition of KEYMAP_DEFINITIONS) {
 }
 
 const KEYMAP_INDEX = new Map<KeymapId, KeymapDefinition>(
-  KEYMAP_DEFINITIONS.map((definition) => [definition.id, definition] as const),
+  KEYMAP_DEFINITIONS.map((definition) => [definition.id, definition] as const)
 )
 
 const KEYMAP_GROUP_LABELS: Record<KeymapGroup, string> = {
   global: 'Global shortcuts',
   vim: 'Vim-specific shortcuts',
   navigation: 'Navigation',
-  'view-actions': 'View-specific actions',
+  'view-actions': 'View-specific actions'
 }
 
 export function getKeymapDefinitions(): KeymapDefinition[] {
@@ -950,7 +950,7 @@ export function getDefaultKeymapBinding(id: KeymapId): string {
 
 export function getKeymapBinding(
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): string {
   const override = overrides?.[id]
   return override || getDefaultKeymapBinding(id)
@@ -958,7 +958,7 @@ export function getKeymapBinding(
 
 export function getSequenceTokens(
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): string[] {
   return getKeymapBinding(overrides, id)
     .split(/\s+/)
@@ -1104,7 +1104,7 @@ function normalizeSequenceBaseToken(key: string): string | null {
 }
 
 function normalizeModifierToken(
-  modifier: string,
+  modifier: string
 ): 'Ctrl' | 'Alt' | 'Shift' | 'Meta' | 'Mod' | null {
   if (/^(cmd|command|meta)$/i.test(modifier)) return 'Meta'
   if (/^(ctrl|control)$/i.test(modifier)) return 'Ctrl'
@@ -1141,7 +1141,7 @@ export function normalizeShortcutBinding(input: string): string | null {
       if (normalized === 'Meta') return [mac ? 'Mod' : 'Meta']
       if (normalized === 'Ctrl') return [mac ? 'Ctrl' : 'Mod']
       return [normalized]
-    }),
+    })
   )
   return [...modifiers, key].join('+')
 }
@@ -1160,7 +1160,7 @@ export function normalizeSequenceToken(input: string): string | null {
     parts
       .map((part) => normalizeModifierToken(part))
       .filter((part): part is NonNullable<typeof part> => !!part)
-      .filter((part) => part !== 'Mod'),
+      .filter((part) => part !== 'Mod')
   )
   // When a non-Shift modifier (Ctrl/Alt/Meta) is combined with a single
   // ASCII letter, canonicalize to uppercase. Event-produced tokens come
@@ -1188,7 +1188,7 @@ export function normalizeSequenceBinding(input: string): string | null {
 
 export function normalizeKeymapBinding(
   id: KeymapId,
-  input: string,
+  input: string
 ): string | null {
   const definition = getKeymapDefinition(id)
   const normalized =
@@ -1257,13 +1257,13 @@ export function sequenceTokenFromEvent(event: KeyboardEvent): string | null {
   if (event.metaKey) modifiers.push('Meta')
   if (event.shiftKey && base.length !== 1) modifiers.push('Shift')
   return normalizeSequenceToken(
-    modifiers.length > 0 ? `${modifiers.join('+')}+${base}` : base,
+    modifiers.length > 0 ? `${modifiers.join('+')}+${base}` : base
   )
 }
 
 export function matchesShortcutBinding(
   event: KeyboardEvent,
-  binding: string,
+  binding: string
 ): boolean {
   const normalized = shortcutBindingFromEvent(event)
   return !!normalized && normalized === binding
@@ -1272,7 +1272,7 @@ export function matchesShortcutBinding(
 export function matchesShortcut(
   event: KeyboardEvent,
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): boolean {
   return matchesShortcutBinding(event, getKeymapBinding(overrides, id))
 }
@@ -1280,7 +1280,7 @@ export function matchesShortcut(
 export function matchesSequenceToken(
   event: KeyboardEvent,
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): boolean {
   const tokens = getSequenceTokens(overrides, id)
   if (tokens.length !== 1) return false
@@ -1325,7 +1325,7 @@ export function formatKeymapBinding(binding: string, kind: KeymapKind): string {
 
 export function getKeymapDisplay(
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): string {
   const definition = getKeymapDefinition(id)
   return formatKeymapBinding(getKeymapBinding(overrides, id), definition.kind)
@@ -1333,7 +1333,7 @@ export function getKeymapDisplay(
 
 export function describeCurrentBinding(
   overrides: KeymapOverrides | null | undefined,
-  id: KeymapId,
+  id: KeymapId
 ): string {
   return getKeymapDisplay(overrides, id)
 }
@@ -1347,14 +1347,12 @@ export function getKeymapDefinitionsByGroup(): Array<{
   return groups.map((group) => ({
     group,
     label: getKeymapGroupLabel(group),
-    items: KEYMAP_DEFINITIONS.filter(
-      (definition) => definition.group === group,
-    ),
+    items: KEYMAP_DEFINITIONS.filter((definition) => definition.group === group)
   }))
 }
 
 export function findConflictingKeymaps(
-  overrides: KeymapOverrides,
+  overrides: KeymapOverrides
 ): Map<KeymapId, KeymapId[]> {
   const byKey = new Map<string, KeymapDefinition[]>()
   for (const def of KEYMAP_DEFINITIONS) {
@@ -1388,11 +1386,11 @@ export function findConflictingKeymaps(
  * @returns
  */
 export function getAppVimSequenceMap(
-  overrides: KeymapOverrides,
+  overrides: KeymapOverrides
 ): Map<string, KeymapDefinition> {
   const map = new Map<string, KeymapDefinition>()
   const leaderKey = toVimSequence(
-    getKeymapBinding(overrides, 'vim.leaderPrefix'),
+    getKeymapBinding(overrides, 'vim.leaderPrefix')
   )!
   const paneKey = toVimSequence(getKeymapBinding(overrides, 'vim.panePrefix'))!
 
@@ -1423,7 +1421,7 @@ export function advanceSequence(
   timerRef: { current?: ReturnType<typeof setTimeout> },
   onMatch: () => void,
   consume: () => void,
-  timeoutMs = 500,
+  timeoutMs = 500
 ): boolean {
   const tokens = binding
     .split(/\s+/)

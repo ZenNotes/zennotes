@@ -28,7 +28,7 @@ export const VIM_MAP_CMD_MODES: Record<VimMapCmd, VimMode> = {
   xnoremap: 'visual',
   xmap: 'visual',
   inoremap: 'insert',
-  imap: 'insert',
+  imap: 'insert'
 }
 
 export const VIM_UNMAP_CMD_MODES: Record<VimUnmapCmd, VimMode> = {
@@ -36,7 +36,7 @@ export const VIM_UNMAP_CMD_MODES: Record<VimUnmapCmd, VimMode> = {
   nunmap: 'normal',
   vunmap: 'visual',
   xunmap: 'visual',
-  iunmap: 'insert',
+  iunmap: 'insert'
 }
 
 export const VIM_NOREMAP_CMDS = new Set<VimMapCmd>([
@@ -44,7 +44,7 @@ export const VIM_NOREMAP_CMDS = new Set<VimMapCmd>([
   'nnoremap',
   'vnoremap',
   'xnoremap',
-  'inoremap',
+  'inoremap'
 ])
 
 export const VIM_UNMAP_CMDS = new Set<VimUnmapCmd>([
@@ -52,7 +52,7 @@ export const VIM_UNMAP_CMDS = new Set<VimUnmapCmd>([
   'nunmap',
   'vunmap',
   'xunmap',
-  'iunmap',
+  'iunmap'
 ])
 
 export type VimMappingDiagnosticKind =
@@ -118,7 +118,7 @@ export function toVimSequence(binding: string): string | null {
 export function diagnoseVimMappings(
   raw: string,
   leaderKey: string,
-  seqMap: Map<string, KeymapDefinition>,
+  seqMap: Map<string, KeymapDefinition>
 ): VimMappingDiagnostic[] {
   const resolve = (token: string): string =>
     token.replace(/<leader>/gi, leaderKey)
@@ -143,7 +143,7 @@ export function diagnoseVimMappings(
       diagnostics.push({
         kind: 'unknown-command',
         line: lineNumber,
-        message: `Unknown command "${cmd}", only map/noremap/unmap variants are supported.`,
+        message: `Unknown command "${cmd}", only map/noremap/unmap variants are supported.`
       })
       return
     }
@@ -154,7 +154,7 @@ export function diagnoseVimMappings(
       diagnostics.push({
         kind: 'missing-rhs',
         line: lineNumber,
-        message: `"${cmd} ${rawLhs}" is missing a right-hand side.`,
+        message: `"${cmd} ${rawLhs}" is missing a right-hand side.`
       })
       return
     }
@@ -164,7 +164,7 @@ export function diagnoseVimMappings(
         kind: 'app-conflict',
         line: lineNumber,
         message: `"${rawLhs}" is already bound to ${def.title}`,
-        keymapId: def.id,
+        keymapId: def.id
       })
     }
   })

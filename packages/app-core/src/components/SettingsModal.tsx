@@ -4,12 +4,12 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
+  useState
 } from 'react'
 import { createPortal } from 'react-dom'
 import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
-  DEFAULT_WEEKLY_NOTES_DIRECTORY,
+  DEFAULT_WEEKLY_NOTES_DIRECTORY
 } from '@shared/ipc'
 import type {
   AppUpdateState,
@@ -19,21 +19,21 @@ import type {
   RemoteWorkspaceProfileInput,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
-  VaultTextSearchToolPaths,
+  VaultTextSearchToolPaths
 } from '@shared/ipc'
 import {
   MCP_CLIENTS,
   type McpClientId,
   type McpClientStatus,
   type McpInstructionsPayload,
-  type McpServerRuntime,
+  type McpServerRuntime
 } from '@shared/mcp-clients'
 import { useStore } from '../store'
 import type { LineNumberMode, WhichKeyHintMode } from '../store'
 import type {
   KeymapDefinition,
   KeymapId,
-  KeymapOverrides,
+  KeymapOverrides
 } from '../lib/keymaps'
 import {
   findConflictingKeymaps,
@@ -44,23 +44,23 @@ import {
   getKeymapDisplay,
   isMacPlatform,
   sequenceTokenFromEvent,
-  shortcutBindingFromEvent,
+  shortcutBindingFromEvent
 } from '../lib/keymaps'
 import { diagnoseVimMappings, toVimSequence } from '../lib/vim-mappings'
 import {
   resolveAuto,
   THEMES,
   type ThemeFamily,
-  type ThemeMode,
+  type ThemeMode
 } from '../lib/themes'
 import { hasSystemFontAccess, listSystemFonts } from '../lib/system-fonts'
 import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
-  getSystemFolderLabel,
+  getSystemFolderLabel
 } from '../lib/system-folder-labels'
 import {
   normalizeDailyNotesDirectory,
-  normalizeWeeklyNotesDirectory,
+  normalizeWeeklyNotesDirectory
 } from '../lib/vault-layout'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
@@ -68,7 +68,7 @@ import { TemplateEditorModal } from './TemplateEditorModal'
 import type { NoteTemplate } from '@bridge-contract/templates'
 import {
   getSettingsSearchResults,
-  type SettingsSearchCategory,
+  type SettingsSearchCategory
 } from '../lib/settings-search'
 import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
@@ -106,10 +106,10 @@ function settingsSearchTargetProps(settingId: string | undefined): {
 
 function findSettingsSearchTarget(
   root: HTMLElement,
-  targetId: string,
+  targetId: string
 ): HTMLElement | null {
   for (const element of root.querySelectorAll<HTMLElement>(
-    '[data-settings-search-id]',
+    '[data-settings-search-id]'
   )) {
     if (element.dataset.settingsSearchId === targetId) return element
   }
@@ -126,7 +126,7 @@ function clearSettingsSearchHighlights(root: HTMLElement): void {
 
 function resolveVaultTextSearchBackend(
   preferred: VaultTextSearchBackendPreference,
-  capabilities: VaultTextSearchCapabilities | null,
+  capabilities: VaultTextSearchCapabilities | null
 ): ResolvedVaultTextSearchBackend | null {
   if (!capabilities) return null
   if (preferred === 'builtin') return 'builtin'
@@ -139,7 +139,7 @@ function resolveVaultTextSearchBackend(
 }
 
 function resolvedVaultTextSearchBackendLabel(
-  backend: ResolvedVaultTextSearchBackend | null,
+  backend: ResolvedVaultTextSearchBackend | null
 ): string {
   if (backend === 'ripgrep') return 'ripgrep'
   if (backend === 'fzf') return 'fzf'
@@ -289,17 +289,17 @@ export function SettingsModal(): JSX.Element {
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const connectRemoteWorkspaceProfile = useStore(
-    (s) => s.connectRemoteWorkspaceProfile,
+    (s) => s.connectRemoteWorkspaceProfile
   )
   const changeRemoteWorkspaceVaultPath = useStore(
-    (s) => s.changeRemoteWorkspaceVaultPath,
+    (s) => s.changeRemoteWorkspaceVaultPath
   )
   const disconnectRemoteWorkspace = useStore((s) => s.disconnectRemoteWorkspace)
   const saveRemoteWorkspaceProfile = useStore(
-    (s) => s.saveRemoteWorkspaceProfile,
+    (s) => s.saveRemoteWorkspaceProfile
   )
   const deleteRemoteWorkspaceProfile = useStore(
-    (s) => s.deleteRemoteWorkspaceProfile,
+    (s) => s.deleteRemoteWorkspaceProfile
   )
   const openTodayDailyNote = useStore((s) => s.openTodayDailyNote)
   const openThisWeekWeeklyNote = useStore((s) => s.openThisWeekWeeklyNote)
@@ -309,7 +309,7 @@ export function SettingsModal(): JSX.Element {
   const setCalendarWeekStart = useStore((s) => s.setCalendarWeekStart)
   const calendarShowWeekNumbers = useStore((s) => s.calendarShowWeekNumbers)
   const setCalendarShowWeekNumbers = useStore(
-    (s) => s.setCalendarShowWeekNumbers,
+    (s) => s.setCalendarShowWeekNumbers
   )
   const customTemplates = useStore((s) => s.customTemplates)
   const deleteCustomTemplate = useStore((s) => s.deleteCustomTemplate)
@@ -319,9 +319,9 @@ export function SettingsModal(): JSX.Element {
     () =>
       mergeTemplates(
         hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES,
-        customTemplates,
+        customTemplates
       ),
-    [customTemplates, hideBuiltinTemplates],
+    [customTemplates, hideBuiltinTemplates]
   )
   const supportsCustomTemplates =
     zenBridge.getCapabilities().supportsCustomTemplates &&
@@ -351,8 +351,8 @@ export function SettingsModal(): JSX.Element {
         targetFolder: template.targetFolder,
         targetSubpath: template.targetSubpath,
         builtinId: template.id,
-        body: template.body,
-      }),
+        body: template.body
+      })
     })
   }
   const removeTemplate = async (template: NoteTemplate): Promise<void> => {
@@ -366,7 +366,7 @@ export function SettingsModal(): JSX.Element {
         ? 'This removes your customizations and restores the built-in template.'
         : 'This removes the template file. Notes already created from it are unaffected.',
       confirmLabel: isOverride ? 'Reset' : 'Delete',
-      danger: true,
+      danger: true
     })
     if (!confirmed) return
     await deleteCustomTemplate(template.sourcePath)
@@ -381,7 +381,7 @@ export function SettingsModal(): JSX.Element {
       description:
         'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.',
       confirmLabel: 'Remove',
-      danger: true,
+      danger: true
     })
     if (!confirmed) return
     setHideBuiltinTemplates(true)
@@ -425,9 +425,9 @@ export function SettingsModal(): JSX.Element {
   const searchToolPaths = useMemo<VaultTextSearchToolPaths>(
     () => ({
       ripgrepPath: ripgrepBinaryPath,
-      fzfPath: fzfBinaryPath,
+      fzfPath: fzfBinaryPath
     }),
-    [fzfBinaryPath, ripgrepBinaryPath],
+    [fzfBinaryPath, ripgrepBinaryPath]
   )
   useEffect(() => {
     let cancelled = false
@@ -454,7 +454,7 @@ export function SettingsModal(): JSX.Element {
       () => {
         if (!cancelled)
           setVaultTextSearchCapabilities({ ripgrep: false, fzf: false })
-      },
+      }
     )
     return () => {
       cancelled = true
@@ -466,7 +466,7 @@ export function SettingsModal(): JSX.Element {
       (state) => {
         if (state.phase === 'available') {
           window.alert(
-            `ZenNotes ${state.availableVersion ?? ''} is available. Use “Download Update” to fetch it.`,
+            `ZenNotes ${state.availableVersion ?? ''} is available. Use “Download Update” to fetch it.`
           )
           return
         }
@@ -484,7 +484,7 @@ export function SettingsModal(): JSX.Element {
             ? error.message
             : 'Could not check for updates.'
         window.alert(message)
-      },
+      }
     )
   }, [])
 
@@ -506,9 +506,9 @@ export function SettingsModal(): JSX.Element {
         name: '',
         baseUrl: remoteWorkspaceInfo?.baseUrl ?? 'http://localhost:7878',
         authToken: null,
-        vaultPath: workspaceMode === 'remote' ? (vault?.root ?? null) : null,
+        vaultPath: workspaceMode === 'remote' ? (vault?.root ?? null) : null
       },
-      hasStoredCredential: false,
+      hasStoredCredential: false
     })
   }, [remoteWorkspaceInfo?.baseUrl, vault?.root, workspaceMode])
 
@@ -520,12 +520,12 @@ export function SettingsModal(): JSX.Element {
           id: profile.id,
           name: profile.name,
           baseUrl: profile.baseUrl,
-          vaultPath: profile.vaultPath,
+          vaultPath: profile.vaultPath
         },
-        hasStoredCredential: profile.hasCredential,
+        hasStoredCredential: profile.hasCredential
       })
     },
-    [],
+    []
   )
 
   const submitRemoteProfile = useCallback(
@@ -533,7 +533,7 @@ export function SettingsModal(): JSX.Element {
       await saveRemoteWorkspaceProfile(input)
       setEditingRemoteProfile(null)
     },
-    [saveRemoteWorkspaceProfile],
+    [saveRemoteWorkspaceProfile]
   )
 
   const removeRemoteProfile = useCallback(
@@ -543,17 +543,17 @@ export function SettingsModal(): JSX.Element {
         description:
           'This only removes the saved connection from ZenNotes. It does not delete anything on the server.',
         confirmLabel: 'Remove',
-        danger: true,
+        danger: true
       })
       if (!confirmed) return
       await deleteRemoteWorkspaceProfile(profile.id)
     },
-    [deleteRemoteWorkspaceProfile],
+    [deleteRemoteWorkspaceProfile]
   )
 
   const displayedReleaseNotes = useMemo(
     () => formatReleaseNotesForDisplay(appUpdateState?.releaseNotes ?? null),
-    [appUpdateState?.releaseNotes],
+    [appUpdateState?.releaseNotes]
   )
 
   // Family list — Apple is the default, followed by the other families.
@@ -567,9 +567,9 @@ export function SettingsModal(): JSX.Element {
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
       { id: 'tokyo-night', label: 'Tokyo Night' },
-      { id: 'black-metal', label: 'Black Metal' },
+      { id: 'black-metal', label: 'Black Metal' }
     ],
-    [],
+    []
   )
 
   // Variants to show in the variant picker.
@@ -590,7 +590,7 @@ export function SettingsModal(): JSX.Element {
   const [prefersDark, setPrefersDark] = useState(() =>
     typeof window !== 'undefined'
       ? window.matchMedia('(prefers-color-scheme: dark)').matches
-      : false,
+      : false
   )
   useEffect(() => {
     const mql = window.matchMedia('(prefers-color-scheme: dark)')
@@ -613,13 +613,13 @@ export function SettingsModal(): JSX.Element {
       themeMode === 'auto'
         ? resolveAuto(themeFamily, prefersDark, themeId)
         : themeId,
-    [themeId, themeFamily, themeMode, prefersDark],
+    [themeId, themeFamily, themeMode, prefersDark]
   )
 
   const visibleVariants = useMemo(() => {
     if (themeFamily === 'gruvbox') {
       return THEMES.filter(
-        (t) => t.family === 'gruvbox' && t.mode === effectiveMode,
+        (t) => t.family === 'gruvbox' && t.mode === effectiveMode
       )
     }
     // Families with only a light/dark pair don't need a variant picker —
@@ -630,7 +630,7 @@ export function SettingsModal(): JSX.Element {
       'one',
       'nord',
       'tokyo-night',
-      'black-metal',
+      'black-metal'
     ]
     if (simpleFamilies.includes(themeFamily)) return []
     return THEMES.filter((t) => t.family === themeFamily)
@@ -649,7 +649,7 @@ export function SettingsModal(): JSX.Element {
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
       'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
-      'black-metal': { light: 'black-metal-day', dark: 'black-metal' },
+      'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
     const targetId = preferred[family][effectiveMode]
     setTheme({ id: targetId, family, mode: themeMode })
@@ -668,7 +668,7 @@ export function SettingsModal(): JSX.Element {
         (t) =>
           t.family === themeFamily &&
           t.mode === mode &&
-          t.variant === currentVariant,
+          t.variant === currentVariant
       ) ?? THEMES.find((t) => t.family === themeFamily && t.mode === mode)
     if (candidate) setTheme({ id: candidate.id, family: themeFamily, mode })
   }
@@ -695,15 +695,15 @@ export function SettingsModal(): JSX.Element {
   const [navQuery, setNavQuery] = useState('')
   const availableVaultTextSearchTools = [
     vaultTextSearchCapabilities?.ripgrep ? 'ripgrep' : null,
-    vaultTextSearchCapabilities?.fzf ? 'fzf' : null,
+    vaultTextSearchCapabilities?.fzf ? 'fzf' : null
   ].filter((value): value is string => !!value)
   const resolvedVaultTextSearchBackend = useMemo(
     () =>
       resolveVaultTextSearchBackend(
         vaultTextSearchBackend,
-        vaultTextSearchCapabilities,
+        vaultTextSearchCapabilities
       ),
-    [vaultTextSearchBackend, vaultTextSearchCapabilities],
+    [vaultTextSearchBackend, vaultTextSearchCapabilities]
   )
   const resolvedVaultTextSearchMessage = useMemo(() => {
     if (!vaultTextSearchCapabilities) return 'Checking configured search tools…'
@@ -804,35 +804,35 @@ export function SettingsModal(): JSX.Element {
             'github',
             'solarized',
             'nord',
-            'tokyo night',
-          ],
+            'tokyo night'
+          ]
         },
         {
           id: 'theme-mode',
           title: 'Theme mode',
           description: 'Choose light, dark, or automatic theme mode.',
-          keywords: ['light', 'dark', 'auto', 'mode'],
+          keywords: ['light', 'dark', 'auto', 'mode']
         },
         {
           id: 'theme-variant',
           title: 'Theme variant',
           description: 'Choose a family-specific contrast, flavor, or variant.',
           keywords: ['variant', 'contrast', 'flavor'],
-          available: visibleVariants.length > 1,
+          available: visibleVariants.length > 1
         },
         {
           id: 'dark-sidebar',
           title: 'Dark sidebar',
           description:
-            'Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.',
+            'Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.'
         },
         {
           id: 'sidebar-arrows',
           title: 'Sidebar arrows',
           description:
             'Show disclosure arrows for collapsible folders and sidebar sections.',
-          keywords: ['chevrons', 'disclosure'],
-        },
+          keywords: ['chevrons', 'disclosure']
+        }
       ],
       content: (
         <div className="space-y-6">
@@ -854,7 +854,7 @@ export function SettingsModal(): JSX.Element {
                         'rounded-xl border px-3 py-2.5 text-left text-sm transition-colors',
                         themeFamily === f.id
                           ? 'border-accent/45 bg-accent/10 text-ink-900'
-                          : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80',
+                          : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
                       ].join(' ')}
                     >
                       {f.label}
@@ -876,7 +876,7 @@ export function SettingsModal(): JSX.Element {
                         'rounded-lg px-3 py-1.5 text-xs capitalize transition-colors',
                         themeMode === m
                           ? 'bg-paper-50 text-ink-900 shadow-sm'
-                          : 'text-ink-600 hover:text-ink-900',
+                          : 'text-ink-600 hover:text-ink-900'
                       ].join(' ')}
                     >
                       {m}
@@ -903,7 +903,7 @@ export function SettingsModal(): JSX.Element {
                           'rounded-xl border px-3 py-1.5 text-xs transition-colors',
                           renderedThemeId === v.id
                             ? 'border-accent/45 bg-accent/10 text-ink-900'
-                            : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80',
+                            : 'border-paper-300/70 bg-paper-100/70 text-ink-700 hover:bg-paper-200/80'
                         ].join(' ')}
                       >
                         {v.label}
@@ -935,7 +935,7 @@ export function SettingsModal(): JSX.Element {
             />
           </Section>
         </div>
-      ),
+      )
     },
     {
       id: 'editor',
@@ -954,21 +954,21 @@ export function SettingsModal(): JSX.Element {
         'hotkey',
         'shortcut',
         'task',
-        'tasks',
+        'tasks'
       ],
       searchItems: [
         {
           id: 'vim-mode',
           title: 'Vim mode',
           description: 'First-class Vim motions in the markdown editor.',
-          keywords: ['vim', 'motions'],
+          keywords: ['vim', 'motions']
         },
         {
           id: 'vim-insert-escape',
           title: 'Exit insert mode with',
           description:
             'Map a key sequence like jk or jj to Escape in insert mode.',
-          keywords: ['vim', 'jk', 'jj', 'escape', 'insert mode', 'esc'],
+          keywords: ['vim', 'jk', 'jj', 'escape', 'insert mode', 'esc']
         },
         {
           id: 'leader-key-hints',
@@ -976,7 +976,7 @@ export function SettingsModal(): JSX.Element {
           description:
             'Show a which-key style guide after pressing the Leader key so the next available actions stay visible.',
           keywords: ['leader', 'which-key'],
-          targetId: leaderKeyHintsTargetId,
+          targetId: leaderKeyHintsTargetId
         },
         {
           id: 'leader-hint-behavior',
@@ -984,7 +984,7 @@ export function SettingsModal(): JSX.Element {
           description:
             'Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it.',
           keywords: ['leader', 'sticky', 'timed'],
-          targetId: leaderHintBehaviorTargetId,
+          targetId: leaderHintBehaviorTargetId
         },
         {
           id: 'leader-hint-duration',
@@ -992,88 +992,88 @@ export function SettingsModal(): JSX.Element {
           description:
             'How long the leader overlay stays visible, and how long the pending leader sequence remains armed.',
           keywords: ['leader', 'timeout', 'delay'],
-          targetId: leaderHintDurationTargetId,
+          targetId: leaderHintDurationTargetId
         },
         {
           id: 'vault-text-search-backend',
           title: 'Vault text search backend',
           description:
             'Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher.',
-          keywords: ['search', 'backend', 'ripgrep', 'rg', 'fzf', 'built-in'],
+          keywords: ['search', 'backend', 'ripgrep', 'rg', 'fzf', 'built-in']
         },
         {
           id: 'ripgrep-binary-path',
           title: 'ripgrep binary path',
           description: 'Optional. Leave blank to use `rg` from your PATH.',
-          keywords: ['search', 'rg', 'path'],
+          keywords: ['search', 'rg', 'path']
         },
         {
           id: 'fzf-binary-path',
           title: 'fzf binary path',
           description: 'Optional. Leave blank to use `fzf` from your PATH.',
-          keywords: ['search', 'path'],
+          keywords: ['search', 'path']
         },
         {
           id: 'live-preview',
           title: 'Live preview',
           description: 'Hide markdown syntax on lines you are not editing.',
-          keywords: ['preview', 'markdown'],
+          keywords: ['preview', 'markdown']
         },
         {
           id: 'note-tabs',
           title: 'Note tabs',
           description:
             'Open notes in tabs and allow split-friendly tab workflows.',
-          keywords: ['tabs'],
+          keywords: ['tabs']
         },
         {
           id: 'wrap-note-tabs',
           title: 'Wrap note tabs',
           description:
             'Move overflowing tabs onto additional rows instead of horizontal scrolling.',
-          keywords: ['tabs', 'wrap', 'new line', 'overflow'],
+          keywords: ['tabs', 'wrap', 'new line', 'overflow']
         },
         {
           id: 'word-wrap',
           title: 'Word wrap',
           description:
             'Wrap long lines to the editor width. Turn off to scroll horizontally instead.',
-          keywords: ['wrap', 'line wrap'],
+          keywords: ['wrap', 'line wrap']
         },
         {
           id: 'smooth-preview-scroll',
           title: 'Smooth preview scroll',
           description:
             'Animate Ctrl+D / Ctrl+U half-page jumps in preview mode.',
-          keywords: ['preview', 'scroll'],
+          keywords: ['preview', 'scroll']
         },
         {
           id: 'pdfs-in-edit-mode',
           title: 'PDFs in edit mode',
           description:
             'Compact keeps the editor focused. Full inlines the PDF viewer under your cursor.',
-          keywords: ['pdf', 'embed'],
+          keywords: ['pdf', 'embed']
         },
         {
           id: 'date-titled-quick-notes',
           title: 'Date-titled Quick Notes',
           description:
             'New Quick Notes use YYYY-MM-DD instead of timestamp-style titles.',
-          keywords: ['quick note', 'date', 'title'],
+          keywords: ['quick note', 'date', 'title']
         },
         {
           id: 'quick-note-prefix',
           title: 'Quick Note prefix',
           description: 'Used when naming new Quick Notes.',
-          keywords: ['quick note', 'prefix'],
+          keywords: ['quick note', 'prefix']
         },
         {
           id: 'quick-capture-hotkey',
           title: 'Quick capture hotkey',
           description:
             'System-wide shortcut to open the floating capture window.',
-          keywords: ['quick capture', 'hotkey', 'shortcut'],
-        },
+          keywords: ['quick capture', 'hotkey', 'shortcut']
+        }
       ],
       content: (
         <div className="space-y-6">
@@ -1114,7 +1114,7 @@ export function SettingsModal(): JSX.Element {
                       settingId="leader-hint-behavior"
                       options={[
                         { value: 'timed', label: 'Timed' },
-                        { value: 'sticky', label: 'Sticky' },
+                        { value: 'sticky', label: 'Sticky' }
                       ]}
                       onChange={(next) =>
                         setWhichKeyHintMode(next as WhichKeyHintMode)
@@ -1156,11 +1156,11 @@ export function SettingsModal(): JSX.Element {
                 { value: 'auto', label: 'Auto' },
                 { value: 'builtin', label: 'Built-in' },
                 { value: 'ripgrep', label: 'ripgrep' },
-                { value: 'fzf', label: 'fzf' },
+                { value: 'fzf', label: 'fzf' }
               ]}
               onChange={(next) =>
                 setVaultTextSearchBackend(
-                  next as VaultTextSearchBackendPreference,
+                  next as VaultTextSearchBackendPreference
                 )
               }
             />
@@ -1183,7 +1183,7 @@ export function SettingsModal(): JSX.Element {
             <InlineNote>
               Runtime backend:{' '}
               {resolvedVaultTextSearchBackendLabel(
-                resolvedVaultTextSearchBackend,
+                resolvedVaultTextSearchBackend
               )}
             </InlineNote>
             <InlineNote>{resolvedVaultTextSearchMessage}</InlineNote>
@@ -1242,7 +1242,7 @@ export function SettingsModal(): JSX.Element {
               settingId="pdfs-in-edit-mode"
               options={[
                 { value: 'compact', label: 'Compact' },
-                { value: 'full', label: 'Full' },
+                { value: 'full', label: 'Full' }
               ]}
               onChange={(next) => setPdfEmbedInEditMode(next)}
             />
@@ -1270,7 +1270,7 @@ export function SettingsModal(): JSX.Element {
             <QuickCaptureHotkeyRow settingId="quick-capture-hotkey" />
           </Section>
         </div>
-      ),
+      )
     },
     {
       id: 'keymaps',
@@ -1289,9 +1289,9 @@ export function SettingsModal(): JSX.Element {
             'leader',
             'vim',
             'remap',
-            'keyboard',
-          ],
-        },
+            'keyboard'
+          ]
+        }
       ],
       content: (
         <div
@@ -1305,7 +1305,7 @@ export function SettingsModal(): JSX.Element {
             onResetAll={resetAllKeymaps}
           />
         </div>
-      ),
+      )
     },
     {
       id: 'typography',
@@ -1318,65 +1318,65 @@ export function SettingsModal(): JSX.Element {
         'line height',
         'width',
         'alignment',
-        'numbers',
+        'numbers'
       ],
       searchItems: [
         {
           id: 'interface-font',
           title: 'Interface font',
           description: 'Used for the sidebar, menus, and window chrome.',
-          keywords: ['font'],
+          keywords: ['font']
         },
         {
           id: 'text-font',
           title: 'Text font',
           description: 'Used for editing and reading views.',
-          keywords: ['font'],
+          keywords: ['font']
         },
         {
           id: 'monospace-font',
           title: 'Monospace font',
           description: 'Used for code blocks, inline code, and frontmatter.',
-          keywords: ['font', 'mono', 'code'],
+          keywords: ['font', 'mono', 'code']
         },
         {
           id: 'font-size',
           title: 'Font size',
           description: 'Editor and preview text size.',
-          keywords: ['size'],
+          keywords: ['size']
         },
         {
           id: 'line-height',
           title: 'Line height',
           description: 'Editor and preview line spacing.',
-          keywords: ['spacing'],
+          keywords: ['spacing']
         },
         {
           id: 'reading-width',
           title: 'Reading width',
           description: 'Maximum width for preview and split-preview content.',
-          keywords: ['width', 'preview'],
+          keywords: ['width', 'preview']
         },
         {
           id: 'editor-width',
           title: 'Editor width',
           description:
             'Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.',
-          keywords: ['width'],
+          keywords: ['width']
         },
         {
           id: 'content-alignment',
           title: 'Content alignment',
           description:
             'Center note content within the column or left-align it to the pane edge.',
-          keywords: ['alignment', 'center', 'left'],
+          keywords: ['alignment', 'center', 'left']
         },
         {
           id: 'line-numbers',
           title: 'Line numbers',
           description: 'Show editor gutter numbers.',
-          keywords: ['numbers', 'gutter', 'relative', 'absolute'],
-        },
+          keywords: ['numbers', 'gutter', 'relative', 'absolute']
+        }
       ],
       content: (
         <div className="space-y-6">
@@ -1465,7 +1465,7 @@ export function SettingsModal(): JSX.Element {
               settingId="content-alignment"
               options={[
                 { value: 'center', label: 'Center' },
-                { value: 'left', label: 'Left' },
+                { value: 'left', label: 'Left' }
               ]}
               onChange={(next) => setContentAlign(next)}
             />
@@ -1477,13 +1477,13 @@ export function SettingsModal(): JSX.Element {
               options={[
                 { value: 'off', label: 'Off' },
                 { value: 'absolute', label: 'Absolute' },
-                { value: 'relative', label: 'Relative' },
+                { value: 'relative', label: 'Relative' }
               ]}
               onChange={(next) => setLineNumberMode(next)}
             />
           </Section>
         </div>
-      ),
+      )
     },
     {
       id: 'vault',
@@ -1496,7 +1496,7 @@ export function SettingsModal(): JSX.Element {
           title: 'Vault location',
           description:
             'ZenNotes reads markdown directly from the selected vault folder.',
-          keywords: ['folder', 'root', 'location', 'open vault', 'change'],
+          keywords: ['folder', 'root', 'location', 'open vault', 'change']
         },
         {
           id: 'saved-remote-workspaces',
@@ -1504,65 +1504,65 @@ export function SettingsModal(): JSX.Element {
           description:
             'Keep multiple ZenNotes servers and vaults ready to reconnect.',
           keywords: ['remote', 'server', 'workspace', 'connect'],
-          available: supportsRemoteWorkspace,
+          available: supportsRemoteWorkspace
         },
         {
           id: 'primary-notes-location',
           title: 'Primary notes location',
           description:
             'Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly.',
-          keywords: ['primary notes', 'inbox', 'vault root'],
+          keywords: ['primary notes', 'inbox', 'vault root']
         },
         {
           id: 'enable-daily-notes',
           title: 'Enable daily notes',
           description:
             'Adds a dedicated daily-notes workflow without changing ordinary note creation.',
-          keywords: ['daily notes'],
+          keywords: ['daily notes']
         },
         {
           id: 'daily-notes-directory',
           title: 'Daily notes directory',
           description: 'Stored inside your primary notes area.',
-          keywords: ['daily notes', 'directory', 'folder'],
+          keywords: ['daily notes', 'directory', 'folder']
         },
         {
           id: 'open-todays-daily-note',
           title: "Open today's daily note",
           description: "Opens today's note if it exists, otherwise creates it.",
-          keywords: ['daily notes', 'today'],
+          keywords: ['daily notes', 'today']
         },
         {
           id: 'daily-notes-template',
           title: 'Daily note template',
           description: 'Template applied when a daily note is created.',
-          keywords: ['daily notes', 'template'],
+          keywords: ['daily notes', 'template']
         },
         {
           id: 'enable-weekly-notes',
           title: 'Enable weekly notes',
           description:
             'Adds a dedicated weekly-notes workflow alongside daily notes.',
-          keywords: ['weekly notes'],
+          keywords: ['weekly notes']
         },
         {
           id: 'weekly-notes-directory',
           title: 'Weekly notes directory',
           description: 'Stored inside your primary notes area.',
-          keywords: ['weekly notes', 'directory', 'folder'],
+          keywords: ['weekly notes', 'directory', 'folder']
         },
         {
           id: 'weekly-notes-template',
           title: 'Weekly note template',
           description: 'Template applied when a weekly note is created.',
-          keywords: ['weekly notes', 'template'],
+          keywords: ['weekly notes', 'template']
         },
         {
           id: 'open-this-week-note',
           title: "Open this week's note",
           description:
             "Opens this week's note if it exists, otherwise creates it.",
-          keywords: ['weekly notes', 'this week'],
+          keywords: ['weekly notes', 'this week']
         },
         {
           id: 'auto-calendar-panel',
@@ -1574,46 +1574,46 @@ export function SettingsModal(): JSX.Element {
             'daily notes',
             'weekly notes',
             'date',
-            'navigate',
-          ],
+            'navigate'
+          ]
         },
         {
           id: 'calendar-week-start',
           title: 'Calendar starts week on',
           description: 'Which weekday the calendar grid begins with.',
-          keywords: ['calendar', 'week start', 'monday', 'sunday', 'locale'],
+          keywords: ['calendar', 'week start', 'monday', 'sunday', 'locale']
         },
         {
           id: 'calendar-week-numbers',
           title: 'Show week numbers',
           description: 'Display the ISO week-number column in the calendar.',
-          keywords: ['calendar', 'week numbers', 'iso week', 'weekly notes'],
+          keywords: ['calendar', 'week numbers', 'iso week', 'weekly notes']
         },
         {
           id: 'inbox-label',
           title: 'Inbox label',
           description:
             'Shown in the sidebar, breadcrumbs, commands, and note actions.',
-          keywords: ['system folders', 'folder label'],
+          keywords: ['system folders', 'folder label']
         },
         {
           id: 'quick-notes-label',
           title: 'Quick Notes label',
           description: 'Display name for the quick-capture area.',
-          keywords: ['system folders', 'folder label', 'quick'],
+          keywords: ['system folders', 'folder label', 'quick']
         },
         {
           id: 'archive-label',
           title: 'Archive label',
           description: 'Display name for cold-storage notes.',
-          keywords: ['system folders', 'folder label'],
+          keywords: ['system folders', 'folder label']
         },
         {
           id: 'trash-label',
           title: 'Trash label',
           description: 'Display name for deleted-note recovery.',
-          keywords: ['system folders', 'folder label'],
-        },
+          keywords: ['system folders', 'folder label']
+        }
       ],
       content: (
         <div className="space-y-6">
@@ -1783,12 +1783,12 @@ export function SettingsModal(): JSX.Element {
               settingId="primary-notes-location"
               options={[
                 { value: 'inbox', label: 'Inbox' },
-                { value: 'root', label: 'Vault root' },
+                { value: 'root', label: 'Vault root' }
               ]}
               onChange={(primaryNotesLocation) =>
                 void persistVaultSettings({
                   ...vaultSettings,
-                  primaryNotesLocation,
+                  primaryNotesLocation
                 })
               }
             />
@@ -1808,8 +1808,8 @@ export function SettingsModal(): JSX.Element {
                   ...vaultSettings,
                   dailyNotes: {
                     ...vaultSettings.dailyNotes,
-                    enabled,
-                  },
+                    enabled
+                  }
                 })
               }
             />
@@ -1824,8 +1824,8 @@ export function SettingsModal(): JSX.Element {
                   ...vaultSettings,
                   dailyNotes: {
                     ...vaultSettings.dailyNotes,
-                    directory: normalizeDailyNotesDirectory(next),
-                  },
+                    directory: normalizeDailyNotesDirectory(next)
+                  }
                 })
               }
             />
@@ -1838,7 +1838,7 @@ export function SettingsModal(): JSX.Element {
               onChange={(templateId) =>
                 void persistVaultSettings({
                   ...vaultSettings,
-                  dailyNotes: { ...vaultSettings.dailyNotes, templateId },
+                  dailyNotes: { ...vaultSettings.dailyNotes, templateId }
                 })
               }
             />
@@ -1863,7 +1863,7 @@ export function SettingsModal(): JSX.Element {
                   'shrink-0 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
                   vaultSettings.dailyNotes.enabled
                     ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                 ].join(' ')}
               >
                 Open today
@@ -1885,8 +1885,8 @@ export function SettingsModal(): JSX.Element {
                   ...vaultSettings,
                   weeklyNotes: {
                     ...vaultSettings.weeklyNotes,
-                    enabled,
-                  },
+                    enabled
+                  }
                 })
               }
             />
@@ -1901,8 +1901,8 @@ export function SettingsModal(): JSX.Element {
                   ...vaultSettings,
                   weeklyNotes: {
                     ...vaultSettings.weeklyNotes,
-                    directory: normalizeWeeklyNotesDirectory(next),
-                  },
+                    directory: normalizeWeeklyNotesDirectory(next)
+                  }
                 })
               }
             />
@@ -1915,7 +1915,7 @@ export function SettingsModal(): JSX.Element {
               onChange={(templateId) =>
                 void persistVaultSettings({
                   ...vaultSettings,
-                  weeklyNotes: { ...vaultSettings.weeklyNotes, templateId },
+                  weeklyNotes: { ...vaultSettings.weeklyNotes, templateId }
                 })
               }
             />
@@ -1940,7 +1940,7 @@ export function SettingsModal(): JSX.Element {
                   'shrink-0 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
                   vaultSettings.weeklyNotes.enabled
                     ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                 ].join(' ')}
               >
                 Open this week
@@ -1961,7 +1961,7 @@ export function SettingsModal(): JSX.Element {
               options={[
                 { value: 'monday', label: 'Monday' },
                 { value: 'sunday', label: 'Sunday' },
-                { value: 'locale', label: 'Locale' },
+                { value: 'locale', label: 'Locale' }
               ]}
               onChange={setCalendarWeekStart}
             />
@@ -2019,7 +2019,7 @@ export function SettingsModal(): JSX.Element {
             </InlineNote>
           </Section>
         </div>
-      ),
+      )
     },
     {
       id: 'templates',
@@ -2037,22 +2037,22 @@ export function SettingsModal(): JSX.Element {
         'journal',
         'custom',
         'scaffold',
-        'boilerplate',
+        'boilerplate'
       ],
       searchItems: [
         {
           id: 'templates-list',
           title: 'Template library',
           description: 'Browse built-in templates and manage your custom ones.',
-          keywords: ['templates', 'library', 'built-in', 'custom'],
+          keywords: ['templates', 'library', 'built-in', 'custom']
         },
         {
           id: 'templates-new',
           title: 'Create a custom template',
           description: 'Author a new template stored in .zennotes/templates.',
           keywords: ['template', 'new', 'create', 'custom'],
-          available: supportsCustomTemplates,
-        },
+          available: supportsCustomTemplates
+        }
       ],
       content: (
         <div className="space-y-6">
@@ -2171,7 +2171,7 @@ export function SettingsModal(): JSX.Element {
             ))}
           </Section>
         </div>
-      ),
+      )
     },
     {
       id: 'mcp',
@@ -2188,7 +2188,7 @@ export function SettingsModal(): JSX.Element {
         'openai',
         'integration',
         'agent',
-        'model context protocol',
+        'model context protocol'
       ],
       searchItems: [
         {
@@ -2196,30 +2196,23 @@ export function SettingsModal(): JSX.Element {
           title: 'MCP server',
           description:
             'ZenNotes bundles a local MCP server that connected clients use.',
-          keywords: ['mcp', 'server', 'runtime', 'command'],
+          keywords: ['mcp', 'server', 'runtime', 'command']
         },
         {
           id: 'mcp-integrations',
           title: 'MCP integrations',
           description: 'Pick the clients you want connected to this vault.',
-          keywords: [
-            'mcp',
-            'claude',
-            'codex',
-            'client',
-            'install',
-            'uninstall',
-          ],
+          keywords: ['mcp', 'claude', 'codex', 'client', 'install', 'uninstall']
         },
         {
           id: 'mcp-instructions',
           title: 'MCP instructions',
           description:
             'Edit the system prompt ZenNotes ships to any connected MCP client.',
-          keywords: ['mcp', 'prompt', 'instructions', 'system prompt'],
-        },
+          keywords: ['mcp', 'prompt', 'instructions', 'system prompt']
+        }
       ],
-      content: <McpSettings />,
+      content: <McpSettings />
     },
     {
       id: 'cli',
@@ -2238,7 +2231,7 @@ export function SettingsModal(): JSX.Element {
         'automation',
         'pipe',
         'capture',
-        'developer',
+        'developer'
       ],
       searchItems: [
         {
@@ -2253,24 +2246,24 @@ export function SettingsModal(): JSX.Element {
             'shell',
             'zen',
             'install',
-            'path',
-          ],
+            'path'
+          ]
         },
         {
           id: 'cli-quick-reference',
           title: 'CLI quick reference',
           description: 'A handful of the most useful `zen` commands.',
-          keywords: ['cli', 'help', 'commands', 'reference'],
+          keywords: ['cli', 'help', 'commands', 'reference']
         },
         {
           id: 'raycast-extension',
           title: 'Raycast Extension',
           description:
             'Install the ZenNotes Raycast extension locally from this app.',
-          keywords: ['raycast', 'launcher', 'extension', 'install'],
-        },
+          keywords: ['raycast', 'launcher', 'extension', 'install']
+        }
       ],
-      content: <CliSettings />,
+      content: <CliSettings />
     },
     {
       id: 'about',
@@ -2283,20 +2276,20 @@ export function SettingsModal(): JSX.Element {
           id: 'zen-notes-version',
           title: 'ZenNotes version',
           description: 'App identity, current version, and product details.',
-          keywords: ['about', 'version', 'identity'],
+          keywords: ['about', 'version', 'identity']
         },
         {
           id: 'updates',
           title: 'Updates',
           description: 'Check GitHub releases for a newer ZenNotes build.',
-          keywords: ['release', 'download', 'install', 'updater'],
+          keywords: ['release', 'download', 'install', 'updater']
         },
         {
           id: 'lumary-labs',
           title: 'Lumary Labs',
           description: 'Company and product details.',
-          keywords: ['company', 'lumary', 'logo'],
-        },
+          keywords: ['company', 'lumary', 'logo']
+        }
       ],
       content: (
         <Section title="ZenNotes" settingId="zen-notes-version">
@@ -2319,13 +2312,11 @@ export function SettingsModal(): JSX.Element {
                       <span
                         className={[
                           'rounded-full border px-2.5 py-1 text-xs font-medium',
-                          updatePhaseBadgeClass(
-                            appUpdateState?.phase ?? 'idle',
-                          ),
+                          updatePhaseBadgeClass(appUpdateState?.phase ?? 'idle')
                         ].join(' ')}
                       >
                         {formatUpdatePhaseLabel(
-                          appUpdateState?.phase ?? 'idle',
+                          appUpdateState?.phase ?? 'idle'
                         )}
                       </span>
                       {appUpdateState?.availableVersion && (
@@ -2362,7 +2353,7 @@ export function SettingsModal(): JSX.Element {
                           appUpdateState?.phase === 'checking' ||
                           appUpdateState?.phase === 'downloading'
                             ? 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                            : 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200',
+                            : 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
                         ].join(' ')}
                       >
                         Check for Updates
@@ -2391,7 +2382,7 @@ export function SettingsModal(): JSX.Element {
                       <div
                         className="h-full rounded-full bg-accent transition-[width] duration-200"
                         style={{
-                          width: `${Math.max(0, Math.min(100, appUpdateState.progressPercent ?? 0))}%`,
+                          width: `${Math.max(0, Math.min(100, appUpdateState.progressPercent ?? 0))}%`
                         }}
                       />
                     </div>
@@ -2465,7 +2456,7 @@ export function SettingsModal(): JSX.Element {
                       WebkitMaskPosition: 'center',
                       maskPosition: 'center',
                       WebkitMaskSize: 'contain',
-                      maskSize: 'contain',
+                      maskSize: 'contain'
                     }}
                   />
                 </a>
@@ -2473,8 +2464,8 @@ export function SettingsModal(): JSX.Element {
             </div>
           </div>
         </Section>
-      ),
-    },
+      )
+    }
   ]
 
   const query = navQuery.trim().toLowerCase()
@@ -2549,7 +2540,7 @@ export function SettingsModal(): JSX.Element {
                         'w-full rounded-xl px-3 py-2.5 text-left transition-colors',
                         selected
                           ? 'bg-paper-200/85 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
-                          : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900',
+                          : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900'
                       ].join(' ')}
                     >
                       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -2634,7 +2625,7 @@ export function SettingsModal(): JSX.Element {
             submitLabel:
               editingRemoteProfile.mode === 'edit'
                 ? 'Save Changes'
-                : 'Save Remote',
+                : 'Save Remote'
           }}
           onSubmit={submitRemoteProfile}
           onCancel={() => setEditingRemoteProfile(null)}
@@ -2655,7 +2646,7 @@ function KeymapSettings({
   vimMode,
   overrides,
   onSetBinding,
-  onResetAll,
+  onResetAll
 }: {
   vimMode: boolean
   overrides: KeymapOverrides
@@ -2669,7 +2660,7 @@ function KeymapSettings({
 
   const keymapDiagnostics = useMemo(
     () => findConflictingKeymaps(overrides),
-    [overrides],
+    [overrides]
   )
 
   const vimMappingDiagnostics = useMemo(() => {
@@ -2687,9 +2678,9 @@ function KeymapSettings({
           if (d.kind === 'app-conflict' && d.keymapId)
             acc.push(d.keymapId as KeymapId)
           return acc
-        }, []),
+        }, [])
       ),
-    [vimMappingDiagnostics],
+    [vimMappingDiagnostics]
   )
 
   const groups = useMemo(() => {
@@ -2716,9 +2707,9 @@ function KeymapSettings({
       })
       .filter(
         (
-          group,
+          group
         ): group is ReturnType<typeof getKeymapDefinitionsByGroup>[number] =>
-          !!group,
+          !!group
       )
   }, [overrides, query, vimMode])
 
@@ -2769,7 +2760,7 @@ function KeymapSettings({
                   <span
                     className={[
                       'rounded-full px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                      statusChipClass('warn'),
+                      statusChipClass('warn')
                     ].join(' ')}
                   >
                     {totalConflicts} Conflict{totalConflicts > 0 ? 's' : ''}
@@ -2797,7 +2788,7 @@ function KeymapSettings({
                   'rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
                   hasOverrides
                     ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                 ].join(' ')}
               >
                 Reset all
@@ -2843,7 +2834,7 @@ function KeymapSettings({
                             <span
                               className={[
                                 'rounded-full px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                                statusChipClass('warn'),
+                                statusChipClass('warn')
                               ].join(' ')}
                             >
                               Conflict
@@ -2853,7 +2844,7 @@ function KeymapSettings({
                             <span
                               className={[
                                 'rounded-full px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                                statusChipClass('warn'),
+                                statusChipClass('warn')
                               ].join(' ')}
                             >
                               vimrc
@@ -2883,7 +2874,7 @@ function KeymapSettings({
                             'rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                             custom
                               ? 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
-                              : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                              : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                           ].join(' ')}
                         >
                           Reset
@@ -2911,7 +2902,7 @@ function KeymapSettings({
           onSave={(binding) => {
             onSetBinding(
               recording.id,
-              binding === recording.defaultBinding ? null : binding,
+              binding === recording.defaultBinding ? null : binding
             )
             setRecording(null)
           }}
@@ -2925,7 +2916,7 @@ function KeymapRecorderModal({
   definition,
   currentBinding,
   onClose,
-  onSave,
+  onSave
 }: {
   definition: KeymapDefinition
   currentBinding: string
@@ -3051,7 +3042,7 @@ function KeymapRecorderModal({
         </div>
       </div>
     </div>,
-    document.body,
+    document.body
   )
 }
 
@@ -3059,7 +3050,7 @@ function Section({
   title,
   description,
   settingId,
-  children,
+  children
 }: {
   title: string
   description?: string
@@ -3120,7 +3111,7 @@ function formatAcceleratorForDisplay(accelerator: string): string {
 }
 
 function QuickCaptureHotkeyRow({
-  settingId,
+  settingId
 }: { settingId?: string } = {}): JSX.Element {
   const [current, setCurrent] = useState<string>('')
   const [recording, setRecording] = useState(false)
@@ -3205,7 +3196,7 @@ function QuickCaptureHotkeyRow({
               'rounded-xl border px-3 py-1.5 text-sm tabular-nums',
               recording
                 ? 'border-accent/60 bg-accent/10 text-accent'
-                : 'border-paper-300/70 bg-paper-100/80 text-ink-900 hover:border-paper-300',
+                : 'border-paper-300/70 bg-paper-100/80 text-ink-900 hover:border-paper-300'
             ].join(' ')}
           >
             {recording
@@ -3268,7 +3259,7 @@ function TextInputRow({
   value,
   placeholder,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3309,7 +3300,7 @@ function TemplateSelectRow({
   value,
   templates,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3361,7 +3352,7 @@ function FontRow({
   value,
   options,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3422,7 +3413,7 @@ function FontRow({
       setRect({
         left: r.left,
         top: r.bottom + 4,
-        width: Math.max(260, r.width),
+        width: Math.max(260, r.width)
       })
     }
     update()
@@ -3447,7 +3438,7 @@ function FontRow({
   // `null` represents the default / reset row.
   const items: Array<string | null> = useMemo(
     () => [null, ...filtered],
-    [filtered],
+    [filtered]
   )
 
   // Clamp the active index whenever the filter narrows/widens.
@@ -3459,7 +3450,7 @@ function FontRow({
   useEffect(() => {
     if (!open || !listRef.current) return
     const el = listRef.current.querySelector<HTMLElement>(
-      `[data-idx="${activeIdx}"]`,
+      `[data-idx="${activeIdx}"]`
     )
     el?.scrollIntoView({ block: 'nearest' })
   }, [activeIdx, open])
@@ -3516,7 +3507,7 @@ function FontRow({
           style={{
             fontFamily: value
               ? `"${value}", ui-monospace, monospace`
-              : undefined,
+              : undefined
           }}
         >
           {value ?? 'Default'}
@@ -3567,7 +3558,7 @@ function FontRow({
                     ? 'bg-paper-200 text-ink-900'
                     : value === null
                       ? 'text-ink-900'
-                      : 'text-ink-700',
+                      : 'text-ink-700'
                 ].join(' ')}
               >
                 Default
@@ -3595,7 +3586,7 @@ function FontRow({
                           ? 'bg-paper-200 text-ink-900'
                           : value === f
                             ? 'text-ink-900'
-                            : 'text-ink-800',
+                            : 'text-ink-800'
                       ].join(' ')}
                       style={{ fontFamily: `"${f}", ui-monospace, monospace` }}
                     >
@@ -3606,7 +3597,7 @@ function FontRow({
               )}
             </div>
           </div>,
-          document.body,
+          document.body
         )}
     </div>
   )
@@ -3622,7 +3613,7 @@ function SliderRow({
   unit,
   format,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3678,7 +3669,7 @@ function NumberRow({
   unit,
   format,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3732,7 +3723,7 @@ function ToggleRow({
   description,
   value,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3760,13 +3751,13 @@ function ToggleRow({
         onClick={() => onChange(!value)}
         className={[
           'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
-          value ? 'bg-accent' : 'bg-paper-300',
+          value ? 'bg-accent' : 'bg-paper-300'
         ].join(' ')}
       >
         <span
           className={[
             'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-            value ? 'translate-x-4' : 'translate-x-0.5',
+            value ? 'translate-x-4' : 'translate-x-0.5'
           ].join(' ')}
         />
       </button>
@@ -3780,7 +3771,7 @@ function SegmentedRow<T extends string>({
   value,
   options,
   settingId,
-  onChange,
+  onChange
 }: {
   label: string
   description?: string
@@ -3812,7 +3803,7 @@ function SegmentedRow<T extends string>({
               'rounded-lg px-3 py-1.5 text-xs transition-colors',
               value === option.value
                 ? 'bg-paper-50 text-ink-900 shadow-sm'
-                : 'text-ink-600 hover:text-ink-900',
+                : 'text-ink-600 hover:text-ink-900'
             ].join(' ')}
           >
             {option.label}
@@ -3927,7 +3918,7 @@ function CliSettings(): JSX.Element {
                 <span
                   className={[
                     'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                    statusChipClass(chip.tone),
+                    statusChipClass(chip.tone)
                   ].join(' ')}
                 >
                   {chip.label}
@@ -3982,7 +3973,7 @@ function CliSettings(): JSX.Element {
                     'rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                     busy || (installed && !ours)
                       ? 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                      : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200',
+                      : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
                   ].join(' ')}
                 >
                   {busy ? 'Working…' : 'Uninstall'}
@@ -4051,7 +4042,7 @@ function CliSettings(): JSX.Element {
 
 function RaycastExtensionSettings({
   cliInstalled,
-  copyToClipboard,
+  copyToClipboard
 }: {
   cliInstalled: boolean
   copyToClipboard: (text: string) => void
@@ -4112,7 +4103,7 @@ function RaycastExtensionSettings({
   const toolchainDetail = [
     `Raycast ${status.raycastInstalled ? 'found' : 'missing'}`,
     `Node ${status.nodeVersion ?? 'missing'}`,
-    `npm ${status.npmVersion ?? 'missing'}`,
+    `npm ${status.npmVersion ?? 'missing'}`
   ].join(' · ')
 
   return (
@@ -4131,7 +4122,7 @@ function RaycastExtensionSettings({
               <span
                 className={[
                   'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                  statusChipClass(chip.tone),
+                  statusChipClass(chip.tone)
                 ].join(' ')}
               >
                 {chip.label}
@@ -4192,7 +4183,7 @@ function RaycastExtensionSettings({
 
 function raycastStatusChip(
   status: RaycastExtensionStatus,
-  cliInstalled: boolean,
+  cliInstalled: boolean
 ): { label: string; tone: 'ok' | 'warn' | 'off' } {
   if (!status.supportedPlatform) return { label: 'Not supported', tone: 'off' }
   if (status.installed && status.upToDate)
@@ -4205,7 +4196,7 @@ function raycastStatusChip(
 
 function raycastStatusDetail(
   status: RaycastExtensionStatus,
-  cliInstalled: boolean,
+  cliInstalled: boolean
 ): string {
   if (!status.supportedPlatform) {
     return status.reason ?? 'Raycast extensions are available on macOS only.'
@@ -4236,7 +4227,7 @@ function McpSettings(): JSX.Element {
     try {
       const [s, r] = await Promise.all([
         window.zen.mcpGetStatuses(),
-        window.zen.mcpGetRuntime(),
+        window.zen.mcpGetRuntime()
       ])
       setStatuses(s)
       setRuntime(r)
@@ -4302,7 +4293,7 @@ function McpSettings(): JSX.Element {
               <span
                 className={[
                   'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                  serverStatusClass,
+                  serverStatusClass
                 ].join(' ')}
               >
                 {serverStatusLabel}
@@ -4463,7 +4454,7 @@ function McpInstructionsEditor(): JSX.Element {
                 'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
                 payload != null && draft !== payload.defaultValue
                   ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                  : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                  : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
               ].join(' ')}
             >
               Reset to default
@@ -4476,7 +4467,7 @@ function McpInstructionsEditor(): JSX.Element {
                 'rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
                 dirty
                   ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                  : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400',
+                  : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
               ].join(' ')}
             >
               Revert
@@ -4528,7 +4519,7 @@ function McpClientRow({
   entryMissing,
   onInstall,
   onUninstall,
-  onCopyConfigPath,
+  onCopyConfigPath
 }: {
   title: string
   description: string
@@ -4554,7 +4545,7 @@ function McpClientRow({
             <span
               className={[
                 'rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]',
-                statusChipClass(chip.tone),
+                statusChipClass(chip.tone)
               ].join(' ')}
             >
               {chip.label}
@@ -4581,7 +4572,7 @@ function McpClientRow({
                     'rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                     busy || entryMissing
                       ? 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                      : 'border-accent/30 bg-accent/15 text-accent hover:bg-accent/25',
+                      : 'border-accent/30 bg-accent/15 text-accent hover:bg-accent/25'
                   ].join(' ')}
                 >
                   Update
@@ -4595,7 +4586,7 @@ function McpClientRow({
                   'rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
                   busy
                     ? 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                    : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200',
+                    : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
                 ].join(' ')}
               >
                 Uninstall
