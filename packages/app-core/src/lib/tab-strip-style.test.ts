@@ -16,10 +16,13 @@ const stylesSource = readFileSync(new URL('../styles/index.css', import.meta.url
 describe('workspace tab strip overflow styles', () => {
   it('keeps horizontal tab overflow visible without lifting tabs', () => {
     expect(editorPaneSource).toContain('workspace-tab-strip')
+    // Tabs stay a single h-10 row and never lift to a taller strip on
+    // overflow; only the horizontal scroll affordance toggles.
     expect(editorPaneSource).toContain(
-      "tabStripOverflowing ? 'h-14 overflow-x-auto' : 'h-10 overflow-x-hidden'"
+      "tabStripOverflowing ? 'overflow-x-auto' : 'overflow-x-hidden'"
     )
-    expect(editorPaneSource).toContain('items-start')
+    expect(editorPaneSource).not.toContain('h-14')
+    expect(editorPaneSource).toContain('items-stretch')
     expect(stylesSource).toMatch(
       /\.workspace-tab-strip::-webkit-scrollbar\s*\{[^}]*height:\s*6px/s
     )

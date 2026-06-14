@@ -294,36 +294,27 @@ describe('local vault shortcuts', () => {
 
 describe('asset undo', () => {
   it('records deleted assets and restores them on undo', async () => {
-    const deleted = {
-      path: 'media/10-7.png',
-      name: '10-7.png',
-      undoToken: '11111111-1111-4111-8111-111111111111'
-    }
-    const restored = {
-      path: deleted.path,
-      name: deleted.name,
-      kind: 'image' as const,
-      siblingOrder: 0,
-      size: 12,
-      updatedAt: 2
-    }
-    const deleteAsset = vi.fn().mockResolvedValue(deleted)
-    const restoreDeletedAsset = vi.fn().mockResolvedValue(restored)
+    // Soft-delete returns an opaque handle into the trash store; undo replays
+    // that handle through restoreSoftDeleted (the unified soft-delete path).
+    const handle = 'archive/11111111-1111-4111-8111-111111111111'
+    const path = 'media/10-7.png'
+    const deleteAsset = vi.fn().mockResolvedValue(handle)
+    const restoreSoftDeleted = vi.fn().mockResolvedValue(undefined)
     const listAssets = vi.fn().mockResolvedValue([])
-    installZen({ deleteAsset, restoreDeletedAsset, listAssets })
+    installZen({ deleteAsset, restoreSoftDeleted, listAssets })
 
     const { useStore } = await loadStore()
 
-    await useStore.getState().deleteAsset(deleted.path)
+    await useStore.getState().deleteAsset(path)
 
-    expect(deleteAsset).toHaveBeenCalledWith(deleted.path)
+    expect(deleteAsset).toHaveBeenCalledWith(path)
     expect(useStore.getState().assetUndoStack).toEqual([
-      expect.objectContaining({ kind: 'delete-asset', deleted, createdAt: expect.any(Number) })
+      expect.objectContaining({ kind: 'delete-asset', handle, createdAt: expect.any(Number) })
     ])
 
     await expect(useStore.getState().undoLastAssetAction()).resolves.toBe(true)
 
-    expect(restoreDeletedAsset).toHaveBeenCalledWith(deleted)
+    expect(restoreSoftDeleted).toHaveBeenCalledWith(handle)
     expect(useStore.getState().assetUndoStack).toEqual([])
     expect(listAssets).toHaveBeenCalledTimes(2)
   })
