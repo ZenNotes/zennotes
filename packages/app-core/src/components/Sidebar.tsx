@@ -26,7 +26,7 @@ import {
   CheckSquareIcon,
   CloseIcon,
   DatabaseIcon,
-  DocumentIcon,
+  HelpCircleIcon,
   PaperclipIcon,
   ExpandAllIcon,
   FolderPlusIcon,
@@ -68,6 +68,12 @@ import {
   csvPathFromDatabaseTab,
   isDatabaseTabPath,
   isDatabaseCsvPath,
+  isFormDirName,
+  formDirFromCsvPath,
+  formTitleFromCsvPath,
+  formTitleFromDir,
+  FORM_DATA_FILE,
+  FORM_PAGES_DIR,
 } from "@shared/databases";
 import {
   FolderGlyphIcon,
@@ -375,6 +381,11 @@ export function Sidebar(): JSX.Element {
   const archiveViewActive = useStore(isArchiveViewActive);
   const openTrashView = useStore((s) => s.openTrashView);
   const trashViewActive = useStore(isTrashViewActive);
+  // Soft-deleted items (folders/forms/assets/notes) live in UUID wrappers, so
+  // the trash/archive nav counts come from the soft-delete meta, not the tree.
+  const softDeleted = useStore((s) => s.softDeleted);
+  const trashSoftCount = softDeleted.filter((e) => e.top === "trash").length;
+  const archiveSoftCount = softDeleted.filter((e) => e.top === "archive").length;
   const openAssetsView = useStore((s) => s.openAssetsView);
   const assetsViewActive = useStore(isAssetsViewActive);
   const openTagView = useStore((s) => s.openTagView);
@@ -383,6 +394,11 @@ export function Sidebar(): JSX.Element {
   const setSearchOpen = useStore((s) => s.setSearchOpen);
   const createAndOpen = useStore((s) => s.createAndOpen);
   const createDatabase = useStore((s) => s.createDatabase);
+  const deleteDatabaseAction = useStore((s) => s.deleteDatabase);
+  const archiveDatabaseAction = useStore((s) => s.archiveDatabase);
+  const renameDatabaseAction = useStore((s) => s.renameDatabase);
+  const restoreSoftDeletedAction = useStore((s) => s.restoreSoftDeleted);
+  const purgeSoftDeletedAction = useStore((s) => s.purgeSoftDeleted);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
@@ -401,6 +417,7 @@ export function Sidebar(): JSX.Element {
   const createFolderAction = useStore((s) => s.createFolder);
   const renameFolderAction = useStore((s) => s.renameFolder);
   const deleteFolderAction = useStore((s) => s.deleteFolder);
+  const archiveFolderAction = useStore((s) => s.archiveFolder);
   const duplicateFolderAction = useStore((s) => s.duplicateFolder);
   const revealFolderAction = useStore((s) => s.revealFolder);
   const refreshAssets = useStore((s) => s.refreshAssets);
@@ -426,6 +443,7 @@ export function Sidebar(): JSX.Element {
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles);
   const openVaultPicker = useStore((s) => s.openVaultPicker);
   const openLocalVault = useStore((s) => s.openLocalVault);
+  const revealAssetsDir = useStore((s) => s.revealAssetsDir);
   const closeVault = useStore((s) => s.closeVault);
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace);
   const connectRemoteWorkspaceProfile = useStore(
@@ -831,6 +849,9 @@ export function Sidebar(): JSX.Element {
     y: number;
     folder: NoteFolder;
     subpath: string; // "" for top-level
+    // Set when the right-clicked folder is a form (a `<Name>.base` folder) —
+    // its menu is form-specific. Holds the form's `data.csv` path.
+    databaseCsvPath?: string;
   } | null>(null);
   // Right-click on the empty area of the notes tree → create at the vault root.
   const [rootMenu, setRootMenu] = useState<{ x: number; y: number } | null>(null);
@@ -1345,12 +1366,13 @@ export function Sidebar(): JSX.Element {
 
     if (liveNotes.length > 0) {
       items.push({
-        label: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"}…`,
+        label: t("Move {count} notes…").replace("{count}", String(liveNotes.length)),
         onSelect: async () => {
           const target = await promptApp(
             buildMoveNotePrompt(
               { title: `${liveNotes.length} notes`, path: liveNotes[0]!.path },
               allFolders,
+              t,
             ),
           );
           if (!target) return;
@@ -1399,9 +1421,11 @@ export function Sidebar(): JSX.Element {
         danger: true,
         onSelect: async () => {
           const ok = await confirmApp({
-            title: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"} to ${folderLabels.trash}?`,
+            title: t("Move {count} notes to {label}?")
+              .replace("{count}", String(liveNotes.length))
+              .replace("{label}", folderLabels.trash),
             description: t("You can restore them from Trash later."),
-            confirmLabel: `Move to ${folderLabels.trash}`,
+            confirmLabel: t("Move to {label}").replace("{label}", folderLabels.trash),
             danger: true,
           });
           if (!ok) return;
@@ -1529,9 +1553,137 @@ export function Sidebar(): JSX.Element {
     ) {
       return bulkSelectionMenuItems;
     }
+
+    // A form (a `<Name>.base` folder) is a single document, not a normal
+    // folder: no "new note / form / folder", no icon swap. Its menu acts on
+    // the form as a unit.
+    if (folderMenu.databaseCsvPath) {
+      const csvPath = folderMenu.databaseCsvPath;
+      const dbTitle = formTitleFromCsvPath(csvPath);
+      // A form's soft-delete registry entry is keyed by its `.base` folder, not
+      // the inner data.csv — convert before restore/purge.
+      const formStoredRel = formDirFromCsvPath(csvPath) ?? csvPath;
+      const root = vault?.root ?? "";
+      const sep = root.includes("\\") ? "\\" : "/";
+      const abs = [
+        root.replace(/[\\/]+$/, ""),
+        ...csvPath.split("/").filter(Boolean),
+      ].join(sep);
+      const dbItems: ContextMenuItem[] = [];
+      if (canRevealInFileManager) {
+        dbItems.push({
+          label: t("Reveal in File Manager"),
+          onSelect: async () => {
+            await window.zen.revealNote(csvPath);
+          },
+        });
+      }
+      dbItems.push({
+        label: t("Copy Path"),
+        onSelect: async () => {
+          window.zen.clipboardWriteText(csvPath);
+        },
+      });
+      dbItems.push({
+        label: absolutePathLabel,
+        onSelect: async () => {
+          window.zen.clipboardWriteText(abs);
+        },
+      });
+      dbItems.push({ kind: "separator" });
+      // A form already in the trash/archive offers recovery actions; an active
+      // form offers rename + the two soft-delete destinations.
+      if (folder === "trash" || folder === "archive") {
+        dbItems.push({
+          label: t("Restore"),
+          onSelect: async () => {
+            try {
+              await restoreSoftDeletedAction(formStoredRel);
+            } catch (err) {
+              window.alert((err as Error).message);
+            }
+          },
+        });
+        dbItems.push({
+          label: t("Delete permanently…"),
+          danger: true,
+          onSelect: async () => {
+            const ok = await confirmApp({
+              title: `Delete base "${dbTitle}" permanently?`,
+              description: t(
+                "This deletes the base and all its record pages. This cannot be undone.",
+              ),
+              confirmLabel: t("Delete permanently"),
+              danger: true,
+            });
+            if (!ok) return;
+            try {
+              await purgeSoftDeletedAction(formStoredRel);
+            } catch (err) {
+              window.alert((err as Error).message);
+            }
+          },
+        });
+        return dbItems;
+      }
+      dbItems.push({
+        label: t("Rename…"),
+        onSelect: async () => {
+          const next = await promptApp({
+            title: t("Rename base"),
+            initialValue: dbTitle,
+            okLabel: t("Rename"),
+            validate: (v) => {
+              if (/[\\/]/.test(v)) return t("Use only a file name");
+              return null;
+            },
+          });
+          if (!next) return;
+          const clean = next.trim();
+          if (!clean || clean === dbTitle) return;
+          try {
+            await renameDatabaseAction(csvPath, clean);
+          } catch (err) {
+            window.alert((err as Error).message);
+          }
+        },
+      });
+      dbItems.push({
+        label: `${t("Move to")} ${folderLabels.archive}`,
+        icon: <ArchiveIcon />,
+        onSelect: async () => {
+          try {
+            await archiveDatabaseAction(csvPath);
+          } catch (err) {
+            window.alert((err as Error).message);
+          }
+        },
+      });
+      dbItems.push({
+        label: `${t("Move to")} ${folderLabels.trash}`,
+        icon: <TrashIcon />,
+        danger: true,
+        onSelect: async () => {
+          const ok = await confirmApp({
+            title: `Move base "${dbTitle}" to ${folderLabels.trash}?`,
+            description: t("You can restore it later from the Trash view."),
+            confirmLabel: `${t("Move to")} ${folderLabels.trash}`,
+          });
+          if (!ok) return;
+          try {
+            await deleteDatabaseAction(csvPath);
+          } catch (err) {
+            window.alert((err as Error).message);
+          }
+        },
+      });
+      return dbItems;
+    }
+
     const isTop = subpath === "";
     const label = isTop ? folderLabels[folder] : subpath.split("/").slice(-1)[0];
-    const trashCount = notes.filter((note) => note.folder === "trash").length;
+    const trashCount =
+      notes.filter((note) => note.folder === "trash").length + trashSoftCount;
     const iconKey = folderIconKey(folder, subpath);
     const hasCustomIcon = Object.prototype.hasOwnProperty.call(
       vaultSettings.folderIcons,
@@ -1610,7 +1762,7 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
-        label: t("New database"),
+        label: t("New base"),
         onSelect: async () => {
           await createDatabase(folder, subpath);
         },
@@ -1761,24 +1913,41 @@ export function Sidebar(): JSX.Element {
           }
         },
       });
-      items.push({
-        label: t("Delete folder…"),
-        danger: true,
-        onSelect: async () => {
-          const ok = await confirmApp({
-            title: `Delete "${subpath}" and everything inside it?`,
-            description: t("This cannot be undone."),
-            confirmLabel: t("Delete folder"),
-            danger: true,
-          });
-          if (!ok) return;
-          try {
-            await deleteFolderAction(folder, subpath);
-          } catch (err) {
-            window.alert((err as Error).message);
-          }
-        },
-      });
+      // Soft-deleted folders/forms/assets live in UUID wrappers and surface only
+      // in the Trash/Archive recovery views, never as folder nodes here — so the
+      // tree menu only offers the two soft-delete destinations for live folders.
+      const inBin = folder === "trash" || folder === "archive";
+      if (!inBin) {
+        items.push({
+          label: `${t("Move to")} ${folderLabels.archive}`,
+          icon: <ArchiveIcon />,
+          onSelect: async () => {
+            try {
+              await archiveFolderAction(folder, subpath);
+            } catch (err) {
+              window.alert((err as Error).message);
+            }
+          },
+        });
+        items.push({
+          label: `${t("Move to")} ${folderLabels.trash}`,
+          icon: <TrashIcon />,
+          danger: true,
+          onSelect: async () => {
+            const ok = await confirmApp({
+              title: `Move "${subpath}" to ${folderLabels.trash}?`,
+              description: t("You can restore it later from the Trash view."),
+              confirmLabel: `${t("Move to")} ${folderLabels.trash}`,
+            });
+            if (!ok) return;
+            try {
+              await deleteFolderAction(folder, subpath);
+            } catch (err) {
+              window.alert((err as Error).message);
+            }
+          },
+        });
+      }
     }
 
     return items;
@@ -1791,12 +1960,18 @@ export function Sidebar(): JSX.Element {
     vault,
     createAndOpen,
     createDatabase,
+    deleteDatabaseAction,
+    archiveDatabaseAction,
+    renameDatabaseAction,
+    restoreSoftDeletedAction,
+    purgeSoftDeletedAction,
     openTemplatePaletteForFolder,
     openArchiveView,
     openQuickNotesView,
     createFolderAction,
     renameFolderAction,
     deleteFolderAction,
+    archiveFolderAction,
     duplicateFolderAction,
     canRevealInFileManager,
     absolutePathLabel,
@@ -1811,6 +1986,7 @@ export function Sidebar(): JSX.Element {
     resetFolderIcon,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
+    folderLabels,
   ]);
 
   // Items for the empty-area (vault root) context menu.
@@ -1829,7 +2005,7 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
-        label: t("New database"),
+        label: t("New base"),
         onSelect: async () => {
           await createDatabase("inbox", "");
         },
@@ -1907,7 +2083,7 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: t("Move…"),
         onSelect: async () => {
-          const target = await promptApp(buildMoveNotePrompt(n, allFolders));
+          const target = await promptApp(buildMoveNotePrompt(n, allFolders, t));
           if (!target) return;
           const dest = parseMoveNoteTarget(target);
           await moveNoteAction(n.path, dest.folder, dest.subpath);
@@ -1982,11 +2158,11 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: `Move to ${folderLabels.trash}`,
+        label: t("Move to {label}").replace("{label}", folderLabels.trash),
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
-          if (!(await confirmMoveToTrash(n.title))) return;
+          if (!(await confirmMoveToTrash(n.title, t))) return;
           await window.zen.moveToTrash(n.path);
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
@@ -1994,7 +2170,7 @@ export function Sidebar(): JSX.Element {
       });
     } else if (n.folder === "archive") {
       items.push({
-        label: `Move to ${folderLabels.inbox}`,
+        label: t("Move to {label}").replace("{label}", folderLabels.inbox),
         icon: <ArrowUpRightIcon />,
         onSelect: async () => {
           const meta = await window.zen.unarchiveNote(n.path);
@@ -2003,11 +2179,11 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: `Move to ${folderLabels.trash}`,
+        label: t("Move to {label}").replace("{label}", folderLabels.trash),
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
-          if (!(await confirmMoveToTrash(n.title))) return;
+          if (!(await confirmMoveToTrash(n.title, t))) return;
           await window.zen.moveToTrash(n.path);
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
@@ -2255,13 +2431,36 @@ export function Sidebar(): JSX.Element {
         disabled: true,
       });
     } else {
+      const isDesktop = window.zen.getAppInfo().runtime === "desktop";
       for (const entry of vaultSwitcherEntries) {
+        // The current *local* vault row doubles as an "open this vault's
+        // folder in the file manager" action — clicking it reveals the
+        // vault root. Remote (and non-desktop) vaults keep the plain,
+        // non-clickable "Current" badge.
+        const opensFolder = entry.current && entry.kind === "local" && isDesktop;
         items.push({
           label: entry.name,
-          hint: entry.current ? t("Current") : entry.kind === "remote" ? t("Remote") : undefined,
+          hint: entry.current
+            ? opensFolder
+              ? (
+                  <span className="inline-flex items-center gap-1">
+                    <ArrowUpRightIcon className="h-3 w-3" />
+                    {t("Current")}
+                  </span>
+                )
+              : t("Current")
+            : entry.kind === "remote"
+              ? t("Remote")
+              : undefined,
           icon: <VaultBadge name={entry.name} size={16} />,
-          disabled: entry.current || (entry.kind === "remote" && !entry.id),
+          disabled: opensFolder
+            ? false
+            : entry.current || (entry.kind === "remote" && !entry.id),
           onSelect: async () => {
+            if (opensFolder) {
+              await revealAssetsDir();
+              return;
+            }
             if (entry.kind === "local") {
               await openLocalVault(entry.root);
               return;
@@ -2322,6 +2521,7 @@ export function Sidebar(): JSX.Element {
     openLocalVault,
     openVaultPicker,
     refreshLocalVaults,
+    revealAssetsDir,
     vaultSwitcherEntries,
   ]);
 
@@ -2341,6 +2541,7 @@ export function Sidebar(): JSX.Element {
       e: React.MouseEvent,
       folder: NoteFolder,
       subpath: string,
+      databaseCsvPath?: string,
     ): void => {
       e.preventDefault();
       if (subpath) {
@@ -2349,7 +2550,7 @@ export function Sidebar(): JSX.Element {
         setSelectedSidebarKeys(new Set());
         setSelectionAnchorKey(null);
       }
-      setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath });
+      setFolderMenu({ x: e.clientX, y: e.clientY, folder, subpath, databaseCsvPath });
     },
     [prepareContextSelection],
   );
@@ -2759,7 +2960,7 @@ export function Sidebar(): JSX.Element {
             <ArchiveSidebarRow
               label={folderLabels.archive}
               icon={resolveFolderIconOption("archive", "", vaultSettings.folderIcons).icon}
-              count={countNotesInTree(trees.archive)}
+              count={countNotesInTree(trees.archive) + archiveSoftCount}
               active={
                 archiveViewActive ||
                 (view.kind === "folder" && view.folder === "archive") ||
@@ -3004,7 +3205,7 @@ export function Sidebar(): JSX.Element {
         <SidebarFooterAction
           icon={<TrashIcon />}
           label={folderLabels.trash}
-          count={countNotesInTree(trees.trash)}
+          count={countNotesInTree(trees.trash) + trashSoftCount}
           active={trashViewActive || !!selectedPath?.startsWith("trash/")}
           onClick={() => void openTrashView()}
           onContextMenu={(e) => openFolderMenu(e, "trash", "")}
@@ -3014,7 +3215,7 @@ export function Sidebar(): JSX.Element {
           sidebarData={{ type: "trash" }}
         />
         <SidebarFooterAction
-          icon={<DocumentIcon />}
+          icon={<HelpCircleIcon />}
           label={t("Help")}
           active={helpViewActive}
           onClick={() => void openHelpView()}
@@ -3152,6 +3353,9 @@ interface TreeNode {
   assets: AssetMeta[];
   children: TreeNode[];
   isSymlink?: boolean;
+  /** Set on a `<Name>.base` folder node: the vault-rel `data.csv` path of the
+   *  form it represents. Marks the node as a form (rendered as one DB node). */
+  databaseCsvPath?: string;
 }
 
 type TreeRenderEntry =
@@ -3327,41 +3531,42 @@ function buildTree(
     const parent = ensureFolder(parentSubpath);
     parent.assets.push(asset);
   }
+  restructureFormFolders(root);
   return root;
 }
 
 /**
- * Merge a CSV database with its record-page folder: a folder whose name matches
- * a sibling `<name>.csv` database is tagged as that database (rendered as a
- * "database folder" — chevron toggles its record pages, clicking opens the
- * table), and the standalone `.csv` asset entry is dropped. A database with no
- * record-page folder yet keeps its plain `.csv` entry (still opens the table).
+ * Collapse every `<Name>.base` form folder into a single DB node: tag it with
+ * its `data.csv` path, drop the internal data files from its asset list, and
+ * pull the `pages/` record notes up so they render directly under the form
+ * (instead of behind an extra `pages` folder level).
  */
-function applyDatabaseFolderMerge(node: TreeNode, entries: TreeRenderEntry[]): TreeRenderEntry[] {
-  const dbByFolderName = new Map<string, string>();
-  for (const asset of node.assets) {
-    if (isDatabaseCsvPath(asset.path)) {
-      dbByFolderName.set(asset.name.replace(/\.csv$/i, ""), asset.path);
-    }
+function restructureFormFolders(node: TreeNode): void {
+  for (const child of node.children) restructureFormFolders(child);
+  if (!isFormDirName(node.name)) return;
+  const dataAsset = node.assets.find((a) => a.name === FORM_DATA_FILE);
+  if (dataAsset) node.databaseCsvPath = dataAsset.path;
+  node.assets = []; // hide data.csv + any stray schema.json
+  const pagesIdx = node.children.findIndex((c) => c.name === FORM_PAGES_DIR);
+  if (pagesIdx >= 0) {
+    const pagesNode = node.children[pagesIdx];
+    node.notes = [...node.notes, ...pagesNode.notes];
+    node.children.splice(pagesIdx, 1);
   }
-  if (dbByFolderName.size === 0) return entries;
-  const folderNames = new Set(node.children.map((c) => c.name));
-  const out: TreeRenderEntry[] = [];
-  for (const entry of entries) {
-    if (entry.type === "folder") {
-      const csv = dbByFolderName.get(entry.node.name);
-      out.push(csv ? { ...entry, databaseCsvPath: csv } : entry);
-    } else if (
-      entry.type === "asset" &&
-      isDatabaseCsvPath(entry.asset.path) &&
-      folderNames.has(entry.asset.name.replace(/\.csv$/i, ""))
-    ) {
-      // Represented by its record-page folder node — drop the duplicate leaf.
-    } else {
-      out.push(entry);
-    }
-  }
-  return out;
+}
+
+/**
+ * Tag each `<Name>.base` form folder entry with its `data.csv` path so it
+ * renders as a single DB node (chevron toggles its record pages, clicking opens
+ * the table). The form's identity is precomputed on the node by `buildTree`
+ * (`restructureFormFolders`); this just surfaces it onto the render entry.
+ */
+function applyDatabaseFolderMerge(_node: TreeNode, entries: TreeRenderEntry[]): TreeRenderEntry[] {
+  return entries.map((entry) =>
+    entry.type === "folder" && entry.node.databaseCsvPath
+      ? { ...entry, databaseCsvPath: entry.node.databaseCsvPath }
+      : entry,
+  );
 }
 
 function getTreeRenderEntries(
@@ -3443,6 +3648,7 @@ interface TreeRenderProps {
     e: React.MouseEvent,
     folder: NoteFolder,
     subpath: string,
+    databaseCsvPath?: string,
   ) => void;
   showNotes: boolean;
   selectedPath: string | null;
@@ -3867,10 +4073,18 @@ function SubTree({
             iconOption.icon
           )
         }
-        label={node.name}
+        label={isDatabase ? formTitleFromDir(node.name) : node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}
-        active={isFolderActive(folder, node.subpath)}
+        // A database is a selectable document — it lights up while its table
+        // is the open tab (same as a note/asset). A plain folder is just a
+        // container: it never carries a persistent "selected" highlight, only
+        // hover (and the multi-select tint from a deliberate modifier-click).
+        active={
+          isDatabase
+            ? activeAssetPathFromSelected(selectedPath) === databaseCsvPath
+            : false
+        }
         expandable={hasChildren}
         collapsed={isCollapsed}
         depth={depth}
@@ -3879,7 +4093,9 @@ function SubTree({
           toggleCollapse(key);
         }}
         onSelect={handleSelect}
-        onContextMenu={(e) => onContextMenu(e, folder, node.subpath)}
+        onContextMenu={(e) =>
+          onContextMenu(e, folder, node.subpath, databaseCsvPath)
+        }
         draggable
         onDragStart={(e) =>
           setDragPayload(
@@ -4916,7 +5132,7 @@ function SidebarFooterAction({
       title={resolvedTitle}
       aria-label={resolvedTitle}
       className={[
-        "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap",
+        "inline-flex h-8 items-center gap-1.5 justify-self-start rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"

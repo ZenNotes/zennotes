@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { NoteMeta } from '@shared/ipc'
+import type { SoftDeletedEntry } from '@shared/ipc'
 import { isTrashViewActive, useStore } from '../store'
 import { useT } from '../lib/i18n';
-import { ArrowUpRightIcon, TrashIcon } from './icons'
+import { ArrowUpRightIcon, DatabaseIcon, DocumentTextIcon, PaperclipIcon, TrashIcon } from './icons'
+import { FolderGlyphIcon } from './FolderIcons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
@@ -26,9 +27,10 @@ function cssEscape(value: string): string {
 
 export function TrashView(): JSX.Element {
   const t = useT();
-  const notes = useStore((s) => s.notes)
+  const softDeletedEntries = useStore((s) => s.softDeleted)
+  const restoreSoftDeleted = useStore((s) => s.restoreSoftDeleted)
+  const purgeSoftDeleted = useStore((s) => s.purgeSoftDeleted)
   const refreshNotes = useStore((s) => s.refreshNotes)
-  const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
@@ -43,24 +45,38 @@ export function TrashView(): JSX.Element {
   const gPending = useRef(0)
   const gTimer = useRef<ReturnType<typeof setTimeout>>()
 
+  const kindLabel = useCallback(
+    (kind: SoftDeletedEntry['kind']) =>
+      kind === 'database'
+        ? t('Form')
+        : kind === 'asset'
+          ? t('Asset')
+          : kind === 'note'
+            ? t('Note')
+            : t('Folder'),
+    [t]
+  )
+
+  // Everything soft-deleted into the trash, newest first — every kind (note,
+  // folder, form, asset) is a single logical row sourced from the meta store.
   const trashed = useMemo(
     () =>
-      notes
-        .filter((note) => note.folder === 'trash')
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    [notes]
+      softDeletedEntries
+        .filter((e) => e.top === 'trash')
+        .sort((a, b) => b.deletedAt - a.deletedAt),
+    [softDeletedEntries]
   )
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return trashed
     return trashed.filter(
-      (note) =>
-        note.title.toLowerCase().includes(q) ||
-        note.excerpt.toLowerCase().includes(q) ||
-        note.path.toLowerCase().includes(q)
+      (entry) =>
+        entry.title.toLowerCase().includes(q) ||
+        entry.originalRel.toLowerCase().includes(q) ||
+        kindLabel(entry.kind).toLowerCase().includes(q)
     )
-  }, [trashed, filter])
+  }, [trashed, filter, kindLabel])
 
   const safeCursor = Math.min(cursorIndex, Math.max(0, filtered.length - 1))
   const current = filtered[safeCursor] ?? null
@@ -72,49 +88,36 @@ export function TrashView(): JSX.Element {
   useEffect(() => {
     if (!current) return
     const el = rootRef.current?.querySelector<HTMLElement>(
-      `[data-trash-row="${cssEscape(current.path)}"]`
+      `[data-trash-row="${cssEscape(current.id)}"]`
     )
     el?.scrollIntoView({ block: 'nearest' })
   }, [current])
 
-  const openNote = useCallback(async (note: NoteMeta) => {
-    await selectNote(note.path)
-    useStore.getState().setFocusedPanel('editor')
-    requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
-  }, [selectNote])
-
-  const openCurrent = useCallback(async () => {
-    if (!current) return
-    await openNote(current)
-  }, [current, openNote])
-
-  const restoreNote = useCallback(
-    async (note: NoteMeta) => {
-      await window.zen.restoreFromTrash(note.path)
-      await refreshNotes()
+  const restoreEntry = useCallback(
+    async (entry: SoftDeletedEntry) => {
+      await restoreSoftDeleted(`${entry.top}/${entry.id}`)
     },
-    [refreshNotes]
+    [restoreSoftDeleted]
   )
 
-  const deleteNoteForever = useCallback(
-    async (note: NoteMeta) => {
+  const deleteEntryForever = useCallback(
+    async (entry: SoftDeletedEntry) => {
       const ok = await confirmApp({
-        title: `Delete "${note.title}" permanently?`,
+        title: `${t('Permanently delete')} ${kindLabel(entry.kind)} "${entry.title}"?`,
         description: t('This cannot be undone.'),
         confirmLabel: t('Delete permanently'),
         danger: true
       })
       if (!ok) return
-      await window.zen.deleteNote(note.path)
-      await refreshNotes()
+      await purgeSoftDeleted(`${entry.top}/${entry.id}`)
     },
-    [refreshNotes]
+    [purgeSoftDeleted, t, kindLabel]
   )
 
   const emptyTrash = useCallback(async () => {
     if (trashed.length === 0) return
     const ok = await confirmApp({
-      title: `${t('Permanently delete')} ${trashed.length} ${t('trashed note(s)?')}`,
+      title: `${t('Permanently delete')} ${trashed.length} ${t('trashed item(s)?')}`,
       description: t('This cannot be undone.'),
       confirmLabel: t('Empty trash'),
       danger: true
@@ -122,7 +125,7 @@ export function TrashView(): JSX.Element {
     if (!ok) return
     await window.zen.emptyTrash()
     await refreshNotes()
-  }, [refreshNotes, trashed.length])
+  }, [refreshNotes, trashed.length, t])
 
   useEffect(() => {
     if (!amActive) return
@@ -187,19 +190,17 @@ export function TrashView(): JSX.Element {
       ) {
         return
       }
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
+      if (
+        (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.restore')) &&
+        current
+      ) {
         consume()
-        void openCurrent()
-        return
-      }
-      if (matchesSequenceToken(e, overrides, 'nav.restore') && current) {
-        consume()
-        void restoreNote(current)
+        void restoreEntry(current)
         return
       }
       if ((matchesSequenceToken(e, overrides, 'nav.delete') || key === 'd') && current) {
         consume()
-        void deleteNoteForever(current)
+        void deleteEntryForever(current)
       }
     }
     window.addEventListener('keydown', handler, true)
@@ -211,12 +212,11 @@ export function TrashView(): JSX.Element {
     amActive,
     closeActiveNote,
     current,
-    deleteNoteForever,
+    deleteEntryForever,
     filter,
     filtered.length,
     keymapOverrides,
-    openCurrent,
-    restoreNote
+    restoreEntry
   ])
 
   return (
@@ -229,14 +229,12 @@ export function TrashView(): JSX.Element {
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
         <CollectionViewHeader
-          badge="Recovery"
-          badgeIcon={<TrashIcon width={13} height={13} />}
           title={trashLabel}
-          description="Review deleted notes, restore what you still need, and only empty the bin when you want permanent removal."
+          description={t('Review deleted notes, folders, and forms, restore what you still need, and only empty the bin when you want permanent removal.')}
           count={trashed.length}
           filter={filter}
           onFilterChange={setFilter}
-          filterPlaceholder="Filter trashed notes…"
+          filterPlaceholder={t('Filter trashed notes…')}
           inputRef={filterRef}
           actions={
             <button
@@ -251,7 +249,7 @@ export function TrashView(): JSX.Element {
               ].join(' ')}
             >
               <TrashIcon width={15} height={15} />
-              {`Empty ${trashLabel}`}
+              {t('Empty {label}').replace('{label}', trashLabel)}
             </button>
           }
         />
@@ -267,69 +265,76 @@ export function TrashView(): JSX.Element {
               </div>
               <div className="text-lg font-medium text-ink-900">
                 {trashed.length === 0
-                  ? `${trashLabel} is empty.`
-                  : `No ${trashLabel.toLowerCase()} notes match that filter.`}
+                  ? t('{label} is empty.').replace('{label}', trashLabel)
+                  : t('No {label} notes match that filter.').replace(
+                      '{label}',
+                      trashLabel.toLowerCase()
+                    )}
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {trashed.length === 0
-                  ? t('Deleted notes land here first so you can recover them before removing them permanently.')
+                  ? t('Deleted notes, folders, and forms land here first so you can recover them before removing them permanently.')
                   : t('Try a different title, path, or excerpt fragment.')}
               </div>
             </div>
           ) : (
             <div className="divide-y divide-paper-300/60">
-              {filtered.map((note, index) => {
+              {filtered.map((entry, index) => {
                 const active = index === safeCursor
                 return (
                   <div
-                    key={note.path}
+                    key={entry.id}
                     role="button"
                     tabIndex={-1}
-                    data-trash-row={note.path}
+                    data-trash-row={entry.id}
                     onMouseMove={() => setCursorIndex(index)}
-                    onClick={() => void openNote(note)}
                     className={[
                       'group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors',
                       active ? 'bg-paper-200/80' : 'hover:bg-paper-100/80'
                     ].join(' ')}
                   >
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-paper-300/70 bg-paper-100/85 text-ink-500">
-                      <TrashIcon width={15} height={15} />
+                      {entry.kind === 'database' ? (
+                        <DatabaseIcon width={15} height={15} />
+                      ) : entry.kind === 'asset' ? (
+                        <PaperclipIcon width={15} height={15} />
+                      ) : entry.kind === 'note' ? (
+                        <DocumentTextIcon width={15} height={15} />
+                      ) : (
+                        <FolderGlyphIcon />
+                      )}
                     </div>
                     <div className="min-w-0 flex-1 pt-0.5">
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
-                        <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>
+                        <span className="truncate text-sm font-medium text-ink-900">{entry.title}</span>
                         <span className="text-xs uppercase tracking-[0.16em] text-ink-500">
-                          {formatDate(note.updatedAt)}
+                          {kindLabel(entry.kind)} · {formatDate(entry.deletedAt)}
                         </span>
                       </div>
-                      <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
-                      <div className="mt-1 line-clamp-1 text-sm leading-5 text-ink-600">
-                        {note.excerpt || 'Empty note'}
-                      </div>
+                      <div className="mt-0.5 truncate text-xs text-ink-500">{entry.originalRel}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void restoreNote(note)
+                          void restoreEntry(entry)
                         }}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-paper-100/85 px-2.5 py-1 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
                       >
                         <ArrowUpRightIcon width={13} height={13} />
-                        Restore
+                        {t('Restore')}
                       </button>
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation()
-                          void deleteNoteForever(note)
+                          void deleteEntryForever(entry)
                         }}
                         className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/10 px-2.5 py-1 text-xs font-medium text-[rgb(var(--z-red))] transition-colors hover:bg-red-500/16"
                       >
                         <TrashIcon width={13} height={13} />
-                        Delete
+                        {t('Delete')}
                       </button>
                     </div>
                   </div>

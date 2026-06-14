@@ -218,14 +218,14 @@ export function PromptModal({
             </div>
           </div>
         )}
-        {error && <div className="mt-2 text-xs text-danger">{error}</div>}
+        {error && <div className="mt-2 text-xs text-danger">{t(error)}</div>}
       </div>
       <Modal.Footer>
         <Button variant="secondary" onClick={onCancel}>
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button variant="primary" onClick={() => submit()}>
-          {options.okLabel ?? 'OK'}
+          {options.okLabel ?? t('OK')}
         </Button>
       </Modal.Footer>
     </Modal>

@@ -29,7 +29,6 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
-  DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
@@ -48,6 +47,7 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
+  SoftDeletedEntry,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -410,11 +410,13 @@ function deleteNote(relPath: string): Promise<void> {
   })
 }
 
-function moveToTrash(relPath: string): Promise<NoteMeta> {
-  return jsonRequest<NoteMeta>('/notes/trash', {
+async function moveToTrash(relPath: string): Promise<string> {
+  // The remote server manages its own trash; there's no local soft-delete handle.
+  await jsonRequest<NoteMeta>('/notes/trash', {
     method: 'POST',
     body: { path: relPath }
   })
+  return ''
 }
 
 function restoreFromTrash(relPath: string): Promise<NoteMeta> {
@@ -428,11 +430,12 @@ function emptyTrash(): Promise<void> {
   return jsonRequest<void>('/notes/empty-trash', { method: 'POST' })
 }
 
-function archiveNote(relPath: string): Promise<NoteMeta> {
-  return jsonRequest<NoteMeta>('/notes/archive', {
+async function archiveNote(relPath: string): Promise<string> {
+  await jsonRequest<NoteMeta>('/notes/archive', {
     method: 'POST',
     body: { path: relPath }
   })
+  return ''
 }
 
 function unarchiveNote(relPath: string): Promise<NoteMeta> {
@@ -579,7 +582,33 @@ function createDatabase(): Promise<DatabaseDoc> {
 function createRecordPage(): Promise<string> {
   return Promise.reject(new Error(DATABASES_WEB_MSG))
 }
+function deleteDatabase(): Promise<void> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
+function renameDatabase(): Promise<string> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
 function listDatabases(): Promise<DatabaseSummary[]> {
+  return Promise.resolve([])
+}
+
+// Soft-delete of folders/forms is desktop-only (the local `.zennotes` registry
+// has no server counterpart yet). The store only calls these on desktop; on web
+// folder deletion falls back to the existing hard `deleteFolder`.
+const SOFT_DELETE_WEB_MSG = 'Trashing folders and forms is only available in the desktop app.'
+function moveFolderTo(): Promise<void> {
+  return Promise.reject(new Error(SOFT_DELETE_WEB_MSG))
+}
+function moveDatabaseTo(): Promise<void> {
+  return Promise.reject(new Error(SOFT_DELETE_WEB_MSG))
+}
+function restoreSoftDeleted(): Promise<void> {
+  return Promise.reject(new Error(SOFT_DELETE_WEB_MSG))
+}
+function purgeSoftDeleted(): Promise<void> {
+  return Promise.reject(new Error(SOFT_DELETE_WEB_MSG))
+}
+function listSoftDeleted(): Promise<SoftDeletedEntry[]> {
   return Promise.resolve([])
 }
 
@@ -661,12 +690,8 @@ async function duplicateAsset(_relPath: string): Promise<AssetMeta> {
   throw new Error('Asset duplication is only available in the desktop app right now.')
 }
 
-async function deleteAsset(_relPath: string): Promise<DeletedAsset> {
+async function deleteAsset(_relPath: string): Promise<string> {
   throw new Error('Asset deletion is only available in the desktop app right now.')
-}
-
-async function restoreDeletedAsset(_asset: DeletedAsset): Promise<AssetMeta> {
-  throw new Error('Asset restore is only available in the desktop app right now.')
 }
 
 async function migrateLooseAssets(): Promise<{
@@ -1166,7 +1191,14 @@ export const httpBridge: ZenBridge = {
   writeDatabaseSchema,
   createDatabase,
   createRecordPage,
+  deleteDatabase,
+  renameDatabase,
   listDatabases,
+  moveFolderTo,
+  moveDatabaseTo,
+  restoreSoftDeleted,
+  purgeSoftDeleted,
+  listSoftDeleted,
   writeNote,
   appendToNote,
   createNote,
@@ -1188,7 +1220,6 @@ export const httpBridge: ZenBridge = {
   moveAsset,
   duplicateAsset,
   deleteAsset,
-  restoreDeletedAsset,
   migrateLooseAssets,
   importAssetsToVault,
   importAssetsViaDialog,

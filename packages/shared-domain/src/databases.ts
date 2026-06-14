@@ -4,11 +4,17 @@
  * are typed fields. The same data is shown through multiple VIEWS (an editable
  * Table and a Board grouped by a field).
  *
- * On disk a database is a pair:
- *   <folder>/<Name>.csv            — the data (an `id` UUID column gives rows a
- *                                    stable identity across external edits)
- *   <folder>/<Name>.csv.base.json  — the sidecar: field types, select options,
- *                                    and view definitions (a CSV can't hold these)
+ * On disk a database is ONE self-contained folder whose name ends with the
+ * reserved `.base` suffix (so it never collides with an ordinary folder):
+ *   <Name>.base/data.csv      — the data (an `id` UUID column gives rows a
+ *                               stable identity across external edits)
+ *   <Name>.base/schema.json   — field types, select options, view definitions,
+ *                               and the row→page map (a CSV can't hold these)
+ *   <Name>.base/pages/        — the record-page notes (one `.md` per record)
+ * The form's identity / cache key is its `data.csv` path; its title is the
+ * folder name minus `.base`. Because everything lives in one folder, rename =
+ * folder rename and trash/move = folder move (no path rewriting). Record-page
+ * paths in `schema.json` are stored RELATIVE to the folder for the same reason.
  *
  * This module is PURE (no node/DOM imports) so it is shared by the main process
  * and the renderer. Cell values are stored as raw CSV strings; the field type
@@ -16,10 +22,68 @@
  * on load).
  */
 
+/** Legacy sidecar suffix (`<Name>.csv.base.json`) — kept only for path guards. */
 export const DATABASE_SIDECAR_SUFFIX = '.base.json'
 export const DEFAULT_ID_FIELD_NAME = 'id'
 /** Board column key for rows whose group-by cell is empty/unmatched. */
 export const EMPTY_GROUP = '__empty__'
+
+/** A form/database lives in a folder whose name ends with this suffix. */
+export const FORM_DIR_SUFFIX = '.base'
+/** Fixed names of a form folder's contents. */
+export const FORM_DATA_FILE = 'data.csv'
+export const FORM_SCHEMA_FILE = 'schema.json'
+export const FORM_PAGES_DIR = 'pages'
+
+const toPosixPath = (p: string): string => p.replace(/\\/g, '/')
+const lastSegment = (p: string): string => {
+  const s = toPosixPath(p)
+  return s.slice(s.lastIndexOf('/') + 1)
+}
+
+/** True when a folder name (or a path's last segment) marks a form folder. */
+export function isFormDirName(nameOrPath: string): boolean {
+  return lastSegment(nameOrPath).toLowerCase().endsWith(FORM_DIR_SUFFIX)
+}
+
+/**
+ * The form folder path for a form's `data.csv` path, or null when `csvPath`
+ * isn't a form data file. e.g. `a/X.base/data.csv` → `a/X.base`.
+ */
+export function formDirFromCsvPath(csvPath: string): string | null {
+  const p = toPosixPath(csvPath)
+  const slash = p.lastIndexOf('/')
+  if (slash < 0) return null
+  const dir = p.slice(0, slash)
+  const file = p.slice(slash + 1)
+  if (file.toLowerCase() !== FORM_DATA_FILE) return null
+  return isFormDirName(dir) ? dir : null
+}
+
+/** The `data.csv` path for a form folder path. e.g. `a/X.base` → `a/X.base/data.csv`. */
+export function csvPathForFormDir(formDir: string): string {
+  return `${toPosixPath(formDir)}/${FORM_DATA_FILE}`
+}
+
+/** The `schema.json` path for a form's `data.csv` path, or null. */
+export function databaseSchemaPathFor(csvPath: string): string | null {
+  const dir = formDirFromCsvPath(csvPath)
+  return dir ? `${dir}/${FORM_SCHEMA_FILE}` : null
+}
+
+/** Display title from a form folder name/path (strips the `.base` suffix). */
+export function formTitleFromDir(nameOrPath: string): string {
+  const name = lastSegment(nameOrPath)
+  return name.toLowerCase().endsWith(FORM_DIR_SUFFIX)
+    ? name.slice(0, -FORM_DIR_SUFFIX.length)
+    : name
+}
+
+/** Display title from a form's `data.csv` path. */
+export function formTitleFromCsvPath(csvPath: string): string {
+  const dir = formDirFromCsvPath(csvPath)
+  return dir ? formTitleFromDir(dir) : csvPath
+}
 
 export type FieldType = 'text' | 'number' | 'checkbox' | 'date' | 'select' | 'multiSelect'
 
@@ -94,7 +158,7 @@ export interface DbView {
   cardFieldIds?: string[]
 }
 
-/** The sidecar JSON written to `<name>.csv.base.json`. */
+/** The sidecar JSON written to `<Name>.base/schema.json`. */
 export interface DatabaseSidecar {
   version: 1
   /** Field whose cells hold the row UUID (its `name` is the CSV header). */
@@ -166,7 +230,9 @@ export function csvPathFromDatabaseTab(path: string | null | undefined): string 
 
 export function databaseTitleFromTab(path: string | null | undefined): string {
   const csv = csvPathFromDatabaseTab(path)
-  if (!csv) return 'Database'
+  if (!csv) return 'Base'
+  // A form's title is its `<Name>.base` folder name, not the `data.csv` basename.
+  if (formDirFromCsvPath(csv)) return formTitleFromCsvPath(csv)
   const base = csv.split('/').filter(Boolean).pop() ?? csv
   return base.replace(/\.csv$/i, '')
 }
@@ -195,9 +261,20 @@ export function isDatabaseCsvPath(relPath: string): boolean {
   return lower.endsWith('.csv') && !lower.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)
 }
 
-/** Given a `.csv` or its `.base.json` sidecar, return the canonical `.csv` path. */
+/**
+ * Given any file that belongs to a form (`data.csv` or `schema.json`), return
+ * the canonical `data.csv` path; null otherwise. Used to normalize a watcher
+ * event on any form file back to the form's identity.
+ */
 export function databaseCsvPathFor(relPath: string): string | null {
-  if (isDatabaseSidecarPath(relPath)) return relPath.slice(0, -DATABASE_SIDECAR_SUFFIX.length)
-  if (isDatabaseCsvPath(relPath)) return relPath
+  const p = relPath.replace(/\\/g, '/')
+  if (p.toLowerCase().endsWith(`/${FORM_SCHEMA_FILE}`)) {
+    const dir = p.slice(0, p.lastIndexOf('/'))
+    if (isFormDirName(dir)) return `${dir}/${FORM_DATA_FILE}`
+  }
+  if (formDirFromCsvPath(p)) return p
+  // Legacy: a `<Name>.csv.base.json` sidecar maps to its `.csv`.
+  if (isDatabaseSidecarPath(p)) return p.slice(0, -DATABASE_SIDECAR_SUFFIX.length)
+  if (isDatabaseCsvPath(p)) return p
   return null
 }

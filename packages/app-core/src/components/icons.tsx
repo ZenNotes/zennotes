@@ -342,6 +342,14 @@ export const DocumentIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const HelpCircleIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+    <path d="M12 17h.01" />
+  </I>
+)
+
 export const DocumentTextIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" />

@@ -188,14 +188,12 @@ export function QuickNotesView(): JSX.Element {
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
         <CollectionViewHeader
-          badge="Capture"
-          badgeIcon={<ZapIcon width={13} height={13} />}
           title={quickLabel}
-          description="Browse quick captures, filter by title or path, and jump straight into the one you want."
+          description={t('Browse quick captures, filter by title or path, and jump straight into the one you want.')}
           count={quickNotes.length}
           filter={filter}
           onFilterChange={setFilter}
-          filterPlaceholder="Filter quick notes…"
+          filterPlaceholder={t('Filter quick notes…')}
           inputRef={filterRef}
           actions={
             <button
@@ -204,7 +202,7 @@ export function QuickNotesView(): JSX.Element {
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:opacity-95"
             >
               <PlusIcon width={15} height={15} />
-              New Note
+              {t('New Note')}
             </button>
           }
         />
@@ -220,8 +218,11 @@ export function QuickNotesView(): JSX.Element {
               </div>
               <div className="text-lg font-medium text-ink-900">
                 {quickNotes.length === 0
-                  ? `No ${quickLabel} yet.`
-                  : `No ${quickLabel.toLowerCase()} match that filter.`}
+                  ? t('No {label} yet.').replace('{label}', quickLabel)
+                  : t('No {label} match that filter.').replace(
+                      '{label}',
+                      quickLabel.toLowerCase()
+                    )}
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {quickNotes.length === 0
@@ -258,7 +259,7 @@ export function QuickNotesView(): JSX.Element {
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
                       <div className="mt-1 line-clamp-1 text-sm leading-5 text-ink-600">
-                        {note.excerpt || 'Empty note'}
+                        {note.excerpt || t('Empty note')}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5 self-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
@@ -271,7 +272,7 @@ export function QuickNotesView(): JSX.Element {
                         className="inline-flex items-center gap-1.5 rounded-lg bg-paper-100/85 px-2.5 py-1 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
                       >
                         <ArrowUpRightIcon width={13} height={13} />
-                        Open
+                        {t('Open')}
                       </button>
                     </div>
                   </div>

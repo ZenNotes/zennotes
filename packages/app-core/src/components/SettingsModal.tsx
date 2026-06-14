@@ -264,6 +264,7 @@ export function SettingsModal(): JSX.Element {
   const vaultSettings = useStore((s) => s.vaultSettings)
   const persistVaultSettings = useStore((s) => s.setVaultSettings)
   const openVaultPicker = useStore((s) => s.openVaultPicker)
+  const revealAssetsDir = useStore((s) => s.revealAssetsDir)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const connectRemoteWorkspaceProfile = useStore((s) => s.connectRemoteWorkspaceProfile)
   const changeRemoteWorkspaceVaultPath = useStore((s) => s.changeRemoteWorkspaceVaultPath)
@@ -1519,6 +1520,14 @@ export function SettingsModal(): JSX.Element {
                   </div>
                 )}
               </div>
+              {workspaceMode !== 'remote' && appInfo.runtime === 'desktop' && vault?.root && (
+                <button
+                  onClick={() => void revealAssetsDir()}
+                  className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                >
+                  {t('Open Folder')}
+                </button>
+              )}
               <button
                 onClick={() =>
                   void (workspaceMode === 'remote'

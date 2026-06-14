@@ -1,9 +1,8 @@
 import type { ReactNode, Ref } from 'react'
 import { SearchIcon } from './icons'
+import { useT } from '../lib/i18n'
 
 export function CollectionViewHeader({
-  badge,
-  badgeIcon,
   title,
   description,
   count,
@@ -13,8 +12,6 @@ export function CollectionViewHeader({
   inputRef,
   actions
 }: {
-  badge: string
-  badgeIcon: ReactNode
   title: string
   description: string
   count: number
@@ -24,21 +21,20 @@ export function CollectionViewHeader({
   inputRef?: Ref<HTMLInputElement>
   actions?: ReactNode
 }): JSX.Element {
+  const t = useT()
   return (
     <section className="overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-50/34 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
       <div className="flex flex-col gap-4 px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-paper-300/70 bg-paper-100/75 px-2.5 py-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                {badgeIcon}
-                {badge}
-              </div>
               <h1 className="text-[1.65rem] font-semibold tracking-tight text-ink-900 sm:text-[1.85rem]">
                 {title}
               </h1>
               <span className="inline-flex items-center rounded-full border border-paper-300/70 bg-paper-100/70 px-2.5 py-1 text-xs font-medium text-ink-500">
-                {count} note{count === 1 ? '' : 's'}
+                {count === 1
+                  ? t('{count} note').replace('{count}', '1')
+                  : t('{count} notes').replace('{count}', String(count))}
               </span>
             </div>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-500">{description}</p>

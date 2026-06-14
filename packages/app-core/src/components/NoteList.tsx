@@ -182,13 +182,13 @@ export function NoteList(): JSX.Element {
       if (selectedPath === n.path) await selectNote(meta.path)
     }
     const onTrash = async (): Promise<void> => {
-      if (!(await confirmMoveToTrash(n.title))) return
+      if (!(await confirmMoveToTrash(n.title, t))) return
       await window.zen.moveToTrash(n.path)
       await refreshNotes()
       if (selectedPath === n.path) await selectNote(null)
     }
     const onMove = async (): Promise<void> => {
-      const target = await promptApp(buildMoveNotePrompt(n, folders))
+      const target = await promptApp(buildMoveNotePrompt(n, folders, t))
       if (!target) return
       const dest = parseMoveNoteTarget(target)
       await moveNote(n.path, dest.folder, dest.subpath)
@@ -250,19 +250,19 @@ export function NoteList(): JSX.Element {
     if (n.folder === 'inbox' || n.folder === 'quick') {
       items.push({ label: folderLabels.archive, icon: <ArchiveIcon />, onSelect: onArchive })
       items.push({
-        label: `Move to ${folderLabels.trash}`,
+        label: t('Move to {label}').replace('{label}', folderLabels.trash),
         icon: <TrashIcon />,
         danger: true,
         onSelect: onTrash
       })
     } else if (n.folder === 'archive') {
       items.push({
-        label: `Move to ${folderLabels.inbox}`,
+        label: t('Move to {label}').replace('{label}', folderLabels.inbox),
         icon: <ArrowUpRightIcon />,
         onSelect: onUnarchive
       })
       items.push({
-        label: `Move to ${folderLabels.trash}`,
+        label: t('Move to {label}').replace('{label}', folderLabels.trash),
         icon: <TrashIcon />,
         danger: true,
         onSelect: onTrash

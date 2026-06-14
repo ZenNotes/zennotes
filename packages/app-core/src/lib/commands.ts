@@ -108,9 +108,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'database.new',
-      title: tr('New Database'),
+      title: tr('New Base'),
       category: tr('Note'),
-      keywords: 'database table csv records spreadsheet board kanban base',
+      keywords: 'database table csv records spreadsheet board kanban base 多维表格 表格',
       run: () => getState().createDatabase('inbox', '')
     },
     {
@@ -391,7 +391,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const state = getState()
         const active = state.activeNote
         if (!active) return
-        const target = await promptApp(buildMoveNotePrompt(active, state.folders))
+        const target = await promptApp(buildMoveNotePrompt(active, state.folders, tr))
         if (!target) return
         const dest = parseMoveNoteTarget(target)
         await state.moveNote(active.path, dest.folder, dest.subpath)

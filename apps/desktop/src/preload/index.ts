@@ -15,7 +15,6 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
-  DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
@@ -36,6 +35,7 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
+  SoftDeletedEntry,
   VaultChangeEvent,
   VaultDemoTourResult,
   VaultInfo,
@@ -313,7 +313,24 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_CREATE_DATABASE, folder, subpath, title),
   createRecordPage: (csvPath: string, title: string, body: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_RECORD_PAGE, csvPath, title, body),
+  deleteDatabase: (relPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_DELETE_DATABASE, relPath),
+  renameDatabase: (relPath: string, nextName: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.VAULT_RENAME_DATABASE, relPath, nextName),
   listDatabases: (): Promise<DatabaseSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_DATABASES),
+  moveFolderTo: (
+    folder: NoteFolder,
+    subpath: string,
+    target: 'trash' | 'archive'
+  ): Promise<void> => ipcRenderer.invoke(IPC.VAULT_SOFT_DELETE_FOLDER, folder, subpath, target),
+  moveDatabaseTo: (relPath: string, target: 'trash' | 'archive'): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_SOFT_DELETE_DATABASE, relPath, target),
+  restoreSoftDeleted: (storedRel: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_RESTORE_SOFT_DELETED, storedRel),
+  purgeSoftDeleted: (storedRel: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_PURGE_SOFT_DELETED, storedRel),
+  listSoftDeleted: (): Promise<SoftDeletedEntry[]> =>
+    ipcRenderer.invoke(IPC.VAULT_LIST_SOFT_DELETED),
   writeNote: (relPath: string, body: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_NOTE, relPath, body),
   appendToNote: (relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta> =>
@@ -323,12 +340,12 @@ const api: ZenBridge = {
   renameNote: (relPath: string, nextTitle: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_NOTE, relPath, nextTitle),
   deleteNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE_NOTE, relPath),
-  moveToTrash: (relPath: string): Promise<NoteMeta> =>
+  moveToTrash: (relPath: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_MOVE_TO_TRASH, relPath),
   restoreFromTrash: (relPath: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RESTORE_FROM_TRASH, relPath),
   emptyTrash: (): Promise<void> => ipcRenderer.invoke(IPC.VAULT_EMPTY_TRASH),
-  archiveNote: (relPath: string): Promise<NoteMeta> =>
+  archiveNote: (relPath: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_ARCHIVE_NOTE, relPath),
   unarchiveNote: (relPath: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_UNARCHIVE_NOTE, relPath),
@@ -355,10 +372,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_MOVE_ASSET, relPath, targetDir),
   duplicateAsset: (relPath: string): Promise<AssetMeta> =>
     ipcRenderer.invoke(IPC.VAULT_DUPLICATE_ASSET, relPath),
-  deleteAsset: (relPath: string): Promise<DeletedAsset> =>
+  deleteAsset: (relPath: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_DELETE_ASSET, relPath),
-  restoreDeletedAsset: (asset: DeletedAsset): Promise<AssetMeta> =>
-    ipcRenderer.invoke(IPC.VAULT_RESTORE_DELETED_ASSET, asset),
   migrateLooseAssets: (): Promise<{
     moved: string[]
     skipped: { path: string; reason: string }[]

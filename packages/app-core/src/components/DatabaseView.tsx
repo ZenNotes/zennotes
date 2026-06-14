@@ -201,7 +201,7 @@ export function DatabaseView({
           <div className="mx-2 h-4 w-px self-center bg-paper-300" />
           <IconButton
             size="sm"
-            title={t('Form settings')}
+            title={t('Base settings')}
             onClick={() => setSettingsOpen((o) => !o)}
           >
             <PanelRightIcon className="h-4 w-4" />
@@ -224,7 +224,7 @@ export function DatabaseView({
           >
             <PanelResizeHandle onStart={startResize} />
             <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-              {t('Form settings')}
+              {t('Base settings')}
             </div>
             <div className="mt-3 text-sm font-medium text-ink-900">
               {t('Record page template')}

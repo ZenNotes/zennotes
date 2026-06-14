@@ -2,7 +2,6 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
-  DeletedAsset,
   ExternalFileContent,
   FolderEntry,
   ImportedAsset,
@@ -23,6 +22,7 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
+  SoftDeletedEntry,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -141,16 +141,35 @@ export interface ZenBridge {
   createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>
   /** Create a record's "page" note (returns its vault-relative path). */
   createRecordPage(csvPath: string, title: string, body: string): Promise<string>
+  /** Delete a form: remove its whole `<Name>.base` folder. */
+  deleteDatabase(relPath: string): Promise<void>
+  /** Rename a form (rename its `.base` folder); returns the new `data.csv` path. */
+  renameDatabase(relPath: string, nextName: string): Promise<string>
   listDatabases(): Promise<DatabaseSummary[]>
+  /**
+   * Soft-delete a folder: move it (with everything inside) into `trash/` or
+   * `archive/` as a logical unit, recording its origin for restore.
+   */
+  moveFolderTo(folder: NoteFolder, subpath: string, target: 'trash' | 'archive'): Promise<void>
+  /** Soft-delete a form: move its `<Name>.base` folder into `trash/`/`archive/`. */
+  moveDatabaseTo(relPath: string, target: 'trash' | 'archive'): Promise<void>
+  /** Restore a soft-deleted folder/database (by its current trash/archive path) to its origin. */
+  restoreSoftDeleted(storedRel: string): Promise<void>
+  /** Permanently delete a soft-deleted folder/database and drop its registry entry. */
+  purgeSoftDeleted(storedRel: string): Promise<void>
+  /** List folders/databases currently in `trash/` or `archive/` as logical units. */
+  listSoftDeleted(): Promise<SoftDeletedEntry[]>
   writeNote(relPath: string, body: string): Promise<NoteMeta>
   appendToNote(relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta>
   createNote(folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta>
   renameNote(relPath: string, nextTitle: string): Promise<NoteMeta>
   deleteNote(relPath: string): Promise<void>
-  moveToTrash(relPath: string): Promise<NoteMeta>
+  /** Soft-delete a note into trash (UUID+meta); returns the `${top}/${id}` handle. */
+  moveToTrash(relPath: string): Promise<string>
   restoreFromTrash(relPath: string): Promise<NoteMeta>
   emptyTrash(): Promise<void>
-  archiveNote(relPath: string): Promise<NoteMeta>
+  /** Soft-delete (archive) a note (UUID+meta); returns the `${top}/${id}` handle. */
+  archiveNote(relPath: string): Promise<string>
   unarchiveNote(relPath: string): Promise<NoteMeta>
   duplicateNote(relPath: string): Promise<NoteMeta>
   exportNotePdf(relPath: string): Promise<string | null>
@@ -163,8 +182,8 @@ export interface ZenBridge {
   renameAsset(relPath: string, nextName: string): Promise<AssetMeta>
   moveAsset(relPath: string, targetDir: string): Promise<AssetMeta>
   duplicateAsset(relPath: string): Promise<AssetMeta>
-  deleteAsset(relPath: string): Promise<DeletedAsset>
-  restoreDeletedAsset(asset: DeletedAsset): Promise<AssetMeta>
+  /** Soft-delete an asset into the trash; returns the `${top}/${id}` handle for undo. */
+  deleteAsset(relPath: string): Promise<string>
   /** One-time tidy-up: relocate root-level attachments into `assets/`. */
   migrateLooseAssets(): Promise<{
     moved: string[]

@@ -15,7 +15,6 @@ import {
   DEFAULT_DAILY_NOTES_DIRECTORY,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
-  DeletedAsset,
   type FolderIconId,
   type PrimaryNotesLocation,
   type VaultSettings,
@@ -29,6 +28,8 @@ import {
   NoteMeta,
   PastedImageInput,
   LocalVaultEntry,
+  SoftDeletedEntry,
+  SoftDeleteTop,
   VaultDemoTourResult,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
@@ -40,10 +41,22 @@ import {
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import {
   DATABASE_SIDECAR_SUFFIX,
+  databaseSchemaPathFor,
+  FORM_SCHEMA_FILE,
   isDatabaseCsvPath,
-  isDatabaseInternalPath
+  isDatabaseInternalPath,
+  isFormDirName
 } from '@shared/databases'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
+import {
+  addSoftDeleteEntry,
+  clearSoftDeleteStore,
+  getSoftDeleteEntry,
+  listSoftDeleted as listSoftDeletedEntries,
+  parseSoftDeleteHandle,
+  removeSoftDeleteEntry,
+  softDeleteHandle
+} from './soft-delete'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
@@ -56,7 +69,6 @@ const PRIMARY_ATTACHMENTS_DIR = 'assets'
 const LEGACY_ATTACHMENTS_DIRS = ['attachements', '_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
-const DELETED_ASSETS_DIR = 'deleted-assets'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
 const NOTE_META_CACHE_VERSION = 1
@@ -680,9 +692,12 @@ export function databaseDataPath(root: string, rel: string): string {
   return resolveSafe(root, toPosix(rel))
 }
 
-/** Absolute path of a database's co-located `.csv.base.json` sidecar. */
+/** Absolute path of a form's `schema.json` (lives beside `data.csv`). A stray
+ *  loose `.csv` (not in a `.base` folder) falls back to the legacy co-located
+ *  `.csv.base.json` sidecar so it still degrades gracefully. */
 export function databaseSidecarPath(root: string, rel: string): string {
-  return resolveSafe(root, `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
+  const schemaRel = databaseSchemaPathFor(toPosix(rel))
+  return resolveSafe(root, schemaRel ?? `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
 }
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
@@ -1515,6 +1530,9 @@ async function collectBuiltinSearchCandidates(root: string): Promise<VaultTextSe
       if (childReal !== null) {
         if (entry.name.startsWith('.')) continue
         if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(entry.name)) continue
+        // NOTE: full-text search intentionally descends INTO the archive's UUID
+        // wrappers so archived notes stay searchable (trash isn't in
+        // SEARCHABLE_TEXT_FOLDERS, so trashed notes remain out of search).
         ancestors.add(childReal)
         await walkFolder(folder, full, childReal, topAbs, isPrimaryRoot, ancestors)
         ancestors.delete(childReal)
@@ -1891,6 +1909,18 @@ async function mapLimit<T, U>(
  * sidebar tree — empty folders that contain no notes are otherwise
  * invisible, because notes are the only things we track per-file.
  */
+const SOFT_DELETE_WRAPPER_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A `<trash|archive>/<uuid>/` soft-delete wrapper dir. Its contents (a trashed
+ * folder/form/asset) are surfaced only through the soft-delete meta + recovery
+ * views, never as live notes/folders/assets — so listings skip these.
+ */
+function isSoftDeleteWrapperName(name: string): boolean {
+  return SOFT_DELETE_WRAPPER_RE.test(name)
+}
+
 export async function listFolders(root: string): Promise<FolderEntry[]> {
   const out: FolderEntry[] = []
   for (const folder of FOLDERS) {
@@ -1911,6 +1941,12 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
         if (childReal === null) continue
         if (e.name.startsWith('.')) continue
         if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(e.name)) continue
+        if (
+          (folder === 'trash' || folder === 'archive') &&
+          subpath === '' &&
+          isSoftDeleteWrapperName(e.name)
+        )
+          continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
         out.push({ folder, subpath: nextSub, siblingOrder: index, isSymlink: e.isSymbolicLink() })
         ancestors.add(childReal)
@@ -1952,6 +1988,12 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
       if (childReal !== null) {
         if (entry.name.startsWith('.')) continue
         if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(entry.name)) continue
+        if (
+          (folder === 'trash' || folder === 'archive') &&
+          dirAbs === topAbs &&
+          isSoftDeleteWrapperName(entry.name)
+        )
+          continue
         ancestors.add(childReal)
         await walkFolder(folder, full, childReal, topAbs, isPrimaryRoot, ancestors)
         ancestors.delete(childReal)
@@ -2224,7 +2266,7 @@ export async function uniqueTitle(dir: string, baseTitle: string): Promise<strin
   }
 }
 
-async function uniqueFilename(dir: string, filename: string): Promise<string> {
+export async function uniqueFilename(dir: string, filename: string): Promise<string> {
   const ext = path.extname(filename)
   const base = path.basename(filename, ext)
   let candidate = filename
@@ -2295,25 +2337,6 @@ function cleanAssetTargetDir(root: string, targetDir: string): string {
     throw new Error('Cannot move assets into internal ZenNotes files.')
   }
   return resolveSafe(root, normalized)
-}
-
-function cleanDeletedAssetPath(rel: string): string {
-  const normalized = normalizeVaultRelativePath(rel)
-  if (!normalized) throw new Error('Deleted asset path is required.')
-  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
-    throw new Error('Cannot restore internal ZenNotes files.')
-  }
-  if (path.extname(normalized).toLowerCase() === '.md') {
-    throw new Error('Use note actions to restore markdown notes.')
-  }
-  return normalized
-}
-
-function cleanDeletedAssetToken(token: string): string {
-  if (!/^[0-9a-f-]{36}$/i.test(token)) {
-    throw new Error('Deleted asset restore token is invalid.')
-  }
-  return token
 }
 
 function padPastedImageDatePart(value: number): string {
@@ -2542,16 +2565,22 @@ async function moveBetweenFolders(
   return meta
 }
 
-export function moveToTrash(root: string, rel: string): Promise<NoteMeta> {
-  return moveBetweenFolders(root, rel, 'trash')
+/** Soft-delete a note into trash as a UUID-wrapped unit; returns the handle. */
+export function moveToTrash(root: string, rel: string): Promise<string> {
+  const title = path.basename(rel, path.extname(rel))
+  return softDeleteVaultPath(root, toPosix(rel), 'trash', 'note', title)
 }
 
+/** Soft-delete (archive) a note as a UUID-wrapped unit; returns the handle. */
+export function archiveNote(root: string, rel: string): Promise<string> {
+  const title = path.basename(rel, path.extname(rel))
+  return softDeleteVaultPath(root, toPosix(rel), 'archive', 'note', title)
+}
+
+// Legacy path-based restore of a single note (editor "restore active"); the
+// recovery views restore via the soft-delete handle instead.
 export function restoreFromTrash(root: string, rel: string): Promise<NoteMeta> {
   return moveBetweenFolders(root, rel, 'inbox')
-}
-
-export function archiveNote(root: string, rel: string): Promise<NoteMeta> {
-  return moveBetweenFolders(root, rel, 'archive')
 }
 
 export function unarchiveNote(root: string, rel: string): Promise<NoteMeta> {
@@ -2561,16 +2590,25 @@ export function unarchiveNote(root: string, rel: string): Promise<NoteMeta> {
 export async function emptyTrash(root: string): Promise<void> {
   const trashDir = path.join(root, 'trash')
   try {
-    const entries = await fs.readdir(trashDir)
-    await Promise.all(entries.map((e) => removeNoteComments(root, `trash/${e}`)))
+    const names = await fs.readdir(trashDir)
+    // Path-mirrored trashed notes carry comment sidecars; drop them too.
     await Promise.all(
-      entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true }))
+      names
+        .filter((n) => !n.startsWith('.'))
+        .map((n) => removeNoteComments(root, `trash/${n}`).catch(() => {}))
     )
-    invalidateNoteMetaCache(root)
-    invalidateVaultTextSearchCache(root)
+    await Promise.all(names.map((n) => fs.rm(path.join(trashDir, n), { recursive: true, force: true })))
   } catch {
     /* no trash dir yet */
   }
+  await clearSoftDeleteStore(root, 'trash')
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+}
+
+/** All items (note/folder/form/asset) currently soft-deleted into a store. */
+export function listSoftDeleted(root: string): Promise<SoftDeletedEntry[]> {
+  return listSoftDeletedEntries(root)
 }
 
 export async function deleteNote(root: string, rel: string): Promise<void> {
@@ -2635,30 +2673,14 @@ export async function duplicateAsset(root: string, rel: string): Promise<AssetMe
   return await assetMetaForPath(root, destAbs)
 }
 
-export async function deleteAsset(root: string, rel: string): Promise<DeletedAsset> {
+/**
+ * Soft-delete an asset into the trash (assets have no archive): move it into a
+ * UUID wrapper `trash/<id>/<name>` + meta, like every other type. Returns the
+ * soft-delete handle so the caller can offer an immediate undo (restore).
+ */
+export async function deleteAsset(root: string, rel: string): Promise<string> {
   const source = await assertAssetFile(root, rel)
-  const undoToken = randomUUID()
-  const trashDir = resolveSafe(root, `${INTERNAL_VAULT_DIR}/${DELETED_ASSETS_DIR}/${undoToken}`)
-  await fs.mkdir(trashDir, { recursive: true })
-  const name = path.basename(source.abs)
-  await fs.rename(source.abs, path.join(trashDir, name))
-  return { path: source.rel, name, undoToken }
-}
-
-export async function restoreDeletedAsset(root: string, deleted: DeletedAsset): Promise<AssetMeta> {
-  const targetRel = cleanDeletedAssetPath(deleted.path)
-  const name = cleanAssetFilename(deleted.name)
-  const undoToken = cleanDeletedAssetToken(deleted.undoToken)
-  const trashDir = resolveSafe(root, `${INTERNAL_VAULT_DIR}/${DELETED_ASSETS_DIR}/${undoToken}`)
-  const sourceAbs = path.join(trashDir, name)
-  const targetAbs = resolveSafe(root, targetRel)
-  const targetDir = path.dirname(targetAbs)
-  await fs.mkdir(targetDir, { recursive: true })
-  const finalName = await uniqueFilename(targetDir, path.basename(targetAbs))
-  const finalAbs = path.join(targetDir, finalName)
-  await fs.rename(sourceAbs, finalAbs)
-  await fs.rm(trashDir, { recursive: true, force: true })
-  return await assetMetaForPath(root, finalAbs)
+  return softDeleteVaultPath(root, source.rel, 'trash', 'asset', path.basename(source.abs))
 }
 
 /* ---------- Folder operations ---------------------------------------- */
@@ -2765,6 +2787,114 @@ export async function deleteFolder(
     folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean)
   }
   await setVaultSettings(root, nextSettings)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+}
+
+/**
+ * Soft-delete a subfolder: move it — with everything inside — into `trash/`
+ * (or `archive/`) as a single unit, recording its origin so it restores to
+ * exactly where it was. First "delete" of a folder; `deleteFolder` above is
+ * reserved for permanent removal from the bin. Folder icons are left in place:
+ * the subpath is unchanged on restore, so the icon re-applies on return.
+ * Returns the soft-delete handle (`${top}/${id}`).
+ */
+export async function moveFolderTo(
+  root: string,
+  topFolder: NoteFolder,
+  subpath: string,
+  target: SoftDeleteTop
+): Promise<string> {
+  const clean = subpath.replace(/^\/+|\/+$/g, '')
+  if (!clean) throw new Error('Cannot delete the top-level folder')
+  if (topFolder === target) throw new Error(`Folder is already in ${target}`)
+  const srcAbs = resolveSafe(await folderRoot(root, topFolder), clean)
+  return softDeleteVaultPath(
+    root,
+    toPosix(path.relative(root, srcAbs)),
+    target,
+    'folder',
+    path.basename(clean)
+  )
+}
+
+/**
+ * Core soft-delete: move any vault path (note, folder, form `.base` folder, or
+ * asset) into a fresh UUID wrapper dir `<top>/<id>/<name>` and record its origin
+ * + display info in the store's `.meta.json`. The UUID wrapper means two
+ * same-named deletions never collide. Returns the handle (`${top}/${id}`).
+ */
+export async function softDeleteVaultPath(
+  root: string,
+  srcVaultRel: string,
+  target: SoftDeleteTop,
+  kind: SoftDeletedEntry['kind'],
+  title: string
+): Promise<string> {
+  const id = randomUUID()
+  const wrapperAbs = path.join(root, target, id)
+  await fs.mkdir(wrapperAbs, { recursive: true })
+  const name = path.basename(srcVaultRel)
+  await fs.rename(resolveSafe(root, srcVaultRel), path.join(wrapperAbs, name))
+  await addSoftDeleteEntry(root, target, id, {
+    kind,
+    name,
+    originalRel: toPosix(srcVaultRel),
+    title,
+    deletedAt: Date.now()
+  })
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+  return softDeleteHandle(target, id)
+}
+
+/**
+ * Restore a soft-deleted item (any kind) to its original location, identified by
+ * its `${top}/${id}` handle. De-duplicates the leaf name if something already
+ * sits at the origin.
+ */
+export async function restoreSoftDeleted(root: string, handle: string): Promise<void> {
+  const parsed = parseSoftDeleteHandle(handle)
+  if (!parsed) throw new Error('Invalid soft-delete handle')
+  const { top, id } = parsed
+  const meta = await getSoftDeleteEntry(root, top, id)
+  if (!meta) throw new Error('Nothing soft-deleted at that path')
+  const srcAbs = path.join(root, top, id, meta.name)
+  const destParentAbs = path.dirname(resolveSafe(root, meta.originalRel))
+  await fs.mkdir(destParentAbs, { recursive: true })
+  const finalName = await uniqueFilename(destParentAbs, path.basename(meta.originalRel))
+  await fs.rename(srcAbs, path.join(destParentAbs, finalName))
+  await fs.rm(path.join(root, top, id), { recursive: true, force: true }) // drop empty wrapper
+  await removeSoftDeleteEntry(root, top, id)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+}
+
+/** Permanently delete a soft-deleted item and drop its meta entry. */
+export async function purgeSoftDeleted(root: string, handle: string): Promise<void> {
+  const parsed = parseSoftDeleteHandle(handle)
+  if (!parsed) return
+  const { top, id } = parsed
+  await fs.rm(path.join(root, top, id), { recursive: true, force: true })
+  await removeSoftDeleteEntry(root, top, id)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+}
+
+/** Permanently empty a whole store (`trash`/`archive`): wrappers + meta. */
+export async function emptySoftDeleteStore(root: string, top: SoftDeleteTop): Promise<void> {
+  const dirAbs = path.join(root, top)
+  try {
+    const entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    await Promise.all(
+      entries
+        .filter((e) => e.isDirectory())
+        .map((e) => fs.rm(path.join(dirAbs, e.name), { recursive: true, force: true }))
+    )
+  } catch {
+    /* no store dir yet */
+  }
+  await clearSoftDeleteStore(root, top)
   invalidateNoteMetaCache(root)
   invalidateVaultTextSearchCache(root)
 }
@@ -2913,6 +3043,11 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       const childReal = await resolveDirDescent(full, entry, dirReal, ancestors)
       if (childReal !== null) {
         if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
+        if (
+          (dirAbs === path.join(root, 'trash') || dirAbs === path.join(root, 'archive')) &&
+          isSoftDeleteWrapperName(entry.name)
+        )
+          continue
         ancestors.add(childReal)
         await walk(full, childReal, ancestors)
         ancestors.delete(childReal)
@@ -2920,11 +3055,13 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
-      // A database's internal companions (the `.csv.base.json` sidecar and
-      // `.bak` backups) are never user-facing assets. The `.csv` data file
-      // itself stays listed — it rides the asset pipeline for discovery, but
-      // the renderer presents it as a first-class document (own icon +
-      // highlight) and excludes it from the assets grid / count.
+      // A form's internals never surface as assets. The `schema.json` is hidden
+      // when it sits inside a `<Name>.base` folder; the `data.csv` itself stays
+      // listed — it rides the asset pipeline for discovery, but the renderer
+      // presents the form as a first-class document (own icon + highlight) and
+      // excludes it from the assets grid / count.
+      if (entry.name === FORM_SCHEMA_FILE && isFormDirName(path.basename(dirAbs))) continue
+      // Legacy `.csv.base.json` sidecar / `.bak` backups, if any remain.
       if (isDatabaseInternalPath(entry.name)) continue
       let stat
       try {

@@ -290,8 +290,8 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   // --- Context menu --------------------------------------------------------
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
   const trashNote = useCallback(async (meta: NoteMeta) => {
-    if (await confirmMoveToTrash(meta.title)) await window.zen.moveToTrash(meta.path)
-  }, [])
+    if (await confirmMoveToTrash(meta.title, t)) await window.zen.moveToTrash(meta.path)
+  }, [t])
   const openDayMenu = useCallback(
     (e: React.MouseEvent, day: Date, iso: string) => {
       if (!dailyEnabled) return

@@ -6,8 +6,8 @@ export interface ContextMenuItem {
   label?: string
   /** Optional SVG icon to the left of the label. */
   icon?: JSX.Element
-  /** Right-aligned hint, e.g. a keyboard shortcut. */
-  hint?: string
+  /** Right-aligned hint, e.g. a keyboard shortcut or a small status chip. */
+  hint?: string | JSX.Element
   /** Displayed in muted red (used for destructive actions). */
   danger?: boolean
   disabled?: boolean

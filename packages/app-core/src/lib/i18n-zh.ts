@@ -149,10 +149,10 @@ export const ZH: Record<string, string> = {
   Board: '看板',
   Field: '字段',
   'New row': '新建行',
-  'New form': '新建表单',
-  'Form name': '表单名',
+  'New base': '新建多维表格',
+  'Base name': '多维表格名称',
   'Name cannot contain "/"': '名称不能包含 "/"',
-  'Form settings': '表单设置',
+  'Base settings': '多维表格设置',
   'Record page template': '记录页模板',
   None: '无',
   'No template — just a # title heading.': '不使用模板,仅 # 标题。',
@@ -204,6 +204,7 @@ export const ZH: Record<string, string> = {
   'Change…': '更换…',
   'Return to Local Vault': '返回本地仓库',
   'Open Local Vault…': '打开本地仓库…',
+  'Open Folder': '打开文件夹',
   'Quick Connect…': '快速连接…',
   'Saved Remote Workspaces': '已保存的远程工作区',
   'Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens.':
@@ -459,7 +460,7 @@ export const ZH: Record<string, string> = {
   'New Note in': '新建笔记于',
   'New Note in Vault Root': '在仓库根目录新建笔记',
   'New Note in Current Folder': '在当前文件夹新建笔记',
-  'New Database': '新建表单',
+  'New Base': '新建多维表格',
   "Open Today's Daily Note": '打开今天的每日笔记',
   "Open This Week's Note": '打开本周笔记',
   'New Note from Template…': '从模板新建笔记…',
@@ -660,6 +661,26 @@ export const ZH: Record<string, string> = {
   'Show tags': '显示标签',
   'Hide tags': '隐藏标签',
   'New note in': '新建笔记于',
+  // New-note / move-note / create-template destination prompts (PromptModal)
+  'New note in…': '新建笔记于…',
+  'Create "{name}" in…': '创建「{name}」于…',
+  'Move "{title}" to…': '移动「{title}」到…',
+  'Press Enter to create at the vault root, or type / pick a folder like Work/Research.':
+    '按 Enter 在仓库根目录创建,或输入 / 选择文件夹,例如 Work/Research。',
+  'Vault root — type a folder to change': '仓库根目录 — 输入文件夹以更改',
+  'Empty = vault root · ↑↓ pick a folder · Enter create': '留空 = 仓库根目录 · ↑↓ 选择文件夹 · Enter 创建',
+  'Enter a folder path, e.g. inbox/Work/Research': '输入文件夹路径,例如 inbox/Work/Research',
+  '↑↓ pick a folder · Enter to move': '↑↓ 选择文件夹 · Enter 移动',
+  'Folder path required': '需要文件夹路径',
+  'Top-level folder must be inbox or archive': '顶层文件夹必须是 inbox 或 archive',
+  Root: '根目录',
+  OK: '确定',
+  // Move-to-folder context-menu labels + move-to-trash confirmation
+  'Move to {label}': '移到{label}',
+  'Move {count} notes…': '移动 {count} 条笔记…',
+  'Move {count} notes to {label}?': '将 {count} 条笔记移到{label}?',
+  'Move {target} to Trash?': '将 {target} 移到回收站?',
+  'this note': '此笔记',
   'Symlinked note': '符号链接笔记',
   'Symlinked folder': '符号链接文件夹',
   'Symlinked into this vault': '符号链接到此仓库',
@@ -674,7 +695,6 @@ export const ZH: Record<string, string> = {
   'Reset icon': '重置图标',
   'New note': '新建笔记',
   'New from template': '从模板新建',
-  'New database': '新建表单',
   Open: '打开',
   'Open as Tab': '作为标签打开',
   'Open in New Tab': '在新标签打开',
@@ -695,6 +715,11 @@ export const ZH: Record<string, string> = {
   'Delete folder…': '删除文件夹…',
   'Delete folder': '删除文件夹',
   'Delete folders': '删除文件夹',
+  'Delete base…': '删除多维表格…',
+  'Delete base': '删除多维表格',
+  'Rename base': '重命名多维表格',
+  'This deletes the base and all its record pages. This cannot be undone.':
+    '这将删除该多维表格及其所有记录页,且无法撤销。',
   'Delete Asset…': '删除附件…',
   'Delete asset': '删除附件',
   'Delete tag from all notes': '从所有笔记删除标签',
@@ -818,6 +843,16 @@ export const ZH: Record<string, string> = {
   'Never mind': '算了',
   'Open note': '打开笔记',
   'Move to Trash': '移到回收站',
+  // ── Soft-delete of folders & forms (sidebar menus + Trash/Archive views) ──
+  // Note: 'Restore' and 'Folder' are already defined above.
+  'Move to': '移动到',
+  'Delete permanently…': '永久删除…',
+  Form: '表单',
+  Asset: '资源',
+  'trashed item(s)?': '个回收站项目?',
+  'You can restore it later from the Trash view.': '之后可以在回收站视图中恢复它。',
+  'Deleted notes, folders, and forms land here first so you can recover them before removing them permanently.':
+    '删除的笔记、文件夹和表单会先放到这里,你可以在永久删除前恢复它们。',
   'Empty note': '空笔记',
   create: '创建',
   move: '移动',
@@ -869,6 +904,33 @@ export const ZH: Record<string, string> = {
   'Choose vault folder': '选择仓库文件夹',
   'Connect to server vault': '连接到服务器仓库',
 
+  // ── Collection views (header count + Trash/Archive/QuickNotes chrome) ──────
+  // 'Restore', 'Empty note', 'Empty trash', 'Trash', 'Delete', 'Open', and
+  // 'Unarchive' are defined elsewhere.
+  '{count} note': '{count} 篇笔记',
+  '{count} notes': '{count} 篇笔记',
+  // Trash view
+  'Review deleted notes, folders, and forms, restore what you still need, and only empty the bin when you want permanent removal.':
+    '查看已删除的笔记、文件夹和表单,恢复仍然需要的内容,只在想永久移除时才清空回收站。',
+  'Filter trashed notes…': '筛选回收站笔记…',
+  'Empty {label}': '清空{label}',
+  '{label} is empty.': '{label}是空的。',
+  'No {label} notes match that filter.': '没有与该筛选匹配的{label}笔记。',
+  'Delete "{title}" permanently?': '永久删除“{title}”?',
+  // Archive view
+  'Review archived notes in one place and move anything active back into {inbox} when needed.':
+    '在一处查看归档笔记,需要时把仍然活跃的内容移回{inbox}。',
+  'Filter archived notes…': '筛选归档笔记…',
+  '{label} is for notes you want to keep around without leaving them in the active workspace.':
+    '{label}用于存放你想保留、但不希望留在活跃工作区中的笔记。',
+  // Quick Notes view
+  'Browse quick captures, filter by title or path, and jump straight into the one you want.':
+    '浏览快速记录,按标题或路径筛选,直接跳到你想要的那一篇。',
+  'Filter quick notes…': '筛选快速笔记…',
+  'New Note': '新建笔记',
+  'No {label} yet.': '还没有{label}。',
+  'No {label} match that filter.': '没有与该筛选匹配的{label}。',
+
   // ── Tasks / Database / modals / VimNav / icon picker ─────────────────────
   // Tasks
   Status: '状态',
@@ -910,6 +972,9 @@ export const ZH: Record<string, string> = {
   'No options yet — add one below.': '还没有选项 —— 在下方添加一个。',
   'Open as page': '作为页面打开',
   'Open page': '打开页面',
+  'Open page (empty)': '打开页面（空）',
+  'Hover Preview': '悬停预览',
+  'Loading preview…': '正在加载预览…',
   'Toggle the underlying CSV text': '切换底层 CSV 文本',
   'Group the board by a Select field.': '按 Select 字段对看板分组。',
   'Add a Select field in the Table view, then come back.': '在表格视图中添加一个 Select 字段,然后再回来。',

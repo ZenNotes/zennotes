@@ -2244,6 +2244,18 @@ button.np-checkbox:hover {
   );
 }
 
+/* The inline-code chip (background/padding/radius from `.tok-monospace`) is for
+   true inline code only. Inside fenced/indented blocks the Lezer markdown
+   grammar tags every token with the same `monospace` highlight tag, so each
+   token would otherwise get its own chip — peppering the block with ragged,
+   per-line gray boxes. Neutralize it here; the block card (WYSIWYG) or raw view
+   provides the background. Mirrors the preview's `.prose-zen pre code`. */
+.cm-editor .cm-code-block-line .tok-monospace {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
 /* --- WYSIWYG code-block card + language flair (Edit mode only) -------- */
 /* Give fenced code blocks a continuous "card": a shared background with side
    borders, the first/last line rounding the top/bottom. Mirrors Obsidian's

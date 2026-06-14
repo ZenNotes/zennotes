@@ -1,7 +1,23 @@
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  access,
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+
+const exists = async (abs: string): Promise<boolean> =>
+  access(abs).then(
+    () => true,
+    () => false
+  )
 import {
   absolutePath,
   appendToNote,
@@ -15,17 +31,16 @@ import {
   invalidateNoteMetaCache,
   listNotes,
   listFolders,
+  listSoftDeleted,
   moveAsset,
   moveToTrash,
   rememberLocalVault,
   renameAsset,
   renameFolder,
-  restoreDeletedAsset,
-  restoreFromTrash,
+  restoreSoftDeleted,
   searchVaultText,
   searchVaultTextCapabilities,
   setVaultSettings,
-  unarchiveNote,
   writeNote
 } from './vault'
 
@@ -209,23 +224,32 @@ describe('deleteAsset', () => {
     await expect(readFile(path.join(root, duplicated.path), 'utf8')).resolves.toBe('image-bytes')
   })
 
-  it('removes a non-markdown asset inside the vault and can restore it', async () => {
+  it('soft-deletes a non-markdown asset to trash and can restore it', async () => {
     const root = await makeTempDir('zennotes-delete-asset-')
     await ensureVaultLayout(root)
     const rel = 'Screenshot.png'
     await writeFile(path.join(root, rel), 'image-bytes', 'utf8')
 
-    const deleted = await deleteAsset(root, rel)
+    const handle = await deleteAsset(root, rel)
 
-    expect(deleted).toMatchObject({ path: rel, name: 'Screenshot.png' })
+    expect(handle.startsWith('trash/')).toBe(true)
     await expect(readFile(path.join(root, rel), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT'
     })
+    const entries = await listSoftDeleted(root)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).toMatchObject({
+      kind: 'asset',
+      top: 'trash',
+      name: 'Screenshot.png',
+      originalRel: rel,
+      title: 'Screenshot.png'
+    })
 
-    const restored = await restoreDeletedAsset(root, deleted)
+    await restoreSoftDeleted(root, handle)
 
-    expect(restored.path).toBe(rel)
     await expect(readFile(path.join(root, rel), 'utf8')).resolves.toBe('image-bytes')
+    expect(await listSoftDeleted(root)).toHaveLength(0)
   })
 
   it('does not delete markdown notes through the asset path', async () => {
@@ -632,77 +656,85 @@ describe('archive / trash round-trips', () => {
     return { root }
   }
 
-  it('archives a nested note into the matching archive subfolder', async () => {
+  it('archives a nested note into a UUID wrapper, recording its origin', async () => {
     const { root } = await makeVaultWithNestedNote()
 
-    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
+    const handle = await archiveNote(root, 'inbox/demo/Tables.md')
 
-    expect(archived.path).toBe('archive/demo/Tables.md')
-    await expect(readFile(path.join(root, 'archive', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
-      '# Tables\n'
-    )
+    expect(handle.startsWith('archive/')).toBe(true)
+    expect(await exists(path.join(root, 'inbox/demo/Tables.md'))).toBe(false)
+    const [entry] = await listSoftDeleted(root)
+    expect(entry).toMatchObject({
+      kind: 'note',
+      top: 'archive',
+      name: 'Tables.md',
+      originalRel: 'inbox/demo/Tables.md',
+      title: 'Tables'
+    })
+    await expect(
+      readFile(path.join(root, entry.top, entry.id, 'Tables.md'), 'utf8')
+    ).resolves.toBe('# Tables\n')
   })
 
-  it('unarchive returns the note to the subfolder it came from', async () => {
+  it('restoring an archived note returns it to the subfolder it came from', async () => {
     const { root } = await makeVaultWithNestedNote()
 
-    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
-    const restored = await unarchiveNote(root, archived.path)
+    await archiveNote(root, 'inbox/demo/Tables.md')
+    const [entry] = await listSoftDeleted(root)
+    await restoreSoftDeleted(root, `${entry.top}/${entry.id}`)
 
-    expect(restored.path).toBe('inbox/demo/Tables.md')
     await expect(readFile(path.join(root, 'inbox', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
       '# Tables\n'
     )
+    expect(await listSoftDeleted(root)).toHaveLength(0)
   })
 
-  it('trash and restore preserve the subfolder too', async () => {
+  it('trash and restore preserve the original subfolder too', async () => {
     const { root } = await makeVaultWithNestedNote()
 
-    const trashed = await moveToTrash(root, 'inbox/demo/Tables.md')
-    expect(trashed.path).toBe('trash/demo/Tables.md')
+    const handle = await moveToTrash(root, 'inbox/demo/Tables.md')
+    expect(handle.startsWith('trash/')).toBe(true)
+    expect((await listSoftDeleted(root))[0]).toMatchObject({
+      kind: 'note',
+      top: 'trash',
+      originalRel: 'inbox/demo/Tables.md'
+    })
 
-    const restored = await restoreFromTrash(root, trashed.path)
-    expect(restored.path).toBe('inbox/demo/Tables.md')
+    const [entry] = await listSoftDeleted(root)
+    await restoreSoftDeleted(root, `${entry.top}/${entry.id}`)
+    expect(await exists(path.join(root, 'inbox/demo/Tables.md'))).toBe(true)
   })
 
-  it('top-level notes keep round-tripping at the top level', async () => {
-    const root = await makeTempDir('zennotes-folder-moves-top-')
+  it('two same-named trashed notes never collide (UUID wrappers)', async () => {
+    const root = await makeTempDir('zennotes-folder-moves-dup-')
     await ensureVaultLayout(root)
-    await writeFile(path.join(root, 'inbox', 'Solo.md'), '# Solo\n', 'utf8')
+    await writeFile(path.join(root, 'inbox', 'Solo.md'), '# A\n', 'utf8')
+    await moveToTrash(root, 'inbox/Solo.md')
+    await writeFile(path.join(root, 'inbox', 'Solo.md'), '# B\n', 'utf8')
+    await moveToTrash(root, 'inbox/Solo.md')
 
-    const archived = await archiveNote(root, 'inbox/Solo.md')
-    expect(archived.path).toBe('archive/Solo.md')
-
-    const restored = await unarchiveNote(root, archived.path)
-    expect(restored.path).toBe('inbox/Solo.md')
+    const entries = await listSoftDeleted(root)
+    expect(entries).toHaveLength(2)
+    expect(entries.every((e) => e.kind === 'note' && e.originalRel === 'inbox/Solo.md')).toBe(true)
+    expect(new Set(entries.map((e) => e.id)).size).toBe(2)
   })
 
-  it('de-duplicates titles within the destination subfolder', async () => {
+  it('de-duplicates the name on restore when the origin is occupied', async () => {
     const { root } = await makeVaultWithNestedNote()
-    await mkdir(path.join(root, 'archive', 'demo'), { recursive: true })
-    await writeFile(path.join(root, 'archive', 'demo', 'Tables.md'), '# Other\n', 'utf8')
+    await archiveNote(root, 'inbox/demo/Tables.md')
+    // Recreate a note at the origin so restore must pick a fresh name.
+    await writeFile(path.join(root, 'inbox', 'demo', 'Tables.md'), '# Other\n', 'utf8')
 
-    const archived = await archiveNote(root, 'inbox/demo/Tables.md')
+    const [entry] = await listSoftDeleted(root)
+    await restoreSoftDeleted(root, `${entry.top}/${entry.id}`)
 
-    expect(archived.path).toMatch(/^archive\/demo\/Tables .+\.md$/)
-    await expect(readFile(path.join(root, 'archive', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
+    // Original kept; the restored copy lands beside it under a deduped name.
+    await expect(readFile(path.join(root, 'inbox', 'demo', 'Tables.md'), 'utf8')).resolves.toBe(
       '# Other\n'
     )
-  })
-
-  it('preserves subfolders in root-primary mode', async () => {
-    const root = await makeTempDir('zennotes-folder-moves-rootmode-')
-    await ensureVaultLayout(root)
-    const settings = await getVaultSettings(root)
-    await setVaultSettings(root, { ...settings, primaryNotesLocation: 'root' })
-    await mkdir(path.join(root, 'projects'), { recursive: true })
-    await writeFile(path.join(root, 'projects', 'Plan.md'), '# Plan\n', 'utf8')
-
-    const archived = await archiveNote(root, 'projects/Plan.md')
-    expect(archived.path).toBe('archive/projects/Plan.md')
-
-    const restored = await unarchiveNote(root, archived.path)
-    expect(restored.path).toBe('projects/Plan.md')
-    await expect(readFile(path.join(root, 'projects', 'Plan.md'), 'utf8')).resolves.toBe('# Plan\n')
+    const restored = (await listNotes(root)).filter((n) =>
+      n.path.startsWith('inbox/demo/Tables')
+    )
+    expect(restored.length).toBe(2)
   })
 })

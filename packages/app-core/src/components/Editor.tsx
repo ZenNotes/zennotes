@@ -656,17 +656,18 @@ function registerVimNoteCommands(): void {
     const state = useStore.getState()
     const active = state.activeNote
     if (!active) return
+    const tr = (s: string): string => translate(state.language, s)
 
     const value = raw.trim()
     let target = value
     if (!target) {
-      target = (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? ''
+      target = (await promptApp(buildMoveNotePrompt(active, state.folders, tr))) ?? ''
       if (!target) return
     }
 
     const error = validateMoveNoteTarget(target)
     if (error) {
-      window.alert(error)
+      window.alert(tr(error))
       return
     }
     const dest = parseMoveNoteTarget(target)

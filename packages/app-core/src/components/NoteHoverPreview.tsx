@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import { renderMarkdown } from '../lib/markdown'
 import { enhanceLocalAssetNodes } from '../lib/local-assets'
 import { assetTabPath } from '../lib/asset-tabs'
@@ -30,6 +31,7 @@ export function NoteHoverPreview({
   onPointerEnter?: () => void
   onPointerLeave?: () => void
 }): JSX.Element {
+  const tr = useT()
   const activeNote = useStore((s) => s.activeNote)
   const vault = useStore((s) => s.vault)
   const assetFiles = useStore((s) => s.assetFiles)
@@ -157,7 +159,7 @@ export function NoteHoverPreview({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs font-medium uppercase tracking-[0.14em] text-ink-400">
-              Hover Preview
+              {tr('Hover Preview')}
             </div>
             <div className="mt-1 truncate text-sm font-semibold text-ink-900">{note.title}</div>
             <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>
@@ -185,7 +187,7 @@ export function NoteHoverPreview({
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
-          <div className="text-sm text-ink-400">Loading preview…</div>
+          <div className="text-sm text-ink-400">{tr('Loading preview…')}</div>
         )}
       </div>
     </div>,

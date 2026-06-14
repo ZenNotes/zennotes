@@ -37,7 +37,7 @@ import {
   tooltips
 } from '@codemirror/view'
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
-import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
+import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder, NoteMeta } from '@shared/ipc'
 import {
   defaultKeymap,
   history,
@@ -80,10 +80,12 @@ import { findRecordLink, recordFieldsForPage, setCell } from '../lib/database-ce
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
+import { resolveWikilinkTarget } from '../lib/wikilinks'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
+import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { CalendarPanel } from './CalendarPanel'
@@ -99,7 +101,7 @@ import { TrashView } from './TrashView'
 import { QuickNotesView } from './QuickNotesView'
 import { AssetsView } from './AssetsView'
 import { isTasksTabPath } from '@shared/tasks'
-import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
+import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath, formDirFromCsvPath, formTitleFromCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -689,6 +691,32 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     y: number
     hasSelection: boolean
   } | null>(null)
+  // Hover preview for `[[wikilinks]]` rendered in the WYSIWYG editor — the same
+  // popover the read-only Preview shows, so a link's target note can be peeked
+  // while editing, not only while reading. Only the live-preview (Edit) mode
+  // renders `.cm-wikilink` spans, so Split's raw source and Preview's own
+  // surface never trip this.
+  const [editorLinkHover, setEditorLinkHover] = useState<{
+    note: NoteMeta
+    rect: DOMRect
+  } | null>(null)
+  // Grace timer mirroring Preview's: keep the popover up briefly after the
+  // pointer leaves a link so the user can slide onto the popover itself.
+  const editorHoverDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearEditorHoverDismiss = useCallback((): void => {
+    if (editorHoverDismissRef.current) {
+      clearTimeout(editorHoverDismissRef.current)
+      editorHoverDismissRef.current = null
+    }
+  }, [])
+  const scheduleEditorHoverDismiss = useCallback((): void => {
+    clearEditorHoverDismiss()
+    editorHoverDismissRef.current = setTimeout(() => {
+      editorHoverDismissRef.current = null
+      setEditorLinkHover(null)
+    }, 220)
+  }, [clearEditorHoverDismiss])
+  useEffect(() => () => clearEditorHoverDismiss(), [clearEditorHoverDismiss])
   const [editorHydration, setEditorHydration] = useState<EditorHydrationState | null>(null)
   // Width of the writing column, tracked so the Properties card can be placed
   // in the right reading gutter and hidden when that gutter gets too small.
@@ -759,6 +787,82 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    * sync effect updates it whenever we swap the view's document.
    */
   const viewPathRef = useRef<string | null>(null)
+
+  // Wire pointer listeners on the editor surface so hovering a rendered
+  // `[[wikilink]]` reveals its target note in the same floating preview the
+  // read-only Preview uses. Resolution reads `notes` live from the store at
+  // event time, so the listeners don't churn as the vault changes — they only
+  // re-attach when the surface mounts for a new note (`content?.path`).
+  useEffect(() => {
+    // A surface swap (note switch) or mode change should never carry a stale
+    // popover from the previous note.
+    clearEditorHoverDismiss()
+    setEditorLinkHover(null)
+    const surface = editorSurfaceRef.current
+    if (!surface || mode !== 'edit') return
+    const previewFor = (
+      el: HTMLElement | null
+    ): { note: NoteMeta; rect: DOMRect } | null => {
+      const link = el?.closest<HTMLElement>('.cm-wikilink')
+      const target = link?.dataset.target
+      if (!link || !target) return null
+      const note = resolveWikilinkTarget(useStore.getState().notes, target)
+      if (!note) return null // unresolved link — nothing to preview
+      return { note, rect: link.getBoundingClientRect() }
+    }
+    const onMouseOver = (e: MouseEvent): void => {
+      const next = previewFor(e.target as HTMLElement | null)
+      if (!next) return
+      clearEditorHoverDismiss()
+      setEditorLinkHover(next)
+    }
+    const onMouseMove = (e: MouseEvent): void => {
+      const next = previewFor(e.target as HTMLElement | null)
+      if (!next) {
+        // Off the link — don't dismiss immediately; the popover lives outside
+        // this surface and the user may be sliding toward it. The grace timer
+        // clears it if they never arrive.
+        scheduleEditorHoverDismiss()
+        return
+      }
+      clearEditorHoverDismiss()
+      setEditorLinkHover(next)
+    }
+    const onMouseOut = (e: MouseEvent): void => {
+      if ((e.target as HTMLElement | null)?.closest('.cm-wikilink')) {
+        scheduleEditorHoverDismiss()
+      }
+    }
+    surface.addEventListener('mouseover', onMouseOver)
+    surface.addEventListener('mousemove', onMouseMove)
+    surface.addEventListener('mouseout', onMouseOut)
+    return () => {
+      surface.removeEventListener('mouseover', onMouseOver)
+      surface.removeEventListener('mousemove', onMouseMove)
+      surface.removeEventListener('mouseout', onMouseOut)
+    }
+  }, [clearEditorHoverDismiss, content?.path, mode, scheduleEditorHoverDismiss])
+
+  // Esc dismisses the popover (the interactive card advertises "esc"). The
+  // listener only lives while a popover is open, so it never swallows Esc
+  // during normal editing. If focus had moved into the card, hand it back to
+  // the editor.
+  useEffect(() => {
+    if (!editorLinkHover) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      clearEditorHoverDismiss()
+      setEditorLinkHover(null)
+      if (useStore.getState().focusedPanel === 'hoverpreview') {
+        setFocusedPanel('editor')
+        requestAnimationFrame(() => viewRef.current?.focus())
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [editorLinkHover, clearEditorHoverDismiss, setFocusedPanel])
 
   const updateSelectionCommentAction = useCallback((view: EditorView | null = viewRef.current): void => {
     setSelectionCommentAction(view ? getSelectionCommentAction(view) : null)
@@ -2315,11 +2419,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isAssetTabPath(path)) {
           const assetPath = assetPathFromTab(path)
           const rawTitle = assetTitleFromPath(assetPath)
-          // A database rides the asset rail — show its form name, never `.csv`.
+          // A form rides the asset rail — show its `.base` folder name, not the
+          // `data.csv` basename (loose `.csv` falls back to its name sans ext).
           const isDb = !!assetPath && isDatabaseCsvPath(assetPath)
           return {
             ...base,
-            title: isDb ? rawTitle.replace(/\.csv$/i, '') : rawTitle,
+            title:
+              assetPath && formDirFromCsvPath(assetPath)
+                ? formTitleFromCsvPath(assetPath)
+                : isDb
+                  ? rawTitle.replace(/\.csv$/i, '')
+                  : rawTitle,
             isAsset: true
           }
         }
@@ -2520,7 +2630,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isAsset: boolean
       isDiagram: boolean
       isAssetsView: boolean
-    }) => {
+    },
+    isFirst = false) => {
       const active = tab.path === activeTab
       const isVirtual =
         tab.isQuick ||
@@ -2607,15 +2718,27 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           )}
           <div
             className={[
-              'group flex h-8 min-w-0 items-center gap-1 rounded-t-lg border border-b-0 px-1.5 text-sm transition-colors',
-              tab.pinned ? 'max-w-[140px]' : 'max-w-[220px]',
+              // Every tab is a cell separated by a thin, straight vertical
+              // divider (border-r, no corner rounding), so adjacent INACTIVE
+              // tabs are clearly told apart (they otherwise blur together).
+              // The active tab is filled with paper-200 — a shade that is
+              // genuinely distinct from the canvas/bar (--z-bg) in every
+              // theme, so the fill is actually visible. Inactive tabs have no
+              // fill (they blend into the bar) but keep the divider. The
+              // accent ring is for keyboard focus only. Tabs fill the full
+              // bar height (no top gap).
+              'group relative flex h-full min-h-8 min-w-0 items-center gap-1.5 border-r border-paper-300/60 px-2 text-sm transition-colors',
+              // The first tab also needs a divider on its left edge (other
+              // tabs inherit theirs from the previous tab's right divider).
+              isFirst ? 'border-l border-paper-300/60' : '',
+              tab.pinned ? 'max-w-[150px]' : 'max-w-[230px]',
               active && isActive
                 ? focusedPanel === 'tabs'
-                  ? 'border-accent/70 bg-paper-100 text-ink-900 ring-1 ring-inset ring-accent/60'
-                  : 'border-paper-300/80 bg-paper-100 text-ink-900'
+                  ? 'bg-paper-200 font-medium text-ink-900 ring-1 ring-inset ring-accent/60'
+                  : 'bg-paper-200 font-medium text-ink-900'
                 : active
-                  ? 'border-paper-300/60 bg-paper-100/70 text-ink-800'
-                  : 'border-transparent bg-paper-200/45 text-ink-500 hover:bg-paper-200/70 hover:text-ink-900'
+                  ? 'bg-paper-200/70 text-ink-700'
+                  : 'text-ink-500 hover:bg-paper-200/40 hover:text-ink-900'
             ].join(' ')}
           >
             {tab.pinned && (
@@ -2673,7 +2796,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               aria-label={`Close ${tab.title}`}
               onClick={() => void closeTabInPane(paneId, tab.path)}
               className={[
-                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors',
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100',
                 active
                   ? 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
                   : 'hover:bg-paper-300/70'
@@ -2815,7 +2938,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
     items.push({ kind: 'separator' })
     items.push({
-      label: `Move to ${folderLabels.trash.toLowerCase()}`,
+      label: tr('Move to {label}').replace('{label}', folderLabels.trash.toLowerCase()),
       danger: true,
       icon: <TrashIcon width={15} height={15} />,
       onSelect: () => void trashActive()
@@ -2896,10 +3019,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [hasTabs, wrapTabs, tabStripMeasureKey])
 
   const tabStripClass = [
-    'workspace-tab-strip glass-header flex shrink-0 items-start gap-1 border-b border-paper-300/70 px-3 pt-2',
+    'workspace-tab-strip glass-header flex shrink-0 items-stretch gap-0 border-b border-paper-300/70 px-3',
     wrapTabs
       ? 'min-h-10 flex-wrap content-start overflow-x-hidden overflow-y-visible'
-      : `${tabStripOverflowing ? 'h-14 overflow-x-auto' : 'h-10 overflow-x-hidden'} overflow-y-hidden`
+      : `h-10 ${tabStripOverflowing ? 'overflow-x-auto' : 'overflow-x-hidden'} overflow-y-hidden`
   ].join(' ')
   const deferEditorHydration = shouldDeferEditorHydration(
     showEditor,
@@ -3109,7 +3232,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     className="mx-0.5 h-5 shrink-0 self-center border-l border-paper-300/70"
                   />
                 )}
-                {renderTab(tab)}
+                {renderTab(tab, i === 0)}
               </Fragment>
             )
           })}
@@ -3313,6 +3436,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           <CalendarPanel note={content} />
         )}
       </div>
+      {editorLinkHover && showEditor && mode === 'edit' && (
+        <NoteHoverPreview
+          note={editorLinkHover.note}
+          anchorRect={editorLinkHover.rect}
+          interactive
+          onPointerEnter={clearEditorHoverDismiss}
+          onPointerLeave={scheduleEditorHoverDismiss}
+        />
+      )}
       {content &&
         showEditor &&
         selectionCommentAction &&

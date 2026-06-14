@@ -23,19 +23,22 @@ function initialTargetFromPath(path: string): string {
   return 'inbox'
 }
 
-function buildMoveNoteSuggestions(folders: FolderEntry[]): PromptSuggestion[] {
+function buildMoveNoteSuggestions(
+  folders: FolderEntry[],
+  t: (s: string) => string
+): PromptSuggestion[] {
   const byValue = new Map<string, PromptSuggestion>()
   const push = (value: string, detail?: string): void => {
     if (!byValue.has(value)) byValue.set(value, { value, detail })
   }
 
-  push('inbox', 'Root')
-  push('archive', 'Root')
+  push('inbox', t('Root'))
+  push('archive', t('Root'))
 
   for (const folder of folders) {
     if (folder.folder !== 'inbox' && folder.folder !== 'archive') continue
     const value = folder.subpath ? `${folder.folder}/${folder.subpath}` : folder.folder
-    push(value, folder.subpath ? folder.folder : 'Root')
+    push(value, folder.subpath ? folder.folder : t('Root'))
   }
 
   return [...byValue.values()].sort((a, b) => {
@@ -82,8 +85,11 @@ export function parseTemplateDestination(value: string): MoveNoteDestination {
  * the vault root plus its real subfolders. Excludes `archive` (a separate
  * lifecycle area) and the redundant bare `inbox` (which is the root itself).
  */
-function buildNotesFolderSuggestions(folders: FolderEntry[]): PromptSuggestion[] {
-  const out: PromptSuggestion[] = [{ value: '', label: 'Vault root' }]
+function buildNotesFolderSuggestions(
+  folders: FolderEntry[],
+  t: (s: string) => string
+): PromptSuggestion[] {
+  const out: PromptSuggestion[] = [{ value: '', label: t('Vault root') }]
   const seen = new Set<string>([''])
   for (const folder of folders) {
     if (folder.folder !== 'inbox') continue // notes area only
@@ -91,7 +97,7 @@ function buildNotesFolderSuggestions(folders: FolderEntry[]): PromptSuggestion[]
     if (!sub || seen.has(sub)) continue
     seen.add(sub)
     const parts = sub.split('/')
-    out.push({ value: sub, detail: parts.slice(0, -1).join('/') || 'Vault root' })
+    out.push({ value: sub, detail: parts.slice(0, -1).join('/') || t('Vault root') })
   }
   return out.sort((a, b) => {
     const aDepth = a.value === '' ? -1 : a.value.split('/').length
@@ -107,17 +113,20 @@ function buildNotesFolderSuggestions(folders: FolderEntry[]): PromptSuggestion[]
  */
 export function buildNoteDestinationPrompt(
   initialPath: string,
-  folders: FolderEntry[]
+  folders: FolderEntry[],
+  t: (s: string) => string
 ): PromptOptions {
   return {
-    title: 'New note in…',
-    description: 'Press Enter to create at the vault root, or type / pick a folder like Work/Research.',
+    title: t('New note in…'),
+    description: t(
+      'Press Enter to create at the vault root, or type / pick a folder like Work/Research.'
+    ),
     initialValue: normalizeMoveTarget(initialPath),
-    placeholder: 'Vault root — type a folder to change',
-    okLabel: 'Create',
+    placeholder: t('Vault root — type a folder to change'),
+    okLabel: t('Create'),
     allowEmptySubmit: true,
-    suggestions: buildNotesFolderSuggestions(folders),
-    suggestionsHint: 'Empty = vault root · ↑↓ pick a folder · Enter create'
+    suggestions: buildNotesFolderSuggestions(folders, t),
+    suggestionsHint: t('Empty = vault root · ↑↓ pick a folder · Enter create')
   }
 }
 
@@ -129,32 +138,36 @@ export function buildNoteDestinationPrompt(
 export function buildTemplateDestinationPrompt(
   templateName: string,
   initialPath: string,
-  folders: FolderEntry[]
+  folders: FolderEntry[],
+  t: (s: string) => string
 ): PromptOptions {
   return {
-    title: `Create "${templateName}" in…`,
-    description: 'Press Enter to create at the vault root, or type / pick a folder like Work/Research.',
+    title: t('Create "{name}" in…').replace('{name}', templateName),
+    description: t(
+      'Press Enter to create at the vault root, or type / pick a folder like Work/Research.'
+    ),
     initialValue: normalizeMoveTarget(initialPath),
-    placeholder: 'Vault root — type a folder to change',
-    okLabel: 'Create',
+    placeholder: t('Vault root — type a folder to change'),
+    okLabel: t('Create'),
     allowEmptySubmit: true,
-    suggestions: buildNotesFolderSuggestions(folders),
-    suggestionsHint: 'Empty = vault root · ↑↓ pick a folder · Enter create'
+    suggestions: buildNotesFolderSuggestions(folders, t),
+    suggestionsHint: t('Empty = vault root · ↑↓ pick a folder · Enter create')
   }
 }
 
 export function buildMoveNotePrompt(
   note: Pick<NoteMeta, 'title' | 'path'>,
-  folders: FolderEntry[]
+  folders: FolderEntry[],
+  t: (s: string) => string
 ): PromptOptions {
   return {
-    title: `Move "${note.title}" to…`,
-    description: 'Enter a folder path, e.g. inbox/Work/Research',
+    title: t('Move "{title}" to…').replace('{title}', note.title),
+    description: t('Enter a folder path, e.g. inbox/Work/Research'),
     initialValue: initialTargetFromPath(note.path),
     placeholder: 'inbox/Work',
-    okLabel: 'Move',
-    suggestions: buildMoveNoteSuggestions(folders),
-    suggestionsHint: '↑↓ pick a folder · Enter to move',
+    okLabel: t('Move'),
+    suggestions: buildMoveNoteSuggestions(folders, t),
+    suggestionsHint: t('↑↓ pick a folder · Enter to move'),
     validate: validateMoveNoteTarget
   }
 }

@@ -55,7 +55,6 @@ export const IPC = {
   VAULT_MOVE_ASSET: 'vault:move-asset',
   VAULT_DUPLICATE_ASSET: 'vault:duplicate-asset',
   VAULT_DELETE_ASSET: 'vault:delete-asset',
-  VAULT_RESTORE_DELETED_ASSET: 'vault:restore-deleted-asset',
   VAULT_MIGRATE_LOOSE_ASSETS: 'vault:migrate-loose-assets',
   VAULT_IMPORT_ASSETS: 'vault:import-assets',
   VAULT_PICK_IMPORT_ASSETS: 'vault:pick-import-assets',
@@ -74,7 +73,14 @@ export const IPC = {
   VAULT_WRITE_DATABASE_SCHEMA: 'vault:write-database-schema',
   VAULT_CREATE_DATABASE: 'vault:create-database',
   VAULT_CREATE_RECORD_PAGE: 'vault:create-record-page',
+  VAULT_DELETE_DATABASE: 'vault:delete-database',
+  VAULT_RENAME_DATABASE: 'vault:rename-database',
   VAULT_LIST_DATABASES: 'vault:list-databases',
+  VAULT_SOFT_DELETE_FOLDER: 'vault:soft-delete-folder',
+  VAULT_SOFT_DELETE_DATABASE: 'vault:soft-delete-database',
+  VAULT_RESTORE_SOFT_DELETED: 'vault:restore-soft-deleted',
+  VAULT_PURGE_SOFT_DELETED: 'vault:purge-soft-deleted',
+  VAULT_LIST_SOFT_DELETED: 'vault:list-soft-deleted',
   APP_LIST_FONTS: 'app:list-fonts',
   APP_ICON_DATA_URL: 'app:icon-data-url',
   APP_OPEN_SETTINGS: 'app:open-settings',
@@ -410,13 +416,30 @@ export interface AssetMeta {
   updatedAt: number
 }
 
-export interface DeletedAsset {
-  /** Original vault-relative path before the asset was removed. */
-  path: string
-  /** Original file name. */
+
+export type SoftDeleteTop = Extract<NoteFolder, 'trash' | 'archive'>
+
+/**
+ * Anything soft-deleted — a note, folder, form, or asset — moved into a UUID
+ * wrapper dir `<top>/<id>/<name>` so two same-named deletions never collide.
+ * Origin + display info live in a per-store meta file (`<top>/.meta.json`), so
+ * each entry restores to exactly where it came from. The opaque handle used by
+ * IPC restore/purge is `${top}/${id}`. Assets can only go to `trash`.
+ */
+export interface SoftDeletedEntry {
+  /** UUID of the wrapper dir under its store. */
+  id: string
+  /** Which store it currently lives in. */
+  top: SoftDeleteTop
+  kind: 'note' | 'folder' | 'database' | 'asset'
+  /** Basename of the stored item inside `<top>/<id>/`. */
   name: string
-  /** Opaque restore token returned by the desktop bridge. */
-  undoToken: string
+  /** Vault-relative path to restore the entry back to. */
+  originalRel: string
+  /** Display name. */
+  title: string
+  /** Epoch ms when the entry was soft-deleted. */
+  deletedAt: number
 }
 
 export interface ImportedAsset {

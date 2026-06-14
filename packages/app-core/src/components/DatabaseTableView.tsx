@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -26,10 +27,12 @@ import {
   fieldsById,
   formatDate,
   optionLabel,
+  recordTitle,
   splitMultiSelect,
   isCheckboxTrue
 } from '../lib/database-cells'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { LazyNoteHoverPreview } from './LazyNoteHoverPreview'
 import { IconButton } from './ui/Button'
 import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -121,6 +124,48 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   // every mousemove doesn't write the sidecar to disk).
   const [liveWidth, setLiveWidth] = useState<{ fieldId: string; width: number } | null>(null)
   const resizeRef = useRef<{ fieldId: string; startX: number; startWidth: number } | null>(null)
+
+  // Hover preview for a row's "Open" button: peek the record page's note in a
+  // floating card before opening it (mirrors the wikilink hover preview in the
+  // editor / preview). A short grace timer lets the pointer slide onto the card.
+  const [openHover, setOpenHover] = useState<{
+    note: { path: string; title: string }
+    rect: DOMRect
+  } | null>(null)
+  const openHoverDismissRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearOpenHoverDismiss = useCallback((): void => {
+    if (openHoverDismissRef.current) {
+      clearTimeout(openHoverDismissRef.current)
+      openHoverDismissRef.current = null
+    }
+  }, [])
+  const scheduleOpenHoverDismiss = useCallback((): void => {
+    clearOpenHoverDismiss()
+    openHoverDismissRef.current = setTimeout(() => {
+      openHoverDismissRef.current = null
+      setOpenHover(null)
+    }, 220)
+  }, [clearOpenHoverDismiss])
+  useEffect(() => () => clearOpenHoverDismiss(), [clearOpenHoverDismiss])
+
+  // ESC dismisses the open-button preview; if the card had grabbed focus
+  // (interactive), hand focus back to the grid (registered as the 'editor' panel).
+  useEffect(() => {
+    if (!openHover) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      clearOpenHoverDismiss()
+      setOpenHover(null)
+      if (useStore.getState().focusedPanel === 'hoverpreview') {
+        setFocusedPanel('editor')
+        requestAnimationFrame(() => gridRef.current?.focus())
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [openHover, clearOpenHoverDismiss, setFocusedPanel])
 
   // --- Vim-style keyboard grid ---------------------------------------------
   // The grid is the focus owner; cells bubble their key events up to it. A
@@ -730,7 +775,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                             e.stopPropagation()
                             openPage(row.id)
                           }}
-                          title={hasContent ? 'Open page' : 'Open page (empty)'}
+                          title={hasContent ? tr('Open page') : tr('Open page (empty)')}
                           className={[
                             'flex shrink-0 self-start items-center pl-2 pr-1 pt-2 transition-colors hover:text-accent',
                             hasContent ? 'text-ink-500' : 'text-ink-400'
@@ -746,10 +791,22 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                           e.stopPropagation()
                           openPage(row.id)
                         }}
-                        title={tr("Open page")}
+                        onMouseEnter={(e) => {
+                          // Only previewable once a record page note exists on
+                          // disk; rows with no page yet have nothing to show.
+                          const pagePath = doc.pages?.[row.id]
+                          if (!pagePath) return
+                          clearOpenHoverDismiss()
+                          setOpenHover({
+                            note: { path: pagePath, title: recordTitle(doc, row) },
+                            rect: e.currentTarget.getBoundingClientRect()
+                          })
+                        }}
+                        onMouseLeave={scheduleOpenHoverDismiss}
+                        title={tr('Open page')}
                         className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
                       >
-                        <ArrowUpRightIcon className="h-3 w-3" /> Open
+                        <ArrowUpRightIcon className="h-3 w-3" /> {tr('Open')}
                       </button>
                     </td>
                   )
@@ -789,6 +846,16 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
           y={rowMenu.y}
           items={rowMenuItems(rowMenu.rowId)}
           onClose={() => setRowMenu(null)}
+        />
+      )}
+
+      {openHover && (
+        <LazyNoteHoverPreview
+          note={openHover.note}
+          anchorRect={openHover.rect}
+          interactive
+          onPointerEnter={clearOpenHoverDismiss}
+          onPointerLeave={scheduleOpenHoverDismiss}
         />
       )}
     </div>

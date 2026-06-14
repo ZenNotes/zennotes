@@ -3,7 +3,6 @@ import type { EditorView } from '@codemirror/view'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
 import type {
   AssetMeta,
-  DeletedAsset,
   FolderEntry,
   LocalVaultEntry,
   NoteComment,
@@ -15,6 +14,7 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  SoftDeletedEntry,
   VaultSettings,
   VaultTextSearchBackendPreference,
   VaultChangeEvent,
@@ -28,7 +28,9 @@ import {
   databaseTabPath,
   isDatabaseInternalPath,
   isDatabaseTabPath,
-  isDatabaseCsvPath
+  isDatabaseCsvPath,
+  formDirFromCsvPath,
+  formTitleFromCsvPath
 } from '@shared/databases'
 import { parseFrontmatter } from '@shared/template-files'
 import { recordTitle } from './lib/database-cells'
@@ -38,7 +40,7 @@ import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
 import { ASSETS_VIEW_TAB_PATH, isAssetsViewTabPath } from '@shared/assets-view'
-import { isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
+import { assetTabPath, isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
 import {
   FENCE_RE,
   TASK_LINE_RE,
@@ -236,15 +238,6 @@ function resolveTemplate(
   )
 }
 
-function isDeletedAssetRecord(value: unknown): value is DeletedAsset {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.path === 'string' &&
-    typeof candidate.name === 'string' &&
-    typeof candidate.undoToken === 'string'
-  )
-}
 
 /** Which weekday the calendar grid starts on. `locale` derives it from the
  *  user's locale (falling back to Monday). */
@@ -422,7 +415,7 @@ export type TaskMutation =
   | { kind: 'set-priority'; priority: TaskLinePriority | null }
   | { kind: 'set-due'; due: string | null }
 
-type AssetUndoEntry = { kind: 'delete-asset'; deleted: DeletedAsset; createdAt: number }
+type AssetUndoEntry = { kind: 'delete-asset'; handle: string; createdAt: number }
 
 const VALID_TASKS_VIEW_MODES: TasksViewMode[] = ['list', 'calendar', 'kanban']
 const VALID_KANBAN_GROUP_BYS: KanbanGroupBy[] = ['status', 'priority', 'folder']
@@ -826,6 +819,82 @@ function mergeFoldersPreservingOrder(prev: FolderEntry[], next: FolderEntry[]): 
   return merged
 }
 
+/**
+ * State patch applied after a database leaves the active set (deleted, trashed,
+ * or archived): close its table/asset/record-page tabs and drop its hydrated
+ * doc + record-page content caches. Shared by deleteDatabase + archiveDatabase.
+ */
+function databaseRemovalPatch(s: Store, csvPath: string): Partial<Store> {
+  // Everything belonging to the form lives under its `<Name>.base` folder.
+  const pagePrefix = `${formDirFromCsvPath(csvPath) ?? csvPath.replace(/\.csv$/i, '')}/`
+  const dbTab = databaseTabPath(csvPath)
+  const assetTab = assetTabPath(csvPath)
+  const isGone = (p: string): boolean => p === dbTab || p === assetTab || p.startsWith(pagePrefix)
+  const nextLayout = rewritePathsInTree(s.paneLayout, (p) => (isGone(p) ? null : p))
+  const ensured = ensureActivePane(nextLayout, s.activePaneId)
+  const contents: Record<string, NoteContent> = {}
+  const dirty: Record<string, boolean> = {}
+  for (const [path, content] of Object.entries(s.noteContents)) {
+    if (!path.startsWith(pagePrefix)) {
+      contents[path] = content
+      dirty[path] = s.noteDirty[path] ?? false
+    }
+  }
+  const { [csvPath]: _dropped, ...databases } = s.databases
+  void _dropped
+  return {
+    databases,
+    paneLayout: ensured.layout,
+    activePaneId: ensured.activePaneId,
+    noteContents: contents,
+    noteDirty: dirty,
+    pendingJumpLocation: null,
+    pinnedRefPath:
+      s.pinnedRefPath && s.pinnedRefPath.startsWith(pagePrefix) ? null : s.pinnedRefPath,
+    ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+  }
+}
+
+/**
+ * State patch applied after a folder leaves the active set (deleted, trashed, or
+ * archived): close tabs under it and drop their cached content. `dropIcons`
+ * removes the folder's custom icons too — done for a permanent delete, but NOT
+ * for a soft move to trash/archive, where the icon should re-apply on restore.
+ */
+function folderRemovalPatch(
+  s: Store,
+  folder: NoteFolder,
+  subpath: string,
+  dropIcons: boolean
+): Partial<Store> {
+  const prefix = `${folder}/${subpath}/`
+  const nextLayout = rewritePathsInTree(s.paneLayout, (p) => (p.startsWith(prefix) ? null : p))
+  const ensured = ensureActivePane(nextLayout, s.activePaneId)
+  const contents: Record<string, NoteContent> = {}
+  const dirty: Record<string, boolean> = {}
+  for (const [path, content] of Object.entries(s.noteContents)) {
+    if (!path.startsWith(prefix)) {
+      contents[path] = content
+      dirty[path] = s.noteDirty[path] ?? false
+    }
+  }
+  return {
+    paneLayout: ensured.layout,
+    activePaneId: ensured.activePaneId,
+    noteContents: contents,
+    noteDirty: dirty,
+    pendingJumpLocation: null,
+    pinnedRefPath: s.pinnedRefPath && s.pinnedRefPath.startsWith(prefix) ? null : s.pinnedRefPath,
+    vaultSettings: dropIcons
+      ? {
+          ...s.vaultSettings,
+          folderIcons: removeFolderIcons(s.vaultSettings.folderIcons, folder, subpath)
+        }
+      : s.vaultSettings,
+    ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+  }
+}
+
 function computeStartupCollapsedFolders(
   folders: FolderEntry[],
   settings: VaultSettings | null | undefined,
@@ -906,7 +975,7 @@ function getVisiblePreviewScrollElement(): HTMLElement | null {
 
 /**
  * A database surface that can be the active tab: either a `zen://database/…`
- * tab (opened via "New Database") or a `.csv` opened directly as an asset tab
+ * tab (opened via "New base") or a `.csv` opened directly as an asset tab
  * (`zen://asset/Foo.csv`), which EditorPane renders as a database grid. Both
  * must round-trip through the note jump history so Ctrl+O returns to the grid.
  */
@@ -1512,6 +1581,8 @@ interface Store {
   vaultSettings: VaultSettings
   notes: NoteMeta[]
   folders: FolderEntry[]
+  /** Folders/forms currently soft-deleted into trash/ or archive/ as logical units. */
+  softDeleted: SoftDeletedEntry[]
   assetFiles: AssetMeta[]
   assetUndoStack: AssetUndoEntry[]
   hasAssetsDir: boolean
@@ -1738,6 +1809,16 @@ interface Store {
   updateDatabaseSchema: (csvPath: string, next: DatabaseDoc) => void
   /** Re-read a database from disk after an external change (skips our own write echoes). */
   syncDatabaseFromDisk: (csvPath: string) => Promise<void>
+  /** Delete a form (its whole `.base` folder), closing its tabs. */
+  deleteDatabase: (csvPath: string) => Promise<void>
+  /** Archive a form (soft, recoverable), closing its tabs. */
+  archiveDatabase: (csvPath: string) => Promise<void>
+  /** Rename a form (its `.base` folder), rewriting open tabs/links. */
+  renameDatabase: (csvPath: string, nextName: string) => Promise<void>
+  /** Restore a soft-deleted folder/form (by its trash/archive path) to its origin. */
+  restoreSoftDeleted: (storedRel: string) => Promise<void>
+  /** Permanently delete a soft-deleted folder/form. */
+  purgeSoftDeleted: (storedRel: string) => Promise<void>
   /** Open a record as a markdown "page" note (creating + linking it on first open). */
   openRecordPage: (csvPath: string, rowId: string) => Promise<void>
   /** Rename a record's linked page note to match its title (no-op if unlinked). */
@@ -2017,6 +2098,8 @@ interface Store {
     newSubpath: string
   ) => Promise<void>
   deleteFolder: (folder: NoteFolder, subpath: string) => Promise<void>
+  /** Move a folder to the archive (soft, recoverable). */
+  archiveFolder: (folder: NoteFolder, subpath: string) => Promise<void>
   duplicateFolder: (folder: NoteFolder, subpath: string) => Promise<void>
   revealFolder: (folder: NoteFolder, subpath: string) => Promise<void>
   revealAssetsDir: () => Promise<void>
@@ -2760,6 +2843,7 @@ export const useStore = create<Store>((set, get) => {
   vaultSettings: DEFAULT_VAULT_SETTINGS,
   notes: [],
   folders: [],
+  softDeleted: [],
   assetFiles: [],
   assetUndoStack: [],
   hasAssetsDir: false,
@@ -3019,14 +3103,14 @@ export const useStore = create<Store>((set, get) => {
     set({ focusedPanel: 'editor' })
   },
   createDatabase: async (folder, subpath = '', title) => {
-    // Like creating a folder: prompt for a form name first (the `.csv` suffix
-    // is an implementation detail the user never sees). No name → no form.
+    // Like creating a folder: prompt for a base name first (the `.csv` suffix
+    // is an implementation detail the user never sees). No name → no base.
     let name = title
     if (name == null) {
       const lang = get().language
       const entered = await promptApp({
-        title: translate(lang, 'New form'),
-        placeholder: translate(lang, 'Form name'),
+        title: translate(lang, 'New base'),
+        placeholder: translate(lang, 'Base name'),
         okLabel: translate(lang, 'Create'),
         validate: (v) =>
           v.includes('/') ? translate(lang, 'Name cannot contain "/"') : null
@@ -3066,6 +3150,111 @@ export const useStore = create<Store>((set, get) => {
       console.error('syncDatabaseFromDisk failed', err)
     }
   },
+  deleteDatabase: async (csvPath) => {
+    // First "delete" is a soft delete: move the form's `.base` folder into the
+    // trash as a logical unit, recoverable from the Trash view. Older builds
+    // without the soft-delete bridge fall back to the permanent delete.
+    if (typeof window.zen.moveDatabaseTo === 'function') {
+      await window.zen.moveDatabaseTo(csvPath, 'trash')
+    } else if (typeof window.zen.deleteDatabase === 'function') {
+      await window.zen.deleteDatabase(csvPath)
+    } else {
+      window.alert('Base deletion is not available until the app is restarted.')
+      return
+    }
+    set((s) => databaseRemovalPatch(s, csvPath))
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
+  },
+
+  archiveDatabase: async (csvPath) => {
+    if (typeof window.zen.moveDatabaseTo !== 'function') {
+      window.alert('Archiving forms is not available until the app is restarted.')
+      return
+    }
+    await window.zen.moveDatabaseTo(csvPath, 'archive')
+    set((s) => databaseRemovalPatch(s, csvPath))
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
+  },
+
+  restoreSoftDeleted: async (storedRel) => {
+    if (typeof window.zen.restoreSoftDeleted !== 'function') return
+    await window.zen.restoreSoftDeleted(storedRel)
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
+  },
+
+  purgeSoftDeleted: async (storedRel) => {
+    if (typeof window.zen.purgeSoftDeleted !== 'function') return
+    await window.zen.purgeSoftDeleted(storedRel)
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
+  },
+
+  renameDatabase: async (csvPath, nextName) => {
+    if (typeof window.zen.renameDatabase !== 'function') {
+      window.alert('Base rename is not available until the app is restarted.')
+      return
+    }
+    const newCsvPath = await window.zen.renameDatabase(csvPath, nextName)
+    if (!newCsvPath || newCsvPath === csvPath) {
+      await Promise.all([get().refreshNotes(), get().refreshAssets()])
+      return
+    }
+    // Paths shift by the `<Name>.base` folder prefix (data.csv, schema.json,
+    // and the pages/ record notes all move with it).
+    const oldPrefix = `${formDirFromCsvPath(csvPath) ?? csvPath.replace(/\.csv$/i, '')}/`
+    const newPrefix = `${formDirFromCsvPath(newCsvPath) ?? newCsvPath.replace(/\.csv$/i, '')}/`
+    const oldDbTab = databaseTabPath(csvPath)
+    const newDbTab = databaseTabPath(newCsvPath)
+    const oldAssetTab = assetTabPath(csvPath)
+    const newAssetTab = assetTabPath(newCsvPath)
+    const newTitle = formTitleFromCsvPath(newCsvPath)
+    const rewrite = (p: string): string => {
+      if (p === oldDbTab) return newDbTab
+      if (p === oldAssetTab) return newAssetTab
+      if (p.startsWith(oldPrefix)) return newPrefix + p.slice(oldPrefix.length)
+      return p
+    }
+    set((s) => {
+      const nextLayout = rewritePathsInTree(s.paneLayout, rewrite)
+      const ensured = ensureActivePane(nextLayout, s.activePaneId)
+      const contents: Record<string, NoteContent> = {}
+      const dirty: Record<string, boolean> = {}
+      for (const [path, content] of Object.entries(s.noteContents)) {
+        const next = rewrite(path)
+        contents[next] = path === next ? content : { ...content, path: next }
+        dirty[next] = s.noteDirty[path] ?? false
+      }
+      const databases = { ...s.databases }
+      const doc = databases[csvPath]
+      if (doc) {
+        delete databases[csvPath]
+        const pages = doc.pages
+          ? Object.fromEntries(
+              Object.entries(doc.pages).map(([rowId, p]) => [
+                rowId,
+                p.startsWith(oldPrefix) ? newPrefix + p.slice(oldPrefix.length) : p
+              ])
+            )
+          : undefined
+        databases[newCsvPath] = {
+          ...doc,
+          path: newCsvPath,
+          title: newTitle,
+          ...(pages ? { pages } : {})
+        }
+      }
+      return {
+        databases,
+        paneLayout: ensured.layout,
+        activePaneId: ensured.activePaneId,
+        noteContents: contents,
+        noteDirty: dirty,
+        pinnedRefPath: s.pinnedRefPath ? rewrite(s.pinnedRefPath) : null,
+        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
+      }
+    })
+    await Promise.all([get().refreshNotes(), get().refreshAssets()])
+  },
+
   openRecordPage: async (csvPath, rowId) => {
     const doc = get().databases[csvPath]
     if (!doc) return
@@ -3452,10 +3641,13 @@ export const useStore = create<Store>((set, get) => {
   refreshNotes: async () => {
     try {
       const startedAt = performance.now()
-      const [notes, folders, hasAssetsDirOnDisk] = await Promise.all([
+      const [notes, folders, hasAssetsDirOnDisk, softDeleted] = await Promise.all([
         listNotesFromBridge(),
         window.zen.listFolders(),
-        window.zen.hasAssetsDir()
+        window.zen.hasAssetsDir(),
+        typeof window.zen.listSoftDeleted === 'function'
+          ? window.zen.listSoftDeleted().catch(() => [])
+          : Promise.resolve([])
       ])
       recordRendererPerf('store.refreshNotes.fetch', performance.now() - startedAt, {
         notes: notes.length,
@@ -3508,6 +3700,7 @@ export const useStore = create<Store>((set, get) => {
               ? mergeNotesPreservingOrder(s.notes, notes)
               : notes,
           folders: mergeFoldersPreservingOrder(s.folders, folders),
+          softDeleted: softDeleted as SoftDeletedEntry[],
           hasAssetsDir: hasAssetsDirOnDisk || s.assetFiles.length > 0,
           paneLayout: ensured.layout,
           activePaneId: ensured.activePaneId,
@@ -3556,14 +3749,15 @@ export const useStore = create<Store>((set, get) => {
       return
     }
     try {
-      const deleted = await window.zen.deleteAsset(relPath)
-      if (isDeletedAssetRecord(deleted) && typeof window.zen.restoreDeletedAsset === 'function') {
-        const entry: AssetUndoEntry = { kind: 'delete-asset', deleted, createdAt: Date.now() }
+      // Soft-delete to trash; the returned handle drives an immediate undo.
+      const handle = await window.zen.deleteAsset(relPath)
+      if (typeof handle === 'string' && handle) {
+        const entry: AssetUndoEntry = { kind: 'delete-asset', handle, createdAt: Date.now() }
         set((s) => ({
           assetUndoStack: [...s.assetUndoStack, entry].slice(-MAX_ASSET_UNDO_STACK)
         }))
       }
-      await get().refreshAssets()
+      await Promise.all([get().refreshAssets(), get().refreshNotes()])
     } catch (err) {
       console.error('delete asset failed', err)
       window.alert(err instanceof Error ? err.message : String(err))
@@ -3573,15 +3767,15 @@ export const useStore = create<Store>((set, get) => {
   undoLastAssetAction: async () => {
     const entry = get().assetUndoStack.at(-1)
     if (!entry) return false
-    if (typeof window.zen.restoreDeletedAsset !== 'function') {
+    if (typeof window.zen.restoreSoftDeleted !== 'function') {
       window.alert('Asset undo is not available until the app is restarted.')
       return false
     }
 
     set((s) => ({ assetUndoStack: s.assetUndoStack.slice(0, -1) }))
     try {
-      await window.zen.restoreDeletedAsset(entry.deleted)
-      await get().refreshAssets()
+      await window.zen.restoreSoftDeleted(entry.handle)
+      await Promise.all([get().refreshAssets(), get().refreshNotes()])
       return true
     } catch (err) {
       set((s) => ({
@@ -3918,7 +4112,9 @@ export const useStore = create<Store>((set, get) => {
   createNoteInChosenFolder: async (opts) => {
     const state = get()
     const entered = await promptApp(
-      buildNoteDestinationPrompt(opts?.initialPath ?? '', state.folders)
+      buildNoteDestinationPrompt(opts?.initialPath ?? '', state.folders, (s) =>
+        translate(state.language, s)
+      )
     )
     if (entered == null) return // cancelled
     const dest = parseTemplateDestination(entered)
@@ -3955,7 +4151,7 @@ export const useStore = create<Store>((set, get) => {
     const path = state.selectedPath
     if (!path) return
     const title = state.notes.find((note) => note.path === path)?.title
-    if (!(await confirmMoveToTrash(title))) return
+    if (!(await confirmMoveToTrash(title, (s) => translate(state.language, s)))) return
     try {
       await window.zen.moveToTrash(path)
       set((s) => {
@@ -4633,7 +4829,9 @@ export const useStore = create<Store>((set, get) => {
             ? template.targetSubpath ?? ''
             : ''
         const entered = await promptApp(
-          buildTemplateDestinationPrompt(template.name, initialPath, state.folders)
+          buildTemplateDestinationPrompt(template.name, initialPath, state.folders, (s) =>
+            translate(state.language, s)
+          )
         )
         if (entered == null) return // cancelled
         const dest = parseTemplateDestination(entered)
@@ -5285,7 +5483,15 @@ export const useStore = create<Store>((set, get) => {
   },
 
   deleteFolder: async (folder, subpath) => {
-    await window.zen.deleteFolder(folder, subpath)
+    // First "delete" is a soft delete: move the whole folder into the trash as a
+    // logical unit (recoverable). Web/remote workspaces have no soft-delete
+    // bridge, so they fall back to the permanent delete.
+    const soft =
+      typeof window.zen.moveFolderTo === 'function' &&
+      window.zen.getAppInfo().runtime !== 'web' &&
+      get().workspaceMode !== 'remote'
+    if (soft) await window.zen.moveFolderTo(folder, subpath, 'trash')
+    else await window.zen.deleteFolder(folder, subpath)
     await get().refreshNotes()
     const v = get().view
     if (
@@ -5295,36 +5501,25 @@ export const useStore = create<Store>((set, get) => {
     ) {
       set({ view: { kind: 'folder', folder, subpath: '' } })
     }
-    const prefix = `${folder}/${subpath}/`
-    const nextFolderIcons = removeFolderIcons(get().vaultSettings.folderIcons, folder, subpath)
-    set((s) => {
-      const nextLayout = rewritePathsInTree(s.paneLayout, (p) =>
-        p.startsWith(prefix) ? null : p
-      )
-      const ensured = ensureActivePane(nextLayout, s.activePaneId)
-      const contents: Record<string, NoteContent> = {}
-      const dirty: Record<string, boolean> = {}
-      for (const [path, content] of Object.entries(s.noteContents)) {
-        if (!path.startsWith(prefix)) {
-          contents[path] = content
-          dirty[path] = s.noteDirty[path] ?? false
-        }
-      }
-      return {
-        paneLayout: ensured.layout,
-        activePaneId: ensured.activePaneId,
-        noteContents: contents,
-        noteDirty: dirty,
-        pendingJumpLocation: null,
-        pinnedRefPath:
-          s.pinnedRefPath && s.pinnedRefPath.startsWith(prefix) ? null : s.pinnedRefPath,
-        vaultSettings: {
-          ...s.vaultSettings,
-          folderIcons: nextFolderIcons
-        },
-        ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
-      }
-    })
+    set((s) => folderRemovalPatch(s, folder, subpath, !soft))
+  },
+
+  archiveFolder: async (folder, subpath) => {
+    if (typeof window.zen.moveFolderTo !== 'function') {
+      window.alert('Archiving folders is not available until the app is restarted.')
+      return
+    }
+    await window.zen.moveFolderTo(folder, subpath, 'archive')
+    await get().refreshNotes()
+    const v = get().view
+    if (
+      v.kind === 'folder' &&
+      v.folder === folder &&
+      (v.subpath === subpath || v.subpath.startsWith(`${subpath}/`))
+    ) {
+      set({ view: { kind: 'folder', folder, subpath: '' } })
+    }
+    set((s) => folderRemovalPatch(s, folder, subpath, false))
   },
 
   duplicateFolder: async (folder, subpath) => {

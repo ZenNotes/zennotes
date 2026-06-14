@@ -25,7 +25,6 @@ import type {
   NoteMeta,
   NoteCommentInput,
   NoteFolder,
-  DeletedAsset,
   ExternalFileContent,
   MoveExternalFileResult,
   PastedImageInput,
@@ -68,19 +67,22 @@ import {
   listAssets,
   listFolders,
   listNotes,
+  listSoftDeleted,
   loadConfig,
   migrateLooseAssets,
+  moveFolderTo,
   moveNote,
   moveAsset,
   moveToTrash,
+  purgeSoftDeleted,
   readNoteComments,
   readNote,
   renameFolder,
   renameNote,
   renameAsset,
   removeDemoTour,
-  restoreDeletedAsset,
   restoreFromTrash,
+  restoreSoftDeleted,
   searchVaultTextCapabilities,
   searchVaultText,
   setVaultSettings,
@@ -113,7 +115,10 @@ import {
   writeDatabaseSchema,
   createDatabase,
   createRecordPage,
-  listDatabases
+  deleteDatabase,
+  renameDatabase,
+  listDatabases,
+  softDeleteDatabase
 } from './databases'
 import type { DatabaseSidecar, DbRow } from '@shared/databases'
 import { VaultWatcher } from './watcher'
@@ -2210,9 +2215,56 @@ function registerIpc(): void {
     }
   )
 
+  handle(IPC.VAULT_DELETE_DATABASE, async (_e, relPath: string) => {
+    ensureLocalForDatabases()
+    await deleteDatabase(requireVault().root, relPath)
+  })
+
+  handle(IPC.VAULT_RENAME_DATABASE, async (_e, relPath: string, nextName: string) => {
+    ensureLocalForDatabases()
+    return await renameDatabase(requireVault().root, relPath, nextName)
+  })
+
   handle(IPC.VAULT_LIST_DATABASES, async () => {
     ensureLocalForDatabases()
     return await listDatabases(requireVault().root)
+  })
+
+  const ensureLocalForSoftDelete = (): void => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Trashing folders and forms is not yet supported on remote vaults')
+    }
+  }
+
+  handle(
+    IPC.VAULT_SOFT_DELETE_FOLDER,
+    async (_e, folder: NoteFolder, subpath: string, target: 'trash' | 'archive') => {
+      ensureLocalForSoftDelete()
+      await moveFolderTo(requireVault().root, folder, subpath, target)
+    }
+  )
+
+  handle(
+    IPC.VAULT_SOFT_DELETE_DATABASE,
+    async (_e, relPath: string, target: 'trash' | 'archive') => {
+      ensureLocalForSoftDelete()
+      await softDeleteDatabase(requireVault().root, relPath, target)
+    }
+  )
+
+  handle(IPC.VAULT_RESTORE_SOFT_DELETED, async (_e, storedRel: string) => {
+    ensureLocalForSoftDelete()
+    await restoreSoftDeleted(requireVault().root, storedRel)
+  })
+
+  handle(IPC.VAULT_PURGE_SOFT_DELETED, async (_e, storedRel: string) => {
+    ensureLocalForSoftDelete()
+    await purgeSoftDeleted(requireVault().root, storedRel)
+  })
+
+  handle(IPC.VAULT_LIST_SOFT_DELETED, async () => {
+    if (isRemoteWorkspaceActive()) return []
+    return await listSoftDeleted(requireVault().root)
   })
 
   handle(IPC.VAULT_WRITE_NOTE, async (_e, relPath: string, body: string) => {
@@ -2457,15 +2509,8 @@ function registerIpc(): void {
       throw new Error('Asset deletion is only available for local vaults right now.')
     }
     const v = requireVault()
+    // Soft-delete to trash; returns the handle for an immediate undo (restore).
     return await deleteAsset(v.root, relPath)
-  })
-
-  handle(IPC.VAULT_RESTORE_DELETED_ASSET, async (_e, deleted: DeletedAsset) => {
-    if (isRemoteWorkspaceActive()) {
-      throw new Error('Asset restore is only available for local vaults right now.')
-    }
-    const v = requireVault()
-    return await restoreDeletedAsset(v.root, deleted)
   })
 
   handle(

@@ -80,8 +80,8 @@ export class VaultWatcher {
         })
         return
       }
-      // A `.csv` data file or its `.csv.base.json` sidecar — normalize both to
-      // the canonical `.csv` path so the renderer re-hydrates the right database.
+      // A form's `data.csv` or `schema.json` — normalize both to the canonical
+      // `data.csv` path so the renderer re-hydrates the right form.
       const dbCsvPath = databaseCsvPathFor(toPosix(path.relative(this.root, absPath)))
       if (dbCsvPath) {
         onEvent({
