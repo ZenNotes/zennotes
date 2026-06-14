@@ -10,6 +10,7 @@
  * window, so external edits land here too.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import {
   Annotation,
   Compartment,
@@ -189,6 +190,7 @@ export function applyTheme(prefs: FloatingPrefs): void {
 }
 
 export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element {
+  const tr = useT()
   const prefs = useMemo(() => loadFloatingPrefs(), [])
   const [content, setContent] = useState<NoteContent | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -428,7 +430,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           <span className="truncate text-sm font-semibold text-ink-900">{title}</span>
           {dirty && (
             <span
-              aria-label="Unsaved changes"
+              aria-label={tr("Unsaved changes")}
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
             />
           )}
@@ -455,7 +457,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           </div>
           <button
             type="button"
-            title="Close window"
+            title={tr("Close window")}
             onClick={() => window.zen.windowClose()}
             className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
           >

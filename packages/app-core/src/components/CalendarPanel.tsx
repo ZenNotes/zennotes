@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { parseTasksFromBody } from '@shared/tasks'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import {
   classifyDateNote,
   noteFolderSubpath,
@@ -98,6 +99,7 @@ function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean 
 }
 
 export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
+  const t = useT()
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
@@ -116,8 +118,8 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
 
   const firstDay = weekStart === 'sunday' ? 0 : weekStart === 'locale' ? localeFirstDay() : 1
   const dayLabels = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => FULL_DAY_LABELS[(firstDay + i) % 7]),
-    [firstDay]
+    () => Array.from({ length: 7 }, (_, i) => t(FULL_DAY_LABELS[(firstDay + i) % 7])),
+    [firstDay, t]
   )
 
   // The date the active note represents — what the calendar orients around.
@@ -239,10 +241,10 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
         return
       }
       const ok = await confirmApp({
-        title: 'New daily note',
+        title: t('New daily note'),
         description: `${iso} does not exist yet. Create it?`,
-        confirmLabel: 'Create',
-        cancelLabel: 'Never mind',
+        confirmLabel: t('Create'),
+        cancelLabel: t('Never mind'),
       })
       if (ok) await openDailyNoteForDate(day)
     },
@@ -257,10 +259,10 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
         return
       }
       const ok = await confirmApp({
-        title: 'New weekly note',
+        title: t('New weekly note'),
         description: `${weeklyNoteTitle(monday)} does not exist yet. Create it?`,
-        confirmLabel: 'Create',
-        cancelLabel: 'Never mind',
+        confirmLabel: t('Create'),
+        cancelLabel: t('Never mind'),
       })
       if (ok) await openWeeklyNoteForDate(monday)
     },
@@ -298,9 +300,9 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       const meta = dailyByTitle.get(iso)
       const items: ContextMenuItem[] = meta
         ? [
-            { label: 'Open note', onSelect: () => void openDailyNoteForDate(day) },
+            { label: t('Open note'), onSelect: () => void openDailyNoteForDate(day) },
             { kind: 'separator' },
-            { label: 'Move to Trash', danger: true, onSelect: () => void trashNote(meta) },
+            { label: t('Move to Trash'), danger: true, onSelect: () => void trashNote(meta) },
           ]
         : [{ label: `Create ${iso}`, onSelect: () => void handleDayClick(day, iso) }]
       setMenu({ x: e.clientX, y: e.clientY, items })
@@ -315,9 +317,9 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       const meta = weeklyByTitle.get(weekIso)
       const items: ContextMenuItem[] = meta
         ? [
-            { label: 'Open note', onSelect: () => void openWeeklyNoteForDate(monday) },
+            { label: t('Open note'), onSelect: () => void openWeeklyNoteForDate(monday) },
             { kind: 'separator' },
-            { label: 'Move to Trash', danger: true, onSelect: () => void trashNote(meta) },
+            { label: t('Move to Trash'), danger: true, onSelect: () => void trashNote(meta) },
           ]
         : [
             {
@@ -353,7 +355,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
 
   return (
     <section
-      aria-label="Calendar"
+      aria-label={t("Calendar")}
       style={{ width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
     >
@@ -368,14 +370,14 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
             type="button"
             onClick={() => setAnchor((a) => addMonths(a, -1))}
             className="rounded p-1 text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-800"
-            aria-label="Previous month"
+            aria-label={t("Previous month")}
           >
             <ChevronLeftIcon className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={() => setAnchor(new Date(today.getFullYear(), today.getMonth(), 1))}
-            title="Go to current month"
+            title={t("Go to current month")}
             className="rounded px-1.5 py-0.5 text-xs font-medium text-ink-700 transition-colors hover:text-accent"
           >
             {monthLabel(anchor)}
@@ -384,7 +386,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
             type="button"
             onClick={() => setAnchor((a) => addMonths(a, 1))}
             className="rounded p-1 text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-800"
-            aria-label="Next month"
+            aria-label={t("Next month")}
           >
             <ChevronRightIcon className="h-4 w-4" />
           </button>
@@ -543,7 +545,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
               {hover.meta.excerpt}
             </div>
           ) : (
-            <div className="mt-1 text-xs italic text-ink-400">Empty note</div>
+            <div className="mt-1 text-xs italic text-ink-400">{t('Empty note')}</div>
           )}
         </div>
       )}

@@ -40,6 +40,7 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ArrowUpRightIcon, MaximizeIcon, MinimizeIcon } from "./icons";
 import { promptApp } from "../lib/prompt-requests";
 import { confirmApp } from "../lib/confirm-requests";
+import { useT } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------
 // Mermaid: lazy singleton + theme-aware render
@@ -1024,11 +1025,12 @@ export function DiagramTabView({
   diagram: DiagramTabPayload | null;
 }): JSX.Element {
   const themeKey = usePreviewDiagramThemeMode();
+  const t = useT();
 
   if (!diagram) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-paper-100 px-6 text-sm text-ink-500">
-        This temporary diagram tab is no longer available.
+        {t("This temporary diagram tab is no longer available.")}
       </div>
     );
   }
@@ -1062,6 +1064,7 @@ function DiagramPanZoomFrame({
   onOpenInTab?: () => void;
   onClose?: () => void;
 }): JSX.Element {
+  const t = useT();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -1269,7 +1272,7 @@ function DiagramPanZoomFrame({
       <div className="flex items-center justify-between border-b border-paper-300/60 px-5 py-3">
         <div>
           <div className="text-sm font-semibold text-ink-900">
-            {title}
+            {t(title)}
           </div>
           <div className="text-xs uppercase tracking-wide text-ink-500">
             {diagram.kind}
@@ -1280,8 +1283,8 @@ function DiagramPanZoomFrame({
             type="button"
             onClick={() => zoomFromCenter(-1)}
             className="zen-diagram-modal-control"
-            aria-label="Zoom out"
-            title="Zoom out"
+            aria-label={t("Zoom out")}
+            title={t("Zoom out")}
           >
             −
           </button>
@@ -1289,8 +1292,8 @@ function DiagramPanZoomFrame({
             type="button"
             onClick={centerDiagram}
             className="zen-diagram-modal-zoom"
-            aria-label="Reset zoom"
-            title="Reset zoom"
+            aria-label={t("Reset zoom")}
+            title={t("Reset zoom")}
           >
             {diagramZoomLabel(transform.zoom)}
           </button>
@@ -1298,8 +1301,8 @@ function DiagramPanZoomFrame({
             type="button"
             onClick={() => zoomFromCenter(1)}
             className="zen-diagram-modal-control"
-            aria-label="Zoom in"
-            title="Zoom in"
+            aria-label={t("Zoom in")}
+            title={t("Zoom in")}
           >
             +
           </button>
@@ -1308,8 +1311,8 @@ function DiagramPanZoomFrame({
               type="button"
               onClick={onOpenInTab}
               className="zen-diagram-modal-control"
-              aria-label="Open diagram in tab"
-              title="Open in tab"
+              aria-label={t("Open diagram in tab")}
+              title={t("Open in tab")}
             >
               <ArrowUpRightIcon className="h-4 w-4" />
             </button>
@@ -1320,8 +1323,8 @@ function DiagramPanZoomFrame({
               onClick={onToggleFullScreen}
               className="zen-diagram-modal-control"
               aria-pressed={fullScreen}
-              aria-label={fullScreen ? "Exit full screen" : "Open full screen"}
-              title={fullScreen ? "Exit full screen" : "Full screen"}
+              aria-label={fullScreen ? t("Exit full screen") : t("Open full screen")}
+              title={fullScreen ? t("Exit full screen") : t("Full screen")}
             >
               {fullScreen ? (
                 <MinimizeIcon className="h-4 w-4" />
@@ -1335,8 +1338,8 @@ function DiagramPanZoomFrame({
               type="button"
               onClick={onClose}
               className="zen-diagram-modal-control"
-              aria-label="Close expanded diagram"
-              title="Close"
+              aria-label={t("Close expanded diagram")}
+              title={t("Close")}
             >
               ×
             </button>
@@ -1357,7 +1360,7 @@ function DiagramPanZoomFrame({
           ].join(" ")}
           tabIndex={0}
           role="region"
-          aria-label="Expanded diagram viewport"
+          aria-label={t("Expanded diagram viewport")}
           onWheel={handleWheel}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

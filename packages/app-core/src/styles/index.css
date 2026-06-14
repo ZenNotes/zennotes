@@ -1135,12 +1135,13 @@ body {
 /* --- Dark sidebar override -------------------------------------------- *
  * When `data-dark-sidebar` is set, the sidebar surface pulls from a
  * darkened tint of the theme background rather than the main canvas
- * color. For light themes this mixes ~8% black, for dark themes ~12%
- * black — always one visible step darker than the editor area.
+ * color. For light themes this mixes ~4% black, for dark themes ~28%
+ * black — always one visible step darker than the editor area. Light
+ * stays gentle: 8% read as too heavy against a near-white canvas.
  */
 :root[data-dark-sidebar] .glass-sidebar {
   background:
-    linear-gradient(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.08)),
+    linear-gradient(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.04)),
     rgb(var(--z-bg) / var(--z-glass-a1));
 }
 :root[data-dark-sidebar][data-theme^="dark-"] .glass-sidebar,
@@ -1156,7 +1157,7 @@ body {
 /* Same darken applied when the UI is opaque (no backdrop blur). */
 :root[data-dark-sidebar][data-opaque] .glass-sidebar {
   background:
-    linear-gradient(rgb(0 0 0 / 0.08), rgb(0 0 0 / 0.08)), rgb(var(--z-bg));
+    linear-gradient(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.04)), rgb(var(--z-bg));
 }
 :root[data-dark-sidebar][data-opaque][data-theme^="dark-"] .glass-sidebar,
 :root[data-dark-sidebar][data-opaque][data-theme="apple-dark"] .glass-sidebar,
@@ -3818,9 +3819,12 @@ textarea,
 /* Revealed `[[ ]]` / `|` markers when editing a wikilink — quiet grey, upright,
    no underline (the inner brackets otherwise inherit the italic/underline link
    highlight, which left one bracket slanted). */
-.cm-wysiwyg .cm-editor .cm-wikilink-bracket {
-  /* !important so it wins regardless of how CodeMirror nests the highlight
-     span (the inner LinkMark otherwise stays italic/underlined). */
+/* Target the bracket span AND any nested highlight span inside it — the inner
+   `[`/`]` is a LinkMark whose own highlight span sets italic + link color, and
+   an !important on the parent can't override a child's own declaration. The
+   `*` reaches that inner span so all four brackets render the same. */
+.cm-wysiwyg .cm-editor .cm-wikilink-bracket,
+.cm-wysiwyg .cm-editor .cm-wikilink-bracket * {
   color: rgb(var(--z-grey-1)) !important;
   font-style: normal !important;
   text-decoration: none !important;

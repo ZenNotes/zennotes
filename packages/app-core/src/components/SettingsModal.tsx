@@ -19,7 +19,8 @@ import {
   type McpServerRuntime
 } from '@shared/mcp-clients'
 import { useStore } from '../store'
-import type { LineNumberMode, WhichKeyHintMode } from '../store'
+import type { Language, LineNumberMode, WhichKeyHintMode } from '../store'
+import { useT } from '../lib/i18n'
 import type { KeymapDefinition, KeymapId, KeymapOverrides } from '../lib/keymaps'
 import {
   formatKeymapBinding,
@@ -62,6 +63,21 @@ type SettingsCategoryId =
   | 'mcp'
   | 'cli'
   | 'about'
+
+/** The small uppercase "eyebrow" above the section title stays English on
+ *  purpose (it reads as a stable section tag), even when the UI is in another
+ *  language — so it is keyed by id rather than translated. */
+const CATEGORY_EYEBROW_LABEL: Record<SettingsCategoryId, string> = {
+  appearance: 'Appearance',
+  editor: 'Editor',
+  keymaps: 'Keymap',
+  typography: 'Typography',
+  vault: 'Vault',
+  templates: 'Templates',
+  mcp: 'MCP',
+  cli: 'CLI',
+  about: 'About'
+}
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
@@ -192,11 +208,14 @@ function formatReleaseNotesForDisplay(notes: string | null): string | null {
 }
 
 export function SettingsModal(): JSX.Element {
+  const t = useT()
   const zenBridge = getZenBridge()
   const appInfo = zenBridge.getAppInfo()
   const supportsRemoteWorkspace =
     appInfo.runtime === 'desktop' && zenBridge.getCapabilities().supportsRemoteWorkspace
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const language = useStore((s) => s.language)
+  const setLanguage = useStore((s) => s.setLanguage)
   const vimMode = useStore((s) => s.vimMode)
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
@@ -649,8 +668,8 @@ export function SettingsModal(): JSX.Element {
   const categories: SettingsCategory[] = [
     {
       id: 'appearance',
-      title: 'Appearance',
-      description: 'Theme family, mode, and chrome surface styling.',
+      title: t('Appearance'),
+      description: t('Theme family, mode, and chrome surface styling.'),
       keywords: ['theme', 'mode', 'variant', 'dark sidebar', 'surface', 'look'],
       searchItems: [
         {
@@ -686,13 +705,29 @@ export function SettingsModal(): JSX.Element {
       content: (
         <div className="space-y-6">
           <Section
-            title="Theme"
-            description="Pick the visual system ZenNotes uses across the app."
+            title={t('Language')}
+            description={t('Language for the app interface. Note content is never translated.')}
+          >
+            <SelectRow
+              label={t('Interface language')}
+              value={language}
+              options={[
+                { value: 'en' as Language, label: t('English') },
+                { value: 'zh' as Language, label: t('Chinese (Simplified)') }
+              ]}
+              settingId="language"
+              onChange={setLanguage}
+            />
+          </Section>
+
+          <Section
+            title={t('Theme')}
+            description={t('Pick the visual system ZenNotes uses across the app.')}
           >
             <div className="flex flex-col gap-5 px-5 py-5">
               <div {...settingsSearchTargetProps('theme-mode')}>
                 <div className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                  Mode
+                  {t('Mode')}
                 </div>
                 <div className="inline-flex rounded-xl border border-paper-300/70 bg-paper-100/75 p-1">
                   {(['light', 'dark', 'auto'] as ThemeMode[]).map((m) => (
@@ -711,8 +746,9 @@ export function SettingsModal(): JSX.Element {
                   ))}
                 </div>
                 <p className="mt-2 text-xs leading-5 text-ink-500">
-                  Light and dark are picked independently below. Auto follows your
-                  system appearance and switches between them.
+                  {t(
+                    'Light and dark are picked independently below. Auto follows your system appearance and switches between them.'
+                  )}
                 </p>
               </div>
 
@@ -741,19 +777,19 @@ export function SettingsModal(): JSX.Element {
           </Section>
 
           <Section
-            title="Chrome"
-            description="Small visual adjustments that change how the shell feels."
+            title={t('Chrome')}
+            description={t('Small visual adjustments that change how the shell feels.')}
           >
             <ToggleRow
-              label="Dark sidebar"
-              description="Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface."
+              label={t('Dark sidebar')}
+              description={t('Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.')}
               value={darkSidebar}
               settingId="dark-sidebar"
               onChange={setDarkSidebar}
             />
             <ToggleRow
-              label="Sidebar arrows"
-              description="Show disclosure arrows for collapsible folders and sidebar sections."
+              label={t('Sidebar arrows')}
+              description={t('Show disclosure arrows for collapsible folders and sidebar sections.')}
               value={showSidebarChevrons}
               settingId="sidebar-arrows"
               onChange={setShowSidebarChevrons}
@@ -764,8 +800,8 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'editor',
-      title: 'Editor',
-      description: 'Vim, leader hints, live preview, tabs, and writing behavior.',
+      title: t('Editor'),
+      description: t('Vim, leader hints, live preview, tabs, and writing behavior.'),
       keywords: ['vim', 'leader', 'preview', 'tabs', 'wrap', 'pdf', 'quick note', 'quick capture', 'hotkey', 'shortcut', 'task', 'tasks'],
       searchItems: [
         {
@@ -878,11 +914,11 @@ export function SettingsModal(): JSX.Element {
         <div className="space-y-6">
           <Section
             title="Vim"
-            description="Keyboard-first editing behavior and leader guidance."
+            description={t('Keyboard-first editing behavior and leader guidance.')}
           >
             <ToggleRow
-              label="Vim mode"
-              description="First-class Vim motions in the markdown editor."
+              label={t('Vim mode')}
+              description={t('First-class Vim motions in the markdown editor.')}
               value={vimMode}
               settingId="vim-mode"
               onChange={setVimMode}
@@ -890,16 +926,16 @@ export function SettingsModal(): JSX.Element {
             {vimMode ? (
               <>
                 <TextInputRow
-                  label="Exit insert mode with"
-                  description="Type this key sequence in insert mode to act as Escape, e.g. jk or jj. Leave empty to disable."
+                  label={t('Exit insert mode with')}
+                  description={t('Type this key sequence in insert mode to act as Escape, e.g. jk or jj. Leave empty to disable.')}
                   value={vimInsertEscape}
                   placeholder="jk"
                   settingId="vim-insert-escape"
                   onChange={(next) => setVimInsertEscape(next ?? '')}
                 />
                 <ToggleRow
-                  label="Leader key hints"
-                  description="Show a which-key style guide after pressing the Leader key so the next available actions stay visible."
+                  label={t('Leader key hints')}
+                  description={t('Show a which-key style guide after pressing the Leader key so the next available actions stay visible.')}
                   value={whichKeyHints}
                   settingId="leader-key-hints"
                   onChange={setWhichKeyHints}
@@ -907,8 +943,8 @@ export function SettingsModal(): JSX.Element {
                 {whichKeyHints && (
                   <>
                     <SegmentedRow
-                      label="Leader hint behavior"
-                      description="Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it."
+                      label={t('Leader hint behavior')}
+                      description={t('Timed auto-hides after a short delay. Sticky keeps the leader overlay open until you dismiss it.')}
                       value={whichKeyHintMode}
                       settingId="leader-hint-behavior"
                       options={[
@@ -919,8 +955,8 @@ export function SettingsModal(): JSX.Element {
                     />
                     {whichKeyHintMode === 'timed' && (
                       <SliderRow
-                        label="Leader hint duration"
-                        description="How long the leader overlay stays visible, and how long the pending leader sequence remains armed."
+                        label={t('Leader hint duration')}
+                        description={t('How long the leader overlay stays visible, and how long the pending leader sequence remains armed.')}
                         value={whichKeyHintTimeoutMs}
                         min={400}
                         max={3000}
@@ -935,18 +971,18 @@ export function SettingsModal(): JSX.Element {
               </>
             ) : (
               <InlineNote>
-                Leader key hints are only available while Vim mode is enabled.
+                {t('Leader key hints are only available while Vim mode is enabled.')}
               </InlineNote>
             )}
           </Section>
 
           <Section
-            title="Search"
-            description="Choose how vault-wide text search is powered."
+            title={t('Search')}
+            description={t('Choose how vault-wide text search is powered.')}
           >
             <SegmentedRow
-              label="Vault text search backend"
-              description="Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher."
+              label={t('Vault text search backend')}
+              description={t('Auto prefers fzf when available, then ripgrep, and falls back to the built-in searcher.')}
               value={vaultTextSearchBackend}
               settingId="vault-text-search-backend"
               options={[
@@ -958,78 +994,78 @@ export function SettingsModal(): JSX.Element {
               onChange={(next) => setVaultTextSearchBackend(next as VaultTextSearchBackendPreference)}
             />
             <TextInputRow
-              label="ripgrep binary path"
-              description="Optional. Leave blank to use `rg` from your PATH."
+              label={t('ripgrep binary path')}
+              description={t('Optional. Leave blank to use `rg` from your PATH.')}
               value={ripgrepBinaryPath ?? ''}
               placeholder="/custom/bin/rg"
               settingId="ripgrep-binary-path"
               onChange={(next) => setRipgrepBinaryPath(next)}
             />
             <TextInputRow
-              label="fzf binary path"
-              description="Optional. Leave blank to use `fzf` from your PATH."
+              label={t('fzf binary path')}
+              description={t('Optional. Leave blank to use `fzf` from your PATH.')}
               value={fzfBinaryPath ?? ''}
               placeholder="/custom/bin/fzf"
               settingId="fzf-binary-path"
               onChange={(next) => setFzfBinaryPath(next)}
             />
             <InlineNote>
-              Runtime backend: {resolvedVaultTextSearchBackendLabel(resolvedVaultTextSearchBackend)}
+              {t('Runtime backend:')} {resolvedVaultTextSearchBackendLabel(resolvedVaultTextSearchBackend)}
             </InlineNote>
             <InlineNote>
               {resolvedVaultTextSearchMessage}
             </InlineNote>
             <InlineNote>
               {vaultTextSearchCapabilities == null
-                ? 'Checking configured search tools…'
+                ? t('Checking configured search tools…')
                 : availableVaultTextSearchTools.length > 0
-                  ? `Available with the current paths: ${availableVaultTextSearchTools.join(', ')}.`
-                  : 'No usable ripgrep or fzf binary was detected from the configured paths or PATH. ZenNotes will use the built-in search backend.'}
+                  ? `${t('Available with the current paths:')} ${availableVaultTextSearchTools.join(', ')}.`
+                  : t('No usable ripgrep or fzf binary was detected from the configured paths or PATH. ZenNotes will use the built-in search backend.')}
             </InlineNote>
           </Section>
 
           <Section
-            title="Writing"
-            description="Controls that change how notes render while you work."
+            title={t('Writing')}
+            description={t('Controls that change how notes render while you work.')}
           >
             <ToggleRow
-              label="Live preview"
-              description="Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], and other source text."
+              label={t('Live preview')}
+              description={t("Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], and other source text.")}
               value={livePreview}
               settingId="live-preview"
               onChange={setLivePreview}
             />
             <ToggleRow
-              label="Note tabs"
-              description="Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior."
+              label={t('Note tabs')}
+              description={t('Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior.')}
               value={tabsEnabled}
               settingId="note-tabs"
               onChange={setTabsEnabled}
             />
             <ToggleRow
-              label="Wrap note tabs"
-              description="Move overflowing tabs onto additional rows instead of using a horizontal scrollbar."
+              label={t('Wrap note tabs')}
+              description={t('Move overflowing tabs onto additional rows instead of using a horizontal scrollbar.')}
               value={wrapTabs}
               settingId="wrap-note-tabs"
               onChange={setWrapTabs}
             />
             <ToggleRow
-              label="Word wrap"
-              description="Wrap long lines to the editor width. Turn off to scroll horizontally instead."
+              label={t('Word wrap')}
+              description={t('Wrap long lines to the editor width. Turn off to scroll horizontally instead.')}
               value={wordWrap}
               settingId="word-wrap"
               onChange={setWordWrap}
             />
             <ToggleRow
-              label="Smooth preview scroll"
-              description="Animate Ctrl+D / Ctrl+U half-page jumps in preview mode. Turn off for an instant snap that keeps position predictable."
+              label={t('Smooth preview scroll')}
+              description={t('Animate Ctrl+D / Ctrl+U half-page jumps in preview mode. Turn off for an instant snap that keeps position predictable.')}
               value={previewSmoothScroll}
               settingId="smooth-preview-scroll"
               onChange={setPreviewSmoothScroll}
             />
             <SegmentedRow
-              label="PDFs in edit mode"
-              description="Compact keeps the editor focused. Full inlines the PDF viewer under your cursor."
+              label={t('PDFs in edit mode')}
+              description={t('Compact keeps the editor focused. Full inlines the PDF viewer under your cursor.')}
               value={pdfEmbedInEditMode}
               settingId="pdfs-in-edit-mode"
               options={[
@@ -1039,15 +1075,15 @@ export function SettingsModal(): JSX.Element {
               onChange={(next) => setPdfEmbedInEditMode(next)}
             />
             <ToggleRow
-              label="Date-titled Quick Notes"
-              description="New Quick Notes use YYYY-MM-DD instead of timestamp-style titles."
+              label={t('Date-titled Quick Notes')}
+              description={t('New Quick Notes use YYYY-MM-DD instead of timestamp-style titles.')}
               value={quickNoteDateTitle}
               settingId="date-titled-quick-notes"
               onChange={setQuickNoteDateTitle}
             />
             <TextInputRow
-              label="Quick Note prefix"
-              description="Used when naming new Quick Notes. Leave blank for a bare timestamp or date."
+              label={t('Quick Note prefix')}
+              description={t('Used when naming new Quick Notes. Leave blank for a bare timestamp or date.')}
               value={quickNoteTitlePrefix ?? ''}
               placeholder="Quick Note"
               settingId="quick-note-prefix"
@@ -1056,8 +1092,8 @@ export function SettingsModal(): JSX.Element {
           </Section>
 
           <Section
-            title="Quick capture"
-            description="Floating capture window for thoughts you want in the vault without leaving whatever you're doing."
+            title={t('Quick capture')}
+            description={t("Floating capture window for thoughts you want in the vault without leaving whatever you're doing.")}
           >
             <QuickCaptureHotkeyRow settingId="quick-capture-hotkey" />
           </Section>
@@ -1066,8 +1102,8 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'keymaps',
-      title: 'Keymap',
-      description: 'Remap global shortcuts, Vim bindings, and view navigation.',
+      title: t('Keymap'),
+      description: t('Remap global shortcuts, Vim bindings, and view navigation.'),
       keywords: ['shortcuts', 'bindings', 'leader', 'vim', 'remap', 'keyboard'],
       searchItems: [
         {
@@ -1090,8 +1126,8 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'typography',
-      title: 'Typography',
-      description: 'Fonts, line height, reading width, alignment, and line numbers.',
+      title: t('Typography'),
+      description: t('Fonts, line height, reading width, alignment, and line numbers.'),
       keywords: ['font', 'size', 'line height', 'width', 'alignment', 'numbers'],
       searchItems: [
         {
@@ -1152,28 +1188,28 @@ export function SettingsModal(): JSX.Element {
       content: (
         <div className="space-y-6">
           <Section
-            title="Fonts"
-            description="Separate the app chrome, reading text, and code treatment."
+            title={t('Fonts')}
+            description={t('Separate the app chrome, reading text, and code treatment.')}
           >
             <FontRow
-              label="Interface font"
-              description="Used for the sidebar, menus, and window chrome."
+              label={t('Interface font')}
+              description={t('Used for the sidebar, menus, and window chrome.')}
               value={interfaceFont}
               options={systemFonts}
               settingId="interface-font"
               onChange={setInterfaceFont}
             />
             <FontRow
-              label="Text font"
-              description="Used for editing and reading views."
+              label={t('Text font')}
+              description={t('Used for editing and reading views.')}
               value={textFont}
               options={systemFonts}
               settingId="text-font"
               onChange={setTextFont}
             />
             <FontRow
-              label="Monospace font"
-              description="Used for code blocks, inline code, and frontmatter."
+              label={t('Monospace font')}
+              description={t('Used for code blocks, inline code, and frontmatter.')}
               value={monoFont}
               options={systemFonts}
               settingId="monospace-font"
@@ -1182,12 +1218,12 @@ export function SettingsModal(): JSX.Element {
           </Section>
 
           <Section
-            title="Layout"
-            description="Tune reading density and how notes sit in the pane."
+            title={t('Layout')}
+            description={t('Tune reading density and how notes sit in the pane.')}
           >
             <SliderRow
-              label="Font size"
-              description="Editor and preview text size."
+              label={t('Font size')}
+              description={t('Editor and preview text size.')}
               value={editorFontSize}
               min={12}
               max={32}
@@ -1197,8 +1233,8 @@ export function SettingsModal(): JSX.Element {
               onChange={setEditorFontSize}
             />
             <SliderRow
-              label="Line height"
-              description="Editor and preview line spacing."
+              label={t('Line height')}
+              description={t('Editor and preview line spacing.')}
               value={editorLineHeight}
               min={1.2}
               max={2.4}
@@ -1208,8 +1244,8 @@ export function SettingsModal(): JSX.Element {
               format={(v) => v.toFixed(2)}
             />
             <SliderRow
-              label="Reading width"
-              description="Maximum width for preview and split-preview content."
+              label={t('Reading width')}
+              description={t('Maximum width for preview and split-preview content.')}
               value={previewMaxWidth}
               min={640}
               max={1400}
@@ -1219,8 +1255,8 @@ export function SettingsModal(): JSX.Element {
               onChange={setPreviewMaxWidth}
             />
             <SliderRow
-              label="Editor width"
-              description="Caps and centers the editor column so lines do not stretch edge-to-edge on large windows."
+              label={t('Editor width')}
+              description={t('Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.')}
               value={editorMaxWidth}
               min={640}
               max={1600}
@@ -1230,8 +1266,8 @@ export function SettingsModal(): JSX.Element {
               onChange={setEditorMaxWidth}
             />
             <SegmentedRow
-              label="Content alignment"
-              description="Center note content within the column or left-align it to the pane edge."
+              label={t('Content alignment')}
+              description={t('Center note content within the column or left-align it to the pane edge.')}
               value={contentAlign}
               settingId="content-alignment"
               options={[
@@ -1241,8 +1277,8 @@ export function SettingsModal(): JSX.Element {
               onChange={(next) => setContentAlign(next)}
             />
             <SegmentedRow
-              label="Line numbers"
-              description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
+              label={t('Line numbers')}
+              description={t('Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally.')}
               value={lineNumberMode}
               settingId="line-numbers"
               options={[
@@ -1258,8 +1294,8 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'vault',
-      title: 'Vault',
-      description: 'Current vault location and root-folder controls.',
+      title: t('Vault'),
+      description: t('Current vault location and root-folder controls.'),
       keywords: ['folder', 'root', 'location', 'open vault', 'change'],
       searchItems: [
         {
@@ -1375,8 +1411,8 @@ export function SettingsModal(): JSX.Element {
       content: (
         <div className="space-y-6">
           <Section
-            title="Location"
-            description="ZenNotes reads markdown directly from the selected vault folder."
+            title={t('Location')}
+            description={t('ZenNotes reads markdown directly from the selected vault folder.')}
           >
             <div
               className="flex items-center justify-between gap-4 px-5 py-5"
@@ -1384,14 +1420,14 @@ export function SettingsModal(): JSX.Element {
             >
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">
-                  {workspaceMode === 'remote' ? 'Remote workspace' : 'Vault location'}
+                  {workspaceMode === 'remote' ? t('Remote workspace') : t('Vault location')}
                 </div>
                 <div className="mt-1 truncate text-xs text-ink-500">
-                  {vault?.root ?? 'No vault selected'}
+                  {vault?.root ?? t('No vault selected')}
                 </div>
                 {workspaceMode === 'remote' && remoteWorkspaceInfo?.baseUrl && (
                   <div className="mt-1 truncate text-xs text-ink-400">
-                    Connected to {remoteWorkspaceInfo.baseUrl}
+                    {t('Connected to')} {remoteWorkspaceInfo.baseUrl}
                   </div>
                 )}
               </div>
@@ -1403,14 +1439,14 @@ export function SettingsModal(): JSX.Element {
                 }
                 className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
               >
-                {workspaceMode === 'remote' ? 'Change Remote Vault…' : 'Change…'}
+                {workspaceMode === 'remote' ? t('Change Remote Vault…') : t('Change…')}
               </button>
               {workspaceMode === 'remote' && (
                 <button
                   onClick={() => void disconnectRemoteWorkspace()}
                   className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                 >
-                  Return to Local Vault
+                  {t('Return to Local Vault')}
                 </button>
               )}
               {workspaceMode === 'remote' && (
@@ -1418,7 +1454,7 @@ export function SettingsModal(): JSX.Element {
                   onClick={() => void openVaultPicker()}
                   className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                 >
-                  Open Local Vault…
+                  {t('Open Local Vault…')}
                 </button>
               )}
               {supportsRemoteWorkspace && (
@@ -1426,7 +1462,7 @@ export function SettingsModal(): JSX.Element {
                   onClick={() => void connectRemoteWorkspace()}
                   className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                 >
-                  Quick Connect…
+                  {t('Quick Connect…')}
                 </button>
               )}
             </div>
@@ -1434,26 +1470,28 @@ export function SettingsModal(): JSX.Element {
 
           {supportsRemoteWorkspace && (
             <Section
-              title="Saved Remote Workspaces"
-              description="Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens."
+              title={t('Saved Remote Workspaces')}
+              description={t('Keep multiple ZenNotes servers and vaults ready to reconnect without re-entering URLs or tokens.')}
               settingId="saved-remote-workspaces"
             >
               <div className="space-y-3 px-5 py-5">
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-xs text-ink-500">
-                    Saved connections can point at different servers or different vaults on the same server.
+                    {t('Saved connections can point at different servers or different vaults on the same server.')}
                   </div>
                   <button
                     type="button"
                     onClick={openCreateRemoteProfile}
                     className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                   >
-                    New Remote…
+                    {t('New Remote…')}
                   </button>
                 </div>
                 {remoteWorkspaceProfiles.length === 0 ? (
                   <div className="rounded-xl border border-paper-300/60 bg-paper-50/60 px-4 py-4 text-sm text-ink-500">
-                    No saved remote workspaces yet. Use <span className="font-medium text-ink-700">Quick Connect…</span> once and ZenNotes will remember it here.
+                    {t('No saved remote workspaces yet. Use')}{' '}
+                    <span className="font-medium text-ink-700">{t('Quick Connect…')}</span>{' '}
+                    {t('once and ZenNotes will remember it here.')}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -1471,13 +1509,13 @@ export function SettingsModal(): JSX.Element {
                               </div>
                               {isCurrent && (
                                 <span className="rounded-full border border-emerald-400/25 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-700">
-                                  Connected
+                                  {t('Connected')}
                                 </span>
                               )}
                             </div>
                             <div className="mt-1 truncate text-xs text-ink-500">{profile.baseUrl}</div>
                             <div className="mt-1 truncate text-xs text-ink-400">
-                              {profile.vaultPath ? profile.vaultPath : 'Vault picked when connecting'}
+                              {profile.vaultPath ? profile.vaultPath : t('Vault picked when connecting')}
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
@@ -1487,7 +1525,7 @@ export function SettingsModal(): JSX.Element {
                                 onClick={() => void connectRemoteWorkspaceProfile(profile.id)}
                                 className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                               >
-                                Connect
+                                {t('Connect')}
                               </button>
                             )}
                             <button
@@ -1495,14 +1533,14 @@ export function SettingsModal(): JSX.Element {
                               onClick={() => openEditRemoteProfile(profile)}
                               className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                             >
-                              Edit
+                              {t('Edit')}
                             </button>
                             <button
                               type="button"
                               onClick={() => void removeRemoteProfile(profile)}
                               className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                             >
-                              Remove
+                              {t('Remove')}
                             </button>
                           </div>
                         </div>
@@ -1515,12 +1553,12 @@ export function SettingsModal(): JSX.Element {
           )}
 
           <Section
-            title="Primary Notes"
-            description="Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly for Obsidian-style flat vaults."
+            title={t('Primary Notes')}
+            description={t("Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly for Obsidian-style flat vaults.")}
           >
             <SegmentedRow
-              label="Primary notes location"
-              description="`Inbox` keeps ZenNotes' original lifecycle structure. `Vault root` surfaces top-level markdown files and folders directly."
+              label={t('Primary notes location')}
+              description={t("`Inbox` keeps ZenNotes' original lifecycle structure. `Vault root` surfaces top-level markdown files and folders directly.")}
               value={vaultSettings.primaryNotesLocation}
               settingId="primary-notes-location"
               options={[
@@ -1537,12 +1575,12 @@ export function SettingsModal(): JSX.Element {
           </Section>
 
           <Section
-            title="Daily Notes"
-            description="Create one note per day with a simple date title and keep them in a dedicated directory."
+            title={t('Daily Notes')}
+            description={t('Create one note per day with a simple date title and keep them in a dedicated directory.')}
           >
             <ToggleRow
-              label="Enable daily notes"
-              description="Adds a dedicated daily-notes workflow without changing ordinary note creation."
+              label={t('Enable daily notes')}
+              description={t('Adds a dedicated daily-notes workflow without changing ordinary note creation.')}
               value={vaultSettings.dailyNotes.enabled}
               settingId="enable-daily-notes"
               onChange={(enabled) =>
@@ -1556,8 +1594,8 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Daily notes directory"
-              description="Stored inside your primary notes area. The default is `Daily Notes`."
+              label={t('Daily notes directory')}
+              description={t('Stored inside your primary notes area. The default is `Daily Notes`.')}
               value={vaultSettings.dailyNotes.directory}
               placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
               settingId="daily-notes-directory"
@@ -1572,8 +1610,8 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TemplateSelectRow
-              label="Daily note template"
-              description="Applied when a daily note is created. None creates a blank note."
+              label={t('Daily note template')}
+              description={t('Applied when a daily note is created. None creates a blank note.')}
               value={vaultSettings.dailyNotes.templateId}
               templates={allTemplates}
               settingId="daily-notes-template"
@@ -1589,9 +1627,9 @@ export function SettingsModal(): JSX.Element {
               {...settingsSearchTargetProps('open-todays-daily-note')}
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-ink-900">Open today's daily note</div>
+                <div className="text-sm font-medium text-ink-900">{t("Open today's daily note")}</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Opens today's note if it exists, otherwise creates it with a YYYY-MM-DD title.
+                  {t("Opens today's note if it exists, otherwise creates it with a YYYY-MM-DD title.")}
                 </div>
               </div>
               <button
@@ -1605,18 +1643,18 @@ export function SettingsModal(): JSX.Element {
                     : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                 ].join(' ')}
               >
-                Open today
+                {t('Open today')}
               </button>
             </div>
           </Section>
 
           <Section
-            title="Weekly Notes"
-            description="Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory."
+            title={t('Weekly Notes')}
+            description={t('Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory.')}
           >
             <ToggleRow
-              label="Enable weekly notes"
-              description="Adds a dedicated weekly-notes workflow alongside daily notes."
+              label={t('Enable weekly notes')}
+              description={t('Adds a dedicated weekly-notes workflow alongside daily notes.')}
               value={vaultSettings.weeklyNotes.enabled}
               settingId="enable-weekly-notes"
               onChange={(enabled) =>
@@ -1630,8 +1668,8 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Weekly notes directory"
-              description="Stored inside your primary notes area. The default is `Weekly Notes`."
+              label={t('Weekly notes directory')}
+              description={t('Stored inside your primary notes area. The default is `Weekly Notes`.')}
               value={vaultSettings.weeklyNotes.directory}
               placeholder={DEFAULT_WEEKLY_NOTES_DIRECTORY}
               settingId="weekly-notes-directory"
@@ -1646,8 +1684,8 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TemplateSelectRow
-              label="Weekly note template"
-              description="Applied when a weekly note is created. None creates a blank note."
+              label={t('Weekly note template')}
+              description={t('Applied when a weekly note is created. None creates a blank note.')}
               value={vaultSettings.weeklyNotes.templateId}
               templates={allTemplates}
               settingId="weekly-notes-template"
@@ -1663,9 +1701,9 @@ export function SettingsModal(): JSX.Element {
               {...settingsSearchTargetProps('open-this-week-note')}
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium text-ink-900">Open this week's note</div>
+                <div className="text-sm font-medium text-ink-900">{t("Open this week's note")}</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.
+                  {t("Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.")}
                 </div>
               </div>
               <button
@@ -1679,31 +1717,31 @@ export function SettingsModal(): JSX.Element {
                     : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                 ].join(' ')}
               >
-                Open this week
+                {t('Open this week')}
               </button>
             </div>
             <ToggleRow
-              label="Show calendar in daily & weekly notes"
-              description="Auto-open a calendar panel on the right while viewing a daily or weekly note, for jumping between dates. Toggle it anytime with the calendar icon or the leader-c shortcut."
+              label={t('Show calendar in daily & weekly notes')}
+              description={t('Auto-open a calendar panel on the right while viewing a daily or weekly note, for jumping between dates. Toggle it anytime with the calendar icon or the leader-c shortcut.')}
               value={autoCalendarPanel}
               settingId="auto-calendar-panel"
               onChange={setAutoCalendarPanel}
             />
             <SegmentedRow
-              label="Calendar starts week on"
-              description="Which weekday the calendar grid begins with."
+              label={t('Calendar starts week on')}
+              description={t('Which weekday the calendar grid begins with.')}
               value={calendarWeekStart}
               settingId="calendar-week-start"
               options={[
-                { value: 'monday', label: 'Monday' },
-                { value: 'sunday', label: 'Sunday' },
-                { value: 'locale', label: 'Locale' }
+                { value: 'monday', label: t('Monday') },
+                { value: 'sunday', label: t('Sunday') },
+                { value: 'locale', label: t('Locale') }
               ]}
               onChange={setCalendarWeekStart}
             />
             <ToggleRow
-              label="Show week numbers"
-              description="Display the ISO week-number column in the calendar. Click a week number to open or create its weekly note."
+              label={t('Show week numbers')}
+              description={t('Display the ISO week-number column in the calendar. Click a week number to open or create its weekly note.')}
               value={calendarShowWeekNumbers}
               settingId="calendar-week-numbers"
               onChange={setCalendarShowWeekNumbers}
@@ -1711,43 +1749,43 @@ export function SettingsModal(): JSX.Element {
           </Section>
 
           <Section
-            title="System Folders"
-            description="Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
+            title={t('System Folders')}
+            description={t("Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root.")}
           >
             <TextInputRow
-              label="Inbox label"
-              description="Shown in the sidebar, breadcrumbs, commands, and note actions."
+              label={t('Inbox label')}
+              description={t('Shown in the sidebar, breadcrumbs, commands, and note actions.')}
               value={systemFolderLabels.inbox ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.inbox}
               settingId="inbox-label"
               onChange={(next) => setSystemFolderLabel('inbox', next)}
             />
             <TextInputRow
-              label="Quick Notes label"
-              description="Display name for the quick-capture area."
+              label={t('Quick Notes label')}
+              description={t('Display name for the quick-capture area.')}
               value={systemFolderLabels.quick ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.quick}
               settingId="quick-notes-label"
               onChange={(next) => setSystemFolderLabel('quick', next)}
             />
             <TextInputRow
-              label="Archive label"
-              description="Display name for cold-storage notes."
+              label={t('Archive label')}
+              description={t('Display name for cold-storage notes.')}
               value={systemFolderLabels.archive ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.archive}
               settingId="archive-label"
               onChange={(next) => setSystemFolderLabel('archive', next)}
             />
             <TextInputRow
-              label="Trash label"
-              description="Display name for deleted-note recovery."
+              label={t('Trash label')}
+              description={t('Display name for deleted-note recovery.')}
               value={systemFolderLabels.trash ?? ''}
               placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.trash}
               settingId="trash-label"
               onChange={(next) => setSystemFolderLabel('trash', next)}
             />
             <InlineNote>
-              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
+              {t('Current labels:')} {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, {getSystemFolderLabel('trash', systemFolderLabels)}.
             </InlineNote>
           </Section>
         </div>
@@ -1755,9 +1793,10 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'templates',
-      title: 'Templates',
-      description:
-        'Built-in templates plus your own. Create a note from any of them with `Space t`, `:template`, or the command palette.',
+      title: t('Templates'),
+      description: t(
+        'Built-in templates plus your own. Create a note from any of them with `Space t`, `:template`, or the command palette.'
+      ),
       keywords: [
         'templates',
         'template',
@@ -1789,8 +1828,8 @@ export function SettingsModal(): JSX.Element {
       content: (
         <div className="space-y-6">
           <Section
-            title="Templates"
-            description="Pick any of these from the template picker (`Space t`, `:template`). Built-in templates are read-only; your custom ones can be edited or deleted."
+            title={t('Templates')}
+            description={t("Pick any of these from the template picker (`Space t`, `:template`). Built-in templates are read-only; your custom ones can be edited or deleted.")}
             settingId="templates-list"
           >
             {supportsCustomTemplates ? (
@@ -1799,9 +1838,9 @@ export function SettingsModal(): JSX.Element {
                 {...settingsSearchTargetProps('templates-new')}
               >
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-ink-900">Create a custom template</div>
+                  <div className="text-sm font-medium text-ink-900">{t('Create a custom template')}</div>
                   <div className="mt-1 text-xs leading-5 text-ink-500">
-                    Stored as a markdown file in `.zennotes/templates`.
+                    {t('Stored as a markdown file in `.zennotes/templates`.')}
                   </div>
                 </div>
                 <Button
@@ -1810,23 +1849,23 @@ export function SettingsModal(): JSX.Element {
                   onClick={() => setTemplateEditor({})}
                   className="shrink-0"
                 >
-                  New template
+                  {t('New template')}
                 </Button>
               </div>
             ) : (
               <InlineNote>
-                Custom templates require a local vault. Built-in templates still work here.
+                {t('Custom templates require a local vault. Built-in templates still work here.')}
               </InlineNote>
             )}
             <div className="flex items-center justify-between gap-4 border-t border-paper-300/40 px-5 py-4">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">
-                  {hideBuiltinTemplates ? 'Built-in templates are hidden' : 'Built-in templates'}
+                  {hideBuiltinTemplates ? t('Built-in templates are hidden') : t('Built-in templates')}
                 </div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
                   {hideBuiltinTemplates
-                    ? 'The shipped templates are hidden from the picker and palette — your custom ones still show. Restore them anytime.'
-                    : 'Hide every shipped template from the picker and palette. Your custom templates are unaffected.'}
+                    ? t('The shipped templates are hidden from the picker and palette — your custom ones still show. Restore them anytime.')
+                    : t('Hide every shipped template from the picker and palette. Your custom templates are unaffected.')}
                 </div>
               </div>
               <Button
@@ -1835,7 +1874,7 @@ export function SettingsModal(): JSX.Element {
                 onClick={() => void toggleBuiltinTemplates()}
                 className="shrink-0"
               >
-                {hideBuiltinTemplates ? 'Restore built-in templates' : 'Remove built-in templates'}
+                {hideBuiltinTemplates ? t('Restore built-in templates') : t('Remove built-in templates')}
               </Button>
             </div>
             {allTemplates.map((template) => (
@@ -1853,12 +1892,12 @@ export function SettingsModal(): JSX.Element {
                 <div className="flex shrink-0 items-center gap-2">
                   {template.builtin && (
                     <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
-                      Built-in
+                      {t('Built-in')}
                     </span>
                   )}
                   {!template.builtin && template.builtinId && (
                     <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
-                      Customized
+                      {t('Customized')}
                     </span>
                   )}
                   {template.builtin
@@ -1868,7 +1907,7 @@ export function SettingsModal(): JSX.Element {
                           onClick={() => editBuiltinTemplate(template)}
                           className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
                         >
-                          Edit
+                          {t('Edit')}
                         </button>
                       )
                     : (
@@ -1878,14 +1917,14 @@ export function SettingsModal(): JSX.Element {
                           onClick={() => void openTemplateEditor(template)}
                           className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
                         >
-                          Edit
+                          {t('Edit')}
                         </button>
                         <button
                           type="button"
                           onClick={() => void removeTemplate(template)}
                           className="rounded-lg border border-red-500/30 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-[rgb(var(--z-red))] hover:bg-red-500/10"
                         >
-                          {template.builtinId ? 'Reset' : 'Delete'}
+                          {template.builtinId ? t('Reset') : t('Delete')}
                         </button>
                       </>
                     )}
@@ -1898,9 +1937,10 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'mcp',
-      title: 'MCP',
-      description:
-        'Expose your vault to Claude Code, Claude Desktop, and Codex via the Model Context Protocol.',
+      title: t('MCP'),
+      description: t(
+        'Expose your vault to Claude Code, Claude Desktop, and Codex via the Model Context Protocol.'
+      ),
       keywords: [
         'mcp',
         'claude',
@@ -1937,9 +1977,10 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'cli',
-      title: 'CLI',
-      description:
-        'Install the `zen` command-line tool for terminal workflows, MCP, and launcher integrations like Raycast.',
+      title: t('CLI'),
+      description: t(
+        'Install the `zen` command-line tool for terminal workflows, MCP, and launcher integrations like Raycast.'
+      ),
       keywords: [
         'cli',
         'command line',
@@ -1978,8 +2019,8 @@ export function SettingsModal(): JSX.Element {
     },
     {
       id: 'about',
-      title: 'About',
-      description: 'App identity, version, updater status, and company information.',
+      title: t('About'),
+      description: t('App identity, version, updater status, and company information.'),
       keywords: ['version', 'company', 'lumary', 'about', 'logo', 'updates'],
       searchItems: [
         {
@@ -2008,7 +2049,21 @@ export function SettingsModal(): JSX.Element {
               <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">
                 <span className="font-medium text-ink-900">ZenNotes</span>
                 <span className="text-xs text-ink-500">v{appInfo.version}</span>
+                <span className="rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
+                  {t('Modified build')}
+                </span>
               </div>
+              <p className="mx-auto mt-1.5 max-w-[44rem] text-center text-xs leading-5 text-ink-500">
+                {t('Unofficial modified build of ZenNotes.')}{' '}
+                <a
+                  href="https://github.com/songgnqing/zennotes"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-paper-400 underline-offset-2 hover:text-accent"
+                >
+                  github.com/songgnqing/zennotes
+                </a>
+              </p>
               <div
                 className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
                 {...settingsSearchTargetProps('updates')}
@@ -2025,11 +2080,11 @@ export function SettingsModal(): JSX.Element {
                           updatePhaseBadgeClass(appUpdateState?.phase ?? 'idle')
                         ].join(' ')}
                       >
-                        {formatUpdatePhaseLabel(appUpdateState?.phase ?? 'idle')}
+                        {t(formatUpdatePhaseLabel(appUpdateState?.phase ?? 'idle'))}
                       </span>
                       {appUpdateState?.availableVersion && (
                         <span className="text-xs text-ink-500">
-                          Latest: v{appUpdateState.availableVersion}
+                          {t('Latest:')} v{appUpdateState.availableVersion}
                         </span>
                       )}
                     </div>
@@ -2040,14 +2095,14 @@ export function SettingsModal(): JSX.Element {
                         onClick={triggerUpdateDownload}
                         className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
                       >
-                        Download Update
+                        {t('Download Update')}
                       </button>
                     ) : appUpdateState?.phase === 'downloaded' ? (
                       <button
                         onClick={triggerUpdateInstall}
                         className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
                       >
-                        Install and Relaunch
+                        {t('Install and Relaunch')}
                       </button>
                     ) : (
                       <button
@@ -2064,7 +2119,7 @@ export function SettingsModal(): JSX.Element {
                             : 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
                         ].join(' ')}
                       >
-                        Check for Updates
+                        {t('Check for Updates')}
                       </button>
                     )}
                     <a
@@ -2073,12 +2128,14 @@ export function SettingsModal(): JSX.Element {
                       rel="noreferrer"
                       className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
                     >
-                      View Release
+                      {t('View Release')}
                     </a>
                   </div>
                 </div>
                 <p className="mt-3 text-sm leading-6 text-ink-600">
-                  {appUpdateState?.message ?? 'Check GitHub releases for a newer ZenNotes build.'}
+                  {appUpdateState?.message
+                    ? t(appUpdateState.message)
+                    : t('Check GitHub releases for a newer ZenNotes build.')}
                 </p>
                 {appUpdateState?.phase === 'downloading' && (
                   <div className="mt-3">
@@ -2104,7 +2161,7 @@ export function SettingsModal(): JSX.Element {
                 {displayedReleaseNotes && (
                   <details className="mt-3 rounded-xl border border-paper-300/60 bg-paper-100/60 px-3 py-2.5">
                     <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-                      Release notes
+                      {t('Release notes')}
                     </summary>
                     <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">
                       {displayedReleaseNotes}
@@ -2112,49 +2169,55 @@ export function SettingsModal(): JSX.Element {
                   </details>
                 )}
                 <div className="mt-3 text-xs leading-5 text-ink-500">
-                  In-app updates use the published GitHub release feed. For general users, that feed must be publicly reachable.
+                  {t('In-app updates use the published GitHub release feed. For general users, that feed must be publicly reachable.')}
                 </div>
               </div>
-              <p className="mx-auto mt-2 max-w-[44rem] text-center">
-                {appInfo.description}. Visit{' '}
-                <a
-                  href="https://lumarylabs.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-ink-900 underline decoration-paper-400 underline-offset-2 hover:text-accent"
-                >
-                  lumarylabs.com
-                </a>{' '}
-                for company and product details.
-              </p>
               <div
-                className="mt-4 flex flex-col items-center gap-1.5 border-t border-paper-300/55 pt-4 text-center"
+                className="mx-auto mt-5 max-w-[44rem] border-t border-paper-300/55 pt-4 text-center"
                 {...settingsSearchTargetProps('lumary-labs')}
               >
-                <span className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-                  Built by
-                </span>
-                <a
-                  href="https://lumarylabs.com"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex shrink-0 items-center justify-center px-2 py-1 transition-transform hover:-translate-y-px hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
-                >
-                  <span
-                    aria-label="Lumary Labs"
-                    className="block h-12 w-[10.5rem] bg-ink-900"
-                    style={{
-                      WebkitMaskImage: `url(${companyLogo})`,
-                      maskImage: `url(${companyLogo})`,
-                      WebkitMaskRepeat: 'no-repeat',
-                      maskRepeat: 'no-repeat',
-                      WebkitMaskPosition: 'center',
-                      maskPosition: 'center',
-                      WebkitMaskSize: 'contain',
-                      maskSize: 'contain'
-                    }}
-                  />
-                </a>
+                <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+                  {t('Original')}
+                </div>
+                <p className="mx-auto mt-2 max-w-[40rem] text-sm leading-6 text-ink-600">
+                  {t('This is a modified version of ZenNotes. The original is created by Lumary Labs LLC.')}{' '}
+                  {t('Visit')}{' '}
+                  <a
+                    href="https://lumarylabs.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-ink-900 underline decoration-paper-400 underline-offset-2 hover:text-accent"
+                  >
+                    lumarylabs.com
+                  </a>{' '}
+                  {t('for company and product details.')}
+                </p>
+                <div className="mt-4 flex flex-col items-center gap-1.5 text-center">
+                  <span className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+                    {t('Original by')}
+                  </span>
+                  <a
+                    href="https://lumarylabs.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex shrink-0 items-center justify-center px-2 py-1 transition-transform hover:-translate-y-px hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
+                  >
+                    <span
+                      aria-label="Lumary Labs"
+                      className="block h-12 w-[10.5rem] bg-ink-900"
+                      style={{
+                        WebkitMaskImage: `url(${companyLogo})`,
+                        maskImage: `url(${companyLogo})`,
+                        WebkitMaskRepeat: 'no-repeat',
+                        maskRepeat: 'no-repeat',
+                        WebkitMaskPosition: 'center',
+                        maskPosition: 'center',
+                        WebkitMaskSize: 'contain',
+                        maskSize: 'contain'
+                      }}
+                    />
+                  </a>
+                </div>
               </div>
             </div>
           </div>
@@ -2195,7 +2258,7 @@ export function SettingsModal(): JSX.Element {
                 <input
                   value={navQuery}
                   onChange={(e) => setNavQuery(e.target.value)}
-                  placeholder="Search settings…"
+                  placeholder={t('Search settings…')}
                   className="w-full rounded-xl border border-paper-300/70 bg-paper-50/75 px-3 py-2.5 pl-9 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
                 />
                 <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink-400">
@@ -2256,14 +2319,14 @@ export function SettingsModal(): JSX.Element {
               })}
               {searchResults.length === 0 && (
                 <div className="rounded-xl border border-dashed border-paper-300/70 px-3 py-4 text-sm text-ink-500">
-                  No settings match your search.
+                  {t('No settings match your search.')}
                 </div>
               )}
             </nav>
           </div>
 
           <div className="border-t border-paper-300/55 px-4 py-3 text-xs leading-5 text-ink-500">
-            Settings save automatically on this device.
+            {t('Settings save automatically on this device.')}
           </div>
         </aside>
 
@@ -2271,7 +2334,7 @@ export function SettingsModal(): JSX.Element {
           <div className="flex items-start justify-between gap-4 border-b border-paper-300/60 px-7 py-5">
             <div>
               <div className="text-xs font-medium uppercase tracking-[0.22em] text-ink-500">
-                {visibleCategory ? visibleCategory.title : 'Settings'}
+                {visibleCategory ? CATEGORY_EYEBROW_LABEL[visibleCategory.id] : 'Settings'}
               </div>
               <h2 className="mt-1 font-serif text-3xl font-semibold leading-tight text-ink-900">
                 {visibleCategory?.title ?? 'Settings'}
@@ -2344,6 +2407,7 @@ function KeymapSettings({
   onSetBinding: (id: KeymapId, binding: string | null) => void
   onResetAll: () => void
 }): JSX.Element {
+  const t = useT()
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<KeymapDefinition | null>(null)
 
@@ -2360,6 +2424,8 @@ function KeymapSettings({
           return (
             definition.title.toLowerCase().includes(q) ||
             definition.description.toLowerCase().includes(q) ||
+            t(definition.title).toLowerCase().includes(q) ||
+            t(definition.description).toLowerCase().includes(q) ||
             getKeymapDisplay(overrides, definition.id).toLowerCase().includes(q)
           )
         })
@@ -2376,17 +2442,16 @@ function KeymapSettings({
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-medium text-ink-900">Shortcut editor</div>
+            <div className="text-sm font-medium text-ink-900">{t('Shortcut editor')}</div>
             <div className="mt-1 text-xs leading-5 text-ink-500">
-              Record a new key or sequence for the app’s keyboard-first actions. Standard
-              accessibility fallbacks like arrows, Enter, and Escape still work.
+              {t('Record a new key or sequence for the app’s keyboard-first actions. Standard accessibility fallbacks like arrows, Enter, and Escape still work.')}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter keymaps…"
+              placeholder={t('Filter keymaps…')}
               className="w-72 rounded-xl border border-paper-300/70 bg-paper-100/80 px-4 py-2.5 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
             />
             <button
@@ -2400,7 +2465,7 @@ function KeymapSettings({
                   : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
               ].join(' ')}
             >
-              Reset all
+              {t('Reset all')}
             </button>
           </div>
         </div>
@@ -2410,12 +2475,15 @@ function KeymapSettings({
           {groups.map((group) => (
             <div key={group.group}>
               <div className="px-5 pt-4 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                {group.label}
+                {t(group.label)}
               </div>
               <div className="pb-4">
                 {group.items.map((definition) => {
                   const current = getKeymapBinding(overrides, definition.id)
-                  const custom = !!overrides[definition.id]
+                  // Presence-based: an unbound override is "" (falsy) but still
+                  // a customization away from the default.
+                  const custom = overrides[definition.id] !== undefined
+                  const unbound = current === ''
                   const inactive =
                     (definition.vimOnly && !vimMode) ||
                     (definition.nonVimOnly && vimMode)
@@ -2427,31 +2495,36 @@ function KeymapSettings({
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <span className="text-sm font-medium text-ink-900">
-                            {definition.title}
+                            {t(definition.title)}
                           </span>
                           {inactive && (
                             <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-ink-500">
-                              {definition.vimOnly ? 'Vim only' : 'Non-Vim only'}
+                              {definition.vimOnly ? t('Vim only') : t('Non-Vim only')}
                             </span>
                           )}
                           {custom && (
                             <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-accent">
-                              Custom
+                              {t('Custom')}
                             </span>
                           )}
                         </div>
-                        <div className="mt-1 text-xs leading-5 text-ink-500">{definition.description}</div>
+                        <div className="mt-1 text-xs leading-5 text-ink-500">{t(definition.description)}</div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="rounded-xl border border-paper-300/70 bg-paper-100/85 px-3 py-1.5 text-xs font-medium text-ink-900">
-                          {formatKeymapBinding(current, definition.kind)}
+                        <span
+                          className={[
+                            'rounded-xl border border-paper-300/70 bg-paper-100/85 px-3 py-1.5 text-xs font-medium',
+                            unbound ? 'italic text-ink-400' : 'text-ink-900'
+                          ].join(' ')}
+                        >
+                          {unbound ? t('Not set') : formatKeymapBinding(current, definition.kind)}
                         </span>
                         <button
                           type="button"
                           onClick={() => setRecording(definition)}
                           className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                         >
-                          Change…
+                          {t('Change…')}
                         </button>
                         <button
                           type="button"
@@ -2464,7 +2537,7 @@ function KeymapSettings({
                               : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
                           ].join(' ')}
                         >
-                          Reset
+                          {t('Reset')}
                         </button>
                       </div>
                     </div>
@@ -2475,7 +2548,7 @@ function KeymapSettings({
           ))}
           {groups.length === 0 && (
             <div className="px-5 py-10 text-center text-sm text-ink-500">
-              No keymaps match your filter.
+              {t('No keymaps match your filter.')}
             </div>
           )}
         </div>
@@ -2507,6 +2580,7 @@ function KeymapRecorderModal({
   onClose: () => void
   onSave: (binding: string) => void
 }): JSX.Element {
+  const t = useT()
   const [binding, setBinding] = useState(currentBinding)
   const mac = isMacPlatform()
 
@@ -2559,14 +2633,14 @@ function KeymapRecorderModal({
 
   const display = binding
     ? formatKeymapBinding(binding, definition.kind)
-    : 'Press a key…'
+    : t('Press a key…')
 
   return createPortal(
     <div className="fixed inset-0 z-toast flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
       <div className="w-[min(440px,92vw)] overflow-hidden rounded-2xl border border-paper-300/70 bg-paper-100 shadow-float">
         <div className="border-b border-paper-300/60 px-5 py-4">
-          <div className="text-base font-semibold text-ink-900">{definition.title}</div>
-          <div className="mt-1 text-sm text-ink-500">{definition.description}</div>
+          <div className="text-base font-semibold text-ink-900">{t(definition.title)}</div>
+          <div className="mt-1 text-sm text-ink-500">{t(definition.description)}</div>
         </div>
         <div className="px-5 py-4">
           <div className="rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-4">
@@ -2581,10 +2655,10 @@ function KeymapRecorderModal({
             </div>
           </div>
           <div className="mt-3 text-xs text-ink-500">
-            Current: {formatKeymapBinding(currentBinding, definition.kind)}
+            {t('Current:')} {formatKeymapBinding(currentBinding, definition.kind)}
           </div>
           <div className="mt-1 text-xs text-ink-500">
-            Default: {formatKeymapBinding(definition.defaultBinding, definition.kind)}
+            {t('Default:')} {formatKeymapBinding(definition.defaultBinding, definition.kind)}
           </div>
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-paper-300/60 px-5 py-3">
@@ -2593,7 +2667,7 @@ function KeymapRecorderModal({
             onClick={() => setBinding('')}
             className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
           >
-            Clear
+            {t('Clear')}
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -2601,15 +2675,14 @@ function KeymapRecorderModal({
               onClick={onClose}
               className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
             >
-              Cancel
+              {t('Cancel')}
             </button>
             <Button
               variant="primary"
               size="sm"
-              disabled={!binding}
               onClick={() => onSave(binding)}
             >
-              Save
+              {t('Save')}
             </Button>
           </div>
         </div>
@@ -2754,6 +2827,7 @@ function formatAcceleratorForDisplay(accelerator: string): string {
 }
 
 function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.Element {
+  const t = useT()
   const [current, setCurrent] = useState<string>('')
   const [recording, setRecording] = useState(false)
   const [draft, setDraft] = useState<string>('')
@@ -2799,7 +2873,7 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
         setDraft('')
         setRecording(false)
       } else {
-        setError(result.error ?? `Could not register "${next}"`)
+        setError(result.error ?? t('Could not register that shortcut.'))
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -2816,11 +2890,11 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
     >
       <div className="flex items-center justify-between gap-5">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-ink-900">Quick capture hotkey</div>
+          <div className="text-sm font-medium text-ink-900">{t('Quick capture hotkey')}</div>
           <div className="mt-1 text-xs leading-5 text-ink-500">
-            System-wide shortcut to open the floating capture window. Works even when
-            ZenNotes is hidden or another app is focused. Click Record, then press the
-            chord; Esc cancels.
+            {t(
+              'System-wide shortcut to open the floating capture window. Works even when ZenNotes is hidden or another app is focused. Click Record, then press the chord; Esc cancels.'
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -2841,8 +2915,8 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
             {recording
               ? draft
                 ? formatAcceleratorForDisplay(draft)
-                : 'Press a chord…'
-              : formatAcceleratorForDisplay(display)}
+                : t('Press a chord…')
+              : t(formatAcceleratorForDisplay(display))}
           </button>
           {recording ? (
             <>
@@ -2852,7 +2926,7 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
                 onClick={() => void apply(draft)}
                 className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm text-ink-900 hover:border-paper-300 disabled:opacity-50"
               >
-                Save
+                {t('Save')}
               </button>
               <button
                 type="button"
@@ -2862,7 +2936,7 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
                 }}
                 className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm text-ink-900 hover:border-paper-300"
               >
-                Cancel
+                {t('Cancel')}
               </button>
             </>
           ) : (
@@ -2873,7 +2947,7 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
                 onClick={() => void apply('')}
                 className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm text-ink-900 hover:border-paper-300 disabled:opacity-50"
               >
-                Disable
+                {t('Disable')}
               </button>
               <button
                 type="button"
@@ -2881,7 +2955,7 @@ function QuickCaptureHotkeyRow({ settingId }: { settingId?: string } = {}): JSX.
                 onClick={() => void apply(DEFAULT_QUICK_CAPTURE_HOTKEY)}
                 className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-sm text-ink-900 hover:border-paper-300 disabled:opacity-50"
               >
-                Reset
+                {t('Reset')}
               </button>
             </>
           )}
@@ -3220,6 +3294,135 @@ function FontRow({
   )
 }
 
+/**
+ * A labeled settings row with a dropdown picker on the right — the same chrome
+ * as `FontRow` but for a small, fixed set of options (no search / reset row).
+ * Generic over the option value so callers stay type-safe.
+ */
+function SelectRow<T extends string>({
+  label,
+  description,
+  value,
+  options,
+  settingId,
+  onChange
+}: {
+  label: string
+  description?: string
+  value: T
+  options: { value: T; label: string }[]
+  settingId?: string
+  onChange: (next: T) => void
+}): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node
+      if (buttonRef.current?.contains(target)) return
+      if (document.getElementById('zen-select-portal')?.contains(target)) return
+      setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  useLayoutEffect(() => {
+    if (!open) return
+    const update = (): void => {
+      const el = buttonRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      setRect({ left: r.left, top: r.bottom + 4, width: Math.max(236, r.width) })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open])
+
+  const current = options.find((o) => o.value === value)
+
+  return (
+    <div
+      className="flex items-center justify-between gap-5 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">{label}</div>
+        {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
+      </div>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-[236px] shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-left text-sm text-ink-900 transition-colors hover:bg-paper-200"
+      >
+        <span className="truncate">{current?.label ?? value}</span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-ink-500"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            id="zen-select-portal"
+            className="fixed z-popover flex max-h-[320px] flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
+            style={{ left: rect.left, top: rect.top, width: rect.width }}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto py-1">
+              {options.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(o.value)
+                    setOpen(false)
+                  }}
+                  className={[
+                    'flex w-full items-center px-3 py-1.5 text-left text-sm',
+                    o.value === value
+                      ? 'bg-paper-200 text-ink-900'
+                      : 'text-ink-800 hover:bg-paper-200/60'
+                  ].join(' ')}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
+    </div>
+  )
+}
+
 function SliderRow({
   label,
   description,
@@ -3417,6 +3620,7 @@ function SegmentedRow<T extends string>({
 }
 
 function CliSettings(): JSX.Element {
+  const t = useT()
   const [status, setStatus] = useState<CliInstallStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3469,11 +3673,11 @@ function CliSettings(): JSX.Element {
     return (
       <div className="space-y-6">
         <Section
-          title="Command-Line Tool"
-          description="Install the `zen` shell command for terminal-based note workflows."
+          title={t('Command-Line Tool')}
+          description={t('Install the `zen` shell command for terminal-based note workflows.')}
           settingId="zen-command-line-tool"
         >
-          <InlineNote>Checking install status…</InlineNote>
+          <InlineNote>{t('Checking install status…')}</InlineNote>
         </Section>
       </div>
     )
@@ -3483,11 +3687,11 @@ function CliSettings(): JSX.Element {
     return (
       <div className="space-y-6">
         <Section
-          title="Command-Line Tool"
-          description="Install the `zen` shell command for terminal-based note workflows."
+          title={t('Command-Line Tool')}
+          description={t('Install the `zen` shell command for terminal-based note workflows.')}
           settingId="zen-command-line-tool"
         >
-          <InlineNote>{status.reason ?? 'Not supported on this platform yet.'}</InlineNote>
+          <InlineNote>{status.reason ?? t('Not supported on this platform yet.')}</InlineNote>
         </Section>
       </div>
     )
@@ -3497,17 +3701,17 @@ function CliSettings(): JSX.Element {
   const ours = status.installedByThisApp
   const chip = installed
     ? ours
-      ? { label: 'Installed', tone: 'ok' as const }
-      : { label: 'External install', tone: 'warn' as const }
-    : { label: 'Not installed', tone: 'off' as const }
+      ? { label: t('Installed'), tone: 'ok' as const }
+      : { label: t('External install'), tone: 'warn' as const }
+    : { label: t('Not installed'), tone: 'off' as const }
 
   const isUnavailable = !status.available
 
   return (
     <div className="space-y-6">
       <Section
-        title="Command-Line Tool"
-        description="The `zen` CLI talks to your vault directly from any terminal — perfect for scripts, cron jobs, editor plugins, shell pipelines, MCP, and launcher integrations like Raycast. Once installed, try `zen --help` or pipe text in: `pbpaste | zen capture`."
+        title={t('Command-Line Tool')}
+        description={t('The `zen` CLI talks to your vault directly from any terminal — perfect for scripts, cron jobs, editor plugins, shell pipelines, MCP, and launcher integrations like Raycast. Once installed, try `zen --help` or pipe text in: `pbpaste | zen capture`.')}
         settingId="zen-command-line-tool"
       >
         <div className="flex flex-col gap-3 px-5 py-4">
@@ -3539,10 +3743,11 @@ function CliSettings(): JSX.Element {
               {!installed && status.pathHint && (
                 <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-ink-700">
                   <div className="font-medium text-amber-600">
-                    {status.defaultTarget.replace(/\/[^/]+$/, '')} is not on your PATH.
+                    {status.defaultTarget.replace(/\/[^/]+$/, '')} {t('is not on your PATH.')}
                   </div>
                   <div className="mt-1 text-ink-500">
-                    After install, run this once so your shell can find <code className="font-mono">zen</code>:
+                    {t('After install, run this once so your shell can find')}{' '}
+                    <code className="font-mono">zen</code>:
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
                     <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-xs text-ink-900">
@@ -3553,7 +3758,7 @@ function CliSettings(): JSX.Element {
                       onClick={() => copyToClipboard(status.pathHint ?? '')}
                       className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
                     >
-                      Copy
+                      {t('Copy')}
                     </button>
                   </div>
                 </div>
@@ -3572,7 +3777,7 @@ function CliSettings(): JSX.Element {
                       : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
                   ].join(' ')}
                 >
-                  {busy ? 'Working…' : 'Uninstall'}
+                  {busy ? t('Working…') : t('Uninstall')}
                 </button>
               ) : (
                 <Button
@@ -3581,7 +3786,7 @@ function CliSettings(): JSX.Element {
                   onClick={() => void onInstall()}
                   disabled={busy || isUnavailable}
                 >
-                  {busy ? 'Installing…' : 'Install'}
+                  {busy ? t('Installing…') : t('Install')}
                 </Button>
               )}
             </div>
@@ -3598,7 +3803,7 @@ function CliSettings(): JSX.Element {
               onClick={() => copyToClipboard(status.installedAt ?? status.defaultTarget)}
               className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
             >
-              Copy
+              {t('Copy')}
             </button>
           </div>
         </div>
@@ -3610,8 +3815,8 @@ function CliSettings(): JSX.Element {
       />
 
       <Section
-        title="Quick reference"
-        description="A handful of the most useful commands. Quote paths with spaces, or pass them with `--path`. Run `zen --help` for the full list."
+        title={t('Quick reference')}
+        description={t('A handful of the most useful commands. Quote paths with spaces, or pass them with `--path`. Run `zen --help` for the full list.')}
         settingId="cli-quick-reference"
       >
         <div className="space-y-2 px-5 py-4 font-mono text-xs leading-6 text-ink-800">
@@ -3627,7 +3832,7 @@ function CliSettings(): JSX.Element {
 
       {error && (
         <InlineNote>
-          <span className="text-ink-900">Something went wrong:</span> {error}
+          <span className="text-ink-900">{t('Something went wrong:')}</span> {error}
         </InlineNote>
       )}
     </div>
@@ -3641,6 +3846,7 @@ function RaycastExtensionSettings({
   cliInstalled: boolean
   copyToClipboard: (text: string) => void
 }): JSX.Element {
+  const t = useT()
   const [status, setStatus] = useState<RaycastExtensionStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -3675,11 +3881,11 @@ function RaycastExtensionSettings({
   if (status == null) {
     return (
       <Section
-        title="Raycast Extension"
-        description="Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review."
+        title={t('Raycast Extension')}
+        description={t('Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review.')}
         settingId="raycast-extension"
       >
-        <InlineNote>Checking Raycast status…</InlineNote>
+        <InlineNote>{t('Checking Raycast status…')}</InlineNote>
       </Section>
     )
   }
@@ -3687,12 +3893,12 @@ function RaycastExtensionSettings({
   const chip = raycastStatusChip(status, cliInstalled)
   const installDisabled = busy || !cliInstalled || !status.available
   const installLabel = busy
-    ? 'Installing…'
+    ? t('Installing…')
     : status.installed
       ? status.upToDate
-        ? 'Reinstall'
-        : 'Update'
-      : 'Install'
+        ? t('Reinstall')
+        : t('Update')
+      : t('Install')
   const detail = raycastStatusDetail(status, cliInstalled)
   const toolchainDetail = [
     `Raycast ${status.raycastInstalled ? 'found' : 'missing'}`,
@@ -3702,8 +3908,8 @@ function RaycastExtensionSettings({
 
   return (
     <Section
-      title="Raycast Extension"
-      description="Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review."
+      title={t('Raycast Extension')}
+      description={t('Install the ZenNotes Raycast extension locally from this app instead of waiting for the Raycast Store review.')}
       settingId="raycast-extension"
     >
       <div className="flex flex-col gap-3 px-5 py-4">
@@ -3717,15 +3923,15 @@ function RaycastExtensionSettings({
                   statusChipClass(chip.tone)
                 ].join(' ')}
               >
-                {chip.label}
+                {t(chip.label)}
               </span>
             </div>
-            <div className="mt-1 text-xs leading-5 text-ink-500">{detail}</div>
+            <div className="mt-1 text-xs leading-5 text-ink-500">{t(detail)}</div>
             <div className="mt-1 text-xs leading-5 text-ink-400">{toolchainDetail}</div>
             {!cliInstalled && (
               <div className="mt-1.5 text-xs leading-5 text-amber-500">
-                Install the <code className="font-mono">zen</code> CLI above first. The Raycast
-                command calls it to read your local vault.
+                {t('Install the')} <code className="font-mono">zen</code>{' '}
+                {t('CLI above first. The Raycast command calls it to read your local vault.')}
               </div>
             )}
             {cliInstalled && status.reason && (
@@ -3755,14 +3961,14 @@ function RaycastExtensionSettings({
             onClick={() => copyToClipboard(status.extensionPath)}
             className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-paper-200"
           >
-            Copy
+            {t('Copy')}
           </button>
         </div>
       </div>
 
       {error && (
         <InlineNote>
-          <span className="text-ink-900">Something went wrong:</span> {error}
+          <span className="text-ink-900">{t('Something went wrong:')}</span> {error}
         </InlineNote>
       )}
     </Section>
@@ -3804,6 +4010,7 @@ function raycastStatusDetail(
 
 
 function McpSettings(): JSX.Element {
+  const t = useT()
   const [statuses, setStatuses] = useState<McpClientStatus[] | null>(null)
   const [runtime, setRuntime] = useState<McpServerRuntime | null>(null)
   const [busyId, setBusyId] = useState<McpClientId | null>(null)
@@ -3862,10 +4069,10 @@ function McpSettings(): JSX.Element {
   const entryMissing = runtime !== null && runtime.entryPath == null
 
   const serverStatusLabel = runtime == null
-    ? 'Checking\u2026'
+    ? t('Checking\u2026')
     : entryMissing
-      ? 'Not built'
-      : 'Ready'
+      ? t('Not built')
+      : t('Ready')
   const serverStatusTone = runtime == null
     ? 'off'
     : entryMissing
@@ -3876,8 +4083,8 @@ function McpSettings(): JSX.Element {
   return (
     <div className="space-y-6">
       <Section
-        title="Server"
-        description="ZenNotes bundles a local MCP server that every client below connects to. It uses the packaged Electron binary in plain-Node mode, so no separate Node install is required."
+        title={t('Server')}
+        description={t('ZenNotes bundles a local MCP server that every client below connects to. It uses the packaged Electron binary in plain-Node mode, so no separate Node install is required.')}
         settingId="mcp-server"
       >
         <div className="px-5 py-4">
@@ -3893,10 +4100,10 @@ function McpSettings(): JSX.Element {
               </span>
               <span className="text-xs text-ink-500">
                 {runtime == null
-                  ? 'Querying runtime\u2026'
+                  ? t('Querying runtime\u2026')
                   : entryMissing
-                    ? 'Run npm run build so installers have an entry script to register.'
-                    : 'Entry script compiled. Install a client below to connect it.'}
+                    ? t('Run npm run build so installers have an entry script to register.')
+                    : t('Entry script compiled. Install a client below to connect it.')}
               </span>
             </div>
             <button
@@ -3904,7 +4111,7 @@ function McpSettings(): JSX.Element {
               onClick={() => setShowCommand((open) => !open)}
               className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
             >
-              {showCommand ? 'Hide command' : 'Show command'}
+              {showCommand ? t('Hide command') : t('Show command')}
             </button>
           </div>
           {showCommand && (
@@ -3917,7 +4124,7 @@ function McpSettings(): JSX.Element {
                 onClick={() => copy(commandPreview)}
                 className="shrink-0 rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
               >
-                Copy
+                {t('Copy')}
               </button>
             </div>
           )}
@@ -3925,12 +4132,12 @@ function McpSettings(): JSX.Element {
       </Section>
 
       <Section
-        title="Integrations"
-        description={"Pick the clients you want connected to this vault. Install writes a managed ZenNotes entry into that client\u2019s config; Uninstall removes just that entry."}
+        title={t('Integrations')}
+        description={t('Pick the clients you want connected to this vault. Install writes a managed ZenNotes entry into that client\u2019s config; Uninstall removes just that entry.')}
         settingId="mcp-integrations"
       >
         {statuses == null ? (
-          <InlineNote>{'Checking integration status\u2026'}</InlineNote>
+          <InlineNote>{t('Checking integration status\u2026')}</InlineNote>
         ) : (
           <div className="divide-y divide-paper-300/45">
             {MCP_CLIENTS.map((descriptor) => {
@@ -3954,7 +4161,7 @@ function McpSettings(): JSX.Element {
         )}
         {error && (
           <InlineNote>
-            <span className="text-ink-900">Something went wrong:</span> {error}
+            <span className="text-ink-900">{t('Something went wrong:')}</span> {error}
           </InlineNote>
         )}
       </Section>
@@ -3965,6 +4172,7 @@ function McpSettings(): JSX.Element {
 }
 
 function McpInstructionsEditor(): JSX.Element {
+  const t = useT()
   const [payload, setPayload] = useState<McpInstructionsPayload | null>(null)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
@@ -4018,8 +4226,8 @@ function McpInstructionsEditor(): JSX.Element {
 
   return (
     <Section
-      title="Instructions"
-      description="The system prompt ZenNotes ships to any connected MCP client. Edit it to change how the AI writes, structures, and styles your notes. Changes take effect on the next MCP session."
+      title={t('Instructions')}
+      description={t('The system prompt ZenNotes ships to any connected MCP client. Edit it to change how the AI writes, structures, and styles your notes. Changes take effect on the next MCP session.')}
       settingId="mcp-instructions"
     >
       <div className="space-y-3 px-5 py-5">
@@ -4028,11 +4236,11 @@ function McpInstructionsEditor(): JSX.Element {
             <span>Prompt</span>
             {payload?.isCustom ? (
               <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium tracking-[0.14em] text-accent">
-                Custom
+                {t('Custom')}
               </span>
             ) : (
               <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-2xs font-medium tracking-[0.14em] text-ink-500">
-                Default
+                {t('Default')}
               </span>
             )}
           </div>
@@ -4048,7 +4256,7 @@ function McpInstructionsEditor(): JSX.Element {
                   : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
               ].join(' ')}
             >
-              Reset to default
+              {t('Reset to default')}
             </button>
             <button
               type="button"
@@ -4061,7 +4269,7 @@ function McpInstructionsEditor(): JSX.Element {
                   : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
               ].join(' ')}
             >
-              Revert
+              {t('Revert')}
             </button>
             <Button
               variant="primary"
@@ -4069,7 +4277,7 @@ function McpInstructionsEditor(): JSX.Element {
               onClick={() => void save()}
               disabled={!dirty || saving}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? t('Saving…') : t('Save')}
             </Button>
           </div>
         </div>
@@ -4078,22 +4286,22 @@ function McpInstructionsEditor(): JSX.Element {
           onChange={(e) => setDraft(e.target.value)}
           spellCheck={false}
           className="h-[360px] w-full resize-y rounded-xl border border-paper-300/70 bg-paper-50/80 px-3.5 py-3 font-mono text-xs leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
-          placeholder="Loading…"
+          placeholder={t('Loading…')}
         />
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-500">
           <span>
-            Saved at:{' '}
+            {t('Saved at:')}{' '}
             <code className="font-mono text-xs text-ink-600">
               {payload?.filePath ?? '—'}
             </code>
           </span>
           <span>
-            {draft.length.toLocaleString()} chars · {draft.split(/\r?\n/).length} lines
+            {draft.length.toLocaleString()} {t('chars')} · {draft.split(/\r?\n/).length} {t('lines')}
           </span>
         </div>
         {error && (
           <InlineNote>
-            <span className="text-ink-900">Something went wrong:</span> {error}
+            <span className="text-ink-900">{t('Something went wrong:')}</span> {error}
           </InlineNote>
         )}
       </div>
@@ -4126,11 +4334,12 @@ function McpClientRow({
   onUninstall: () => void
   onCopyConfigPath: () => void
 }): JSX.Element {
+  const t = useT()
   const chip = status.installed
     ? status.upToDate
-      ? { label: 'Installed', tone: 'ok' as const }
-      : { label: 'Needs update', tone: 'warn' as const }
-    : { label: 'Not installed', tone: 'off' as const }
+      ? { label: t('Installed'), tone: 'ok' as const }
+      : { label: t('Needs update'), tone: 'warn' as const }
+    : { label: t('Not installed'), tone: 'off' as const }
 
   return (
     <div className="flex flex-col gap-3 px-5 py-4">
@@ -4165,7 +4374,7 @@ function McpClientRow({
                       : 'border-accent/30 bg-accent/15 text-accent hover:bg-accent/25'
                   ].join(' ')}
                 >
-                  Update
+                  {t('Update')}
                 </button>
               )}
               <button
@@ -4179,7 +4388,7 @@ function McpClientRow({
                     : 'border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200'
                 ].join(' ')}
               >
-                Uninstall
+                {t('Uninstall')}
               </button>
             </>
           ) : (
@@ -4189,7 +4398,7 @@ function McpClientRow({
               onClick={onInstall}
               disabled={busy || entryMissing}
             >
-              {busy ? 'Installing…' : 'Install'}
+              {busy ? t('Installing…') : t('Install')}
             </Button>
           )}
         </div>
@@ -4209,7 +4418,7 @@ function McpClientRow({
           onClick={onCopyConfigPath}
           className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-2xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
         >
-          Copy
+          {t('Copy')}
         </button>
       </div>
     </div>

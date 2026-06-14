@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteContent } from '@shared/ipc'
 import { parseOutline } from '../lib/outline'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
+  const t = useT()
   const items = useMemo(() => parseOutline(note.body), [note.body])
   const [query, setQuery] = useState('')
   const activeItemRef = useRef<HTMLLIElement | null>(null)
@@ -54,7 +56,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
 
   return (
     <section
-      aria-label="Outline"
+      aria-label={t("Outline")}
       style={{ width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
     >
@@ -72,7 +74,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter…"
+            placeholder={t("Filter…")}
             className="mt-3 w-full rounded-md border border-paper-300/60 bg-paper-100 px-2 py-1 text-xs text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/60"
           />
         )}
@@ -80,7 +82,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
       <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
         {filtered.length === 0 ? (
           <div className="px-2 py-4 text-center text-xs text-ink-400">
-            {items.length === 0 ? 'Nothing to show.' : 'No matches.'}
+            {items.length === 0 ? t('Nothing to show.') : t('No matches.')}
           </div>
         ) : (
           <ul className="flex flex-col">

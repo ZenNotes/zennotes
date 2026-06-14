@@ -103,9 +103,9 @@ export const THEMES: ThemeOption[] = [
 
 export const DEFAULT_THEME_ID = 'dark-hard'
 /** Default theme shown when the effective appearance is light. */
-export const DEFAULT_LIGHT_THEME_ID = 'light-hard'
+export const DEFAULT_LIGHT_THEME_ID = 'apple-light'
 /** Default theme shown when the effective appearance is dark. */
-export const DEFAULT_DARK_THEME_ID = 'dark-hard'
+export const DEFAULT_DARK_THEME_ID = 'dark-medium'
 
 export function findTheme(id: string): ThemeOption {
   return THEMES.find((t) => t.id === id) ?? THEMES[1] // fallback: light-medium

@@ -6,6 +6,7 @@
  * normal-mode key — so in-progress work is never lost; use Cancel or Save.
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
@@ -83,6 +84,7 @@ export function TemplateEditorModal({
   sourcePath?: string
   onClose: () => void
 }): JSX.Element {
+  const tr = useT()
   const saveCustomTemplate = useStore((s) => s.saveCustomTemplate)
   const vimMode = useStore((s) => s.vimMode)
   const [raw, setRaw] = useState(initialRaw ?? SKELETON)
@@ -199,11 +201,11 @@ export function TemplateEditorModal({
       <div className="grid max-h-[60vh] grid-cols-2">
         <div ref={setEditorContainer} className="h-[60vh] overflow-hidden border-r border-paper-300/50 bg-paper-50" />
         <div className="h-[60vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-sm leading-relaxed text-ink-700">
-          {preview || <span className="text-ink-500">Preview…</span>}
+          {preview || <span className="text-ink-500">{tr("Preview…")}</span>}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-paper-300/50 bg-paper-50 px-5 py-2.5">
-        <span className="form-label">Variables</span>
+        <span className="form-label">{tr("Variables")}</span>
         {TEMPLATE_VARIABLES.map((variable) => (
           <button
             key={variable.name}

@@ -1,5 +1,6 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import { buildCommands, type Command } from '../lib/commands'
 import { getKeymapDisplay, type KeymapId, type KeymapOverrides } from '../lib/keymaps'
 import {
@@ -184,6 +185,7 @@ export function HelpView(): JSX.Element {
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const t = useT()
   const runtimePlatform = window.zen.platformSync()
   const platformLabel =
     runtimePlatform === 'darwin'
@@ -202,25 +204,25 @@ export function HelpView(): JSX.Element {
   const quickStart = useMemo(
     () =>
       HELP_QUICK_START.filter((card) =>
-        matchesQuery(deferredQuery, card.title, card.body)
+        matchesQuery(deferredQuery, card.title, card.body, t(card.title), t(card.body))
       ),
-    [deferredQuery]
+    [deferredQuery, t]
   )
 
   const coreConcepts = useMemo(
     () =>
       HELP_CORE_CONCEPTS.filter((card) =>
-        matchesQuery(deferredQuery, card.title, card.body)
+        matchesQuery(deferredQuery, card.title, card.body, t(card.title), t(card.body))
       ),
-    [deferredQuery]
+    [deferredQuery, t]
   )
 
   const howToGuides = useMemo(
     () =>
       HELP_HOW_TO_GUIDES.filter((card) =>
-        matchesQuery(deferredQuery, card.title, card.body)
+        matchesQuery(deferredQuery, card.title, card.body, t(card.title), t(card.body))
       ),
-    [deferredQuery]
+    [deferredQuery, t]
   )
 
   const shortcutSections = useMemo(
@@ -233,12 +235,16 @@ export function HelpView(): JSX.Element {
             section.description,
             resolveShortcutKeys(section.id, item.action, keymapOverrides) ?? item.keys,
             item.action,
-            item.detail
+            item.detail,
+            t(section.title),
+            t(section.description),
+            t(item.action),
+            t(item.detail)
           )
         )
         if (
           items.length > 0 ||
-          matchesQuery(deferredQuery, section.title, section.description)
+          matchesQuery(deferredQuery, section.title, section.description, t(section.title), t(section.description))
         ) {
           return {
             ...section,
@@ -250,7 +256,7 @@ export function HelpView(): JSX.Element {
         }
         return null
       }).filter((section): section is (typeof HELP_SHORTCUT_SECTIONS)[number] => !!section),
-    [deferredQuery, keymapOverrides]
+    [deferredQuery, keymapOverrides, t]
   )
 
   const vimCommands = useMemo(
@@ -260,33 +266,45 @@ export function HelpView(): JSX.Element {
           deferredQuery,
           resolveVimCommandLabel(command.command, keymapOverrides),
           command.summary,
-          command.detail
+          command.detail,
+          t(command.summary),
+          t(command.detail)
         )
       ).map((command) => ({
         ...command,
         command: resolveVimCommandLabel(command.command, keymapOverrides)
       })),
-    [deferredQuery, keymapOverrides]
+    [deferredQuery, keymapOverrides, t]
   )
 
   const settingsSections = useMemo(
     () =>
       HELP_SETTINGS.map((section) => {
         const items = section.items.filter((item) =>
-          matchesQuery(deferredQuery, section.title, item.label, item.detail)
+          matchesQuery(
+            deferredQuery,
+            section.title,
+            item.label,
+            item.detail,
+            t(section.title),
+            t(item.label),
+            t(item.detail)
+          )
         )
-        if (items.length > 0 || matchesQuery(deferredQuery, section.title)) {
+        if (items.length > 0 || matchesQuery(deferredQuery, section.title, t(section.title))) {
           return { ...section, items }
         }
         return null
       }).filter((section): section is (typeof HELP_SETTINGS)[number] => !!section),
-    [deferredQuery]
+    [deferredQuery, t]
   )
 
   const cliCards = useMemo(
     () =>
-      HELP_CLI.filter((card) => matchesQuery(deferredQuery, card.title, card.body)),
-    [deferredQuery]
+      HELP_CLI.filter((card) =>
+        matchesQuery(deferredQuery, card.title, card.body, t(card.title), t(card.body))
+      ),
+    [deferredQuery, t]
   )
 
   const commandGroups = useMemo(() => {
@@ -310,7 +328,8 @@ export function HelpView(): JSX.Element {
       groups.set(command.category, bucket)
     }
 
-    const order = [...COMMAND_CATEGORY_ORDER, ...[...groups.keys()].filter((key) => !COMMAND_CATEGORY_ORDER.includes(key))]
+    const orderLabels = COMMAND_CATEGORY_ORDER.map((category) => t(category))
+    const order = [...orderLabels, ...[...groups.keys()].filter((key) => !orderLabels.includes(key))]
     return order
       .map((category) => {
         const commands = groups.get(category)
@@ -321,7 +340,7 @@ export function HelpView(): JSX.Element {
         }
       })
       .filter((group): group is CommandGroup => !!group)
-  }, [allCommands, deferredQuery])
+  }, [allCommands, deferredQuery, t])
 
   const hasMatches =
     quickStart.length > 0 ||
@@ -358,64 +377,62 @@ export function HelpView(): JSX.Element {
                     ZenNotes Manual
                   </div>
                   <h1 className="mt-2.5 font-serif text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
-                    Learn the app in layers, not all at once.
+                    {t('Learn the app in layers, not all at once.')}
                   </h1>
                   <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-500">
-                    Onboarding cards to start, how-to recipes for common jobs, concepts for the app
-                    model, and a living reference for shortcuts, commands, and settings. Labels are
-                    rendered for {platformLabel} ({primaryModifierLabel}); Vim motions like{' '}
-                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.9em] text-ink-700">
-                      Ctrl-w
-                    </code>{' '}
-                    stay literal across OSes.
+                    {t(
+                      'Onboarding cards to start, how-to recipes for common jobs, concepts for the app model, and a living reference for shortcuts, commands, and settings. Labels are rendered for {platform} ({modifier}); Vim motions like Ctrl-w stay literal across OSes.'
+                    )
+                      .replace('{platform}', platformLabel)
+                      .replace('{modifier}', primaryModifierLabel)}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <ActionBtn
                     icon={<SearchIcon width={14} height={14} />}
-                    label="Search Notes"
+                    label={t('Search Notes')}
                     onClick={() => setSearchOpen(true)}
                   />
                   <ActionBtn
                     icon={<CommandIcon width={14} height={14} />}
-                    label="Commands"
+                    label={t('Commands')}
                     onClick={() => setCommandPaletteOpen(true)}
                   />
                   <ActionBtn
                     icon={<SettingsIcon width={14} height={14} />}
-                    label="Settings"
+                    label={t('Settings')}
                     onClick={() => setSettingsOpen(true)}
                   />
                   <ActionBtn
                     icon={<CloseIcon width={14} height={14} />}
-                    label="Close"
+                    label={t('Close')}
                     onClick={() => void closeActiveNote()}
                   />
                 </div>
               </div>
 
               <p className="text-xs text-ink-500">
-                <span className="font-medium text-ink-700">{HELP_QUICK_START.length}</span> onboarding
+                <span className="font-medium text-ink-700">{HELP_QUICK_START.length}</span> {t('onboarding')}
                 {' · '}
-                <span className="font-medium text-ink-700">{HELP_HOW_TO_GUIDES.length}</span> how-to
+                <span className="font-medium text-ink-700">{HELP_HOW_TO_GUIDES.length}</span> {t('how-to')}
                 {' · '}
                 <span className="font-medium text-ink-700">
                   {allCommands.length + HELP_VIM_COMMANDS.length}
                 </span>{' '}
-                reference entries
+                {t('reference entries')}
               </p>
 
               <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                 <label className="block">
                   <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                    Filter the manual
+                    {t('Filter the manual')}
                   </span>
                   <div className="flex items-center gap-2 rounded-2xl border border-paper-300/80 bg-paper-100/85 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
                     <SearchIcon width={16} height={16} className="shrink-0 text-ink-400" />
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search shortcuts, ex commands, settings, or commands"
+                      placeholder={t('Search shortcuts, ex commands, settings, or commands')}
                       className="w-full bg-transparent text-sm text-ink-900 outline-none placeholder:text-ink-400"
                     />
                     {query && (
@@ -424,7 +441,7 @@ export function HelpView(): JSX.Element {
                         onClick={() => setQuery('')}
                         className="rounded-md px-2 py-1 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-900"
                       >
-                        Clear
+                        {t('Clear')}
                       </button>
                     )}
                   </div>
@@ -443,7 +460,7 @@ export function HelpView(): JSX.Element {
                       }
                       className="rounded-full border border-paper-300/80 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
                     >
-                      {link.label}
+                      {t(link.label)}
                     </button>
                   ))}
                 </div>
@@ -454,9 +471,9 @@ export function HelpView(): JSX.Element {
 
         {!hasMatches && (
           <section className="rounded-3xl border border-paper-300/70 bg-paper-50/45 px-6 py-8 text-center shadow-[0_18px_48px_rgba(15,23,42,0.05)]">
-            <h2 className="font-serif text-2xl text-ink-900">No help topics matched.</h2>
+            <h2 className="font-serif text-2xl text-ink-900">{t('No help topics matched.')}</h2>
             <p className="mt-2 text-sm text-ink-500">
-              Clear the filter to see the full manual again.
+              {t('Clear the filter to see the full manual again.')}
             </p>
           </section>
         )}
@@ -466,12 +483,14 @@ export function HelpView(): JSX.Element {
             {quickStart.length > 0 && (
               <SectionShell
                 id="help-start"
-                title="Start Here"
-                subtitle="A short tutorial path for getting productive without learning the whole app first."
+                title={t('Start Here')}
+                subtitle={t(
+                  'A short tutorial path for getting productive without learning the whole app first.'
+                )}
               >
                 <div className="grid gap-4">
                   {quickStart.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
+                    <InfoCard key={card.title} title={t(card.title)} body={t(card.body)} />
                   ))}
                 </div>
               </SectionShell>
@@ -480,12 +499,12 @@ export function HelpView(): JSX.Element {
             {howToGuides.length > 0 && (
               <SectionShell
                 id="help-howto"
-                title="How-To Guides"
-                subtitle="Task-focused recipes for the jobs people repeat most often."
+                title={t('How-To Guides')}
+                subtitle={t('Task-focused recipes for the jobs people repeat most often.')}
               >
                 <div className="grid gap-4">
                   {howToGuides.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
+                    <InfoCard key={card.title} title={t(card.title)} body={t(card.body)} />
                   ))}
                 </div>
               </SectionShell>
@@ -494,12 +513,14 @@ export function HelpView(): JSX.Element {
             {coreConcepts.length > 0 && (
               <SectionShell
                 id="help-concepts"
-                title="Concepts"
-                subtitle="Explanations that make the app model, file model, and workflow model easier to reason about."
+                title={t('Concepts')}
+                subtitle={t(
+                  'Explanations that make the app model, file model, and workflow model easier to reason about.'
+                )}
               >
                 <div className="grid gap-4">
                   {coreConcepts.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
+                    <InfoCard key={card.title} title={t(card.title)} body={t(card.body)} />
                   ))}
                 </div>
               </SectionShell>
@@ -508,8 +529,11 @@ export function HelpView(): JSX.Element {
             {shortcutSections.length > 0 && (
               <SectionShell
                 id="help-shortcuts"
-                title="Keyboard Shortcuts"
-                subtitle={`Documented from the current input model for ${platformLabel}, not guessed.`}
+                title={t('Keyboard Shortcuts')}
+                subtitle={t('Documented from the current input model for {platform}, not guessed.').replace(
+                  '{platform}',
+                  platformLabel
+                )}
               >
                 <div className="grid gap-4">
                   {shortcutSections.map((section) => (
@@ -517,15 +541,15 @@ export function HelpView(): JSX.Element {
                       key={section.id}
                       className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
                     >
-                      <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
-                      <p className="mt-1 text-xs leading-6 text-ink-500">{section.description}</p>
+                      <h3 className="text-sm font-semibold text-ink-900">{t(section.title)}</h3>
+                      <p className="mt-1 text-xs leading-6 text-ink-500">{t(section.description)}</p>
                       <div className="mt-4 flex flex-col gap-3">
                         {section.items.map((item) => (
                           <ShortcutRow
                             key={`${section.id}-${item.action}`}
                             keys={item.keys}
-                            action={item.action}
-                            detail={item.detail}
+                            action={t(item.action)}
+                            detail={t(item.detail)}
                           />
                         ))}
                       </div>
@@ -538,14 +562,14 @@ export function HelpView(): JSX.Element {
             {vimCommands.length > 0 && (
               <SectionShell
                 id="help-vim"
-                title="Vim And Ex"
-                subtitle="Short aliases, curated commands, and keyboard-first editor behavior."
+                title={t('Vim And Ex')}
+                subtitle={t('Short aliases, curated commands, and keyboard-first editor behavior.')}
               >
                 <div className="grid gap-4">
                   <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
                     <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
                       <DocumentIcon width={15} height={15} className="text-accent" />
-                      Curated ex commands
+                      {t('Curated ex commands')}
                     </div>
                     <div className="mt-4 grid gap-3">
                       {vimCommands.map((item) => (
@@ -555,9 +579,9 @@ export function HelpView(): JSX.Element {
                         >
                           <div className="flex flex-wrap items-center gap-2">
                             <Keycap value={item.command} />
-                            <span className="text-sm font-medium text-ink-900">{item.summary}</span>
+                            <span className="text-sm font-medium text-ink-900">{t(item.summary)}</span>
                           </div>
-                          <p className="mt-2 text-sm leading-6 text-ink-500">{item.detail}</p>
+                          <p className="mt-2 text-sm leading-6 text-ink-500">{t(item.detail)}</p>
                         </div>
                       ))}
                     </div>
@@ -566,18 +590,24 @@ export function HelpView(): JSX.Element {
                   <div className="flex flex-col gap-4">
                     <CalloutCard
                       icon={<CommandIcon width={16} height={16} className="text-accent" />}
-                      title="Palette commands are also ex commands"
-                      body="Every command palette entry is registered on the Vim `:` line using its command id with punctuation normalized to underscores, like `:app_settings` or `:note_new_quick`."
+                      title={t('Palette commands are also ex commands')}
+                      body={t(
+                        'Every command palette entry is registered on the Vim `:` line using its command id with punctuation normalized to underscores, like `:app_settings` or `:note_new_quick`.'
+                      )}
                     />
                     <CalloutCard
                       icon={<CheckSquareIcon width={16} height={16} className="text-accent" />}
-                      title="Tasks and Tags have local ex prompts"
-                      body={`Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`}
+                      title={t('Tasks and Tags have local ex prompts')}
+                      body={t(
+                        'Inside Tasks or Tags, press `{key}` to open the local command line for view-specific actions like close, split, refresh, and retagging.'
+                      ).replace('{key}', shortcut(keymapOverrides, 'nav.localEx'))}
                     />
                     <CalloutCard
                       icon={<TagIcon width={16} height={16} className="text-accent" />}
-                      title="Link following is context-aware"
-                      body={`\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`}
+                      title={t('Link following is context-aware')}
+                      body={t(
+                        '`{key}` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.'
+                      ).replace('{key}', shortcut(keymapOverrides, 'vim.goToDefinition'))}
                     />
                   </div>
                 </div>
@@ -587,8 +617,11 @@ export function HelpView(): JSX.Element {
             {commandGroups.length > 0 && (
               <SectionShell
                 id="help-commands"
-                title="Command Palette"
-                subtitle={`Everything searchable from ${shortcut(keymapOverrides, 'global.commandPalette')}, including contextual commands.`}
+                title={t('Command Palette')}
+                subtitle={t('Everything searchable from {key}, including contextual commands.').replace(
+                  '{key}',
+                  shortcut(keymapOverrides, 'global.commandPalette')
+                )}
               >
                 <div className="space-y-5">
                   {commandGroups.map((group) => (
@@ -609,7 +642,7 @@ export function HelpView(): JSX.Element {
                                 <div className="mt-1 flex flex-wrap gap-1.5">
                                   {command.shortcut && <Keycap value={command.shortcut} />}
                                   <Keycap value={`:${commandExAlias(command.id)}`} subtle />
-                                  {command.when && <Badge label="Contextual" />}
+                                  {command.when && <Badge label={t('Contextual')} />}
                                 </div>
                               </div>
                               <span className="rounded-full bg-paper-100/85 px-2 py-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-500">
@@ -618,7 +651,7 @@ export function HelpView(): JSX.Element {
                             </div>
                             {command.keywords && (
                               <p className="mt-3 text-xs leading-6 text-ink-500">
-                                Keywords: {command.keywords}
+                                {t('Keywords:')} {command.keywords}
                               </p>
                             )}
                           </div>
@@ -633,12 +666,14 @@ export function HelpView(): JSX.Element {
             {cliCards.length > 0 && (
               <SectionShell
                 id="help-cli"
-                title="Command-Line Tool (zen)"
-                subtitle="Capture, search, and edit your vault from any terminal. Install once from Settings → CLI."
+                title={t('Command-Line Tool (zen)')}
+                subtitle={t(
+                  'Capture, search, and edit your vault from any terminal. Install once from Settings → CLI.'
+                )}
               >
                 <div className="grid gap-4">
                   {cliCards.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
+                    <InfoCard key={card.title} title={t(card.title)} body={t(card.body)} />
                   ))}
                 </div>
               </SectionShell>
@@ -647,8 +682,8 @@ export function HelpView(): JSX.Element {
             {settingsSections.length > 0 && (
               <SectionShell
                 id="help-settings"
-                title="Settings"
-                subtitle="Everything configurable from the Settings modal today."
+                title={t('Settings')}
+                subtitle={t('Everything configurable from the Settings modal today.')}
               >
                 <div className="grid gap-4">
                   {settingsSections.map((section) => (
@@ -656,15 +691,15 @@ export function HelpView(): JSX.Element {
                       key={section.title}
                       className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
                     >
-                      <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
+                      <h3 className="text-sm font-semibold text-ink-900">{t(section.title)}</h3>
                       <div className="mt-4 space-y-3">
                         {section.items.map((item) => (
                           <div
                             key={`${section.title}-${item.label}`}
                             className="rounded-2xl border border-paper-300/70 bg-paper-100/70 px-4 py-3"
                           >
-                            <div className="text-sm font-medium text-ink-900">{item.label}</div>
-                            <p className="mt-1 text-sm leading-6 text-ink-500">{item.detail}</p>
+                            <div className="text-sm font-medium text-ink-900">{t(item.label)}</div>
+                            <p className="mt-1 text-sm leading-6 text-ink-500">{t(item.detail)}</p>
                           </div>
                         ))}
                       </div>

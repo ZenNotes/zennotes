@@ -9,6 +9,7 @@ import {
   useStore,
 } from "../store";
 import { confirmMoveToTrash } from "../lib/confirm-trash";
+import { useT } from "../lib/i18n";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
 import type { AssetMeta, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
@@ -340,6 +341,7 @@ function RootFolderDropTarget({
 }
 
 export function Sidebar(): JSX.Element {
+  const t = useT();
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const allFolders = useStore((s) => s.folders);
@@ -428,12 +430,12 @@ export function Sidebar(): JSX.Element {
   const appUpdateBadge = appUpdateBadgeLabel(appUpdateState);
   const appUpdateSettingsTitle =
     appUpdateState?.phase === "downloaded"
-      ? "Settings, update ready to install"
+      ? t("Settings, update ready to install")
       : appUpdateState?.phase === "downloading"
-        ? "Settings, update downloading"
+        ? t("Settings, update downloading")
         : appUpdateState?.phase === "available"
-          ? "Settings, update available"
-          : "Settings";
+          ? t("Settings, update available")
+          : t("Settings");
   const canSwitchLocalVaults =
     window.zen.getAppInfo().runtime === "desktop" &&
     window.zen.getCapabilities().supportsLocalFilesystemPickers;
@@ -443,7 +445,7 @@ export function Sidebar(): JSX.Element {
   const canSwitchVaults = canSwitchLocalVaults || canUseRemoteWorkspaces;
   const canCloseCurrentVault = canSwitchLocalVaults && workspaceMode !== "remote" && !!vault;
   const absolutePathLabel =
-    workspaceMode === "remote" ? "Copy Server Path" : "Copy Absolute Path";
+    workspaceMode === "remote" ? t("Copy Server Path") : t("Copy Absolute Path");
   const canManageAssetFiles =
     window.zen.getAppInfo().runtime === "desktop" &&
     workspaceMode !== "remote" &&
@@ -1385,7 +1387,7 @@ export function Sidebar(): JSX.Element {
         onSelect: async () => {
           const ok = await confirmApp({
             title: `Move ${liveNotes.length} note${liveNotes.length === 1 ? "" : "s"} to ${folderLabels.trash}?`,
-            description: "You can restore them from Trash later.",
+            description: t("You can restore them from Trash later."),
             confirmLabel: `Move to ${folderLabels.trash}`,
             danger: true,
           });
@@ -1418,8 +1420,8 @@ export function Sidebar(): JSX.Element {
         onSelect: async () => {
           const ok = await confirmApp({
             title: `Delete ${trashedNotes.length} note${trashedNotes.length === 1 ? "" : "s"} permanently?`,
-            description: "This cannot be undone.",
-            confirmLabel: "Delete permanently",
+            description: t("This cannot be undone."),
+            confirmLabel: t("Delete permanently"),
             danger: true,
           });
           if (!ok) return;
@@ -1457,8 +1459,8 @@ export function Sidebar(): JSX.Element {
         onSelect: async () => {
           const ok = await confirmApp({
             title: `Delete ${selectedFolderItems.length} folder${selectedFolderItems.length === 1 ? "" : "s"} and everything inside?`,
-            description: "This cannot be undone.",
-            confirmLabel: "Delete folders",
+            description: t("This cannot be undone."),
+            confirmLabel: t("Delete folders"),
             danger: true,
           });
           if (!ok) return;
@@ -1477,7 +1479,7 @@ export function Sidebar(): JSX.Element {
     if (paths.length > 0) {
       items.push({ kind: "separator" });
       items.push({
-        label: "Copy Paths",
+        label: t("Copy Paths"),
         onSelect: async () => {
           window.zen.clipboardWriteText(paths.join("\n"));
         },
@@ -1524,13 +1526,13 @@ export function Sidebar(): JSX.Element {
     );
     const iconItems: ContextMenuItem[] = [
       {
-        label: "Change icon…",
+        label: t("Change icon…"),
         onSelect: async () => {
           openFolderIconPicker(folder, subpath, label);
         },
       },
       {
-        label: "Reset icon",
+        label: t("Reset icon"),
         disabled: !hasCustomIcon,
         onSelect: async () => {
           await resetFolderIcon(folder, subpath);
@@ -1548,7 +1550,7 @@ export function Sidebar(): JSX.Element {
           onSelect: async () => {
             const ok = await confirmApp({
               title: `Delete ${trashCount} trashed note${trashCount === 1 ? "" : "s"} permanently?`,
-              description: "This cannot be undone.",
+              description: t("This cannot be undone."),
               confirmLabel: `Empty ${folderLabels.trash}`,
               danger: true,
             });
@@ -1565,19 +1567,19 @@ export function Sidebar(): JSX.Element {
 
     const items: ContextMenuItem[] = [
       {
-        label: "New note",
+        label: t("New note"),
         onSelect: async () => {
           await createAndOpen(folder, subpath);
         },
       },
       {
-        label: "New from template",
+        label: t("New from template"),
         onSelect: () => {
           openTemplatePaletteForFolder(folder, subpath);
         },
       },
       {
-        label: "New database",
+        label: t("New database"),
         onSelect: async () => {
           await createDatabase(folder, subpath);
         },
@@ -1585,7 +1587,7 @@ export function Sidebar(): JSX.Element {
     ];
     if (folder === "quick" && isTop) {
       items.push({
-        label: "Open as Tab",
+        label: t("Open as Tab"),
         onSelect: async () => {
           await openQuickNotesView();
         },
@@ -1593,7 +1595,7 @@ export function Sidebar(): JSX.Element {
     }
     if (folder === "archive" && isTop) {
       items.push({
-        label: "Open as Tab",
+        label: t("Open as Tab"),
         onSelect: async () => {
           await openArchiveView();
         },
@@ -1602,14 +1604,14 @@ export function Sidebar(): JSX.Element {
     // Quick Notes is a flat folder — no nested subfolders allowed.
     if (folder !== "quick") {
       items.push({
-        label: "New folder",
+        label: t("New folder"),
         onSelect: async () => {
           const name = await promptApp({
             title: `New folder inside "${label}"`,
-            placeholder: "Folder name",
-            okLabel: "Create",
+            placeholder: t("Folder name"),
+            okLabel: t("Create"),
             validate: (v) => {
-              if (v.includes("/")) return 'Folder name cannot contain "/"';
+              if (v.includes("/")) return t('Folder name cannot contain "/"');
               return null;
             },
           });
@@ -1629,7 +1631,7 @@ export function Sidebar(): JSX.Element {
     if (!isTop) {
       items.push({ kind: "separator" });
       items.push({
-        label: "Duplicate",
+        label: t("Duplicate"),
         onSelect: async () => {
           try {
             await duplicateFolderAction(folder, subpath);
@@ -1640,7 +1642,7 @@ export function Sidebar(): JSX.Element {
       });
       if (primaryNotesAtRoot && folder === "inbox" && subpath.includes("/")) {
         items.push({
-          label: "Move to vault root",
+          label: t("Move to vault root"),
           onSelect: async () => {
             const leaf = subpath.split("/").slice(-1)[0];
             if (!leaf || leaf === subpath) return;
@@ -1659,7 +1661,7 @@ export function Sidebar(): JSX.Element {
     items.push({ kind: "separator" });
     if (canRevealInFileManager) {
       items.push({
-        label: "Reveal in File Manager",
+        label: t("Reveal in File Manager"),
         onSelect: async () => {
           await revealFolderAction(folder, subpath);
         },
@@ -1670,7 +1672,7 @@ export function Sidebar(): JSX.Element {
         )
       ) {
         items.push({
-          label: "Reveal Original Location",
+          label: t("Reveal Original Location"),
           icon: <ArrowUpRightIcon />,
           onSelect: async () => {
             await window.zen.revealFolderTarget(folder, subpath);
@@ -1679,7 +1681,7 @@ export function Sidebar(): JSX.Element {
       }
     }
     items.push({
-      label: "Copy Path",
+      label: t("Copy Path"),
       onSelect: async () => {
         // Vault-relative POSIX path (e.g. `inbox/Work/Research`).
         const rel = vaultRelativeFolderPath(folder, subpath, vaultSettings);
@@ -1704,15 +1706,15 @@ export function Sidebar(): JSX.Element {
     if (!isTop) {
       items.push({ kind: "separator" });
       items.push({
-        label: "Rename…",
+        label: t("Rename…"),
         onSelect: async () => {
           const leaf = subpath.split("/").slice(-1)[0];
           const next = await promptApp({
-            title: "Rename folder",
+            title: t("Rename folder"),
             initialValue: leaf,
-            okLabel: "Rename",
+            okLabel: t("Rename"),
             validate: (v) => {
-              if (v.includes("/")) return "Use only a leaf name";
+              if (v.includes("/")) return t("Use only a leaf name");
               return null;
             },
           });
@@ -1729,13 +1731,13 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Delete folder…",
+        label: t("Delete folder…"),
         danger: true,
         onSelect: async () => {
           const ok = await confirmApp({
             title: `Delete "${subpath}" and everything inside it?`,
-            description: "This cannot be undone.",
-            confirmLabel: "Delete folder",
+            description: t("This cannot be undone."),
+            confirmLabel: t("Delete folder"),
             danger: true,
           });
           if (!ok) return;
@@ -1782,31 +1784,31 @@ export function Sidebar(): JSX.Element {
   const rootMenuItems = useMemo<ContextMenuItem[]>(
     () => [
       {
-        label: "New note",
+        label: t("New note"),
         onSelect: async () => {
           await createAndOpen("inbox", "");
         },
       },
       {
-        label: "New from template",
+        label: t("New from template"),
         onSelect: () => {
           openTemplatePaletteForFolder("inbox", "");
         },
       },
       {
-        label: "New database",
+        label: t("New database"),
         onSelect: async () => {
           await createDatabase("inbox", "");
         },
       },
       {
-        label: "New folder",
+        label: t("New folder"),
         onSelect: async () => {
           const name = await promptApp({
-            title: "New folder at the vault root",
-            placeholder: "Folder name",
-            okLabel: "Create",
-            validate: (v) => (v.includes("/") ? 'Folder name cannot contain "/"' : null),
+            title: t("New folder at the vault root"),
+            placeholder: t("Folder name"),
+            okLabel: t("Create"),
+            validate: (v) => (v.includes("/") ? t('Folder name cannot contain "/"') : null),
           });
           const clean = name?.trim().replace(/^\/+|\/+$/g, "");
           if (!clean) return;
@@ -1833,7 +1835,7 @@ export function Sidebar(): JSX.Element {
     }
     const items: ContextMenuItem[] = [
       {
-        label: "Open",
+        label: t("Open"),
         onSelect: async () => {
           await selectNote(n.path);
         },
@@ -1841,7 +1843,7 @@ export function Sidebar(): JSX.Element {
     ];
     if (tabsEnabled) {
       items.push({
-        label: "Open in New Tab",
+        label: t("Open in New Tab"),
         onSelect: async () => {
           await openNoteInTab(n.path);
         },
@@ -1849,12 +1851,12 @@ export function Sidebar(): JSX.Element {
     }
     if (n.folder !== "trash") {
       items.push({
-        label: "Rename…",
+        label: t("Rename…"),
         onSelect: async () => {
           const next = await promptApp({
-            title: "Rename note",
+            title: t("Rename note"),
             initialValue: n.title,
-            okLabel: "Rename",
+            okLabel: t("Rename"),
             validate: (v) => {
               if (/[\\/]/.test(v)) return "Title cannot contain / or \\";
               return null;
@@ -1865,7 +1867,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Move…",
+        label: t("Move…"),
         onSelect: async () => {
           const target = await promptApp(buildMoveNotePrompt(n, allFolders));
           if (!target) return;
@@ -1874,7 +1876,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Duplicate",
+        label: t("Duplicate"),
         onSelect: async () => {
           const meta = await window.zen.duplicateNote(n.path);
           await refreshNotes();
@@ -1883,13 +1885,13 @@ export function Sidebar(): JSX.Element {
       });
     }
     items.push({
-      label: "Copy as Wikilink",
+      label: t("Copy as Wikilink"),
       onSelect: async () => {
         window.zen.clipboardWriteText(`[[${n.title}]]`);
       },
     });
     items.push({
-      label: "Copy Path",
+      label: t("Copy Path"),
       onSelect: async () => {
         // Vault-relative POSIX path (what wikilinks and IPC use).
         window.zen.clipboardWriteText(n.path);
@@ -1908,21 +1910,21 @@ export function Sidebar(): JSX.Element {
       },
     });
     items.push({
-      label: "Open in Floating Window",
+      label: t("Open in Floating Window"),
       onSelect: async () => {
         await window.zen.openNoteWindow(n.path);
       },
     });
     if (canRevealInFileManager) {
       items.push({
-        label: "Reveal in File Manager",
+        label: t("Reveal in File Manager"),
         onSelect: async () => {
           await window.zen.revealNote(n.path);
         },
       });
       if (n.isSymlink) {
         items.push({
-          label: "Reveal Original Location",
+          label: t("Reveal Original Location"),
           icon: <ArrowUpRightIcon />,
           onSelect: async () => {
             await window.zen.revealNoteTarget(n.path);
@@ -1975,7 +1977,7 @@ export function Sidebar(): JSX.Element {
       });
     } else {
       items.push({
-        label: "Restore",
+        label: t("Restore"),
         icon: <ArrowUpRightIcon />,
         onSelect: async () => {
           const meta = await window.zen.restoreFromTrash(n.path);
@@ -1984,7 +1986,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Delete Permanently",
+        label: t("Delete Permanently"),
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
@@ -2032,28 +2034,28 @@ export function Sidebar(): JSX.Element {
 
     const items: ContextMenuItem[] = [
       {
-        label: "Open",
+        label: t("Open"),
         onSelect: openAsset,
       },
       {
-        label: "Open in New Tab",
+        label: t("Open in New Tab"),
         onSelect: openAsset,
       },
     ];
 
     if (canManageAssetFiles) {
       items.push({
-        label: "Rename…",
+        label: t("Rename…"),
         onSelect: async () => {
           const next = await promptApp({
-            title: "Rename asset",
+            title: t("Rename asset"),
             initialValue: asset.name,
-            okLabel: "Rename",
+            okLabel: t("Rename"),
             validate: (value) => {
               const clean = value.trim();
-              if (!clean) return "Asset name is required";
-              if (/[\\/]/.test(clean)) return "Use only a file name";
-              if (/\.md$/i.test(clean)) return "Use note actions for markdown notes";
+              if (!clean) return t("Asset name is required");
+              if (/[\\/]/.test(clean)) return t("Use only a file name");
+              if (/\.md$/i.test(clean)) return t("Use note actions for markdown notes");
               return null;
             },
           });
@@ -2063,20 +2065,20 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Move…",
+        label: t("Move…"),
         onSelect: async () => {
           const target = await promptApp({
-            title: "Move asset",
-            description: "Enter a vault-relative folder path. Leave empty to move to the vault root.",
+            title: t("Move asset"),
+            description: t("Enter a vault-relative folder path. Leave empty to move to the vault root."),
             initialValue: currentDir,
-            placeholder: "media/screenshots",
-            okLabel: "Move",
+            placeholder: t("media/screenshots"),
+            okLabel: t("Move"),
             allowEmptySubmit: true,
             validate: (value) => {
               const clean = value.trim();
-              if (clean.includes("..")) return "Path cannot contain ..";
+              if (clean.includes("..")) return t("Path cannot contain ..");
               if (clean.split("/").includes(".zennotes")) {
-                return "Cannot move assets into internal ZenNotes files";
+                return t("Cannot move assets into internal ZenNotes files");
               }
               return null;
             },
@@ -2087,7 +2089,7 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Duplicate",
+        label: t("Duplicate"),
         onSelect: async () => {
           await window.zen.duplicateAsset(asset.path);
           await refreshAssets();
@@ -2096,13 +2098,13 @@ export function Sidebar(): JSX.Element {
     }
 
     items.push({
-      label: "Copy as Embed",
+      label: t("Copy as Embed"),
       onSelect: async () => {
         window.zen.clipboardWriteText(`![[${asset.path}]]`);
       },
     });
     items.push({
-      label: "Copy Path",
+      label: t("Copy Path"),
       onSelect: async () => {
         window.zen.clipboardWriteText(asset.path);
       },
@@ -2116,7 +2118,7 @@ export function Sidebar(): JSX.Element {
 
     if (canRevealInFileManager) {
       items.push({
-        label: "Reveal in File Manager",
+        label: t("Reveal in File Manager"),
         onSelect: async () => {
           await window.zen.revealNote(asset.path);
         },
@@ -2126,7 +2128,7 @@ export function Sidebar(): JSX.Element {
     if (canDeleteAssets) {
       items.push({ kind: "separator" });
       items.push({
-        label: "Delete Asset…",
+        label: t("Delete Asset…"),
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
@@ -2134,7 +2136,7 @@ export function Sidebar(): JSX.Element {
             title: `Delete ${asset.name}?`,
             description:
               "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.",
-            confirmLabel: "Delete asset",
+            confirmLabel: t("Delete asset"),
             danger: true,
           });
           if (!ok) return;
@@ -2168,16 +2170,16 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
-        label: "Rename tag…",
+        label: t("Rename tag…"),
         onSelect: async () => {
           const next = await promptApp({
             title: `Rename #${tag}`,
             initialValue: tag,
-            okLabel: "Rename",
+            okLabel: t("Rename"),
             validate: (v) => {
               const clean = v.replace(/^#/, "").trim();
               if (!/^[a-zA-Z][\w\-/]*$/.test(clean)) {
-                return "Tag must start with a letter and contain only letters, digits, -, _, or /";
+                return t("Tag must start with a letter and contain only letters, digits, -, _, or /");
               }
               return null;
             },
@@ -2190,13 +2192,13 @@ export function Sidebar(): JSX.Element {
       },
       { kind: "separator" },
       {
-        label: "Delete tag from all notes",
+        label: t("Delete tag from all notes"),
         danger: true,
         onSelect: async () => {
           const ok = await confirmApp({
             title: `Remove #${tag} from every note that contains it?`,
-            description: "The notes themselves are left intact.",
-            confirmLabel: "Remove tag",
+            description: t("The notes themselves are left intact."),
+            confirmLabel: t("Remove tag"),
             danger: true,
           });
           if (!ok) return;
@@ -2211,14 +2213,14 @@ export function Sidebar(): JSX.Element {
 
     if (vaultSwitcherEntries.length === 0) {
       items.push({
-        label: "No vaults yet",
+        label: t("No vaults yet"),
         disabled: true,
       });
     } else {
       for (const entry of vaultSwitcherEntries) {
         items.push({
           label: entry.name,
-          hint: entry.current ? "Current" : entry.kind === "remote" ? "Remote" : undefined,
+          hint: entry.current ? t("Current") : entry.kind === "remote" ? t("Remote") : undefined,
           icon: <VaultBadge name={entry.name} size={16} />,
           disabled: entry.current || (entry.kind === "remote" && !entry.id),
           onSelect: async () => {
@@ -2235,7 +2237,7 @@ export function Sidebar(): JSX.Element {
     items.push({ kind: "separator" });
     if (canCloseCurrentVault) {
       items.push({
-        label: "Close Current Vault",
+        label: t("Close Current Vault"),
         icon: <CloseIcon className="h-4 w-4" />,
         onSelect: async () => {
           await closeVault();
@@ -2244,7 +2246,7 @@ export function Sidebar(): JSX.Element {
     }
     if (canSwitchLocalVaults) {
       items.push({
-        label: "Add Local Vault…",
+        label: t("Add Local Vault…"),
         icon: <PlusIcon className="h-4 w-4" />,
         onSelect: async () => {
           await openVaultPicker();
@@ -2253,7 +2255,7 @@ export function Sidebar(): JSX.Element {
     }
     if (canUseRemoteWorkspaces) {
       items.push({
-        label: "Connect to Remote Vault…",
+        label: t("Connect to Remote Vault…"),
         icon: <ArrowUpRightIcon className="h-4 w-4" />,
         onSelect: async () => {
           await connectRemoteWorkspace();
@@ -2262,7 +2264,7 @@ export function Sidebar(): JSX.Element {
     }
     if (canSwitchLocalVaults) {
       items.push({
-        label: "Open Local Vault in New Window…",
+        label: t("Open Local Vault in New Window…"),
         icon: <ArrowUpRightIcon className="h-4 w-4" />,
         onSelect: async () => {
           await window.zen.openVaultWindow();
@@ -2511,8 +2513,8 @@ export function Sidebar(): JSX.Element {
               "group flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-paper-200/70",
               vaultHeaderVimHighlight ? "vim-cursor" : "",
             ].join(" ")}
-            title="Switch vault"
-            aria-label="Switch vault"
+            title={t("Switch vault")}
+            aria-label={t("Switch vault")}
             data-sidebar-idx={vaultHeaderIdx}
             data-sidebar-type="vault"
           >
@@ -2553,7 +2555,7 @@ export function Sidebar(): JSX.Element {
           </div>
         )}
         <div className="flex items-center gap-0.5">
-          <IconBtn title="Hide sidebar (⌘1)" onClick={toggleSidebar}>
+          <IconBtn title={t("Hide sidebar (⌘1)")} onClick={toggleSidebar}>
             <PanelLeftIcon />
           </IconBtn>
         </div>
@@ -2564,17 +2566,17 @@ export function Sidebar(): JSX.Element {
         <button
           onClick={() => setSearchOpen(true)}
           className="group flex h-7 flex-1 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm text-ink-700 transition-colors hover:bg-paper-200/70 hover:text-ink-900"
-          title="Search (⌘P)"
+          title={t("Search (⌘P)")}
         >
           <SearchIcon />
-          <span className="flex-1 truncate">Search</span>
+          <span className="flex-1 truncate">{t("Search")}</span>
           <kbd className="rounded bg-paper-200 px-1 py-0.5 text-2xs text-ink-500">
             ⌘P
           </kbd>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
           <IconBtn
-            title="New note (choose folder)"
+            title={t("New note (choose folder)")}
             onClick={() => {
               const state = useStore.getState();
               const target = defaultNewNoteTarget(
@@ -2590,7 +2592,7 @@ export function Sidebar(): JSX.Element {
             <NotePlusIcon />
           </IconBtn>
           <IconBtn
-            title="New folder"
+            title={t("New folder")}
             onClick={async () => {
               const view = useStore.getState().view;
               // Quick Notes is intentionally flat — fall back to inbox
@@ -2603,11 +2605,11 @@ export function Sidebar(): JSX.Element {
               const parentSub =
                 view.kind === "folder" && !noFolders ? view.subpath : "";
               const name = await promptApp({
-                title: "New folder",
-                placeholder: "Folder name",
-                okLabel: "Create",
+                title: t("New folder"),
+                placeholder: t("Folder name"),
+                okLabel: t("Create"),
                 validate: (v) => {
-                  if (v.includes("/")) return 'Folder name cannot contain "/"';
+                  if (v.includes("/")) return t('Folder name cannot contain "/"');
                   return null;
                 },
               });
@@ -2625,21 +2627,21 @@ export function Sidebar(): JSX.Element {
             <FolderPlusIcon />
           </IconBtn>
           <IconBtn
-            title={`Sort: ${sortOrderLabel(noteSortOrder)}${groupByKind ? ", Group by kind" : ""}`}
+            title={`${t("Sort:")} ${sortOrderLabel(noteSortOrder, t)}${groupByKind ? t(", Group by kind") : ""}`}
             onClick={(e) => setSortMenu({ x: e.clientX, y: e.clientY })}
             active={noteSortOrder !== "none"}
           >
             <SortIcon />
           </IconBtn>
           <IconBtn
-            title={autoReveal ? "Auto-reveal: on" : "Auto-reveal: off"}
+            title={autoReveal ? t("Auto-reveal: on") : t("Auto-reveal: off")}
             onClick={() => setAutoReveal(!autoReveal)}
             active={autoReveal}
           >
             <TargetIcon />
           </IconBtn>
           <IconBtn
-            title="Collapse all"
+            title={t("Collapse all")}
             onClick={() =>
               collapsed.size >= allFolderKeys.length
                 ? expandAll()
@@ -2717,8 +2719,8 @@ export function Sidebar(): JSX.Element {
             headerAction={
               <button
                 type="button"
-                title={`New note in ${folderLabels.quick} (⇧⌘N)`}
-                aria-label={`New note in ${folderLabels.quick}`}
+                title={`${t("New note in")} ${folderLabels.quick} (⇧⌘N)`}
+                aria-label={`${t("New note in")} ${folderLabels.quick}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   const title = resolveQuickNoteTitle(
@@ -2788,7 +2790,7 @@ export function Sidebar(): JSX.Element {
           </div>
 
           <SidebarSectionHeading
-            label="Notes"
+            label={t("Notes")}
             onDropPayload={
               primaryNotesAtRoot
                 ? (payload) => handleDropOnFolder(payload, "inbox", "")
@@ -2870,7 +2872,7 @@ export function Sidebar(): JSX.Element {
               <button
                 type="button"
                 onClick={() => setTagsCollapsed(!tagsCollapsed)}
-                title={tagsCollapsed ? "Show tags" : "Hide tags"}
+                title={tagsCollapsed ? t("Show tags") : t("Hide tags")}
                 aria-expanded={!tagsCollapsed}
                 className="flex w-full items-center gap-1 rounded px-2 pb-2 text-xs font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
               >
@@ -2887,7 +2889,7 @@ export function Sidebar(): JSX.Element {
                     ▾
                   </span>
                 )}
-                <span>Tags</span>
+                <span>{t("Tags")}</span>
                 <span className="ml-1 text-ink-500 normal-case tracking-normal">
                   {tags.length}
                 </span>
@@ -2960,7 +2962,7 @@ export function Sidebar(): JSX.Element {
         {hasAssetsDir && canRevealInFileManager && (
           <SidebarFooterAction
             icon={<FolderGlyphIcon />}
-            label="Files"
+            label={t("Files")}
             count={assetFiles.length}
             onClick={() => void revealAssetsDir()}
             sidebarIdx={idxCounter.current.value++}
@@ -2972,7 +2974,7 @@ export function Sidebar(): JSX.Element {
         {(!hasAssetsDir || !canRevealInFileManager) && <div />}
         <SidebarFooterAction
           icon={<DocumentIcon />}
-          label="Help"
+          label={t("Help")}
           active={helpViewActive}
           onClick={() => void openHelpView()}
           sidebarIdx={idxCounter.current.value++}
@@ -2982,7 +2984,7 @@ export function Sidebar(): JSX.Element {
         />
         <SidebarFooterAction
           icon={<SettingsIcon />}
-          label="Settings"
+          label={t("Settings")}
           title={appUpdateSettingsTitle}
           badgeLabel={appUpdateBadge ?? undefined}
           onClick={() => setSettingsOpen(true)}
@@ -3075,12 +3077,12 @@ export function Sidebar(): JSX.Element {
                 ["name-desc", "Name (Z → A)"],
               ] as const
             ).map(([id, label]) => ({
-              label: `${noteSortOrder === id ? "✓  " : "    "}${label}`,
+              label: `${noteSortOrder === id ? "✓  " : "    "}${t(label)}`,
               onSelect: () => setNoteSortOrder(id as NoteSortOrder),
             })),
             { kind: "separator" as const },
             {
-              label: `${groupByKind ? "✓  " : "    "}Group by kind`,
+              label: `${groupByKind ? "✓  " : "    "}${t("Group by kind")}`,
               onSelect: () => setGroupByKind(!groupByKind),
             },
           ]}
@@ -3925,6 +3927,7 @@ const NoteLeaf = memo(function NoteLeaf({
   sidebarIdx,
   vimHighlight,
 }: NoteLeafProps): JSX.Element {
+  const t = useT();
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
   const selectionKey = noteSelectionKey(note.path);
   // Zustand actions are stable references, so pulling this here keeps the
@@ -4003,8 +4006,8 @@ const NoteLeaf = memo(function NoteLeaf({
       <span className="flex-1 truncate">{note.title}</span>
       {note.isSymlink && (
         <span
-          aria-label="Symlinked note"
-          title="Symlinked into this vault"
+          aria-label={t("Symlinked note")}
+          title={t("Symlinked into this vault")}
           className={[
             "shrink-0",
             active
@@ -4033,8 +4036,8 @@ const NoteLeaf = memo(function NoteLeaf({
       )}
       {note.hasAttachments && (
         <span
-          aria-label="Has embedded files"
-          title="Has embedded files"
+          aria-label={t("Has embedded files")}
+          title={t("Has embedded files")}
           className={[
             "shrink-0",
             active
@@ -4061,7 +4064,7 @@ const NoteLeaf = memo(function NoteLeaf({
         </span>
       )}
       {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active || selected} label="menu" keyLabel="m" />
+        <RowKeyHint active={active || selected} label={t("menu")} keyLabel="m" />
       )}
     </button>
   );
@@ -4231,6 +4234,7 @@ function TreeRow({
   /** Hide the chevron affordance while keeping row-click toggle behavior. */
   showExpandChevron?: boolean;
 }): JSX.Element {
+  const t = useT();
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
 
   return (
@@ -4293,7 +4297,7 @@ function TreeRow({
               ? "text-white/80 hover:bg-white/15"
               : "text-ink-500 hover:bg-paper-300/60",
           ].join(" ")}
-          aria-label={collapsed ? "Expand" : "Collapse"}
+          aria-label={collapsed ? t("Expand") : t("Collapse")}
         >
           <svg
             width="10"
@@ -4318,8 +4322,8 @@ function TreeRow({
       <span className="flex-1 truncate">{label}</span>
       {isSymlink && (
         <span
-          aria-label="Symlinked folder"
-          title="Symlinked into this vault"
+          aria-label={t("Symlinked folder")}
+          title={t("Symlinked into this vault")}
           className={[
             "shrink-0",
             strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-500",
@@ -4988,21 +4992,21 @@ function RowKeyHint({
   );
 }
 
-function sortOrderLabel(order: NoteSortOrder): string {
+function sortOrderLabel(order: NoteSortOrder, t: (s: string) => string): string {
   switch (order) {
     case "none":
-      return "No sorting";
+      return t("No sorting");
     case "updated-desc":
-      return "Modified (newest)";
+      return t("Modified (newest)");
     case "updated-asc":
-      return "Modified (oldest)";
+      return t("Modified (oldest)");
     case "created-desc":
-      return "Created (newest)";
+      return t("Created (newest)");
     case "created-asc":
-      return "Created (oldest)";
+      return t("Created (oldest)");
     case "name-asc":
-      return "Name (A → Z)";
+      return t("Name (A → Z)");
     case "name-desc":
-      return "Name (Z → A)";
+      return t("Name (Z → A)");
   }
 }

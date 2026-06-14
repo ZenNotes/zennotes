@@ -9,6 +9,7 @@
  * vice versa) via the same sync-effect used by `EditorPane`.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import {
   Annotation,
   Compartment,
@@ -112,6 +113,7 @@ function lineNumberExtension(mode: LineNumberMode): Extension {
 }
 
 export function PinnedReferencePane(): JSX.Element | null {
+  const tr = useT()
   const globalRefPath = useStore((s) => s.pinnedRefPath)
   const globalRefKind = useStore((s) => s.pinnedRefKind)
   const noteRefs = useStore((s) => s.noteRefs)
@@ -404,7 +406,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               <span className="truncate">{title}</span>
               {!isAsset && isDirty && (
                 <span
-                  aria-label="Unsaved changes"
+                  aria-label={tr("Unsaved changes")}
                   className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
                 />
               )}
@@ -430,7 +432,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               )}
               <button
                 type="button"
-                title="Hide reference pane (pin stays)"
+                title={tr("Hide reference pane (pin stays)")}
                 onClick={togglePinnedRefVisible}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
               >
@@ -438,7 +440,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               </button>
               <button
                 type="button"
-                title="Unpin reference"
+                title={tr("Unpin reference")}
                 onClick={unpinReference}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
               >

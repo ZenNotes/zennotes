@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -17,6 +18,7 @@ import type { NoteTemplate } from '@bridge-contract/templates'
 import { Modal } from './ui/Modal'
 
 export function TemplatePalette(): JSX.Element {
+  const t = useT();
   const setOpen = useStore((s) => s.setTemplatePaletteOpen)
   const createFromTemplate = useStore((s) => s.createFromTemplate)
   const customTemplates = useStore((s) => s.customTemplates)
@@ -78,7 +80,7 @@ export function TemplatePalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder={mode === 'insert' ? 'Insert template into note…' : 'Create note from template…'}
+            placeholder={mode === 'insert' ? t('Insert template into note…') : t('Create note from template…')}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
@@ -104,7 +106,7 @@ export function TemplatePalette(): JSX.Element {
         </div>
         <div ref={listRef} className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-ink-400">No matching templates.</div>
+            <div className="px-4 py-6 text-center text-sm text-ink-400">{t("No matching templates.")}</div>
           ) : (
             results.map((template, i) => (
               <button

@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
+import { useT } from '../lib/i18n'
 
 export interface ConfirmOptions {
   title: string
@@ -19,6 +20,7 @@ export function ConfirmModal({
   onConfirm: () => void
   onCancel: () => void
 }): JSX.Element {
+  const t = useT()
   // Modal owns Escape (→ cancel); we only add Enter (→ confirm) here.
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -42,10 +44,10 @@ export function ConfirmModal({
       <Modal.Header title={options.title} description={options.description} />
       <Modal.Footer>
         <Button variant="secondary" onClick={onCancel}>
-          {options.cancelLabel ?? 'Cancel'}
+          {options.cancelLabel ?? t('Cancel')}
         </Button>
         <Button variant={options.danger ? 'danger' : 'primary'} onClick={onConfirm}>
-          {options.confirmLabel ?? 'Confirm'}
+          {options.confirmLabel ?? t('Confirm')}
         </Button>
       </Modal.Footer>
     </Modal>

@@ -1,8 +1,10 @@
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { Button } from './ui/Button'
 import appIcon from '../assets/zennotes-app-icon.png'
 
 export function EmptyVault(): JSX.Element {
+  const t = useT();
   const openVaultPicker = useStore((s) => s.openVaultPicker)
   const connectRemoteWorkspace = useStore((s) => s.connectRemoteWorkspace)
   const workspaceSetupError = useStore((s) => s.workspaceSetupError)
@@ -21,7 +23,7 @@ export function EmptyVault(): JSX.Element {
           className="h-[72px] w-[72px] rounded-2xl shadow-panel"
         />
         <div>
-          <h1 className="font-serif text-2xl font-semibold text-ink-900">Welcome to ZenNotes</h1>
+          <h1 className="font-serif text-2xl font-semibold text-ink-900">{t("Welcome to ZenNotes")}</h1>
           <p className="mt-2 text-sm text-ink-600">
             {isServerVaultSetup
               ? 'Choose the vault directory on the server running ZenNotes. The normal self-hosted path is `make up`, which serves the browser app and server together.'
@@ -49,7 +51,7 @@ export function EmptyVault(): JSX.Element {
             onClick={() => void openVaultPicker()}
             className="shadow-panel"
           >
-            {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
+            {isServerVaultSetup ? t('Connect to server vault') : t('Choose vault folder')}
           </Button>
           {canConnectRemote && (
             <Button

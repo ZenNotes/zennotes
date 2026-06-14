@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -35,6 +36,7 @@ export function PromptModal({
   onSubmit: (value: string) => void
   onCancel: () => void
 }): JSX.Element {
+  const t = useT()
   const [value, setValue] = useState(options.initialValue ?? '')
   const [error, setError] = useState<string | null>(null)
   // Suggestions show automatically whenever there are matches; `dismissed`
@@ -188,7 +190,7 @@ export function PromptModal({
             ref={suggestionsRef}
             className="mt-2 overflow-hidden rounded-lg border border-paper-300/70 bg-paper-50/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]"
           >
-            <div className="form-label border-b border-paper-300/50 px-3 py-2">Suggestions</div>
+            <div className="form-label border-b border-paper-300/50 px-3 py-2">{t("Suggestions")}</div>
             <div className="max-h-48 overflow-y-auto py-1">
               {filteredSuggestions.map((suggestion, index) => {
                 const active = index === activeSuggestion

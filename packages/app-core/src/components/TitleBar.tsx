@@ -6,8 +6,10 @@ import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { useT } from '../lib/i18n'
 
 export function TitleBar(): JSX.Element {
+  const t = useT()
   const vault = useStore((s) => s.vault)
   const activeNote = useStore((s) => s.activeNote)
   const selectedPath = useStore((s) => s.selectedPath)
@@ -21,11 +23,11 @@ export function TitleBar(): JSX.Element {
     : isQuickNotesTabPath(selectedPath)
       ? labels.quick
     : isTasksTabPath(selectedPath)
-      ? 'Tasks'
+      ? t('Tasks')
       : isTagsTabPath(selectedPath)
-        ? 'Tags'
+        ? t('Tags')
         : isHelpTabPath(selectedPath)
-          ? 'Help'
+          ? t('Help')
           : isArchiveTabPath(selectedPath)
             ? labels.archive
           : isTrashTabPath(selectedPath)

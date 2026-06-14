@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { csvPathFromDatabaseTab } from '@shared/databases'
 import { serializeRows } from '@shared/database-csv'
 import { useStore } from '../store'
@@ -27,6 +28,7 @@ export function DatabaseView({
   tabPath: string
   isActive?: boolean
 }): JSX.Element {
+  const t = useT()
   const csvPath = csvPathFromDatabaseTab(tabPath)
   const doc = useStore((s) => (csvPath ? s.databases[csvPath] : undefined))
   const loading = useStore((s) => (csvPath ? !!s.databasesLoading[csvPath] : false))
@@ -61,9 +63,9 @@ export function DatabaseView({
   const activeView = doc.views.find((v) => v.id === doc.activeViewId) ?? doc.views[0]
 
   const viewMenuItems = (viewId: string): ContextMenuItem[] => [
-    { label: 'Rename view', onSelect: () => setRenamingView(viewId) },
+    { label: t('Rename view'), onSelect: () => setRenamingView(viewId) },
     {
-      label: 'Delete view',
+      label: t('Delete view'),
       danger: true,
       disabled: doc.views.length <= 1,
       onSelect: () => updateDatabaseSchema(csvPath, removeView(doc, viewId))
@@ -74,7 +76,7 @@ export function DatabaseView({
     <div className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
       <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
         {!sidebarOpen && isActive && (
-          <IconButton size="sm" title="Show sidebar (⌘1)" onClick={() => toggleSidebar()}>
+          <IconButton size="sm" title={t("Show sidebar (⌘1)")} onClick={() => toggleSidebar()}>
             <PanelLeftIcon className="h-4 w-4" />
           </IconButton>
         )}
@@ -115,7 +117,7 @@ export function DatabaseView({
                   e.preventDefault()
                   setViewMenu({ viewId: v.id, x: e.clientX, y: e.clientY })
                 }}
-                title="Click to switch · double-click to rename · right-click for options"
+                title={t("Click to switch · double-click to rename · right-click for options")}
                 className={[
                   'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
                   active ? 'bg-paper-50 text-ink-900 shadow-sm' : 'text-ink-500 hover:text-ink-900'
@@ -128,7 +130,7 @@ export function DatabaseView({
           })}
           <IconButton
             size="sm"
-            title="Add board view"
+            title={t("Add board view")}
             onClick={() => updateDatabaseSchema(csvPath, addView(doc, 'board'))}
           >
             <PlusIcon className="h-3.5 w-3.5" />
@@ -140,7 +142,7 @@ export function DatabaseView({
             variant={rawMode ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setRawMode((r) => !r)}
-            title="Toggle the underlying CSV text"
+            title={t("Toggle the underlying CSV text")}
           >
             {rawMode ? 'Grid' : 'Raw CSV'}
           </Button>

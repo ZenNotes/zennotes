@@ -231,7 +231,10 @@ const DEFAULT_CONFIG: PersistedConfig = {
   remoteWorkspaceProfiles: [],
   windowState: null,
   zoomFactor: 1,
-  quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY,
+  // Disabled on fresh installs so we don't claim a system-wide chord without
+  // the user opting in. They enable it by recording one, or "Reset" applies the
+  // recommended DEFAULT_QUICK_CAPTURE_HOTKEY. Existing configs keep their value.
+  quickCaptureHotkey: '',
   quickCapturePinned: false
 }
 

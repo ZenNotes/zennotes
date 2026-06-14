@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import {
   extractWikilinkTargets,
   extractMentionSnippet,
@@ -24,6 +25,7 @@ interface MissingLinkItem {
 }
 
 export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
+  const t = useT()
   const notes = useStore((s) => s.notes)
   const selectNote = useStore((s) => s.selectNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
@@ -126,8 +128,8 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
       description:
         'This wikilink does not resolve yet. Use /my/path/note.md for Inbox-relative paths, or inbox/my/path/note.md for an explicit top folder.',
       initialValue: item.suggestedPath,
-      placeholder: '/my/path/note.md',
-      okLabel: 'Create',
+      placeholder: t('/my/path/note.md'),
+      okLabel: t('Create'),
       validate: (nextValue) => {
         try {
           parseCreateNotePath(nextValue)
@@ -244,10 +246,10 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
           </div>
           {showKeyboardHints && (
             <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <ConnectionKeyHint keyLabel="j/k" label="move" />
-              <ConnectionKeyHint keyLabel="↑↓" label="move" />
-              <ConnectionKeyHint keyLabel="p" label="preview" />
-              <ConnectionKeyHint keyLabel="↵" label="open" />
+              <ConnectionKeyHint keyLabel="j/k" label={t("move")} />
+              <ConnectionKeyHint keyLabel="↑↓" label={t("move")} />
+              <ConnectionKeyHint keyLabel="p" label={t("preview")} />
+              <ConnectionKeyHint keyLabel="↵" label={t("open")} />
               <ConnectionKeyHint
                 keyLabel="esc"
                 label={isHoverPreviewFocused ? 'rail' : 'note'}
@@ -258,15 +260,15 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onScroll={() => setConnectionPreview(null)}>
           <ConnectionSection
-            title="Links From Here"
-            subtitle="Resolved notes and missing wikilinks from this page."
-            empty="No linked notes yet."
+            title={t("Links From Here")}
+            subtitle={t("Resolved notes and missing wikilinks from this page.")}
+            empty={t("No linked notes yet.")}
           >
             {outgoing.resolvedItems.map((item) => (
               <ConnectionRow
                 key={item.path}
                 note={item}
-                summary={item.excerpt || 'No excerpt available yet.'}
+                summary={item.excerpt || t('No excerpt available yet.')}
                 onOpen={() => void selectNote(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
@@ -292,15 +294,15 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
           <div className="my-3 h-px bg-paper-300/60" />
 
           <ConnectionSection
-            title="Links Here"
-            subtitle="Notes already pointing at this page."
-            empty="No backlinks yet."
+            title={t("Links Here")}
+            subtitle={t("Notes already pointing at this page.")}
+            empty={t("No backlinks yet.")}
           >
             {backlinks.map((item) => (
               <ConnectionRow
                 key={item.path}
                 note={item}
-                summary={item.excerpt || 'No excerpt available yet.'}
+                summary={item.excerpt || t('No excerpt available yet.')}
                 onOpen={() => void selectNote(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
@@ -316,9 +318,9 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
           <div className="my-3 h-px bg-paper-300/60" />
 
           <ConnectionSection
-            title="Unlinked Mentions"
-            subtitle="Notes that mention this title without linking it."
-            empty={scanLoading ? 'Scanning notes…' : 'No unlinked mentions found.'}
+            title={t("Unlinked Mentions")}
+            subtitle={t("Notes that mention this title without linking it.")}
+            empty={scanLoading ? t('Scanning notes…') : t('No unlinked mentions found.')}
           >
             {mentions.map((item) => (
               <ConnectionRow
@@ -405,6 +407,7 @@ function ConnectionRow({
   active: boolean
   rowIndex: number
 }): JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
@@ -446,7 +449,7 @@ function ConnectionRow({
       </div>
       {active && (
         <div className="mt-2 flex justify-end">
-          <ConnectionKeyHint keyLabel="p" label="preview" active />
+          <ConnectionKeyHint keyLabel="p" label={t("preview")} active />
         </div>
       )}
     </button>
@@ -466,6 +469,7 @@ function MissingConnectionRow({
   active: boolean
   rowIndex: number
 }): JSX.Element {
+  const t = useT()
   return (
     <button
       type="button"
@@ -504,7 +508,7 @@ function MissingConnectionRow({
       </div>
       {active && (
         <div className="mt-2 flex justify-end">
-          <ConnectionKeyHint keyLabel="↵" label="create" active />
+          <ConnectionKeyHint keyLabel="↵" label={t("create")} active />
         </div>
       )}
     </button>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
@@ -44,6 +45,7 @@ type IndexedDatasetKey = 'sidebarIdx' | 'notelistIdx' | 'connectionsIdx' | 'comm
  * dependency on React re-renders between keystrokes.
  */
 export function VimNav(): JSX.Element | null {
+  const t = useT()
   const vimMode = useStore((s) => s.vimMode)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   // All control-flow flags are refs so the handler never stales.
@@ -158,7 +160,7 @@ export function VimNav(): JSX.Element | null {
       return [
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFormatNote'),
-        label: 'Format note',
+        label: t('Format note'),
         detail: 'Run markdown formatting on the active note.'
       }
       ]
@@ -167,7 +169,7 @@ export function VimNav(): JSX.Element | null {
       return [
         {
           keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchVaultText'),
-          label: 'Search vault text',
+          label: t('Search vault text'),
           detail: 'Fuzzy-search note contents across the vault.'
         }
       ]
@@ -176,78 +178,78 @@ export function VimNav(): JSX.Element | null {
     const items: WhichKeyItem[] = [
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenBuffers'),
-        label: 'Open buffers',
+        label: t('Open buffers'),
         detail: 'Show the active pane’s open buffers in a searchable list.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchNotes'),
-        label: 'Search notes',
+        label: t('Search notes'),
         detail: 'Open the vault-wide note search palette.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSearchGroup'),
-        label: 'Search…',
+        label: t('Search…'),
         detail: 'Open the search group — then `t` for vault text search.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.hintMode'),
-        label: 'Hint mode',
+        label: t('Hint mode'),
         detail: 'Show jump labels to click any button or link by keyboard.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleSidebar'),
-        label: 'Toggle sidebar',
+        label: t('Toggle sidebar'),
         detail: 'Show or hide the left sidebar.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteOutline'),
-        label: 'Note outline',
+        label: t('Note outline'),
         detail: 'Jump to any heading in the active note.'
       },
       ...(canSwitchVaults
         ? [
             {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderSwitchVault'),
-              label: 'Switch vault',
+              label: t('Switch vault'),
               detail: 'Open the command palette vault switcher for local and remote vaults.'
             }
           ]
         : []),
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderQuickCapture'),
-        label: 'Quick capture',
+        label: t('Quick capture'),
         detail: 'Open the floating capture window.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderTemplatePicker'),
-        label: 'New from template',
+        label: t('New from template'),
         detail: 'Create a note from a built-in or custom template.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderInsertTemplate'),
-        label: 'Insert template into note',
+        label: t('Insert template into note'),
         detail: 'Render a template into the current note.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderDailyNote'),
-        label: "Today's daily note",
+        label: t("Today's daily note"),
         detail: 'Open or create the daily note for today.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderWeeklyNote'),
-        label: "This week's note",
+        label: t("This week's note"),
         detail: 'Open or create the weekly note for this week.'
       },
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalendar'),
-        label: 'Toggle calendar',
+        label: t('Toggle calendar'),
         detail: 'Show or hide the calendar for the active daily/weekly note.'
       }
     ]
     if (whichKeyState.allowEditorActions) {
       items.push({
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions'),
-        label: 'Note actions',
+        label: t('Note actions'),
         detail: 'Open the note-local leader group. `f` formats the current note.'
       })
     }

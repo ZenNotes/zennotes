@@ -1,4 +1,5 @@
 import type { VaultTask } from '@shared/tasks'
+import { useT } from '../lib/i18n';
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 
@@ -40,6 +41,7 @@ export function TasksRow({
   onOpen,
   onFocusRow
 }: Props): JSX.Element {
+  const t = useT()
   return (
     <div
       data-task-row={task.id}
@@ -129,13 +131,13 @@ export function TasksRow({
           // quiet and acts as an in-line cheat sheet for the user.
           <div className="flex items-center gap-1 text-2xs text-current/60">
             <KeyHint keyLabel="Space" label={task.checked ? 'uncheck' : 'check'} />
-            <KeyHint keyLabel="⏎" label="open" />
+            <KeyHint keyLabel="⏎" label={t("open")} />
           </div>
         )}
         <button
           type="button"
           aria-label={`Open ${task.noteTitle}`}
-          title="Open note (Enter / o)"
+          title={t("Open note (Enter / o)")}
           onClick={(e) => {
             e.stopPropagation()
             onOpen()
@@ -157,6 +159,7 @@ export function TasksRow({
 }
 
 function KeyHint({ keyLabel, label }: { keyLabel: string; label: string }): JSX.Element {
+  const t = useT()
   return (
     <span className="pointer-events-none flex items-center gap-1 rounded-md border border-current/20 bg-current/5 px-1.5 py-0.5 leading-none">
       <span className="font-mono text-2xs text-current/90">{keyLabel}</span>

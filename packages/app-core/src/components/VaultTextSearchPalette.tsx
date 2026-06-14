@@ -5,6 +5,7 @@ import type {
   VaultTextSearchMatch
 } from '@shared/ipc'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { recordRendererPerf } from '../lib/perf'
@@ -138,6 +139,7 @@ function resolveVaultTextSearchBackend(
 }
 
 export function VaultTextSearchPalette(): JSX.Element {
+  const t = useT();
   const notes = useStore((s) => s.notes)
   const noteContents = useStore((s) => s.noteContents)
   const setOpen = useStore((s) => s.setVaultTextSearchOpen)
@@ -378,7 +380,7 @@ export function VaultTextSearchPalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search text across the vault…"
+            placeholder={t("Search text across the vault…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
@@ -410,7 +412,7 @@ export function VaultTextSearchPalette(): JSX.Element {
             className="w-full bg-transparent text-base text-ink-900 outline-none placeholder:text-ink-400"
           />
           <div className="mt-2 flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-ink-400">
-            <span>Vault text search</span>
+            <span>{t("Vault text search")}</span>
             <span className="rounded-full border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 text-2xs tracking-[0.16em] text-ink-500">
               {resolvedBackendLabel}
             </span>
@@ -422,7 +424,7 @@ export function VaultTextSearchPalette(): JSX.Element {
               {`Type to search note text across ${folderLabels.inbox}, ${folderLabels.quick}, and ${folderLabels.archive}.`}
             </div>
           ) : loading ? (
-            <div className="px-4 py-7 text-center text-sm text-ink-400">Searching…</div>
+            <div className="px-4 py-7 text-center text-sm text-ink-400">{t("Searching…")}</div>
           ) : results.length === 0 ? (
             <div className="px-4 py-7 text-center text-sm text-ink-400">
               No text matches in the vault.

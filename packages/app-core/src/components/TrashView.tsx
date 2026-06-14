@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteMeta } from '@shared/ipc'
 import { isTrashViewActive, useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
@@ -24,6 +25,7 @@ function cssEscape(value: string): string {
 }
 
 export function TrashView(): JSX.Element {
+  const t = useT();
   const notes = useStore((s) => s.notes)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const selectNote = useStore((s) => s.selectNote)
@@ -98,8 +100,8 @@ export function TrashView(): JSX.Element {
     async (note: NoteMeta) => {
       const ok = await confirmApp({
         title: `Delete "${note.title}" permanently?`,
-        description: 'This cannot be undone.',
-        confirmLabel: 'Delete permanently',
+        description: t('This cannot be undone.'),
+        confirmLabel: t('Delete permanently'),
         danger: true
       })
       if (!ok) return
@@ -112,9 +114,9 @@ export function TrashView(): JSX.Element {
   const emptyTrash = useCallback(async () => {
     if (trashed.length === 0) return
     const ok = await confirmApp({
-      title: `Delete ${trashed.length} trashed note${trashed.length === 1 ? '' : 's'} permanently?`,
-      description: 'This cannot be undone.',
-      confirmLabel: 'Empty trash',
+      title: `${t('Permanently delete')} ${trashed.length} ${t('trashed note(s)?')}`,
+      description: t('This cannot be undone.'),
+      confirmLabel: t('Empty trash'),
       danger: true
     })
     if (!ok) return
@@ -270,8 +272,8 @@ export function TrashView(): JSX.Element {
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {trashed.length === 0
-                  ? 'Deleted notes land here first so you can recover them before removing them permanently.'
-                  : 'Try a different title, path, or excerpt fragment.'}
+                  ? t('Deleted notes land here first so you can recover them before removing them permanently.')
+                  : t('Try a different title, path, or excerpt fragment.')}
               </div>
             </div>
           ) : (

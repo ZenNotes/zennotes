@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { backlinksForNote } from '../lib/wikilinks'
 import { countWords } from '../lib/word-count'
+import { useT } from '../lib/i18n'
 
 /**
  * Footer strip showing quick stats for the active note: backlinks,
@@ -15,6 +16,7 @@ import { countWords } from '../lib/word-count'
  */
 export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const t = useT()
 
   const { words, characters, minutes } = useMemo(() => {
     const body = note.body
@@ -34,13 +36,17 @@ export function StatusBar({ note }: { note: NoteContent }): JSX.Element {
       style={{ borderTop: '1px solid var(--glass-stroke)' }}
     >
       <Stat>
-        {backlinks} {backlinks === 1 ? 'backlink' : 'backlinks'}
+        {backlinks} {backlinks === 1 ? t('backlink') : t('backlinks')}
       </Stat>
       <Stat>
-        {words.toLocaleString()} {words === 1 ? 'word' : 'words'}
+        {words.toLocaleString()} {words === 1 ? t('word') : t('words')}
       </Stat>
-      <Stat>{characters.toLocaleString()} characters</Stat>
-      <Stat>{minutes} min read</Stat>
+      <Stat>
+        {characters.toLocaleString()} {t('characters')}
+      </Stat>
+      <Stat>
+        {minutes} {t('min read')}
+      </Stat>
     </div>
   )
 }

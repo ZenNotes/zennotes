@@ -15,6 +15,7 @@ import { findLeaf } from './pane-layout'
 import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
+import { translate } from './i18n'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
 import { normalizeVaultSettings } from './vault-layout'
@@ -55,9 +56,12 @@ export interface Command {
 
 export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
   const getState = (): ReturnType<typeof useStore.getState> => useStore.getState()
+  // Translate a command title/category for the current UI language. The palette
+  // rebuilds every time it opens, so reading the language here is enough.
+  const tr = (s: string): string => translate(getState().language, s)
   const labels = () => resolveSystemFolderLabels(getState().systemFolderLabels)
   const pathLabel = (): string =>
-    getState().workspaceMode === 'remote' ? 'Server Path' : 'Absolute Path'
+    getState().workspaceMode === 'remote' ? tr('Server Path') : tr('Absolute Path')
   const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
   const leaderShortcut = (id: KeymapId): string =>
     `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
@@ -78,8 +82,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'note.new.quick',
-      title: 'New Quick Note',
-      category: 'Note',
+      title: tr('New Quick Note'),
+      category: tr('Note'),
       shortcut: shortcut('global.newQuickNote'),
       keywords: 'scratch capture jot',
       run: () => {
@@ -96,23 +100,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.new.inbox',
       title:
         getState().vaultSettings.primaryNotesLocation === 'root'
-          ? 'New Note in Vault Root'
-          : `New Note in ${labels().inbox}`,
-      category: 'Note',
+          ? tr('New Note in Vault Root')
+          : `${tr('New Note in')} ${labels().inbox}`,
+      category: tr('Note'),
       keywords: 'create add write',
       run: () => getState().createAndOpen('inbox', '', { focusTitle: true })
     },
     {
       id: 'database.new',
-      title: 'New Database',
-      category: 'Note',
+      title: tr('New Database'),
+      category: tr('Note'),
       keywords: 'database table csv records spreadsheet board kanban base',
       run: () => getState().createDatabase('inbox', '')
     },
     {
       id: 'note.daily.today',
-      title: "Open Today's Daily Note",
-      category: 'Note',
+      title: tr("Open Today's Daily Note"),
+      category: tr('Note'),
       keywords: 'daily journal date today log',
       shortcut: leaderShortcut('vim.leaderDailyNote'),
       when: () => getState().vaultSettings.dailyNotes.enabled,
@@ -120,8 +124,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.weekly.thisWeek',
-      title: "Open This Week's Note",
-      category: 'Note',
+      title: tr("Open This Week's Note"),
+      category: tr('Note'),
       keywords: 'weekly week review date log',
       shortcut: leaderShortcut('vim.leaderWeeklyNote'),
       when: () => getState().vaultSettings.weeklyNotes.enabled,
@@ -129,16 +133,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'template.create',
-      title: 'New Note from Template…',
-      category: 'Note',
+      title: tr('New Note from Template…'),
+      category: tr('Note'),
       keywords: 'template scaffold adr rfc meeting daily weekly boilerplate new',
       shortcut: leaderShortcut('vim.leaderTemplatePicker'),
       run: () => getState().setTemplatePaletteOpen(true)
     },
     {
       id: 'template.insert',
-      title: 'Insert Template into Current Note…',
-      category: 'Note',
+      title: tr('Insert Template into Current Note…'),
+      category: tr('Note'),
       keywords: 'template insert apply into current note scaffold fill',
       shortcut: leaderShortcut('vim.leaderInsertTemplate'),
       when: () => !!getState().activeNote,
@@ -146,13 +150,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'template.removeBuiltins',
-      title: 'Remove Built-in Templates',
-      category: 'Note',
+      title: tr('Remove Built-in Templates'),
+      category: tr('Note'),
       keywords: 'template built-in builtin remove hide delete clear shipped default',
       when: () => !getState().hideBuiltinTemplates,
       run: async () => {
         const ok = await confirmApp({
-          title: 'Remove all built-in templates?',
+          title: tr('Remove all built-in templates?'),
           description:
             'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.',
           confirmLabel: 'Remove',
@@ -164,24 +168,24 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'template.restoreBuiltins',
-      title: 'Restore Built-in Templates',
-      category: 'Note',
+      title: tr('Restore Built-in Templates'),
+      category: tr('Note'),
       keywords: 'template built-in builtin restore bring back show shipped default',
       when: () => getState().hideBuiltinTemplates,
       run: () => getState().setHideBuiltinTemplates(false)
     },
     {
       id: 'template.saveCurrent',
-      title: 'Save Current Note as Template…',
-      category: 'Note',
+      title: tr('Save Current Note as Template…'),
+      category: tr('Note'),
       keywords: 'template save custom create from note',
       when: () => !!getState().activeNote,
       run: () => getState().saveActiveNoteAsTemplate()
     },
     {
       id: 'note.new.here',
-      title: 'New Note in Current Folder',
-      category: 'Note',
+      title: tr('New Note in Current Folder'),
+      category: tr('Note'),
       keywords: 'create add write',
       when: () => {
         const v = getState().view
@@ -196,8 +200,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.save',
-      title: 'Save Note',
-      category: 'Note',
+      title: tr('Save Note'),
+      category: tr('Note'),
       shortcut: ':w',
       keywords: 'persist write',
       when: () => !!getState().selectedPath,
@@ -205,8 +209,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.format',
-      title: 'Format Markdown',
-      category: 'Note',
+      title: tr('Format Markdown'),
+      category: tr('Note'),
       shortcut: ':format',
       keywords: 'prettier',
       when: () => !!getState().selectedPath,
@@ -214,14 +218,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.rename',
-      title: 'Rename Note…',
-      category: 'Note',
+      title: tr('Rename Note…'),
+      category: tr('Note'),
       when: () => !!getState().activeNote,
       run: async () => {
         const active = getState().activeNote
         if (!active) return
         const next = await promptApp({
-          title: 'Rename note',
+          title: tr('Rename note'),
           initialValue: active.title,
           okLabel: 'Rename'
         })
@@ -230,8 +234,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.archive',
-      title: `Move Note to ${labels().archive}`,
-      category: 'Note',
+      title: `${tr('Move Note to')} ${labels().archive}`,
+      category: tr('Note'),
       when: () => {
         const f = getState().activeNote?.folder
         return f === 'inbox' || f === 'quick'
@@ -240,30 +244,30 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.unarchive',
-      title: 'Unarchive Note',
-      category: 'Note',
+      title: tr('Unarchive Note'),
+      category: tr('Note'),
       when: () => getState().activeNote?.folder === 'archive',
       run: () => getState().unarchiveActive()
     },
     {
       id: 'note.trash',
-      title: `Move Note to ${labels().trash}`,
-      category: 'Note',
+      title: `${tr('Move Note to')} ${labels().trash}`,
+      category: tr('Note'),
       keywords: 'delete',
       when: () => !!getState().activeNote && getState().activeNote?.folder !== 'trash',
       run: () => getState().trashActive()
     },
     {
       id: 'note.restore',
-      title: `Restore Note from ${labels().trash}`,
-      category: 'Note',
+      title: `${tr('Restore Note from')} ${labels().trash}`,
+      category: tr('Note'),
       when: () => getState().activeNote?.folder === 'trash',
       run: () => getState().restoreActive()
     },
     {
       id: 'note.copy-wikilink',
-      title: 'Copy Note as Wikilink',
-      category: 'Note',
+      title: tr('Copy Note as Wikilink'),
+      category: tr('Note'),
       keywords: 'link clipboard',
       when: () => !!getState().activeNote,
       run: async () => {
@@ -275,8 +279,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.export-pdf',
-      title: 'Export Note as PDF…',
-      category: 'Note',
+      title: tr('Export Note as PDF…'),
+      category: tr('Note'),
       shortcut: shortcut('global.exportNotePdf'),
       keywords: 'save print pdf export',
       when: () =>
@@ -289,8 +293,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.copy-path',
-      title: 'Copy Note Path',
-      category: 'Note',
+      title: tr('Copy Note Path'),
+      category: tr('Note'),
       keywords: 'clipboard relative vault',
       when: () => !!getState().activeNote,
       run: async () => {
@@ -301,8 +305,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.copy-absolute-path',
-      title: `Copy Note ${pathLabel()}`,
-      category: 'Note',
+      title: `${tr('Copy Note')} ${pathLabel()}`,
+      category: tr('Note'),
       keywords: 'clipboard full system file server path',
       when: () => !!getState().activeNote && !!getState().vault?.root,
       run: async () => {
@@ -320,8 +324,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'folder.copy-path',
-      title: 'Copy Current Folder Path',
-      category: 'Folder',
+      title: tr('Copy Current Folder Path'),
+      category: tr('Folder'),
       keywords: 'clipboard relative vault',
       when: () => {
         const v = getState().view
@@ -336,8 +340,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'folder.copy-absolute-path',
-      title: `Copy Current Folder ${pathLabel()}`,
-      category: 'Folder',
+      title: `${tr('Copy Current Folder')} ${pathLabel()}`,
+      category: tr('Folder'),
       keywords: 'clipboard full system file server path',
       when: () => {
         const s = getState()
@@ -355,8 +359,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.reveal',
-      title: 'Reveal Note in File Manager',
-      category: 'Note',
+      title: tr('Reveal Note in File Manager'),
+      category: tr('Note'),
       when: () =>
         !!getState().activeNote &&
         getState().workspaceMode !== 'remote' &&
@@ -368,8 +372,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.float',
-      title: 'Open in Floating Window',
-      category: 'Note',
+      title: tr('Open in Floating Window'),
+      category: tr('Note'),
       keywords: 'popout window detach',
       when: () => !!getState().activeNote,
       run: async () => {
@@ -379,8 +383,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.move',
-      title: 'Move Note to Folder…',
-      category: 'Note',
+      title: tr('Move Note to Folder…'),
+      category: tr('Note'),
       keywords: 'move mv relocate folder archive inbox',
       when: () => !!getState().activeNote,
       run: async () => {
@@ -426,16 +430,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'tab.close',
-      title: 'Close Tab',
-      category: 'Tabs',
+      title: tr('Close Tab'),
+      category: tr('Tabs'),
       shortcut: shortcut('global.closeActiveTab'),
       when: () => !!getState().selectedPath,
       run: () => getState().closeActiveNote()
     },
     {
       id: 'tab.pin',
-      title: isActiveTabPinned() ? 'Unpin Tab' : 'Pin Tab',
-      category: 'Tabs',
+      title: isActiveTabPinned() ? tr('Unpin Tab') : tr('Pin Tab'),
+      category: tr('Tabs'),
       keywords: 'stick sticky',
       when: () => !!getState().activeNote,
       run: () => {
@@ -445,8 +449,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'tab.close-others',
-      title: 'Close Other Tabs in Pane',
-      category: 'Tabs',
+      title: tr('Close Other Tabs in Pane'),
+      category: tr('Tabs'),
       keywords: 'only siblings keep current close others',
       when: () => (getActiveTabContext()?.closableOthers.length ?? 0) > 0,
       run: async () => {
@@ -459,8 +463,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'tab.close-right',
-      title: 'Close Tabs to the Right',
-      category: 'Tabs',
+      title: tr('Close Tabs to the Right'),
+      category: tr('Tabs'),
       keywords: 'siblings later right side close',
       when: () => (getActiveTabContext()?.closableRight.length ?? 0) > 0,
       run: async () => {
@@ -473,8 +477,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'tab.menu',
-      title: 'Open Active Tab Menu',
-      category: 'Tabs',
+      title: tr('Open Active Tab Menu'),
+      category: tr('Tabs'),
       shortcut: 'Shift+F10',
       keywords: 'context menu right click active tab',
       when: () => !!getActiveTabMenuTarget(),
@@ -485,8 +489,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'tab.buffers',
-      title: 'Open Buffer Switcher…',
-      category: 'Tabs',
+      title: tr('Open Buffer Switcher…'),
+      category: tr('Tabs'),
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderOpenBuffers') : undefined,
       keywords: 'buffers hidden tabs switch list vim leader',
       when: () => {
@@ -498,8 +502,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'nav.outline',
-      title: 'Open Note Outline…',
-      category: 'Navigation',
+      title: tr('Open Note Outline…'),
+      category: tr('Navigation'),
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderNoteOutline') : undefined,
       keywords: 'outline headings toc jump toc table of contents leader',
       when: () => !!getState().activeNote,
@@ -507,8 +511,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.outline-panel',
-      title: 'Toggle Outline Panel',
-      category: 'View',
+      title: tr('Toggle Outline Panel'),
+      category: tr('View'),
       shortcut: shortcut('global.toggleOutlinePanel'),
       keywords: 'outline panel sidebar right headings',
       when: () => !!getState().activeNote,
@@ -518,8 +522,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.comments-panel',
-      title: 'Toggle Comments Panel',
-      category: 'View',
+      title: tr('Toggle Comments Panel'),
+      category: tr('View'),
       shortcut: shortcut('global.toggleCommentsPanel'),
       keywords: 'comments annotations discussion margin review',
       when: () => !!getState().activeNote,
@@ -529,8 +533,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'editor.add-comment',
-      title: 'Add Comment to Selection',
-      category: 'Editor',
+      title: tr('Add Comment to Selection'),
+      category: tr('Editor'),
       shortcut: shortcut('global.addComment'),
       keywords: 'comment annotate selection note review',
       when: () => !!getState().activeNote,
@@ -540,8 +544,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.calendar-panel',
-      title: 'Toggle Calendar Panel',
-      category: 'View',
+      title: tr('Toggle Calendar Panel'),
+      category: tr('View'),
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderCalendar') : undefined,
       keywords: 'calendar daily weekly date navigate month week',
       when: () => {
@@ -554,8 +558,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.close-right-panel',
-      title: 'Close Right Panel',
-      category: 'View',
+      title: tr('Close Right Panel'),
+      category: tr('View'),
       keywords: 'close hide dismiss right panel pane connections comments outline calendar',
       when: () => !!getState().activeNote,
       run: () => {
@@ -564,8 +568,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.mode.edit',
-      title: 'Switch to Edit Mode',
-      category: 'View',
+      title: tr('Switch to Edit Mode'),
+      category: tr('View'),
       shortcut: shortcut('global.modeEdit'),
       keywords: 'editor writing raw markdown pane mode toolbar editmode',
       when: () => !!getState().activeNote,
@@ -573,8 +577,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.mode.split',
-      title: 'Switch to Split Mode',
-      category: 'View',
+      title: tr('Switch to Split Mode'),
+      category: tr('View'),
       shortcut: shortcut('global.modeSplit'),
       keywords: 'editor preview side by side pane mode toolbar splitmode',
       when: () => !!getState().activeNote,
@@ -582,8 +586,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.mode.preview',
-      title: 'Switch to Preview Mode',
-      category: 'View',
+      title: tr('Switch to Preview Mode'),
+      category: tr('View'),
       shortcut: shortcut('global.modePreview'),
       keywords: 'reading rendered markdown pane mode toolbar previewmode',
       when: () => !!getState().activeNote,
@@ -591,8 +595,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.zoom.in',
-      title: 'Zoom In',
-      category: 'View',
+      title: tr('Zoom In'),
+      category: tr('View'),
       shortcut: shortcut('global.zoomIn'),
       keywords: 'bigger larger scale ui app browser',
       run: async () => {
@@ -601,8 +605,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.zoom.out',
-      title: 'Zoom Out',
-      category: 'View',
+      title: tr('Zoom Out'),
+      category: tr('View'),
       shortcut: shortcut('global.zoomOut'),
       keywords: 'smaller decrease scale ui app browser',
       run: async () => {
@@ -611,8 +615,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.zoom.reset',
-      title: 'Reset Zoom',
-      category: 'View',
+      title: tr('Reset Zoom'),
+      category: tr('View'),
       shortcut: shortcut('global.zoomReset'),
       keywords: 'actual size normal reset scale ui app browser',
       run: async () => {
@@ -621,8 +625,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.check-updates',
-      title: 'Check for Updates…',
-      category: 'App',
+      title: tr('Check for Updates…'),
+      category: tr('App'),
       keywords: 'update updates upgrade version release github',
       run: async () => {
         await window.zen.checkForAppUpdatesWithUi()
@@ -630,43 +634,43 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.website',
-      title: 'Open ZenNotes Website',
-      category: 'App',
+      title: tr('Open ZenNotes Website'),
+      category: tr('App'),
       keywords: 'homepage website docs learn',
       run: () => openExternal(APP_WEBSITE_URL)
     },
     {
       id: 'app.discord',
-      title: 'Join ZenNotes Discord',
-      category: 'App',
+      title: tr('Join ZenNotes Discord'),
+      category: tr('App'),
       keywords: 'community chat support server discord',
       run: () => openExternal(APP_DISCORD_URL)
     },
     {
       id: 'app.github',
-      title: 'Open GitHub Repository',
-      category: 'App',
+      title: tr('Open GitHub Repository'),
+      category: tr('App'),
       keywords: 'github source repository code',
       run: () => openExternal(APP_REPOSITORY_URL)
     },
     {
       id: 'app.release',
-      title: 'View Latest Release',
-      category: 'App',
+      title: tr('View Latest Release'),
+      category: tr('App'),
       keywords: 'release download changelog latest',
       run: () => openExternal(APP_RELEASES_URL)
     },
     {
       id: 'app.report-issue',
-      title: 'Report an Issue',
-      category: 'App',
+      title: tr('Report an Issue'),
+      category: tr('App'),
       keywords: 'bug issue github feedback problem',
       run: () => openExternal(APP_ISSUES_URL)
     },
     {
       id: 'fold.heading',
-      title: 'Fold Heading at Cursor',
-      category: 'Editor',
+      title: tr('Fold Heading at Cursor'),
+      category: tr('Editor'),
       shortcut: shortcut('vim.foldCurrent'),
       keywords: 'collapse fold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
@@ -674,8 +678,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'fold.unfold-heading',
-      title: 'Unfold Heading at Cursor',
-      category: 'Editor',
+      title: tr('Unfold Heading at Cursor'),
+      category: tr('Editor'),
       shortcut: shortcut('vim.unfoldCurrent'),
       keywords: 'expand unfold heading section',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
@@ -683,8 +687,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'fold.all',
-      title: 'Fold All Headings',
-      category: 'Editor',
+      title: tr('Fold All Headings'),
+      category: tr('Editor'),
       shortcut: shortcut('vim.foldAll'),
       keywords: 'collapse fold all every',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
@@ -692,8 +696,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'fold.unfold-all',
-      title: 'Unfold All Headings',
-      category: 'Editor',
+      title: tr('Unfold All Headings'),
+      category: tr('Editor'),
       shortcut: shortcut('vim.unfoldAll'),
       keywords: 'expand unfold all every reset',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
@@ -701,16 +705,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'nav.back',
-      title: 'Go Back',
-      category: 'Tabs',
+      title: tr('Go Back'),
+      category: tr('Tabs'),
       shortcut: shortcut('vim.historyBack'),
       keywords: 'history previous',
       run: () => getState().jumpToPreviousNote()
     },
     {
       id: 'nav.forward',
-      title: 'Go Forward',
-      category: 'Tabs',
+      title: tr('Go Forward'),
+      category: tr('Tabs'),
       shortcut: shortcut('vim.historyForward'),
       keywords: 'history next',
       run: () => getState().jumpToNextNote()
@@ -721,8 +725,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'split.right',
-      title: 'Split Right',
-      category: 'Panes',
+      title: tr('Split Right'),
+      category: tr('Panes'),
       shortcut: ':vsplit',
       keywords: 'vsplit vertical',
       when: () => !!getState().selectedPath,
@@ -739,8 +743,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'split.down',
-      title: 'Split Down',
-      category: 'Panes',
+      title: tr('Split Down'),
+      category: tr('Panes'),
       shortcut: ':split',
       keywords: 'split horizontal',
       when: () => !!getState().selectedPath,
@@ -757,8 +761,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'pane.focus.left',
-      title: 'Focus Pane Left',
-      category: 'Panes',
+      title: tr('Focus Pane Left'),
+      category: tr('Panes'),
       shortcut: paneShortcut('vim.paneFocusLeft'),
       run: () => {
         focusPaneInDirection('h')
@@ -766,8 +770,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'pane.focus.down',
-      title: 'Focus Pane Below',
-      category: 'Panes',
+      title: tr('Focus Pane Below'),
+      category: tr('Panes'),
       shortcut: paneShortcut('vim.paneFocusDown'),
       run: () => {
         focusPaneInDirection('j')
@@ -775,8 +779,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'pane.focus.up',
-      title: 'Focus Pane Above',
-      category: 'Panes',
+      title: tr('Focus Pane Above'),
+      category: tr('Panes'),
       shortcut: paneShortcut('vim.paneFocusUp'),
       run: () => {
         focusPaneInDirection('k')
@@ -784,8 +788,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'pane.focus.right',
-      title: 'Focus Pane Right',
-      category: 'Panes',
+      title: tr('Focus Pane Right'),
+      category: tr('Panes'),
       shortcut: paneShortcut('vim.paneFocusRight'),
       run: () => {
         focusPaneInDirection('l')
@@ -797,16 +801,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'nav.search',
-      title: 'Search Notes…',
-      category: 'Go',
+      title: tr('Search Notes…'),
+      category: tr('Go'),
       shortcut: searchShortcut(),
       keywords: 'find open cmd+f ctrl+f leader',
       run: () => getState().setSearchOpen(true)
     },
     {
       id: 'nav.search-text',
-      title: 'Search Text in Vault…',
-      category: 'Go',
+      title: tr('Search Text in Vault…'),
+      category: tr('Go'),
       shortcut: getState().vimMode ? leaderShortcut('vim.leaderSearchVaultText') : undefined,
       keywords: 'grep live grep telescope fuzzy content body line text vault',
       run: () => {
@@ -817,42 +821,42 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'nav.folder.quick',
-      title: `Go to ${labels().quick}`,
-      category: 'Go',
+      title: `${tr('Go to')} ${labels().quick}`,
+      category: tr('Go'),
       keywords: 'quick scratch',
       run: () => getState().setView({ kind: 'folder', folder: 'quick', subpath: '' })
     },
     {
       id: 'nav.folder.inbox',
-      title: `Go to ${labels().inbox}`,
-      category: 'Go',
+      title: `${tr('Go to')} ${labels().inbox}`,
+      category: tr('Go'),
       run: () => getState().setView({ kind: 'folder', folder: 'inbox', subpath: '' })
     },
     {
       id: 'nav.folder.archive',
-      title: `Go to ${labels().archive}`,
-      category: 'Go',
+      title: `${tr('Go to')} ${labels().archive}`,
+      category: tr('Go'),
       keywords: 'archive archived storage',
       run: () => getState().openArchiveView()
     },
     {
       id: 'nav.folder.trash',
-      title: `Go to ${labels().trash}`,
-      category: 'Go',
+      title: `${tr('Go to')} ${labels().trash}`,
+      category: tr('Go'),
       keywords: 'trash deleted restore bin',
       run: () => getState().openTrashView()
     },
     {
       id: 'nav.assets',
-      title: 'Go to Files',
-      category: 'Go',
+      title: tr('Go to Files'),
+      category: tr('Go'),
       keywords: 'assets files images',
       run: () => getState().setView({ kind: 'assets' })
     },
     {
       id: 'nav.focus.sidebar',
-      title: 'Focus Sidebar',
-      category: 'Go',
+      title: tr('Focus Sidebar'),
+      category: tr('Go'),
       run: () => {
         const st = getState()
         if (!st.sidebarOpen) st.toggleSidebar()
@@ -861,8 +865,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'nav.focus.editor',
-      title: 'Focus Editor',
-      category: 'Go',
+      title: tr('Focus Editor'),
+      category: tr('Go'),
       run: () => {
         const st = getState()
         st.setFocusedPanel('editor')
@@ -875,8 +879,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'view.tasks',
-      title: 'Open Tasks',
-      category: 'View',
+      title: tr('Open Tasks'),
+      category: tr('View'),
       shortcut: ':tasks',
       keywords: 'todo checklist due waiting done vault',
       when: () => !isTasksViewActive(getState()),
@@ -884,8 +888,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.tags',
-      title: 'Open Tags',
-      category: 'View',
+      title: tr('Open Tags'),
+      category: tr('View'),
       shortcut: ':tag',
       keywords: 'tags browse filter vault',
       when: () => !isTagsViewActive(getState()),
@@ -893,15 +897,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.toggle.sidebar',
-      title: 'Toggle Sidebar',
-      category: 'View',
+      title: tr('Toggle Sidebar'),
+      category: tr('View'),
       shortcut: shortcut('global.toggleSidebar'),
       run: () => getState().toggleSidebar()
     },
     {
       id: 'view.toggle.connections',
-      title: 'Toggle Connections Panel',
-      category: 'View',
+      title: tr('Toggle Connections Panel'),
+      category: tr('View'),
       shortcut: shortcut('global.toggleConnections'),
       run: () => {
         window.dispatchEvent(new Event('zen:toggle-connections'))
@@ -909,8 +913,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.toggle.note-list',
-      title: 'Toggle Note List Column',
-      category: 'View',
+      title: tr('Toggle Note List Column'),
+      category: tr('View'),
       keywords: 'middle pane list browser',
       when: () => !getState().unifiedSidebar,
       run: () => getState().toggleNoteList()
@@ -918,18 +922,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     {
       id: 'view.toggle.tags',
       title: getState().tagsCollapsed
-        ? 'Show Tags in Sidebar'
-        : 'Hide Tags in Sidebar',
-      category: 'View',
+        ? tr('Show Tags in Sidebar')
+        : tr('Hide Tags in Sidebar'),
+      category: tr('View'),
       keywords: 'tag section fold hide collapse',
       run: () => getState().setTagsCollapsed(!getState().tagsCollapsed),
     },
     {
       id: 'view.content-align',
       title: getState().contentAlign === 'center'
-        ? 'Align Content Left'
-        : 'Center Content',
-      category: 'View',
+        ? tr('Align Content Left')
+        : tr('Center Content'),
+      category: tr('View'),
       keywords: 'align center left width reading',
       run: () =>
         getState().setContentAlign(
@@ -938,56 +942,56 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.sort.name-asc',
-      title: 'Sort Notes: Name (A → Z)',
-      category: 'View',
+      title: tr('Sort Notes: Name (A → Z)'),
+      category: tr('View'),
       keywords: 'alphabetical order',
       when: () => getState().noteSortOrder !== 'name-asc',
       run: () => getState().setNoteSortOrder('name-asc')
     },
     {
       id: 'view.sort.name-desc',
-      title: 'Sort Notes: Name (Z → A)',
-      category: 'View',
+      title: tr('Sort Notes: Name (Z → A)'),
+      category: tr('View'),
       keywords: 'alphabetical order reverse',
       when: () => getState().noteSortOrder !== 'name-desc',
       run: () => getState().setNoteSortOrder('name-desc')
     },
     {
       id: 'view.sort.updated-desc',
-      title: 'Sort Notes: Updated (Newest First)',
-      category: 'View',
+      title: tr('Sort Notes: Updated (Newest First)'),
+      category: tr('View'),
       keywords: 'date recent time modified',
       when: () => getState().noteSortOrder !== 'updated-desc',
       run: () => getState().setNoteSortOrder('updated-desc')
     },
     {
       id: 'view.sort.updated-asc',
-      title: 'Sort Notes: Updated (Oldest First)',
-      category: 'View',
+      title: tr('Sort Notes: Updated (Oldest First)'),
+      category: tr('View'),
       keywords: 'date time modified',
       when: () => getState().noteSortOrder !== 'updated-asc',
       run: () => getState().setNoteSortOrder('updated-asc')
     },
     {
       id: 'view.sort.created-desc',
-      title: 'Sort Notes: Created (Newest First)',
-      category: 'View',
+      title: tr('Sort Notes: Created (Newest First)'),
+      category: tr('View'),
       keywords: 'date added',
       when: () => getState().noteSortOrder !== 'created-desc',
       run: () => getState().setNoteSortOrder('created-desc')
     },
     {
       id: 'view.sort.created-asc',
-      title: 'Sort Notes: Created (Oldest First)',
-      category: 'View',
+      title: tr('Sort Notes: Created (Oldest First)'),
+      category: tr('View'),
       keywords: 'date added reverse',
       when: () => getState().noteSortOrder !== 'created-asc',
       run: () => getState().setNoteSortOrder('created-asc')
     },
     {
       id: 'view.sort.manual',
-      title: 'Sort Notes: Manual',
-      category: 'View',
+      title: tr('Sort Notes: Manual'),
+      category: tr('View'),
       keywords: 'none drag order',
       when: () => getState().noteSortOrder !== 'none',
       run: () => getState().setNoteSortOrder('none')
@@ -995,9 +999,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     {
       id: 'view.group-by-kind',
       title: getState().groupByKind
-        ? 'Ungroup Notes by Kind'
-        : 'Group Notes by Kind',
-      category: 'View',
+        ? tr('Ungroup Notes by Kind')
+        : tr('Group Notes by Kind'),
+      category: tr('View'),
       keywords: 'folders notes split section',
       run: () => getState().setGroupByKind(!getState().groupByKind)
     },
@@ -1005,9 +1009,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'view.focus-mode',
       title: (() => {
         const st = getState()
-        return st.zenMode ? 'Exit Zen Mode' : 'Enter Zen Mode'
+        return st.zenMode ? tr('Exit Zen Mode') : tr('Enter Zen Mode')
       })(),
-      category: 'View',
+      category: tr('View'),
       shortcut: shortcut('global.toggleZenMode'),
       keywords: 'zen distraction-free focus',
       run: () => {
@@ -1017,28 +1021,28 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'view.dark-sidebar',
-      title: getState().darkSidebar ? 'Light Sidebar' : 'Dark Sidebar',
-      category: 'View',
+      title: getState().darkSidebar ? tr('Light Sidebar') : tr('Dark Sidebar'),
+      category: tr('View'),
       run: () => getState().setDarkSidebar(!getState().darkSidebar)
     },
     {
       id: 'view.line-numbers.off',
-      title: 'Line Numbers: Off',
-      category: 'View',
+      title: tr('Line Numbers: Off'),
+      category: tr('View'),
       when: () => getState().lineNumberMode !== 'off',
       run: () => getState().setLineNumberMode('off')
     },
     {
       id: 'view.line-numbers.absolute',
-      title: 'Line Numbers: Absolute',
-      category: 'View',
+      title: tr('Line Numbers: Absolute'),
+      category: tr('View'),
       when: () => getState().lineNumberMode !== 'absolute',
       run: () => getState().setLineNumberMode('absolute')
     },
     {
       id: 'view.line-numbers.relative',
-      title: 'Line Numbers: Relative',
-      category: 'View',
+      title: tr('Line Numbers: Relative'),
+      category: tr('View'),
       when: () => getState().lineNumberMode !== 'relative',
       run: () => getState().setLineNumberMode('relative')
     }
@@ -1048,37 +1052,37 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'editor.vim.toggle',
-      title: getState().vimMode ? 'Disable Vim Mode' : 'Enable Vim Mode',
-      category: 'Editor',
+      title: getState().vimMode ? tr('Disable Vim Mode') : tr('Enable Vim Mode'),
+      category: tr('Editor'),
       run: () => getState().setVimMode(!getState().vimMode)
     },
     {
       id: 'editor.which-key.toggle',
       title: getState().whichKeyHints
-        ? 'Disable Leader Key Hints'
-        : 'Enable Leader Key Hints',
-      category: 'Editor',
+        ? tr('Disable Leader Key Hints')
+        : tr('Enable Leader Key Hints'),
+      category: tr('Editor'),
       keywords: 'which-key leader space hints overlay vim',
       when: () => getState().vimMode,
       run: () => getState().setWhichKeyHints(!getState().whichKeyHints)
     },
     {
       id: 'editor.live-preview.toggle',
-      title: getState().livePreview ? 'Disable Live Preview' : 'Enable Live Preview',
-      category: 'Editor',
+      title: getState().livePreview ? tr('Disable Live Preview') : tr('Enable Live Preview'),
+      category: tr('Editor'),
       keywords: 'decoration inline',
       run: () => getState().setLivePreview(!getState().livePreview)
     },
     {
       id: 'editor.tabs.toggle',
-      title: getState().tabsEnabled ? 'Disable Tabs' : 'Enable Tabs',
-      category: 'Editor',
+      title: getState().tabsEnabled ? tr('Disable Tabs') : tr('Enable Tabs'),
+      category: tr('Editor'),
       run: () => getState().setTabsEnabled(!getState().tabsEnabled)
     },
     {
       id: 'editor.word-wrap.toggle',
-      title: getState().wordWrap ? 'Disable Word Wrap' : 'Enable Word Wrap',
-      category: 'Editor',
+      title: getState().wordWrap ? tr('Disable Word Wrap') : tr('Enable Word Wrap'),
+      category: tr('Editor'),
       shortcut: shortcut('global.toggleWordWrap'),
       keywords: 'wrap line soft hard',
       run: () => getState().setWordWrap(!getState().wordWrap)
@@ -1086,33 +1090,33 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     {
       id: 'editor.auto-reveal.toggle',
       title: getState().autoReveal
-        ? 'Disable Auto-Reveal Active Note'
-        : 'Enable Auto-Reveal Active Note',
-      category: 'Editor',
+        ? tr('Disable Auto-Reveal Active Note')
+        : tr('Enable Auto-Reveal Active Note'),
+      category: tr('Editor'),
       run: () => getState().setAutoReveal(!getState().autoReveal)
     },
     {
       id: 'editor.quick-note-date.toggle',
       title: getState().quickNoteDateTitle
-        ? 'Disable Quick Note Date Titles'
-        : 'Enable Quick Note Date Titles'
+        ? tr('Disable Quick Note Date Titles')
+        : tr('Enable Quick Note Date Titles')
       ,
-      category: 'Editor',
+      category: tr('Editor'),
       keywords: 'daily date today yyyy-mm-dd',
       run: () => getState().setQuickNoteDateTitle(!getState().quickNoteDateTitle)
     },
     {
       id: 'editor.pdf-embed.compact',
-      title: 'PDF Embeds: Compact Card',
-      category: 'Editor',
+      title: tr('PDF Embeds: Compact Card'),
+      category: tr('Editor'),
       keywords: 'pdf embed compact card preview reference',
       when: () => getState().pdfEmbedInEditMode !== 'compact',
       run: () => getState().setPdfEmbedInEditMode('compact')
     },
     {
       id: 'editor.pdf-embed.full',
-      title: 'PDF Embeds: Inline Viewer',
-      category: 'Editor',
+      title: tr('PDF Embeds: Inline Viewer'),
+      category: tr('Editor'),
       keywords: 'pdf embed full iframe inline',
       when: () => getState().pdfEmbedInEditMode !== 'full',
       run: () => getState().setPdfEmbedInEditMode('full')
@@ -1123,8 +1127,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'ref.pin',
-      title: 'Pin Active Note as Reference',
-      category: 'Reference',
+      title: tr('Pin Active Note as Reference'),
+      category: tr('Reference'),
       keywords: 'sticky side companion research',
       when: () => !!getState().activeNote,
       run: async () => {
@@ -1134,8 +1138,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'ref.unpin',
-      title: 'Unpin Reference',
-      category: 'Reference',
+      title: tr('Unpin Reference'),
+      category: tr('Reference'),
       when: () => !!getState().pinnedRefPath,
       run: () => {
         getState().unpinReference()
@@ -1144,9 +1148,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     {
       id: 'ref.toggle',
       title: getState().pinnedRefVisible
-        ? 'Hide Reference Pane'
-        : 'Show Reference Pane',
-      category: 'Reference',
+        ? tr('Hide Reference Pane')
+        : tr('Show Reference Pane'),
+      category: tr('Reference'),
       when: () => !!getState().pinnedRefPath,
       run: () => {
         getState().togglePinnedRefVisible()
@@ -1154,8 +1158,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'ref.focus',
-      title: 'Focus Reference Pane',
-      category: 'Reference',
+      title: tr('Focus Reference Pane'),
+      category: tr('Reference'),
       when: () =>
         !!getState().pinnedRefPath && getState().pinnedRefVisible,
       run: () => {
@@ -1173,8 +1177,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   // instead of running anything.
   cmds.push({
     id: 'ui.themes',
-    title: 'Themes…',
-    category: 'UI',
+    title: tr('Themes…'),
+    category: tr('UI'),
     keywords: 'color appearance palette dark light',
     run: () => {
       /* handled by CommandPalette */
@@ -1185,18 +1189,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'tag.rename',
-      title: 'Rename Tag…',
-      category: 'Tag',
+      title: tr('Rename Tag…'),
+      category: tr('Tag'),
       run: async () => {
         const from = await promptApp({
-          title: 'Rename tag — old name',
+          title: tr('Rename tag — old name'),
           placeholder: 'tag'
         })
         if (!from) return
         const cleanFrom = from.replace(/^#/, '').trim()
         if (!cleanFrom) return
         const to = await promptApp({
-          title: `Rename #${cleanFrom} to…`,
+          title: `${tr('Rename')} #${cleanFrom} ${tr('to…')}`,
           placeholder: 'new-tag'
         })
         if (!to) return
@@ -1207,11 +1211,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'tag.delete',
-      title: 'Delete Tag…',
-      category: 'Tag',
+      title: tr('Delete Tag…'),
+      category: tr('Tag'),
       run: async () => {
         const tag = await promptApp({
-          title: 'Delete tag across all notes',
+          title: tr('Delete tag across all notes'),
           placeholder: 'tag'
         })
         if (!tag) return
@@ -1227,9 +1231,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     {
       id: 'demo.generate',
       title: getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH)
-        ? 'Regenerate Demo Tour Notes'
-        : 'Generate Demo Tour Notes',
-      category: 'Demo',
+        ? tr('Regenerate Demo Tour Notes')
+        : tr('Generate Demo Tour Notes'),
+      category: tr('Demo'),
       keywords: 'demo onboarding starter tour sample example seed welcome',
       when: () => !!getState().vault,
       run: async () => {
@@ -1254,13 +1258,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'demo.remove',
-      title: 'Remove Demo Tour Notes',
-      category: 'Demo',
+      title: tr('Remove Demo Tour Notes'),
+      category: tr('Demo'),
       keywords: 'demo onboarding starter tour sample example delete clear uninstall',
       when: () => getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH),
       run: async () => {
         const ok = await confirmApp({
-          title: 'Remove the built-in demo tour from this vault?',
+          title: tr('Remove the built-in demo tour from this vault?'),
           description:
             'This deletes the seeded demo notes under inbox/demo and the demo attachment file.',
           confirmLabel: 'Remove demo tour',
@@ -1276,22 +1280,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.help',
-      title: 'Open Help',
-      category: 'App',
+      title: tr('Open Help'),
+      category: tr('App'),
       keywords: 'manual docs documentation shortcuts vim onboarding learn',
       run: () => getState().openHelpView()
     },
     {
       id: 'app.onboarding.restart',
-      title: 'Show Onboarding Wizard',
-      category: 'App',
+      title: tr('Show Onboarding Wizard'),
+      category: tr('App'),
       keywords: 'onboarding welcome wizard setup first-run getting started vim theme vault',
       run: () => getState().restartOnboarding()
     },
     {
       id: 'app.settings',
-      title: 'Open Settings',
-      category: 'App',
+      title: tr('Open Settings'),
+      category: tr('App'),
       shortcut: shortcut('global.openSettings'),
       keywords: 'preferences',
       run: () => getState().setSettingsOpen(true)
@@ -1301,16 +1305,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title:
         window.zen.getCapabilities().supportsRemoteWorkspace &&
         window.zen.getAppInfo().runtime === 'desktop'
-          ? 'Open Local Vault…'
-          : 'Open Vault…',
-      category: 'Vault',
+          ? tr('Open Local Vault…')
+          : tr('Open Vault…'),
+      category: tr('Vault'),
       keywords: 'vault local open folder workspace',
       run: () => getState().openVaultPicker()
     },
     {
       id: 'app.vault.openWindow',
-      title: 'Open Local Vault in New Window…',
-      category: 'Vault',
+      title: tr('Open Local Vault in New Window…'),
+      category: tr('Vault'),
       keywords: 'vault local open folder workspace window tab multiple',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1321,8 +1325,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.vault.close',
-      title: 'Close Current Vault',
-      category: 'Vault',
+      title: tr('Close Current Vault'),
+      category: tr('Vault'),
       keywords: 'vault local close remove forget workspace',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1332,8 +1336,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.vault.switch',
-      title: 'Switch Vault…',
-      category: 'Vault',
+      title: tr('Switch Vault…'),
+      category: tr('Vault'),
       keywords: 'vault local remote switch workspace recent picker server',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1345,8 +1349,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.workspace.remote',
-      title: 'Connect to Remote Vault…',
-      category: 'Vault',
+      title: tr('Connect to Remote Vault…'),
+      category: tr('Vault'),
       keywords: 'vault remote server workspace self-hosted',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1355,8 +1359,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.workspace.local',
-      title: 'Switch to Local Vault',
-      category: 'Vault',
+      title: tr('Switch to Local Vault'),
+      category: tr('Vault'),
       keywords: 'vault local workspace disconnect return',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1365,8 +1369,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'app.assets.reveal',
-      title: 'Reveal Vault Root',
-      category: 'App',
+      title: tr('Reveal Vault Root'),
+      category: tr('App'),
       when: () =>
         getState().workspaceMode !== 'remote' &&
         window.zen.getAppInfo().runtime === 'desktop',
@@ -1374,8 +1378,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'cli.install',
-      title: 'Install Command-Line Tool (zen)',
-      category: 'CLI',
+      title: tr('Install Command-Line Tool (zen)'),
+      category: tr('CLI'),
       keywords: 'cli zen terminal shell command line install symlink path bin',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1384,7 +1388,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const status = await window.zen.cliGetStatus()
         if (!status.supportedPlatform) {
           await confirmApp({
-            title: 'CLI not supported on this platform',
+            title: tr('CLI not supported on this platform'),
             description: status.reason ?? 'CLI install is currently macOS- and Linux-only.',
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1393,7 +1397,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         }
         if (!status.available) {
           await confirmApp({
-            title: 'CLI wrapper not bundled',
+            title: tr('CLI wrapper not bundled'),
             description:
               status.reason ?? 'The CLI wrapper has not been built yet. Run `npm run build` or open Settings → CLI for details.',
             confirmLabel: 'OK',
@@ -1403,7 +1407,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         }
         if (status.installedAt && status.installedByThisApp) {
           await confirmApp({
-            title: 'zen is already installed',
+            title: tr('zen is already installed'),
             description: `Installed at ${status.installedAt}. Run \`zen --help\` from any terminal.`,
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1412,7 +1416,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         }
         if (status.installedAt && !status.installedByThisApp) {
           await confirmApp({
-            title: 'A different `zen` already exists',
+            title: tr('A different `zen` already exists'),
             description: `${status.installedAt} is not managed by ZenNotes. Remove it manually if you want ZenNotes to take over.`,
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1442,7 +1446,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
             ? `\n\nAdd ${next.defaultTarget.replace(/\/[^/]+$/, '')} to your PATH so the shell can find it:\n${next.pathHint}`
             : ''
           await confirmApp({
-            title: 'zen installed',
+            title: tr('zen installed'),
             description: `Symlink created at ${next.installedAt ?? next.defaultTarget}. Open a fresh terminal and run \`zen --help\` to start.${followUp}`,
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1451,7 +1455,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
           const message = err instanceof Error ? err.message : String(err)
           if (/canceled/i.test(message)) return
           await confirmApp({
-            title: 'Install failed',
+            title: tr('Install failed'),
             description: message,
             confirmLabel: 'OK',
             cancelLabel: 'Close',
@@ -1462,8 +1466,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'cli.uninstall',
-      title: 'Uninstall Command-Line Tool (zen)',
-      category: 'CLI',
+      title: tr('Uninstall Command-Line Tool (zen)'),
+      category: tr('CLI'),
       keywords: 'cli zen terminal shell command line uninstall remove symlink',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1472,7 +1476,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const status = await window.zen.cliGetStatus()
         if (!status.installedAt) {
           await confirmApp({
-            title: 'zen is not installed',
+            title: tr('zen is not installed'),
             description: 'There is nothing to uninstall.',
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1481,7 +1485,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         }
         if (!status.installedByThisApp) {
           await confirmApp({
-            title: 'Not managed by ZenNotes',
+            title: tr('Not managed by ZenNotes'),
             description: `${status.installedAt} was not installed by this app. Remove it manually if you really want it gone.`,
             confirmLabel: 'OK',
             cancelLabel: 'Close'
@@ -1502,7 +1506,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
           const message = err instanceof Error ? err.message : String(err)
           if (/canceled/i.test(message)) return
           await confirmApp({
-            title: 'Uninstall failed',
+            title: tr('Uninstall failed'),
             description: message,
             confirmLabel: 'OK',
             cancelLabel: 'Close',
@@ -1513,8 +1517,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'cli.openSettings',
-      title: 'Open CLI Settings',
-      category: 'CLI',
+      title: tr('Open CLI Settings'),
+      category: tr('CLI'),
       keywords: 'cli zen terminal settings command line preferences',
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
@@ -1532,8 +1536,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       const isCurrent = getState().remoteWorkspaceInfo?.profileId === profile.id
       cmds.push({
         id: `app.workspace.remote.profile.${profile.id}`,
-        title: `${isCurrent ? 'Remote Vault (Connected):' : 'Remote Vault:'} ${profile.name}`,
-        category: 'Vault',
+        title: `${isCurrent ? tr('Remote Vault (Connected):') : tr('Remote Vault:')} ${profile.name}`,
+        category: tr('Vault'),
         keywords: `${profile.name} ${profile.baseUrl} ${profile.vaultPath ?? ''} vault remote server workspace saved profile`,
         run: () => {
           if (isCurrent) return

@@ -187,6 +187,7 @@ import {
 import { classifyLocalAssetHref } from '../lib/local-assets'
 import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
+import { useT } from '../lib/i18n'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -554,6 +555,7 @@ function getEditorContextMenuPosition(view: EditorView): { x: number; y: number 
 }
 
 export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
+  const tr = useT()
   const paneId = pane.id
   const isActive = useStore((s) => s.activePaneId === paneId)
   const tabs = pane.tabs
@@ -607,6 +609,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const pendingJumpLocation = useStore((s) => s.pendingJumpLocation)
   const clearPendingJumpLocation = useStore((s) => s.clearPendingJumpLocation)
   const vimMode = useStore((s) => s.vimMode)
+  const livePreview = useStore((s) => s.livePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
@@ -1342,7 +1345,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            modeRef.current === 'edit' && !deferInitialRichMarkdown
+            modeRef.current === 'edit' && s0.livePreview && !deferInitialRichMarkdown
               ? wysiwygExtensions()
               : []
           ),
@@ -1483,7 +1486,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownCompartment.reconfigure(markdownEditingExtensions()),
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
-          if (modeRef.current === 'edit') {
+          if (modeRef.current === 'edit' && useStore.getState().livePreview) {
             restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
@@ -1575,7 +1578,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownCompartment.reconfigure(markdownEditingExtensions()),
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
-      if (richEditing && livePreviewCompartment) {
+      if (richEditing && useStore.getState().livePreview && livePreviewCompartment) {
         effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
       }
     }
@@ -1622,7 +1625,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownCompartment.reconfigure(markdownEditingExtensions()),
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
-        if (modeRef.current === 'edit' && livePreviewCompartment) {
+        if (modeRef.current === 'edit' && useStore.getState().livePreview && livePreviewCompartment) {
           restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
         }
         view.dispatch({
@@ -1655,13 +1658,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
   }, [vimMode])
-  // WYSIWYG (live-preview) extensions are active only in Edit mode; Split
-  // and Preview keep the raw source editor. Reconfigure when the mode flips.
+  // WYSIWYG (live-preview) extensions load only in Edit mode AND only when the
+  // Live Preview setting is on; Split, Preview, or the setting off keep the raw
+  // source editor. Reconfigure when either the mode or the setting flips.
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
     if (!view || !comp) return
     const richEditing = mode === 'edit'
+    const loadWysiwyg = richEditing && livePreview
     if (deferredLivePreviewTimerRef.current != null) {
       if (richEditing) {
         clearTimeout(deferredLivePreviewTimerRef.current)
@@ -1678,13 +1683,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(wysiwygExtensions()))
+        effects.push(comp.reconfigure(loadWysiwyg ? wysiwygExtensions() : []))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(richEditing ? wysiwygExtensions() : []) })
-  }, [mode])
+    view.dispatch({ effects: comp.reconfigure(loadWysiwyg ? wysiwygExtensions() : []) })
+  }, [mode, livePreview])
   useEffect(() => {
     const view = viewRef.current
     const comp = lineNumbersCompartmentRef.current
@@ -2074,7 +2079,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (fileDrop) e.preventDefault()
       if (sourcePaths.length === 0) {
         if (fileDrop) {
-          window.alert('Could not read the dropped file path. Restart the app and try again.')
+          window.alert(tr('Could not read the dropped file path. Restart the app and try again.'))
         }
         return
       }
@@ -2171,7 +2176,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isTasksTabPath(path)) {
           return {
             ...base,
-            title: 'Tasks',
+            title: tr('Tasks'),
             isTasks: true
           }
         }
@@ -2185,14 +2190,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (isTagsTabPath(path)) {
           return {
             ...base,
-            title: 'Tags',
+            title: tr('Tags'),
             isTag: true
           }
         }
         if (isHelpTabPath(path)) {
           return {
             ...base,
-            title: 'Help',
+            title: tr('Help'),
             isHelp: true
           }
         }
@@ -2262,16 +2267,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // Finder", or floating-window since those only make sense for notes.
     if (isTasksTabPath(path)) {
       return [
-        { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
+        { label: tr('Close'), onSelect: async () => closeTabInPane(paneId, path) },
         {
-          label: 'Close Others',
+          label: tr('Close Others'),
           disabled: closableOthers.length === 0,
           onSelect: async () => {
             for (const t of closableOthers) await closeTabInPane(paneId, t)
           }
         },
         {
-          label: 'Close Tabs to Right',
+          label: tr('Close Tabs to Right'),
           disabled: closableRight.length === 0,
           onSelect: async () => {
             for (const t of closableRight) await closeTabInPane(paneId, t)
@@ -2279,18 +2284,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         },
         { kind: 'separator' },
         {
-          label: 'Split Right',
+          label: tr('Split Right'),
           onSelect: async () =>
             splitPaneWithTab({ targetPaneId: paneId, edge: 'right', path })
         },
         {
-          label: 'Split Down',
+          label: tr('Split Down'),
           onSelect: async () =>
             splitPaneWithTab({ targetPaneId: paneId, edge: 'bottom', path })
         },
         { kind: 'separator' },
         {
-          label: 'Refresh',
+          label: tr('Refresh'),
           onSelect: async () => {
             await useStore.getState().refreshTasks()
           }
@@ -2311,16 +2316,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isDatabaseTabPath(path)
     ) {
       return [
-        { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
+        { label: tr('Close'), onSelect: async () => closeTabInPane(paneId, path) },
         {
-          label: 'Close Others',
+          label: tr('Close Others'),
           disabled: closableOthers.length === 0,
           onSelect: async () => {
             for (const t of closableOthers) await closeTabInPane(paneId, t)
           }
         },
         {
-          label: 'Close Tabs to Right',
+          label: tr('Close Tabs to Right'),
           disabled: closableRight.length === 0,
           onSelect: async () => {
             for (const t of closableRight) await closeTabInPane(paneId, t)
@@ -2328,12 +2333,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         },
         { kind: 'separator' },
         {
-          label: 'Split Right',
+          label: tr('Split Right'),
           onSelect: async () =>
             splitPaneWithTab({ targetPaneId: paneId, edge: 'right', path })
         },
         {
-          label: 'Split Down',
+          label: tr('Split Down'),
           onSelect: async () =>
             splitPaneWithTab({ targetPaneId: paneId, edge: 'bottom', path })
         }
@@ -2341,16 +2346,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
 
     const items: ContextMenuItem[] = [
-      { label: 'Close', onSelect: async () => closeTabInPane(paneId, path) },
+      { label: tr('Close'), onSelect: async () => closeTabInPane(paneId, path) },
       {
-        label: 'Close Others',
+        label: tr('Close Others'),
         disabled: closableOthers.length === 0,
         onSelect: async () => {
           for (const t of closableOthers) await closeTabInPane(paneId, t)
         }
       },
       {
-        label: 'Close Tabs to Right',
+        label: tr('Close Tabs to Right'),
         disabled: closableRight.length === 0,
         onSelect: async () => {
           for (const t of closableRight) await closeTabInPane(paneId, t)
@@ -2368,24 +2373,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         // Clone the tab into a new split to the right — both panes
         // continue to show the note. Omitting sourcePaneId is what
         // tells the store to skip the move-out step.
-        label: 'Split Right',
+        label: tr('Split Right'),
         onSelect: async () =>
           splitPaneWithTab({ targetPaneId: paneId, edge: 'right', path })
       },
       {
-        label: 'Split Down',
+        label: tr('Split Down'),
         onSelect: async () =>
           splitPaneWithTab({ targetPaneId: paneId, edge: 'bottom', path })
       },
       { kind: 'separator' },
       {
-        label: 'Pin as Reference',
+        label: tr('Pin as Reference'),
         onSelect: async () => {
           await useStore.getState().pinReference(path)
         }
       },
       {
-        label: 'Open in Floating Window',
+        label: tr('Open in Floating Window'),
         onSelect: async () => {
           await window.zen.openNoteWindow(path)
         }
@@ -2393,7 +2398,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     ]
     if (window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote') {
       items.push({
-        label: 'Reveal in File Manager',
+        label: tr('Reveal in File Manager'),
         onSelect: async () => window.zen.revealNote(path)
       })
     }
@@ -2515,7 +2520,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <button
                 type="button"
                 aria-label={`Unpin ${tab.title}`}
-                title="Unpin tab"
+                title={tr("Unpin tab")}
                 onClick={() => unpinTabInPane(paneId, tab.path)}
                 className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-accent transition-colors hover:bg-paper-200"
               >
@@ -2639,7 +2644,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           </IconBtn>
         )}
         <IconBtn
-          title="More actions"
+          title={tr("More actions")}
           active={!!overflowMenu}
           onClick={(e) => {
             // Same click that just closed the menu (via outside-mousedown) —
@@ -2678,7 +2683,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const folder = content.folder
     const items: ContextMenuItem[] = [
       {
-        label: 'Export as PDF',
+        label: tr('Export as PDF'),
         hint: '⇧⌘E',
         icon: <FileDownIcon width={15} height={15} />,
         onSelect: () => void exportActiveNotePdf()
@@ -2686,13 +2691,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     ]
     if (folder === 'trash') {
       items.push({
-        label: 'Restore',
+        label: tr('Restore'),
         icon: <ArrowUpRightIcon width={15} height={15} />,
         onSelect: () => void restoreActive()
       })
     } else if (folder === 'archive') {
       items.push({
-        label: 'Unarchive',
+        label: tr('Unarchive'),
         icon: <ArrowUpRightIcon width={15} height={15} />,
         onSelect: () => void unarchiveActive()
       })
@@ -2990,7 +2995,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         <header className="glass-header flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-1">
             {!sidebarOpen && isActive && (
-              <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar}>
+              <IconBtn title={tr("Show sidebar (⌘1)")} onClick={toggleSidebar}>
                 <PanelLeftIcon />
               </IconBtn>
             )}
@@ -3004,8 +3009,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             />
             {isDirty && (
               <span
-                aria-label="Unsaved changes"
-                title="Unsaved changes"
+                aria-label={tr("Unsaved changes")}
+                title={tr("Unsaved changes")}
                 className="ml-2 h-2 w-2 rounded-full bg-accent/80"
               />
             )}
@@ -3118,7 +3123,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   ref={previewScrollRef}
                   data-preview-scroll
                   tabIndex={0}
-                  aria-label="Note preview"
+                  aria-label={tr("Note preview")}
                   className={[
                     'min-h-0 min-w-0 overflow-y-auto outline-none focus:outline-none focus-visible:outline-none',
                     splitMode
@@ -3179,8 +3184,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           <button
             type="button"
             data-selection-comment-action
-            title="Add comment"
-            aria-label="Add comment to selected text"
+            title={tr("Add comment")}
+            aria-label={tr("Add comment to selected text")}
             onMouseDown={(event) => {
               event.preventDefault()
               event.stopPropagation()
@@ -3220,7 +3225,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           items={buildEditorContextItems(
             viewRef.current,
             editorMenu.hasSelection,
-            captureCommentDraft
+            captureCommentDraft,
+            tr
           )}
           onClose={() => setEditorMenu(null)}
         />
@@ -3306,7 +3312,8 @@ function AssetTabView({
 function buildEditorContextItems(
   view: EditorView | null,
   hasSelection: boolean,
-  onAddComment: () => void
+  onAddComment: () => void,
+  tr: (s: string) => string
 ): ContextMenuItem[] {
   if (!view) return []
 
@@ -3350,7 +3357,7 @@ function buildEditorContextItems(
 
   return [
     {
-      label: 'Add comment',
+      label: tr('Add comment'),
       hint: 'Enter',
       icon: <FeedbackIcon width={14} height={14} />,
       disabled: !hasSelection,
@@ -3359,12 +3366,12 @@ function buildEditorContextItems(
       }
     },
     { kind: 'separator' },
-    { label: 'Cut', hint: '⌘X', disabled: !hasSelection, onSelect: cut },
-    { label: 'Copy', hint: '⌘C', disabled: !hasSelection, onSelect: copy },
-    { label: 'Paste', hint: '⌘V', onSelect: paste },
+    { label: tr('Cut'), hint: '⌘X', disabled: !hasSelection, onSelect: cut },
+    { label: tr('Copy'), hint: '⌘C', disabled: !hasSelection, onSelect: copy },
+    { label: tr('Paste'), hint: '⌘V', onSelect: paste },
     { kind: 'separator' },
     {
-      label: 'Select All',
+      label: tr('Select All'),
       hint: '⌘A',
       onSelect: async () => {
         selectAll(view)
@@ -3373,7 +3380,7 @@ function buildEditorContextItems(
     },
     { kind: 'separator' },
     {
-      label: 'Undo',
+      label: tr('Undo'),
       hint: '⌘Z',
       onSelect: async () => {
         undo(view)
@@ -3381,7 +3388,7 @@ function buildEditorContextItems(
       }
     },
     {
-      label: 'Redo',
+      label: tr('Redo'),
       hint: '⇧⌘Z',
       onSelect: async () => {
         redo(view)
@@ -3416,6 +3423,7 @@ function EmptyPaneState({
   zenMode: boolean
   onShowSidebar: () => void
 }): JSX.Element {
+  const tr = useT()
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-6">
       <div className="max-w-md rounded-3xl border border-paper-300/70 bg-paper-50/35 px-6 py-6 text-center shadow-[0_18px_48px_rgba(15,23,42,0.08)] backdrop-blur-sm">
@@ -3423,14 +3431,14 @@ function EmptyPaneState({
           <PanelLeftIcon width={20} height={20} />
         </div>
         <h2 className="mt-4 text-base font-medium text-ink-900">
-          {zenMode ? 'Zen mode is on' : sidebarOpen ? 'No note selected' : 'Sidebar hidden'}
+          {zenMode ? tr('Zen mode is on') : sidebarOpen ? tr('No note selected') : tr('Sidebar hidden')}
         </h2>
         <p className="mt-2 text-sm leading-6 text-ink-500">
           {zenMode
-            ? 'Leave Zen mode with ⌘. to bring the rest of the app chrome back.'
+            ? tr('Leave Zen mode with ⌘. to bring the rest of the app chrome back.')
             : sidebarOpen
-            ? 'Select a note from the sidebar, or create a new one to start writing.'
-            : 'Bring the sidebar back to browse your notes, folders, and shortcuts.'}
+            ? tr('Select a note from the sidebar, or create a new one to start writing.')
+            : tr('Bring the sidebar back to browse your notes, folders, and shortcuts.')}
         </p>
         {!zenMode && !sidebarOpen && (
           <div className="mt-5 flex items-center justify-center">
@@ -3440,7 +3448,7 @@ function EmptyPaneState({
               className="inline-flex items-center gap-2 rounded-xl border border-paper-300 bg-paper-100 px-3.5 py-2 text-sm font-medium text-ink-900 transition-colors hover:bg-paper-200"
             >
               <PanelLeftIcon width={16} height={16} />
-              <span>Show sidebar</span>
+              <span>{tr('Show sidebar')}</span>
               <span className="rounded-md border border-paper-300/80 bg-paper-50/80 px-1.5 py-0.5 font-mono text-xs text-ink-500">
                 ⌘1
               </span>
@@ -3491,6 +3499,7 @@ function ToggleGroup({
   mode: PaneMode
   onChange: (m: PaneMode) => void
 }): JSX.Element {
+  const tr = useT()
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
@@ -3500,8 +3509,8 @@ function ToggleGroup({
           <button
             key={option.mode}
             onClick={() => onChange(option.mode)}
-            title={`${option.tooltipLabel} (${shortcut})`}
-            aria-label={`${option.tooltipLabel} (${shortcut})`}
+            title={`${tr(option.tooltipLabel)} (${shortcut})`}
+            aria-label={`${tr(option.tooltipLabel)} (${shortcut})`}
             className={[
               'rounded px-2 py-1 transition-colors',
               mode === option.mode
@@ -3509,7 +3518,7 @@ function ToggleGroup({
                 : 'text-ink-500 hover:text-ink-800'
             ].join(' ')}
           >
-            {option.label}
+            {tr(option.label)}
           </button>
         )
       })}
@@ -3530,6 +3539,7 @@ function Breadcrumb({
   onAutoFocusHandled: () => void
   onRename: (next: string) => void
 }): JSX.Element {
+  const tr = useT()
   const setView = useStore((s) => s.setView)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -3583,7 +3593,7 @@ function Breadcrumb({
       return true
     }
     if (INVALID_FILENAME_CHARS.test(trimmed)) {
-      setWarning('Invalid characters: # ^ [ ] | \\ : * ? " < >')
+      setWarning(tr('Invalid characters: # ^ [ ] | \\ : * ? " < >'))
       requestAnimationFrame(() => {
         inputRef.current?.focus()
         inputRef.current?.select()
@@ -3601,7 +3611,7 @@ function Breadcrumb({
           <button
             onClick={c.onClick}
             className="truncate rounded px-1 hover:bg-paper-200/70 hover:text-ink-800"
-            title={`Go to ${c.label}`}
+            title={`${tr('Go to')} ${c.label}`}
           >
             {c.label}
           </button>
@@ -3613,7 +3623,7 @@ function Breadcrumb({
           ref={inputRef}
           spellCheck={false}
           value={value}
-          placeholder="Untitled"
+          placeholder={tr("Untitled")}
           onFocus={() => useStore.getState().setFocusedPanel('editor')}
           onChange={(e) => {
             setValue(e.target.value)
@@ -3649,7 +3659,7 @@ function Breadcrumb({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          title="Rename note"
+          title={tr("Rename note")}
           className="truncate rounded px-1.5 py-0.5 text-sm font-semibold text-ink-900 hover:bg-paper-200/70"
         >
           {note.title || 'Untitled'}

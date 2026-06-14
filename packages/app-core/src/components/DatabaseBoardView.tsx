@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useT } from '../lib/i18n';
 import type { DatabaseDoc, DbField, DbView } from '@shared/databases'
 import { EMPTY_GROUP } from '@shared/databases'
 import { boardColumns, filterRows } from '@shared/database-transforms'
@@ -28,6 +29,7 @@ interface Props {
  * Uses native HTML5 drag-and-drop.
  */
 export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
+  const t = useT()
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const openRecordPage = useStore((s) => s.openRecordPage)
@@ -55,8 +57,8 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
   if (!groupField) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-ink-500">
-        <p>Group the board by a Select field.</p>
-        <p className="text-xs text-ink-500">Add a Select field in the Table view, then come back.</p>
+        <p>{t("Group the board by a Select field.")}</p>
+        <p className="text-xs text-ink-500">{t("Add a Select field in the Table view, then come back.")}</p>
       </div>
     )
   }
@@ -75,7 +77,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs text-ink-500">
-        <span>Group by</span>
+        <span>{t("Group by")}</span>
         <select
           value={groupField.id}
           onChange={(e) =>
@@ -141,7 +143,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
                         size="sm"
                         variant="ghost"
                         className="shrink-0 opacity-0 group-hover/card:opacity-100"
-                        title="Open as page"
+                        title={t("Open as page")}
                         onClick={(e) => {
                           e.stopPropagation()
                           void openRecordPage(csvPath, row.id)
@@ -183,7 +185,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
             <input
               autoFocus
               value={optionDraft}
-              placeholder="New column…"
+              placeholder={t("New column…")}
               onChange={(e) => setOptionDraft(e.target.value)}
               onBlur={() => {
                 if (optionDraft.trim()) {

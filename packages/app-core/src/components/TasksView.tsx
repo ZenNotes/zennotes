@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
 import type { VaultTask } from '@shared/tasks'
 import { computeTasksRender, isOverdue } from '../lib/tasks-filter'
@@ -29,6 +30,7 @@ const VIEW_BUTTONS: Array<{
 ]
 
 export function TasksView(): JSX.Element {
+  const t = useT()
   const tasks = useStore((s) => s.vaultTasks)
   const loading = useStore((s) => s.tasksLoading)
   const filter = useStore((s) => s.tasksFilter)
@@ -328,7 +330,7 @@ export function TasksView(): JSX.Element {
     >
       <div className="flex items-center gap-2 border-b border-paper-300/45 px-4 py-3">
         <CheckSquareIcon width={18} height={18} />
-        <h1 className="text-sm font-semibold">Tasks</h1>
+        <h1 className="text-sm font-semibold">{t("Tasks")}</h1>
         <span className="ml-2 rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
           {tasks.length} total
         </span>
@@ -342,7 +344,7 @@ export function TasksView(): JSX.Element {
                 key={id}
                 type="button"
                 onClick={() => setViewMode(id)}
-                title={`${label} (${shortcut})`}
+                title={`${t(label)} (${shortcut})`}
                 className={[
                   'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
                   isActive
@@ -351,7 +353,7 @@ export function TasksView(): JSX.Element {
                 ].join(' ')}
               >
                 <Icon width={13} height={13} />
-                <span className="hidden sm:inline">{label}</span>
+                <span className="hidden sm:inline">{t(label)}</span>
               </button>
             )
           })}
@@ -362,7 +364,7 @@ export function TasksView(): JSX.Element {
             <input
               ref={filterRef}
               type="text"
-              placeholder="Filter…  /  to focus"
+              placeholder={t("Filter…  /  to focus")}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
@@ -382,7 +384,7 @@ export function TasksView(): JSX.Element {
             type="button"
             onClick={() => void refreshTasks()}
             className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
-            title="Rescan vault"
+            title={t("Rescan vault")}
           >
             Refresh
           </button>
@@ -390,7 +392,7 @@ export function TasksView(): JSX.Element {
             type="button"
             onClick={closeTasksView}
             className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
-            title="Close (:q or Esc)"
+            title={t("Close (:q or Esc)")}
           >
             Close
           </button>
@@ -416,7 +418,7 @@ export function TasksView(): JSX.Element {
                     className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-xs font-semibold uppercase tracking-wide text-current/60 hover:bg-paper-200/60"
                   >
                     <span className="w-3">{isCollapsed ? '▸' : '▾'}</span>
-                    <span>{GROUP_LABELS[key]}</span>
+                    <span>{t(GROUP_LABELS[key])}</span>
                     <span className="text-current/40">{row.count ?? 0}</span>
                     {key === 'today' && row.overdueCount ? (
                       <span className="ml-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">

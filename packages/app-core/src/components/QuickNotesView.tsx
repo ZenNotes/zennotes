@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isQuickNotesViewActive, useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { ArrowUpRightIcon, PlusIcon, ZapIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { resolveQuickNoteTitle } from '../lib/quick-note-title'
@@ -23,6 +24,7 @@ function cssEscape(value: string): string {
 }
 
 export function QuickNotesView(): JSX.Element {
+  const t = useT();
   const notes = useStore((s) => s.notes)
   const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
@@ -223,8 +225,8 @@ export function QuickNotesView(): JSX.Element {
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {quickNotes.length === 0
-                  ? `${quickLabel} are for fast capture. Create a note and it will show up here immediately.`
-                  : 'Try a different title, path, or excerpt fragment.'}
+                  ? `${quickLabel} ${t('are for fast capture. Create a note and it will show up here immediately.')}`
+                  : t('Try a different title, path, or excerpt fragment.')}
               </div>
             </div>
           ) : (

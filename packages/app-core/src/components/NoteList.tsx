@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import type { AssetMeta, NoteMeta } from '@shared/ipc'
 import { isDatabaseCsvPath } from '@shared/databases'
 import {
@@ -61,6 +62,7 @@ function folderEntryPath(entry: FolderEntry): string {
 }
 
 export function NoteList(): JSX.Element {
+  const t = useT()
   const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
   const folders = useStore((s) => s.folders)
@@ -103,7 +105,7 @@ export function NoteList(): JSX.Element {
     window.zen.getAppInfo().runtime === 'desktop' &&
     workspaceMode !== 'remote'
   const absolutePathLabel =
-    workspaceMode === 'remote' ? 'Copy Server Path' : 'Copy Absolute Path'
+    workspaceMode === 'remote' ? t('Copy Server Path') : t('Copy Absolute Path')
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels),
     [systemFolderLabels]
@@ -208,21 +210,21 @@ export function NoteList(): JSX.Element {
     }
 
     const items: ContextMenuItem[] = []
-    items.push({ label: 'Open', onSelect: onOpen })
+    items.push({ label: t('Open'), onSelect: onOpen })
     if (tabsEnabled) {
-      items.push({ label: 'Open in New Tab', onSelect: async () => openNoteInTab(n.path) })
+      items.push({ label: t('Open in New Tab'), onSelect: async () => openNoteInTab(n.path) })
     }
 
     if (n.folder !== 'trash') {
       items.push({
-        label: 'Rename…',
+        label: t('Rename…'),
         onSelect: async () => {
           const next = await promptApp({
-            title: 'Rename note',
+            title: t('Rename note'),
             initialValue: n.title,
-            okLabel: 'Rename',
+            okLabel: t('Rename'),
             validate: (v) => {
-              if (/[\\/]/.test(v)) return 'Title cannot contain / or \\'
+              if (/[\\/]/.test(v)) return t('Title cannot contain / or \\')
               return null
             }
           })
@@ -230,18 +232,18 @@ export function NoteList(): JSX.Element {
           await renameNote(n.path, next)
         }
       })
-      items.push({ label: 'Move…', onSelect: onMove })
-      items.push({ label: 'Duplicate', onSelect: onDuplicate })
+      items.push({ label: t('Move…'), onSelect: onMove })
+      items.push({ label: t('Duplicate'), onSelect: onDuplicate })
     }
-    items.push({ label: 'Copy as Wiki Link', onSelect: onCopyWikilink })
+    items.push({ label: t('Copy as Wiki Link'), onSelect: onCopyWikilink })
     items.push({
-      label: 'Open in Floating Window',
+      label: t('Open in Floating Window'),
       onSelect: async () => {
         await window.zen.openNoteWindow(n.path)
       }
     })
     if (canRevealInFileManager) {
-      items.push({ label: 'Reveal in File Manager', onSelect: onReveal })
+      items.push({ label: t('Reveal in File Manager'), onSelect: onReveal })
     }
     items.push({ kind: 'separator' })
 
@@ -267,12 +269,12 @@ export function NoteList(): JSX.Element {
       })
     } else {
       items.push({
-        label: 'Restore',
+        label: t('Restore'),
         icon: <ArrowUpRightIcon />,
         onSelect: onRestore
       })
       items.push({
-        label: 'Delete Permanently',
+        label: t('Delete Permanently'),
         icon: <TrashIcon />,
         danger: true,
         onSelect: onDeleteForever
@@ -317,28 +319,28 @@ export function NoteList(): JSX.Element {
 
     const items: ContextMenuItem[] = [
       {
-        label: 'Open',
+        label: t('Open'),
         onSelect: openAsset
       },
       {
-        label: 'Open in New Tab',
+        label: t('Open in New Tab'),
         onSelect: openAsset
       }
     ]
 
     if (canManageAssetFiles) {
       items.push({
-        label: 'Rename…',
+        label: t('Rename…'),
         onSelect: async () => {
           const next = await promptApp({
-            title: 'Rename asset',
+            title: t('Rename asset'),
             initialValue: asset.name,
-            okLabel: 'Rename',
+            okLabel: t('Rename'),
             validate: (value) => {
               const clean = value.trim()
-              if (!clean) return 'Asset name is required'
-              if (/[\\/]/.test(clean)) return 'Use only a file name'
-              if (/\.md$/i.test(clean)) return 'Use note actions for markdown notes'
+              if (!clean) return t('Asset name is required')
+              if (/[\\/]/.test(clean)) return t('Use only a file name')
+              if (/\.md$/i.test(clean)) return t('Use note actions for markdown notes')
               return null
             }
           })
@@ -348,20 +350,20 @@ export function NoteList(): JSX.Element {
         }
       })
       items.push({
-        label: 'Move…',
+        label: t('Move…'),
         onSelect: async () => {
           const target = await promptApp({
-            title: 'Move asset',
-            description: 'Enter a vault-relative folder path. Leave empty to move to the vault root.',
+            title: t('Move asset'),
+            description: t('Enter a vault-relative folder path. Leave empty to move to the vault root.'),
             initialValue: currentDir,
-            placeholder: 'media/screenshots',
-            okLabel: 'Move',
+            placeholder: t('media/screenshots'),
+            okLabel: t('Move'),
             allowEmptySubmit: true,
             validate: (value) => {
               const clean = value.trim()
-              if (clean.includes('..')) return 'Path cannot contain ..'
+              if (clean.includes('..')) return t('Path cannot contain ..')
               if (clean.split('/').includes('.zennotes')) {
-                return 'Cannot move assets into internal ZenNotes files'
+                return t('Cannot move assets into internal ZenNotes files')
               }
               return null
             }
@@ -372,7 +374,7 @@ export function NoteList(): JSX.Element {
         }
       })
       items.push({
-        label: 'Duplicate',
+        label: t('Duplicate'),
         onSelect: async () => {
           await window.zen.duplicateAsset(asset.path)
           await refreshAssets()
@@ -381,13 +383,13 @@ export function NoteList(): JSX.Element {
     }
 
     items.push({
-      label: 'Copy as Embed',
+      label: t('Copy as Embed'),
       onSelect: async () => {
         window.zen.clipboardWriteText(`![[${asset.path}]]`)
       }
     })
     items.push({
-      label: 'Copy Path',
+      label: t('Copy Path'),
       onSelect: async () => {
         window.zen.clipboardWriteText(asset.path)
       }
@@ -401,7 +403,7 @@ export function NoteList(): JSX.Element {
 
     if (canRevealInFileManager) {
       items.push({
-        label: 'Reveal in File Manager',
+        label: t('Reveal in File Manager'),
         onSelect: async () => {
           await window.zen.revealNote(asset.path)
         }
@@ -411,7 +413,7 @@ export function NoteList(): JSX.Element {
     if (canDeleteAssets) {
       items.push({ kind: 'separator' })
       items.push({
-        label: 'Delete Asset…',
+        label: t('Delete Asset…'),
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
@@ -419,7 +421,7 @@ export function NoteList(): JSX.Element {
             title: `Delete ${asset.name}?`,
             description:
               'This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.',
-            confirmLabel: 'Delete asset',
+            confirmLabel: t('Delete asset'),
             danger: true
           })
           if (!ok) return
@@ -669,11 +671,11 @@ export function NoteList(): JSX.Element {
 
   const heading =
     view.kind === 'assets'
-      ? 'Files'
+      ? t('Files')
       : view.subpath
         ? view.subpath.split('/').slice(-1)[0]
         : view.folder === 'inbox' && isPrimaryNotesAtRoot(vaultSettings)
-          ? vault?.name ?? 'Vault'
+          ? vault?.name ?? t('Vault')
           : folderLabels[view.folder]
 
   const newTarget =
@@ -754,25 +756,25 @@ export function NoteList(): JSX.Element {
                       : 'text-ink-500 hover:text-ink-800'
                   ].join(' ')}
                 >
-                  {layout === 'grid' ? 'Grid' : 'List'}
+                  {layout === 'grid' ? t('Grid') : t('List')}
                 </button>
               ))}
             </div>
           ) : view.kind === 'folder' && view.folder === 'trash' && filtered.length > 0 && (
             <Button variant="ghost" size="sm" onClick={() => void emptyTrash()}>
-              Empty
+              {t('Empty')}
             </Button>
           )}
           {view.kind !== 'assets' && (
             <IconButton
               size="sm"
-              title="New note"
+              title={t("New note")}
               onClick={() => void createAndOpen(newTarget.folder, newTarget.subpath)}
             >
               <PlusIcon />
             </IconButton>
           )}
-          <IconButton size="sm" title="Hide note list" onClick={toggleNoteList}>
+          <IconButton size="sm" title={t("Hide note list")} onClick={toggleNoteList}>
             <ColumnsIcon />
           </IconButton>
         </div>
@@ -787,7 +789,7 @@ export function NoteList(): JSX.Element {
         {view.kind === 'assets' ? (
           assetFiles.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-ink-500">
-              No files yet. Files anywhere inside the vault show up here.
+              {t('No files yet. Files anywhere inside the vault show up here.')}
             </div>
           ) : assetLayout === 'grid' ? (
             <div className="relative" style={{ height: assetGridRange.totalSize }}>
@@ -846,8 +848,8 @@ export function NoteList(): JSX.Element {
         ) : orderedFolderEntries.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-ink-500">
             {view.kind === 'folder' && view.folder === 'trash'
-              ? `${folderLabels.trash} is empty.`
-              : 'No files here yet.'}
+              ? `${folderLabels.trash} ${t('is empty.')}`
+              : t('No files here yet.')}
           </div>
         ) : (
           <div className="relative" style={{ height: folderEntryRange.totalSize }}>

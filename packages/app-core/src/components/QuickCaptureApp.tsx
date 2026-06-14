@@ -31,6 +31,7 @@
  *   :find        — open the note picker (alias for ⌘P).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { Compartment, EditorState } from '@codemirror/state'
 import {
   EditorView,
@@ -217,6 +218,7 @@ function registerCaptureVimCommands(): void {
 }
 
 export function QuickCaptureApp(): JSX.Element {
+  const tr = useT()
   const prefs = useMemo(() => loadPrefs(), [])
   // `docTitle` is the live title derived from the editor's first line —
   // pure display, the body is the single place to type. '' means the
@@ -663,6 +665,7 @@ interface OverlayShellProps {
 }
 
 function OverlayShell({ children }: OverlayShellProps): JSX.Element {
+  const tr = useT()
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-paper-100/95 backdrop-blur-sm">
       {children}
@@ -677,6 +680,7 @@ interface NotePickerOverlayProps {
 }
 
 function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps): JSX.Element {
+  const tr = useT()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -724,7 +728,7 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Search notes — type, or use #tag filters"
+          placeholder={tr("Search notes — type, or use #tag filters")}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           className="w-full bg-transparent text-sm outline-none placeholder:text-ink-400"
@@ -773,6 +777,7 @@ interface CommandOverlayProps {
 }
 
 function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
+  const tr = useT()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -791,19 +796,19 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
       },
       {
         id: 'save-no-close' as CommandAction,
-        label: 'Save without hiding',
+        label: tr('Save without hiding'),
         hint: ':w',
         keywords: 'save write keep open'
       },
       {
         id: 'new' as CommandAction,
-        label: 'Save and start a new note',
+        label: tr('Save and start a new note'),
         hint: `${modKey}N`,
         keywords: 'new fresh next another note save'
       },
       {
         id: 'open' as CommandAction,
-        label: 'Open another note…',
+        label: tr('Open another note…'),
         hint: `${modKey}P`,
         keywords: 'open switch picker find search note'
       }
@@ -847,7 +852,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Run a command…"
+          placeholder={tr("Run a command…")}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           className="w-full bg-transparent text-sm outline-none placeholder:text-ink-400"
@@ -855,7 +860,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {results.length === 0 ? (
-          <div className="px-4 py-3 text-xs text-ink-500">No commands match.</div>
+          <div className="px-4 py-3 text-xs text-ink-500">{tr("No commands match.")}</div>
         ) : (
           results.map((cmd, idx) => {
             const isActive = idx === active

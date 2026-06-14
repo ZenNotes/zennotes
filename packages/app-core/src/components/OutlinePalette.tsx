@@ -8,6 +8,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { parseOutline, type OutlineItem } from '../lib/outline'
@@ -33,6 +34,7 @@ function isVirtualPath(path: string | null): boolean {
 }
 
 export function OutlinePalette(): JSX.Element {
+  const t = useT();
   const setOpen = useStore((s) => s.setOutlinePaletteOpen)
   const selectedPath = useStore((s) => s.selectedPath)
   const noteContents = useStore((s) => s.noteContents)
@@ -84,7 +86,7 @@ export function OutlinePalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Jump to heading…"
+            placeholder={t("Jump to heading…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
@@ -113,9 +115,9 @@ export function OutlinePalette(): JSX.Element {
             <div className="px-4 py-6 text-center text-sm text-ink-400">
               {items.length === 0
                 ? isVirtualPath(selectedPath)
-                  ? 'No outline for this view.'
-                  : 'No headings in this note.'
-                : 'No matching headings.'}
+                  ? t('No outline for this view.')
+                  : t('No headings in this note.')
+                : t('No matching headings.')}
             </div>
           ) : (
             results.map((item, i) => (

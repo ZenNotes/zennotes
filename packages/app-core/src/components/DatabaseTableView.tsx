@@ -8,6 +8,7 @@ import {
   type MouseEvent as ReactMouseEvent
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useT } from '../lib/i18n'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType } from '@shared/databases'
 import { filterRows, sortRows } from '@shared/database-transforms'
 import { useStore } from '../store'
@@ -49,6 +50,7 @@ interface Props {
 }
 
 export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.Element {
+  const tr = useT()
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const openRecordPage = useStore((s) => s.openRecordPage)
@@ -325,7 +327,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   const rowMenuItems = (rowId: string): ContextMenuItem[] => {
     const multi = selected.has(rowId) && selected.size > 1
     return [
-      { label: 'Open page', onSelect: () => openPage(rowId) },
+      { label: tr('Open page'), onSelect: () => openPage(rowId) },
       { kind: 'separator' },
       {
         label: multi ? `Delete ${selected.size} rows` : 'Delete row',
@@ -337,19 +339,19 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   }
 
   const fieldMenuItems = (field: DbField): ContextMenuItem[] => [
-    { label: 'Sort ascending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'asc' }] })) },
-    { label: 'Sort descending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'desc' }] })) },
-    { label: 'Clear sort', disabled: view.sorts.length === 0, onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [] })) },
+    { label: tr('Sort ascending'), onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'asc' }] })) },
+    { label: tr('Sort descending'), onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'desc' }] })) },
+    { label: tr('Clear sort'), disabled: view.sorts.length === 0, onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [] })) },
     { kind: 'separator' },
-    { label: 'Rename field', onSelect: () => setRenamingField(field.id) },
-    ...(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((t) => ({
-      label: `Type: ${FIELD_TYPE_LABELS[t]}`,
-      hint: field.type === t ? '●' : undefined,
-      onSelect: () => updateDatabaseSchema(csvPath, retypeField(doc, field.id, t))
+    { label: tr('Rename field'), onSelect: () => setRenamingField(field.id) },
+    ...(Object.keys(FIELD_TYPE_LABELS) as FieldType[]).map((ft) => ({
+      label: `${tr('Type:')} ${tr(FIELD_TYPE_LABELS[ft])}`,
+      hint: field.type === ft ? '●' : undefined,
+      onSelect: () => updateDatabaseSchema(csvPath, retypeField(doc, field.id, ft))
     })),
     { kind: 'separator' },
     {
-      label: 'Delete field',
+      label: tr('Delete field'),
       danger: true,
       disabled: field.id === doc.idFieldId,
       onSelect: () => updateDatabaseSchema(csvPath, deleteField(doc, field.id))
@@ -413,7 +415,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                     anySelected ? '' : 'opacity-0 group-hover/sa:opacity-100'
                   ].join(' ')}
                 >
-                  <DbCheckbox checked={allSelected} onChange={toggleAll} title="Select all" />
+                  <DbCheckbox checked={allSelected} onChange={toggleAll} title={tr("Select all")} />
                 </div>
               </th>
             {columns.map((field, colIndex) => (
@@ -450,7 +452,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                       type="button"
                       onDoubleClick={() => setRenamingField(field.id)}
                       className="min-w-0 flex-1 truncate text-left"
-                      title={`${field.name} · ${FIELD_TYPE_LABELS[field.type]}`}
+                      title={`${field.name} · ${tr(FIELD_TYPE_LABELS[field.type])}`}
                     >
                       {field.name}
                       <span className="text-accent">{sortIndicator(field.id)}</span>
@@ -458,7 +460,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                     <IconButton
                       size="sm"
                       className="opacity-0 group-hover/h:opacity-100"
-                      title="Field options"
+                      title={tr("Field options")}
                       onClick={(e) => {
                         const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
                         setFieldMenu({ fieldId: field.id, x: r.left, y: r.bottom })
@@ -496,7 +498,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                       isSel || anySelected ? '' : 'opacity-0 group-hover/row:opacity-100'
                     ].join(' ')}
                   >
-                    <DbCheckbox checked={isSel} onChange={() => toggleRow(row.id)} title="Select row" />
+                    <DbCheckbox checked={isSel} onChange={() => toggleRow(row.id)} title={tr("Select row")} />
                   </div>
                 </td>
                 {columns.map((field, colIndex) => {
@@ -572,7 +574,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                           e.stopPropagation()
                           openPage(row.id)
                         }}
-                        title="Open page"
+                        title={tr("Open page")}
                         className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded-md border border-paper-300 bg-paper-100 px-2 py-1 text-2xs font-medium text-ink-600 opacity-0 shadow-sm transition hover:border-paper-400 hover:text-ink-900 group-hover/row:opacity-100"
                       >
                         <ArrowUpRightIcon className="h-3 w-3" /> Open
@@ -630,6 +632,7 @@ function DbCheckbox({
   onChange: () => void
   title?: string
 }): JSX.Element {
+  const tr = useT()
   return (
     <button
       type="button"
@@ -674,6 +677,7 @@ interface CellProps {
 }
 
 function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellProps): JSX.Element {
+  const tr = useT()
   if (field.type === 'checkbox') {
     const checked = isCheckboxTrue(value)
     return (
@@ -732,6 +736,7 @@ function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellP
 const SELECT_PANEL_WIDTH = 224
 
 function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellProps): JSX.Element {
+  const tr = useT()
   const multi = field.type === 'multiSelect'
   const selected = multi ? splitMultiSelect(value) : value ? [value] : []
   const triggerRef = useRef<HTMLButtonElement | null>(null)
@@ -829,14 +834,14 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
                 </button>
               ))}
               {(field.options ?? []).length === 0 && (
-                <div className="px-3 py-2 text-xs text-ink-500">No options yet — add one below.</div>
+                <div className="px-3 py-2 text-xs text-ink-500">{tr("No options yet — add one below.")}</div>
               )}
             </div>
             <div className="border-t border-paper-300/60 p-1.5">
               <input
                 autoFocus
                 value={draft}
-                placeholder="Add option…"
+                placeholder={tr("Add option…")}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   e.stopPropagation()

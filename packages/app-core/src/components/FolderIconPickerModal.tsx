@@ -1,4 +1,5 @@
 import type { FolderIconId } from '@shared/ipc'
+import { useT } from '../lib/i18n';
 import { FOLDER_ICON_OPTIONS } from './FolderIcons'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -14,10 +15,11 @@ export function FolderIconPickerModal({
   onSelect: (iconId: FolderIconId) => void
   onCancel: () => void
 }): JSX.Element {
+  const t = useT()
   return (
     <Modal size="md" layer="modal" onClose={onCancel}>
       <Modal.Header
-        title="Choose icon"
+        title={t("Choose icon")}
         description={
           <>
             Select a sidebar icon for{' '}
@@ -41,7 +43,7 @@ export function FolderIconPickerModal({
               ].join(' ')}
             >
               <span className={active ? 'text-accent' : 'text-ink-500'}>{option.icon}</span>
-              <span className="truncate text-sm font-medium">{option.label}</span>
+              <span className="truncate text-sm font-medium">{t(option.label)}</span>
             </button>
           )
         })}

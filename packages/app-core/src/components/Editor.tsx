@@ -29,6 +29,7 @@ import {
   validateMoveNoteTarget
 } from '../lib/move-note'
 import { promptApp } from '../lib/prompt-requests'
+import { translate } from '../lib/i18n'
 import { StatusBar } from './StatusBar'
 import { EditorPane } from './EditorPane'
 import { focusPaneInDirection, focusPaneOrEdgePanel } from '../lib/pane-nav'
@@ -505,13 +506,15 @@ function registerVimCommands(): void {
       return
     }
 
+    const tr = (s: string): string => translate(state.language, s)
     void promptApp({
-      title: `Create note for "${target}"?`,
-      description:
-        'No matching note exists. Use /my/path/note.md for Inbox-relative paths, or inbox/my/path/note.md for an explicit top folder.',
+      title: tr('Create note for "{target}"?').replace('{target}', target),
+      description: tr(
+        'No matching note exists. Use /my/path/note.md for Inbox-relative paths, or inbox/my/path/note.md for an explicit top folder.'
+      ),
       initialValue: suggestCreateNotePath(target),
       placeholder: '/my/path/note.md',
-      okLabel: 'Create',
+      okLabel: tr('Create'),
       validate: (value) => {
         try {
           parseCreateNotePath(value)

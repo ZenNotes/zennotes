@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTagsViewActive, useStore } from '../store'
+import { useT } from '../lib/i18n';
 import type { NoteMeta } from '@shared/ipc'
 import { extractTags } from '../lib/tags'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
@@ -27,6 +28,7 @@ function folderLabel(note: NoteMeta): string {
 }
 
 export function TagView(): JSX.Element {
+  const tr = useT();
   const notes = useStore((s) => s.notes)
   const activeNote = useStore((s) => s.activeNote)
   const selectedTags = useStore((s) => s.selectedTags)
@@ -280,7 +282,7 @@ export function TagView(): JSX.Element {
     >
       <div className="flex items-center gap-2 border-b border-current/10 px-4 py-3">
         <TagIcon width={18} height={18} />
-        <h1 className="text-sm font-semibold">Tags</h1>
+        <h1 className="text-sm font-semibold">{tr("Tags")}</h1>
         <span className="ml-2 rounded bg-current/10 px-1.5 py-0.5 text-xs text-current/60">
           {matching.length} {matching.length === 1 ? 'note' : 'notes'}
         </span>
@@ -288,7 +290,7 @@ export function TagView(): JSX.Element {
           <input
             ref={filterRef}
             type="text"
-            placeholder="Filter…  /  to focus"
+            placeholder={tr("Filter…  /  to focus")}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => {
@@ -304,7 +306,7 @@ export function TagView(): JSX.Element {
           <button
             type="button"
             onClick={closeTagView}
-            title="Close (:q or Esc)"
+            title={tr("Close (:q or Esc)")}
             className="flex h-6 w-6 items-center justify-center rounded-md text-current/70 hover:bg-current/10"
           >
             <CloseIcon width={14} height={14} />
@@ -330,7 +332,7 @@ export function TagView(): JSX.Element {
               type="button"
               onClick={() => toggleTagSelection(t)}
               className="flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-xs font-medium text-accent ring-1 ring-accent/30 hover:bg-accent/30"
-              title="Remove from selection"
+              title={tr("Remove from selection")}
             >
               <span>#{t}</span>
               <CloseIcon width={10} height={10} />
@@ -367,8 +369,8 @@ export function TagView(): JSX.Element {
         ) : filtered.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-current/50">
             {matching.length === 0
-              ? 'No notes carry any of the selected tags.'
-              : `No notes match "${filter}".`}
+              ? tr('No notes carry any of the selected tags.')
+              : `${tr('No notes match')} "${filter}".`}
           </div>
         ) : (
           filtered.map((note, i) => {

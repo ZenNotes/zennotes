@@ -11,6 +11,7 @@
  * vault.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { Annotation, Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
@@ -41,6 +42,7 @@ function titleFromName(name: string): string {
 }
 
 export function ExternalFileApp(): JSX.Element {
+  const t = useT()
   const prefs = useMemo(() => loadFloatingPrefs(), [])
   const [content, setContent] = useState<ExternalFileContent | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -237,11 +239,11 @@ export function ExternalFileApp(): JSX.Element {
           <span className="truncate text-sm font-semibold text-ink-900">{title}</span>
           {dirty && (
             <span
-              aria-label="Unsaved changes"
+              aria-label={t("Unsaved changes")}
               className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent/80"
             />
           )}
-          <span className="truncate text-xs text-ink-400">Not in a vault</span>
+          <span className="truncate text-xs text-ink-400">{t("Not in a vault")}</span>
         </div>
         <div
           className="flex shrink-0 items-center gap-1"
@@ -251,7 +253,7 @@ export function ExternalFileApp(): JSX.Element {
             type="button"
             onClick={moveToVault}
             disabled={moving}
-            title="Move this file into your vault"
+            title={t("Move this file into your vault")}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 hover:text-ink-900 disabled:opacity-50"
           >
             <InboxIcon width={13} height={13} />
@@ -275,7 +277,7 @@ export function ExternalFileApp(): JSX.Element {
           </div>
           <button
             type="button"
-            title="Close window"
+            title={t("Close window")}
             onClick={() => window.zen.windowClose()}
             className="flex h-7 w-7 items-center justify-center rounded-md text-ink-500 hover:bg-paper-200 hover:text-ink-900"
           >
@@ -298,7 +300,7 @@ export function ExternalFileApp(): JSX.Element {
             <Preview markdown={currentBody()} notePath={content.name} />
           </div>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-ink-400">Loading…</div>
+          <div className="flex flex-1 items-center justify-center text-sm text-ink-400">{t("Loading…")}</div>
         )}
       </div>
     </div>

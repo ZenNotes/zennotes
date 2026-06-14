@@ -14,6 +14,7 @@
  * rest of the codebase.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import type { VaultTask } from '@shared/tasks'
 import {
   bucketTasksByDueDate,
@@ -67,6 +68,7 @@ function formatMonthLabel(d: Date): string {
 }
 
 export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props): JSX.Element {
+  const tr = useT()
   const monthAnchorIso = useStore((s) => s.tasksCalendarMonthAnchor)
   const setMonthAnchor = useStore((s) => s.setTasksCalendarMonthAnchor)
   const selectedDateIso = useStore((s) => s.tasksCalendarSelectedDate)
@@ -235,7 +237,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
           <button
             type="button"
             onClick={() => goToMonth(-1)}
-            title="Previous month ([)"
+            title={tr("Previous month ([)")}
             className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-paper-200/80 hover:text-current/90"
           >
             <ChevronLeftIcon width={14} height={14} />
@@ -243,7 +245,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
           <button
             type="button"
             onClick={() => goToMonth(1)}
-            title="Next month (])"
+            title={tr("Next month (])")}
             className="flex h-7 w-7 items-center justify-center rounded-md text-current/60 hover:bg-paper-200/80 hover:text-current/90"
           >
             <ChevronRightIcon width={14} height={14} />
@@ -251,7 +253,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
           <button
             type="button"
             onClick={goToToday}
-            title="Today (gt)"
+            title={tr("Today (gt)")}
             className="ml-1 rounded-md px-2 py-0.5 text-xs text-current/70 hover:bg-paper-200/80 hover:text-current/90"
           >
             Today
@@ -406,6 +408,7 @@ interface RowProps {
 }
 
 function CalendarTaskRow({ task, isOverdue, buttonRef, onToggle, onOpen }: RowProps): JSX.Element {
+  const tr = useT()
   return (
     <button
       type="button"

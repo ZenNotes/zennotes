@@ -944,7 +944,9 @@ export function getKeymapBinding(
   id: KeymapId,
 ): string {
   const override = overrides?.[id];
-  return override || getDefaultKeymapBinding(id);
+  // An override of "" is an explicit unbind — the action keeps no shortcut.
+  // Only fall back to the default when there is no override at all.
+  return override === undefined ? getDefaultKeymapBinding(id) : override;
 }
 
 export function getSequenceTokens(
@@ -1206,6 +1208,12 @@ export function normalizeKeymapOverrides(input: unknown): KeymapOverrides {
   for (const definition of KEYMAP_DEFINITIONS) {
     const raw = (input as Record<string, unknown>)[definition.id];
     if (typeof raw !== "string") continue;
+    // "" is the explicit-unbind sentinel — keep it verbatim so a cleared
+    // shortcut survives a reload instead of reverting to its default.
+    if (raw === "") {
+      overrides[definition.id] = "";
+      continue;
+    }
     const normalized = normalizeKeymapBinding(definition.id, raw);
     if (normalized && normalized !== definition.defaultBinding) {
       overrides[definition.id] = normalized;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useT } from '../lib/i18n';
 import type { RemoteWorkspaceProfileInput } from '@shared/ipc'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -20,6 +21,7 @@ export function RemoteWorkspaceProfileModal({
   onSubmit: (value: RemoteWorkspaceProfileInput) => Promise<void> | void
   onCancel: () => void
 }): JSX.Element {
+  const t = useT()
   const [name, setName] = useState(options.initialValue?.name ?? '')
   const [baseUrl, setBaseUrl] = useState(options.initialValue?.baseUrl ?? 'http://localhost:7878')
   const [authToken, setAuthToken] = useState(options.initialValue?.authToken ?? '')
@@ -94,14 +96,14 @@ export function RemoteWorkspaceProfileModal({
       <Modal.Header title={options.title} description={options.description} />
       <div className="space-y-4 px-5 py-4">
         <label className="block">
-          <div className="form-label mb-1">Label</div>
+          <div className="form-label mb-1">{t("Label")}</div>
           <input
             value={name}
             onChange={(e) => {
               setName(e.target.value)
               setError(null)
             }}
-            placeholder="Optional. Example: Home Server"
+            placeholder={t("Optional. Example: Home Server")}
             className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
           />
           <div className="form-hint mt-1 leading-5">
@@ -109,26 +111,26 @@ export function RemoteWorkspaceProfileModal({
           </div>
         </label>
         <label className="block">
-          <div className="form-label mb-1">Server URL</div>
+          <div className="form-label mb-1">{t("Server URL")}</div>
           <input
             value={baseUrl}
             onChange={(e) => {
               setBaseUrl(e.target.value)
               setError(null)
             }}
-            placeholder="http://localhost:7878"
+            placeholder={t("http://localhost:7878")}
             className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
           />
         </label>
         <label className="block">
-          <div className="form-label mb-1">Auth token</div>
+          <div className="form-label mb-1">{t("Auth token")}</div>
           <input
             value={authToken}
             onChange={(e) => {
               setAuthToken(e.target.value)
               setError(null)
             }}
-            placeholder="Optional"
+            placeholder={t("Optional")}
             className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
           />
           {options.hasStoredCredential && !authToken.trim() && (
@@ -152,14 +154,14 @@ export function RemoteWorkspaceProfileModal({
           )}
         </label>
         <label className="block">
-          <div className="form-label mb-1">Vault folder</div>
+          <div className="form-label mb-1">{t("Vault folder")}</div>
           <input
             value={vaultPath}
             onChange={(e) => {
               setVaultPath(e.target.value)
               setError(null)
             }}
-            placeholder="Optional. If blank, ZenNotes will ask when you connect."
+            placeholder={t("Optional. If blank, ZenNotes will ask when you connect.")}
             className="w-full rounded-md border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent"
           />
           <div className="form-hint mt-1 leading-5">

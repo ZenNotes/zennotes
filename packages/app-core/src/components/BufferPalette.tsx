@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import {
@@ -52,6 +53,7 @@ interface BuildDeps {
   notes: ReturnType<typeof useStore.getState>['notes']
   noteDirty: ReturnType<typeof useStore.getState>['noteDirty']
   systemFolderLabels: SystemFolderLabels
+  t: (s: string) => string
 }
 
 function buildEntries(deps: BuildDeps): BufferEntry[] {
@@ -82,8 +84,8 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isTasksTabPath(path)) {
       entries.push({
         path,
-        title: 'Tasks',
-        subtitle: 'Vault-wide task list',
+        title: deps.t('Tasks'),
+        subtitle: deps.t('Vault-wide task list'),
         keywords: 'tasks todos checklist vault virtual',
         badge,
         current: isCurrent,
@@ -96,7 +98,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
       entries.push({
         path,
         title: labels.quick,
-        subtitle: 'Quick capture notes list',
+        subtitle: deps.t('Quick capture notes list'),
         keywords: 'quick notes capture scratch inbox virtual',
         badge,
         current: isCurrent,
@@ -108,8 +110,8 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isTagsTabPath(path)) {
       entries.push({
         path,
-        title: 'Tags',
-        subtitle: 'Vault-wide tag browser',
+        title: deps.t('Tags'),
+        subtitle: deps.t('Vault-wide tag browser'),
         keywords: 'tags browse filter vault virtual',
         badge,
         current: isCurrent,
@@ -121,8 +123,8 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     if (isHelpTabPath(path)) {
       entries.push({
         path,
-        title: 'Help',
-        subtitle: 'Built-in manual and shortcuts',
+        title: deps.t('Help'),
+        subtitle: deps.t('Built-in manual and shortcuts'),
         keywords: 'help manual docs shortcuts vim virtual',
         badge,
         current: isCurrent,
@@ -135,7 +137,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
       entries.push({
         path,
         title: labels.archive,
-        subtitle: 'Archived notes list',
+        subtitle: deps.t('Archived notes list'),
         keywords: 'archive archived storage cold notes list virtual',
         badge,
         current: isCurrent,
@@ -148,7 +150,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
       entries.push({
         path,
         title: labels.trash,
-        subtitle: 'Deleted notes and recovery',
+        subtitle: deps.t('Deleted notes and recovery'),
         keywords: 'trash deleted restore bin recovery virtual',
         badge,
         current: isCurrent,
@@ -196,6 +198,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
 }
 
 export function BufferPalette(): JSX.Element {
+  const t = useT();
   const setOpen = useStore((s) => s.setBufferPaletteOpen)
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
@@ -221,9 +224,10 @@ export function BufferPalette(): JSX.Element {
         noteContents,
         notes,
         noteDirty,
-        systemFolderLabels
+        systemFolderLabels,
+        t
       }),
-    [paneLayout, activePaneId, selectedPath, noteContents, notes, noteDirty, systemFolderLabels]
+    [paneLayout, activePaneId, selectedPath, noteContents, notes, noteDirty, systemFolderLabels, t]
   )
 
   const [query, setQuery] = useState('')
@@ -280,7 +284,7 @@ export function BufferPalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Switch buffer…"
+            placeholder={t("Switch buffer…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
@@ -307,7 +311,7 @@ export function BufferPalette(): JSX.Element {
         <div ref={listRef} className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
           {results.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink-400">
-              {entries.length === 0 ? 'No open buffers yet.' : 'No matching buffers.'}
+              {entries.length === 0 ? t('No open buffers yet.') : t('No matching buffers.')}
             </div>
           ) : (
             results.map((entry, i) => (
@@ -326,7 +330,7 @@ export function BufferPalette(): JSX.Element {
                   {entry.dirty && (
                     <span
                       className="ml-2 align-middle text-xs text-accent"
-                      aria-label="Unsaved changes"
+                      aria-label={t("Unsaved changes")}
                     >
                       •
                     </span>

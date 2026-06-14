@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import type { DirectoryBrowseEntry, DirectoryBrowseShortcut } from '@shared/ipc'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -19,6 +20,7 @@ export function ServerDirectoryPickerModal({
   onSubmit: (path: string) => Promise<void> | void
   onCancel: () => void
 }): JSX.Element {
+  const t = useT()
   const [currentPath, setCurrentPath] = useState('')
   const [draftPath, setDraftPath] = useState(options.initialPath ?? '')
   const [showAdvancedPath, setShowAdvancedPath] = useState(false)
@@ -88,7 +90,7 @@ export function ServerDirectoryPickerModal({
 
     const parts = path.split('/').filter(Boolean)
     let running = '/'
-    const crumbs: Array<{ label: string; path: string }> = [{ label: '/', path: '/' }]
+    const crumbs: Array<{ label: string; path: string }> = [{ label: t('/'), path: '/' }]
     for (const part of parts) {
       running = running === '/' ? `/${part}` : `${running}/${part}`
       crumbs.push({ label: part, path: running })
@@ -140,7 +142,7 @@ export function ServerDirectoryPickerModal({
         )}
 
         <div className="mt-3 overflow-hidden rounded-lg border border-paper-300/70 bg-paper-50/95">
-          <div className="form-label border-b border-paper-300/60 px-3 py-2">Location</div>
+          <div className="form-label border-b border-paper-300/60 px-3 py-2">{t("Location")}</div>
           <div className="px-3 py-3">
             {pathCrumbs.length > 0 ? (
               <div className="flex flex-wrap items-center gap-1">
@@ -172,7 +174,7 @@ export function ServerDirectoryPickerModal({
 
         <div className="mt-3 overflow-hidden rounded-lg border border-paper-300/70 bg-paper-50/95 shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
           <div className="flex items-center justify-between gap-3 border-b border-paper-300/60 px-3 py-2">
-            <div className="form-label">Folders</div>
+            <div className="form-label">{t("Folders")}</div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -189,7 +191,7 @@ export function ServerDirectoryPickerModal({
                 <input
                   ref={inputRef}
                   value={draftPath}
-                  placeholder="/srv/notes or /home/you/ObsidianVault"
+                  placeholder={t("/srv/notes or /home/you/ObsidianVault")}
                   onChange={(e) => {
                     setDraftPath(e.target.value)
                     setError(null)
@@ -217,9 +219,9 @@ export function ServerDirectoryPickerModal({
           )}
           <div className="max-h-[44vh] overflow-y-auto py-1">
             {loading ? (
-              <div className="px-3 py-8 text-center text-sm text-ink-500">Loading folders…</div>
+              <div className="px-3 py-8 text-center text-sm text-ink-500">{t("Loading folders…")}</div>
             ) : entries.length === 0 && !parentPath ? (
-              <div className="px-3 py-8 text-center text-sm text-ink-500">This folder has no subfolders. You can still choose it.</div>
+              <div className="px-3 py-8 text-center text-sm text-ink-500">{t("This folder has no subfolders. You can still choose it.")}</div>
             ) : (
               <>
                 {parentPath && (
@@ -229,7 +231,7 @@ export function ServerDirectoryPickerModal({
                     className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-paper-200/70"
                   >
                     <span className="min-w-0 truncate text-sm text-ink-900">..</span>
-                    <span className="shrink-0 text-xs text-ink-500">Up one level</span>
+                    <span className="shrink-0 text-xs text-ink-500">{t("Up one level")}</span>
                   </button>
                 )}
                 {entries.map((entry) => (
@@ -240,7 +242,7 @@ export function ServerDirectoryPickerModal({
                     className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-paper-200/70"
                   >
                     <span className="min-w-0 truncate text-sm text-ink-900">{entry.name}</span>
-                    <span className="shrink-0 text-xs text-ink-500">Open</span>
+                    <span className="shrink-0 text-xs text-ink-500">{t("Open")}</span>
                   </button>
                 ))}
               </>

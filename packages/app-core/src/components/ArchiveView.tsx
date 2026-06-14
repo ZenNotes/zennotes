@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { ContextMenuItem } from './ContextMenu'
 import type { NoteMeta } from '@shared/ipc'
 import { isArchiveViewActive, useStore } from '../store'
+import { useT } from '../lib/i18n';
 import { ArchiveIcon, ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
@@ -28,6 +29,7 @@ function cssEscape(value: string): string {
 }
 
 export function ArchiveView(): JSX.Element {
+  const t = useT();
   const vault = useStore((s) => s.vault)
   const notes = useStore((s) => s.notes)
   const folders = useStore((s) => s.folders)
@@ -51,7 +53,7 @@ export function ArchiveView(): JSX.Element {
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
   const absolutePathLabel =
-    workspaceMode === 'remote' ? 'Copy Server Path' : 'Copy Absolute Path'
+    workspaceMode === 'remote' ? t('Copy Server Path') : t('Copy Absolute Path')
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)
@@ -142,7 +144,7 @@ export function ArchiveView(): JSX.Element {
 
     const items: ContextMenuItem[] = [
       {
-        label: 'Open',
+        label: t('Open'),
         onSelect: async () => {
           await openNote(note.path)
         }
@@ -151,7 +153,7 @@ export function ArchiveView(): JSX.Element {
 
     if (tabsEnabled) {
       items.push({
-        label: 'Open in New Tab',
+        label: t('Open in New Tab'),
         onSelect: async () => {
           await openNoteInTab(note.path)
         }
@@ -159,14 +161,14 @@ export function ArchiveView(): JSX.Element {
     }
 
     items.push({
-      label: 'Rename…',
+      label: t('Rename…'),
       onSelect: async () => {
         const next = await promptApp({
-          title: 'Rename note',
+          title: t('Rename note'),
           initialValue: note.title,
-          okLabel: 'Rename',
+          okLabel: t('Rename'),
           validate: (value) => {
-            if (/[\\/]/.test(value)) return 'Title cannot contain / or \\'
+            if (/[\\/]/.test(value)) return t('Title cannot contain / or \\')
             return null
           }
         })
@@ -175,7 +177,7 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Move…',
+      label: t('Move…'),
       onSelect: async () => {
         const target = await promptApp(buildMoveNotePrompt(note, folders))
         if (!target) return
@@ -184,7 +186,7 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Duplicate',
+      label: t('Duplicate'),
       onSelect: async () => {
         const meta = await window.zen.duplicateNote(note.path)
         await refreshNotes()
@@ -192,13 +194,13 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Copy as Wikilink',
+      label: t('Copy as Wikilink'),
       onSelect: async () => {
         window.zen.clipboardWriteText(`[[${note.title}]]`)
       }
     })
     items.push({
-      label: 'Copy Path',
+      label: t('Copy Path'),
       onSelect: async () => {
         window.zen.clipboardWriteText(note.path)
       }
@@ -213,14 +215,14 @@ export function ArchiveView(): JSX.Element {
       }
     })
     items.push({
-      label: 'Open in Floating Window',
+      label: t('Open in Floating Window'),
       onSelect: async () => {
         await window.zen.openNoteWindow(note.path)
       }
     })
     if (canRevealInFileManager) {
       items.push({
-        label: 'Reveal in File Manager',
+        label: t('Reveal in File Manager'),
         onSelect: async () => {
           await window.zen.revealNote(note.path)
         }

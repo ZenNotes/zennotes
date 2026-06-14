@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n';
 import type { NoteMeta } from '@shared/ipc'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import {
@@ -11,6 +12,7 @@ import { focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
 export function SearchPalette(): JSX.Element {
+  const t = useT();
   const notes = useStore((s) => s.notes)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
@@ -59,7 +61,7 @@ export function SearchPalette(): JSX.Element {
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search notes…  ·  use #tag to filter"
+            placeholder={t("Search notes…  ·  use #tag to filter")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (isPaletteNextKey(e)) {
@@ -100,7 +102,7 @@ export function SearchPalette(): JSX.Element {
         </div>
         <div ref={listRef} className="max-h-[50vh] overflow-x-hidden overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="px-4 py-6 text-center text-sm text-ink-400">No matches.</div>
+            <div className="px-4 py-6 text-center text-sm text-ink-400">{t("No matches.")}</div>
           ) : (
             results.map((n, i) => (
               <button

@@ -9,6 +9,7 @@ import {
 } from 'react'
 import type { NoteComment, NoteContent } from '@shared/ipc'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import { commentQuote } from '../lib/comments'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
@@ -60,6 +61,7 @@ export function CommentsPanel({
   onClearDraft,
   onJump
 }: Props): JSX.Element {
+  const t = useT()
   const comments = useStore((s) => s.noteComments[note.path] ?? EMPTY_COMMENTS)
   const activeCommentId = useStore((s) => s.activeCommentId)
   const loadNoteComments = useStore((s) => s.loadNoteComments)
@@ -178,7 +180,7 @@ export function CommentsPanel({
   return (
     <aside
       ref={panelRef}
-      aria-label="Comments"
+      aria-label={t("Comments")}
       data-comments-panel
       tabIndex={-1}
       onMouseDownCapture={() => setFocusedPanel('comments')}
@@ -194,11 +196,11 @@ export function CommentsPanel({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.18em] text-ink-400">
-              Comments
+              {t("Comments")}
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs text-ink-500">
-              <Pill>{unresolved.length} open</Pill>
-              <Pill>{resolved.length} resolved</Pill>
+              <Pill>{unresolved.length} {t("open")}</Pill>
+              <Pill>{resolved.length} {t("resolved")}</Pill>
             </div>
           </div>
           <button
@@ -206,7 +208,7 @@ export function CommentsPanel({
             data-comments-new
             data-comment-card-control
             onClick={beginDraft}
-            title="New comment"
+            title={t("New comment")}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-paper-300/70 bg-paper-100 text-ink-700 transition-colors hover:border-accent/40 hover:bg-paper-200 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
           >
             <PlusIcon width={15} height={15} />
@@ -219,13 +221,13 @@ export function CommentsPanel({
             commentsFocused ? 'opacity-100' : 'pointer-events-none opacity-0'
           ].join(' ')}
         >
-          <CommentKeyHint keyLabel="j/k" label="Move" />
-          <CommentKeyHint keyLabel="↵" label="Jump" />
-          <CommentKeyHint keyLabel="n" label="New" />
-          <CommentKeyHint keyLabel="e" label="Edit" />
-          <CommentKeyHint keyLabel="r" label="Resolve" />
-          <CommentKeyHint keyLabel="d" label="Delete" />
-          <CommentKeyHint keyLabel="esc" label="Back to note" />
+          <CommentKeyHint keyLabel="j/k" label={t("Move")} />
+          <CommentKeyHint keyLabel="↵" label={t("Jump")} />
+          <CommentKeyHint keyLabel="n" label={t("New")} />
+          <CommentKeyHint keyLabel="e" label={t("Edit")} />
+          <CommentKeyHint keyLabel="r" label={t("Resolve")} />
+          <CommentKeyHint keyLabel="d" label={t("Delete")} />
+          <CommentKeyHint keyLabel="esc" label={t("Back to note")} />
         </div>
 
         {draft && (
@@ -249,7 +251,7 @@ export function CommentsPanel({
                 }
               }}
               aria-keyshortcuts="Meta+Enter Control+Enter Escape"
-              placeholder="Add a comment…"
+              placeholder={t("Add a comment…")}
               rows={4}
               className="mt-3 w-full resize-none rounded-md border border-paper-300/70 bg-paper-50 px-3 py-2.5 text-sm leading-5 text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/60 focus:ring-1 focus:ring-accent/20"
             />
@@ -259,10 +261,10 @@ export function CommentsPanel({
                 data-comment-card-control
                 onClick={cancelDraft}
                 aria-keyshortcuts="Escape"
-                title="Cancel (Esc)"
+                title={t("Cancel (Esc)")}
                 className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
               >
-                <span>Cancel</span>
+                <span>{t("Cancel")}</span>
                 <InlineShortcut>Esc</InlineShortcut>
               </button>
               <button
@@ -271,10 +273,10 @@ export function CommentsPanel({
                 disabled={!body.trim()}
                 onClick={() => void submit()}
                 aria-keyshortcuts="Meta+Enter Control+Enter"
-                title="Comment (⌘↵)"
+                title={t("Comment (⌘↵)")}
                 className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:cursor-default disabled:bg-paper-300 disabled:text-ink-500"
               >
-                <span>Comment</span>
+                <span>{t("Comment")}</span>
                 <InlineShortcut tone="light">⌘↵</InlineShortcut>
               </button>
             </div>
@@ -286,7 +288,7 @@ export function CommentsPanel({
         {comments.length === 0 && !draft ? (
           <div className="rounded-lg border border-dashed border-paper-300/75 bg-paper-100/42 px-4 py-6 text-center">
             <FeedbackIcon className="mx-auto text-ink-400" width={20} height={20} />
-            <div className="mt-3 text-sm font-medium text-ink-800">No comments</div>
+            <div className="mt-3 text-sm font-medium text-ink-800">{t("No comments")}</div>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -383,6 +385,7 @@ function CommentCard({
   onResolve: () => void
   onDelete: () => void
 }): JSX.Element {
+  const t = useT()
   const resolved = comment.resolvedAt != null
   const showActionShortcuts = active && commentsFocused && !editing
   const handleCardClick = (event: MouseEvent<HTMLElement>): void => {
@@ -413,7 +416,7 @@ function CommentCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-semibold text-ink-900">You</span>
+            <span className="truncate text-sm font-semibold text-ink-900">{t("You")}</span>
             <span className="shrink-0 text-xs text-ink-400">
               {dateFormatter.format(new Date(comment.updatedAt))}
             </span>
@@ -425,7 +428,7 @@ function CommentCard({
             data-comment-action="jump"
             onClick={onJump}
             className="mt-2 block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
-            title="Jump to annotation"
+            title={t("Jump to annotation")}
           >
             <div className="line-clamp-2 border-l-2 border-accent/50 pl-2.5 text-xs leading-5 text-ink-600">
               {commentQuote(comment)}
@@ -466,10 +469,10 @@ function CommentCard({
                     onCancelEdit()
                   }}
                   aria-keyshortcuts="Escape"
-                  title="Cancel (Esc)"
+                  title={t("Cancel (Esc)")}
                   className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45"
                 >
-                  <span>Cancel</span>
+                  <span>{t("Cancel")}</span>
                   <InlineShortcut>Esc</InlineShortcut>
                 </button>
                 <button
@@ -486,10 +489,10 @@ function CommentCard({
                     onSave()
                   }}
                   aria-keyshortcuts="Meta+Enter Control+Enter"
-                  title="Save (⌘↵)"
+                  title={t("Save (⌘↵)")}
                   className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/45 disabled:cursor-default disabled:bg-paper-300 disabled:text-ink-500"
                 >
-                  <span>Save</span>
+                  <span>{t("Save")}</span>
                   <InlineShortcut tone="light">⌘↵</InlineShortcut>
                 </button>
               </div>
@@ -503,7 +506,7 @@ function CommentCard({
       <div className="relative z-10 mt-3 flex items-center justify-end gap-1" data-comment-card-control>
         <div className="flex items-center gap-1">
           <IconTextButton
-            title="Jump"
+            title={t("Jump")}
             action="jump"
             shortcut="↵"
             showShortcut={showActionShortcuts}
@@ -513,7 +516,7 @@ function CommentCard({
           </IconTextButton>
           {!editing && (
             <IconTextButton
-              title="Edit"
+              title={t("Edit")}
               action="edit"
               shortcut="e"
               showShortcut={showActionShortcuts}
@@ -523,7 +526,7 @@ function CommentCard({
             </IconTextButton>
           )}
           <IconTextButton
-            title={resolved ? 'Reopen' : 'Resolve'}
+            title={resolved ? t('Reopen') : t('Resolve')}
             action="resolve"
             shortcut="r"
             showShortcut={showActionShortcuts}
@@ -532,7 +535,7 @@ function CommentCard({
             <CheckSquareIcon width={13} height={13} />
           </IconTextButton>
           <IconTextButton
-            title="Delete"
+            title={t("Delete")}
             action="delete"
             shortcut="d"
             showShortcut={showActionShortcuts}

@@ -5,6 +5,7 @@
  */
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useT } from '../lib/i18n'
 import { buildCommands, type Command } from '../lib/commands'
 import {
   loadRecentCommandIds,
@@ -49,6 +50,7 @@ function themeSelectionFor(t: ThemeOption): {
 }
 
 export function CommandPalette(): JSX.Element {
+  const t = useT()
   const setOpen = useStore((s) => s.setCommandPaletteOpen)
   const setTheme = useStore((s) => s.setTheme)
   const localVaults = useStore((s) => s.localVaults)
@@ -289,10 +291,10 @@ export function CommandPalette(): JSX.Element {
 
   const inputPlaceholder =
     mode === 'main'
-      ? 'Type a command…'
+      ? t('Type a command…')
       : mode === 'theme'
-        ? 'Pick a color theme'
-        : 'Pick a vault'
+        ? t('Pick a color theme')
+        : t('Pick a vault')
 
   return (
     <Modal size="md" layer="palette" onClose={() => closePalette()} closeOnEsc={false}>
@@ -302,15 +304,15 @@ export function CommandPalette(): JSX.Element {
               type="button"
               onClick={returnToMain}
               className="rounded px-1 py-0.5 text-ink-600 transition-colors hover:bg-paper-200 hover:text-ink-900"
-              aria-label="Back to commands"
-              title="Back to commands"
+              aria-label={t('Back to commands')}
+              title={t('Back to commands')}
             >
-              ‹ Back
+              ‹ {t('Back')}
             </button>
             <span className="uppercase tracking-wide">
               {mode === 'theme'
-                ? 'Theme preview — ↵ to keep, esc to revert'
-                : 'Switch vault — ↵ to open, esc to return'}
+                ? t('Theme preview — ↵ to keep, esc to revert')
+                : t('Switch vault — ↵ to open, esc to return')}
             </span>
           </div>
         )}
@@ -361,10 +363,10 @@ export function CommandPalette(): JSX.Element {
           {resultsLength === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink-400">
               {mode === 'main'
-                ? 'No matching commands.'
+                ? t('No matching commands.')
                 : mode === 'theme'
-                  ? 'No matching themes.'
-                  : 'No vaults.'}
+                  ? t('No matching themes.')
+                  : t('No vaults.')}
             </div>
           ) : mode === 'main' ? (
             commandResults.map((cmd, i) => (
@@ -455,7 +457,7 @@ export function CommandPalette(): JSX.Element {
                 ].join(' ')}
               >
                 <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
-                  {entry.kind === 'local' ? 'Local' : 'Remote'}
+                  {entry.kind === 'local' ? t('Local') : t('Remote')}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
                   {entry.name}

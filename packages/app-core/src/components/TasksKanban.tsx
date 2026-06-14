@@ -25,6 +25,7 @@
  *   Space / x — toggle the checkbox on the focused card
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useT } from '../lib/i18n';
 import { flushSync } from 'react-dom'
 import type { NoteFolder } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
@@ -289,6 +290,7 @@ interface DragPreview {
 const POINTER_DRAG_THRESHOLD = 5
 
 export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): JSX.Element {
+  const t = useT()
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
@@ -843,15 +845,15 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
         <div className="flex items-center gap-1 text-xs text-current/60">
-          <span>Group by</span>
+          <span>{t("Group by")}</span>
           <select
             value={groupBy}
             onChange={(e) => setGroupBy(e.target.value as KanbanGroupBy)}
             className="rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-0.5 text-xs text-current/85 outline-none focus:border-paper-400/70"
           >
-            <option value="status">Status</option>
-            <option value="priority">Priority</option>
-            <option value="folder">Folder</option>
+            <option value="status">{t("Status")}</option>
+            <option value="priority">{t("Priority")}</option>
+            <option value="folder">{t("Folder")}</option>
           </select>
         </div>
         <div className="text-xs text-current/40">
@@ -879,7 +881,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                     <input
                       ref={columnTitleInputRef}
                       value={editingTitle}
-                      aria-label={`Rename ${column.label} column`}
+                      aria-label={`${t('Rename')} ${t(column.label)}`}
                       onChange={(e) => setEditingTitle(e.target.value)}
                       onBlur={() => commitColumnRename(column.id)}
                       onClick={(e) => e.stopPropagation()}
@@ -898,8 +900,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                   ) : (
                     <button
                       type="button"
-                      aria-label={`Rename ${column.label} column`}
-                      title="Rename column"
+                      aria-label={`${t('Rename')} ${t(column.label)}`}
+                      title={t("Rename column")}
                       onClick={(e) => {
                         e.stopPropagation()
                         beginColumnRename(column)
@@ -908,7 +910,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                       className="group/title flex max-w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
                     >
                       <span className="truncate text-xs font-semibold uppercase tracking-wide text-current/70">
-                        {column.label}
+                        {t(column.label)}
                       </span>
                       <PencilIcon
                         width={12}
@@ -1046,6 +1048,7 @@ function TaskCard({
   onToggle,
   onPointerDown
 }: CardProps): JSX.Element {
+  const t = useT()
   return (
     <div
       ref={cardRef ?? undefined}
@@ -1128,7 +1131,7 @@ function TaskCard({
         <button
           type="button"
           aria-label={`Open ${task.noteTitle}`}
-          title="Open note (Enter)"
+          title={t("Open note (Enter)")}
           draggable={false}
           onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}

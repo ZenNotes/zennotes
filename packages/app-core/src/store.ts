@@ -140,6 +140,17 @@ export type NoteSortOrder =
   | 'name-desc'
 
 export type LineNumberMode = 'off' | 'absolute' | 'relative'
+/** UI language for the app chrome. Note content is never translated. */
+export type Language = 'en' | 'zh'
+/** First-run default: follow the OS locale (Chinese systems start in zh),
+ *  otherwise English. A stored preference always wins over this. */
+export function detectSystemLanguage(): Language {
+  try {
+    return /^zh\b|^zh-/i.test(navigator.language) ? 'zh' : 'en'
+  } catch {
+    return 'en'
+  }
+}
 export type WhichKeyHintMode = 'timed' | 'sticky'
 export type CommandPaletteInitialMode = 'main' | 'vault'
 
@@ -296,6 +307,8 @@ interface Prefs {
   editorLineHeight: number  // unitless multiplier
   previewMaxWidth: number   // px — max reading width for preview surfaces
   lineNumberMode: LineNumberMode
+  /** UI language for the app chrome (note content is never translated). */
+  language: Language
   /** Font used by the whole app chrome (sidebar, menus, title bar). */
   interfaceFont: string | null
   /** Font used inside the editor + preview content. */
@@ -431,11 +444,12 @@ const DEFAULT_PREFS: Prefs = {
   wrapTabs: false,
   themeLightId: DEFAULT_LIGHT_THEME_ID,
   themeDarkId: DEFAULT_DARK_THEME_ID,
-  themeMode: 'dark',
+  themeMode: 'auto',
   editorFontSize: 16,
   editorLineHeight: 1.7,
   previewMaxWidth: 920,
   lineNumberMode: 'off',
+  language: 'en',
   // Leave all font slots on the built-in "Default" path. That lets the
   // shipped CSS fallbacks choose sensible system fonts on each machine
   // instead of forcing a specific family that may not exist.
@@ -569,6 +583,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.lineNumberMode && VALID_LINE_NUMBER_MODES.includes(p.lineNumberMode)
         ? p.lineNumberMode
         : DEFAULT_PREFS.lineNumberMode,
+    language:
+      p.language === 'en' || p.language === 'zh'
+        ? p.language
+        : detectSystemLanguage(),
     interfaceFont:
       typeof p.interfaceFont === 'string' || p.interfaceFont === null
         ? (p.interfaceFont as string | null)
@@ -722,7 +740,9 @@ function loadPrefs(): Prefs {
   } catch {
     /* ignore */
   }
-  return DEFAULT_PREFS
+  // Fresh install (no stored blob): seed the UI language from the OS locale so
+  // Chinese systems start in zh. Everything else keeps the static defaults.
+  return { ...DEFAULT_PREFS, language: detectSystemLanguage() }
 }
 function savePrefs(p: Prefs): void {
   try {
@@ -1082,6 +1102,7 @@ async function rewriteTagAcrossVault(
 
 /** Snapshot prefs-shaped fields out of the live store. */
 function collectPrefs(s: {
+  language: Language
   vimMode: boolean
   vimInsertEscape: string
   keymapOverrides: KeymapOverrides
@@ -1159,6 +1180,7 @@ function collectPrefs(s: {
     editorLineHeight: s.editorLineHeight,
     previewMaxWidth: s.previewMaxWidth,
     lineNumberMode: s.lineNumberMode,
+    language: s.language,
     interfaceFont: s.interfaceFont,
     textFont: s.textFont,
     monoFont: s.monoFont,
@@ -1503,6 +1525,7 @@ interface Store {
   tabsEnabled: boolean
   wrapTabs: boolean
   settingsOpen: boolean
+  language: Language
   themeLightId: string
   themeDarkId: string
   themeMode: ThemeMode
@@ -1787,6 +1810,7 @@ interface Store {
   setEditorLineHeight: (mult: number) => void
   setPreviewMaxWidth: (px: number) => void
   setLineNumberMode: (mode: LineNumberMode) => void
+  setLanguage: (lang: Language) => void
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
   setMonoFont: (family: string | null) => void
@@ -2732,6 +2756,7 @@ export const useStore = create<Store>((set, get) => {
   editorLineHeight: loadPrefs().editorLineHeight,
   previewMaxWidth: loadPrefs().previewMaxWidth,
   lineNumberMode: loadPrefs().lineNumberMode,
+  language: loadPrefs().language,
   interfaceFont: loadPrefs().interfaceFont,
   textFont: loadPrefs().textFont,
   monoFont: loadPrefs().monoFont,
@@ -4052,8 +4077,11 @@ export const useStore = create<Store>((set, get) => {
   setKeymapBinding: (id, binding) => {
     set((s) => {
       const nextOverrides = { ...s.keymapOverrides }
-      if (binding) nextOverrides[id] = binding
-      else delete nextOverrides[id]
+      // null = drop the override and revert to the default binding. "" = an
+      // explicit unbind (store it so the action has no shortcut). Any other
+      // string is a custom binding.
+      if (binding === null) delete nextOverrides[id]
+      else nextOverrides[id] = binding
       return { keymapOverrides: nextOverrides }
     })
     savePrefs(collectPrefs(get()))
@@ -4157,6 +4185,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setLineNumberMode: (mode) => {
     set({ lineNumberMode: mode })
+    savePrefs(collectPrefs(get()))
+  },
+  setLanguage: (lang) => {
+    set({ language: lang })
     savePrefs(collectPrefs(get()))
   },
   setInterfaceFont: (family) => {

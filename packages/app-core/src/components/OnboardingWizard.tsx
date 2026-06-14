@@ -15,6 +15,7 @@ import {
 } from '@shared/ipc'
 import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
 import { Button } from './ui/Button'
+import { useT } from '../lib/i18n'
 import appIcon from '../assets/zennotes-app-icon.png'
 
 type StepId = 'welcome' | 'vim' | 'theme' | 'vault' | 'layout' | 'done'
@@ -132,6 +133,7 @@ export function OnboardingWizard(): JSX.Element {
   const setVaultSettings = useStore((s) => s.setVaultSettings)
   const completeOnboarding = useStore((s) => s.completeOnboarding)
   const openHelpView = useStore((s) => s.openHelpView)
+  const t = useT()
 
   const capabilities = window.zen.getCapabilities()
   const appInfo = window.zen.getAppInfo()
@@ -292,7 +294,7 @@ export function OnboardingWizard(): JSX.Element {
 
         <div className="flex items-center justify-end text-xs text-ink-500">
           <Button variant="ghost" size="sm" onClick={skip}>
-            Skip setup
+            {t('Skip setup')}
           </Button>
         </div>
       </div>
@@ -322,6 +324,7 @@ function StepRail({
   steps: StepId[]
   onSelect: (step: StepId) => void
 }): JSX.Element {
+  const t = useT()
   return (
     <div className="flex items-start gap-2">
       {steps.map((step, i) => {
@@ -337,7 +340,7 @@ function StepRail({
             }}
             disabled={!reachable || active}
             aria-current={active ? 'step' : undefined}
-            aria-label={`${STEP_LABELS[step]} — step ${i + 1} of ${steps.length}`}
+            aria-label={`${t(STEP_LABELS[step])} — ${t('step')} ${i + 1} / ${steps.length}`}
             className={[
               'group flex flex-1 flex-col items-stretch gap-1.5 rounded-md p-1 text-left transition-colors',
               reachable && !active
@@ -367,7 +370,7 @@ function StepRail({
                     : 'text-ink-400'
               ].join(' ')}
             >
-              {STEP_LABELS[step]}
+              {t(STEP_LABELS[step])}
             </span>
           </button>
         )
@@ -409,13 +412,14 @@ function StepFooter({
   hideBack?: boolean
   hint?: string
 }): JSX.Element {
+  const t = useT()
   return (
     <div className="mt-8 flex items-center justify-between gap-4">
       {hideBack ? (
         <span />
       ) : (
         <Button variant="ghost" size="sm" onClick={onBack}>
-          ← Back
+          {t('← Back')}
         </Button>
       )}
       <div className="flex items-center gap-3">
@@ -435,6 +439,7 @@ function StepFooter({
 }
 
 function WelcomeStep({ onNext }: { onNext: () => void }): JSX.Element {
+  const t = useT()
   return (
     <div>
       <div className="flex flex-col items-center text-center">
@@ -444,23 +449,24 @@ function WelcomeStep({ onNext }: { onNext: () => void }): JSX.Element {
           className="h-[72px] w-[72px] rounded-2xl shadow-panel"
         />
         <div className="mt-5">
-          <h1 className="font-serif text-3xl font-semibold text-ink-900">Welcome to ZenNotes</h1>
+          <h1 className="font-serif text-3xl font-semibold text-ink-900">{t('Welcome to ZenNotes')}</h1>
           <p className="mt-3 max-w-md text-sm leading-6 text-ink-600">
-            A keyboard-first markdown vault. Let's set up the few things that change how the app
-            feels, then you can pick your folder of notes and start writing.
+            {t(
+              "A keyboard-first markdown vault. Let's set up the few things that change how the app feels, then you can pick your folder of notes and start writing."
+            )}
           </p>
         </div>
       </div>
       <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Tile label="Vim mode" value="On / off" />
-        <Tile label="Theme" value="Light · Dark · Auto" />
-        <Tile label="Vault" value="Local or remote" />
+        <Tile label={t('Vim mode')} value={t('On / off')} />
+        <Tile label={t('Theme')} value={t('Light · Dark · Auto')} />
+        <Tile label={t('Vault')} value={t('Local or remote')} />
       </div>
       <StepFooter
-        primaryLabel="Get started →"
+        primaryLabel={t('Get started →')}
         onPrimary={onNext}
         hideBack
-        hint="Enter ↵ to continue · Esc to skip"
+        hint={t('Enter ↵ to continue · Esc to skip')}
       />
     </div>
   )
@@ -486,28 +492,31 @@ function VimStep({
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
+  const t = useT()
   return (
     <div>
       <StepHeading
-        eyebrow="Step 1"
-        title="Vim mode"
-        subtitle="ZenNotes is built around Vim motions — leader keys, normal/insert, gg/G, hjkl across the sidebar. You can change this any time in Settings."
+        eyebrow={t('Step 1')}
+        title={t('Vim mode')}
+        subtitle={t(
+          'ZenNotes is built around Vim motions — leader keys, normal/insert, gg/G, hjkl across the sidebar. You can change this any time in Settings.'
+        )}
       />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ChoiceCard
           selected={vimMode}
           onClick={() => setVimMode(true)}
-          title="Vim mode on"
-          description="Normal mode, motions, leader, ex commands like :q and :w."
+          title={t('Vim mode on')}
+          description={t('Normal mode, motions, leader, ex commands like :q and :w.')}
         />
         <ChoiceCard
           selected={!vimMode}
           onClick={() => setVimMode(false)}
-          title="Vim mode off"
-          description="A regular text editor with system shortcuts. Cmd+F searches, etc."
+          title={t('Vim mode off')}
+          description={t('A regular text editor with system shortcuts. Cmd+F searches, etc.')}
         />
       </div>
-      <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
+      <StepFooter primaryLabel={t('Continue →')} onPrimary={onNext} onBack={onBack} />
     </div>
   )
 }
@@ -556,6 +565,7 @@ function ThemeStep({
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
+  const t = useT()
   // Onboarding picks one family for both appearances; users split light/dark
   // later in Settings. Seed both slots with that family's light + dark variants.
   const applyFamily = (family: ThemeFamily): void => {
@@ -589,13 +599,13 @@ function ThemeStep({
   return (
     <div>
       <StepHeading
-        eyebrow="Step 2"
-        title="Pick your theme"
-        subtitle="Each family has light + dark variants. Auto follows your system."
+        eyebrow={t('Step 2')}
+        title={t('Pick your theme')}
+        subtitle={t('Each family has light + dark variants. Auto follows your system.')}
       />
       <div className="mb-5 flex flex-wrap gap-8">
         <div>
-          <div className="form-label mb-2">Mode</div>
+          <div className="form-label mb-2">{t('Mode')}</div>
           <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
             {(['light', 'dark', 'auto'] as ThemeMode[]).map((mode) => (
               <button
@@ -610,7 +620,7 @@ function ThemeStep({
                     : 'text-ink-600 hover:text-ink-900'
                 ].join(' ')}
               >
-                {mode}
+                {t(mode)}
               </button>
             ))}
           </div>
@@ -618,7 +628,7 @@ function ThemeStep({
 
         {variants.length > 1 && (
           <div>
-            <div className="form-label mb-2">Variant</div>
+            <div className="form-label mb-2">{t('Variant')}</div>
             <div className="inline-flex rounded-xl border border-paper-300/60 bg-paper-100/60 p-1">
               {variants.map((variant) => {
                 const selected = variant.id === themeId
@@ -650,7 +660,7 @@ function ThemeStep({
         )}
       </div>
 
-      <div className="form-label mb-2">Family</div>
+      <div className="form-label mb-2">{t('Family')}</div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {FAMILY_DESCRIPTORS.map((d) => (
           <ThemeFamilyTile
@@ -663,7 +673,7 @@ function ThemeStep({
         ))}
       </div>
 
-      <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
+      <StepFooter primaryLabel={t('Continue →')} onPrimary={onNext} onBack={onBack} />
     </div>
   )
 }
@@ -725,15 +735,18 @@ function VaultStep({
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
+  const t = useT()
   return (
     <div>
       <StepHeading
-        eyebrow="Step 3"
-        title="Choose a vault"
+        eyebrow={t('Step 3')}
+        title={t('Choose a vault')}
         subtitle={
           isServerVaultSetup
-            ? 'Pick the folder on the server that ZenNotes should treat as your vault.'
-            : 'Pick a folder on this machine. ZenNotes stores notes as plain .md files — yours to keep, back up, and sync however you like.'
+            ? t('Pick the folder on the server that ZenNotes should treat as your vault.')
+            : t(
+                'Pick a folder on this machine. ZenNotes stores notes as plain .md files — yours to keep, back up, and sync however you like.'
+              )
         }
       />
 
@@ -744,7 +757,7 @@ function VaultStep({
           onClick={() => void openVaultPicker()}
           className="shadow-panel"
         >
-          {isServerVaultSetup ? 'Connect to server vault' : 'Choose vault folder'}
+          {isServerVaultSetup ? t('Connect to server vault') : t('Choose vault folder')}
         </Button>
         {canConnectRemote && (
           <Button
@@ -753,14 +766,14 @@ function VaultStep({
             onClick={() => void connectRemoteWorkspace()}
             className="shadow-panel"
           >
-            Connect to ZenNotes Server
+            {t('Connect to ZenNotes Server')}
           </Button>
         )}
       </div>
 
       {hasVault && (
         <div className="mt-4 rounded-xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm text-ink-800">
-          Vault connected. Continue to finish setup.
+          {t('Vault connected. Continue to finish setup.')}
         </div>
       )}
 
@@ -769,7 +782,7 @@ function VaultStep({
       )}
 
       <StepFooter
-        primaryLabel={hasVault ? 'Continue →' : 'Pick a vault to continue'}
+        primaryLabel={hasVault ? t('Continue →') : t('Pick a vault to continue')}
         primaryDisabled={!hasVault}
         onPrimary={onNext}
         onBack={onBack}
@@ -795,6 +808,7 @@ function LayoutStep({
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
+  const t = useT()
   // Local draft so the directory input doesn't normalize on every keystroke.
   const [dirDraft, setDirDraft] = useState<string>(dailyDirectory)
 
@@ -825,11 +839,11 @@ function LayoutStep({
     return (
       <div>
         <StepHeading
-          eyebrow="Step 4"
-          title="Vault layout"
-          subtitle="Pick a vault first — these settings live inside the vault."
+          eyebrow={t('Step 4')}
+          title={t('Vault layout')}
+          subtitle={t('Pick a vault first — these settings live inside the vault.')}
         />
-        <StepFooter primaryLabel="Back to vault" onPrimary={onBack} hideBack />
+        <StepFooter primaryLabel={t('Back to vault')} onPrimary={onBack} hideBack />
       </div>
     )
   }
@@ -837,33 +851,37 @@ function LayoutStep({
   return (
     <div>
       <StepHeading
-        eyebrow="Step 4"
-        title="Vault layout"
-        subtitle="How the vault should be organized. You can change either of these later in Settings."
+        eyebrow={t('Step 4')}
+        title={t('Vault layout')}
+        subtitle={t(
+          'How the vault should be organized. You can change either of these later in Settings.'
+        )}
       />
 
       <div className="space-y-6">
         <div>
-          <div className="form-label mb-2">Primary notes location</div>
+          <div className="form-label mb-2">{t('Primary notes location')}</div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <ChoiceCard
               selected={primaryLocation === 'inbox'}
               onClick={() => commit({ primaryNotesLocation: 'inbox' })}
-              title="Inbox folder"
-              description="Notes live under inbox/. Keeps ZenNotes' lifecycle structure: inbox → archive → trash."
+              title={t('Inbox folder')}
+              description={t(
+                "Notes live under inbox/. Keeps ZenNotes' lifecycle structure: inbox → archive → trash."
+              )}
             />
             <ChoiceCard
               selected={primaryLocation === 'root'}
               onClick={() => commit({ primaryNotesLocation: 'root' })}
-              title="Vault root"
-              description="Top-level .md files become the primary view. Obsidian-style flat vault."
+              title={t('Vault root')}
+              description={t('Top-level .md files become the primary view. Obsidian-style flat vault.')}
             />
           </div>
         </div>
 
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <div className="form-label">Daily notes</div>
+            <div className="form-label">{t('Daily notes')}</div>
             <button
               type="button"
               role="switch"
@@ -883,12 +901,12 @@ function LayoutStep({
             </button>
           </div>
           <p className="text-xs leading-5 text-ink-600">
-            One note per day with a YYYY-MM-DD title, opened with a single command.
+            {t('One note per day with a YYYY-MM-DD title, opened with a single command.')}
           </p>
           {dailyEnabled && (
             <div className="mt-3 flex items-center gap-2">
               <label className="text-xs text-ink-600" htmlFor="onboarding-daily-dir">
-                Folder
+                {t('Folder')}
               </label>
               <input
                 id="onboarding-daily-dir"
@@ -903,7 +921,7 @@ function LayoutStep({
         </div>
       </div>
 
-      <StepFooter primaryLabel="Continue →" onPrimary={onNext} onBack={onBack} />
+      <StepFooter primaryLabel={t('Continue →')} onPrimary={onNext} onBack={onBack} />
     </div>
   )
 }
@@ -919,6 +937,7 @@ function DoneStep({
   onFinish: () => void
   onOpenHelp: () => void
 }): JSX.Element {
+  const t = useT()
   const tips = useMemo(
     () => [
       { keys: '⌘P', label: 'Find a note' },
@@ -933,12 +952,14 @@ function DoneStep({
   return (
     <div>
       <StepHeading
-        eyebrow="All set"
-        title={hasVault ? "You're ready to write" : 'Choose a vault when you want to start'}
+        eyebrow={t('All set')}
+        title={hasVault ? t("You're ready to write") : t('Choose a vault when you want to start')}
         subtitle={
           hasVault
-            ? "Here are a few shortcuts to get you started. You can revisit any of this from Settings."
-            : 'You skipped the vault step — open the welcome screen any time to pick one.'
+            ? t(
+                'Here are a few shortcuts to get you started. You can revisit any of this from Settings.'
+              )
+            : t('You skipped the vault step — open the welcome screen any time to pick one.')
         }
       />
 
@@ -946,7 +967,7 @@ function DoneStep({
         <ul className="divide-y divide-paper-300/45">
           {tips.map((tip) => (
             <li key={tip.keys} className="flex items-center justify-between px-4 py-3">
-              <span className="text-sm text-ink-800">{tip.label}</span>
+              <span className="text-sm text-ink-800">{t(tip.label)}</span>
               <kbd className="rounded-md border border-paper-300/70 bg-paper-50/80 px-2 py-0.5 font-mono text-xs text-ink-700">
                 {tip.keys}
               </kbd>
@@ -957,7 +978,7 @@ function DoneStep({
 
       <div className="mt-8 flex items-center justify-between gap-4">
         <Button variant="ghost" size="sm" onClick={onBack}>
-          ← Back
+          {t('← Back')}
         </Button>
         <div className="flex items-center gap-3">
           {hasVault && (
@@ -967,11 +988,11 @@ function DoneStep({
               onClick={onOpenHelp}
               className="shadow-panel"
             >
-              Open the help guide
+              {t('Open the help guide')}
             </Button>
           )}
           <Button variant="primary" size="md" onClick={onFinish} className="shadow-panel">
-            {hasVault ? 'Start writing' : 'Finish'}
+            {hasVault ? t('Start writing') : t('Finish')}
           </Button>
         </div>
       </div>
