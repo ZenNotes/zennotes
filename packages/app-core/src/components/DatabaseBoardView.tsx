@@ -33,6 +33,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const openRecordPage = useStore((s) => s.openRecordPage)
+  const language = useStore((s) => s.language)
 
   const selectFields = doc.fields.filter((f) => f.type === 'select')
   const groupField =
@@ -159,7 +160,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
                           if (!v && f.type !== 'checkbox') return null
                           let content: string
                           if (f.type === 'checkbox') content = isCheckboxTrue(v) ? '✓' : ''
-                          else if (f.type === 'date') content = formatDate(v)
+                          else if (f.type === 'date') content = formatDate(v, language)
                           else if (f.type === 'multiSelect') content = splitMultiSelect(v).map((x) => optionLabel(f, x)).join(', ')
                           else if (f.type === 'select') content = optionLabel(f, v)
                           else content = v

@@ -34,7 +34,7 @@ export function TrashView(): JSX.Element {
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isTrashViewActive)
-  const trashLabel = getSystemFolderLabel('trash', systemFolderLabels)
+  const trashLabel = getSystemFolderLabel('trash', systemFolderLabels, t)
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)

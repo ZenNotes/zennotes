@@ -359,6 +359,16 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_DELETE_ASSET, relPath),
   restoreDeletedAsset: (asset: DeletedAsset): Promise<AssetMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RESTORE_DELETED_ASSET, asset),
+  migrateLooseAssets: (): Promise<{
+    moved: string[]
+    skipped: { path: string; reason: string }[]
+  }> => ipcRenderer.invoke(IPC.VAULT_MIGRATE_LOOSE_ASSETS),
+  importAssetsToVault: (sourcePaths: string[]): Promise<AssetMeta[]> =>
+    ipcRenderer.invoke(IPC.VAULT_IMPORT_ASSETS, sourcePaths),
+  importAssetsViaDialog: (): Promise<AssetMeta[]> =>
+    ipcRenderer.invoke(IPC.VAULT_PICK_IMPORT_ASSETS),
+  assetThumbnail: (relPath: string, maxSize: number): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.VAULT_ASSET_THUMBNAIL, relPath, maxSize),
   createFolder: (folder: NoteFolder, subpath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_FOLDER, folder, subpath),
   renameFolder: (folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string> =>
@@ -422,6 +432,16 @@ const api: ZenBridge = {
     const listener = (_: unknown, relPath: string): void => cb(relPath)
     ipcRenderer.on(IPC.APP_OPEN_NOTE_REQUESTED, listener)
     return () => ipcRenderer.removeListener(IPC.APP_OPEN_NOTE_REQUESTED, listener)
+  },
+  onNoteCopyShortcut: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on(IPC.APP_NOTE_COPY, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_NOTE_COPY, listener)
+  },
+  onNotePasteShortcut: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on(IPC.APP_NOTE_PASTE, listener)
+    return () => ipcRenderer.removeListener(IPC.APP_NOTE_PASTE, listener)
   },
   notifyRendererReady: (): void => ipcRenderer.send(IPC.APP_RENDERER_READY),
   onAppUpdateState: (cb: (state: AppUpdateState) => void): (() => void) => {

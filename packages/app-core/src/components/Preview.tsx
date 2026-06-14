@@ -433,6 +433,8 @@ export const Preview = memo(function Preview({
     workspaceMode !== "remote";
 
   const html = useMemo(() => renderMarkdown(markdown), [markdown]);
+  // Leading YAML frontmatter is no longer rendered inline here — it's surfaced
+  // (and edited) in the right-hand Properties panel (PropertiesPanel.tsx).
   const assetFilesKey = useMemo(
     () => assetFiles.map((asset) => asset.path).join("\n"),
     [assetFiles],

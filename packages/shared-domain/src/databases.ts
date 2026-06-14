@@ -105,6 +105,9 @@ export interface DatabaseSidecar {
   activeViewId: string
   /** Row id → vault path of that record's "page" note (created on demand). */
   pages?: Record<string, string>
+  /** Template id applied to the BODY of newly-created record pages (the record
+   *  frontmatter is always composed from the row's cells). */
+  recordPageTemplate?: string
 }
 
 /** Cells are raw CSV strings keyed by DbField.id. */

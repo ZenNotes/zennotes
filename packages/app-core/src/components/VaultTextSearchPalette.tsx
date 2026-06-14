@@ -153,8 +153,8 @@ export function VaultTextSearchPalette(): JSX.Element {
   const [active, setActive] = useState(0)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = useMemo(
-    () => resolveSystemFolderLabels(systemFolderLabels),
-    [systemFolderLabels]
+    () => resolveSystemFolderLabels(systemFolderLabels, t),
+    [systemFolderLabels, t]
   )
   const [loading, setLoading] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)

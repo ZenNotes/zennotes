@@ -47,8 +47,8 @@ export function ArchiveView(): JSX.Element {
   const workspaceMode = useStore((s) => s.workspaceMode)
   const amActive = useStore(isArchiveViewActive)
   const folderLabels = useMemo(
-    () => resolveSystemFolderLabels(systemFolderLabels),
-    [systemFolderLabels]
+    () => resolveSystemFolderLabels(systemFolderLabels, t),
+    [systemFolderLabels, t]
   )
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'

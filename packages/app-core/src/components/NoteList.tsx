@@ -107,8 +107,8 @@ export function NoteList(): JSX.Element {
   const absolutePathLabel =
     workspaceMode === 'remote' ? t('Copy Server Path') : t('Copy Absolute Path')
   const folderLabels = useMemo(
-    () => resolveSystemFolderLabels(systemFolderLabels),
-    [systemFolderLabels]
+    () => resolveSystemFolderLabels(systemFolderLabels, t),
+    [systemFolderLabels, t]
   )
   const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
   const [assetMenu, setAssetMenu] = useState<{ x: number; y: number; path: string } | null>(null)

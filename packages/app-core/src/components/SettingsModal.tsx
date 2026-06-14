@@ -38,7 +38,7 @@ import {
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
 import { normalizeDailyNotesDirectory, normalizeWeeklyNotesDirectory } from '../lib/vault-layout'
-import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
+import { localizedBuiltinTemplates } from '../lib/builtin-templates-i18n'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
 import { TemplateEditorModal } from './TemplateEditorModal'
 import type { NoteTemplate } from '@bridge-contract/templates'
@@ -55,6 +55,7 @@ import { Button } from './ui/Button'
 
 type SettingsCategoryId =
   | 'appearance'
+  | 'sidebar'
   | 'editor'
   | 'keymaps'
   | 'typography'
@@ -69,6 +70,7 @@ type SettingsCategoryId =
  *  language — so it is keyed by id rather than translated. */
 const CATEGORY_EYEBROW_LABEL: Record<SettingsCategoryId, string> = {
   appearance: 'Appearance',
+  sidebar: 'Sidebar',
   editor: 'Editor',
   keymaps: 'Keymap',
   typography: 'Typography',
@@ -281,8 +283,12 @@ export function SettingsModal(): JSX.Element {
   const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
   const setHideBuiltinTemplates = useStore((s) => s.setHideBuiltinTemplates)
   const allTemplates = useMemo(
-    () => mergeTemplates(hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES, customTemplates),
-    [customTemplates, hideBuiltinTemplates]
+    () =>
+      mergeTemplates(
+        hideBuiltinTemplates ? [] : localizedBuiltinTemplates(language),
+        customTemplates
+      ),
+    [customTemplates, hideBuiltinTemplates, language]
   )
   const supportsCustomTemplates =
     zenBridge.getCapabilities().supportsCustomTemplates && workspaceMode !== 'remote'
@@ -370,6 +376,8 @@ export function SettingsModal(): JSX.Element {
   const setDarkSidebar = useStore((s) => s.setDarkSidebar)
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons)
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
+  const sidebarHideTasks = useStore((s) => s.sidebarHideTasks)
+  const setSidebarHideTasks = useStore((s) => s.setSidebarHideTasks)
   const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -689,17 +697,6 @@ export function SettingsModal(): JSX.Element {
           title: 'Theme variant',
           description: 'Choose a family-specific contrast, flavor, or variant.',
           keywords: ['variant', 'contrast', 'flavor']
-        },
-        {
-          id: 'dark-sidebar',
-          title: 'Dark sidebar',
-          description: 'Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.'
-        },
-        {
-          id: 'sidebar-arrows',
-          title: 'Sidebar arrows',
-          description: 'Show disclosure arrows for collapsible folders and sidebar sections.',
-          keywords: ['chevrons', 'disclosure']
         }
       ],
       content: (
@@ -776,8 +773,67 @@ export function SettingsModal(): JSX.Element {
             </div>
           </Section>
 
+        </div>
+      )
+    },
+    {
+      id: 'sidebar',
+      title: t('Sidebar'),
+      description: t('Sidebar appearance and built-in area labels.'),
+      keywords: ['sidebar', 'labels', 'folders', 'dark sidebar', 'chevrons', 'inbox', 'archive', 'trash', 'assets'],
+      searchItems: [
+        {
+          id: 'dark-sidebar',
+          title: 'Dark sidebar',
+          description: 'Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.'
+        },
+        {
+          id: 'sidebar-arrows',
+          title: 'Sidebar arrows',
+          description: 'Show disclosure arrows for collapsible folders and sidebar sections.',
+          keywords: ['chevrons', 'disclosure']
+        },
+        {
+          id: 'hide-tasks',
+          title: 'Hide Tasks',
+          description: 'Remove the Tasks entry from the sidebar.',
+          keywords: ['tasks', 'hide', 'remove']
+        },
+        {
+          id: 'inbox-label',
+          title: 'Inbox label',
+          description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
+          keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'quick-notes-label',
+          title: 'Quick Notes label',
+          description: 'Display name for the quick-capture area.',
+          keywords: ['system folders', 'folder label', 'quick']
+        },
+        {
+          id: 'archive-label',
+          title: 'Archive label',
+          description: 'Display name for cold-storage notes.',
+          keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'trash-label',
+          title: 'Trash label',
+          description: 'Display name for deleted-note recovery.',
+          keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'assets-label',
+          title: 'Assets label',
+          description: 'Display name for the resources (assets) library.',
+          keywords: ['system folders', 'folder label', 'assets', 'resources']
+        }
+      ],
+      content: (
+        <div className="space-y-6">
           <Section
-            title={t('Chrome')}
+            title={t('Appearance')}
             description={t('Small visual adjustments that change how the shell feels.')}
           >
             <ToggleRow
@@ -794,6 +850,62 @@ export function SettingsModal(): JSX.Element {
               settingId="sidebar-arrows"
               onChange={setShowSidebarChevrons}
             />
+            <ToggleRow
+              label={t('Hide Tasks')}
+              description={t('Remove the Tasks entry from the sidebar.')}
+              value={sidebarHideTasks}
+              settingId="hide-tasks"
+              onChange={setSidebarHideTasks}
+            />
+          </Section>
+
+          <Section
+            title={t('Area labels')}
+            description={t("Rename the built-in areas as shown in the UI. This changes labels only; the internal ids stay `inbox`, `quick`, `archive`, `trash`, and `assets`. Leave blank to follow the interface language.")}
+          >
+            <TextInputRow
+              label={t('Inbox label')}
+              description={t('Shown in the sidebar, breadcrumbs, commands, and note actions.')}
+              value={systemFolderLabels.inbox ?? ''}
+              placeholder={t(DEFAULT_SYSTEM_FOLDER_LABELS.inbox)}
+              settingId="inbox-label"
+              onChange={(next) => setSystemFolderLabel('inbox', next)}
+            />
+            <TextInputRow
+              label={t('Quick Notes label')}
+              description={t('Display name for the quick-capture area.')}
+              value={systemFolderLabels.quick ?? ''}
+              placeholder={t(DEFAULT_SYSTEM_FOLDER_LABELS.quick)}
+              settingId="quick-notes-label"
+              onChange={(next) => setSystemFolderLabel('quick', next)}
+            />
+            <TextInputRow
+              label={t('Archive label')}
+              description={t('Display name for cold-storage notes.')}
+              value={systemFolderLabels.archive ?? ''}
+              placeholder={t(DEFAULT_SYSTEM_FOLDER_LABELS.archive)}
+              settingId="archive-label"
+              onChange={(next) => setSystemFolderLabel('archive', next)}
+            />
+            <TextInputRow
+              label={t('Trash label')}
+              description={t('Display name for deleted-note recovery.')}
+              value={systemFolderLabels.trash ?? ''}
+              placeholder={t(DEFAULT_SYSTEM_FOLDER_LABELS.trash)}
+              settingId="trash-label"
+              onChange={(next) => setSystemFolderLabel('trash', next)}
+            />
+            <TextInputRow
+              label={t('Assets label')}
+              description={t('Display name for the resources (assets) library.')}
+              value={systemFolderLabels.assets ?? ''}
+              placeholder={t(DEFAULT_SYSTEM_FOLDER_LABELS.assets)}
+              settingId="assets-label"
+              onChange={(next) => setSystemFolderLabel('assets', next)}
+            />
+            <InlineNote>
+              {t('Current labels:')} {getSystemFolderLabel('inbox', systemFolderLabels, t)}, {getSystemFolderLabel('quick', systemFolderLabels, t)}, {getSystemFolderLabel('archive', systemFolderLabels, t)}, {getSystemFolderLabel('trash', systemFolderLabels, t)}, {getSystemFolderLabel('assets', systemFolderLabels, t)}.
+            </InlineNote>
           </Section>
         </div>
       )
@@ -1382,30 +1494,6 @@ export function SettingsModal(): JSX.Element {
           title: 'Show week numbers',
           description: 'Display the ISO week-number column in the calendar.',
           keywords: ['calendar', 'week numbers', 'iso week', 'weekly notes']
-        },
-        {
-          id: 'inbox-label',
-          title: 'Inbox label',
-          description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
-          keywords: ['system folders', 'folder label']
-        },
-        {
-          id: 'quick-notes-label',
-          title: 'Quick Notes label',
-          description: 'Display name for the quick-capture area.',
-          keywords: ['system folders', 'folder label', 'quick']
-        },
-        {
-          id: 'archive-label',
-          title: 'Archive label',
-          description: 'Display name for cold-storage notes.',
-          keywords: ['system folders', 'folder label']
-        },
-        {
-          id: 'trash-label',
-          title: 'Trash label',
-          description: 'Display name for deleted-note recovery.',
-          keywords: ['system folders', 'folder label']
         }
       ],
       content: (
@@ -1748,46 +1836,6 @@ export function SettingsModal(): JSX.Element {
             />
           </Section>
 
-          <Section
-            title={t('System Folders')}
-            description={t("Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root.")}
-          >
-            <TextInputRow
-              label={t('Inbox label')}
-              description={t('Shown in the sidebar, breadcrumbs, commands, and note actions.')}
-              value={systemFolderLabels.inbox ?? ''}
-              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.inbox}
-              settingId="inbox-label"
-              onChange={(next) => setSystemFolderLabel('inbox', next)}
-            />
-            <TextInputRow
-              label={t('Quick Notes label')}
-              description={t('Display name for the quick-capture area.')}
-              value={systemFolderLabels.quick ?? ''}
-              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.quick}
-              settingId="quick-notes-label"
-              onChange={(next) => setSystemFolderLabel('quick', next)}
-            />
-            <TextInputRow
-              label={t('Archive label')}
-              description={t('Display name for cold-storage notes.')}
-              value={systemFolderLabels.archive ?? ''}
-              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.archive}
-              settingId="archive-label"
-              onChange={(next) => setSystemFolderLabel('archive', next)}
-            />
-            <TextInputRow
-              label={t('Trash label')}
-              description={t('Display name for deleted-note recovery.')}
-              value={systemFolderLabels.trash ?? ''}
-              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.trash}
-              settingId="trash-label"
-              onChange={(next) => setSystemFolderLabel('trash', next)}
-            />
-            <InlineNote>
-              {t('Current labels:')} {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, {getSystemFolderLabel('trash', systemFolderLabels)}.
-            </InlineNote>
-          </Section>
         </div>
       )
     },
@@ -1885,7 +1933,7 @@ export function SettingsModal(): JSX.Element {
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-ink-900">{template.name}</div>
                   <div className="mt-0.5 truncate text-xs text-ink-500">
-                    {template.category}
+                    {t(template.category)}
                     {template.description ? ` — ${template.description}` : ''}
                   </div>
                 </div>
@@ -3021,6 +3069,7 @@ function TemplateSelectRow({
   settingId?: string
   onChange: (templateId: string | undefined) => void
 }): JSX.Element {
+  const tr = useT()
   // A configured template that no longer exists (deleted) shows as missing so
   // the user can pick a replacement; daily/weekly creation falls back to blank.
   const missing = !!value && !templates.some((t) => t.id === value)
@@ -3046,7 +3095,7 @@ function TemplateSelectRow({
         )}
         {templates.map((template) => (
           <option key={template.id} value={template.id}>
-            {template.category} — {template.name}
+            {tr(template.category)} — {template.name}
           </option>
         ))}
       </select>

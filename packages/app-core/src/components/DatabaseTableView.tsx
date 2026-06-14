@@ -5,7 +5,8 @@ import {
   useEffect,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../lib/i18n'
@@ -14,6 +15,7 @@ import { filterRows, sortRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
   addRow,
+  addField,
   setCell,
   deleteRow,
   renameField,
@@ -31,6 +33,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { IconButton } from './ui/Button'
 import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { fieldIconKind } from '../lib/note-properties'
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: 'Text',
@@ -39,6 +42,55 @@ const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   date: 'Date',
   select: 'Select',
   multiSelect: 'Multi-select'
+}
+
+/** Default / min column widths (px) for the resizable table grid. */
+const DEFAULT_COL_WIDTH = 180
+const MIN_COL_WIDTH = 80
+const CHECKBOX_COL_WIDTH = 40
+
+/**
+ * Field-type glyph shown in every column header (always visible, click to open
+ * the field menu). Path data mirrors `propIconSvg()` so the table header type
+ * icons match the properties panel exactly.
+ */
+function FieldTypeIcon({ type, className }: { type: FieldType; className?: string }): JSX.Element {
+  const kind = fieldIconKind(type)
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {kind === 'number' ? (
+        <path d="M10 4 8 20M16 4l-2 16M4 9h16M3 15h16" />
+      ) : kind === 'date' ? (
+        <>
+          <rect x="4" y="5" width="16" height="16" rx="2" />
+          <path d="M16 3v4M8 3v4M4 11h16" />
+        </>
+      ) : kind === 'checkbox' ? (
+        <>
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M9 12l2 2 4-4" />
+        </>
+      ) : kind === 'list' ? (
+        <>
+          <path d="M9 6h11M9 12h11M9 18h11" />
+          <circle cx="4.5" cy="6" r="1" />
+          <circle cx="4.5" cy="12" r="1" />
+          <circle cx="4.5" cy="18" r="1" />
+        </>
+      ) : (
+        <path d="M4 6h16M4 12h16M4 18h10" />
+      )}
+    </svg>
+  )
 }
 
 interface Props {
@@ -65,6 +117,10 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   const [fieldMenu, setFieldMenu] = useState<{ fieldId: string; x: number; y: number } | null>(null)
   const [rowMenu, setRowMenu] = useState<{ rowId: string; x: number; y: number } | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Live column width during a drag-resize (committed to the view on release so
+  // every mousemove doesn't write the sidecar to disk).
+  const [liveWidth, setLiveWidth] = useState<{ fieldId: string; width: number } | null>(null)
+  const resizeRef = useRef<{ fieldId: string; startX: number; startWidth: number } | null>(null)
 
   // --- Vim-style keyboard grid ---------------------------------------------
   // The grid is the focus owner; cells bubble their key events up to it. A
@@ -126,6 +182,71 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     // Keep the linked page note's filename in step with the title field.
     if (field.id === titleFieldId && doc.pages?.[rowId]) {
       void renameRecordPage(csvPath, rowId)
+    }
+  }
+
+  // --- column widths -------------------------------------------------------
+  const colWidth = (field: DbField): number =>
+    view.columnWidths?.[field.id] ?? field.width ?? DEFAULT_COL_WIDTH
+  const effWidth = (field: DbField): number =>
+    liveWidth?.fieldId === field.id ? liveWidth.width : colWidth(field)
+
+  // Drag the right edge of a header to resize its column. Listeners are wired
+  // imperatively for the duration of the drag (not via an effect) so the live
+  // width update doesn't churn window listeners on every mousemove.
+  const startColResize = (e: ReactPointerEvent, field: DbField): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    resizeRef.current = { fieldId: field.id, startX: e.clientX, startWidth: colWidth(field) }
+    setLiveWidth({ fieldId: field.id, width: colWidth(field) })
+    const onMove = (ev: PointerEvent): void => {
+      const r = resizeRef.current
+      if (!r) return
+      setLiveWidth({ fieldId: r.fieldId, width: Math.max(MIN_COL_WIDTH, r.startWidth + (ev.clientX - r.startX)) })
+    }
+    const onUp = (ev: PointerEvent): void => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      const r = resizeRef.current
+      resizeRef.current = null
+      setLiveWidth(null)
+      if (!r) return
+      const width = Math.max(MIN_COL_WIDTH, r.startWidth + (ev.clientX - r.startX))
+      updateDatabaseSchema(
+        csvPath,
+        updateView(doc, view.id, { columnWidths: { ...(view.columnWidths ?? {}), [r.fieldId]: width } })
+      )
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
+
+  // Double-click the resize handle to drop the override back to the default.
+  const resetColWidth = (field: DbField): void => {
+    if (!view.columnWidths?.[field.id]) return
+    const next = { ...view.columnWidths }
+    delete next[field.id]
+    updateDatabaseSchema(csvPath, updateView(doc, view.id, { columnWidths: next }))
+  }
+
+  // Tab / Shift+Tab walk cells left-to-right, wrapping rows (Excel-style).
+  // Landing on a text/number cell drops straight into edit mode (the input
+  // takes focus) for fast keyboard data entry; other types just select.
+  const moveTab = (forward: boolean): void => {
+    const ncols = columns.length
+    if (ncols === 0 || rows.length === 0) return
+    const r = active.row < 0 ? 0 : active.row
+    const max = rows.length * ncols - 1
+    const idx = Math.max(0, Math.min(r * ncols + active.col + (forward ? 1 : -1), max))
+    const row = Math.floor(idx / ncols)
+    const col = idx % ncols
+    setActive({ row, col })
+    const field = columns[col]
+    const targetRow = rows[row]
+    if (field && targetRow && (field.type === 'text' || field.type === 'number')) {
+      setEditing({ rowId: targetRow.id, fieldId: field.id })
+    } else {
+      setEditing(null)
     }
   }
 
@@ -221,6 +342,9 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
       case 'l':
       case 'ArrowRight':
         return move(active.row, active.col + 1)
+      case 'Tab':
+        e.preventDefault()
+        return moveTab(!e.shiftKey)
       case '0':
       case '^':
         return move(active.row, 0)
@@ -405,10 +529,19 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         }}
         className="min-h-0 flex-1 overflow-auto outline-none focus:outline-none"
       >
-        <table className="w-full border-collapse text-sm">
+        <table className="min-w-full table-fixed border-collapse text-sm">
+          <colgroup>
+            <col style={{ width: CHECKBOX_COL_WIDTH }} />
+            {columns.map((field) => (
+              <col key={field.id} style={{ width: effWidth(field) }} />
+            ))}
+            {/* Trailing column absorbs any slack so the add-field "+" sits right
+                after the last header, and pins to the right on overflow. */}
+            <col />
+          </colgroup>
           <thead className="sticky top-0 z-10 bg-paper-100">
             <tr className="border-b border-paper-300/70">
-              <th className="group/sa w-10 border-r border-paper-300/40 align-middle">
+              <th className="group/sa border-r border-paper-300/40 align-middle">
                 <div
                   className={[
                     'flex items-center justify-center',
@@ -423,7 +556,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                 key={field.id}
                 data-active-header={active.row < 0 && active.col === colIndex}
                 className={[
-                  'group/h min-w-32 border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500',
+                  'group/h relative border-r border-paper-300/40 px-2.5 py-2 text-left text-2xs font-medium uppercase tracking-wide text-ink-500',
                   active.row < 0 && active.col === colIndex ? 'ring-2 ring-inset ring-accent' : ''
                 ].join(' ')}
               >
@@ -447,7 +580,20 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                     className="w-full rounded border border-accent bg-paper-50 px-1 py-0.5 text-sm text-ink-900 outline-none"
                   />
                 ) : (
-                  <div className="flex items-center justify-between gap-1">
+                  <div className="flex items-center gap-1">
+                    {/* Always-visible type glyph; click opens the field menu
+                        (sort / rename / change type / delete). */}
+                    <button
+                      type="button"
+                      title={`${tr(FIELD_TYPE_LABELS[field.type])} · ${tr('Field options')}`}
+                      onClick={(e) => {
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                        setFieldMenu({ fieldId: field.id, x: r.left, y: r.bottom })
+                      }}
+                      className="shrink-0 rounded p-0.5 text-ink-400 transition-colors hover:bg-paper-200 hover:text-ink-700"
+                    >
+                      <FieldTypeIcon type={field.type} className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       type="button"
                       onDoubleClick={() => setRenamingField(field.id)}
@@ -470,8 +616,30 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                     </IconButton>
                   </div>
                 )}
+                {/* Drag the right edge to resize; double-click resets the width. */}
+                <div
+                  onPointerDown={(e) => startColResize(e, field)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation()
+                    resetColWidth(field)
+                  }}
+                  title={tr('Drag to resize · double-click to reset')}
+                  className="absolute right-0 top-0 z-10 h-full w-1.5 cursor-col-resize touch-none select-none hover:bg-accent/40"
+                />
               </th>
             ))}
+              {/* Trailing add-field header: in-flow after the last column when
+                  there's slack, pinned to the right edge once it overflows. */}
+              <th className="p-0 align-middle">
+                <button
+                  type="button"
+                  onClick={() => updateDatabaseSchema(csvPath, addField(doc))}
+                  title={tr('Add field')}
+                  className="sticky right-0 flex items-center gap-1 px-2.5 py-2 text-ink-400 transition-colors hover:bg-paper-200 hover:text-ink-700"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" />
+                </button>
+              </th>
           </tr>
         </thead>
         <tbody>
@@ -503,8 +671,11 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                 </td>
                 {columns.map((field, colIndex) => {
                   const isActive = active.row === rowIndex && active.col === colIndex
+                  // `h-px` gives the cell a definite height so the inner button's
+                  // `h-full` resolves to the (taller) row height — making the
+                  // whole cell, not just its text line, the clickable edit target.
                   const tdClassName = [
-                    'relative border-r border-paper-300/40 p-0 align-top',
+                    'relative h-px border-r border-paper-300/40 p-0 align-top',
                     isActive ? 'ring-2 ring-inset ring-accent' : ''
                   ].join(' ')
                   // Keep keyboard focus on the grid container (not the inner
@@ -526,6 +697,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                       onStartEdit={() => setEditing({ rowId: row.id, fieldId: field.id })}
                       onEndEdit={() => setEditing(null)}
                       onCommit={(v) => commitCell(row.id, field, v)}
+                      onTab={(shift) => moveTab(!shift)}
                     />
                   )
                   if (field.id !== titleFieldId) {
@@ -551,7 +723,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                       onMouseDown={onCellMouseDown}
                       className={tdClassName}
                     >
-                      <div className="flex items-start">
+                      <div className="flex h-full">
                         <button
                           type="button"
                           onClick={(e) => {
@@ -560,7 +732,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                           }}
                           title={hasContent ? 'Open page' : 'Open page (empty)'}
                           className={[
-                            'flex shrink-0 items-center pl-2 pr-1 pt-2 transition-colors hover:text-accent',
+                            'flex shrink-0 self-start items-center pl-2 pr-1 pt-2 transition-colors hover:text-accent',
                             hasContent ? 'text-ink-500' : 'text-ink-400'
                           ].join(' ')}
                         >
@@ -582,17 +754,19 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                     </td>
                   )
                 })}
+                {/* Spacer cell under the trailing add-field column. */}
+                <td aria-hidden />
               </tr>
             )
           })}
           <tr>
-            <td colSpan={columns.length + 1} className="px-2 py-1.5">
+            <td colSpan={columns.length + 2} className="px-2 py-1.5">
               <button
                 type="button"
                 onClick={() => updateDatabaseRows(csvPath, addRow(doc))}
                 className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-900"
               >
-                <PlusIcon className="h-3.5 w-3.5" /> New row
+                <PlusIcon className="h-3.5 w-3.5" /> {tr('New row')}
               </button>
             </td>
           </tr>
@@ -674,10 +848,13 @@ interface CellProps {
   onStartEdit: () => void
   onEndEdit: () => void
   onCommit: (value: string) => void
+  /** Excel-style Tab: commit, leave edit, and move to the next/prev cell. */
+  onTab?: (shift: boolean) => void
 }
 
-function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellProps): JSX.Element {
+function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit, onTab }: CellProps): JSX.Element {
   const tr = useT()
+  const language = useStore((s) => s.language)
   if (field.type === 'checkbox') {
     const checked = isCheckboxTrue(value)
     return (
@@ -720,15 +897,33 @@ function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellP
           e.stopPropagation()
           if (e.key === 'Enter') e.currentTarget.blur()
           else if (e.key === 'Escape') onEndEdit()
+          else if (e.key === 'Tab') {
+            // Excel-style: commit this cell and step to the next one (no
+            // browser focus-walk), staying in selection mode (not editing).
+            e.preventDefault()
+            onCommit(e.currentTarget.value)
+            onEndEdit()
+            onTab?.(e.shiftKey)
+          }
         }}
-        className="w-full bg-paper-50 px-2 py-1.5 text-sm text-ink-900 outline-none ring-1 ring-inset ring-accent"
+        className={[
+          'w-full bg-paper-50 px-2 py-1.5 text-sm text-ink-900 outline-none ring-1 ring-inset ring-accent',
+          field.type === 'number' ? 'text-center' : ''
+        ].join(' ')}
       />
     )
   }
 
   return (
     <button type="button" onClick={onStartEdit} className="block h-full w-full px-2 py-1.5 text-left">
-      <span className="block truncate text-ink-900">{field.type === 'date' ? formatDate(value) : value}</span>
+      <span
+        className={[
+          'block truncate text-ink-900',
+          field.type === 'number' ? 'text-center' : ''
+        ].join(' ')}
+      >
+        {field.type === 'date' ? formatDate(value, language) : value}
+      </span>
     </button>
   )
 }
@@ -743,9 +938,17 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
   const panelRef = useRef<HTMLDivElement | null>(null)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [draft, setDraft] = useState('')
+  // The "add option" row starts as a link and only becomes an input on click,
+  // so opening the dropdown never steals focus into a text field (which would
+  // break Tab navigation across cells).
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     setRect(editing && triggerRef.current ? triggerRef.current.getBoundingClientRect() : null)
+    if (!editing) {
+      setAdding(false)
+      setDraft('')
+    }
   }, [editing])
 
   useEffect(() => {
@@ -838,22 +1041,38 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
               )}
             </div>
             <div className="border-t border-paper-300/60 p-1.5">
-              <input
-                autoFocus
-                value={draft}
-                placeholder={tr("Add option…")}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                  if (e.key === 'Enter' && draft.trim()) {
-                    toggle(draft.trim().replace(/,/g, ' '))
+              {adding ? (
+                <input
+                  autoFocus
+                  value={draft}
+                  placeholder={tr("Add option…")}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={() => {
+                    setAdding(false)
                     setDraft('')
-                  } else if (e.key === 'Escape') {
-                    onEndEdit()
-                  }
-                }}
-                className="w-full rounded border border-paper-300 bg-paper-50 px-2 py-1 text-sm text-ink-900 outline-none focus:border-accent"
-              />
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter' && draft.trim()) {
+                      toggle(draft.trim().replace(/,/g, ' '))
+                      setDraft('')
+                    } else if (e.key === 'Escape') {
+                      // Collapse back to the link without closing the dropdown.
+                      setAdding(false)
+                      setDraft('')
+                    }
+                  }}
+                  className="w-full rounded border border-paper-300 bg-paper-50 px-2 py-1 text-sm text-ink-900 outline-none focus:border-accent"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="flex w-full items-center gap-1 rounded px-2 py-1 text-left text-sm text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-900"
+                >
+                  <PlusIcon className="h-3.5 w-3.5" /> {tr("Add option…")}
+                </button>
+              )}
             </div>
           </div>,
           document.body

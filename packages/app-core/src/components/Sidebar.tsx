@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   isArchiveViewActive,
+  isAssetsViewActive,
   isHelpViewActive,
   isQuickNotesViewActive,
   isTagsViewActive,
@@ -24,7 +25,9 @@ import {
   ChevronRightIcon,
   CheckSquareIcon,
   CloseIcon,
+  DatabaseIcon,
   DocumentIcon,
+  PaperclipIcon,
   ExpandAllIcon,
   FolderPlusIcon,
   NotePlusIcon,
@@ -42,11 +45,13 @@ import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
+import { getKeymapDisplay } from "../lib/keymaps";
 import { recordRendererPerf } from "../lib/perf";
 import {
   assetFolderSubpath,
   folderIconKey,
   isPrimaryNotesAtRoot,
+  isReservedRootName,
   folderForVaultRelativePath,
   normalizeVaultSettings,
   noteFolderSubpath,
@@ -58,7 +63,12 @@ import {
   type DragPayload,
 } from "../lib/dnd";
 import { resolveSystemFolderLabels } from "../lib/system-folder-labels";
-import { assetTabPath } from "../lib/asset-tabs";
+import { assetTabPath, assetPathFromTab, isAssetTabPath } from "../lib/asset-tabs";
+import {
+  csvPathFromDatabaseTab,
+  isDatabaseTabPath,
+  isDatabaseCsvPath,
+} from "@shared/databases";
 import {
   FolderGlyphIcon,
   resolveFolderIconId,
@@ -345,7 +355,6 @@ export function Sidebar(): JSX.Element {
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const allFolders = useStore((s) => s.folders);
-  const hasAssetsDir = useStore((s) => s.hasAssetsDir);
   const focusedPanel = useStore((s) => s.focusedPanel);
   const vimMode = useStore((s) => s.vimMode);
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex);
@@ -357,6 +366,7 @@ export function Sidebar(): JSX.Element {
   const setView = useStore((s) => s.setView);
   const openTasksView = useStore((s) => s.openTasksView);
   const tasksViewActive = useStore(isTasksViewActive);
+  const sidebarHideTasks = useStore((s) => s.sidebarHideTasks);
   const openQuickNotesView = useStore((s) => s.openQuickNotesView);
   const quickNotesViewActive = useStore(isQuickNotesViewActive);
   const openHelpView = useStore((s) => s.openHelpView);
@@ -365,6 +375,8 @@ export function Sidebar(): JSX.Element {
   const archiveViewActive = useStore(isArchiveViewActive);
   const openTrashView = useStore((s) => s.openTrashView);
   const trashViewActive = useStore(isTrashViewActive);
+  const openAssetsView = useStore((s) => s.openAssetsView);
+  const assetsViewActive = useStore(isAssetsViewActive);
   const openTagView = useStore((s) => s.openTagView);
   const selectedTags = useStore((s) => s.selectedTags);
   const tagsViewActive = useStore(isTagsViewActive);
@@ -375,6 +387,8 @@ export function Sidebar(): JSX.Element {
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
   const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix);
+  const keymapOverrides = useStore((s) => s.keymapOverrides);
+  const newQuickNoteShortcut = getKeymapDisplay(keymapOverrides, "global.newQuickNote");
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setFocusedPanel = useStore((s) => s.setFocusedPanel);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
@@ -389,7 +403,6 @@ export function Sidebar(): JSX.Element {
   const deleteFolderAction = useStore((s) => s.deleteFolder);
   const duplicateFolderAction = useStore((s) => s.duplicateFolder);
   const revealFolderAction = useStore((s) => s.revealFolder);
-  const revealAssetsDir = useStore((s) => s.revealAssetsDir);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
@@ -456,8 +469,8 @@ export function Sidebar(): JSX.Element {
     window.zen.getAppInfo().runtime === "desktop" &&
     workspaceMode !== "remote";
   const folderLabels = useMemo(
-    () => resolveSystemFolderLabels(systemFolderLabels),
-    [systemFolderLabels],
+    () => resolveSystemFolderLabels(systemFolderLabels, t),
+    [systemFolderLabels, t],
   );
   const openAssetInTab = useCallback(
     (path: string): void => {
@@ -1565,6 +1578,24 @@ export function Sidebar(): JSX.Element {
       ];
     }
 
+    // Quick Notes is a special note type — its only folder action is to
+    // create a new quick note (with the date/prefix title rules).
+    if (folder === "quick" && isTop) {
+      return [
+        {
+          label: t("New note"),
+          onSelect: async () => {
+            const title = resolveQuickNoteTitle(
+              notes,
+              quickNoteDateTitle,
+              quickNoteTitlePrefix ?? undefined,
+            );
+            await createAndOpen("quick", "", { title, focusTitle: true });
+          },
+        },
+      ];
+    }
+
     const items: ContextMenuItem[] = [
       {
         label: t("New note"),
@@ -1754,6 +1785,8 @@ export function Sidebar(): JSX.Element {
   }, [
     folderMenu,
     notes,
+    quickNoteDateTitle,
+    quickNoteTitlePrefix,
     allFolders,
     vault,
     createAndOpen,
@@ -1808,7 +1841,12 @@ export function Sidebar(): JSX.Element {
             title: t("New folder at the vault root"),
             placeholder: t("Folder name"),
             okLabel: t("Create"),
-            validate: (v) => (v.includes("/") ? t('Folder name cannot contain "/"') : null),
+            validate: (v) =>
+              v.includes("/")
+                ? t('Folder name cannot contain "/"')
+                : isReservedRootName(v)
+                  ? t("That name is reserved for a system folder.")
+                  : null,
           });
           const clean = name?.trim().replace(/^\/+|\/+$/g, "");
           if (!clean) return;
@@ -2678,63 +2716,25 @@ export function Sidebar(): JSX.Element {
             }
           }}
         >
-          <TaskSidebarRow
-            active={tasksViewActive}
-            onClick={() => void openTasksView()}
+          {!sidebarHideTasks && (
+            <TaskSidebarRow
+              active={tasksViewActive}
+              onClick={() => void openTasksView()}
+              sidebarIdx={idxCounter.current.value++}
+              vimHighlight={vimCursor === idxCounter.current.value - 1}
+              sidebarFocused={sidebarKbFocused}
+            />
+          )}
+
+          <AssetsSidebarRow
+            label={folderLabels.assets}
+            icon={<PaperclipIcon />}
+            count={assetFiles.filter((a) => !isDatabaseCsvPath(a.path)).length}
+            active={assetsViewActive}
+            onClick={() => void openAssetsView()}
             sidebarIdx={idxCounter.current.value++}
             vimHighlight={vimCursor === idxCounter.current.value - 1}
             sidebarFocused={sidebarKbFocused}
-          />
-
-          <FolderTreeRoot
-            label={folderLabels.quick}
-            icon={
-              resolveFolderIconOption("quick", "", vaultSettings.folderIcons).icon
-            }
-            folder="quick"
-            tree={trees.quick}
-            vaultSettings={vaultSettings}
-            isFolderActive={isFolderActive}
-            collapsed={collapsed}
-            toggleCollapse={toggleCollapse}
-            setView={setView}
-            onContextMenu={openFolderMenu}
-            showNotes={unifiedSidebar}
-            selectedPath={selectedPath}
-            vaultRoot={vault?.root ?? null}
-            onSelectNote={handleSelectNote}
-            onOpenAsset={openAssetInTab}
-            onNoteContextMenu={openNoteMenu}
-            onAssetContextMenu={openAssetMenu}
-            sortComparator={treeSortComparator}
-            onDropOnFolder={handleDropOnFolder}
-            selectedKeys={selectedSidebarKeys}
-            onSelectItem={handleSidebarItemSelect}
-            dragPayloadForItem={dragPayloadForItem}
-            idxCounter={idxCounter.current}
-            vimCursor={vimCursor}
-            sidebarFocused={sidebarKbFocused}
-            groupByKind={groupByKind}
-            showSidebarChevrons={showSidebarChevrons}
-            headerAction={
-              <button
-                type="button"
-                title={`${t("New note in")} ${folderLabels.quick} (⇧⌘N)`}
-                aria-label={`${t("New note in")} ${folderLabels.quick}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const title = resolveQuickNoteTitle(
-                    notes,
-                    quickNoteDateTitle,
-                    quickNoteTitlePrefix ?? undefined,
-                  );
-                  void createAndOpen("quick", "", { title, focusTitle: true });
-                }}
-                className="mr-1 flex h-6 w-6 items-center justify-center rounded-md bg-current/0 text-current transition-colors hover:bg-current/15"
-              >
-                <PlusIcon width={16} height={16} strokeWidth={2.5} />
-              </button>
-            }
           />
 
           <DateNotesNav
@@ -2773,20 +2773,6 @@ export function Sidebar(): JSX.Element {
               vimHighlight={vimCursor === idxCounter.current.value - 1}
               sidebarFocused={sidebarKbFocused}
             />
-
-            <TrashSidebarRow
-              label={folderLabels.trash}
-              icon={resolveFolderIconOption("trash", "", vaultSettings.folderIcons).icon}
-              count={countNotesInTree(trees.trash)}
-              active={trashViewActive || !!selectedPath?.startsWith("trash/")}
-              onClick={() => {
-                void openTrashView();
-              }}
-              onContextMenu={(e) => openFolderMenu(e, "trash", "")}
-              sidebarIdx={idxCounter.current.value++}
-              vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={sidebarKbFocused}
-            />
           </div>
 
           <SidebarSectionHeading
@@ -2795,6 +2781,62 @@ export function Sidebar(): JSX.Element {
               primaryNotesAtRoot
                 ? (payload) => handleDropOnFolder(payload, "inbox", "")
                 : undefined
+            }
+          />
+
+          {/* Quick Notes is a special note type — pinned first inside Notes,
+              kept visually distinct via its own folder header + quick-capture. */}
+          <FolderTreeRoot
+            label={folderLabels.quick}
+            hideCount
+            icon={
+              resolveFolderIconOption("quick", "", vaultSettings.folderIcons).icon
+            }
+            folder="quick"
+            tree={trees.quick}
+            vaultSettings={vaultSettings}
+            isFolderActive={isFolderActive}
+            collapsed={collapsed}
+            toggleCollapse={toggleCollapse}
+            setView={setView}
+            onContextMenu={openFolderMenu}
+            showNotes={unifiedSidebar}
+            selectedPath={selectedPath}
+            vaultRoot={vault?.root ?? null}
+            onSelectNote={handleSelectNote}
+            onOpenAsset={openAssetInTab}
+            onNoteContextMenu={openNoteMenu}
+            onAssetContextMenu={openAssetMenu}
+            sortComparator={treeSortComparator}
+            onDropOnFolder={handleDropOnFolder}
+            selectedKeys={selectedSidebarKeys}
+            onSelectItem={handleSidebarItemSelect}
+            dragPayloadForItem={dragPayloadForItem}
+            idxCounter={idxCounter.current}
+            vimCursor={vimCursor}
+            sidebarFocused={sidebarKbFocused}
+            groupByKind={groupByKind}
+            showSidebarChevrons={showSidebarChevrons}
+            headerAction={
+              // The shortcut hint doubles as a quiet click target for new
+              // quick notes — calmer than a "+", and it teaches the keybind.
+              <button
+                type="button"
+                title={`${t("New note in")} ${folderLabels.quick} (${newQuickNoteShortcut})`}
+                aria-label={`${t("New note in")} ${folderLabels.quick}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const title = resolveQuickNoteTitle(
+                    notes,
+                    quickNoteDateTitle,
+                    quickNoteTitlePrefix ?? undefined,
+                  );
+                  void createAndOpen("quick", "", { title, focusTitle: true });
+                }}
+                className="mr-1 rounded px-1.5 py-0.5 text-2xs font-medium tracking-wide text-current opacity-50 transition hover:bg-current/15 hover:opacity-100"
+              >
+                {newQuickNoteShortcut}
+              </button>
             }
           />
 
@@ -2959,19 +3001,18 @@ export function Sidebar(): JSX.Element {
         className="zn-sidebar-footer-safe mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
         style={{ borderTop: "1px solid var(--glass-stroke)" }}
       >
-        {hasAssetsDir && canRevealInFileManager && (
-          <SidebarFooterAction
-            icon={<FolderGlyphIcon />}
-            label={t("Files")}
-            count={assetFiles.length}
-            onClick={() => void revealAssetsDir()}
-            sidebarIdx={idxCounter.current.value++}
-            vimHighlight={vimCursor === idxCounter.current.value - 1}
-            sidebarFocused={sidebarKbFocused}
-            sidebarData={{ type: "assets" }}
-          />
-        )}
-        {(!hasAssetsDir || !canRevealInFileManager) && <div />}
+        <SidebarFooterAction
+          icon={<TrashIcon />}
+          label={folderLabels.trash}
+          count={countNotesInTree(trees.trash)}
+          active={trashViewActive || !!selectedPath?.startsWith("trash/")}
+          onClick={() => void openTrashView()}
+          onContextMenu={(e) => openFolderMenu(e, "trash", "")}
+          sidebarIdx={idxCounter.current.value++}
+          vimHighlight={vimCursor === idxCounter.current.value - 1}
+          sidebarFocused={sidebarKbFocused}
+          sidebarData={{ type: "trash" }}
+        />
         <SidebarFooterAction
           icon={<DocumentIcon />}
           label={t("Help")}
@@ -3114,7 +3155,7 @@ interface TreeNode {
 }
 
 type TreeRenderEntry =
-  | { type: "folder"; node: TreeNode }
+  | { type: "folder"; node: TreeNode; databaseCsvPath?: string }
   | { type: "note"; note: NoteMeta }
   | { type: "asset"; asset: AssetMeta };
 
@@ -3289,6 +3330,40 @@ function buildTree(
   return root;
 }
 
+/**
+ * Merge a CSV database with its record-page folder: a folder whose name matches
+ * a sibling `<name>.csv` database is tagged as that database (rendered as a
+ * "database folder" — chevron toggles its record pages, clicking opens the
+ * table), and the standalone `.csv` asset entry is dropped. A database with no
+ * record-page folder yet keeps its plain `.csv` entry (still opens the table).
+ */
+function applyDatabaseFolderMerge(node: TreeNode, entries: TreeRenderEntry[]): TreeRenderEntry[] {
+  const dbByFolderName = new Map<string, string>();
+  for (const asset of node.assets) {
+    if (isDatabaseCsvPath(asset.path)) {
+      dbByFolderName.set(asset.name.replace(/\.csv$/i, ""), asset.path);
+    }
+  }
+  if (dbByFolderName.size === 0) return entries;
+  const folderNames = new Set(node.children.map((c) => c.name));
+  const out: TreeRenderEntry[] = [];
+  for (const entry of entries) {
+    if (entry.type === "folder") {
+      const csv = dbByFolderName.get(entry.node.name);
+      out.push(csv ? { ...entry, databaseCsvPath: csv } : entry);
+    } else if (
+      entry.type === "asset" &&
+      isDatabaseCsvPath(entry.asset.path) &&
+      folderNames.has(entry.asset.name.replace(/\.csv$/i, ""))
+    ) {
+      // Represented by its record-page folder node — drop the duplicate leaf.
+    } else {
+      out.push(entry);
+    }
+  }
+  return out;
+}
+
 function getTreeRenderEntries(
   node: TreeNode,
   showNotes: boolean,
@@ -3296,11 +3371,14 @@ function getTreeRenderEntries(
   groupByKind: boolean,
 ): TreeRenderEntry[] {
   if (!showNotes) {
-    return node.children.map((child) => ({ type: "folder", node: child }));
+    return applyDatabaseFolderMerge(
+      node,
+      node.children.map((child) => ({ type: "folder", node: child })),
+    );
   }
 
   if (sortComparator || groupByKind) {
-    return [
+    return applyDatabaseFolderMerge(node, [
       ...node.children.map(
         (child) => ({ type: "folder", node: child }) as const,
       ),
@@ -3312,28 +3390,31 @@ function getTreeRenderEntries(
         .slice()
         .sort((a, b) => a.siblingOrder - b.siblingOrder)
         .map((asset) => ({ type: "asset", asset }) as const),
-    ];
+    ]);
   }
 
-  return [
-    ...node.children.map((child) => ({
-      type: "folder" as const,
-      node: child,
-      siblingOrder: child.siblingOrder,
-    })),
-    ...node.notes.map((note) => ({
-      type: "note" as const,
-      note,
-      siblingOrder: note.siblingOrder,
-    })),
-    ...node.assets.map((asset) => ({
-      type: "asset" as const,
-      asset,
-      siblingOrder: asset.siblingOrder,
-    })),
-  ]
-    .sort((a, b) => a.siblingOrder - b.siblingOrder)
-    .map(({ siblingOrder: _siblingOrder, ...entry }) => entry);
+  return applyDatabaseFolderMerge(
+    node,
+    [
+      ...node.children.map((child) => ({
+        type: "folder" as const,
+        node: child,
+        siblingOrder: child.siblingOrder,
+      })),
+      ...node.notes.map((note) => ({
+        type: "note" as const,
+        note,
+        siblingOrder: note.siblingOrder,
+      })),
+      ...node.assets.map((asset) => ({
+        type: "asset" as const,
+        asset,
+        siblingOrder: asset.siblingOrder,
+      })),
+    ]
+      .sort((a, b) => a.siblingOrder - b.siblingOrder)
+      .map(({ siblingOrder: _siblingOrder, ...entry }) => entry),
+  );
 }
 
 function countNotesInTree(node: TreeNode): number {
@@ -3462,6 +3543,7 @@ function FolderTreeContents({
             <SubTree
               key={entry.node.subpath}
               node={entry.node}
+              databaseCsvPath={entry.databaseCsvPath}
               depth={depth}
               folder={folder}
               vaultSettings={vaultSettings}
@@ -3500,6 +3582,10 @@ function FolderTreeContents({
               vaultRoot={vaultRoot}
               depth={depth}
               showSidebarChevrons={showSidebarChevrons}
+              active={
+                isDatabaseCsvPath(entry.asset.path) &&
+                activeAssetPathFromSelected(selectedPath) === entry.asset.path
+              }
               onOpen={() => onOpenAsset(entry.asset.path)}
               onContextMenu={(e) => onAssetContextMenu(e, entry.asset)}
               sidebarFocused={sidebarFocused}
@@ -3568,6 +3654,7 @@ function FolderTreeRoot({
   groupByKind,
   showSidebarChevrons,
   headerAction,
+  hideCount = false,
 }: {
   label: string;
   icon: JSX.Element;
@@ -3575,6 +3662,8 @@ function FolderTreeRoot({
   /** Optional inline action shown on the right of the header row,
    *  revealed on hover. Used to surface a quick "+" for Quick Notes. */
   headerAction?: JSX.Element;
+  /** Suppress the note-count badge (e.g. Quick Notes shows only its hotkey). */
+  hideCount?: boolean;
 } & TreeRenderProps): JSX.Element {
   const rootKey = `${folder}:`;
   const isCollapsed = collapsed.has(rootKey);
@@ -3611,7 +3700,7 @@ function FolderTreeRoot({
       <TreeRow
         icon={icon}
         label={label}
-        count={total}
+        count={hideCount ? undefined : total}
         active={rootActive}
         expandable={hasChildren}
         collapsed={isCollapsed}
@@ -3642,8 +3731,8 @@ function FolderTreeRoot({
         sidebarFocused={sidebarFocused}
         sidebarData={{ type: "folder", folder, subpath: "", key: rootKey }}
         trailing={headerAction}
-        reserveLeadingSlot={showSidebarChevrons && folder !== "quick"}
-        showExpandChevron={showSidebarChevrons && folder !== "quick"}
+        reserveLeadingSlot={showSidebarChevrons && (folder !== "quick" || hasChildren)}
+        showExpandChevron={showSidebarChevrons && (folder !== "quick" || hasChildren)}
       />
       {!isCollapsed && (
         <FolderTreeContents
@@ -3682,6 +3771,7 @@ function FolderTreeRoot({
 function SubTree({
   node,
   depth,
+  databaseCsvPath,
   folder,
   vaultSettings,
   isFolderActive,
@@ -3706,9 +3796,10 @@ function SubTree({
   sidebarFocused,
   groupByKind,
   showSidebarChevrons,
-}: { node: TreeNode; depth: number } & TreeRenderProps): JSX.Element {
+}: { node: TreeNode; depth: number; databaseCsvPath?: string } & TreeRenderProps): JSX.Element {
   const key = `${folder}:${node.subpath}`;
   const isCollapsed = collapsed.has(key);
+  const isDatabase = !!databaseCsvPath;
   const iconOption = resolveFolderIconOption(
     folder,
     node.subpath,
@@ -3749,6 +3840,12 @@ function SubTree({
   const handleSelect = (
     e: React.MouseEvent | React.KeyboardEvent,
   ): void => {
+    // A database folder opens the table view on click (the chevron still
+    // toggles its record pages); a normal folder selects + toggles.
+    if (databaseCsvPath) {
+      onOpenAsset(databaseCsvPath);
+      return;
+    }
     onSelectItem(e, { kind: "folder", folder, subpath: node.subpath }, () => {
       setView({ kind: "folder", folder, subpath: node.subpath });
       if (hasChildren) {
@@ -3761,7 +3858,15 @@ function SubTree({
   return (
     <div className="flex flex-col">
       <TreeRow
-        icon={iconOption.id === "folder" ? <FolderGlyphIcon open={!isCollapsed && hasChildren} /> : iconOption.icon}
+        icon={
+          isDatabase ? (
+            <DatabaseIcon className="h-4 w-4" />
+          ) : iconOption.id === "folder" ? (
+            <FolderGlyphIcon open={!isCollapsed && hasChildren} />
+          ) : (
+            iconOption.icon
+          )
+        }
         label={node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}
@@ -3814,6 +3919,7 @@ function SubTree({
                 <SubTree
                   key={entry.node.subpath}
                   node={entry.node}
+                  databaseCsvPath={entry.databaseCsvPath}
                   depth={depth + 1}
                   folder={folder}
                   vaultSettings={vaultSettings}
@@ -3852,6 +3958,10 @@ function SubTree({
                   vaultRoot={vaultRoot}
                   depth={depth + 1}
                   showSidebarChevrons={showSidebarChevrons}
+                  active={
+                    isDatabaseCsvPath(entry.asset.path) &&
+                    activeAssetPathFromSelected(selectedPath) === entry.asset.path
+                  }
                   onOpen={() => onOpenAsset(entry.asset.path)}
                   onContextMenu={(e) => onAssetContextMenu(e, entry.asset)}
                   sidebarFocused={sidebarFocused}
@@ -4090,11 +4200,26 @@ function areNoteLeafPropsEqual(prev: NoteLeafProps, next: NoteLeafProps): boolea
   );
 }
 
+/**
+ * The underlying vault path of whatever is shown in the active tab, when that
+ * tab is an asset or a database. Databases open as `zen://database/<csv>` (or a
+ * `zen://asset/<csv>` tab rendered as a grid); plain assets open as
+ * `zen://asset/<path>`. Returns null for note tabs / virtual views. Used to
+ * light up the matching row in the sidebar tree.
+ */
+function activeAssetPathFromSelected(selectedPath: string | null): string | null {
+  if (!selectedPath) return null;
+  if (isDatabaseTabPath(selectedPath)) return csvPathFromDatabaseTab(selectedPath);
+  if (isAssetTabPath(selectedPath)) return assetPathFromTab(selectedPath);
+  return null;
+}
+
 function AssetLeaf({
   asset,
   vaultRoot,
   depth,
   showSidebarChevrons,
+  active = false,
   onOpen,
   onContextMenu,
   sidebarFocused,
@@ -4105,12 +4230,18 @@ function AssetLeaf({
   vaultRoot: string | null;
   depth: number;
   showSidebarChevrons: boolean;
+  active?: boolean;
   onOpen: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   sidebarFocused: boolean;
   sidebarIdx?: number;
   vimHighlight?: boolean;
 }): JSX.Element {
+  // A `.csv` is a database — a first-class document. It rides the asset
+  // pipeline for discovery but is presented with its own icon and the same
+  // active highlight notes get (other assets stay un-highlighted in the tree).
+  const isDatabase = isDatabaseCsvPath(asset.path);
+  const strongActive = active && (!sidebarFocused || !!vimHighlight);
   const extension = asset.name.includes(".")
     ? asset.name.split(".").pop()?.toUpperCase() ?? ""
     : "";
@@ -4131,7 +4262,15 @@ function AssetLeaf({
       onDragStart={handleDragStart}
       className={[
         "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
-        vimHighlight ? "vim-cursor" : "text-ink-700 hover:bg-paper-200/70",
+        active
+          ? vimHighlight
+            ? "vim-cursor-on-active bg-accent text-white"
+            : sidebarFocused
+              ? "text-accent"
+              : "bg-accent text-white"
+          : vimHighlight
+            ? "vim-cursor"
+            : "text-ink-700 hover:bg-paper-200/70",
       ].join(" ")}
       style={{ paddingLeft: 4 + depth * 14 }}
       {...(sidebarIdx != null
@@ -4143,27 +4282,38 @@ function AssetLeaf({
         : {})}
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
-      <SidebarGlyph active={false} rowActive={false}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+      <SidebarGlyph active={strongActive} rowActive={active}>
+        {isDatabase ? (
+          <DatabaseIcon className="h-3.5 w-3.5" />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
-      <span className="flex-1 truncate text-ink-700">{asset.name}</span>
-      {extension && (
+      <span className="flex-1 truncate">{asset.name}</span>
+      {/* Databases lean on their icon; only plain assets show the type tag. */}
+      {!isDatabase && extension && (
         <span
           className={[
             "shrink-0 pr-2 text-2xs uppercase tracking-wide",
-            sidebarFocused && vimHighlight ? "text-ink-700" : "text-ink-500",
+            active
+              ? sidebarFocused && !vimHighlight
+                ? "text-accent/70"
+                : "text-white/70"
+              : sidebarFocused && vimHighlight
+                ? "text-ink-700"
+                : "text-ink-500",
           ].join(" ")}
         >
           {extension}
@@ -4499,6 +4649,78 @@ function ArchiveSidebarRow({
   );
 }
 
+function AssetsSidebarRow({
+  label,
+  icon,
+  count,
+  active,
+  onClick,
+  sidebarIdx,
+  vimHighlight,
+  sidebarFocused = false,
+}: {
+  label: string;
+  icon: JSX.Element;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  sidebarIdx?: number;
+  vimHighlight?: boolean;
+  sidebarFocused?: boolean;
+}): JSX.Element {
+  const strongActive = active && (!sidebarFocused || !!vimHighlight);
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={[
+        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        active
+          ? vimHighlight
+            ? "vim-cursor-on-active bg-accent text-white"
+            : sidebarFocused
+              ? "text-accent"
+              : "bg-accent text-white"
+          : vimHighlight
+            ? "vim-cursor"
+            : "text-ink-800 hover:bg-paper-200/70",
+      ].join(" ")}
+      style={{ paddingLeft: 4 }}
+      {...(sidebarIdx != null
+        ? {
+            "data-sidebar-idx": sidebarIdx,
+            "data-sidebar-type": "assets",
+          }
+        : {
+            "data-sidebar-type": "assets",
+          })}
+    >
+      <SidebarGlyph active={strongActive} rowActive={active}>
+        {icon}
+      </SidebarGlyph>
+      <span className="flex-1 truncate">{label}</span>
+      {count > 0 && (
+        <span
+          className={[
+            "shrink-0 pr-2 text-xs",
+            strongActive ? "text-white/80" : "text-ink-500",
+          ].join(" ")}
+        >
+          {count}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function TrashSidebarRow({
   label,
   icon,
@@ -4665,6 +4887,7 @@ function SidebarFooterAction({
   badgeLabel,
   active,
   onClick,
+  onContextMenu,
   sidebarIdx,
   vimHighlight,
   sidebarFocused = false,
@@ -4677,6 +4900,7 @@ function SidebarFooterAction({
   badgeLabel?: string;
   active?: boolean;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   sidebarIdx?: number;
   vimHighlight?: boolean;
   sidebarFocused?: boolean;
@@ -4688,6 +4912,7 @@ function SidebarFooterAction({
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={onContextMenu}
       title={resolvedTitle}
       aria-label={resolvedTitle}
       className={[

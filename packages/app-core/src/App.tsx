@@ -116,6 +116,71 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   )
 }
 
+/**
+ * The note a ⌘C/⌘V should act on. Prefers a note row that holds DOM focus
+ * (Windows/Linux/web), but macOS doesn't focus <button>s on click, so the
+ * reliable signal there is the currently-selected note (`selectedPath`).
+ * Asset rows also carry `data-notelist-path`, so callers must still verify
+ * the result is a real note.
+ */
+function clipboardTargetNotePath(): string | null {
+  const active = document.activeElement
+  const focusedNotePath =
+    active instanceof Element
+      ? active.closest('[data-notelist-path]')?.getAttribute('data-notelist-path') ?? null
+      : null
+  return focusedNotePath ?? useStore.getState().selectedPath
+}
+
+/**
+ * ⌘C: stage the active note for a later ⌘V duplicate. Returns true when it
+ * consumed the gesture (caller should preventDefault). Shared by the window
+ * keydown handler (Windows/Linux desktop + web) and the macOS Edit-menu IPC
+ * bridge. No-ops while editing text or when text is selected, so ⌘C in the
+ * editor, inputs, or the preview pane is never hijacked.
+ */
+function copyFocusedNoteToBuffer(): boolean {
+  if (isEditableShortcutTarget(document.activeElement)) return false
+  // A real text selection (e.g. highlighted preview text) still wins ⌘C.
+  if ((window.getSelection()?.toString() ?? '') !== '') return false
+  const candidate = clipboardTargetNotePath()
+  if (!candidate) return false
+  const state = useStore.getState()
+  const note = state.notes.find((n) => n.path === candidate)
+  if (!note || note.folder === 'trash') return false
+  state.setCopiedNotePath(note.path)
+  return true
+}
+
+/**
+ * True only on macOS desktop, where the Edit-menu accelerators own ⌘C/⌘V and
+ * drive note copy/paste via IPC — so the window keydown path must defer there
+ * to avoid double-handling (a ⌘V firing both would create two copies).
+ * Everywhere else (Windows/Linux desktop, any browser) there's no menu
+ * interception and keydown is the only path.
+ */
+function nativeEditMenuOwnsClipboard(): boolean {
+  try {
+    return (
+      window.zen.getAppInfo().runtime === 'desktop' &&
+      window.zen.platformSync() === 'darwin'
+    )
+  } catch {
+    return false
+  }
+}
+
+/** ⌘V: duplicate the staged note. Returns true when handled. */
+function pasteNoteFromBuffer(): boolean {
+  if (isEditableShortcutTarget(document.activeElement)) return false
+  const state = useStore.getState()
+  // Require both a staged note and an active note as the paste surface, so a
+  // stray ⌘V in some unrelated non-editable widget can't spawn a duplicate.
+  if (!state.copiedNotePath || clipboardTargetNotePath() === null) return false
+  void state.pasteCopiedNote()
+  return true
+}
+
 const Editor = lazy(async () => {
   const module = await loadEditorModule()
   return { default: module.Editor }
@@ -304,6 +369,22 @@ function App(): JSX.Element {
     })
   }, [setSettingsOpen])
 
+  // macOS routes ⌘C/⌘V through the Edit menu (its accelerators swallow the
+  // keydown), so the note-list copy/duplicate gesture arrives here as IPC.
+  // The helpers no-op when focus is in the editor or no note row is active.
+  useEffect(() => {
+    const offCopy = window.zen.onNoteCopyShortcut(() => {
+      copyFocusedNoteToBuffer()
+    })
+    const offPaste = window.zen.onNotePasteShortcut(() => {
+      pasteNoteFromBuffer()
+    })
+    return () => {
+      offCopy()
+      offPaste()
+    }
+  }, [])
+
   useEffect(() => {
     return window.zen.onOpenNoteRequested((relPath) => {
       const state = useStore.getState()
@@ -469,6 +550,29 @@ function App(): JSX.Element {
             void state.undoLastAssetAction()
             return
           }
+        }
+      }
+
+      // ⌘C / ⌘V in the note list: copy a note, then paste it as a fresh
+      // "… copy" duplicate. Drives the same helpers as the macOS Edit-menu
+      // bridge. On macOS the menu accelerator owns ⌘C/⌘V and this keydown
+      // never fires for them; on Windows/Linux desktop (no app menu) and in
+      // the browser, this is the only path. The helpers no-op unless a note
+      // row owns focus and the target isn't editable, so editor/input copy
+      // and paste are never hijacked.
+      if (
+        (e.metaKey || e.ctrlKey) &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !nativeEditMenuOwnsClipboard()
+      ) {
+        if ((e.key === 'c' || e.key === 'C') && copyFocusedNoteToBuffer()) {
+          e.preventDefault()
+          return
+        }
+        if ((e.key === 'v' || e.key === 'V') && pasteNoteFromBuffer()) {
+          e.preventDefault()
+          return
         }
       }
 

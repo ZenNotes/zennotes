@@ -69,6 +69,14 @@ import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin } from '../lib/cm-table'
+import {
+  recordContextField,
+  setRecordContext,
+  type RecordContext
+} from '../lib/cm-properties'
+import { frontmatterHidePlugin } from '../lib/cm-frontmatter-hide'
+import { parseFrontmatterRaw } from '../lib/note-properties'
+import { findRecordLink, recordFieldsForPage, setCell } from '../lib/database-cells'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
@@ -79,6 +87,7 @@ import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { CalendarPanel } from './CalendarPanel'
+import { PropertiesPanel } from './PropertiesPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
@@ -88,12 +97,14 @@ import { HelpView } from './HelpView'
 import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
 import { QuickNotesView } from './QuickNotesView'
+import { AssetsView } from './AssetsView'
 import { isTasksTabPath } from '@shared/tasks'
 import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import {
   hasZenAssetItem,
@@ -134,6 +145,7 @@ import {
   DocumentIcon,
   FileDownIcon,
   FeedbackIcon,
+  PaperclipIcon,
   ListTreeIcon,
   MoreVerticalIcon,
   PanelLeftIcon,
@@ -238,6 +250,7 @@ function wysiwygExtensions(): Extension[] {
     livePreviewPlugin,
     codeBlockFlairPlugin,
     tablePlugin,
+    frontmatterHidePlugin,
     wysiwygBlocksPlugin,
     ...hashtagExtension,
     ...wikilinkRenderExtension
@@ -571,6 +584,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const activeCommentId = useStore((s) => s.activeCommentId)
   const notes = useStore((s) => s.notes)
   const assetFiles = useStore((s) => s.assetFiles)
+  const databases = useStore((s) => s.databases)
+  const editorMaxWidth = useStore((s) => s.editorMaxWidth)
+  const contentAlign = useStore((s) => s.contentAlign)
+  const propertiesWidth = useStore((s) => s.panelWidths.properties)
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const refreshAssets = useStore((s) => s.refreshAssets)
@@ -619,7 +636,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
-  const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
+  const folderLabels = resolveSystemFolderLabels(systemFolderLabels, tr)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
 
@@ -630,6 +647,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  // The Properties card surfaces a note's frontmatter beside the text. It's an
+  // intrinsic part of the note — not a toggleable panel — so it simply shows
+  // whenever the note has properties (plain frontmatter keys, or a record page's
+  // linked database columns) and is absent otherwise.
+  const noteHasProperties = useMemo(() => {
+    if (!content) return false
+    if (parseFrontmatterRaw(content.body).length > 0) return true
+    return findRecordLink(databases, content.path) != null
+  }, [content?.body, content?.path, databases])
   // The calendar panel is a date navigator. It auto-opens while the pane shows
   // a daily/weekly note, but stays available (Obsidian-style) on any note as
   // long as the daily or weekly feature is enabled.
@@ -664,6 +690,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     hasSelection: boolean
   } | null>(null)
   const [editorHydration, setEditorHydration] = useState<EditorHydrationState | null>(null)
+  // Width of the writing column, tracked so the Properties card can be placed
+  // in the right reading gutter and hidden when that gutter gets too small.
+  const [writingColumnWidth, setWritingColumnWidth] = useState(0)
+  const propertiesObserverRef = useRef<ResizeObserver | null>(null)
+  const setWritingColumnRef = useCallback((el: HTMLDivElement | null) => {
+    propertiesObserverRef.current?.disconnect()
+    propertiesObserverRef.current = null
+    if (!el) {
+      setWritingColumnWidth(0)
+      return
+    }
+    const ro = new ResizeObserver((entries) => {
+      setWritingColumnWidth(entries[0]?.contentRect.width ?? el.clientWidth)
+    })
+    ro.observe(el)
+    propertiesObserverRef.current = ro
+    setWritingColumnWidth(el.clientWidth)
+  }, [])
+  useEffect(() => () => propertiesObserverRef.current?.disconnect(), [])
   const [assetDropActive, setAssetDropActive] = useState(false)
   const [imageDropIndicatorTop, setImageDropIndicatorTop] = useState<number | null>(null)
   const [tabStripOverflowing, setTabStripOverflowing] = useState(false)
@@ -1339,6 +1384,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           highlightActiveLine(),
           taskJumpHighlightField,
           commentDecorationField,
+          recordContextField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
           markdownSyntaxCompartment.of(
@@ -1634,6 +1680,46 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
     }
   }, [content?.body, content?.path, mode, pendingJumpLocation?.path])
+
+  // A note that is a database record page projects the form's columns as its
+  // properties. Build that context (column metas + a write-back hook) for the
+  // active note so the in-editor properties panel can render it as a locked
+  // projection rather than free-form YAML. Plain notes get a null context.
+  const recordContext = useMemo<RecordContext | null>(() => {
+    const path = content?.path
+    if (!path) return null
+    const link = findRecordLink(databases, path)
+    if (!link) return null
+    const doc = databases[link.csvPath]
+    if (!doc) return null
+    const fields = recordFieldsForPage(doc, link.rowId).map((f) => ({
+      fieldId: f.fieldId,
+      name: f.name,
+      type: f.type,
+      value: f.value,
+      options: f.options
+    }))
+    return {
+      csvPath: link.csvPath,
+      rowId: link.rowId,
+      fields,
+      setCell: (fieldId, value) => {
+        const s = useStore.getState()
+        const current = s.databases[link.csvPath]
+        if (!current) return
+        s.updateDatabaseRows(link.csvPath, setCell(current, link.rowId, fieldId, value))
+      }
+    }
+  }, [content?.path, databases])
+
+  // Push the record context into the editor state whenever it changes (note
+  // switch, database load, or a column edited in the table). Runs after the
+  // doc-sync effect above so the field is set for the note now in the view.
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({ effects: setRecordContext.of(recordContext) })
+  }, [recordContext, content?.path])
 
   useEffect(() => {
     if (!content) return
@@ -1992,11 +2078,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       try {
         const imported = await window.zen.importFilesToNote(content.path, sourcePaths)
         await insertImportedAssets(imported, coords)
+        // Imports land in `assets/`; refresh so the `![[assets/…]]` embed
+        // resolves against the asset list immediately (matching paste).
+        await refreshAssets()
       } catch (err) {
         window.alert((err as Error).message)
       }
     },
-    [content, insertImportedAssets, vault]
+    [content, insertImportedAssets, refreshAssets, vault]
   )
 
   const importPastedImages = useCallback(
@@ -2171,7 +2260,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isTrash: false,
           isAsset: false,
           isDiagram: false,
-          isDatabase: false
+          isDatabase: false,
+          isAssetsView: false
         }
         if (isTasksTabPath(path)) {
           return {
@@ -2215,11 +2305,21 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isTrash: true
           }
         }
-        if (isAssetTabPath(path)) {
-          const assetPath = assetPathFromTab(path)
+        if (isAssetsViewTabPath(path)) {
           return {
             ...base,
-            title: assetTitleFromPath(assetPath),
+            title: folderLabels.assets,
+            isAssetsView: true
+          }
+        }
+        if (isAssetTabPath(path)) {
+          const assetPath = assetPathFromTab(path)
+          const rawTitle = assetTitleFromPath(assetPath)
+          // A database rides the asset rail — show its form name, never `.csv`.
+          const isDb = !!assetPath && isDatabaseCsvPath(assetPath)
+          return {
+            ...base,
+            title: isDb ? rawTitle.replace(/\.csv$/i, '') : rawTitle,
             isAsset: true
           }
         }
@@ -2245,7 +2345,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
       })
     },
-    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash]
+    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash, folderLabels.assets]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -2419,6 +2519,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isTrash: boolean
       isAsset: boolean
       isDiagram: boolean
+      isAssetsView: boolean
     }) => {
       const active = tab.path === activeTab
       const isVirtual =
@@ -2429,7 +2530,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         tab.isArchive ||
         tab.isTrash ||
         tab.isAsset ||
-        tab.isDiagram
+        tab.isDiagram ||
+        tab.isAssetsView
       return (
         <div
           key={tab.path}
@@ -2555,6 +2657,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isAsset && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isAssetsView && (
+                <PaperclipIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isDiagram && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -2730,6 +2835,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const showEditor = !!content && mode !== 'preview'
   const showPreview = !!content && mode !== 'edit'
   const splitMode = mode === 'split'
+  // The Properties card floats *inside* the content area, centered in the right
+  // reading gutter — the writing column stays full width, so its scrollbar is at
+  // the far right, past the card. The card is shown only while that gutter is
+  // wide enough to hold it with breathing room; when the window shrinks or a
+  // docked right panel (Connections / Comments / …) narrows the column past that
+  // point, the gutter falls below the threshold and the card hides on its own.
+  const PROPERTIES_MIN_SIDE_GAP = 16
+  const propertiesLayout = useMemo(() => {
+    const W = writingColumnWidth
+    if (splitMode || W <= 0) return { visible: false, left: 0 }
+    const contentWidth = Math.min(editorMaxWidth, W)
+    const contentRight = contentAlign === 'left' ? contentWidth : (W + contentWidth) / 2
+    const rightGutter = W - contentRight
+    const visible = rightGutter >= propertiesWidth + PROPERTIES_MIN_SIDE_GAP * 2
+    const left = contentRight + (rightGutter - propertiesWidth) / 2
+    return { visible, left }
+  }, [writingColumnWidth, editorMaxWidth, contentAlign, propertiesWidth, splitMode])
+  const showPropertiesPanel =
+    !!content && noteHasProperties && !zenMode && propertiesLayout.visible
   const hasTabs = !zenMode && tabsEnabled && tabs.length > 0
   const tabStripMeasureKey = useMemo(
     () =>
@@ -3045,6 +3169,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ArchiveView />
           ) : isTrashTabPath(activeTab) ? (
             <TrashView />
+          ) : isAssetsViewTabPath(activeTab) ? (
+            <AssetsView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
               <DatabaseView
@@ -3059,10 +3185,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           ) : activeTab && isDatabaseTabPath(activeTab) ? (
             <DatabaseView tabPath={activeTab} isActive={isActive} />
           ) : content ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
             <div
+              ref={setWritingColumnRef}
               className={[
-                'min-h-0 min-w-0 flex-1 overflow-hidden',
-                splitMode ? 'flex flex-row' : 'flex flex-col'
+                // The writing column fills the area and centers its own content
+                // (max-width + auto margins). The Properties card is an absolute
+                // overlay positioned in the right centering gutter (see
+                // propertiesLayout), so the column keeps its full width and the
+                // editor's scrollbar stays at the far right, past the card.
+                'relative min-h-0 min-w-0 flex flex-1',
+                splitMode ? 'flex-row' : 'flex-col'
               ].join(' ')}
             >
               <div
@@ -3139,6 +3272,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   />
                 </div>
               )}
+              {showPropertiesPanel && (
+                <PropertiesPanel note={content} left={propertiesLayout.left} />
+              )}
+            </div>
             </div>
           ) : loading ? (
             <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-400">
@@ -3571,7 +3708,7 @@ function Breadcrumb({
   const ancestors: { label: string; onClick: () => void }[] = []
   if (!(topFolder === 'inbox' && isPrimaryNotesAtRoot(vaultSettings))) {
     ancestors.push({
-      label: getSystemFolderLabel(topFolder, systemFolderLabels),
+      label: getSystemFolderLabel(topFolder, systemFolderLabels, tr),
       onClick: () => setView({ kind: 'folder', folder: topFolder, subpath: '' })
     })
   }

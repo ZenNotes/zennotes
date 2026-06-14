@@ -131,6 +131,39 @@ export const ZH: Record<string, string> = {
   Disabled: '已禁用',
   Disable: '禁用',
   'Could not register that shortcut.': '无法注册该快捷键。',
+  // ── Note properties panel (frontmatter) ──────────────────────────────────
+  Properties: '笔记属性',
+  'Add property': '添加笔记属性',
+  'Property name': '属性名称',
+  Value: '值',
+  'Delete property': '删除属性',
+  'Property type': '属性类型',
+  'No options': '暂无选项',
+  'Date & time': '日期 & 时间',
+  'Change property type?': '更改属性类型?',
+  'The current value isn’t compatible and will be adjusted to fit the new type.':
+    '当前值与新类型不兼容,将被调整以适配新格式。',
+
+  // ── Database (CSV list) views ────────────────────────────────────────────
+  Table: '表格',
+  Board: '看板',
+  Field: '字段',
+  'New row': '新建行',
+  'New form': '新建表单',
+  'Form name': '表单名',
+  'Name cannot contain "/"': '名称不能包含 "/"',
+  'Form settings': '表单设置',
+  'Record page template': '记录页模板',
+  None: '无',
+  'No template — just a # title heading.': '不使用模板,仅 # 标题。',
+  'Template preview': '模板预览',
+  'Example title': '示例标题',
+  // Built-in template categories (name/description/body translations live in
+  // builtin-templates-i18n.ts, keyed by template id)
+  Engineering: '工程',
+  Personal: '个人',
+  'Used as the body of new record pages. Existing pages are left unchanged.':
+    '用作新建记录页的正文。已存在的记录页不受影响。',
 
   // ── Settings → Typography ────────────────────────────────────────────────
   Fonts: '字体',
@@ -426,7 +459,7 @@ export const ZH: Record<string, string> = {
   'New Note in': '新建笔记于',
   'New Note in Vault Root': '在仓库根目录新建笔记',
   'New Note in Current Folder': '在当前文件夹新建笔记',
-  'New Database': '新建数据库',
+  'New Database': '新建表单',
   "Open Today's Daily Note": '打开今天的每日笔记',
   "Open This Week's Note": '打开本周笔记',
   'New Note from Template…': '从模板新建笔记…',
@@ -641,7 +674,7 @@ export const ZH: Record<string, string> = {
   'Reset icon': '重置图标',
   'New note': '新建笔记',
   'New from template': '从模板新建',
-  'New database': '新建数据库',
+  'New database': '新建表单',
   Open: '打开',
   'Open as Tab': '作为标签打开',
   'Open in New Tab': '在新标签打开',
@@ -861,6 +894,8 @@ export const ZH: Record<string, string> = {
   'Delete field': '删除字段',
   'Rename field': '重命名字段',
   'Field options': '字段选项',
+  'Add field': '添加字段',
+  'Drag to resize · double-click to reset': '拖动调整列宽 · 双击重置',
   'Rename column': '重命名列',
   'New column…': '新建列…',
   'Rename view': '重命名视图',
@@ -1611,4 +1646,40 @@ export const ZH: Record<string, string> = {
   "`zen task list` enumerates open checkboxes across the vault with stable ids. `zen task toggle <id>` flips a task without opening the note. `zen folder list / create / rename / delete` keep your subfolder tree manageable from the terminal.": "`zen task list` 列举仓库中所有打开的复选框并带稳定 id。`zen task toggle <id>` 在不打开笔记的情况下翻转一个任务。`zen folder list / create / rename / delete` 让你从终端管理子文件夹树。",
   "MCP for AI agents": "面向 AI 智能体的 MCP",
   "`zen mcp` starts the ZenNotes MCP server in stdio mode — the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zen` is installed, Settings → MCP installs configure the clients to launch `zen mcp` directly, so the install path is one stable absolute path that survives app moves.": "`zen mcp` 以 stdio 模式启动 ZenNotes MCP 服务器 —— 与 Claude Code、Claude Desktop 和 Codex 在底层使用的是同一个。`zen` 安装后,“设置 → MCP”的安装会配置客户端直接启动 `zen mcp`,因此安装路径是一个稳定的绝对路径,可在应用移动后仍然有效。",
+
+  // Assets (resources) view
+  "Assets": "资源",
+  "All": "全部",
+  "Images": "图片",
+  "Video": "视频",
+  "Audio": "音频",
+  "Other": "其它",
+  "Add": "添加",
+  "Name": "名称",
+  "Size": "大小",
+  "Date modified": "修改时间",
+  "Sort by": "排序方式",
+  "Ascending": "升序",
+  "Descending": "降序",
+  "Nothing matches this filter.": "没有符合该筛选的项目。",
+  "Drop files to add to assets": "拖入文件以添加到资源",
+  "That name is reserved for a system folder.": "该名称是系统文件夹保留名。",
+  "Images, PDFs, and other files": "图片、PDF 及其它文件",
+  "No assets yet. Add images, PDFs, and other files.": "还没有资源。添加图片、PDF 等文件。",
+  "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.": "这会从仓库中移除该文件。嵌入它的笔记会保留链接,但媒体将不再渲染。",
+
+  // System folder labels — the unset defaults follow the UI language.
+  // (Inbox / Archive / Trash already have entries elsewhere.)
+  "Quick Notes": "快速笔记",
+  "Assets label": "资源标签",
+  "Display name for the resources (assets) library.": "资源(附件)库的显示名称。",
+
+  // Settings → Sidebar category (Appearance / "Small visual adjustments…"
+  // already have entries elsewhere.)
+  "Sidebar": "侧边栏",
+  "Area labels": "区域标签",
+  "Sidebar appearance and built-in area labels.": "侧边栏外观与内置区域的标签。",
+  "Rename the built-in areas as shown in the UI. This changes labels only; the internal ids stay `inbox`, `quick`, `archive`, `trash`, and `assets`. Leave blank to follow the interface language.": "重命名内置区域在界面中的显示名。这只改变标签;内部 id 仍为 `inbox`、`quick`、`archive`、`trash`、`assets`。留空则跟随界面语言。",
+  "Hide Tasks": "隐藏 Tasks",
+  "Remove the Tasks entry from the sidebar.": "从侧边栏移除 Tasks 入口。",
 }

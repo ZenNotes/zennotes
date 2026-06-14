@@ -165,6 +165,17 @@ export interface ZenBridge {
   duplicateAsset(relPath: string): Promise<AssetMeta>
   deleteAsset(relPath: string): Promise<DeletedAsset>
   restoreDeletedAsset(asset: DeletedAsset): Promise<AssetMeta>
+  /** One-time tidy-up: relocate root-level attachments into `assets/`. */
+  migrateLooseAssets(): Promise<{
+    moved: string[]
+    skipped: { path: string; reason: string }[]
+  }>
+  /** Copy external files into the `assets/` folder; returns their metadata. */
+  importAssetsToVault(sourcePaths: string[]): Promise<AssetMeta[]>
+  /** Open a native file picker and import the chosen files into `assets/`. */
+  importAssetsViaDialog(): Promise<AssetMeta[]>
+  /** A data-URL thumbnail for an asset (PDF first page, image, etc.), or null. */
+  assetThumbnail(relPath: string, maxSize: number): Promise<string | null>
   createFolder(folder: NoteFolder, subpath: string): Promise<void>
   renameFolder(folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string>
   deleteFolder(folder: NoteFolder, subpath: string): Promise<void>
@@ -180,6 +191,12 @@ export interface ZenBridge {
   onVaultChange(cb: (ev: VaultChangeEvent) => void): () => void
   onOpenSettings(cb: () => void): () => void
   onOpenNoteRequested(cb: (relPath: string) => void): () => void
+  /** macOS only: fired when the Edit-menu Copy item runs, so the note list
+   *  can stage the focused note for a ⌘V duplicate. No-op elsewhere. */
+  onNoteCopyShortcut(cb: () => void): () => void
+  /** macOS only: fired when the Edit-menu Paste item runs, to duplicate the
+   *  note staged by {@link onNoteCopyShortcut}. No-op elsewhere. */
+  onNotePasteShortcut(cb: () => void): () => void
   notifyRendererReady(): void
   onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
 

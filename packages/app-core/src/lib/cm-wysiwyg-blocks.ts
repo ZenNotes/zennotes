@@ -16,6 +16,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import { frontmatterEndLine } from './cm-properties'
 
 const quoteLine = Decoration.line({ class: 'cm-wq-quote' })
 
@@ -73,6 +74,10 @@ function buildDecorations(view: EditorView): DecorationSet {
   const active = activeLineSet(view)
   const pending: Pending[] = []
   const quotedLines = new Set<number>()
+  // The properties widget owns the leading frontmatter (its `---` fences parse
+  // as HorizontalRule); skip that range so we don't emit an overlapping
+  // replace decoration over the same lines.
+  const fmEnd = frontmatterEndLine(state)
 
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
@@ -93,6 +98,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
         if (node.name === 'HorizontalRule') {
           const lineNo = state.doc.lineAt(node.from).number
+          if (fmEnd >= 1 && lineNo <= fmEnd) return // leave frontmatter to the properties widget
           if (active.has(lineNo)) return // reveal `---` source on the active line
           pending.push({ from: node.from, to: node.to, deco: hrRule, line: false })
           return

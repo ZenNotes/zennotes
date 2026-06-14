@@ -56,6 +56,10 @@ export const IPC = {
   VAULT_DUPLICATE_ASSET: 'vault:duplicate-asset',
   VAULT_DELETE_ASSET: 'vault:delete-asset',
   VAULT_RESTORE_DELETED_ASSET: 'vault:restore-deleted-asset',
+  VAULT_MIGRATE_LOOSE_ASSETS: 'vault:migrate-loose-assets',
+  VAULT_IMPORT_ASSETS: 'vault:import-assets',
+  VAULT_PICK_IMPORT_ASSETS: 'vault:pick-import-assets',
+  VAULT_ASSET_THUMBNAIL: 'vault:asset-thumbnail',
   VAULT_CREATE_FOLDER: 'vault:create-folder',
   VAULT_RENAME_FOLDER: 'vault:rename-folder',
   VAULT_DELETE_FOLDER: 'vault:delete-folder',
@@ -75,6 +79,12 @@ export const IPC = {
   APP_ICON_DATA_URL: 'app:icon-data-url',
   APP_OPEN_SETTINGS: 'app:open-settings',
   APP_OPEN_NOTE_REQUESTED: 'app:open-note-requested',
+  // Sent from the macOS Edit-menu Copy/Paste items so the renderer can
+  // stage/duplicate a note: the menu accelerators (⌘C/⌘V) swallow the
+  // keydown before it reaches the window handler, so the note-list copy
+  // gesture has to be driven from the main process.
+  APP_NOTE_COPY: 'app:note-copy',
+  APP_NOTE_PASTE: 'app:note-paste',
   APP_RENDERER_READY: 'app:renderer-ready',
   APP_ZOOM_IN: 'app:zoom-in',
   APP_ZOOM_OUT: 'app:zoom-out',

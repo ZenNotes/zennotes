@@ -1769,11 +1769,393 @@ textarea,
   color: rgb(var(--z-grey-1));
   background: rgb(var(--z-bg-1) / 0.35);
 }
-.cm-editor .cm-frontmatter-line :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
+/* The base markdown grammar has no frontmatter rule, so a closing `---` reads
+ * as a setext heading underline (and the opening one as a thematic break),
+ * leaking bold/oversized/accent heading styling onto the fences and property
+ * lines. Force every highlight token inside a frontmatter line back to plain,
+ * muted property text regardless of how the grammar classified it. */
+.cm-editor .cm-frontmatter-line [class*="tok-"] {
   color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  text-transform: none;
+  letter-spacing: 0;
 }
 .cm-editor .cm-frontmatter-fence {
   color: rgb(var(--z-grey-0) / 0.5);
+}
+
+/* --- Note properties panel (frontmatter → Obsidian-style properties) ----- *
+ * Shared by the preview (read-only HTML; note-properties.ts) and the in-editor
+ * widget (cm-properties.ts) so both surfaces read identically. */
+.note-properties {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+.cm-note-properties {
+  margin: 0.15rem 0 1.75rem;
+  padding-top: 0.15rem;
+}
+/* Muted, quiet section header — like the reference "环境信息" card, not a bold
+   document heading. */
+.np-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  color: rgb(var(--z-grey-2));
+  margin-bottom: 0.7rem;
+}
+.np-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+/* One property per row: the key (icon + label) on the left, the value inline on
+   the right. No row backgrounds, borders, or accent bars — keep it quiet.
+   Position context so the type / option menus anchor to the row. */
+.np-row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.25rem 0;
+}
+/* Text is the one type whose value can be long, so it drops to a second line
+   (indented under the label); every other type stays inline with its key. */
+.np-row[data-kind="text"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.1rem;
+}
+.np-row[data-kind="text"] .np-cell {
+  justify-content: flex-start;
+  text-align: left;
+  padding-left: 1.6rem;
+}
+.np-key {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 0 1 auto;
+  color: rgb(var(--z-grey-1));
+}
+.np-ic {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+/* Editor widget: the key label is a click-to-rename target. */
+.np-key-button {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  margin: -0.08rem -0.3rem;
+  padding: 0.08rem 0.3rem;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: text;
+}
+.np-key-button:hover {
+  background: rgb(var(--z-bg-1) / 0.8);
+}
+.np-key-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.np-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  opacity: 0.7;
+}
+.np-cell {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+  color: rgb(var(--z-grey-0));
+}
+.np-pick {
+  display: inline-flex;
+  min-width: 0;
+}
+/* In the card, the type/option menus anchor to their row (not the viewport like
+   the old editor widget's fixed menus). The row is the positioned ancestor. */
+.np-panel .np-menu {
+  position: absolute;
+  top: calc(100% - 0.15rem);
+  z-index: 30;
+  min-width: 9rem;
+}
+.np-panel .np-menu--type {
+  left: 0;
+}
+.np-panel .np-menu--option {
+  right: 0;
+}
+/* Same-line (non-text) values right-align to the card's edge; only the wrapped
+   text value stays left-aligned on its own second line. The value button keeps
+   its full-width click target. */
+.np-panel .np-value-button {
+  justify-content: flex-end;
+  text-align: right;
+}
+.np-panel .np-row[data-kind="text"] .np-value-button {
+  justify-content: flex-start;
+  text-align: left;
+}
+.np-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  word-break: break-word;
+}
+.np-empty::after {
+  content: "—";
+  color: rgb(var(--z-grey-2));
+}
+/* The key already carries a type icon; drop the redundant inline date icon to
+   keep the value column clean. */
+.np-value-icon {
+  display: none;
+}
+.np-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+/* Quiet tags — no filled pill, just a hairline so multiple values stay legible
+   without shouting. */
+.np-chip {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 5px;
+  border: 1px solid rgb(var(--z-grey-2) / 0.35);
+  color: rgb(var(--z-grey-1));
+  font-size: 0.84em;
+}
+/* Interactive affordances live only in the editor widget. The value button
+ * fills the whole cell so the click-to-edit target is comfortably large. */
+.np-value-button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-height: 1.45rem;
+  margin: 0 -0.1rem;
+  padding: 0.12rem 0.4rem;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: text;
+}
+.np-value-button:hover {
+  background: rgb(var(--z-bg-1) / 0.8);
+}
+.np-input {
+  width: 100%;
+  max-width: 22rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid rgb(var(--z-accent) / 0.5);
+  border-radius: 5px;
+  background: rgb(var(--z-bg));
+  color: rgb(var(--z-grey-0));
+  font: inherit;
+  outline: none;
+}
+.np-key-input {
+  max-width: 12rem;
+}
+/* The leading type icon is a button that opens the property menu. */
+.np-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin: -0.1rem -0.15rem;
+  padding: 0.1rem 0.15rem;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.np-icon-button:hover {
+  background: rgb(var(--z-bg-2));
+}
+.np-icon-button .np-icon {
+  margin: 0;
+}
+/* A record page's property type is fixed (it mirrors the form column), so its
+   leading icon is static — same footprint as the icon button, no hover/menu. */
+.np-icon-static {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  margin: -0.1rem -0.15rem;
+  padding: 0.1rem 0.15rem;
+}
+/* Property context menu (type / cut / copy / paste / remove) + type flyout. */
+.np-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 11rem;
+  padding: 0.3rem;
+  border: 0.5px solid rgb(var(--z-grey-2) / 0.4);
+  border-radius: 10px;
+  background: rgb(var(--z-bg));
+  box-shadow: 0 10px 34px rgb(0 0 0 / 0.18);
+  font-size: 0.88rem;
+}
+.np-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: rgb(var(--z-grey-0));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.np-menu-item:hover {
+  background: rgb(var(--z-bg-1));
+}
+.np-menu-item.is-danger {
+  color: rgb(var(--z-red));
+}
+.np-menu-icon {
+  display: inline-flex;
+  flex: none;
+  color: rgb(var(--z-grey-1));
+}
+.np-menu-item.is-danger .np-menu-icon {
+  color: rgb(var(--z-red));
+}
+.np-menu-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.np-menu-label {
+  flex: 1;
+  white-space: nowrap;
+}
+.np-menu-arrow {
+  color: rgb(var(--z-grey-2));
+}
+.np-menu-check {
+  color: rgb(var(--z-accent));
+  font-weight: 600;
+}
+.np-menu-sep {
+  height: 0.5px;
+  margin: 0.3rem 0.2rem;
+  background: rgb(var(--z-grey-2) / 0.35);
+}
+.np-menu-empty {
+  padding: 0.35rem 0.5rem;
+  color: rgb(var(--z-grey-2));
+  font-size: 0.85em;
+}
+/* In the option picker the check column is empty for unselected rows; keep the
+   label column aligned by reserving the leading icon's width. */
+.np-menu-item .np-menu-icon:empty {
+  width: 16px;
+}
+/* "Add property" row + its inline key/value editor. */
+.np-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  /* Set apart from the property rows: extra gap above, smaller + lighter than
+   * a key row, and a smaller icon, so it reads as a secondary "add" action
+   * rather than another property. */
+  margin-top: 0.6rem;
+  padding: 0.2rem 0.35rem;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  color: rgb(var(--z-grey-2));
+  cursor: pointer;
+}
+.np-add .np-icon {
+  width: 13px;
+  height: 13px;
+  opacity: 0.9;
+}
+.np-add:hover {
+  background: rgb(var(--z-bg-1) / 0.6);
+  color: rgb(var(--z-grey-0));
+}
+.np-add-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  padding: 0.1rem 0.3rem;
+}
+.np-add-editor .np-input {
+  max-width: 13rem;
+}
+.np-checkbox {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  padding: 0;
+  border: 1.5px solid rgb(var(--z-grey-2));
+  border-radius: 5px;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  cursor: default;
+}
+button.np-checkbox {
+  cursor: pointer;
+}
+button.np-checkbox:hover {
+  border-color: rgb(var(--z-grey-1));
+}
+.np-checkbox.is-checked {
+  border-color: rgb(var(--z-accent));
+  background: rgb(var(--z-accent));
+}
+.np-checkbox.is-checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+/* Frontmatter is collapsed in WYSIWYG edit mode — its values live in the panel. */
+.cm-frontmatter-hidden {
+  height: 0;
 }
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,

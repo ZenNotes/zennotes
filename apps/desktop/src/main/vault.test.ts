@@ -137,7 +137,7 @@ describe('appendToNote', () => {
 })
 
 describe('importPastedImage', () => {
-  it('writes clipboard image bytes to the vault root and returns a wiki embed', async () => {
+  it('writes clipboard image bytes to assets/ and returns a wiki embed', async () => {
     const root = await makeTempDir('zennotes-paste-image-')
     await ensureVaultLayout(root)
 
@@ -153,19 +153,24 @@ describe('importPastedImage', () => {
 
     expect(imported).toEqual({
       name: 'Screenshot 2026-05-13.png',
-      path: 'Screenshot 2026-05-13.png',
-      markdown: '![[Screenshot 2026-05-13.png]]',
+      path: 'assets/Screenshot 2026-05-13.png',
+      markdown: '![[assets/Screenshot 2026-05-13.png]]',
       kind: 'image'
     })
-    await expect(readFile(path.join(root, 'Screenshot 2026-05-13.png'))).resolves.toEqual(
-      Buffer.from([137, 80, 78, 71])
-    )
+    await expect(
+      readFile(path.join(root, 'assets', 'Screenshot 2026-05-13.png'))
+    ).resolves.toEqual(Buffer.from([137, 80, 78, 71]))
   })
 
-  it('generates a unique root filename when the clipboard has no useful name', async () => {
+  it('generates a unique filename in assets/ when the clipboard has no useful name', async () => {
     const root = await makeTempDir('zennotes-paste-image-name-')
     await ensureVaultLayout(root)
-    await writeFile(path.join(root, 'Pasted Image 2026-05-13 150405.webp'), 'existing', 'utf8')
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await writeFile(
+      path.join(root, 'assets', 'Pasted Image 2026-05-13 150405.webp'),
+      'existing',
+      'utf8'
+    )
 
     const imported = await importPastedImage(
       root,
@@ -177,9 +182,11 @@ describe('importPastedImage', () => {
     )
 
     expect(imported.name).toBe('Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.path).toBe('Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.markdown).toBe('![[Pasted Image 2026-05-13 150405 2.webp]]')
-    await expect(readFile(path.join(root, imported.name))).resolves.toEqual(Buffer.from([1, 2, 3]))
+    expect(imported.path).toBe('assets/Pasted Image 2026-05-13 150405 2.webp')
+    expect(imported.markdown).toBe('![[assets/Pasted Image 2026-05-13 150405 2.webp]]')
+    await expect(readFile(path.join(root, 'assets', imported.name))).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    )
   })
 })
 

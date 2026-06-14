@@ -78,7 +78,19 @@ function normalizeSidecar(raw: unknown): DatabaseSidecar | null {
           )
         ) as Record<string, string>)
       : undefined
-  return { version: 1, idFieldId, fields, views, activeViewId, ...(pages ? { pages } : {}) }
+  const recordPageTemplate =
+    typeof obj.recordPageTemplate === 'string' && obj.recordPageTemplate.trim()
+      ? obj.recordPageTemplate
+      : undefined
+  return {
+    version: 1,
+    idFieldId,
+    fields,
+    views,
+    activeViewId,
+    ...(pages ? { pages } : {}),
+    ...(recordPageTemplate ? { recordPageTemplate } : {})
+  }
 }
 
 async function readSidecar(root: string, rel: string): Promise<DatabaseSidecar | null> {

@@ -5,6 +5,7 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  nativeImage,
   protocol,
   screen,
   session,
@@ -63,10 +64,12 @@ import {
   importPastedImage,
   invalidateNoteMetaCache,
   invalidateVaultTextSearchCache,
+  importAssetsToVault,
   listAssets,
   listFolders,
   listNotes,
   loadConfig,
+  migrateLooseAssets,
   moveNote,
   moveAsset,
   moveToTrash,
@@ -2393,6 +2396,54 @@ function registerIpc(): void {
     return await moveAsset(v.root, relPath, targetDir)
   })
 
+  handle(IPC.VAULT_MIGRATE_LOOSE_ASSETS, async () => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Asset migration is only available for local vaults right now.')
+    }
+    const v = requireVault()
+    return await migrateLooseAssets(v.root)
+  })
+
+  handle(IPC.VAULT_IMPORT_ASSETS, async (_e, sourcePaths: string[]) => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Asset import is only available for local vaults right now.')
+    }
+    const v = requireVault()
+    return await importAssetsToVault(v.root, sourcePaths)
+  })
+
+  handle(IPC.VAULT_PICK_IMPORT_ASSETS, async (event) => {
+    if (isRemoteWorkspaceActive()) {
+      throw new Error('Asset import is only available for local vaults right now.')
+    }
+    const v = requireVault()
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Add to assets',
+      properties: ['openFile', 'multiSelections'],
+      buttonLabel: 'Add'
+    }
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || result.filePaths.length === 0) return []
+    return await importAssetsToVault(v.root, result.filePaths)
+  })
+
+  handle(IPC.VAULT_ASSET_THUMBNAIL, async (_e, relPath: string, maxSize: number) => {
+    if (isRemoteWorkspaceActive()) return null
+    const v = requireVault()
+    try {
+      const abs = absolutePath(v.root, relPath)
+      const size = Math.max(32, Math.min(1024, Math.round(maxSize) || 256))
+      const img = await nativeImage.createThumbnailFromPath(abs, { width: size, height: size })
+      if (img.isEmpty()) return null
+      return img.toDataURL()
+    } catch {
+      return null
+    }
+  })
+
   handle(IPC.VAULT_DUPLICATE_ASSET, async (_e, relPath: string) => {
     if (isRemoteWorkspaceActive()) {
       throw new Error('Asset duplication is only available for local vaults right now.')
@@ -2945,8 +2996,41 @@ function installAppMenu(): void {
         { role: 'redo' },
         { type: 'separator' },
         { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
+        // Copy/Paste are custom (not `role`) so we can both run the native
+        // clipboard action (for editor text) AND notify the renderer. The
+        // menu accelerator owns ⌘C/⌘V on macOS — it consumes the keystroke
+        // before the renderer's window keydown handler sees it — so the
+        // note-list "copy a note, paste a duplicate" gesture must be driven
+        // from here. When focus is in the editor the renderer ignores the
+        // signal (editable target); webContents.copy/paste still do the text
+        // copy/paste. When a note row is focused the text op is a harmless
+        // no-op and the renderer stages/duplicates the note.
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          click: (_item, win) => {
+            const target =
+              (win instanceof BrowserWindow ? win : null) ??
+              BrowserWindow.getFocusedWindow() ??
+              mainWindow ??
+              undefined
+            target?.webContents.copy()
+            target?.webContents.send(IPC.APP_NOTE_COPY)
+          }
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          click: (_item, win) => {
+            const target =
+              (win instanceof BrowserWindow ? win : null) ??
+              BrowserWindow.getFocusedWindow() ??
+              mainWindow ??
+              undefined
+            target?.webContents.paste()
+            target?.webContents.send(IPC.APP_NOTE_PASTE)
+          }
+        },
         { role: 'pasteAndMatchStyle' },
         { role: 'selectAll' }
       ]

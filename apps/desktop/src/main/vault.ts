@@ -38,14 +38,22 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
-import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
+import {
+  DATABASE_SIDECAR_SUFFIX,
+  isDatabaseCsvPath,
+  isDatabaseInternalPath
+} from '@shared/databases'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const SYSTEM_FOLDERS = new Set<NoteFolder>(FOLDERS)
-const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
+const PRIMARY_ATTACHMENTS_DIR = 'assets'
+// Older primary names kept for back-compat: files already living under these
+// are still recognized as attachments (hidden from the note tree, revealed by
+// the assets view). New imports/migrations land in PRIMARY_ATTACHMENTS_DIR.
+// 'attachements' (sic) was the previous primary name.
+const LEGACY_ATTACHMENTS_DIRS = ['attachements', '_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const DELETED_ASSETS_DIR = 'deleted-assets'
@@ -56,6 +64,9 @@ const NOTE_COMMENTS_DIR = 'comments'
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
 const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
+  // A literal `inbox/` dir inside a root-mode vault is a system-folder
+  // collision (the vault root already IS the inbox), so never surface it.
+  'inbox',
   'quick',
   'archive',
   'trash',
@@ -945,10 +956,6 @@ function toPosix(p: string): string {
 function normalizeVaultRelativePath(rel: string): string {
   const normalized = toPosix(path.normalize(rel)).replace(/^(\.\/)+/, '')
   return normalized === '.' ? '' : normalized
-}
-
-function markdownDestination(p: string): string {
-  return `<${p.replace(/>/g, '%3E')}>`
 }
 
 function folderOf(root: string, absPath: string): NoteFolder | null {
@@ -2309,18 +2316,6 @@ function cleanDeletedAssetToken(token: string): string {
   return token
 }
 
-function markdownForImportedAsset(
-  relativeFromNote: string,
-  filename: string,
-  kind: ImportedAssetKind
-): string {
-  const destination = markdownDestination(relativeFromNote)
-  if (kind === 'image') {
-    return `![${path.basename(filename, path.extname(filename))}](${destination})`
-  }
-  return `[${filename}](${destination})`
-}
-
 function padPastedImageDatePart(value: number): string {
   return String(value).padStart(2, '0')
 }
@@ -2925,6 +2920,12 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
+      // A database's internal companions (the `.csv.base.json` sidecar and
+      // `.bak` backups) are never user-facing assets. The `.csv` data file
+      // itself stays listed — it rides the asset pipeline for discovery, but
+      // the renderer presents it as a first-class document (own icon +
+      // highlight) and excludes it from the assets grid / count.
+      if (isDatabaseInternalPath(entry.name)) continue
       let stat
       try {
         stat = await fs.stat(full)
@@ -2947,6 +2948,57 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
   await walk(root, rootReal, new Set([rootReal]))
   out.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   return out
+}
+
+/**
+ * One-time tidy-up: relocate attachments scattered at the vault ROOT into the
+ * primary `assets/` folder so they live in one place (and out of the note
+ * tree). Embeds resolve by basename (see resolveAssetVaultRelativePath), and a
+ * move preserves the basename, so relocation keeps `![[name]]` / `![](name)`
+ * working — EXCEPT when it would force a rename: if two root files share a
+ * basename, or the basename already exists in `assets/`, moving would trigger
+ * uniqueFilename and break the link. Those are skipped and reported, never
+ * silently renamed. Idempotent: once everything is under `assets/`, a re-run
+ * moves nothing.
+ */
+export async function migrateLooseAssets(
+  root: string
+): Promise<{ moved: string[]; skipped: { path: string; reason: string }[] }> {
+  const assets = await listAssets(root) // excludes .md + database internals
+  // Root-level attachments only; databases are documents and stay put.
+  const rootLevel = assets.filter((a) => !a.path.includes('/') && !isDatabaseCsvPath(a.name))
+  const primaryBasenames = new Set(
+    assets
+      .filter((a) => a.path.startsWith(`${PRIMARY_ATTACHMENTS_DIR}/`))
+      .map((a) => a.name.toLowerCase())
+  )
+  const counts = new Map<string, number>()
+  for (const a of rootLevel) {
+    const b = a.name.toLowerCase()
+    counts.set(b, (counts.get(b) ?? 0) + 1)
+  }
+
+  const moved: string[] = []
+  const skipped: { path: string; reason: string }[] = []
+  for (const a of rootLevel) {
+    const b = a.name.toLowerCase()
+    if (primaryBasenames.has(b) || (counts.get(b) ?? 0) > 1) {
+      skipped.push({ path: a.path, reason: 'duplicate-basename' })
+      continue
+    }
+    try {
+      const meta = await moveAsset(root, a.path, PRIMARY_ATTACHMENTS_DIR)
+      moved.push(meta.path)
+      primaryBasenames.add(b)
+    } catch (err) {
+      skipped.push({ path: a.path, reason: (err as Error).message })
+    }
+  }
+  if (moved.length > 0) {
+    invalidateNoteMetaCache(root)
+    invalidateVaultTextSearchCache(root)
+  }
+  return { moved, skipped }
 }
 
 /* ---------- Notes ---------------------------------------------------- */
@@ -3009,12 +3061,15 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
 
 export async function importFiles(
   root: string,
-  noteRelPath: string,
+  _noteRelPath: string,
   sourcePaths: string[]
 ): Promise<ImportedAsset[]> {
-  await fs.mkdir(root, { recursive: true })
+  // Files dropped or pasted into a note are attachments: they belong in the
+  // dedicated `assets/` folder (managed by the Assets view), not next to the
+  // note at the vault root where they'd surface in the sidebar note tree.
+  const destDir = assetsAbsolutePath(root)
+  await fs.mkdir(destDir, { recursive: true })
 
-  const noteDir = path.posix.dirname(toPosix(noteRelPath))
   const imported: ImportedAsset[] = []
 
   for (const sourcePath of sourcePaths) {
@@ -3022,20 +3077,19 @@ export async function importFiles(
     const stat = await fs.stat(sourceAbs)
     if (!stat.isFile()) continue
 
-    const finalName = await uniqueFilename(root, path.basename(sourceAbs))
-    const destAbs = path.join(root, finalName)
+    const finalName = await uniqueFilename(destDir, path.basename(sourceAbs))
+    const destAbs = path.join(destDir, finalName)
     await fs.copyFile(sourceAbs, destAbs)
 
     const vaultRelPath = toPosix(path.relative(root, destAbs))
-    const relativeFromNote = path.posix.relative(
-      noteDir === '.' ? '' : noteDir,
-      vaultRelPath
-    )
     const kind = classifyImportedAsset(finalName)
     imported.push({
       name: finalName,
       path: vaultRelPath,
-      markdown: markdownForImportedAsset(relativeFromNote, finalName, kind),
+      // Embed by full vault-relative path (`![[assets/x.png]]`) so it resolves
+      // regardless of the note's location — matching the Assets view's
+      // "Copy as Embed" and the existing paste flow.
+      markdown: `![[${vaultRelPath}]]`,
       kind
     })
   }
@@ -3043,18 +3097,51 @@ export async function importFiles(
   return imported
 }
 
+/**
+ * Copy external files into the primary `assets/` folder (creating it on
+ * demand) and return their metadata. Used by the Assets view's "Add" action;
+ * unlike `importFiles` (which drops next to a note for inline embedding), this
+ * always lands in the dedicated attachments folder. Markdown notes are skipped.
+ */
+export async function importAssetsToVault(
+  root: string,
+  sourcePaths: string[]
+): Promise<AssetMeta[]> {
+  const destDir = assetsAbsolutePath(root)
+  await fs.mkdir(destDir, { recursive: true })
+  const out: AssetMeta[] = []
+  for (const sourcePath of sourcePaths) {
+    const sourceAbs = path.resolve(sourcePath)
+    let stat
+    try {
+      stat = await fs.stat(sourceAbs)
+    } catch {
+      continue
+    }
+    if (!stat.isFile()) continue
+    if (sourceAbs.toLowerCase().endsWith('.md')) continue
+    const finalName = await uniqueFilename(destDir, path.basename(sourceAbs))
+    const destAbs = path.join(destDir, finalName)
+    await fs.copyFile(sourceAbs, destAbs)
+    out.push(await assetMetaForPath(root, destAbs))
+  }
+  return out
+}
+
 export async function importPastedImage(
   root: string,
   input: PastedImageInput,
   now = new Date()
 ): Promise<ImportedAsset> {
-  await fs.mkdir(root, { recursive: true })
-
   const bytes = pastedImageBuffer(input.data)
   if (bytes.byteLength === 0) throw new Error('Clipboard image is empty.')
 
-  const finalName = await uniqueFilename(root, pastedImageFilename(input, now))
-  const destAbs = path.join(root, finalName)
+  // Pasted images are attachments — store them in `assets/`, not at the vault
+  // root (where they'd show up in the sidebar note tree).
+  const destDir = assetsAbsolutePath(root)
+  await fs.mkdir(destDir, { recursive: true })
+  const finalName = await uniqueFilename(destDir, pastedImageFilename(input, now))
+  const destAbs = path.join(destDir, finalName)
   await fs.writeFile(destAbs, bytes)
 
   const vaultRelPath = toPosix(path.relative(root, destAbs))

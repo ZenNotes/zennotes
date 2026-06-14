@@ -16,10 +16,20 @@ const RESERVED_ROOT_NAMES = new Set<string>([
   'quick',
   'archive',
   'trash',
+  'assets',
   'attachements',
   '_assets',
   '.zennotes'
 ])
+
+/**
+ * True when `name` is a reserved system folder at the vault root (the system
+ * folders inbox/quick/archive/trash, the `assets/` attachments dir, or internal
+ * dirs). Users can't create or rename a root folder to one of these.
+ */
+export function isReservedRootName(name: string): boolean {
+  return RESERVED_ROOT_NAMES.has(name.trim().toLowerCase())
+}
 const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
   'folder',
   'bolt',

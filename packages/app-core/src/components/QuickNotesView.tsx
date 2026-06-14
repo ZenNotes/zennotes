@@ -35,7 +35,7 @@ export function QuickNotesView(): JSX.Element {
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isQuickNotesViewActive)
-  const quickLabel = getSystemFolderLabel('quick', systemFolderLabels)
+  const quickLabel = getSystemFolderLabel('quick', systemFolderLabels, t)
 
   const [filter, setFilter] = useState('')
   const [cursorIndex, setCursorIndex] = useState(0)

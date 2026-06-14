@@ -14,7 +14,7 @@ import { foldAll, unfoldAll, foldCode, unfoldCode } from '@codemirror/language'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
 import { rankItems } from '../lib/fuzzy-score'
-import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
+import { localizedBuiltinTemplates } from '../lib/builtin-templates-i18n'
 import { mergeTemplates } from '@shared/template-files'
 import type { PaneLayout, PaneSplit } from '../lib/pane-layout'
 import {
@@ -383,7 +383,7 @@ function registerVimCommands(): void {
       return
     }
     const all = mergeTemplates(
-      state.hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES,
+      state.hideBuiltinTemplates ? [] : localizedBuiltinTemplates(state.language),
       state.customTemplates
     )
     const lower = arg.toLowerCase()

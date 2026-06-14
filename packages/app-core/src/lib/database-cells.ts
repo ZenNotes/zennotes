@@ -23,10 +23,17 @@ export { splitMultiSelect, joinMultiSelect, isCheckboxTrue }
 
 const genId = defaultGenId
 
-export function formatDate(iso: string): string {
+export function formatDate(iso: string, language?: string): string {
   if (!iso) return ''
   const d = new Date(`${iso}T00:00:00`)
   if (Number.isNaN(d.getTime())) return iso
+  // Chinese: the US-style "Nov 2, 2025" reads wrong; use the universal,
+  // locale-neutral YYYY-MM-DD (sortable, unambiguous, matches CN conventions).
+  if (language === 'zh') {
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${d.getFullYear()}-${m}-${day}`
+  }
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -46,30 +53,52 @@ export function recordTitle(doc: DatabaseDoc, row: DbRow): string {
   return v || 'Untitled'
 }
 
-function yamlScalar(value: string): string {
-  if (value === '') return '""'
-  if (/[:#"'\n]|^\s|\s$/.test(value)) return JSON.stringify(value)
-  return value
+/** A linked field of a record page: a database column surfaced as a property. */
+export interface RecordFieldView {
+  fieldId: string
+  name: string
+  type: FieldType
+  value: string
+  options?: SelectOption[]
 }
 
 /**
- * Compose a record "page" note: the record's properties as flat YAML
- * frontmatter followed by `body` (the freeform page). The id field and the
- * title field are omitted — the title is the page's `# heading`, so repeating
- * it as a `Name:` property would be redundant. Empty values render as a blank
- * `key:` rather than `key: ""`.
+ * The fields shown as a record page's linked properties — every column except
+ * the id field and the title field (the title is the note's `# heading`).
  */
-export function composePageBody(doc: DatabaseDoc, row: DbRow, body: string): string {
+export function recordFieldsForPage(doc: DatabaseDoc, rowId: string): RecordFieldView[] {
+  const row = doc.rows.find((r) => r.id === rowId)
+  if (!row) return []
   const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
-  const lines = ['---']
-  for (const f of doc.fields) {
-    if (f.id === doc.idFieldId || f.id === titleFieldId) continue
-    const v = row.cells[f.id] ?? ''
-    lines.push(v ? `${f.name}: ${yamlScalar(v)}` : `${f.name}:`)
-  }
-  lines.push('---')
-  return `${lines.join('\n')}\n${body.replace(/^\n+/, '')}`
+  return doc.fields
+    .filter((f) => f.id !== doc.idFieldId && f.id !== titleFieldId && !f.hidden)
+    .map((f) => ({
+      fieldId: f.id,
+      name: f.name,
+      type: f.type,
+      value: row.cells[f.id] ?? '',
+      options: f.options
+    }))
 }
+
+/**
+ * Find which database row (if any) a note path is the record page for, by
+ * scanning the loaded databases' `pages` maps. Returns null for plain notes.
+ */
+export function findRecordLink(
+  databases: Record<string, DatabaseDoc>,
+  notePath: string
+): { csvPath: string; rowId: string } | null {
+  for (const [csvPath, doc] of Object.entries(databases)) {
+    const pages = doc.pages
+    if (!pages) continue
+    for (const rowId of Object.keys(pages)) {
+      if (pages[rowId] === notePath) return { csvPath, rowId }
+    }
+  }
+  return null
+}
+
 
 // --- row mutations (→ updateDatabaseRows) -------------------------------
 

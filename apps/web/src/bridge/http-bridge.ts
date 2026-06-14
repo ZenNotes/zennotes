@@ -669,6 +669,25 @@ async function restoreDeletedAsset(_asset: DeletedAsset): Promise<AssetMeta> {
   throw new Error('Asset restore is only available in the desktop app right now.')
 }
 
+async function migrateLooseAssets(): Promise<{
+  moved: string[]
+  skipped: { path: string; reason: string }[]
+}> {
+  throw new Error('Asset migration is only available in the desktop app right now.')
+}
+
+async function importAssetsToVault(_sourcePaths: string[]): Promise<AssetMeta[]> {
+  throw new Error('Asset import is only available in the desktop app right now.')
+}
+
+async function importAssetsViaDialog(): Promise<AssetMeta[]> {
+  throw new Error('Asset import is only available in the desktop app right now.')
+}
+
+async function assetThumbnail(_relPath: string, _maxSize: number): Promise<string | null> {
+  return null
+}
+
 // Bucket for File objects "pretending" to be filesystem paths. The
 // renderer expects `getPathForFile` to return a string it can later
 // pass to `importFilesToNote`. On the web, we mint a synthetic token
@@ -891,6 +910,17 @@ function onOpenNoteRequested(_cb: (relPath: string) => void): () => void {
   // Deep-link note delivery is desktop-only. The web bridge still
   // exposes the hook so shared app-core startup code can remain runtime
   // agnostic.
+  return () => {}
+}
+
+function onNoteCopyShortcut(_cb: () => void): () => void {
+  // macOS-menu-only hook. In the browser there is no native Edit menu to
+  // swallow ⌘C/⌘V, so the note-list copy gesture runs through the window
+  // keydown handler instead; this stub keeps the bridge surface uniform.
+  return () => {}
+}
+
+function onNotePasteShortcut(_cb: () => void): () => void {
   return () => {}
 }
 
@@ -1159,6 +1189,10 @@ export const httpBridge: ZenBridge = {
   duplicateAsset,
   deleteAsset,
   restoreDeletedAsset,
+  migrateLooseAssets,
+  importAssetsToVault,
+  importAssetsViaDialog,
+  assetThumbnail,
   createFolder,
   renameFolder,
   deleteFolder,
@@ -1173,6 +1207,8 @@ export const httpBridge: ZenBridge = {
   onVaultChange,
   onOpenSettings,
   onOpenNoteRequested,
+  onNoteCopyShortcut,
+  onNotePasteShortcut,
   notifyRendererReady,
   onAppUpdateState,
 

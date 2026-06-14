@@ -12,7 +12,7 @@ import { useT } from '../lib/i18n';
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { focusEditorNormalMode } from '../lib/editor-focus'
-import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
+import { localizedBuiltinTemplates } from '../lib/builtin-templates-i18n'
 import { mergeTemplates } from '@shared/template-files'
 import type { NoteTemplate } from '@bridge-contract/templates'
 import { Modal } from './ui/Modal'
@@ -23,11 +23,16 @@ export function TemplatePalette(): JSX.Element {
   const createFromTemplate = useStore((s) => s.createFromTemplate)
   const customTemplates = useStore((s) => s.customTemplates)
   const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
+  const language = useStore((s) => s.language)
   const mode = useStore((s) => s.templatePaletteMode)
 
   const templates = useMemo(
-    () => mergeTemplates(hideBuiltinTemplates ? [] : BUILTIN_TEMPLATES, customTemplates),
-    [customTemplates, hideBuiltinTemplates]
+    () =>
+      mergeTemplates(
+        hideBuiltinTemplates ? [] : localizedBuiltinTemplates(language),
+        customTemplates
+      ),
+    [customTemplates, hideBuiltinTemplates, language]
   )
 
   const [query, setQuery] = useState('')

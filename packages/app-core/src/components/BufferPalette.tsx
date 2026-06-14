@@ -24,6 +24,7 @@ import { isTagsTabPath } from '@shared/tags'
 import { isTasksTabPath } from '@shared/tasks'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels, type SystemFolderLabels } from '../lib/system-folder-labels'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -57,7 +58,7 @@ interface BuildDeps {
 }
 
 function buildEntries(deps: BuildDeps): BufferEntry[] {
-  const labels = resolveSystemFolderLabels(deps.systemFolderLabels)
+  const labels = resolveSystemFolderLabels(deps.systemFolderLabels, deps.t)
   const leaves = allLeaves(deps.paneLayout)
   const activeLeafId = deps.activePaneId
   const seen = new Set<string>()
@@ -152,6 +153,19 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
         title: labels.trash,
         subtitle: deps.t('Deleted notes and recovery'),
         keywords: 'trash deleted restore bin recovery virtual',
+        badge,
+        current: isCurrent,
+        dirty: false,
+        virtual: true
+      })
+      return
+    }
+    if (isAssetsViewTabPath(path)) {
+      entries.push({
+        path,
+        title: labels.assets,
+        subtitle: deps.t('Images, PDFs, and other files'),
+        keywords: 'assets resources files images pdf media virtual',
         badge,
         current: isCurrent,
         dirty: false,

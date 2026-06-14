@@ -4,6 +4,7 @@ import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { useT } from '../lib/i18n'
@@ -16,7 +17,7 @@ export function TitleBar(): JSX.Element {
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const isMac = window.zen.platformSync() === 'darwin'
-  const labels = resolveSystemFolderLabels(systemFolderLabels)
+  const labels = resolveSystemFolderLabels(systemFolderLabels, t)
 
   const title = activeNote
     ? activeNote.title
@@ -32,6 +33,8 @@ export function TitleBar(): JSX.Element {
             ? labels.archive
           : isTrashTabPath(selectedPath)
             ? labels.trash
+          : isAssetsViewTabPath(selectedPath)
+            ? labels.assets
           : vault
             ? vault.name
             : 'ZenNotes'

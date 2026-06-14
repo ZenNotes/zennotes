@@ -31,12 +31,13 @@ import {
   isDatabaseCsvPath
 } from '@shared/databases'
 import { parseFrontmatter } from '@shared/template-files'
-import { recordTitle, composePageBody } from './lib/database-cells'
+import { recordTitle } from './lib/database-cells'
 import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
 import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
+import { ASSETS_VIEW_TAB_PATH, isAssetsViewTabPath } from '@shared/assets-view'
 import { isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
 import {
   FENCE_RE,
@@ -62,6 +63,7 @@ import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp } from './lib/prompt-requests'
+import { translate } from './lib/i18n'
 import {
   buildNoteDestinationPrompt,
   buildTemplateDestinationPrompt,
@@ -71,6 +73,7 @@ import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
 import {
   type SystemFolderLabels,
+  type SystemAreaKey,
   normalizeSystemFolderLabels
 } from './lib/system-folder-labels'
 import { recordRendererPerf } from './lib/perf'
@@ -94,7 +97,7 @@ import {
 } from './lib/vault-layout'
 import { renderTemplate, renderTitle } from './lib/template-render'
 import type { NoteTemplate } from '@bridge-contract/templates'
-import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
+import { localizedBuiltinTemplates } from './lib/builtin-templates-i18n'
 import {
   composeTemplateFile,
   mergeTemplates,
@@ -224,10 +227,13 @@ async function refreshVaultIndexes(): Promise<void> {
 /** Find a template (built-in or custom) by id, or undefined if it's gone. */
 function resolveTemplate(
   customTemplates: NoteTemplate[],
-  id: string | undefined
+  id: string | undefined,
+  language: Language
 ): NoteTemplate | undefined {
   if (!id) return undefined
-  return mergeTemplates(BUILTIN_TEMPLATES, customTemplates).find((t) => t.id === id)
+  return mergeTemplates(localizedBuiltinTemplates(language), customTemplates).find(
+    (t) => t.id === id
+  )
 }
 
 function isDeletedAssetRecord(value: unknown): value is DeletedAsset {
@@ -246,12 +252,20 @@ export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
 const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
-export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
+export type RightPanelId =
+  | 'outline'
+  | 'connections'
+  | 'comments'
+  | 'calendar'
+  | 'databaseSettings'
+  | 'properties'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
   calendar: number
+  databaseSettings: number
+  properties: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
 export const MAX_RIGHT_PANEL_WIDTH = 640
@@ -259,7 +273,9 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
-  calendar: 280
+  calendar: 280,
+  databaseSettings: 288,
+  properties: 300
 }
 
 function clampPanelWidth(px: number): number {
@@ -274,7 +290,9 @@ function normalizePanelWidths(value: unknown): PanelWidths {
     outline: pick('outline'),
     connections: pick('connections'),
     comments: pick('comments'),
-    calendar: pick('calendar')
+    calendar: pick('calendar'),
+    databaseSettings: pick('databaseSettings'),
+    properties: pick('properties')
   }
 }
 
@@ -330,6 +348,8 @@ interface Prefs {
   darkSidebar: boolean
   /** Show disclosure arrows for collapsible sidebar folders and sections. */
   showSidebarChevrons: boolean
+  /** Hide the Tasks entry from the sidebar. */
+  sidebarHideTasks: boolean
   /** Keys of collapsed folders in the sidebar tree. */
   collapsedFolders: string[]
   /** Pinned reference pane — an always-visible companion note panel
@@ -465,6 +485,7 @@ const DEFAULT_PREFS: Prefs = {
   unifiedSidebar: true,
   darkSidebar: true,
   showSidebarChevrons: true,
+  sidebarHideTasks: false,
   collapsedFolders: [],
   pinnedRefPath: null,
   pinnedRefVisible: true,
@@ -629,6 +650,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.showSidebarChevrons === 'boolean'
         ? p.showSidebarChevrons
         : DEFAULT_PREFS.showSidebarChevrons,
+    sidebarHideTasks:
+      typeof p.sidebarHideTasks === 'boolean'
+        ? p.sidebarHideTasks
+        : DEFAULT_PREFS.sidebarHideTasks,
     collapsedFolders:
       Array.isArray(p.collapsedFolders)
         ? p.collapsedFolders.filter((k): k is string => typeof k === 'string')
@@ -1135,6 +1160,7 @@ function collectPrefs(s: {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showSidebarChevrons: boolean
+  sidebarHideTasks: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
   pinnedRefVisible: boolean
@@ -1193,6 +1219,7 @@ function collectPrefs(s: {
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
     showSidebarChevrons: s.showSidebarChevrons,
+    sidebarHideTasks: s.sidebarHideTasks,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
     pinnedRefVisible: s.pinnedRefVisible,
@@ -1466,6 +1493,15 @@ export function isQuickNotesViewActive(state: {
   return leaf?.activeTab === QUICK_NOTES_TAB_PATH
 }
 
+/** True when the active pane's active tab is the built-in Assets (resources) view. */
+export function isAssetsViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return leaf?.activeTab === ASSETS_VIEW_TAB_PATH
+}
+
 interface Store {
   vault: VaultInfo | null
   workspaceMode: WorkspaceMode
@@ -1545,6 +1581,7 @@ interface Store {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showSidebarChevrons: boolean
+  sidebarHideTasks: boolean
   /** Sidebar tree collapsed-folder keys. Kept in the store so the
    *  state survives Sidebar unmount/mount (e.g. toggling the sidebar). */
   collapsedFolders: string[]
@@ -1642,6 +1679,11 @@ interface Store {
   editorViewRef: EditorView | null
   pendingTitleFocusPath: string | null
 
+  /** Note copied via ⌘C in the note list, awaiting a ⌘V paste that
+   *  duplicates it. Holds the source note's vault-relative path, or null
+   *  when nothing is staged. Ephemeral — not persisted across sessions. */
+  copiedNotePath: string | null
+
   /**
    * Recursive layout tree for the editor area. Always contains at
    * least one leaf pane. Each leaf holds its own tab list + active
@@ -1682,6 +1724,8 @@ interface Store {
   openArchiveView: () => Promise<void>
   /** Open the built-in Trash tab in the active pane. */
   openTrashView: () => Promise<void>
+  /** Open the built-in Assets (resources) tab in the active pane. */
+  openAssetsView: () => Promise<void>
   /** Read a CSV database (CSV + sidecar) into `databases` if not already loaded. */
   loadDatabase: (csvPath: string) => Promise<void>
   /** Load a database and open it as a tab in the active pane. */
@@ -1814,7 +1858,7 @@ interface Store {
   setInterfaceFont: (family: string | null) => void
   setTextFont: (family: string | null) => void
   setMonoFont: (family: string | null) => void
-  setSystemFolderLabel: (folder: NoteFolder, label: string | null) => void
+  setSystemFolderLabel: (folder: SystemAreaKey, label: string | null) => void
   setSidebarWidth: (px: number) => void
   setNoteListWidth: (px: number) => void
   setNoteSortOrder: (order: NoteSortOrder) => void
@@ -1823,6 +1867,7 @@ interface Store {
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
   setShowSidebarChevrons: (on: boolean) => void
+  setSidebarHideTasks: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
 
@@ -1887,6 +1932,13 @@ interface Store {
   /** Re-open the first-run onboarding wizard. Persists. */
   restartOnboarding: () => void
   setFocusedPanel: (panel: Panel | null) => void
+  /** Stage (or clear) the note copied via ⌘C for a later ⌘V paste. */
+  setCopiedNotePath: (relPath: string | null) => void
+  /** Duplicate the note staged by {@link copiedNotePath} and select the
+   *  new copy. No-op when nothing is staged or the source note no longer
+   *  exists / lives in trash. Safe to call repeatedly — each call makes a
+   *  fresh "… copy" sibling. */
+  pasteCopiedNote: () => Promise<void>
   setSidebarCursorIndex: (idx: number) => void
   setNoteListCursorIndex: (idx: number) => void
   setConnectionsCursorIndex: (idx: number) => void
@@ -2019,7 +2071,8 @@ function databaseToSidecar(doc: DatabaseDoc): DatabaseSidecar {
     fields: doc.fields,
     views: doc.views,
     activeViewId: doc.activeViewId,
-    ...(doc.pages ? { pages: doc.pages } : {})
+    ...(doc.pages ? { pages: doc.pages } : {}),
+    ...(doc.recordPageTemplate ? { recordPageTemplate: doc.recordPageTemplate } : {})
   }
 }
 
@@ -2769,6 +2822,7 @@ export const useStore = create<Store>((set, get) => {
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
+  sidebarHideTasks: loadPrefs().sidebarHideTasks,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
   pinnedRefVisible: loadPrefs().pinnedRefVisible,
@@ -2802,6 +2856,7 @@ export const useStore = create<Store>((set, get) => {
   databasesLoading: {},
   selectedTags: [],
   focusedPanel: null,
+  copiedNotePath: null,
   sidebarCursorIndex: 0,
   noteListCursorIndex: 0,
   connectionsCursorIndex: 0,
@@ -2937,6 +2992,14 @@ export const useStore = create<Store>((set, get) => {
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },
+  openAssetsView: async () => {
+    const state = get()
+    await get().openNoteInPane(state.activePaneId, ASSETS_VIEW_TAB_PATH)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
+    // Make sure the grid has fresh data the moment it opens.
+    void get().refreshAssets()
+  },
   loadDatabase: async (csvPath) => {
     if (get().databasesLoading[csvPath]) return
     set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: true } }))
@@ -2956,8 +3019,24 @@ export const useStore = create<Store>((set, get) => {
     set({ focusedPanel: 'editor' })
   },
   createDatabase: async (folder, subpath = '', title) => {
+    // Like creating a folder: prompt for a form name first (the `.csv` suffix
+    // is an implementation detail the user never sees). No name → no form.
+    let name = title
+    if (name == null) {
+      const lang = get().language
+      const entered = await promptApp({
+        title: translate(lang, 'New form'),
+        placeholder: translate(lang, 'Form name'),
+        okLabel: translate(lang, 'Create'),
+        validate: (v) =>
+          v.includes('/') ? translate(lang, 'Name cannot contain "/"') : null
+      })
+      if (entered == null) return
+      name = entered.trim()
+      if (!name) return
+    }
     try {
-      const doc = await window.zen.createDatabase(folder, subpath, title)
+      const doc = await window.zen.createDatabase(folder, subpath, name)
       set((s) => ({ databases: { ...s.databases, [doc.path]: doc } }))
       await get().openNoteInPane(get().activePaneId, databaseTabPath(doc.path))
       ;(document.activeElement as HTMLElement | null)?.blur?.()
@@ -3003,8 +3082,17 @@ export const useStore = create<Store>((set, get) => {
     }
     if (!pagePath) {
       try {
-        const body = composePageBody(doc, row, `# ${recordTitle(doc, row)}\n\n`)
-        pagePath = await window.zen.createRecordPage(csvPath, recordTitle(doc, row), body)
+        const title = recordTitle(doc, row)
+        // If this form has a record-page template, render its body for the new
+        // page; otherwise fall back to a bare `# Title` scaffold.
+        const tpl = doc.recordPageTemplate
+          ? resolveTemplate(get().customTemplates, doc.recordPageTemplate, get().language)
+          : undefined
+        // A record page is a pure projection of its row: its properties are
+        // read live from the database, so the note file carries NO frontmatter
+        // mirror — just the body (template or a bare `# Title` scaffold).
+        const pageBody = tpl ? renderTemplate(tpl.body, { title }).body : `# ${title}\n\n`
+        pagePath = await window.zen.createRecordPage(csvPath, title, pageBody)
         get().updateDatabaseSchema(csvPath, {
           ...doc,
           pages: { ...(doc.pages ?? {}), [rowId]: pagePath },
@@ -3015,11 +3103,13 @@ export const useStore = create<Store>((set, get) => {
         return
       }
     } else {
-      // Re-mirror current properties into the note's frontmatter, keep the body.
+      // Migrate any legacy frontmatter mirror away: record pages are pure
+      // projections now, so a page written by an older build keeps a stale
+      // `--- … ---` block — strip it once, on first re-open. No-op afterward.
       try {
         const note = await window.zen.readNote(pagePath)
         const { body } = parseFrontmatter(note.body)
-        await window.zen.writeNote(pagePath, composePageBody(doc, row, body))
+        if (body !== note.body) await window.zen.writeNote(pagePath, body)
       } catch (err) {
         console.error('refresh record page failed', err)
       }
@@ -4248,6 +4338,10 @@ export const useStore = create<Store>((set, get) => {
     set({ showSidebarChevrons: on })
     savePrefs(collectPrefs(get()))
   },
+  setSidebarHideTasks: (on) => {
+    set({ sidebarHideTasks: on })
+    savePrefs(collectPrefs(get()))
+  },
   toggleCollapseFolder: (key) => {
     set((s) =>
       s.collapsedFolders.includes(key)
@@ -4423,7 +4517,7 @@ export const useStore = create<Store>((set, get) => {
       await get().selectNote(existing.path)
       return
     }
-    const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
+    const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId, state.language)
     if (template) {
       await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
       return
@@ -4452,7 +4546,7 @@ export const useStore = create<Store>((set, get) => {
       await get().selectNote(existing.path)
       return
     }
-    const template = resolveTemplate(state.customTemplates, settings.weeklyNotes.templateId)
+    const template = resolveTemplate(state.customTemplates, settings.weeklyNotes.templateId, state.language)
     if (template) {
       await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
       return
@@ -4646,6 +4740,16 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setFocusedPanel: (panel) => set({ focusedPanel: panel }),
+  setCopiedNotePath: (relPath) => set({ copiedNotePath: relPath }),
+  pasteCopiedNote: async () => {
+    const path = get().copiedNotePath
+    if (!path) return
+    const source = get().notes.find((n) => n.path === path)
+    if (!source || source.folder === 'trash') return
+    const meta = await window.zen.duplicateNote(path)
+    await get().refreshNotes()
+    await get().selectNote(meta.path)
+  },
   setSidebarCursorIndex: (idx) => set({ sidebarCursorIndex: idx }),
   setNoteListCursorIndex: (idx) => set({ noteListCursorIndex: idx }),
   setConnectionsCursorIndex: (idx) => set({ connectionsCursorIndex: idx }),
