@@ -392,7 +392,9 @@ const processor = unified()
   .use(rehypeRaw)
   .use(rehypeMermaid)
   .use(rehypeMathDiagrams)
-  .use(rehypeHighlight, { detect: true, ignoreMissing: true })
+  // rehype-highlight v7 ignores unknown languages by default, so the old
+  // `ignoreMissing` option was removed; `detect` keeps language auto-guessing.
+  .use(rehypeHighlight, { detect: true })
   .use(rehypeKatex)
   .use(rehypeStringify)
 
