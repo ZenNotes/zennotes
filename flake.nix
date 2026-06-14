@@ -72,6 +72,7 @@
           mkdir -p $out/share/zennotes
           cp -r apps/desktop/out/* $out/share/zennotes/
           cp -r -L node_modules $out/share/zennotes/
+          cp -r apps/desktop/build/icons $out/share/zennotes
         '';
         postFixup = ''
           # allow nix store inside the index.js file
@@ -89,21 +90,21 @@
           # wo only combine here
           dontUnpack = true;
 
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+            copyDesktopItems
+          ];
+
           desktopItems = [
             (pkgs.makeDesktopItem {
               name = "zennotes";
-              exec = "zennotes"; # This calls the binary wrapper we made in $out/bin
-              icon = "zennotes"; # The system looks for an icon named 'zennotes'
+              exec = "zennotes";
+              icon = "zennotes";
               desktopName = "ZenNotes";
               genericName = "Note-Taking App";
               comment = "An elegant, sandboxed markdown note-taking app";
               categories = ["Office" "Utility" "TextEditor"];
             })
-          ];
-
-          nativeBuildInputs = with pkgs; [
-            makeWrapper
-            copyDesktopItems
           ];
 
           installPhase =
@@ -120,9 +121,10 @@
                 --set NODE_PATH "$APP_DIR/Resources/node_modules" \
                 --prefix PATH : ${pkgs.lib.makeBinPath [backend]}
 
-              # 3. CLI-Link fürs Terminal
               mkdir -p $out/bin
               ln -s "$APP_DIR/MacOS/ZenNotes" $out/bin/zennotes
+
+              runHook postInstall
             ''
             else ''
               mkdir -p $out/bin
@@ -137,11 +139,12 @@
                 --set NODE_PATH "$out/share/zennotes/node_modules" \
                 --prefix PATH : ${pkgs.lib.makeBinPath [backend]}
 
-              if [ -d "apps/desktop/resources/icons" ]; then
+              if [ -d "${frontend-desktop}/share/zennotes/icons" ]; then
                 mkdir -p $out/share/icons/hicolor/512x512/apps
-                # Adjust this path depending on where your actual app icon sits in your source
-                cp apps/desktop/resources/icon.png $out/share/icons/hicolor/512x512/apps/zennotes.png
+                cp ${frontend-desktop}/share/zennotes/icons/512x512.png $out/share/icons/hicolor/512x512/apps/zennotes.png
               fi
+
+              runHook postInstall
             '';
         };
 
@@ -149,10 +152,10 @@
         server = backend;
       };
 
-      devShells.${system}.default = pkgs.mkShell {
+      devShells.default = pkgs.mkShell {
         buildInputs = with pkgs; [
           nodejs_22
-          go_1_22
+          go
           electron
           turbo
         ];
