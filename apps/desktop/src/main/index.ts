@@ -2776,6 +2776,7 @@ function ensureQuickCaptureWindow(): BrowserWindow {
     height: 340,
     minWidth: 460,
     minHeight: 260,
+    title: 'ZenNotes Quick Capture',
     show: false,
     frame: false,
     titleBarStyle: mac ? 'hiddenInset' : 'hidden',

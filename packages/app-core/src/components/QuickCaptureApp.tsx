@@ -231,6 +231,11 @@ export function QuickCaptureApp(): JSX.Element {
   const [overlay, setOverlay] = useState<'none' | 'search' | 'command'>('none')
   const editorRef = useRef<EditorView | null>(null)
 
+  // Set a different title for the quick capture window.
+  useEffect(() => {
+    document.title = 'ZenNotes Quick Capture'
+  }, [])
+
   // Apply theme + font CSS vars before paint.
   useEffect(() => {
     applyTheme(prefs)
