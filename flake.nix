@@ -73,12 +73,12 @@
           cp -r apps/desktop/out/* $out/share/zennotes/
           cp -r -L node_modules $out/share/zennotes/
         '';
-        #postFixup = ''
-        # allow nix store inside the index.js file
+        postFixup = ''
+          # allow nix store inside the index.js file
 
-        #sed -i '/function isTrustedRendererUrl/a \  if (url.includes("nix/store")) return true;' \
-        #  $out/share/zennotes/main/index.js
-        #'';
+          sed -i '/function isTrustedRendererUrl/a \  if (url.includes("nix/store")) return true;' \
+            $out/share/zennotes/main/index.js
+        '';
       };
     in {
       packages = {
@@ -89,7 +89,22 @@
           # wo only combine here
           dontUnpack = true;
 
-          nativeBuildInputs = [pkgs.makeWrapper];
+          desktopItems = [
+            (pkgs.makeDesktopItem {
+              name = "zennotes";
+              exec = "zennotes"; # This calls the binary wrapper we made in $out/bin
+              icon = "zennotes"; # The system looks for an icon named 'zennotes'
+              desktopName = "ZenNotes";
+              genericName = "Note-Taking App";
+              comment = "An elegant, sandboxed markdown note-taking app";
+              categories = ["Office" "Utility" "TextEditor"];
+            })
+          ];
+
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+            copyDesktopItems
+          ];
 
           installPhase =
             if pkgs.stdenv.hostPlatform.isDarwin
@@ -102,7 +117,7 @@
 
               makeWrapper ${pkgs.electron}/Applications/Electron.app/Contents/MacOS/Electron "$APP_DIR/MacOS/ZenNotes" \
                 --add-flags "$APP_DIR/Resources/main/index.js" \
-                       --set NODE_PATH "$APP_DIR/Resources/node_modules" \
+                --set NODE_PATH "$APP_DIR/Resources/node_modules" \
                 --prefix PATH : ${pkgs.lib.makeBinPath [backend]}
 
               # 3. CLI-Link fürs Terminal
@@ -110,17 +125,23 @@
               ln -s "$APP_DIR/MacOS/ZenNotes" $out/bin/zennotes
             ''
             else ''
-                  mkdir -p $out/bin
-                   mkdir -p $out/share/zennotes
+              mkdir -p $out/bin
+              mkdir -p $out/share/zennotes
 
-                # copy the frontend  files into the final path
-                   cp -r ${frontend-desktop}/share/zennotes/* $out/share/zennotes/
+              # copy the frontend  files into the final path
+              cp -r ${frontend-desktop}/share/zennotes/* $out/share/zennotes/
 
               # wrap application with electron
-                   makeWrapper ${pkgs.electron}/bin/electron $out/bin/zennotes \
-                     --add-flags "$out/share/zennotes/main/index.js" \
-                     --set NODE_PATH "$out/share/zennotes/node_modules" \
-                     --prefix PATH : ${pkgs.lib.makeBinPath [backend]}
+              makeWrapper ${pkgs.electron}/bin/electron $out/bin/zennotes \
+                --add-flags "$out/share/zennotes/main/index.js" \
+                --set NODE_PATH "$out/share/zennotes/node_modules" \
+                --prefix PATH : ${pkgs.lib.makeBinPath [backend]}
+
+              if [ -d "apps/desktop/resources/icons" ]; then
+                mkdir -p $out/share/icons/hicolor/512x512/apps
+                # Adjust this path depending on where your actual app icon sits in your source
+                cp apps/desktop/resources/icon.png $out/share/icons/hicolor/512x512/apps/zennotes.png
+              fi
             '';
         };
 
