@@ -336,7 +336,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'zM / zR', action: 'Fold / unfold all', detail: 'Collapse or expand every heading section in the note.' },
       { keys: 'Ctrl-o', action: 'Go back', detail: 'Jump to the previous note location in history.' },
       { keys: 'Ctrl-i', action: 'Go forward', detail: 'Jump forward in note history.' },
-      { keys: 'f', action: 'Hint mode', detail: 'Show jump labels for clickable targets when you are not in insert mode.' }
+      { keys: 'Space h', action: 'Hint mode', detail: 'Show jump labels over clickable targets — links, buttons, sidebar rows, tabs — so you can activate any of them from the keyboard. Works outside insert mode, including in the Tasks and Tags views.' }
     ]
   },
   {
@@ -423,17 +423,17 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'tasks-tags-trash',
     title: 'Tasks, tags, and trash views',
-    description: 'These virtual views each run their own keyboard loop in the main pane.',
+    description: 'These virtual views each run their own keyboard loop in the main pane, and the Vim leader works here too (for example Space h for hint mode).',
     items: [
       { keys: 'j / k', action: 'Move row cursor', detail: 'Step through task rows, tagged notes, or trashed notes.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Move to the first or last visible result.' },
       { keys: 'Enter / o', action: 'Open current result', detail: 'Open the selected task source note, tagged note, or trashed note.' },
-      { keys: 'Space / x', action: 'Toggle task', detail: 'Tasks view only: check or uncheck the selected task.' },
+      { keys: 'x', action: 'Toggle task', detail: 'Tasks view only: check or uncheck the selected task. Space also toggles unless Space is your Vim leader key, in which case it starts a leader sequence.' },
       { keys: 'r', action: 'Restore trashed note', detail: 'Trash view only: restore the selected trashed note.' },
       { keys: 'x / d', action: 'Delete forever', detail: 'Trash view only: permanently delete the selected trashed note after confirmation.' },
       { keys: '/', action: 'Filter the view', detail: 'Focus the local filter box for tasks, tag matches, or trashed notes.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
-      { keys: 'Esc', action: 'Close or clear', detail: 'Clear the filter first, then close the active virtual view on a second press.' }
+      { keys: 'Esc', action: 'Clear the filter', detail: 'Clears an active filter. These views are tabs, so Esc no longer closes them — close with :q or the ✕ in the tab header.' }
     ]
   },
   {
@@ -588,6 +588,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: '<Space> (pause)',
     summary: 'Show leader hints',
     detail: 'When Leader key hints are enabled, pressing the configured Leader key shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until you dismiss it. Turning Vim mode off disables the leader system too.'
+  },
+  {
+    command: '<Space> h',
+    summary: 'Leader hint mode',
+    detail: 'Show jump labels over clickable targets — links, buttons, sidebar rows, tabs — to activate any of them from the keyboard. Works in the editor, sidebar, and the Tasks and Tags views.'
   },
   {
     command: '<Space> o',
