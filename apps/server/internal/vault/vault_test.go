@@ -621,3 +621,66 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 		t.Errorf("empty weekly directory = %q, want default %q", got.WeeklyNotes.Directory, DefaultWeeklyNotesDirectory)
 	}
 }
+
+// A file or directory the server can't read must be skipped, not abort the whole
+// vault scan — otherwise one root-owned entry hides the entire vault. (#159)
+func TestListSkipsUnreadableEntries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits don't apply on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors are bypassed when running as root")
+	}
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := v.WriteNote("inbox/Readable.md", "ok"); err != nil {
+		t.Fatalf("WriteNote readable: %v", err)
+	}
+	if _, err := v.WriteNote("inbox/Locked/Secret.md", "secret"); err != nil {
+		t.Fatalf("WriteNote locked: %v", err)
+	}
+
+	// Make the subfolder unreadable, simulating a root-owned dir the non-root
+	// server process can't read. Locate it by name so this is mode-independent.
+	var locked string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == "Locked" {
+			locked = p
+		}
+		return nil
+	})
+	if locked == "" {
+		t.Fatal("could not locate the Locked subfolder on disk")
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatalf("ListNotes aborted instead of skipping the unreadable dir: %v", err)
+	}
+	var sawReadable, sawSecret bool
+	for _, n := range notes {
+		if strings.Contains(n.Path, "Readable.md") {
+			sawReadable = true
+		}
+		if strings.Contains(n.Path, "Secret.md") {
+			sawSecret = true
+		}
+	}
+	if !sawReadable {
+		t.Errorf("readable note missing from %d listed notes", len(notes))
+	}
+	if sawSecret {
+		t.Error("note inside the unreadable dir should have been skipped")
+	}
+
+	if _, err := v.ListFolders(); err != nil {
+		t.Fatalf("ListFolders aborted instead of skipping the unreadable dir: %v", err)
+	}
+}

@@ -714,6 +714,15 @@ func (v *Vault) persistNoteMetaCacheSnapshot(metas []NoteMeta) {
 // ListNotes walks every top-level folder and returns metadata for each
 // note. Sibling order is the directory-listing order per folder, which
 // matches the TS version's behaviour for non-sorted filesystems.
+// isSkippableWalkErr reports whether a directory-walk error should skip the
+// offending entry and keep scanning, rather than aborting the whole vault scan.
+// Covers entries that vanished mid-scan and, importantly for self-hosted
+// servers, entries the process lacks permission to read (e.g. a vault copied in
+// with root-owned files while the container runs as a non-root user). (#159)
+func isSkippableWalkErr(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
+}
+
 func (v *Vault) ListNotes() ([]NoteMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
@@ -733,7 +742,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 		isPrimaryRoot := folder == FolderInbox && filepath.Clean(folderRoot) == filepath.Clean(v.root)
 		err = filepath.WalkDir(folderRoot, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
+				if isSkippableWalkErr(err) {
 					return nil
 				}
 				return err
@@ -832,7 +841,7 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 		isPrimaryRoot := folder == FolderInbox && filepath.Clean(folderRoot) == filepath.Clean(v.root)
 		err = filepath.WalkDir(folderRoot, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
+				if isSkippableWalkErr(err) {
 					return nil
 				}
 				return err
@@ -886,9 +895,6 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	out := []AssetMeta{}
-	isSkippableWalkErr := func(err error) bool {
-		return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
-	}
 	var walk func(dir string) error
 	walk = func(dir string) error {
 		entries, err := os.ReadDir(dir)
