@@ -17,6 +17,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import { isClosedFencedCodeBlock } from './cm-code-blocks'
 
 const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)/
 
@@ -94,6 +95,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name !== 'FencedCode') return
+        if (!isClosedFencedCodeBlock(state, node.from, node.to)) return false
         const beginLine = state.doc.lineAt(node.from)
         if (seen.has(beginLine.from)) return false
         seen.add(beginLine.from)

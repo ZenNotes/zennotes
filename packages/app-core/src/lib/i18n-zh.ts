@@ -16,6 +16,8 @@ export const ZH: Record<string, string> = {
   // ── Settings: category nav (title + description) ──────────────────────────
   Appearance: '外观',
   'Theme family, mode, and chrome surface styling.': '主题系列、明暗模式与界面表面样式。',
+  'Theme, mode, surface styling, fonts, and reading layout.':
+    '主题、明暗模式、界面样式、字体与阅读布局。',
   Editor: '编辑器',
   'Vim, leader hints, live preview, tabs, and writing behavior.':
     'Vim、leader 提示、实时预览、标签页与写作行为。',
@@ -773,6 +775,7 @@ export const ZH: Record<string, string> = {
   'Select All': '全选',
   Undo: '撤销',
   Redo: '重做',
+  Title: '标题',
   Untitled: '无标题',
   'Invalid characters: # ^ [ ] | \\ : * ? " < >': '非法字符:# ^ [ ] | \\ : * ? " < >',
   'Could not read the dropped file path. Restart the app and try again.':
@@ -1324,6 +1327,7 @@ export const ZH: Record<string, string> = {
   "You skipped the vault step — open the welcome screen any time to pick one.": "你跳过了选择仓库这一步 —— 随时可以打开欢迎页来选择。",
   "Open the help guide": "打开帮助指南",
   "Start writing": "开始写作",
+  "Enter text or type '/' for commands": "输入文字，或输入 '/' 打开命令",
   "Finish": "完成",
   "Learn the app in layers, not all at once.": "分层学习这个应用,不必一次学完。",
   "Onboarding cards to start, how-to recipes for common jobs, concepts for the app model, and a living reference for shortcuts, commands, and settings. Labels are rendered for {platform} ({modifier}); Vim motions like Ctrl-w stay literal across OSes.": "起步有上手卡片,常见任务有操作指南,概念部分讲解应用模型,快捷键、命令与设置则有一份持续更新的参考。标签按 {platform}({modifier})显示;像 Ctrl-w 这样的 Vim 动作在各系统下保持不变。",
@@ -1465,8 +1469,8 @@ export const ZH: Record<string, string> = {
   "The `zen` command-line tool can list, read, search, capture, edit, archive, trash, inspect tasks, and start the MCP server without the app running. Raycast uses it for search, then uses `zennotes://open` and `zennotes://open-window` links to bring the selected note back into ZenNotes. On macOS, Settings → CLI can install the bundled Raycast extension locally so users do not need to wait for the Raycast Store version.": "`zen` 命令行工具无需运行应用即可列出、读取、搜索、记录、编辑、归档、删除、检查任务并启动 MCP 服务器。Raycast 用它来搜索,然后用 `zennotes://open` 和 `zennotes://open-window` 链接把选中的笔记带回 ZenNotes。在 macOS 上,“设置 → CLI”可在本地安装捆绑的 Raycast 扩展,这样用户无需等待 Raycast Store 版本。",
   "Math, diagrams, and plots render from plain fences": "数学、图表和绘图由纯代码围栏渲染",
   "Inline `$…$` and display `$$…$$` math render via KaTeX. Beyond math, four fenced block languages turn into live diagrams in preview and split mode: `mermaid` for flow, sequence, state, gantt, and graph diagrams; `tikz` for LaTeX-native coordinate systems, commutative diagrams, and figure-quality plots (the TeX engine runs on-device so no network is required); `jsxgraph` for interactive geometry and function plots driven by a small JSON config; and `function-plot` for compact Cartesian function plotting. Each block is ordinary markdown on disk, so the source remains portable and diffable.": "行内 `$…$` 和独立 `$$…$$` 数学通过 KaTeX 渲染。除数学外,四种围栏块语言会在预览和分屏模式中变成实时图表:`mermaid` 用于流程图、时序图、状态图、甘特图和关系图;`tikz` 用于 LaTeX 原生坐标系、交换图和达到出版质量的绘图(TeX 引擎在本机运行,因此无需联网);`jsxgraph` 用于由小段 JSON 配置驱动的交互式几何与函数图;`function-plot` 用于紧凑的笛卡尔函数绘图。每个块在磁盘上都是普通 Markdown,因此源码保持可移植、可 diff。",
-  "Footer actions expose utility views": "底栏操作暴露实用视图",
-  "The sidebar footer gives you direct access to Files, Help, and Settings, so utility screens stay discoverable even when you are new to the app.": "侧边栏底栏让你直接访问文件、帮助和设置,因此即便你刚上手应用,实用界面也保持可发现。",
+  "Utility views stay reachable": "实用视图保持可访问",
+  "The sidebar footer keeps Trash and Settings close at hand, while Help is available from Settings and the command palette so utility screens stay discoverable without crowding the main tree.": "侧边栏底栏保留回收站和设置,帮助则可从设置和命令面板打开,这样实用界面依然容易发现,也不会挤占主树区域。",
   "Destructive actions ask first": "破坏性操作会先询问",
   "Moving a note to Trash now asks for confirmation before anything is deleted from the active workspace, and the Trash view separates restore from permanent delete.": "现在把笔记移到回收站时,会在从当前工作区删除任何内容前先请求确认,而回收站视图把“恢复”与“永久删除”分开。",
   "Updates are release-driven": "更新由发行版驱动",

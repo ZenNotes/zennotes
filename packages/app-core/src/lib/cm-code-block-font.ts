@@ -18,6 +18,7 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from '@codemirror/view'
+import { isClosedFencedCodeBlock } from './cm-code-blocks'
 
 const codeBlockLine = Decoration.line({ class: 'cm-code-block-line' })
 // First / last line of each block also carry begin/end classes so the WYSIWYG
@@ -42,6 +43,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name !== 'FencedCode' && node.name !== 'CodeBlock') return
+        if (
+          node.name === 'FencedCode' &&
+          !isClosedFencedCodeBlock(view.state, node.from, node.to)
+        ) {
+          return false
+        }
         const firstLine = view.state.doc.lineAt(node.from)
         const lastLine = view.state.doc.lineAt(Math.max(node.from, node.to - 1))
         let pos = node.from

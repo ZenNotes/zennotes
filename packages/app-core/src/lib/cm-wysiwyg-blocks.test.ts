@@ -53,6 +53,18 @@ describe('wysiwygBlocksPlugin', () => {
     view.destroy()
   })
 
+  it('adds a rendered block gap when text runs directly into a code block', () => {
+    const view = mount('before\n```js\nconst x = 1\n```\n\nafter')
+    expect(view.dom.querySelectorAll('.cm-code-block-gap')).toHaveLength(1)
+    view.destroy()
+  })
+
+  it('does not add a second block gap when a blank line already separates code', () => {
+    const view = mount('before\n\n```js\nconst x = 1\n```\n\nafter')
+    expect(view.dom.querySelectorAll('.cm-code-block-gap')).toHaveLength(0)
+    view.destroy()
+  })
+
   it('reveals the raw list marker on the active line', () => {
     const view = mount(DOC)
     const firstItem = DOC.indexOf('- first')

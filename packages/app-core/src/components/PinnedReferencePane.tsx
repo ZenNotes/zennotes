@@ -42,7 +42,8 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
-import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionNavKeymapFor } from '../lib/cm-completion-nav'
+import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
@@ -182,6 +183,7 @@ export function PinnedReferencePane(): JSX.Element | null {
       const state = EditorState.create({
         doc: initialContent?.body ?? '',
         extensions: [
+          macLineStartDeleteExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
           drawSelection(),
@@ -204,7 +206,7 @@ export function PinnedReferencePane(): JSX.Element | null {
                 ? 'wikilink-cmd-option'
                 : 'slash-cmd-option'
           }),
-          completionNavKeymap,
+          completionNavKeymapFor(() => useStore.getState().vimMode),
           keymap.of([
             {
               key: 'Mod-f',

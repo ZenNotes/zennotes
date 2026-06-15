@@ -142,6 +142,7 @@ export function VaultTextSearchPalette(): JSX.Element {
   const t = useT();
   const notes = useStore((s) => s.notes)
   const noteContents = useStore((s) => s.noteContents)
+  const vimMode = useStore((s) => s.vimMode)
   const setOpen = useStore((s) => s.setVaultTextSearchOpen)
   const openNoteAtOffset = useStore((s) => s.openNoteAtOffset)
   const backend = useStore((s) => s.vaultTextSearchBackend)
@@ -383,14 +384,14 @@ export function VaultTextSearchPalette(): JSX.Element {
             placeholder={t("Search text across the vault…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 if (results.length === 0) return
                 setActive((value) => Math.min(results.length - 1, value + 1))
                 return
               }
-              if (isPalettePreviousKey(e)) {
+              if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 if (results.length === 0) return

@@ -38,6 +38,7 @@ import { searchKeymap } from '@codemirror/search'
 import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PinIcon } from './icons'
@@ -292,6 +293,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
         // toggles (the `content` closure would recreate it empty).
         doc: dirtyBodyRef.current ?? content?.body ?? '',
         extensions: [
+          macLineStartDeleteExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),

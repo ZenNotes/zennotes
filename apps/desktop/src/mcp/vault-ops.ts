@@ -8,15 +8,29 @@
  * requires the renderer's Zustand store or a live app session.
  */
 
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import type { SoftDeletedEntry, SoftDeleteTop } from '@shared/ipc'
+import { FORM_SCHEMA_FILE, isDatabaseInternalPath, isFormDirName } from '@shared/databases'
+import { toggleTaskAtIndex } from '@shared/tasklists'
+import { parseTasksFromBody, type VaultTask } from '@shared/tasks'
+import {
+  addSoftDeleteEntry,
+  clearSoftDeleteStore,
+  getSoftDeleteEntry,
+  listSoftDeleted as listSoftDeletedEntries,
+  parseSoftDeleteHandle,
+  removeSoftDeleteEntry,
+  softDeleteHandle
+} from '../main/soft-delete.js'
 
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
-const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
+const PRIMARY_ATTACHMENTS_DIR = 'assets'
+const LEGACY_ATTACHMENTS_DIRS = ['attachements', '_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
@@ -27,6 +41,7 @@ const VAULT_SETTINGS_FILE = 'vault.json'
  *  notes as inbox notes. Mirrors HIDDEN_PRIMARY_ROOT_NAMES in the
  *  desktop main process's vault.ts. */
 const HIDDEN_PRIMARY_ROOT_NAMES = new Set<string>([
+  'inbox',
   'quick',
   'archive',
   'trash',
@@ -143,8 +158,9 @@ async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
 }
 
 const FENCED_CODE_BLOCK_RE = /(^|\n)```[^\n]*\n[\s\S]*?\n```[ \t]*(?=\n|$)/g
-const FENCE_LINE_RE = /^(\s{0,3})(`{3,}|~{3,})/
-const TASK_LINE_RE = /^\s*[-*+]\s+\[([ xX])\](.*)$/
+const SOFT_DELETE_WRAPPER_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/
 
 export interface NoteMeta {
   path: string
@@ -160,22 +176,6 @@ export interface NoteMeta {
 
 export interface NoteContent extends NoteMeta {
   body: string
-}
-
-export interface VaultTask {
-  id: string
-  sourcePath: string
-  noteTitle: string
-  noteFolder: NoteFolder
-  lineNumber: number
-  taskIndex: number
-  rawText: string
-  content: string
-  checked: boolean
-  due?: string
-  priority?: 'high' | 'med' | 'low'
-  waiting: boolean
-  tags: string[]
 }
 
 /* ---------- Path + config helpers ------------------------------------ */
@@ -344,6 +344,48 @@ function folderOf(root: string, abs: string): NoteFolder | null {
   return 'inbox'
 }
 
+function isSoftDeleteWrapperName(name: string): boolean {
+  return SOFT_DELETE_WRAPPER_RE.test(name)
+}
+
+function shouldSkipSoftDeleteWrapper(
+  folder: NoteFolder,
+  dirAbs: string,
+  topAbs: string,
+  name: string
+): boolean {
+  return (
+    (folder === 'trash' || folder === 'archive') &&
+    dirAbs === topAbs &&
+    isSoftDeleteWrapperName(name)
+  )
+}
+
+async function realpathOrResolve(p: string): Promise<string> {
+  try {
+    return await fs.realpath(p)
+  } catch {
+    return path.resolve(p)
+  }
+}
+
+async function resolveDirDescent(
+  full: string,
+  entry: import('node:fs').Dirent,
+  ancestors: Set<string>
+): Promise<string | null> {
+  if (!entry.isDirectory() && !entry.isSymbolicLink()) return null
+  let stat
+  try {
+    stat = await fs.stat(full)
+  } catch {
+    return null
+  }
+  if (!stat.isDirectory()) return null
+  const real = await realpathOrResolve(full)
+  return ancestors.has(real) ? null : real
+}
+
 /* ---------- Markdown parsing ----------------------------------------- */
 
 function stripCodeContent(body: string): string {
@@ -428,6 +470,7 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
         if (isPrimaryRoot && dirAbs === topAbs && HIDDEN_PRIMARY_ROOT_NAMES.has(entry.name)) {
           continue
         }
+        if (shouldSkipSoftDeleteWrapper(folder, dirAbs, topAbs, entry.name)) continue
         await walk(folder, full, topAbs, isPrimaryRoot)
         continue
       }
@@ -461,6 +504,7 @@ export async function listFolders(root: string): Promise<{ folder: NoteFolder; s
         if (isPrimaryRoot && dirAbs === topAbs && HIDDEN_PRIMARY_ROOT_NAMES.has(e.name)) {
           continue
         }
+        if (shouldSkipSoftDeleteWrapper(folder, dirAbs, topAbs, e.name)) continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
         out.push({ folder, subpath: nextSub })
         await walk(path.join(dirAbs, e.name), nextSub)
@@ -475,7 +519,7 @@ export async function listAssets(root: string): Promise<
   { path: string; name: string; size: number; updatedAt: number }[]
 > {
   const out: { path: string; name: string; size: number; updatedAt: number }[] = []
-  const walk = async (dirAbs: string): Promise<void> => {
+  const walk = async (dirAbs: string, ancestors: Set<string>): Promise<void> => {
     let entries
     try {
       entries = await fs.readdir(dirAbs, { withFileTypes: true })
@@ -485,11 +529,23 @@ export async function listAssets(root: string): Promise<
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue
       const full = path.join(dirAbs, entry.name)
-      if (entry.isDirectory()) {
-        await walk(full)
+      const childReal = await resolveDirDescent(full, entry, ancestors)
+      if (childReal !== null) {
+        if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
+        if (
+          (dirAbs === path.join(root, 'trash') || dirAbs === path.join(root, 'archive')) &&
+          isSoftDeleteWrapperName(entry.name)
+        )
+          continue
+        ancestors.add(childReal)
+        await walk(full, ancestors)
+        ancestors.delete(childReal)
         continue
       }
       if (!entry.isFile()) continue
+      if (entry.name.toLowerCase().endsWith('.md')) continue
+      if (entry.name === FORM_SCHEMA_FILE && isFormDirName(path.basename(dirAbs))) continue
+      if (isDatabaseInternalPath(entry.name)) continue
       const stat = await fs.stat(full)
       out.push({
         path: toPosix(path.relative(root, full)),
@@ -499,15 +555,8 @@ export async function listAssets(root: string): Promise<
       })
     }
   }
-  for (const dir of ATTACHMENTS_DIRS) {
-    try {
-      const st = await fs.stat(path.join(root, dir))
-      if (!st.isDirectory()) continue
-    } catch {
-      continue
-    }
-    await walk(path.join(root, dir))
-  }
+  const rootReal = await realpathOrResolve(root)
+  await walk(root, new Set([rootReal]))
   out.sort((a, b) => b.updatedAt - a.updatedAt)
   return out
 }
@@ -546,6 +595,22 @@ async function uniqueTitle(dir: string, base: string): Promise<string> {
   }
 }
 
+async function uniqueFilename(dir: string, requestedName: string): Promise<string> {
+  const ext = path.extname(requestedName)
+  const base = path.basename(requestedName, ext)
+  let candidate = requestedName
+  let n = 1
+  while (true) {
+    try {
+      await fs.access(path.join(dir, candidate))
+      n += 1
+      candidate = `${base} ${n}${ext}`
+    } catch {
+      return candidate
+    }
+  }
+}
+
 function sanitizeTitle(raw: string): string {
   // Filenames must be safe on all 3 OSes. Strip path separators, null,
   // and common reserved characters.
@@ -573,7 +638,7 @@ export async function createNote(
   await fs.mkdir(dir, { recursive: true })
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
-  const content = body ?? `# ${finalTitle}\n\n`
+  const content = body ?? (title?.trim() ? `# ${finalTitle}\n\n` : '# \n\n')
   await fs.writeFile(abs, content, 'utf8')
   return await readMeta(root, abs, folder)
 }
@@ -638,12 +703,85 @@ async function moveBetweenFolders(
   return await readMeta(root, destAbs, target)
 }
 
-export const moveToTrash = (root: string, rel: string) => moveBetweenFolders(root, rel, 'trash')
-export const restoreFromTrash = (root: string, rel: string) =>
-  moveBetweenFolders(root, rel, 'inbox')
-export const archiveNote = (root: string, rel: string) => moveBetweenFolders(root, rel, 'archive')
-export const unarchiveNote = (root: string, rel: string) =>
-  moveBetweenFolders(root, rel, 'inbox')
+async function softDeleteNote(
+  root: string,
+  rel: string,
+  target: SoftDeleteTop
+): Promise<string> {
+  const abs = resolveSafe(root, rel)
+  const folder = folderOf(root, abs)
+  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  const id = randomUUID()
+  const name = path.basename(abs)
+  const wrapperAbs = path.join(root, target, id)
+  await fs.mkdir(wrapperAbs, { recursive: true })
+  try {
+    await fs.rename(abs, path.join(wrapperAbs, name))
+    await addSoftDeleteEntry(root, target, id, {
+      kind: 'note',
+      name,
+      originalRel: toPosix(path.relative(root, abs)),
+      title: path.basename(abs, path.extname(abs)),
+      deletedAt: Date.now()
+    })
+  } catch (err) {
+    await fs.rm(wrapperAbs, { recursive: true, force: true }).catch(() => {})
+    throw err
+  }
+  return softDeleteHandle(target, id)
+}
+
+async function restoreSoftDeletedNote(root: string, handle: string): Promise<NoteMeta> {
+  const parsed = parseSoftDeleteHandle(handle)
+  if (!parsed) throw new Error('Invalid soft-delete handle')
+  const { top, id } = parsed
+  const meta = await getSoftDeleteEntry(root, top, id)
+  if (!meta) throw new Error('Nothing soft-deleted at that path')
+  if (meta.kind !== 'note') {
+    throw new Error(`Soft-deleted ${meta.kind} must be restored in ZenNotes.`)
+  }
+  const srcAbs = path.join(root, top, id, meta.name)
+  const destParentAbs = path.dirname(resolveSafe(root, meta.originalRel))
+  await fs.mkdir(destParentAbs, { recursive: true })
+  const finalName = await uniqueFilename(destParentAbs, path.basename(meta.originalRel))
+  const destAbs = path.join(destParentAbs, finalName)
+  await fs.rename(srcAbs, destAbs)
+  await fs.rm(path.join(root, top, id), { recursive: true, force: true })
+  await removeSoftDeleteEntry(root, top, id)
+  const folder = folderOf(root, destAbs)
+  if (!folder) throw new Error(`Note not in a known folder: ${toPosix(path.relative(root, destAbs))}`)
+  return await readMeta(root, destAbs, folder)
+}
+
+export const moveToTrash = (root: string, rel: string) => softDeleteNote(root, rel, 'trash')
+export const archiveNote = (root: string, rel: string) => softDeleteNote(root, rel, 'archive')
+
+export async function listSoftDeleted(
+  root: string
+): Promise<(SoftDeletedEntry & { handle: string })[]> {
+  return (await listSoftDeletedEntries(root)).map((entry) => ({
+    ...entry,
+    handle: softDeleteHandle(entry.top, entry.id)
+  }))
+}
+
+export function restoreFromTrash(root: string, rel: string): Promise<NoteMeta> {
+  const parsed = parseSoftDeleteHandle(rel)
+  if (parsed) {
+    if (parsed.top !== 'trash') throw new Error('Use unarchive for archive handles.')
+    return restoreSoftDeletedNote(root, rel)
+  }
+  return moveBetweenFolders(root, rel, 'inbox')
+}
+
+export function unarchiveNote(root: string, rel: string): Promise<NoteMeta> {
+  const parsed = parseSoftDeleteHandle(rel)
+  if (parsed) {
+    if (parsed.top !== 'archive') throw new Error('Use restore for trash handles.')
+    return restoreSoftDeletedNote(root, rel)
+  }
+  return moveBetweenFolders(root, rel, 'inbox')
+}
 
 export async function moveNote(
   root: string,
@@ -697,6 +835,7 @@ export async function emptyTrash(root: string): Promise<void> {
   } catch {
     /* no trash dir */
   }
+  await clearSoftDeleteStore(root, 'trash')
 }
 
 export async function createFolder(
@@ -784,6 +923,7 @@ export async function searchText(
         if (isPrimaryRoot && dirAbs === topAbs && HIDDEN_PRIMARY_ROOT_NAMES.has(entry.name)) {
           continue
         }
+        if (shouldSkipSoftDeleteWrapper(folder, dirAbs, topAbs, entry.name)) continue
         await walk(folder, full, topAbs, isPrimaryRoot)
         continue
       }
@@ -821,133 +961,6 @@ export async function searchText(
 
 /* ---------- Tasks ---------------------------------------------------- */
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/
-const INLINE_DUE_RE = /(?:^|\s)due:(\S+)/i
-const INLINE_PRIORITY_RE = /(?:^|\s)!(high|med|medium|low|h|m|l)\b/i
-const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
-const INLINE_TAG_RE = /(?:^|\s)#([a-z0-9][a-z0-9/_-]*)/gi
-
-function normalizePriority(raw: string | undefined): 'high' | 'med' | 'low' | undefined {
-  if (!raw) return undefined
-  const v = raw.toLowerCase().trim()
-  if (v === 'high' || v === 'h') return 'high'
-  if (v === 'med' || v === 'medium' || v === 'm') return 'med'
-  if (v === 'low' || v === 'l') return 'low'
-  return undefined
-}
-
-function isValidIsoDate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
-  return Number.isFinite(Date.parse(`${s}T00:00:00Z`))
-}
-
-function parseNoteDefaults(body: string): { due?: string; priority?: 'high' | 'med' | 'low' } {
-  const m = body.match(FRONTMATTER_RE)
-  if (!m) return {}
-  const out: { due?: string; priority?: 'high' | 'med' | 'low' } = {}
-  for (const rawLine of m[1].split('\n')) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    const colon = line.indexOf(':')
-    if (colon < 1) continue
-    const key = line.slice(0, colon).trim().toLowerCase()
-    const value = line
-      .slice(colon + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '')
-    if (key === 'due' && isValidIsoDate(value)) out.due = value
-    else if (key === 'priority') {
-      const p = normalizePriority(value)
-      if (p) out.priority = p
-    }
-  }
-  return out
-}
-
-function parseTasksFromBody(
-  body: string,
-  ctx: { path: string; title: string; folder: NoteFolder }
-): VaultTask[] {
-  const normalized = body.replace(/\r\n/g, '\n')
-  const defaults = parseNoteDefaults(normalized)
-  const lines = normalized.split('\n')
-  const tasks: VaultTask[] = []
-
-  let taskIndex = 0
-  let inFence = false
-  let fenceMarker: string | null = null
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const fenceMatch = line.match(FENCE_LINE_RE)
-    if (fenceMatch) {
-      const marker = fenceMatch[2]
-      if (!inFence) {
-        inFence = true
-        fenceMarker = marker
-      } else if (marker === fenceMarker) {
-        inFence = false
-        fenceMarker = null
-      }
-      continue
-    }
-    if (inFence) continue
-
-    const m = line.match(TASK_LINE_RE)
-    if (!m) continue
-
-    const checkedChar = m[1]
-    const tail = m[2]
-    const checked = checkedChar === 'x' || checkedChar === 'X'
-
-    let due: string | undefined
-    let priority: 'high' | 'med' | 'low' | undefined
-    let waiting = false
-    const tags: string[] = []
-    let stripped = tail
-
-    const dueMatch = stripped.match(INLINE_DUE_RE)
-    if (dueMatch) {
-      if (isValidIsoDate(dueMatch[1])) due = dueMatch[1]
-      stripped = stripped.replace(INLINE_DUE_RE, ' ')
-    }
-    const priMatch = stripped.match(INLINE_PRIORITY_RE)
-    if (priMatch) {
-      priority = normalizePriority(priMatch[1])
-      stripped = stripped.replace(INLINE_PRIORITY_RE, ' ')
-    }
-    if (INLINE_WAITING_RE.test(stripped)) {
-      waiting = true
-      stripped = stripped.replace(INLINE_WAITING_RE, ' ')
-    }
-    INLINE_TAG_RE.lastIndex = 0
-    let tm: RegExpExecArray | null
-    while ((tm = INLINE_TAG_RE.exec(tail))) {
-      const tag = tm[1].toLowerCase()
-      if (!tags.includes(tag)) tags.push(tag)
-    }
-    const content = stripped.replace(/\s+/g, ' ').trim() || tail.trim()
-
-    tasks.push({
-      id: `${ctx.path}#${taskIndex}`,
-      sourcePath: ctx.path,
-      noteTitle: ctx.title,
-      noteFolder: ctx.folder,
-      lineNumber: i,
-      taskIndex,
-      rawText: line,
-      content,
-      checked,
-      due: due ?? defaults.due,
-      priority: priority ?? defaults.priority,
-      waiting,
-      tags
-    })
-    taskIndex += 1
-  }
-  return tasks
-}
-
 export async function scanAllTasks(root: string): Promise<VaultTask[]> {
   const metas = (await listNotes(root)).filter((m) => m.folder !== 'trash')
   const out: VaultTask[] = []
@@ -984,61 +997,19 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   const normalized = body.replace(/\r\n/g, '\n')
-  const lines = normalized.split('\n')
-  let taskIndex = 0
-  let inFence = false
-  let fenceMarker: string | null = null
-  let lineNumber = -1
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const fenceMatch = line.match(FENCE_LINE_RE)
-    if (fenceMatch) {
-      const marker = fenceMatch[2]
-      if (!inFence) {
-        inFence = true
-        fenceMarker = marker
-      } else if (marker === fenceMarker) {
-        inFence = false
-        fenceMarker = null
-      }
-      continue
-    }
-    if (inFence) continue
-    if (!TASK_LINE_RE.test(line)) continue
-    if (taskIndex === targetIndex) {
-      lineNumber = i
-      break
-    }
-    taskIndex += 1
-  }
-  if (lineNumber < 0) return null
-  const original = lines[lineNumber]
-  const toggled = original.replace(
-    TASK_LINE_RE,
-    (_m, ch: string, tail: string) => {
-      const fullMatch = original.match(TASK_LINE_RE)!
-      const bracketIdx = original.indexOf('[' + ch + ']')
-      const next = ch === ' ' ? 'x' : ' '
-      // Preserve the full prefix (list marker, whitespace) by splicing only
-      // the single character inside the brackets.
-      if (bracketIdx >= 0) {
-        return (
-          original.slice(0, bracketIdx + 1) + next + original.slice(bracketIdx + 2)
-        )
-      }
-      return fullMatch[0]
-    }
-  )
-  lines[lineNumber] = toggled
-  const newBody = lines.join('\n') + (body.endsWith('\n') && !normalized.endsWith('\n') ? '\n' : '')
-  await fs.writeFile(abs, newBody, 'utf8')
   const folder = folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
-  const parsed = parseTasksFromBody(newBody, {
+  const ctx = {
     path: toPosix(path.relative(root, abs)),
     title: path.basename(abs, path.extname(abs)),
     folder
-  })
+  }
+  const parsedBefore = parseTasksFromBody(normalized, ctx)
+  const current = parsedBefore.find((task) => task.taskIndex === targetIndex)
+  if (!current) return null
+  const newBody = toggleTaskAtIndex(normalized, targetIndex, !current.checked)
+  if (newBody !== normalized) await fs.writeFile(abs, newBody, 'utf8')
+  const parsed = parseTasksFromBody(newBody, ctx)
   return parsed[targetIndex] ?? null
 }
 

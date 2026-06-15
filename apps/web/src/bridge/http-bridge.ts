@@ -859,6 +859,10 @@ function onOpenSettings(cb: () => void): () => void {
   return () => settingsListeners.delete(cb)
 }
 
+function onOpenHelp(_cb: () => void): () => void {
+  return () => {}
+}
+
 async function getAppIconDataUrl(): Promise<string | null> {
   return null
 }
@@ -1241,6 +1245,7 @@ export const httpBridge: ZenBridge = {
 
   onVaultChange,
   onOpenSettings,
+  onOpenHelp,
   onOpenNoteRequested,
   onNoteCopyShortcut,
   onNotePasteShortcut,

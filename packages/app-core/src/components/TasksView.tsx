@@ -42,6 +42,7 @@ export function TasksView(): JSX.Element {
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
   const closeTasksView = useStore((s) => s.closeTasksView)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const viewMode = useStore((s) => s.tasksViewMode)
   const setViewMode = useStore((s) => s.setTasksViewMode)
   // Only the Tasks panel in the *active* pane should listen for j/k/etc.
@@ -202,7 +203,7 @@ export function TasksView(): JSX.Element {
   // Registered in CAPTURE phase + uses `stopImmediatePropagation` so it
   // beats VimNav's global handler.
   useEffect(() => {
-    if (!isActivePanel) return
+    if (!isActivePanel || !vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const active = document.activeElement as HTMLElement | null
       if (active) {
@@ -320,7 +321,8 @@ export function TasksView(): JSX.Element {
     closeTasksView,
     setFilter,
     viewMode,
-    setViewMode
+    setViewMode,
+    vimMode
   ])
 
   return (

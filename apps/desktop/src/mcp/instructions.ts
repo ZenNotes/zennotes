@@ -192,8 +192,13 @@ when the folder is \`Linear Algebra/\`), synonyms, and feeling tags
 - create_note (not write_note) for new notes \u2014 it sanitizes
   filenames and avoids collisions.
 - Preserve frontmatter and unknown content verbatim.
-- Deletion: move_to_trash first, empty_trash only with explicit
-  confirmation.
+- Deletion: move_to_trash first. It returns a handle like
+  \`trash/<id>\`; pass that handle to restore_from_trash. Use
+  list_soft_deleted to rediscover existing trash/archive handles.
+  empty_trash only with explicit confirmation.
+- Archive: archive_note returns a handle like \`archive/<id>\`;
+  pass that handle to unarchive_note. Do not use move_note for
+  archive/trash destinations.
 - Before rename_note, run backlinks.
 - Task ids from list_tasks (\`path#index\`) are stable \u2014 pass
   them to toggle_task.
@@ -270,7 +275,8 @@ Adjust these \u2014 don't invent ASCII replacements.
   Don't start a parallel note.
 - "Capture X" \u2192 create_note in quick/.
 - "File X" \u2192 move_note into the right inbox subfolder
-  (\`folder: "inbox"\`, \`targetSubpath: "<topic>"\`).
+  (\`targetFolder: "inbox"\`, \`targetSubpath: "<topic>"\`).
+- "Find/open/check the attachment/image/PDF" \u2192 list_assets first.
 - "Write me a note / course / recipe / plan about \u2026" \u2192 pick
   the archetype from the subject, pick a sensible inbox subfolder,
   create_note (or a folder of create_notes with an index), apply

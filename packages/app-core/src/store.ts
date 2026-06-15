@@ -65,7 +65,11 @@ import {
   type ThemeMode
 } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
-import { confirmMoveToTrash } from './lib/confirm-trash'
+import {
+  ensureBindableH1,
+  isGeneratedUntitledTitle,
+  replaceFirstBindableH1Title
+} from './lib/note-title-heading'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp } from './lib/prompt-requests'
 import { translate } from './lib/i18n'
@@ -1596,6 +1600,7 @@ interface Store {
   noteBackstack: NoteJumpLocation[]
   noteForwardstack: NoteJumpLocation[]
   pendingJumpLocation: NoteJumpLocation | null
+  noteRenameTransition: { oldPath: string; newPath: string } | null
   /** Notes still loading the full content. */
   loadingNote: boolean
   searchOpen: boolean
@@ -2090,6 +2095,7 @@ interface Store {
 
   clearPendingTitleFocus: () => void
   clearPendingJumpLocation: () => void
+  clearNoteRenameTransition: () => void
   /** Rewrite `#oldTag` → `#newTag` across every non-trash note. */
   renameTag: (oldTag: string, newTag: string) => Promise<void>
   /** Remove `#tag` from every non-trash note. */
@@ -2132,6 +2138,18 @@ interface Store {
 /** Debounced per-path save timers. Module-scoped so they survive re-renders. */
 const pathSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const PATH_SAVE_DEBOUNCE_MS = 350
+
+function schedulePathSave(path: string, persist: (path: string) => void): void {
+  const existing = pathSaveTimers.get(path)
+  if (existing) clearTimeout(existing)
+  pathSaveTimers.set(
+    path,
+    setTimeout(() => {
+      pathSaveTimers.delete(path)
+      persist(path)
+    }, PATH_SAVE_DEBOUNCE_MS)
+  )
+}
 
 /**
  * The body we most recently wrote to each path. The vault file watcher
@@ -2329,6 +2347,7 @@ function renameNoteState(
       s.pendingJumpLocation?.path === oldPath
         ? { ...s.pendingJumpLocation, path: meta.path }
         : s.pendingJumpLocation,
+    noteRenameTransition: oldPath === meta.path ? null : { oldPath, newPath: meta.path },
     pendingTitleFocusPath:
       s.pendingTitleFocusPath === oldPath ? meta.path : s.pendingTitleFocusPath,
     pinnedRefPath: s.pinnedRefPath === oldPath ? meta.path : s.pinnedRefPath,
@@ -2420,7 +2439,11 @@ function readNoteContent(
       opts?.loadRecordPageDatabase === false ? Promise.resolve() : loadRecordPageDatabase(relPath)
     const note = await window.zen.readNote(relPath)
     await databaseLoad
-    return note
+    const body = ensureBindableH1(
+      note.body,
+      isGeneratedUntitledTitle(note.title) ? '' : note.title
+    )
+    return body === note.body ? note : { ...note, body }
   })().finally(() => {
     noteReadPromises.delete(cacheKey)
   })
@@ -2991,6 +3014,7 @@ export const useStore = create<Store>((set, get) => {
   noteDirty: {},
   noteComments: {},
   activeCommentId: null,
+  noteRenameTransition: null,
 
   setVault: (v) =>
     set((s) => {
@@ -3967,15 +3991,7 @@ export const useStore = create<Store>((set, get) => {
       }
     })
     // Debounced disk write.
-    const existing = pathSaveTimers.get(path)
-    if (existing) clearTimeout(existing)
-    pathSaveTimers.set(
-      path,
-      setTimeout(() => {
-        pathSaveTimers.delete(path)
-        void get().persistNote(path)
-      }, PATH_SAVE_DEBOUNCE_MS)
-    )
+    schedulePathSave(path, (p) => void get().persistNote(p))
   },
 
   persistActive: async () => {
@@ -4118,11 +4134,41 @@ export const useStore = create<Store>((set, get) => {
 
   renameNote: async (oldPath, nextTitle) => {
     if (!oldPath) return
+    const pendingSave = pathSaveTimers.get(oldPath)
+    if (pendingSave) {
+      clearTimeout(pendingSave)
+      pathSaveTimers.delete(oldPath)
+    }
     try {
       const meta = await window.zen.renameNote(oldPath, nextTitle)
       set((s) => renameNoteState(s, oldPath, meta))
+      if (pendingSave) schedulePathSave(meta.path, (p) => void get().persistNote(p))
+      const current = get().noteContents[meta.path]
+      if (current) {
+        const nextBody = replaceFirstBindableH1Title(
+          current.body,
+          isGeneratedUntitledTitle(meta.title) ? '' : meta.title
+        )
+        if (nextBody === current.body) {
+          await get().refreshNotes()
+          return
+        }
+        set((s) => {
+          const existing = s.noteContents[meta.path]
+          if (!existing || existing.body === nextBody) return s
+          const contents = { ...s.noteContents, [meta.path]: { ...existing, body: nextBody } }
+          const dirty = { ...s.noteDirty, [meta.path]: true }
+          return {
+            noteContents: contents,
+            noteDirty: dirty,
+            ...activeFieldsFrom(s.paneLayout, s.activePaneId, contents, dirty)
+          }
+        })
+        await get().persistNote(meta.path)
+      }
       await get().refreshNotes()
     } catch (err) {
+      if (pendingSave) schedulePathSave(oldPath, (p) => void get().persistNote(p))
       console.error('renameNote failed', err)
     }
   },
@@ -4188,8 +4234,6 @@ export const useStore = create<Store>((set, get) => {
     const state = get()
     const path = state.selectedPath
     if (!path) return
-    const title = state.notes.find((note) => note.path === path)?.title
-    if (!(await confirmMoveToTrash(title, (s) => translate(state.language, s)))) return
     try {
       await window.zen.moveToTrash(path)
       set((s) => {
@@ -5449,6 +5493,7 @@ export const useStore = create<Store>((set, get) => {
   },
   clearPendingTitleFocus: () => set({ pendingTitleFocusPath: null }),
   clearPendingJumpLocation: () => set({ pendingJumpLocation: null }),
+  clearNoteRenameTransition: () => set({ noteRenameTransition: null }),
 
   renameTag: async (oldTag, newTag) => {
     await rewriteTagAcrossVault(get, oldTag, newTag)

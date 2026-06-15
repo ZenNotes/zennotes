@@ -216,6 +216,7 @@ export function BufferPalette(): JSX.Element {
   const setOpen = useStore((s) => s.setBufferPaletteOpen)
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
+  const vimMode = useStore((s) => s.vimMode)
 
   // Select primitives separately so each selector returns a stable
   // reference; compute the derived entries list with useMemo. Returning
@@ -301,11 +302,11 @@ export function BufferPalette(): JSX.Element {
             placeholder={t("Switch buffer…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (isPalettePreviousKey(e)) {
+              } else if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))

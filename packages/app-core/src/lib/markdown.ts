@@ -22,8 +22,16 @@ import { classifyLocalAssetHref } from './local-assets'
  */
 type AnyNode = { type: string; [k: string]: unknown }
 type AnyParent = { type: string; children: AnyNode[] }
+type PositionedNode = AnyNode & {
+  position?: {
+    start?: { offset?: number }
+    end?: { offset?: number }
+  }
+}
 
 const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/
+const FENCE_SOURCE_START_RE = /^ {0,3}(`{3,}|~{3,})/
+const FENCE_SOURCE_END_RE = /^ {0,3}(`{3,}|~{3,})\s*$/
 const ALLOWED_RENDERED_URI_SCHEME_RE = /^(?:https?|mailto|zen|zen-asset|blob|data):/i
 const ALLOWED_RENDERED_URI_RE =
   /^(?:(?:https?|mailto|zen|zen-asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
@@ -67,6 +75,43 @@ function sanitizeRenderedHtml(html: string): string {
     ALLOWED_URI_REGEXP: ALLOWED_RENDERED_URI_RE,
     ADD_ATTR: ALLOWED_RENDERED_DATA_ATTRS
   })
+}
+
+function isClosedFencedCodeSource(raw: string): boolean {
+  const lines = raw.split(/\r?\n/)
+  const opener = lines[0]?.match(FENCE_SOURCE_START_RE)?.[1]
+  if (!opener) return false
+
+  for (let i = 1; i < lines.length; i++) {
+    const closer = lines[i]?.match(FENCE_SOURCE_END_RE)?.[1]
+    if (closer && closer[0] === opener[0] && closer.length >= opener.length) {
+      return true
+    }
+  }
+  return false
+}
+
+function remarkRequireClosedFencedCodeBlocks() {
+  return (tree: MdRoot, file: { value?: unknown }): void => {
+    const source = String(file.value ?? '')
+    visit(tree, 'code', (node, index, parent) => {
+      if (!parent || index === undefined) return
+      const position = (node as unknown as PositionedNode).position
+      const start = position?.start?.offset
+      const end = position?.end?.offset
+      if (start == null || end == null) return
+
+      const raw = source.slice(start, end)
+      if (!FENCE_SOURCE_START_RE.test(raw)) return
+      if (isClosedFencedCodeSource(raw)) return
+
+      ;(parent as unknown as AnyParent).children[index] = {
+        type: 'paragraph',
+        children: [{ type: 'text', value: raw }]
+      }
+      return [SKIP, index]
+    })
+  }
 }
 
 function remarkWikilinks() {
@@ -383,6 +428,7 @@ const processor = unified()
   .use(remarkParse)
   .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkGfm)
+  .use(remarkRequireClosedFencedCodeBlocks)
   .use(remarkBreaks)
   .use(remarkMath)
   .use(remarkWikilinks)

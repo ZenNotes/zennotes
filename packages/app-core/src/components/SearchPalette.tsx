@@ -14,6 +14,7 @@ import { Modal } from './ui/Modal'
 export function SearchPalette(): JSX.Element {
   const t = useT();
   const notes = useStore((s) => s.notes)
+  const vimMode = useStore((s) => s.vimMode)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
   const [query, setQuery] = useState('')
@@ -64,11 +65,11 @@ export function SearchPalette(): JSX.Element {
             placeholder={t("Search notes…  ·  use #tag to filter")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (isPalettePreviousKey(e)) {
+              } else if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))

@@ -18,10 +18,15 @@ describe('isPaletteNextKey', () => {
     expect(isPaletteNextKey(key({ key: 'ArrowDown' }))).toBe(true)
   })
 
-  it('matches Ctrl+N and the vim-style Ctrl+J', () => {
+  it('matches Ctrl+N and the vim-style Ctrl+J when Vim mode is enabled', () => {
     expect(isPaletteNextKey(key({ key: 'n', ctrlKey: true }))).toBe(true)
     expect(isPaletteNextKey(key({ key: 'j', ctrlKey: true }))).toBe(true)
     expect(isPaletteNextKey(key({ key: 'J', ctrlKey: true }))).toBe(true)
+  })
+
+  it('ignores the vim-style Ctrl+J when Vim mode is disabled', () => {
+    expect(isPaletteNextKey(key({ key: 'n', ctrlKey: true }), false)).toBe(true)
+    expect(isPaletteNextKey(key({ key: 'j', ctrlKey: true }), false)).toBe(false)
   })
 
   it('ignores the chord when Meta or Alt is also held', () => {
@@ -46,10 +51,15 @@ describe('isPalettePreviousKey', () => {
     expect(isPalettePreviousKey(key({ key: 'ArrowUp' }))).toBe(true)
   })
 
-  it('matches Ctrl+P and the vim-style Ctrl+K', () => {
+  it('matches Ctrl+P and the vim-style Ctrl+K when Vim mode is enabled', () => {
     expect(isPalettePreviousKey(key({ key: 'p', ctrlKey: true }))).toBe(true)
     expect(isPalettePreviousKey(key({ key: 'k', ctrlKey: true }))).toBe(true)
     expect(isPalettePreviousKey(key({ key: 'K', ctrlKey: true }))).toBe(true)
+  })
+
+  it('ignores the vim-style Ctrl+K when Vim mode is disabled', () => {
+    expect(isPalettePreviousKey(key({ key: 'p', ctrlKey: true }), false)).toBe(true)
+    expect(isPalettePreviousKey(key({ key: 'k', ctrlKey: true }), false)).toBe(false)
   })
 
   it('ignores the chord when Meta or Alt is also held', () => {

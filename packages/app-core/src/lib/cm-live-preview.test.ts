@@ -3,7 +3,7 @@
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { livePreviewPlugin } from './cm-live-preview'
 
 vi.mock('../store', () => {
@@ -23,10 +23,14 @@ vi.mock('../store', () => {
   return { useStore }
 })
 
-function mountEditor(doc: string, anchor: number): EditorView {
+function mountEditor(
+  doc: string,
+  anchor: number,
+  options: { focus?: boolean } = {}
+): EditorView {
   const parent = document.createElement('div')
   document.body.append(parent)
-  return new EditorView({
+  const view = new EditorView({
     parent,
     state: EditorState.create({
       doc,
@@ -34,9 +38,26 @@ function mountEditor(doc: string, anchor: number): EditorView {
       extensions: [markdown({ base: markdownLanguage }), livePreviewPlugin]
     })
   })
+  if (options.focus !== false) {
+    view.focus()
+    const nudge = anchor < doc.length ? anchor + 1 : Math.max(0, anchor - 1)
+    if (nudge !== anchor) {
+      view.dispatch({ selection: { anchor: nudge } })
+      view.dispatch({ selection: { anchor } })
+    }
+  }
+  return view
 }
 
 describe('livePreviewPlugin', () => {
+  beforeEach(() => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('reveals link markdown only when the selection is inside the link', () => {
     const doc = 'Paragraph start with a [visible link](https://example.com) and trailing text.'
     const view = mountEditor(doc, 0)
@@ -69,6 +90,16 @@ describe('livePreviewPlugin', () => {
     const view = mountEditor(doc, 0)
 
     expect(view.dom.textContent).toContain('# Code blocks')
+
+    view.destroy()
+  })
+
+  it('hides heading markers when the editor is not focused', () => {
+    const doc = '# Code blocks\n\nBody'
+    const view = mountEditor(doc, 0, { focus: false })
+
+    expect(view.dom.textContent).not.toContain('# Code blocks')
+    expect(view.dom.textContent).toContain('Code blocks')
 
     view.destroy()
   })

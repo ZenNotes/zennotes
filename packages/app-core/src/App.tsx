@@ -328,6 +328,7 @@ function App(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const openHelpView = useStore((s) => s.openHelpView)
   const language = useStore((s) => s.language)
   const themeLightId = useStore((s) => s.themeLightId)
   const themeDarkId = useStore((s) => s.themeDarkId)
@@ -377,6 +378,13 @@ function App(): JSX.Element {
       setSettingsOpen(true)
     })
   }, [setSettingsOpen])
+
+  useEffect(() => {
+    return window.zen.onOpenHelp(() => {
+      setSettingsOpen(false)
+      void openHelpView()
+    })
+  }, [openHelpView, setSettingsOpen])
 
   // macOS routes ⌘C/⌘V through the Edit menu (its accelerators swallow the
   // keydown), so the note-list copy/duplicate gesture arrives here as IPC.

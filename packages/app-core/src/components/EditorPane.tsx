@@ -22,12 +22,16 @@ import {
   StateEffect,
   StateField,
   type Extension,
-  type Transaction
+  type Range,
+  type Transaction,
+  type TransactionSpec
 } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  ViewPlugin,
+  type ViewUpdate,
   WidgetType,
   drawSelection,
   highlightActiveLine,
@@ -48,16 +52,22 @@ import {
   undo
 } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import type { SyntaxNode } from '@lezer/common'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
-import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionNavKeymapFor } from '../lib/cm-completion-nav'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
   orderedListRenumber,
   skipOrderedListRenumber
 } from '../lib/cm-ordered-list-renumber'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
+import {
+  syntaxHighlighting,
+  HighlightStyle,
+  defaultHighlightStyle,
+  syntaxTree
+} from '@codemirror/language'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
@@ -204,6 +214,8 @@ import { classifyLocalAssetHref } from '../lib/local-assets'
 import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { useT } from '../lib/i18n'
+import { firstBindableH1 } from '../lib/note-title-heading'
+import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -480,6 +492,138 @@ const taskJumpHighlightField = StateField.define<DecorationSet>({
   provide: (field) => EditorView.decorations.from(field)
 })
 
+class EmptyLineHintWidget extends WidgetType {
+  constructor(private readonly label: string) {
+    super()
+  }
+
+  eq(other: EmptyLineHintWidget): boolean {
+    return other.label === this.label
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'cm-empty-line-hint'
+    span.textContent = this.label
+    span.setAttribute('aria-hidden', 'true')
+    return span
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
+function buildEmptyLineHintDecorations(view: EditorView, label: string): DecorationSet {
+  if (!view.hasFocus) return Decoration.none
+  const selection = view.state.selection
+  if (selection.ranges.length !== 1) return Decoration.none
+  const cursor = selection.main
+  if (!cursor.empty) return Decoration.none
+  const line = view.state.doc.lineAt(cursor.head)
+  if (line.text.trim().length > 0) return Decoration.none
+  return Decoration.set([
+    Decoration.widget({
+      widget: new EmptyLineHintWidget(label),
+      side: 1
+    }).range(cursor.head)
+  ])
+}
+
+function emptyLineHintExtension(label: string): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+
+      constructor(view: EditorView) {
+        this.decorations = buildEmptyLineHintDecorations(view, label)
+      }
+
+      update(update: ViewUpdate): void {
+        if (
+          update.docChanged ||
+          update.selectionSet ||
+          update.focusChanged ||
+          update.viewportChanged
+        ) {
+          this.decorations = buildEmptyLineHintDecorations(update.view, label)
+        }
+      }
+    },
+    { decorations: (plugin) => plugin.decorations }
+  )
+}
+
+class H1TitleHintWidget extends WidgetType {
+  constructor(private readonly label: string) {
+    super()
+  }
+
+  eq(other: H1TitleHintWidget): boolean {
+    return other.label === this.label
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = 'cm-h1-title-hint'
+    span.textContent = this.label
+    span.setAttribute('aria-hidden', 'true')
+    return span
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
+function isInsideMarkdownCodeBlock(state: EditorState, pos: number): boolean {
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, 1)
+  while (node) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') return true
+    node = node.parent
+  }
+  return false
+}
+
+function buildH1TitleHintDecorations(view: EditorView, label: string): DecorationSet {
+  const decorations: Array<Range<Decoration>> = []
+  for (const { from, to } of view.visibleRanges) {
+    const first = view.state.doc.lineAt(from).number
+    const last = view.state.doc.lineAt(Math.max(from, to - 1)).number
+    for (let lineNumber = first; lineNumber <= last; lineNumber++) {
+      const line = view.state.doc.line(lineNumber)
+      if (!/^#[ \t]*$/u.test(line.text)) continue
+      if (isInsideMarkdownCodeBlock(view.state, line.from)) continue
+      decorations.push(
+        Decoration.widget({
+          widget: new H1TitleHintWidget(label),
+          side: 1
+        }).range(line.to)
+      )
+    }
+  }
+  return Decoration.set(decorations)
+}
+
+function h1TitleHintExtension(label: string): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+
+      constructor(view: EditorView) {
+        this.decorations = buildH1TitleHintDecorations(view, label)
+      }
+
+      update(update: ViewUpdate): void {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = buildH1TitleHintDecorations(update.view, label)
+        }
+      }
+    },
+    { decorations: (plugin) => plugin.decorations }
+  )
+}
+
 function lineNumberExtension(mode: LineNumberMode): Extension {
   if (mode === 'off') return []
   return [
@@ -573,6 +717,12 @@ function getEditorContextMenuPosition(view: EditorView): { x: number; y: number 
 
 export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const tr = useT()
+  const emptyLineHintText = tr("Enter text or type '/' for commands")
+  const h1TitleHintText = tr('Title')
+  const emptyLineHintTextRef = useRef(emptyLineHintText)
+  const h1TitleHintTextRef = useRef(h1TitleHintText)
+  emptyLineHintTextRef.current = emptyLineHintText
+  h1TitleHintTextRef.current = h1TitleHintText
   const paneId = pane.id
   const isActive = useStore((s) => s.activePaneId === paneId)
   const tabs = pane.tabs
@@ -620,6 +770,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const restoreActive = useStore((s) => s.restoreActive)
   const unarchiveActive = useStore((s) => s.unarchiveActive)
   const exportActiveNotePdf = useStore((s) => s.exportActiveNotePdf)
+  const renameNote = useStore((s) => s.renameNote)
   const renameActive = useStore((s) => s.renameActive)
   const loadNoteComments = useStore((s) => s.loadNoteComments)
   const setActiveCommentId = useStore((s) => s.setActiveCommentId)
@@ -635,6 +786,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const clearPendingTitleFocus = useStore((s) => s.clearPendingTitleFocus)
   const pendingJumpLocation = useStore((s) => s.pendingJumpLocation)
   const clearPendingJumpLocation = useStore((s) => s.clearPendingJumpLocation)
+  const noteRenameTransition = useStore((s) => s.noteRenameTransition)
+  const clearNoteRenameTransition = useStore((s) => s.clearNoteRenameTransition)
   const vimMode = useStore((s) => s.vimMode)
   const livePreview = useStore((s) => s.livePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
@@ -773,6 +926,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
+  const emptyLineHintCompartmentRef = useRef<Compartment | null>(null)
+  const h1TitleHintCompartmentRef = useRef<Compartment | null>(null)
+  const h1TitleSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const firstH1TitleByPathRef = useRef<Map<string, string | null>>(new Map())
   const ignoreEditorScrollRef = useRef(false)
   const ignorePreviewScrollRef = useRef(false)
   const pendingOutlineJumpLineRef = useRef<number | null>(null)
@@ -796,6 +953,51 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    * sync effect updates it whenever we swap the view's document.
    */
   const viewPathRef = useRef<string | null>(null)
+
+  const scheduleFirstH1TitleSync = useCallback(
+    (path: string, body: string): void => {
+      const h1 = firstBindableH1(body)
+      if (!h1 || !h1.title) {
+        if (h1TitleSyncTimerRef.current) {
+          clearTimeout(h1TitleSyncTimerRef.current)
+          h1TitleSyncTimerRef.current = null
+        }
+        return
+      }
+      const nextTitle = h1.title
+      const current = useStore.getState().noteContents[path]
+      if (!current || current.title === nextTitle) return
+      if (h1TitleSyncTimerRef.current) clearTimeout(h1TitleSyncTimerRef.current)
+      h1TitleSyncTimerRef.current = setTimeout(() => {
+        h1TitleSyncTimerRef.current = null
+        const live = useStore.getState().noteContents[path]
+        if (!live) return
+        const liveH1 = firstBindableH1(live.body)
+        if (!liveH1 || !liveH1.title) return
+        const liveTitle = liveH1.title
+        if (live.title === liveTitle) return
+        void renameNote(path, liveTitle)
+      }, 600)
+    },
+    [renameNote]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (h1TitleSyncTimerRef.current) {
+        clearTimeout(h1TitleSyncTimerRef.current)
+        h1TitleSyncTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!content?.path) return
+    firstH1TitleByPathRef.current.set(
+      content.path,
+      firstBindableH1(content.body)?.title ?? null
+    )
+  }, [content?.body, content?.path])
 
   // Wire pointer listeners on the editor surface so hovering a rendered
   // `[[wikilink]]` reveals its target note in the same floating preview the
@@ -1473,12 +1675,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const livePreviewCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
+      const emptyLineHintCompartment = new Compartment()
+      const h1TitleHintCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       markdownCompartmentRef.current = markdownCompartment
       markdownSyntaxCompartmentRef.current = markdownSyntaxCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       wordWrapCompartmentRef.current = wordWrapCompartment
+      emptyLineHintCompartmentRef.current = emptyLineHintCompartment
+      h1TitleHintCompartmentRef.current = h1TitleHintCompartment
       const s0 = useStore.getState()
       const initialPath = findLeaf(s0.paneLayout, paneId)?.activeTab ?? null
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
@@ -1491,6 +1697,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const state = EditorState.create({
         doc: initialBody,
         extensions: [
+          macLineStartDeleteExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
           drawSelection(),
@@ -1509,6 +1716,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
+          emptyLineHintCompartment.of(emptyLineHintExtension(emptyLineHintTextRef.current)),
+          h1TitleHintCompartment.of(h1TitleHintExtension(h1TitleHintTextRef.current)),
           tooltips({ parent: document.body }),
           autocompletion({
             override: [slashCommandSource, dateShortcutSource, wikilinkSource],
@@ -1519,7 +1728,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 ? 'wikilink-cmd-option'
                 : 'slash-cmd-option'
           }),
-          completionNavKeymap,
+          completionNavKeymapFor(() => useStore.getState().vimMode),
           keymap.of([
             {
               key: 'Mod-f',
@@ -1616,7 +1825,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return
             const path = viewPathRef.current
             if (!path) return
-            updateNoteBody(path, upd.state.doc.toString())
+            const body = upd.state.doc.toString()
+            updateNoteBody(path, body)
+            const nextFirstH1Title = firstBindableH1(body)?.title ?? null
+            const previousFirstH1Title = firstH1TitleByPathRef.current.get(path)
+            if (previousFirstH1Title !== nextFirstH1Title) {
+              firstH1TitleByPathRef.current.set(path, nextFirstH1Title)
+              if (nextFirstH1Title != null) scheduleFirstH1TitleSync(path, body)
+            }
           })
         ]
       })
@@ -1656,6 +1872,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       openEditorContextMenu,
       paneId,
       schedulePreviewSyncFromEditorViewport,
+      scheduleFirstH1TitleSync,
       scheduleSelectionCommentAction,
       setActiveCommentId,
       setActivePane,
@@ -1692,13 +1909,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   useLayoutEffect(() => {
     const view = viewRef.current
     if (!view) return
+    const currentPath = viewPathRef.current
     const nextPath = content?.path ?? null
     const nextBody = content?.body ?? ''
-    const pathChanged = viewPathRef.current !== nextPath
-    const bodyChanged =
-      pathChanged ||
-      view.state.doc.length !== nextBody.length ||
-      view.state.doc.toString() !== nextBody
+    const pathChanged = currentPath !== nextPath
+    const isRenameTransition =
+      pathChanged &&
+      currentPath != null &&
+      nextPath != null &&
+      noteRenameTransition?.oldPath === currentPath &&
+      noteRenameTransition.newPath === nextPath
+    const currentBody = view.state.doc.toString()
+    const textChanged = view.state.doc.length !== nextBody.length || currentBody !== nextBody
+    const bodyChanged = pathChanged || textChanged
     if (!pathChanged && !bodyChanged) return
     if (deferredLivePreviewTimerRef.current != null) {
       clearTimeout(deferredLivePreviewTimerRef.current)
@@ -1715,6 +1938,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const richEditing = modeRef.current === 'edit'
     const deferRichMarkdown =
       pathChanged &&
+      !isRenameTransition &&
       nextBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
       !richEditing &&
       !!markdownCompartment &&
@@ -1742,13 +1966,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
     }
     const dispatchStartedAt = performance.now()
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: nextBody },
+    const transaction: TransactionSpec = {
       annotations: [programmatic.of(true), skipOrderedListRenumber.of(true)],
-      effects: effects.length > 0 ? effects : undefined,
-      selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
-    })
-    if (pathChanged && pendingJumpLocation?.path !== nextPath) {
+      selection:
+        pathChanged && !isRenameTransition
+          ? { anchor: 0 }
+          : { anchor: clampedAnchor, head: clampedHead }
+    }
+    if (textChanged) {
+      transaction.changes = { from: 0, to: view.state.doc.length, insert: nextBody }
+    }
+    if (effects.length > 0) transaction.effects = effects
+    view.dispatch(transaction)
+    if (pathChanged && !isRenameTransition && pendingJumpLocation?.path !== nextPath) {
       // Clear scroll on a genuine tab switch; the activation effect below
       // restores a remembered position afterward when there is one.
       view.scrollDOM.scrollTop = 0
@@ -1769,6 +1999,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       })
     })
     viewPathRef.current = nextPath
+    if (isRenameTransition) clearNoteRenameTransition()
     if (
       deferRichMarkdown &&
       markdownCompartment &&
@@ -1792,7 +2023,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         })
       }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
     }
-  }, [content?.body, content?.path, mode, pendingJumpLocation?.path])
+  }, [
+    clearNoteRenameTransition,
+    content?.body,
+    content?.path,
+    mode,
+    noteRenameTransition?.newPath,
+    noteRenameTransition?.oldPath,
+    pendingJumpLocation?.path
+  ])
 
   // A note that is a database record page projects the form's columns as its
   // properties. Build that context (column metas + a write-back hook) for the
@@ -1903,6 +2142,22 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       effects: comp.reconfigure(wordWrap ? EditorView.lineWrapping : [])
     })
   }, [wordWrap])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = emptyLineHintCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({
+      effects: comp.reconfigure(emptyLineHintExtension(emptyLineHintText))
+    })
+  }, [emptyLineHintText])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = h1TitleHintCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({
+      effects: comp.reconfigure(h1TitleHintExtension(h1TitleHintText))
+    })
+  }, [h1TitleHintText])
 
   // Re-measure CM on prefs that change line geometry.
   useEffect(() => {

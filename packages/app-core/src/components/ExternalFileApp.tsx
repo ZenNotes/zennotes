@@ -24,6 +24,7 @@ import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { searchKeymap } from '@codemirror/search'
 import type { ExternalFileContent } from '@shared/ipc'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, InboxIcon } from './icons'
@@ -110,6 +111,7 @@ export function ExternalFileApp(): JSX.Element {
         // ref keeps the current text when the editor remounts on toggles.
         doc: bodyRef.current ?? '',
         extensions: [
+          macLineStartDeleteExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),

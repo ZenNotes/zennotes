@@ -75,6 +75,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
   const setMonthAnchor = useStore((s) => s.setTasksCalendarMonthAnchor)
   const selectedDateIso = useStore((s) => s.tasksCalendarSelectedDate)
   const setSelectedDate = useStore((s) => s.setTasksCalendarSelectedDate)
+  const vimMode = useStore((s) => s.vimMode)
   const rootRef = useRef<HTMLDivElement>(null)
 
   const todayIso = useMemo(() => toIsoDateLocal(today), [today])
@@ -135,6 +136,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
   // stopImmediatePropagation so it beats VimNav's `gg`/`G`/`hjkl`
   // sidebar bindings (same trick TasksView's list mode uses).
   useEffect(() => {
+    if (!vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const active = document.activeElement as HTMLElement | null
       if (active) {
@@ -225,7 +227,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
     return () => window.removeEventListener('keydown', handler, true)
     // We deliberately re-bind on every relevant change so the closure
     // sees the latest selection / month / cells.
-  }, [cells, monthAnchor, selectedDate, selectedTasks, onOpenTask])
+  }, [cells, monthAnchor, selectedDate, selectedTasks, onOpenTask, vimMode])
 
   const focusedTaskRef = useRef<HTMLButtonElement | null>(null)
   useEffect(() => {

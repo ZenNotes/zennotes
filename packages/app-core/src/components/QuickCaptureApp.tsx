@@ -63,6 +63,7 @@ import {
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 import { PinIcon } from './icons'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -409,6 +410,7 @@ export function QuickCaptureApp(): JSX.Element {
       const state = EditorState.create({
         doc: '',
         extensions: [
+          macLineStartDeleteExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),
@@ -604,6 +606,7 @@ export function QuickCaptureApp(): JSX.Element {
         {overlay === 'search' && (
           <NotePickerOverlay
             notes={notes}
+            vimMode={prefs.vimMode}
             onPick={(note) => void loadNote(note)}
             onCancel={() => {
               setOverlay('none')
@@ -616,6 +619,7 @@ export function QuickCaptureApp(): JSX.Element {
           <CommandOverlay
             modKey={modKey}
             mode={mode}
+            vimMode={prefs.vimMode}
             onCancel={() => {
               setOverlay('none')
               requestAnimationFrame(() => editorRef.current?.focus())
@@ -675,11 +679,12 @@ function OverlayShell({ children }: OverlayShellProps): JSX.Element {
 
 interface NotePickerOverlayProps {
   notes: NoteMeta[]
+  vimMode: boolean
   onPick: (note: NoteMeta) => void
   onCancel: () => void
 }
 
-function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps): JSX.Element {
+function NotePickerOverlay({ notes, vimMode, onPick, onCancel }: NotePickerOverlayProps): JSX.Element {
   const tr = useT()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -701,10 +706,10 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (isPaletteNextKey(e)) {
+    if (isPaletteNextKey(e, vimMode)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
-    } else if (isPalettePreviousKey(e)) {
+    } else if (isPalettePreviousKey(e, vimMode)) {
       e.preventDefault()
       setActive((i) => Math.max(0, i - 1))
     } else if (e.key === 'Enter') {
@@ -772,11 +777,12 @@ type CommandAction = 'save' | 'save-no-close' | 'new' | 'open'
 interface CommandOverlayProps {
   modKey: string
   mode: EditingMode
+  vimMode: boolean
   onAction: (action: CommandAction) => void
   onCancel: () => void
 }
 
-function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
+function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
   const tr = useT()
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -827,10 +833,10 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
-    if (isPaletteNextKey(e)) {
+    if (isPaletteNextKey(e, vimMode)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
-    } else if (isPalettePreviousKey(e)) {
+    } else if (isPalettePreviousKey(e, vimMode)) {
       e.preventDefault()
       setActive((i) => Math.max(0, i - 1))
     } else if (e.key === 'Enter') {

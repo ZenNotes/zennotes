@@ -14,7 +14,6 @@ import {
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { ResizeHandle } from './ResizeHandle'
 import { Button, IconButton } from './ui/Button'
-import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
@@ -172,7 +171,6 @@ export function NoteList(): JSX.Element {
       if (selectedPath === n.path) await selectNote(meta.path)
     }
     const onTrash = async (): Promise<void> => {
-      if (!(await confirmMoveToTrash(n.title, t))) return
       await window.zen.moveToTrash(n.path)
       await refreshNotes()
       if (selectedPath === n.path) await selectNote(null)

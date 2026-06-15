@@ -168,8 +168,8 @@ export async function cmdMove(vault: string, args: ParsedArgs): Promise<void> {
 }
 
 export async function cmdArchive(vault: string, args: ParsedArgs): Promise<void> {
-  const meta = await archiveNote(vault, requirePath(args))
-  emitWritten(meta, args, 'Archived')
+  const handle = await archiveNote(vault, requirePath(args))
+  emitHandled(handle, args, 'Archived')
 }
 
 export async function cmdUnarchive(vault: string, args: ParsedArgs): Promise<void> {
@@ -178,8 +178,8 @@ export async function cmdUnarchive(vault: string, args: ParsedArgs): Promise<voi
 }
 
 export async function cmdTrash(vault: string, args: ParsedArgs): Promise<void> {
-  const meta = await moveToTrash(vault, requirePath(args))
-  emitWritten(meta, args, 'Moved to trash')
+  const handle = await moveToTrash(vault, requirePath(args))
+  emitHandled(handle, args, 'Moved to trash')
 }
 
 export async function cmdRestore(vault: string, args: ParsedArgs): Promise<void> {
@@ -232,4 +232,12 @@ function emitWritten(meta: NoteMeta, args: ParsedArgs, verb = 'Updated'): void {
     return
   }
   emitOk(`${verb} ${meta.path}`)
+}
+
+function emitHandled(handle: string, args: ParsedArgs, verb: string): void {
+  if (getBool(args, 'json')) {
+    emitJson({ ok: true, handle })
+    return
+  }
+  emitOk(`${verb} ${handle}`)
 }

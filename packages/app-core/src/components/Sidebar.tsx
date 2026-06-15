@@ -2,14 +2,12 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import {
   isArchiveViewActive,
   isAssetsViewActive,
-  isHelpViewActive,
   isQuickNotesViewActive,
   isTagsViewActive,
   isTasksViewActive,
   isTrashViewActive,
   useStore,
 } from "../store";
-import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { useT } from "../lib/i18n";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
@@ -26,7 +24,6 @@ import {
   CheckSquareIcon,
   CloseIcon,
   DatabaseIcon,
-  HelpCircleIcon,
   PaperclipIcon,
   ExpandAllIcon,
   PlusIcon,
@@ -377,8 +374,6 @@ export function Sidebar(): JSX.Element {
   const sidebarHideTasks = useStore((s) => s.sidebarHideTasks);
   const openQuickNotesView = useStore((s) => s.openQuickNotesView);
   const quickNotesViewActive = useStore(isQuickNotesViewActive);
-  const openHelpView = useStore((s) => s.openHelpView);
-  const helpViewActive = useStore(isHelpViewActive);
   const openArchiveView = useStore((s) => s.openArchiveView);
   const archiveViewActive = useStore(isArchiveViewActive);
   const openTrashView = useStore((s) => s.openTrashView);
@@ -457,7 +452,8 @@ export function Sidebar(): JSX.Element {
   const setVaultSettings = useStore((s) => s.setVaultSettings);
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
-  const appUpdateBadge = appUpdateBadgeLabel(appUpdateState);
+  const appUpdateBadge =
+    appUpdateState?.phase === "downloading" ? null : appUpdateBadgeLabel(appUpdateState);
   const appUpdateSettingsTitle =
     appUpdateState?.phase === "downloaded"
       ? t("Settings, update ready to install")
@@ -1431,15 +1427,6 @@ export function Sidebar(): JSX.Element {
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
-          const ok = await confirmApp({
-            title: t("Move {count} notes to {label}?")
-              .replace("{count}", String(liveNotes.length))
-              .replace("{label}", folderLabels.trash),
-            description: t("You can restore them from Trash later."),
-            confirmLabel: t("Move to {label}").replace("{label}", folderLabels.trash),
-            danger: true,
-          });
-          if (!ok) return;
           for (const note of liveNotes) {
             await window.zen.moveToTrash(note.path);
           }
@@ -2173,7 +2160,6 @@ export function Sidebar(): JSX.Element {
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
-          if (!(await confirmMoveToTrash(n.title, t))) return;
           await window.zen.moveToTrash(n.path);
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
@@ -2194,7 +2180,6 @@ export function Sidebar(): JSX.Element {
         icon: <TrashIcon />,
         danger: true,
         onSelect: async () => {
-          if (!(await confirmMoveToTrash(n.title, t))) return;
           await window.zen.moveToTrash(n.path);
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
@@ -3122,7 +3107,7 @@ export function Sidebar(): JSX.Element {
                         data-sidebar-type="tag"
                         data-sidebar-tag={tag}
                       >
-                        #{tag}
+                        {tag}
                         <span
                           className={[
                             "ml-1 text-2xs",
@@ -3144,11 +3129,10 @@ export function Sidebar(): JSX.Element {
       </div>
 
       {/* Footer — vault-level utilities. Kept deliberately small so the
-       *  main tree area dominates; Help and Settings are also reachable
-       *  from the command palette and (for Settings) ⌘,. Trash lives in
-       *  the main tree above and opens its dedicated recovery view. */}
+       *  main tree area dominates; Settings is also reachable from the
+       *  command palette and ⌘,. Trash opens its dedicated recovery view. */}
       <div
-        className="zn-sidebar-footer-safe mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 px-3"
+        className="zn-sidebar-footer-safe mt-2 grid h-16 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3"
         style={{ borderTop: "1px solid var(--glass-stroke)" }}
       >
         <SidebarFooterAction
@@ -3162,16 +3146,6 @@ export function Sidebar(): JSX.Element {
           vimHighlight={vimCursor === idxCounter.current.value - 1}
           sidebarFocused={sidebarKbFocused}
           sidebarData={{ type: "trash" }}
-        />
-        <SidebarFooterAction
-          icon={<HelpCircleIcon />}
-          label={t("Help")}
-          active={helpViewActive}
-          onClick={() => void openHelpView()}
-          sidebarIdx={idxCounter.current.value++}
-          vimHighlight={vimCursor === idxCounter.current.value - 1}
-          sidebarFocused={sidebarKbFocused}
-          sidebarData={{ type: "help" }}
         />
         <SidebarFooterAction
           icon={<SettingsIcon />}

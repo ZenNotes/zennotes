@@ -13,16 +13,26 @@ function key(init: Partial<KeyboardEvent>): KeyboardEvent {
 }
 
 describe('completionNavDirection', () => {
-  it('maps Ctrl+N and Ctrl+J to next', () => {
+  it('maps Ctrl+N and Ctrl+J to next when Vim mode is enabled', () => {
     expect(completionNavDirection(key({ key: 'n', ctrlKey: true }))).toBe('next')
     expect(completionNavDirection(key({ key: 'j', ctrlKey: true }))).toBe('next')
     expect(completionNavDirection(key({ key: 'J', ctrlKey: true }))).toBe('next')
   })
 
-  it('maps Ctrl+P and Ctrl+K to previous', () => {
+  it('ignores Ctrl+J when Vim mode is disabled', () => {
+    expect(completionNavDirection(key({ key: 'n', ctrlKey: true }), false)).toBe('next')
+    expect(completionNavDirection(key({ key: 'j', ctrlKey: true }), false)).toBeNull()
+  })
+
+  it('maps Ctrl+P and Ctrl+K to previous when Vim mode is enabled', () => {
     expect(completionNavDirection(key({ key: 'p', ctrlKey: true }))).toBe('previous')
     expect(completionNavDirection(key({ key: 'k', ctrlKey: true }))).toBe('previous')
     expect(completionNavDirection(key({ key: 'K', ctrlKey: true }))).toBe('previous')
+  })
+
+  it('ignores Ctrl+K when Vim mode is disabled', () => {
+    expect(completionNavDirection(key({ key: 'p', ctrlKey: true }), false)).toBe('previous')
+    expect(completionNavDirection(key({ key: 'k', ctrlKey: true }), false)).toBeNull()
   })
 
   it('only fires for a bare Ctrl chord', () => {

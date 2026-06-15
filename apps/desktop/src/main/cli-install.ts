@@ -26,6 +26,7 @@ import type { CliInstallStatus } from '@shared/ipc'
 const execFileAsync = promisify(execFile)
 
 const SUDO_FALLBACK_DIR = '/usr/local/bin'
+const CLI_SKILL_NAME = 'zennotes-cli'
 
 /* ---------- Wrapper resolution ---------------------------------------- */
 
@@ -58,6 +59,29 @@ async function locateWrapper(): Promise<WrapperLocation | null> {
         fsp.stat(c.cliJsPath)
       ])
       if (wrapperStat.isFile() && cliStat.isFile()) return c
+    } catch {
+      /* keep trying */
+    }
+  }
+  return null
+}
+
+async function locateBundledCliSkill(): Promise<string | null> {
+  const candidates: string[] = []
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'skills', CLI_SKILL_NAME))
+  }
+
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  candidates.push(
+    path.resolve(here, '../../../../integrations/skills', CLI_SKILL_NAME),
+    path.resolve(process.cwd(), 'integrations/skills', CLI_SKILL_NAME)
+  )
+
+  for (const candidate of candidates) {
+    try {
+      const stat = await fsp.stat(path.join(candidate, 'SKILL.md'))
+      if (stat.isFile()) return candidate
     } catch {
       /* keep trying */
     }
@@ -348,7 +372,53 @@ export async function installCli(): Promise<CliInstallStatus> {
     }
   }
 
+  await installCliSkillBestEffort()
+
   return await getCliInstallStatus()
+}
+
+async function installCliSkillBestEffort(): Promise<void> {
+  try {
+    const source = await locateBundledCliSkill()
+    if (!source) {
+      console.warn('ZenNotes CLI skill source is not bundled with this build.')
+      return
+    }
+    const installed = await installCliSkillToAgentDirs(source)
+    if (installed.length === 0) {
+      console.warn('No Codex or Claude skill directory found for ZenNotes CLI skill install.')
+    }
+  } catch (err) {
+    console.warn('Failed to install ZenNotes CLI skill', err)
+  }
+}
+
+async function installCliSkillToAgentDirs(source: string): Promise<string[]> {
+  const home = os.homedir()
+  const agentRoots = [path.join(home, '.codex'), path.join(home, '.claude')]
+  const installed: string[] = []
+
+  for (const root of agentRoots) {
+    let stat
+    try {
+      stat = await fsp.stat(root)
+    } catch {
+      continue
+    }
+    if (!stat.isDirectory()) continue
+
+    const target = path.join(root, 'skills', CLI_SKILL_NAME)
+    try {
+      await fsp.rm(target, { recursive: true, force: true })
+      await fsp.mkdir(target, { recursive: true })
+      await fsp.copyFile(path.join(source, 'SKILL.md'), path.join(target, 'SKILL.md'))
+      installed.push(target)
+    } catch (err) {
+      console.warn(`Failed to install ZenNotes CLI skill to ${target}`, err)
+    }
+  }
+
+  return installed
 }
 
 async function writeSymlink(source: string, target: string): Promise<void> {

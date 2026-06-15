@@ -28,7 +28,6 @@ import { getISOWeek, getISOWeekYear } from '../lib/template-render'
 import { countWords } from '../lib/word-count'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 import { confirmApp } from '../lib/confirm-requests'
-import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -295,8 +294,8 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   // --- Context menu --------------------------------------------------------
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
   const trashNote = useCallback(async (meta: NoteMeta) => {
-    if (await confirmMoveToTrash(meta.title, t)) await window.zen.moveToTrash(meta.path)
-  }, [t])
+    await window.zen.moveToTrash(meta.path)
+  }, [])
   const openDayMenu = useCallback(
     (e: React.MouseEvent, day: Date, iso: string) => {
       if (!dailyEnabled) return

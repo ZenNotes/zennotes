@@ -52,13 +52,13 @@ import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
+import { HelpCircleIcon } from './icons'
 
 type SettingsCategoryId =
   | 'appearance'
   | 'sidebar'
   | 'editor'
   | 'keymaps'
-  | 'typography'
   | 'vault'
   | 'templates'
   | 'mcp'
@@ -73,7 +73,6 @@ const CATEGORY_EYEBROW_LABEL: Record<SettingsCategoryId, string> = {
   sidebar: 'Sidebar',
   editor: 'Editor',
   keymaps: 'Keymap',
-  typography: 'Typography',
   vault: 'Vault',
   templates: 'Templates',
   mcp: 'MCP',
@@ -216,6 +215,7 @@ export function SettingsModal(): JSX.Element {
   const supportsRemoteWorkspace =
     appInfo.runtime === 'desktop' && zenBridge.getCapabilities().supportsRemoteWorkspace
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const openHelpView = useStore((s) => s.openHelpView)
   const language = useStore((s) => s.language)
   const setLanguage = useStore((s) => s.setLanguage)
   const vimMode = useStore((s) => s.vimMode)
@@ -683,8 +683,28 @@ export function SettingsModal(): JSX.Element {
     {
       id: 'appearance',
       title: t('Appearance'),
-      description: t('Theme family, mode, and chrome surface styling.'),
-      keywords: ['theme', 'mode', 'variant', 'dark sidebar', 'surface', 'look'],
+      description: t('Theme, mode, surface styling, fonts, and reading layout.'),
+      keywords: [
+        'theme',
+        'mode',
+        'variant',
+        'dark sidebar',
+        'surface',
+        'look',
+        'typography',
+        'font',
+        'size',
+        'line height',
+        'width',
+        'alignment',
+        'numbers',
+        '排版',
+        '字体',
+        '行高',
+        '宽度',
+        '对齐',
+        '行号'
+      ],
       searchItems: [
         {
           id: 'theme-family',
@@ -703,6 +723,60 @@ export function SettingsModal(): JSX.Element {
           title: 'Theme variant',
           description: 'Choose a family-specific contrast, flavor, or variant.',
           keywords: ['variant', 'contrast', 'flavor']
+        },
+        {
+          id: 'interface-font',
+          title: 'Interface font',
+          description: 'Used for the sidebar, menus, and window chrome.',
+          keywords: ['font']
+        },
+        {
+          id: 'text-font',
+          title: 'Text font',
+          description: 'Used for editing and reading views.',
+          keywords: ['font']
+        },
+        {
+          id: 'monospace-font',
+          title: 'Monospace font',
+          description: 'Used for code blocks, inline code, and frontmatter.',
+          keywords: ['font', 'mono', 'code']
+        },
+        {
+          id: 'font-size',
+          title: 'Font size',
+          description: 'Editor and preview text size.',
+          keywords: ['size']
+        },
+        {
+          id: 'line-height',
+          title: 'Line height',
+          description: 'Editor and preview line spacing.',
+          keywords: ['spacing']
+        },
+        {
+          id: 'reading-width',
+          title: 'Reading width',
+          description: 'Maximum width for preview and split-preview content.',
+          keywords: ['width', 'preview']
+        },
+        {
+          id: 'editor-width',
+          title: 'Editor width',
+          description: 'Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.',
+          keywords: ['width']
+        },
+        {
+          id: 'content-alignment',
+          title: 'Content alignment',
+          description: 'Center note content within the column or left-align it to the pane edge.',
+          keywords: ['alignment', 'center', 'left']
+        },
+        {
+          id: 'line-numbers',
+          title: 'Line numbers',
+          description: 'Show editor gutter numbers.',
+          keywords: ['numbers', 'gutter', 'relative', 'absolute']
         }
       ],
       content: (
@@ -777,6 +851,109 @@ export function SettingsModal(): JSX.Element {
                 />
               </div>
             </div>
+          </Section>
+
+          <Section
+            title={t('Fonts')}
+            description={t('Separate the app chrome, reading text, and code treatment.')}
+          >
+            <FontRow
+              label={t('Interface font')}
+              description={t('Used for the sidebar, menus, and window chrome.')}
+              value={interfaceFont}
+              options={systemFonts}
+              settingId="interface-font"
+              onChange={setInterfaceFont}
+            />
+            <FontRow
+              label={t('Text font')}
+              description={t('Used for editing and reading views.')}
+              value={textFont}
+              options={systemFonts}
+              settingId="text-font"
+              onChange={setTextFont}
+            />
+            <FontRow
+              label={t('Monospace font')}
+              description={t('Used for code blocks, inline code, and frontmatter.')}
+              value={monoFont}
+              options={systemFonts}
+              settingId="monospace-font"
+              onChange={setMonoFont}
+            />
+          </Section>
+
+          <Section
+            title={t('Layout')}
+            description={t('Tune reading density and how notes sit in the pane.')}
+          >
+            <SliderRow
+              label={t('Font size')}
+              description={t('Editor and preview text size.')}
+              value={editorFontSize}
+              min={12}
+              max={32}
+              step={1}
+              unit="px"
+              settingId="font-size"
+              onChange={setEditorFontSize}
+            />
+            <SliderRow
+              label={t('Line height')}
+              description={t('Editor and preview line spacing.')}
+              value={editorLineHeight}
+              min={1.2}
+              max={2.4}
+              step={0.05}
+              settingId="line-height"
+              onChange={setEditorLineHeight}
+              format={(v) => v.toFixed(2)}
+            />
+            <SliderRow
+              label={t('Reading width')}
+              description={t('Maximum width for preview and split-preview content.')}
+              value={previewMaxWidth}
+              min={640}
+              max={1400}
+              step={20}
+              unit="px"
+              settingId="reading-width"
+              onChange={setPreviewMaxWidth}
+            />
+            <SliderRow
+              label={t('Editor width')}
+              description={t('Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.')}
+              value={editorMaxWidth}
+              min={640}
+              max={1600}
+              step={20}
+              unit="px"
+              settingId="editor-width"
+              onChange={setEditorMaxWidth}
+            />
+            <SegmentedRow
+              label={t('Content alignment')}
+              description={t('Center note content within the column or left-align it to the pane edge.')}
+              value={contentAlign}
+              settingId="content-alignment"
+              options={[
+                { value: 'center', label: 'Center' },
+                { value: 'left', label: 'Left' }
+              ]}
+              onChange={(next) => setContentAlign(next)}
+            />
+            <SegmentedRow
+              label={t('Line numbers')}
+              description={t('Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally.')}
+              value={lineNumberMode}
+              settingId="line-numbers"
+              options={[
+                { value: 'off', label: 'Off' },
+                { value: 'absolute', label: 'Absolute' },
+                { value: 'relative', label: 'Relative' }
+              ]}
+              onChange={(next) => setLineNumberMode(next)}
+            />
           </Section>
 
         </div>
@@ -1252,174 +1429,6 @@ export function SettingsModal(): JSX.Element {
             onSetBinding={(id, binding) => setKeymapBinding(id, binding)}
             onResetAll={resetAllKeymaps}
           />
-        </div>
-      )
-    },
-    {
-      id: 'typography',
-      title: t('Typography'),
-      description: t('Fonts, line height, reading width, alignment, and line numbers.'),
-      keywords: ['font', 'size', 'line height', 'width', 'alignment', 'numbers'],
-      searchItems: [
-        {
-          id: 'interface-font',
-          title: 'Interface font',
-          description: 'Used for the sidebar, menus, and window chrome.',
-          keywords: ['font']
-        },
-        {
-          id: 'text-font',
-          title: 'Text font',
-          description: 'Used for editing and reading views.',
-          keywords: ['font']
-        },
-        {
-          id: 'monospace-font',
-          title: 'Monospace font',
-          description: 'Used for code blocks, inline code, and frontmatter.',
-          keywords: ['font', 'mono', 'code']
-        },
-        {
-          id: 'font-size',
-          title: 'Font size',
-          description: 'Editor and preview text size.',
-          keywords: ['size']
-        },
-        {
-          id: 'line-height',
-          title: 'Line height',
-          description: 'Editor and preview line spacing.',
-          keywords: ['spacing']
-        },
-        {
-          id: 'reading-width',
-          title: 'Reading width',
-          description: 'Maximum width for preview and split-preview content.',
-          keywords: ['width', 'preview']
-        },
-        {
-          id: 'editor-width',
-          title: 'Editor width',
-          description: 'Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.',
-          keywords: ['width']
-        },
-        {
-          id: 'content-alignment',
-          title: 'Content alignment',
-          description: 'Center note content within the column or left-align it to the pane edge.',
-          keywords: ['alignment', 'center', 'left']
-        },
-        {
-          id: 'line-numbers',
-          title: 'Line numbers',
-          description: 'Show editor gutter numbers.',
-          keywords: ['numbers', 'gutter', 'relative', 'absolute']
-        }
-      ],
-      content: (
-        <div className="space-y-6">
-          <Section
-            title={t('Fonts')}
-            description={t('Separate the app chrome, reading text, and code treatment.')}
-          >
-            <FontRow
-              label={t('Interface font')}
-              description={t('Used for the sidebar, menus, and window chrome.')}
-              value={interfaceFont}
-              options={systemFonts}
-              settingId="interface-font"
-              onChange={setInterfaceFont}
-            />
-            <FontRow
-              label={t('Text font')}
-              description={t('Used for editing and reading views.')}
-              value={textFont}
-              options={systemFonts}
-              settingId="text-font"
-              onChange={setTextFont}
-            />
-            <FontRow
-              label={t('Monospace font')}
-              description={t('Used for code blocks, inline code, and frontmatter.')}
-              value={monoFont}
-              options={systemFonts}
-              settingId="monospace-font"
-              onChange={setMonoFont}
-            />
-          </Section>
-
-          <Section
-            title={t('Layout')}
-            description={t('Tune reading density and how notes sit in the pane.')}
-          >
-            <SliderRow
-              label={t('Font size')}
-              description={t('Editor and preview text size.')}
-              value={editorFontSize}
-              min={12}
-              max={32}
-              step={1}
-              unit="px"
-              settingId="font-size"
-              onChange={setEditorFontSize}
-            />
-            <SliderRow
-              label={t('Line height')}
-              description={t('Editor and preview line spacing.')}
-              value={editorLineHeight}
-              min={1.2}
-              max={2.4}
-              step={0.05}
-              settingId="line-height"
-              onChange={setEditorLineHeight}
-              format={(v) => v.toFixed(2)}
-            />
-            <SliderRow
-              label={t('Reading width')}
-              description={t('Maximum width for preview and split-preview content.')}
-              value={previewMaxWidth}
-              min={640}
-              max={1400}
-              step={20}
-              unit="px"
-              settingId="reading-width"
-              onChange={setPreviewMaxWidth}
-            />
-            <SliderRow
-              label={t('Editor width')}
-              description={t('Caps and centers the editor column so lines do not stretch edge-to-edge on large windows.')}
-              value={editorMaxWidth}
-              min={640}
-              max={1600}
-              step={20}
-              unit="px"
-              settingId="editor-width"
-              onChange={setEditorMaxWidth}
-            />
-            <SegmentedRow
-              label={t('Content alignment')}
-              description={t('Center note content within the column or left-align it to the pane edge.')}
-              value={contentAlign}
-              settingId="content-alignment"
-              options={[
-                { value: 'center', label: 'Center' },
-                { value: 'left', label: 'Left' }
-              ]}
-              onChange={(next) => setContentAlign(next)}
-            />
-            <SegmentedRow
-              label={t('Line numbers')}
-              description={t('Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally.')}
-              value={lineNumberMode}
-              settingId="line-numbers"
-              options={[
-                { value: 'off', label: 'Off' },
-                { value: 'absolute', label: 'Absolute' },
-                { value: 'relative', label: 'Relative' }
-              ]}
-              onChange={(next) => setLineNumberMode(next)}
-            />
-          </Section>
         </div>
       )
     },
@@ -2400,8 +2409,20 @@ export function SettingsModal(): JSX.Element {
             </nav>
           </div>
 
-          <div className="border-t border-paper-300/55 px-4 py-3 text-xs leading-5 text-ink-500">
-            {t('Settings save automatically on this device.')}
+          <div className="border-t border-paper-300/55 px-3 py-3">
+            <button
+              type="button"
+              onClick={() => {
+                setSettingsOpen(false)
+                void openHelpView()
+              }}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-medium text-ink-600 transition-colors hover:bg-paper-200/55 hover:text-ink-900"
+            >
+              <span className="shrink-0 text-ink-500">
+                <HelpCircleIcon />
+              </span>
+              <span className="text-ink-800">{t('Help')}</span>
+            </button>
           </div>
         </aside>
 

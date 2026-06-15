@@ -8,8 +8,10 @@
  * descriptions don't sprawl across ultra-wide windows.
  */
 
+import packageJson from '../../package.json'
+
 const RESET = '\x1b[0m'
-const HELP_VERSION = '0.1.0'
+const HELP_VERSION = packageJson.version
 const TERMINAL_COLUMNS_FALLBACK = 80
 const TERMINAL_COLUMNS_CAP = 100
 const COMMAND_COLUMN_WIDTH = 26
@@ -95,10 +97,10 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
       { name: 'prepend <path>', description: 'Insert text at the top, after frontmatter', flags: '--body "..."|-' },
       { name: 'rename <path>', description: 'Rename a note (filename only)', flags: '--to <new title>' },
       { name: 'move <path>', description: 'Move a note to a different folder', flags: '--folder <f>  --subpath <p>' },
-      { name: 'archive <path>', description: 'Move a note into archive/' },
-      { name: 'unarchive <path>', description: 'Move it back from archive/' },
-      { name: 'trash <path>', description: 'Soft-delete; reversible via restore' },
-      { name: 'restore <path>', description: 'Restore a trashed note to inbox' },
+      { name: 'archive <path>', description: 'Archive a note and print its recovery handle' },
+      { name: 'unarchive <handle|path>', description: 'Move it back from archive/' },
+      { name: 'trash <path>', description: 'Soft-delete and print its recovery handle' },
+      { name: 'restore <handle|path>', description: 'Restore a trashed note to inbox' },
       { name: 'delete <path>', description: 'Permanent delete', flags: '--yes' },
       { name: 'duplicate <path>', description: 'Copy a note next to itself' }
     ]

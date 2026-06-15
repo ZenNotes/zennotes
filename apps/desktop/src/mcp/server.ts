@@ -17,6 +17,7 @@ import {
   type Tool
 } from '@modelcontextprotocol/sdk/types.js'
 
+import packageJson from '../../package.json'
 import { resolveInstructions } from './instructions-store.js'
 import {
   appendToNote,
@@ -32,6 +33,7 @@ import {
   listAssets,
   listFolders,
   listNotes,
+  listSoftDeleted,
   moveNote,
   moveToTrash,
   prependToNote,
@@ -76,6 +78,18 @@ function requireFolder(args: Record<string, unknown>, key: string): NoteFolder {
   const value = requireString(args, key)
   if (value !== 'inbox' && value !== 'quick' && value !== 'archive' && value !== 'trash') {
     throw new Error(`${key} must be one of inbox, quick, archive, trash`)
+  }
+  return value
+}
+
+function optionalSoftDeleteTop(
+  args: Record<string, unknown>,
+  key: string
+): 'trash' | 'archive' | undefined {
+  const value = args[key]
+  if (value == null) return undefined
+  if (value !== 'trash' && value !== 'archive') {
+    throw new Error(`${key} must be one of trash, archive`)
   }
   return value
 }
@@ -176,8 +190,16 @@ const TOOLS: ToolDef[] = [
       if (folder) notes = notes.filter((n) => n.folder === folder)
       else notes = notes.filter((n) => n.folder !== 'trash')
       if (sub) {
-        const prefix = `${folder ?? ''}/${sub.replace(/^\/+|\/+$/g, '')}/`
-        notes = notes.filter((n) => n.path.startsWith(prefix))
+        if (!folder) throw new Error('list_notes subpath requires folder.')
+        const cleanSub = sub.replace(/^\/+|\/+$/g, '')
+        if (cleanSub) {
+          const primary = folder === 'inbox' ? await readPrimaryNotesLocation(vault) : null
+          const prefix =
+            folder === 'inbox' && primary === 'root'
+              ? `${cleanSub}/`
+              : `${folder}/${cleanSub}/`
+          notes = notes.filter((n) => n.path.startsWith(prefix))
+        }
       }
       if (tag) notes = notes.filter((n) => n.tags.map((t) => t.toLowerCase()).includes(tag))
       if (wikilinkTo) {
@@ -202,7 +224,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_assets',
       description:
-        'List files under the vault’s attachments directory (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect.',
+        'List non-note files across the vault (images, PDFs, audio, video, other binaries), excluding internal files and soft-delete wrappers. Useful when a note references an asset you need to inspect.',
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, vault) => await listAssets(vault)
@@ -276,7 +298,8 @@ const TOOLS: ToolDef[] = [
           },
           body: {
             type: 'string',
-            description: 'Initial markdown body. Defaults to "# <title>\\n\\n".'
+            description:
+              'Initial markdown body. Defaults to an empty "# " heading when no title is provided, or "# <title>\\n\\n" when a title is provided.'
           }
         }
       }
@@ -319,7 +342,7 @@ const TOOLS: ToolDef[] = [
         type: 'object',
         properties: {
           path: { type: 'string' },
-          targetFolder: { type: 'string', enum: ['inbox', 'quick', 'archive', 'trash'] },
+          targetFolder: { type: 'string', enum: ['inbox', 'quick'] },
           targetSubpath: { type: 'string', description: 'Optional POSIX subpath under the folder.' }
         },
         required: ['path', 'targetFolder']
@@ -328,6 +351,9 @@ const TOOLS: ToolDef[] = [
     handler: async (args, vault) => {
       const rel = requireString(args, 'path')
       const folder = requireFolder(args, 'targetFolder')
+      if (folder === 'archive' || folder === 'trash') {
+        throw new Error('Use archive_note or move_to_trash for archive/trash destinations.')
+      }
       const sub = optionalString(args, 'targetSubpath') ?? ''
       return await moveNote(vault, rel, folder, sub)
     }
@@ -347,7 +373,8 @@ const TOOLS: ToolDef[] = [
   {
     schema: {
       name: 'move_to_trash',
-      description: 'Soft-delete: move the note into trash/. Reversible via restore_from_trash.',
+      description:
+        'Soft-delete a note into a UUID-wrapped trash entry. Returns a handle like "trash/<id>", reversible via restore_from_trash.',
       inputSchema: {
         type: 'object',
         properties: { path: { type: 'string' } },
@@ -359,7 +386,8 @@ const TOOLS: ToolDef[] = [
   {
     schema: {
       name: 'restore_from_trash',
-      description: 'Restore a trashed note back to inbox/.',
+      description:
+        'Restore a trashed note. Pass the handle returned by move_to_trash, or a legacy trash/ note path.',
       inputSchema: {
         type: 'object',
         properties: { path: { type: 'string' } },
@@ -372,7 +400,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'empty_trash',
       description:
-        'Permanently delete every note in trash/. Confirm with the user before calling — this is irreversible.',
+        'Permanently delete every soft-deleted trash entry and legacy trash/ note. Confirm with the user before calling — this is irreversible.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -390,6 +418,28 @@ const TOOLS: ToolDef[] = [
       }
       await emptyTrash(vault)
       return { ok: true }
+    }
+  },
+  {
+    schema: {
+      name: 'list_soft_deleted',
+      description:
+        'List UUID-wrapped recovery entries in trash/archive. Use the returned handle with restore_from_trash or unarchive_note.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          top: {
+            type: 'string',
+            enum: ['trash', 'archive'],
+            description: 'Optional recovery store filter.'
+          }
+        }
+      }
+    },
+    handler: async (args, vault) => {
+      const top = optionalSoftDeleteTop(args, 'top')
+      const entries = await listSoftDeleted(vault)
+      return top ? entries.filter((entry) => entry.top === top) : entries
     }
   },
   {
@@ -415,7 +465,8 @@ const TOOLS: ToolDef[] = [
   {
     schema: {
       name: 'archive_note',
-      description: 'Move a note into archive/.',
+      description:
+        'Archive a note into a UUID-wrapped archive entry. Returns a handle like "archive/<id>".',
       inputSchema: {
         type: 'object',
         properties: { path: { type: 'string' } },
@@ -427,7 +478,8 @@ const TOOLS: ToolDef[] = [
   {
     schema: {
       name: 'unarchive_note',
-      description: 'Move an archived note back to inbox/.',
+      description:
+        'Unarchive a note. Pass the handle returned by archive_note, or a legacy archive/ note path.',
       inputSchema: {
         type: 'object',
         properties: { path: { type: 'string' } },
@@ -804,7 +856,7 @@ export async function runMcpServer(): Promise<void> {
 
   const instructions = await resolveInstructions()
   const server = new Server(
-    { name: 'zennotes', version: '0.1.0' },
+    { name: 'zennotes', version: packageJson.version },
     {
       capabilities: { tools: {} },
       instructions

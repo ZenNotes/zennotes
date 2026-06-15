@@ -36,4 +36,18 @@ describe('desktop packaging', () => {
       expect.arrayContaining(['package.json', 'package-lock.json', 'src/**', '!node_modules/**'])
     )
   })
+
+  it('ships the ZenNotes CLI skill source', () => {
+    const resources = desktopPackage.build.extraResources as ExtraResource[]
+
+    expect(resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from: '../../integrations/skills/zennotes-cli',
+          to: 'skills/zennotes-cli',
+          filter: ['SKILL.md']
+        })
+      ])
+    )
+  })
 })

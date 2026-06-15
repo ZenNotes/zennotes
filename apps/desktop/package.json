@@ -134,6 +134,13 @@
         "to": "chunks"
       },
       {
+        "from": "../../integrations/skills/zennotes-cli",
+        "to": "skills/zennotes-cli",
+        "filter": [
+          "SKILL.md"
+        ]
+      },
+      {
         "from": "../../integrations/raycast",
         "to": "raycast/zennotes",
         "filter": [

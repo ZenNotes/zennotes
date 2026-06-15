@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { foldService } from '@codemirror/language'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { EditorView } from '@codemirror/view'
 import { headingFolding } from './cm-heading-fold'
 
 /** Run the heading fold service over a given line; returns its fold range. */
@@ -19,6 +22,24 @@ function foldRangeAtLine(doc: string, lineNumber: number): { from: number; to: n
 }
 
 describe('heading folding', () => {
+  it('renders h1 rhythm as a block widget outside the heading line box', () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: '# Real heading\n\nbody text\n',
+        extensions: [markdown({ base: markdownLanguage }), headingFolding()]
+      })
+    })
+
+    expect(view.dom.querySelector('.cm-heading-line-h1')).toBeTruthy()
+    expect(view.dom.querySelectorAll('.cm-heading-h1-rhythm')).toHaveLength(1)
+
+    view.destroy()
+    parent.remove()
+  })
+
   it('treats a real heading line as foldable', () => {
     const doc = '# Real heading\n\nbody text\nmore\n'
     expect(foldRangeAtLine(doc, 1)).not.toBeNull()

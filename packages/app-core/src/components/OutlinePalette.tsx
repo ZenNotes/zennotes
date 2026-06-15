@@ -36,6 +36,7 @@ function isVirtualPath(path: string | null): boolean {
 export function OutlinePalette(): JSX.Element {
   const t = useT();
   const setOpen = useStore((s) => s.setOutlinePaletteOpen)
+  const vimMode = useStore((s) => s.vimMode)
   const selectedPath = useStore((s) => s.selectedPath)
   const noteContents = useStore((s) => s.noteContents)
 
@@ -89,11 +90,11 @@ export function OutlinePalette(): JSX.Element {
             placeholder={t("Jump to heading…")}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (isPalettePreviousKey(e)) {
+              } else if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))

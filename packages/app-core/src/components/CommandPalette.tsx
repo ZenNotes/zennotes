@@ -53,6 +53,7 @@ export function CommandPalette(): JSX.Element {
   const t = useT()
   const setOpen = useStore((s) => s.setCommandPaletteOpen)
   const setTheme = useStore((s) => s.setTheme)
+  const vimMode = useStore((s) => s.vimMode)
   const localVaults = useStore((s) => s.localVaults)
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles)
   const currentVault = useStore((s) => s.vault)
@@ -323,11 +324,11 @@ export function CommandPalette(): JSX.Element {
             placeholder={inputPlaceholder}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.min(resultsLength - 1, a + 1))
-              } else if (isPalettePreviousKey(e)) {
+              } else if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))

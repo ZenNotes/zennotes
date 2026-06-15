@@ -112,6 +112,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   const renameRecordPage = useStore((s) => s.renameRecordPage)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const vimMode = useStore((s) => s.vimMode)
 
   const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
 
@@ -331,7 +332,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   // so it never yanks the caret out from under the user. rAF lets the opening
   // click / restore settle so it can't steal focus back.
   useEffect(() => {
-    if (!isActive || focusedPanel === 'tabs') return
+    if (!vimMode || !isActive || focusedPanel === 'tabs') return
     const claimFocus = (): void => {
       const a = document.activeElement as HTMLElement | null
       if (a && a !== document.body && a.closest('input, textarea, button, [contenteditable="true"]'))
@@ -344,9 +345,10 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
       cancelAnimationFrame(raf)
       window.removeEventListener('focus', claimFocus)
     }
-  }, [isActive, csvPath, focusedPanel])
+  }, [isActive, csvPath, focusedPanel, vimMode])
 
   const onGridKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (!vimMode) return
     if (editing) return // the cell's own input owns keys while editing
     // A focused text field inside the grid — the column-name editor, or any
     // cell input — owns its keys too: don't let h/j/k/l motions swallow typed

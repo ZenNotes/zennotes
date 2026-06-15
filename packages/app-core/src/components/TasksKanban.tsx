@@ -297,6 +297,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
   const setKanbanColumnTitle = useStore((s) => s.setKanbanColumnTitle)
   const applyTaskMutation = useStore((s) => s.applyTaskMutation)
+  const vimMode = useStore((s) => s.vimMode)
   const [colIdx, setColIdx] = useState(0)
   const [cardIdx, setCardIdx] = useState(0)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -783,6 +784,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   // Local key handler — capture phase + stopImmediatePropagation so we
   // beat VimNav's global handler (which otherwise hijacks h/j/k/l).
   useEffect(() => {
+    if (!vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const active = document.activeElement as HTMLElement | null
       if (active) {
@@ -840,7 +842,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [columns.length, focusedColumn, focusedTask, onOpenTask, onToggleTask])
+  }, [columns.length, focusedColumn, focusedTask, onOpenTask, onToggleTask, vimMode])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

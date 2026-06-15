@@ -218,8 +218,6 @@ const MAX_ZOOM_FACTOR = 3
 const ZOOM_STEP = 0.1
 const MAC_WINDOW_BACKGROUND_COLOR = '#1f1f1f'
 const MAIN_WINDOW_TABBING_IDENTIFIER = 'zennotes-vault-window'
-const APP_WEBSITE_URL = 'https://zennotes.org'
-const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
 const APP_REPOSITORY_URL = 'https://github.com/songgnqing/zennotes'
 const APP_RELEASES_URL = 'https://github.com/songgnqing/zennotes/releases/latest'
 const APP_ISSUES_URL = 'https://github.com/songgnqing/zennotes/issues'
@@ -3141,15 +3139,10 @@ function installAppMenu(): void {
       label: t('Help'),
       submenu: [
         {
-          label: t('ZenNotes Website'),
+          label: t('Help Documentation'),
           click: () => {
-            openAllowedExternalUrl(APP_WEBSITE_URL)
-          }
-        },
-        {
-          label: t('Join Discord'),
-          click: () => {
-            openAllowedExternalUrl(APP_DISCORD_URL)
+            const target = BrowserWindow.getFocusedWindow() ?? mainWindow
+            target?.webContents.send(IPC.APP_OPEN_HELP)
           }
         },
         { type: 'separator' },

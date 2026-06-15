@@ -28,7 +28,7 @@ import {
   syntaxTree
 } from '@codemirror/language'
 import type { SyntaxNode } from '@lezer/common'
-import type { EditorState, Extension } from '@codemirror/state'
+import { StateField, type EditorState, type Extension } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -195,6 +195,23 @@ class HeadingFoldArrow extends WidgetType {
   }
 }
 
+class HeadingH1Rhythm extends WidgetType {
+  eq(): boolean {
+    return true
+  }
+
+  toDOM(): HTMLElement {
+    const el = document.createElement('div')
+    el.className = 'cm-heading-h1-rhythm'
+    el.setAttribute('aria-hidden', 'true')
+    return el
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
 /** Toggle the fold at the given heading line. We compute the target
  *  range ourselves (same logic the foldService uses) instead of going
  *  through `foldable()` so the click is resilient to fold-service
@@ -230,19 +247,20 @@ function buildDecorations(view: EditorView): DecorationSet {
     for (let n = first; n <= last; n++) {
       const level = headingLevelAt(state, n)
       if (level === null) continue
-      const range = rangeForHeading(state, n, level)
-      if (!range) continue
       const line = state.doc.line(n)
+      const range = rangeForHeading(state, n, level)
 
       // Check whether this exact heading range is currently folded.
       let isFolded = false
-      folded.between(range.from, range.to, (rf, rt) => {
-        if (rf === range.from && rt === range.to) {
-          isFolded = true
-          return false
-        }
-        return undefined
-      })
+      if (range) {
+        folded.between(range.from, range.to, (rf, rt) => {
+          if (rf === range.from && rt === range.to) {
+            isFolded = true
+            return false
+          }
+          return undefined
+        })
+      }
 
       // Line decoration adds `cm-heading-line` to the cm-line div so
       // CSS can target heading rows specifically. The active-line
@@ -257,23 +275,53 @@ function buildDecorations(view: EditorView): DecorationSet {
         deco: Decoration.line({ class: classes.join(' ') })
       })
 
-      // Widget sits at the very start of the line. side: -1 places
-      // it before text content in the DOM so the vim fat-cursor at
-      // position 0 measures the first # glyph, not the widget.
-      builder.push({
-        from: line.from,
-        to: line.from,
-        deco: Decoration.widget({
-          side: -1,
-          widget: new HeadingFoldArrow(n, isFolded)
+      if (range) {
+        // Widget sits at the very start of the line. side: -1 places
+        // it before text content in the DOM so the vim fat-cursor at
+        // position 0 measures the first # glyph, not the widget.
+        builder.push({
+          from: line.from,
+          to: line.from,
+          deco: Decoration.widget({
+            side: -1,
+            widget: new HeadingFoldArrow(n, isFolded)
+          })
         })
-      })
+      }
     }
   }
 
   builder.sort((a, b) => a.from - b.from || a.to - b.to)
   return Decoration.set(builder.map((b) => b.deco.range(b.from, b.to)))
 }
+
+function buildH1RhythmDecorations(state: EditorState): DecorationSet {
+  const ranges: Array<{ from: number; deco: Decoration }> = []
+  for (let n = 1; n <= state.doc.lines; n++) {
+    if (headingLevelAt(state, n) !== 1) continue
+    const line = state.doc.line(n)
+    ranges.push({
+      from: line.to,
+      deco: Decoration.widget({
+        block: true,
+        side: 1,
+        widget: new HeadingH1Rhythm()
+      })
+    })
+  }
+  return Decoration.set(ranges.map((r) => r.deco.range(r.from)))
+}
+
+const h1RhythmField = StateField.define<DecorationSet>({
+  create: (state) => buildH1RhythmDecorations(state),
+  update(value, tr) {
+    if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+      return buildH1RhythmDecorations(tr.state)
+    }
+    return value
+  },
+  provide: (field) => EditorView.decorations.from(field)
+})
 
 
 const headingArrowPlugin = ViewPlugin.fromClass(
@@ -327,5 +375,5 @@ export function headingFolding(): Extension {
   // for foldEffect / unfoldEffect and installs the replace-decorations
   // that hide folded ranges. Without it, our dispatches go through
   // with no visible effect.
-  return [codeFolding(), service, headingArrowPlugin]
+  return [codeFolding(), service, h1RhythmField, headingArrowPlugin]
 }

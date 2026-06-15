@@ -49,6 +49,24 @@ describe('renderMarkdown', () => {
     expect(html).toContain('graph TD; A--&gt;B')
   })
 
+  it('renders an unclosed fence as ordinary text', () => {
+    const html = renderMarkdown('```\n1111111111111111111111')
+
+    expect(html).not.toContain('<pre')
+    expect(html).not.toContain('<code')
+    expect(html).toContain('```')
+    expect(html).toContain('1111111111111111111111')
+  })
+
+  it('keeps indented code blocks that start with backticks', () => {
+    const html = renderMarkdown('    ```\n    still code')
+
+    expect(html).toContain('<pre')
+    expect(html).toContain('<code')
+    expect(html).toContain('```')
+    expect(html).toContain('still')
+  })
+
   it('renders Obsidian image embeds as local image nodes', () => {
     const html = renderMarkdown('![[CleanShot 2026-04-13 at 14.31.31@2x.png]]')
 

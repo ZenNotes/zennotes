@@ -38,6 +38,21 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(/\.prose-zen h6\s*\{[^}]*margin-top:\s*var\(--z-prose-section-gap\);/s)
   })
 
+  it('keeps editor heading lines free of vertical box-model offsets', () => {
+    expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*padding-(top|bottom):/s)
+    expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*margin-(top|bottom):/s)
+    expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*box-shadow:/s)
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*2\.4em\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-wysiwyg \.cm-code-block-gap\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*0\.6em\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-wysiwyg \.cm-editor \.cm-heading-line-h1\s*\{[^}]*--z-heading-line-height:\s*1\.2;/s
+    )
+  })
+
   it('keeps rendered code blocks on the same text rhythm as the editor', () => {
     expect(stylesSource).toMatch(/\.prose-zen pre code\s*\{[^}]*font-size:\s*1em;/s)
     expect(stylesSource).toMatch(

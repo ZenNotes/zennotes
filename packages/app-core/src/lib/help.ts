@@ -250,9 +250,9 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'Inline `$…$` and display `$$…$$` math render via KaTeX. Beyond math, four fenced block languages turn into live diagrams in preview and split mode: `mermaid` for flow, sequence, state, gantt, and graph diagrams; `tikz` for LaTeX-native coordinate systems, commutative diagrams, and figure-quality plots (the TeX engine runs on-device so no network is required); `jsxgraph` for interactive geometry and function plots driven by a small JSON config; and `function-plot` for compact Cartesian function plotting. Each block is ordinary markdown on disk, so the source remains portable and diffable.'
   },
   {
-    title: 'Footer actions expose utility views',
+    title: 'Utility views stay reachable',
     body:
-      'The sidebar footer gives you direct access to Files, Help, and Settings, so utility screens stay discoverable even when you are new to the app.'
+      'The sidebar footer keeps Trash and Settings close at hand, while Help is available from Settings and the command palette so utility screens stay discoverable without crowding the main tree.'
   },
   {
     title: 'Destructive actions ask first',
@@ -626,7 +626,12 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     items: [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family, light or dark mode, and the active flavor or contrast where the theme supports it.' },
       { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
-      { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' }
+      { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' },
+      { label: 'Interface, text, and monospace fonts', detail: 'Choose different fonts for chrome, reading text, and code blocks.' },
+      { label: 'Font size and line height', detail: 'Tune reading density in the editor and preview.' },
+      { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
+      { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },
+      { label: 'Line numbers', detail: 'Switch between off, absolute, and relative gutter numbering.' }
     ]
   },
   {
@@ -643,16 +648,6 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'PDFs in edit mode', detail: 'Choose between compact PDF cards or full inline PDF embeds while writing.' },
       { label: 'Date-titled Quick Notes', detail: 'Name quick notes by date instead of timestamp-based titles.' },
       { label: 'Quick Note prefix', detail: 'Choose the prefix used for new quick note titles, or leave it blank for a bare timestamp/date.' }
-    ]
-  },
-  {
-    title: 'Typography and layout',
-    items: [
-      { label: 'Interface, text, and monospace fonts', detail: 'Choose different fonts for chrome, reading text, and code blocks.' },
-      { label: 'Font size and line height', detail: 'Tune reading density in the editor and preview.' },
-      { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
-      { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },
-      { label: 'Line numbers', detail: 'Switch between off, absolute, and relative gutter numbering.' }
     ]
   },
   {

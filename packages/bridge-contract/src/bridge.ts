@@ -211,6 +211,7 @@ export interface ZenBridge {
 
   onVaultChange(cb: (ev: VaultChangeEvent) => void): () => void
   onOpenSettings(cb: () => void): () => void
+  onOpenHelp(cb: () => void): () => void
   onOpenNoteRequested(cb: (relPath: string) => void): () => void
   /** macOS only: fired when the Edit-menu Copy item runs, so the note list
    *  can stage the focused note for a ⌘V duplicate. No-op elsewhere. */

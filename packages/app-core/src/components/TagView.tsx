@@ -27,6 +27,7 @@ export function TagView(): JSX.Element {
   const closeTagView = useStore((s) => s.closeTagView)
   const selectNote = useStore((s) => s.selectNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const amActive = useStore(isTagsViewActive)
 
   const [filter, setFilter] = useState('')
@@ -181,7 +182,7 @@ export function TagView(): JSX.Element {
   )
 
   useEffect(() => {
-    if (!amActive) return
+    if (!amActive || !vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const focused = document.activeElement as HTMLElement | null
       if (focused) {
@@ -263,7 +264,8 @@ export function TagView(): JSX.Element {
     current,
     keymapOverrides,
     openCurrent,
-    closeTagView
+    closeTagView,
+    vimMode
   ])
 
   return (

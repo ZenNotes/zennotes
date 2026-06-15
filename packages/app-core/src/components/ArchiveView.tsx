@@ -25,6 +25,7 @@ export function ArchiveView(): JSX.Element {
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const vimMode = useStore((s) => s.vimMode)
   const amActive = useStore(isArchiveViewActive)
   const folderLabels = useMemo(
     () => resolveSystemFolderLabels(systemFolderLabels, t),
@@ -108,7 +109,7 @@ export function ArchiveView(): JSX.Element {
   )
 
   useEffect(() => {
-    if (!amActive) return
+    if (!amActive || !vimMode) return
     const handler = (e: KeyboardEvent): void => {
       if (document.querySelector('[data-ctx-menu]') || document.querySelector('[data-prompt-modal]')) {
         return
@@ -202,7 +203,8 @@ export function ArchiveView(): JSX.Element {
     filter,
     filtered.length,
     keymapOverrides,
-    restoreEntry
+    restoreEntry,
+    vimMode
   ])
 
   return (

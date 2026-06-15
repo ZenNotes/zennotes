@@ -25,6 +25,7 @@ export function QuickNotesView(): JSX.Element {
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const vimMode = useStore((s) => s.vimMode)
   const amActive = useStore(isQuickNotesViewActive)
   const quickLabel = getSystemFolderLabel('quick', systemFolderLabels, t)
 
@@ -88,7 +89,7 @@ export function QuickNotesView(): JSX.Element {
   }, [createAndOpen, quickNoteDateTitle, quickNoteTitlePrefix])
 
   useEffect(() => {
-    if (!amActive) return
+    if (!amActive || !vimMode) return
     const handler = (e: KeyboardEvent): void => {
       const active = document.activeElement as HTMLElement | null
       if (active) {
@@ -167,7 +168,7 @@ export function QuickNotesView(): JSX.Element {
       if (gTimer.current) clearTimeout(gTimer.current)
       window.removeEventListener('keydown', handler, true)
     }
-  }, [amActive, closeActiveNote, createQuickNote, current, filter, filtered.length, keymapOverrides, openNote])
+  }, [amActive, closeActiveNote, createQuickNote, current, filter, filtered.length, keymapOverrides, openNote, vimMode])
 
   return (
     <div

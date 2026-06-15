@@ -12,15 +12,17 @@ import { EditorView } from '@codemirror/view'
  * Pulled out as a pure function so it can be unit-tested without
  * standing up a live EditorView with an open completion tooltip.
  */
-export function completionNavDirection(event: KeyboardEvent): 'next' | 'previous' | null {
+export function completionNavDirection(event: KeyboardEvent, vimMode = true): 'next' | 'previous' | null {
   if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return null
   switch (event.key.toLowerCase()) {
     case 'n':
-    case 'j':
       return 'next'
+    case 'j':
+      return vimMode ? 'next' : null
     case 'p':
-    case 'k':
       return 'previous'
+    case 'k':
+      return vimMode ? 'previous' : null
     default:
       return null
   }
@@ -44,17 +46,19 @@ export function completionNavDirection(event: KeyboardEvent): 'next' | 'previous
  * `Prec.highest` ensures this runs before the built-in `completionKeymap`
  * and any other editor keydown handler.
  */
-export const completionNavKeymap = Prec.highest(
-  EditorView.domEventHandlers({
-    keydown: (event, view) => {
-      const direction = completionNavDirection(event)
-      if (!direction) return false
-      if (completionStatus(view.state) !== 'active') return false
-      const moved = moveCompletionSelection(direction === 'next')(view)
-      if (!moved) return false
-      event.preventDefault()
-      event.stopPropagation()
-      return true
-    }
-  })
-)
+export function completionNavKeymapFor(getVimMode: () => boolean) {
+  return Prec.highest(
+    EditorView.domEventHandlers({
+      keydown: (event, view) => {
+        const direction = completionNavDirection(event, getVimMode())
+        if (!direction) return false
+        if (completionStatus(view.state) !== 'active') return false
+        const moved = moveCompletionSelection(direction === 'next')(view)
+        if (!moved) return false
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+    })
+  )
+}

@@ -164,6 +164,7 @@
   --z-aqua: 76 122 93; /* #4c7a5d */
 
   --z-shadow: 42 38 32;
+  --z-note-top-padding: 56px;
 
   /* Glass layer alphas. These get retinted per mode below so dark
      themes use cooler, more translucent glass. */
@@ -1290,7 +1291,7 @@ textarea,
 .cm-editor .cm-scroller {
   font-family: inherit;
   line-height: var(--z-editor-line-height, 1.7);
-  padding: 16px 0 35vh 0;
+  padding: var(--z-note-top-padding, 56px) 0 35vh 0;
   overflow-y: auto;
   /* `auto` so long lines can scroll horizontally when word wrap is
      off — wrapping mode keeps things short and no scrollbar appears. */
@@ -1331,6 +1332,21 @@ textarea,
 .cm-editor .cm-line {
   padding: 0;
   line-height: var(--z-editor-line-height, 1.7);
+}
+.cm-editor .cm-empty-line-hint {
+  color: rgb(var(--z-fg) / 0.38);
+  font-style: italic;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+.cm-editor .cm-h1-title-hint {
+  color: rgb(var(--z-fg) / 0.34);
+  font-style: normal;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
 }
 .cm-editor .cm-line.cm-markdown-list-line {
   padding-left: var(--z-list-hanging-indent, 0);
@@ -2277,20 +2293,24 @@ button.np-checkbox:hover {
 .cm-wysiwyg .cm-code-block-line {
   position: relative;
   background: rgb(var(--z-bg-2) / 0.55);
-  border-left: 1px solid rgb(var(--z-bg-3) / 0.7);
-  border-right: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-left: 1px solid rgb(var(--z-bg-3) / 0.36);
+  border-right: 1px solid rgb(var(--z-bg-3) / 0.36);
   padding-left: 16px;
   padding-right: 16px;
 }
 .cm-wysiwyg .cm-code-block-begin {
-  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.36);
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
 }
 .cm-wysiwyg .cm-code-block-end {
-  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.36);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
+}
+.cm-wysiwyg .cm-code-block-gap {
+  height: calc(var(--z-editor-line-height, 1.7) * 0.6em);
+  pointer-events: none;
 }
 /* Language label pinned top-right of the block; clicking it copies the code,
    so there is no separate copy or fold control. */
@@ -2805,7 +2825,7 @@ button.np-checkbox:hover {
   width: min(100%, var(--z-preview-max-width, 920px));
   max-width: none;
   margin: 0 auto;
-  padding: 16px 32px 40vh;
+  padding: var(--z-note-top-padding, 56px) 32px 40vh;
   font-family: var(
     --z-text-font,
     "SF Mono",
@@ -2946,7 +2966,7 @@ button.np-checkbox:hover {
 }
 .prose-zen pre {
   background: theme("colors.paper.200");
-  border: 1px solid theme("colors.paper.300");
+  border: 1px solid rgb(var(--z-bg-3) / 0.36);
   border-radius: 10px;
   padding: var(--z-prose-line-gap) 16px;
   overflow-x: auto;
@@ -2964,7 +2984,7 @@ button.np-checkbox:hover {
   --z-code-toolbar-line: max(var(--z-prose-line-gap), 28px);
   margin: var(--z-prose-block-gap) 0;
   background: theme("colors.paper.200");
-  border: 1px solid theme("colors.paper.300");
+  border: 1px solid rgb(var(--z-bg-3) / 0.36);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -3092,7 +3112,7 @@ button.np-checkbox:hover {
 }
 .prose-zen hr {
   border: none;
-  border-top: 1px solid theme("colors.paper.300");
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.32);
   margin: calc(var(--z-prose-section-gap) * 1.25) 0;
 }
 .prose-zen img {
@@ -3950,8 +3970,9 @@ button.np-checkbox:hover {
  * heading line so it doesn't shift the heading text. The widget's
  * parent `.cm-heading-line` is forced to `position: relative` so the
  * absolute offset is line-scoped. Hidden by default; revealed on
- * line hover, when the caret is on the line (CM6's `cm-activeLine`),
- * or when the heading is folded (so the user can always unfold). */
+ * line hover, when the focused editor's caret is on the line
+ * (CM6's `cm-activeLine`), or when the heading is folded (so the
+ * user can always unfold). */
 .cm-editor .cm-heading-line {
   position: relative;
   --z-heading-font-size: var(--z-editor-font-size, 16px);
@@ -3971,13 +3992,26 @@ button.np-checkbox:hover {
     calc(var(--z-heading-fold-arrow-size) * 0.35),
     10px
   );
+  --z-heading-fold-arrow-top-offset: 0px;
   padding-bottom: var(--z-heading-bottom-gap);
 }
 .cm-editor .cm-heading-line-h1 {
   --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 2);
   font-size: calc(var(--z-editor-font-size, 16px) * 2);
   line-height: var(--z-heading-line-height);
-  padding-bottom: calc(var(--z-heading-bottom-gap) * 1.45);
+}
+.cm-editor .cm-heading-h1-rhythm {
+  position: relative;
+  height: calc(var(--z-editor-line-height, 1.7) * 2.0em);
+  pointer-events: none;
+}
+.cm-editor .cm-heading-h1-rhythm::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--z-editor-line-height, 1.7) * 0.82em);
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.32);
 }
 .cm-editor .cm-heading-line-h2 {
   --z-heading-font-size: calc(var(--z-editor-font-size, 16px) * 1.6);
@@ -4034,7 +4068,8 @@ button.np-checkbox:hover {
     -1 * (var(--z-heading-fold-arrow-size) + var(--z-heading-fold-arrow-gap))
   );
   top: calc(
-    (var(--z-heading-fold-first-line) - var(--z-heading-fold-arrow-size)) / 2
+    var(--z-heading-fold-arrow-top-offset) +
+      (var(--z-heading-fold-first-line) - var(--z-heading-fold-arrow-size)) / 2
   );
   transform: none;
   display: inline-flex;
@@ -4055,7 +4090,7 @@ button.np-checkbox:hover {
     background-color 120ms ease;
 }
 .cm-editor .cm-heading-line:hover .cm-heading-fold-arrow,
-.cm-editor .cm-activeLine.cm-heading-line .cm-heading-fold-arrow,
+.cm-editor.cm-focused .cm-activeLine.cm-heading-line .cm-heading-fold-arrow,
 .cm-heading-fold-arrow:hover,
 .cm-heading-fold-arrow.is-folded {
   opacity: 1;
@@ -4201,7 +4236,7 @@ button.np-checkbox:hover {
   width: 100%;
   height: 0;
   vertical-align: middle;
-  border-top: 2px solid rgb(var(--z-bg-3));
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.32);
 }
 
 /* Links — subtle underline like Obsidian (accent color is set above). */

@@ -2417,7 +2417,7 @@ export async function createNote(
   await fs.mkdir(dir, { recursive: true })
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
-  const body = `# ${finalTitle}\n\n`
+  const body = title?.trim() ? `# ${finalTitle}\n\n` : '# \n\n'
   await fs.writeFile(abs, body, 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
   invalidateVaultTextSearchCache(root)

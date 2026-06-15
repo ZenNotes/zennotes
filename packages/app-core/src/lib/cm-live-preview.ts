@@ -18,8 +18,8 @@ import { setImageBlockDragPayload } from './image-block-dnd'
 import { assetTabPath } from './asset-tabs'
 
 /**
- * Live-preview extension: hides markdown syntax markers on lines where
- * the cursor (or any part of the selection) does not currently live.
+ * Live-preview extension: hides markdown syntax markers unless the focused
+ * cursor (or any part of the focused selection) currently lives there.
  *
  * Obsidian-style WYSIWYG feel. When you move off a line the `#`, `**`,
  * `[`, `](url)`, backticks, etc. fade away and the heading/bold/link
@@ -601,14 +601,17 @@ class TaskCheckboxWidget extends WidgetType {
 
 function computeDecorations(view: EditorView): DecorationSet {
   const { state } = view
+  const revealSyntax = view.hasFocus
 
   // Every line that holds part of a selection range is "active" and
   // therefore keeps its syntax markers visible for editing.
   const activeLines = new Set<number>()
-  for (const r of state.selection.ranges) {
-    const fromLine = state.doc.lineAt(r.from).number
-    const toLine = state.doc.lineAt(r.to).number
-    for (let l = fromLine; l <= toLine; l++) activeLines.add(l)
+  if (revealSyntax) {
+    for (const r of state.selection.ranges) {
+      const fromLine = state.doc.lineAt(r.from).number
+      const toLine = state.doc.lineAt(r.to).number
+      for (let l = fromLine; l <= toLine; l++) activeLines.add(l)
+    }
   }
 
   const pending: PendingDecoration[] = []
@@ -741,7 +744,7 @@ function computeDecorations(view: EditorView): DecorationSet {
           // when the cursor lands inside the marker. Cursor elsewhere on
           // the line still shows the checkbox — same model headings use
           // for `#` markers.
-          if (selectionTouchesRange(state, node.from, node.to)) return
+          if (revealSyntax && selectionTouchesRange(state, node.from, node.to)) return
           const markerText = state.doc.sliceString(node.from, node.to)
           // `markerText` is `[ ]` / `[x]` / `[X]`; default to unchecked if the
           // parser ever hands us something unexpected.
@@ -774,7 +777,11 @@ function computeDecorations(view: EditorView): DecorationSet {
         if (replacedLines.has(line)) return
         if (isLinkSyntax) {
           const linkRange = enclosingLinkRange(node)
-          if (linkRange && selectionTouchesRange(state, linkRange.from, linkRange.to)) return
+          if (
+            revealSyntax &&
+            linkRange &&
+            selectionTouchesRange(state, linkRange.from, linkRange.to)
+          ) return
         } else if (activeLines.has(line)) {
           // Obsidian-style: the line the cursor is on reveals its raw source,
           // including the leading `#`/`>` markers, so it reads as the source.

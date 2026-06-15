@@ -87,6 +87,7 @@ export const IPC = {
   // native dialogs/notifications (e.g. the updater) it shows directly.
   APP_SET_LANGUAGE: 'app:set-language',
   APP_OPEN_SETTINGS: 'app:open-settings',
+  APP_OPEN_HELP: 'app:open-help',
   APP_OPEN_NOTE_REQUESTED: 'app:open-note-requested',
   // Sent from the macOS Edit-menu Copy/Paste items so the renderer can
   // stage/duplicate a note: the menu accelerators (⌘C/⌘V) swallow the

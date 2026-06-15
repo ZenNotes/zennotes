@@ -8,7 +8,7 @@ import { FolderGlyphIcon } from './FolderIcons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
-import { confirmApp } from '../lib/confirm-requests'
+import { confirmApp, getConfirmRequest } from '../lib/confirm-requests'
 
 function cssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -26,6 +26,7 @@ export function TrashView(): JSX.Element {
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const vimMode = useStore((s) => s.vimMode)
   const amActive = useStore(isTrashViewActive)
   const trashLabel = getSystemFolderLabel('trash', systemFolderLabels, t)
 
@@ -119,8 +120,9 @@ export function TrashView(): JSX.Element {
   }, [refreshNotes, trashed.length, t])
 
   useEffect(() => {
-    if (!amActive) return
+    if (!amActive || !vimMode) return
     const handler = (e: KeyboardEvent): void => {
+      if (getConfirmRequest()) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -207,7 +209,8 @@ export function TrashView(): JSX.Element {
     filter,
     filtered.length,
     keymapOverrides,
-    restoreEntry
+    restoreEntry,
+    vimMode
   ])
 
   return (

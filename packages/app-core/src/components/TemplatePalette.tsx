@@ -25,6 +25,7 @@ export function TemplatePalette(): JSX.Element {
   const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
   const language = useStore((s) => s.language)
   const mode = useStore((s) => s.templatePaletteMode)
+  const vimMode = useStore((s) => s.vimMode)
 
   const templates = useMemo(
     () =>
@@ -88,11 +89,11 @@ export function TemplatePalette(): JSX.Element {
             placeholder={mode === 'insert' ? t('Insert template into note…') : t('Create note from template…')}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (isPaletteNextKey(e)) {
+              if (isPaletteNextKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.min(results.length - 1, a + 1))
-              } else if (isPalettePreviousKey(e)) {
+              } else if (isPalettePreviousKey(e, vimMode)) {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))

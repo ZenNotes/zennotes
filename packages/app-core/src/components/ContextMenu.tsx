@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useStore } from '../store'
 
 export interface ContextMenuItem {
   kind?: 'item' | 'separator'
@@ -33,6 +34,7 @@ interface Props {
  * Escape clears the query (one level) before closing the menu.
  */
 export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
+  const vimMode = useStore((s) => s.vimMode)
   const ref = useRef<HTMLDivElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState({ left: x, top: y })
@@ -122,7 +124,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
     }
     if (
       e.key === 'ArrowDown' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'j')
+      (vimMode && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'j')
     ) {
       e.preventDefault()
       e.stopPropagation()
@@ -131,7 +133,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
     }
     if (
       e.key === 'ArrowUp' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'k')
+      (vimMode && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'k')
     ) {
       e.preventDefault()
       e.stopPropagation()

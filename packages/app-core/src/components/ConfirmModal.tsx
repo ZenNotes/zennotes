@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 import { useT } from '../lib/i18n'
@@ -21,24 +21,36 @@ export function ConfirmModal({
   onCancel: () => void
 }): JSX.Element {
   const t = useT()
-  // Modal owns Escape (→ cancel); we only add Enter (→ confirm) here.
+  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    confirmButtonRef.current?.focus()
+  }, [])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
       if (e.key === 'Enter') {
         e.preventDefault()
         e.stopPropagation()
+        e.stopImmediatePropagation()
         onConfirm()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        onCancel()
       }
     }
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
-  }, [onConfirm])
+  }, [onCancel, onConfirm])
 
   return (
     <Modal
       size="sm"
       layer="modal"
       onClose={onCancel}
+      closeOnEsc={false}
       data={{ 'data-confirm-modal': '', 'data-prompt-modal': '' }}
     >
       <Modal.Header title={options.title} description={options.description} />
@@ -46,7 +58,7 @@ export function ConfirmModal({
         <Button variant="secondary" onClick={onCancel}>
           {options.cancelLabel ?? t('Cancel')}
         </Button>
-        <Button variant={options.danger ? 'danger' : 'primary'} onClick={onConfirm}>
+        <Button ref={confirmButtonRef} variant={options.danger ? 'danger' : 'primary'} onClick={onConfirm}>
           {options.confirmLabel ?? t('Confirm')}
         </Button>
       </Modal.Footer>
