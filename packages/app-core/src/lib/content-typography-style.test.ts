@@ -43,7 +43,7 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*margin-(top|bottom):/s)
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*box-shadow:/s)
     expect(stylesSource).toMatch(
-      /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*2\.4em\);/s
+      /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*2\.0em\);/s
     )
     expect(stylesSource).toMatch(
       /\.cm-wysiwyg \.cm-code-block-gap\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*0\.6em\);/s
