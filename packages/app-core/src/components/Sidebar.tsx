@@ -40,6 +40,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
+import { naturalCompare } from '../lib/natural-sort'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
 import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from "@shared/ipc";
@@ -1118,11 +1119,9 @@ export function Sidebar(): JSX.Element {
       case "created-asc":
         return (a: NoteMeta, b: NoteMeta) => a.createdAt - b.createdAt;
       case "name-asc":
-        return (a: NoteMeta, b: NoteMeta) =>
-          a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+        return (a: NoteMeta, b: NoteMeta) => naturalCompare(a.title, b.title);
       case "name-desc":
-        return (a: NoteMeta, b: NoteMeta) =>
-          b.title.localeCompare(a.title, undefined, { sensitivity: "base" });
+        return (a: NoteMeta, b: NoteMeta) => naturalCompare(b.title, a.title);
       case "updated-desc":
       default:
         return (a: NoteMeta, b: NoteMeta) => b.updatedAt - a.updatedAt;
@@ -3347,19 +3346,28 @@ function pruneEmptyDateNoteFolders(
     });
 }
 
+// Folders sort by name, numeric-aware so "2 Foo" comes before "10 Foo" — the
+// way users order them with leading numbers/letters. Applied at render time so
+// new folders land in place immediately, regardless of on-disk read order. (#168)
+function compareFolderNodes(a: TreeNode, b: TreeNode): number {
+  return naturalCompare(a.name, b.name);
+}
+
 function getTreeRenderEntries(
   node: TreeNode,
   showNotes: boolean,
   sortComparator: ((a: NoteMeta, b: NoteMeta) => number) | null,
   groupByKind: boolean,
 ): TreeRenderEntry[] {
+  const sortedChildren = node.children.slice().sort(compareFolderNodes);
+
   if (!showNotes) {
-    return node.children.map((child) => ({ type: "folder", node: child }));
+    return sortedChildren.map((child) => ({ type: "folder", node: child }));
   }
 
   if (sortComparator || groupByKind) {
     return [
-      ...node.children.map(
+      ...sortedChildren.map(
         (child) => ({ type: "folder", node: child }) as const,
       ),
       ...node.notes

@@ -14,6 +14,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { Button, IconButton } from './ui/Button'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
+import { naturalCompare } from '../lib/natural-sort'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
 import { promptApp } from '../lib/prompt-requests'
@@ -489,11 +490,9 @@ export function NoteList(): JSX.Element {
       case 'created-asc':
         return (a: NoteMeta, b: NoteMeta) => a.createdAt - b.createdAt
       case 'name-asc':
-        return (a: NoteMeta, b: NoteMeta) =>
-          a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+        return (a: NoteMeta, b: NoteMeta) => naturalCompare(a.title, b.title)
       case 'name-desc':
-        return (a: NoteMeta, b: NoteMeta) =>
-          b.title.localeCompare(a.title, undefined, { sensitivity: 'base' })
+        return (a: NoteMeta, b: NoteMeta) => naturalCompare(b.title, a.title)
       case 'updated-desc':
       default:
         return (a: NoteMeta, b: NoteMeta) => b.updatedAt - a.updatedAt
@@ -512,11 +511,9 @@ export function NoteList(): JSX.Element {
       case 'created-asc':
         return (a: AssetMeta, b: AssetMeta) => a.updatedAt - b.updatedAt
       case 'name-asc':
-        return (a: AssetMeta, b: AssetMeta) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+        return (a: AssetMeta, b: AssetMeta) => naturalCompare(a.name, b.name)
       case 'name-desc':
-        return (a: AssetMeta, b: AssetMeta) =>
-          b.name.localeCompare(a.name, undefined, { sensitivity: 'base' })
+        return (a: AssetMeta, b: AssetMeta) => naturalCompare(b.name, a.name)
       default:
         return (a: AssetMeta, b: AssetMeta) => b.updatedAt - a.updatedAt
     }
