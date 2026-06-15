@@ -938,11 +938,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
 ];
 
 for (const definition of KEYMAP_DEFINITIONS) {
-  const normalized =
-    definition.kind === "shortcut"
-      ? normalizeShortcutBinding(definition.defaultBinding)
-      : normalizeSequenceBinding(definition.defaultBinding);
-  if (normalized) definition.defaultBinding = normalized;
+  if (definition.defaultBindingNonMac === undefined) {
+    const normalized =
+      definition.kind === "shortcut"
+        ? normalizeShortcutBinding(definition.defaultBinding)
+        : normalizeSequenceBinding(definition.defaultBinding);
+    if (normalized) definition.defaultBinding = normalized;
+  } else {
+    const normalizedNonMac =
+      definition.kind === "shortcut"
+        ? normalizeShortcutBinding(definition.defaultBindingNonMac)
+        : normalizeSequenceBinding(definition.defaultBindingNonMac);
+    if (normalizedNonMac) definition.defaultBindingNonMac = normalizedNonMac;
+  }
 }
 
 const KEYMAP_INDEX = new Map<KeymapId, KeymapDefinition>(
