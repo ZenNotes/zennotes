@@ -68,6 +68,10 @@ const PRIMARY_ATTACHMENTS_DIR = 'assets'
 // 'attachements' (sic) was the previous primary name.
 const LEGACY_ATTACHMENTS_DIRS = ['attachements', '_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const ASSET_BUNDLE_SUFFIX = '.asset'
+const ASSET_BUNDLE_META_FILE = 'meta.json'
+const ASSET_BUNDLE_PREVIEWS_DIR = 'previews'
+const ASSET_BUNDLE_META_VERSION = 1
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
@@ -2282,6 +2286,48 @@ export async function uniqueFilename(dir: string, filename: string): Promise<str
   }
 }
 
+type AssetPreviewMeta =
+  | {
+      status: 'ready'
+      file: string
+      width: number
+      height: number
+      mime: 'image/png'
+      generatorVersion: number
+      generatedAt: number
+      lastUsedAt: number
+    }
+  | {
+      status: 'failed'
+      errorCode: string
+      generatorVersion: number
+      failedAt: number
+    }
+
+interface AssetBundleMeta {
+  version: 1
+  id: string
+  displayName: string
+  kind: ImportedAssetKind
+  sourceFile: string
+  sourceName: string
+  size: number
+  mtimeMs: number
+  createdAt: number
+  updatedAt: number
+  previews: Record<string, AssetPreviewMeta>
+}
+
+export interface AssetThumbnailTarget {
+  sourceAbs: string
+  managed: boolean
+  previewAbs?: string
+  previewRel?: string
+  readyPreviewAbs?: string
+  bundleAbs?: string
+  previewKey?: string
+}
+
 function classifyImportedAsset(filename: string): ImportedAssetKind {
   const ext = path.extname(filename).toLowerCase()
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
@@ -2289,6 +2335,177 @@ function classifyImportedAsset(filename: string): ImportedAssetKind {
   if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
   if (VIDEO_EXTENSIONS.has(ext)) return 'video'
   return 'file'
+}
+
+function isAssetBundleDirName(name: string): boolean {
+  return path.basename(name).toLowerCase().endsWith(ASSET_BUNDLE_SUFFIX)
+}
+
+function assetBundleMetaPath(bundleAbs: string): string {
+  return path.join(bundleAbs, ASSET_BUNDLE_META_FILE)
+}
+
+function normalizeAssetBundleMeta(value: unknown): AssetBundleMeta | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<AssetBundleMeta>
+  if (
+    candidate.version !== ASSET_BUNDLE_META_VERSION ||
+    typeof candidate.id !== 'string' ||
+    !candidate.id ||
+    typeof candidate.displayName !== 'string' ||
+    typeof candidate.sourceFile !== 'string' ||
+    !candidate.sourceFile ||
+    typeof candidate.sourceName !== 'string' ||
+    typeof candidate.size !== 'number' ||
+    typeof candidate.mtimeMs !== 'number' ||
+    typeof candidate.createdAt !== 'number' ||
+    typeof candidate.updatedAt !== 'number' ||
+    !candidate.previews ||
+    typeof candidate.previews !== 'object' ||
+    Array.isArray(candidate.previews)
+  ) {
+    return null
+  }
+  if (
+    candidate.kind !== 'image' &&
+    candidate.kind !== 'pdf' &&
+    candidate.kind !== 'audio' &&
+    candidate.kind !== 'video' &&
+    candidate.kind !== 'file'
+  ) {
+    return null
+  }
+  return {
+    version: 1,
+    id: candidate.id,
+    displayName: candidate.displayName,
+    kind: candidate.kind,
+    sourceFile: candidate.sourceFile,
+    sourceName: candidate.sourceName,
+    size: candidate.size,
+    mtimeMs: candidate.mtimeMs,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    previews: candidate.previews as Record<string, AssetPreviewMeta>
+  }
+}
+
+async function readAssetBundleMeta(bundleAbs: string): Promise<AssetBundleMeta | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(assetBundleMetaPath(bundleAbs), 'utf8')) as unknown
+    return normalizeAssetBundleMeta(parsed)
+  } catch {
+    return null
+  }
+}
+
+async function writeAssetBundleMeta(bundleAbs: string, meta: AssetBundleMeta): Promise<void> {
+  const file = assetBundleMetaPath(bundleAbs)
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.mkdir(bundleAbs, { recursive: true })
+  await fs.writeFile(temp, `${JSON.stringify(meta, null, 2)}\n`, 'utf8')
+  await fs.rename(temp, file)
+}
+
+function firstReadyPreview(meta: AssetBundleMeta): string | undefined {
+  for (const key of Object.keys(meta.previews).sort()) {
+    const preview = meta.previews[key]
+    if (preview?.status === 'ready' && preview.file) return preview.file
+  }
+  return undefined
+}
+
+async function assetMetaForBundle(
+  root: string,
+  bundleAbs: string,
+  siblingOrder = 0
+): Promise<AssetMeta | null> {
+  const meta = await readAssetBundleMeta(bundleAbs)
+  if (!meta) return null
+  const rel = toPosix(path.relative(root, bundleAbs))
+  const sourceRel = toPosix(path.join(rel, meta.sourceFile))
+  const readyPreview = firstReadyPreview(meta)
+  return {
+    id: meta.id,
+    path: rel,
+    name: meta.displayName,
+    kind: meta.kind,
+    managed: true,
+    bundlePath: rel,
+    sourcePath: sourceRel,
+    previewPath: readyPreview ? toPosix(path.join(rel, readyPreview)) : undefined,
+    siblingOrder,
+    size: meta.size,
+    updatedAt: meta.updatedAt
+  }
+}
+
+async function createAssetBundleFromFile(
+  root: string,
+  sourceAbs: string,
+  destDir: string
+): Promise<AssetMeta> {
+  const id = randomUUID()
+  const sourceName = path.basename(sourceAbs)
+  const ext = path.extname(sourceName).toLowerCase()
+  const sourceFile = ext ? `source${ext}` : 'source'
+  const bundleAbs = path.join(destDir, `${id}${ASSET_BUNDLE_SUFFIX}`)
+  await fs.mkdir(path.join(bundleAbs, ASSET_BUNDLE_PREVIEWS_DIR), { recursive: true })
+  const destAbs = path.join(bundleAbs, sourceFile)
+  await fs.copyFile(sourceAbs, destAbs)
+  const stat = await fs.stat(destAbs)
+  const now = Date.now()
+  const meta: AssetBundleMeta = {
+    version: 1,
+    id,
+    displayName: sourceName,
+    kind: classifyImportedAsset(sourceName),
+    sourceFile,
+    sourceName,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    createdAt: now,
+    updatedAt: stat.mtimeMs || now,
+    previews: {}
+  }
+  await writeAssetBundleMeta(bundleAbs, meta)
+  const result = await assetMetaForBundle(root, bundleAbs)
+  if (!result) throw new Error('Could not read imported asset bundle.')
+  return result
+}
+
+async function createAssetBundleFromBuffer(
+  root: string,
+  bytes: Buffer,
+  sourceName: string,
+  destDir: string
+): Promise<AssetMeta> {
+  const id = randomUUID()
+  const ext = path.extname(sourceName).toLowerCase()
+  const sourceFile = ext ? `source${ext}` : 'source'
+  const bundleAbs = path.join(destDir, `${id}${ASSET_BUNDLE_SUFFIX}`)
+  await fs.mkdir(path.join(bundleAbs, ASSET_BUNDLE_PREVIEWS_DIR), { recursive: true })
+  const destAbs = path.join(bundleAbs, sourceFile)
+  await fs.writeFile(destAbs, bytes)
+  const stat = await fs.stat(destAbs)
+  const now = Date.now()
+  const meta: AssetBundleMeta = {
+    version: 1,
+    id,
+    displayName: sourceName,
+    kind: classifyImportedAsset(sourceName),
+    sourceFile,
+    sourceName,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    createdAt: now,
+    updatedAt: stat.mtimeMs || now,
+    previews: {}
+  }
+  await writeAssetBundleMeta(bundleAbs, meta)
+  const result = await assetMetaForBundle(root, bundleAbs)
+  if (!result) throw new Error('Could not read imported asset bundle.')
+  return result
 }
 
 async function assetMetaForPath(root: string, abs: string): Promise<AssetMeta> {
@@ -2304,7 +2521,10 @@ async function assetMetaForPath(root: string, abs: string): Promise<AssetMeta> {
   }
 }
 
-async function assertAssetFile(root: string, rel: string): Promise<{ rel: string; abs: string }> {
+async function assertAssetFile(
+  root: string,
+  rel: string
+): Promise<{ rel: string; abs: string; managed: boolean; meta?: AssetBundleMeta }> {
   const normalized = normalizeVaultRelativePath(rel)
   if (!normalized) throw new Error('Asset path is required.')
   if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
@@ -2315,8 +2535,25 @@ async function assertAssetFile(root: string, rel: string): Promise<{ rel: string
   }
   const abs = resolveSafe(root, normalized)
   const info = await fs.stat(abs)
+  if (info.isDirectory() && isAssetBundleDirName(abs)) {
+    const meta = await readAssetBundleMeta(abs)
+    if (!meta) throw new Error('Asset bundle metadata is invalid.')
+    return { rel: normalized, abs, managed: true, meta }
+  }
   if (!info.isFile()) throw new Error('Asset path is not a file.')
-  return { rel: normalized, abs }
+  const bundle = await assetBundleForRel(root, normalized)
+  if (bundle) {
+    return {
+      rel: toPosix(path.relative(root, bundle.bundleAbs)),
+      abs: bundle.bundleAbs,
+      managed: true,
+      meta: bundle.meta
+    }
+  }
+  if (normalized.split('/').some((part) => isAssetBundleDirName(part))) {
+    throw new Error('Use the asset bundle path to modify managed assets.')
+  }
+  return { rel: normalized, abs, managed: false }
 }
 
 function cleanAssetFilename(name: string): string {
@@ -2626,6 +2863,19 @@ export async function renameAsset(
 ): Promise<AssetMeta> {
   const source = await assertAssetFile(root, rel)
   const cleanName = cleanAssetFilename(nextName)
+  if (source.managed) {
+    const meta = source.meta!
+    if (cleanName !== meta.displayName) {
+      await writeAssetBundleMeta(source.abs, {
+        ...meta,
+        displayName: cleanName,
+        updatedAt: Date.now()
+      })
+    }
+    const next = await assetMetaForBundle(root, source.abs)
+    if (!next) throw new Error('Could not read renamed asset bundle.')
+    return next
+  }
   const destAbs = path.join(path.dirname(source.abs), cleanName)
   if (destAbs !== source.abs) {
     try {
@@ -2656,15 +2906,45 @@ export async function moveAsset(
   const source = await assertAssetFile(root, rel)
   const destDir = cleanAssetTargetDir(root, targetDir)
   await fs.mkdir(destDir, { recursive: true })
-  if (path.resolve(destDir) === path.dirname(source.abs)) return await assetMetaForPath(root, source.abs)
+  if (path.resolve(destDir) === path.dirname(source.abs)) {
+    if (source.managed) {
+      const meta = await assetMetaForBundle(root, source.abs)
+      if (!meta) throw new Error('Could not read asset bundle.')
+      return meta
+    }
+    return await assetMetaForPath(root, source.abs)
+  }
   const finalName = await uniqueFilename(destDir, path.basename(source.abs))
   const destAbs = path.join(destDir, finalName)
   if (destAbs !== source.abs) await fs.rename(source.abs, destAbs)
+  if (source.managed) {
+    const meta = await assetMetaForBundle(root, destAbs)
+    if (!meta) throw new Error('Could not read moved asset bundle.')
+    return meta
+  }
   return await assetMetaForPath(root, destAbs)
 }
 
 export async function duplicateAsset(root: string, rel: string): Promise<AssetMeta> {
   const source = await assertAssetFile(root, rel)
+  if (source.managed) {
+    const current = source.meta!
+    const nextId = randomUUID()
+    const destAbs = path.join(path.dirname(source.abs), `${nextId}${ASSET_BUNDLE_SUFFIX}`)
+    await fs.cp(source.abs, destAbs, { recursive: true })
+    const ext = path.extname(current.displayName)
+    const base = path.basename(current.displayName, ext)
+    await writeAssetBundleMeta(destAbs, {
+      ...current,
+      id: nextId,
+      displayName: `${base} copy${ext}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    })
+    const meta = await assetMetaForBundle(root, destAbs)
+    if (!meta) throw new Error('Could not read duplicated asset bundle.')
+    return meta
+  }
   const ext = path.extname(source.abs)
   const base = path.basename(source.abs, ext)
   const finalName = await uniqueFilename(path.dirname(source.abs), `${base} copy${ext}`)
@@ -2680,7 +2960,13 @@ export async function duplicateAsset(root: string, rel: string): Promise<AssetMe
  */
 export async function deleteAsset(root: string, rel: string): Promise<string> {
   const source = await assertAssetFile(root, rel)
-  return softDeleteVaultPath(root, source.rel, 'trash', 'asset', path.basename(source.abs))
+  return softDeleteVaultPath(
+    root,
+    source.rel,
+    'trash',
+    'asset',
+    source.managed ? source.meta!.displayName : path.basename(source.abs)
+  )
 }
 
 /* ---------- Folder operations ---------------------------------------- */
@@ -3040,6 +3326,11 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
     for (const [index, entry] of entries.entries()) {
       if (entry.name.startsWith('.')) continue
       const full = path.join(dirAbs, entry.name)
+      if (entry.isDirectory() && isAssetBundleDirName(entry.name)) {
+        const meta = await assetMetaForBundle(root, full, index)
+        if (meta) out.push(meta)
+        continue
+      }
       const childReal = await resolveDirDescent(full, entry, dirReal, ancestors)
       if (childReal !== null) {
         if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
@@ -3214,20 +3505,13 @@ export async function importFiles(
     const stat = await fs.stat(sourceAbs)
     if (!stat.isFile()) continue
 
-    const finalName = await uniqueFilename(destDir, path.basename(sourceAbs))
-    const destAbs = path.join(destDir, finalName)
-    await fs.copyFile(sourceAbs, destAbs)
-
-    const vaultRelPath = toPosix(path.relative(root, destAbs))
-    const kind = classifyImportedAsset(finalName)
+    const asset = await createAssetBundleFromFile(root, sourceAbs, destDir)
     imported.push({
-      name: finalName,
-      path: vaultRelPath,
-      // Embed by full vault-relative path (`![[assets/x.png]]`) so it resolves
-      // regardless of the note's location — matching the Assets view's
-      // "Copy as Embed" and the existing paste flow.
-      markdown: `![[${vaultRelPath}]]`,
-      kind
+      id: asset.id,
+      name: asset.name,
+      path: asset.path,
+      markdown: asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`,
+      kind: asset.kind
     })
   }
 
@@ -3257,10 +3541,7 @@ export async function importAssetsToVault(
     }
     if (!stat.isFile()) continue
     if (sourceAbs.toLowerCase().endsWith('.md')) continue
-    const finalName = await uniqueFilename(destDir, path.basename(sourceAbs))
-    const destAbs = path.join(destDir, finalName)
-    await fs.copyFile(sourceAbs, destAbs)
-    out.push(await assetMetaForPath(root, destAbs))
+    out.push(await createAssetBundleFromFile(root, sourceAbs, destDir))
   }
   return out
 }
@@ -3277,17 +3558,161 @@ export async function importPastedImage(
   // root (where they'd show up in the sidebar note tree).
   const destDir = assetsAbsolutePath(root)
   await fs.mkdir(destDir, { recursive: true })
-  const finalName = await uniqueFilename(destDir, pastedImageFilename(input, now))
-  const destAbs = path.join(destDir, finalName)
-  await fs.writeFile(destAbs, bytes)
-
-  const vaultRelPath = toPosix(path.relative(root, destAbs))
+  const finalName = pastedImageFilename(input, now)
+  const asset = await createAssetBundleFromBuffer(root, bytes, finalName, destDir)
   return {
-    name: finalName,
-    path: vaultRelPath,
-    markdown: `![[${vaultRelPath}]]`,
-    kind: 'image'
+    id: asset.id,
+    name: asset.name,
+    path: asset.path,
+    markdown: asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`,
+    kind: asset.kind
   }
+}
+
+async function assetBundleForRel(
+  root: string,
+  rel: string
+): Promise<{ bundleAbs: string; meta: AssetBundleMeta } | null> {
+  const normalized = normalizeVaultRelativePath(rel)
+  if (!normalized) return null
+  const abs = resolveSafe(root, normalized)
+  try {
+    const stat = await fs.stat(abs)
+    if (stat.isDirectory() && isAssetBundleDirName(abs)) {
+      const meta = await readAssetBundleMeta(abs)
+      return meta ? { bundleAbs: abs, meta } : null
+    }
+  } catch {
+    return null
+  }
+
+  const parent = path.dirname(abs)
+  if (!isAssetBundleDirName(parent)) return null
+  const meta = await readAssetBundleMeta(parent)
+  if (!meta) return null
+  const sourceAbs = path.join(parent, meta.sourceFile)
+  return path.resolve(sourceAbs) === path.resolve(abs) ? { bundleAbs: parent, meta } : null
+}
+
+export async function assetThumbnailTarget(
+  root: string,
+  rel: string,
+  maxSize: number,
+  generatorVersion: number
+): Promise<AssetThumbnailTarget> {
+  const size = Math.max(32, Math.min(1024, Math.round(maxSize) || 256))
+  const normalized = normalizeVaultRelativePath(rel)
+  const bundle = await assetBundleForRel(root, normalized)
+  if (!bundle) {
+    return {
+      sourceAbs: resolveSafe(root, normalized),
+      managed: false
+    }
+  }
+
+  const sourceAbs = path.join(bundle.bundleAbs, bundle.meta.sourceFile)
+  let meta = bundle.meta
+  try {
+    const stat = await fs.stat(sourceAbs)
+    if (!sameMtimeMs(stat.mtimeMs, meta.mtimeMs) || stat.size !== meta.size) {
+      meta = {
+        ...meta,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        updatedAt: stat.mtimeMs,
+        previews: {}
+      }
+      await writeAssetBundleMeta(bundle.bundleAbs, meta)
+    }
+  } catch {
+    /* let thumbnail generation fail below */
+  }
+  const previewKey = `${size}`
+  const preview = meta.previews[previewKey]
+  if (preview?.status === 'ready' && preview.generatorVersion === generatorVersion) {
+    const readyPreviewAbs = resolveSafe(bundle.bundleAbs, preview.file)
+    try {
+      await fs.access(readyPreviewAbs)
+      return {
+        sourceAbs,
+        managed: true,
+        bundleAbs: bundle.bundleAbs,
+        previewKey,
+        readyPreviewAbs
+      }
+    } catch {
+      /* regenerate missing preview files */
+    }
+  }
+  if (preview?.status === 'failed' && preview.generatorVersion === generatorVersion) {
+    return {
+      sourceAbs,
+      managed: true,
+      bundleAbs: bundle.bundleAbs,
+      previewKey
+    }
+  }
+
+  const previewRel = toPosix(path.join(ASSET_BUNDLE_PREVIEWS_DIR, `${size}.png`))
+  return {
+    sourceAbs,
+    managed: true,
+    bundleAbs: bundle.bundleAbs,
+    previewKey,
+    previewAbs: path.join(bundle.bundleAbs, previewRel),
+    previewRel
+  }
+}
+
+export async function recordAssetThumbnailResult(
+  bundleAbs: string,
+  previewKey: string,
+  previewRel: string,
+  width: number,
+  height: number,
+  generatorVersion: number
+): Promise<void> {
+  const meta = await readAssetBundleMeta(bundleAbs)
+  if (!meta) return
+  const now = Date.now()
+  await writeAssetBundleMeta(bundleAbs, {
+    ...meta,
+    previews: {
+      ...meta.previews,
+      [previewKey]: {
+        status: 'ready',
+        file: previewRel,
+        width,
+        height,
+        mime: 'image/png',
+        generatorVersion,
+        generatedAt: now,
+        lastUsedAt: now
+      }
+    }
+  })
+}
+
+export async function recordAssetThumbnailFailure(
+  bundleAbs: string,
+  previewKey: string,
+  errorCode: string,
+  generatorVersion: number
+): Promise<void> {
+  const meta = await readAssetBundleMeta(bundleAbs)
+  if (!meta) return
+  await writeAssetBundleMeta(bundleAbs, {
+    ...meta,
+    previews: {
+      ...meta.previews,
+      [previewKey]: {
+        status: 'failed',
+        errorCode,
+        generatorVersion,
+        failedAt: Date.now()
+      }
+    }
+  })
 }
 
 /**

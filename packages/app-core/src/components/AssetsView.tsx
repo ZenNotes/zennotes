@@ -6,8 +6,8 @@ import { useT } from '../lib/i18n'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { assetTabPath } from '../lib/asset-tabs'
 import { promptApp } from '../lib/prompt-requests'
-import { confirmApp } from '../lib/confirm-requests'
 import { droppedPathsFromTransfer, hasDroppedFiles } from '../lib/editor-drops'
+import { assetSourcePath } from '../lib/local-assets'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { Button, IconButton } from './ui/Button'
 import {
@@ -136,13 +136,13 @@ export function AssetsView(): JSX.Element {
     })
   }, [assets, activeFilter, sortKey, sortDir])
 
-  // Lazily fetch an OS thumbnail for non-image / non-video cards (once per
-  // path). Images render straight from their URL; video shows a real first
-  // frame via a <video> element, so neither needs the OS thumbnail.
+  // Lazily fetch a persisted thumbnail for non-image cards (once per path).
+  // Images render straight from their source URL; video/PDF previews come from
+  // the managed asset bundle when available.
   useEffect(() => {
     let cancelled = false
     for (const a of visible) {
-      if (a.kind === 'image' || a.kind === 'video' || requested.current.has(a.path)) continue
+      if (a.kind === 'image' || requested.current.has(a.path)) continue
       requested.current.add(a.path)
       void window.zen
         .assetThumbnail(a.path, 320)
@@ -159,14 +159,19 @@ export function AssetsView(): JSX.Element {
   }, [visible])
 
   const assetUrl = (asset: AssetMeta): string | null =>
-    vault ? window.zen.resolveVaultAssetUrl(vault.root, asset.path) : null
+    vault ? window.zen.resolveVaultAssetUrl(vault.root, assetSourcePath(asset)) : null
+
+  const assetPreviewUrl = (asset: AssetMeta): string | null =>
+    vault && asset.previewPath ? window.zen.resolveVaultAssetUrl(vault.root, asset.previewPath) : null
 
   const openAsset = (asset: AssetMeta): void => {
     void openNoteInTab(assetTabPath(asset.path))
   }
 
   const copyEmbed = (asset: AssetMeta): void => {
-    window.zen.clipboardWriteText(`![[${asset.path}]]`)
+    window.zen.clipboardWriteText(
+      asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`
+    )
     setCopied(asset.path)
   }
   useEffect(() => {
@@ -310,21 +315,10 @@ export function AssetsView(): JSX.Element {
     if (canManage) {
       items.push({ kind: 'separator' })
       items.push({
-        label: t('Delete Asset…'),
+        label: t('Move to Trash'),
         icon: <TrashIcon />,
         danger: true,
-        onSelect: async () => {
-          const ok = await confirmApp({
-            title: `${t('Delete')} ${asset.name}?`,
-            description: t(
-              'This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.'
-            ),
-            confirmLabel: t('Delete asset'),
-            danger: true
-          })
-          if (!ok) return
-          await deleteAssetAction(asset.path)
-        }
+        onSelect: async () => deleteAssetAction(asset.path)
       })
     }
     return items
@@ -436,8 +430,7 @@ export function AssetsView(): JSX.Element {
             {visible.map((asset) => {
               const isImage = asset.kind === 'image'
               const isVideo = asset.kind === 'video'
-              const videoUrl = isVideo ? assetUrl(asset) : null
-              const thumb = isImage ? assetUrl(asset) : thumbs[asset.path]
+              const thumb = isImage ? assetUrl(asset) : assetPreviewUrl(asset) ?? thumbs[asset.path]
               const ext = asset.name.includes('.')
                 ? asset.name.split('.').pop()?.toUpperCase() ?? ''
                 : ''
@@ -456,24 +449,7 @@ export function AssetsView(): JSX.Element {
                     title={asset.name}
                     className="relative flex aspect-square w-full items-center justify-center overflow-hidden bg-paper-200/40"
                   >
-                    {videoUrl ? (
-                      <>
-                        {/* The <video> element paints the frame at #t; the play
-                            badge marks it as a video. pointer-events-none keeps
-                            the card click (open) working. */}
-                        <video
-                          src={`${videoUrl}#t=0.1`}
-                          muted
-                          playsInline
-                          preload="metadata"
-                          draggable={false}
-                          className="pointer-events-none h-full w-full object-cover"
-                        />
-                        <span className="pointer-events-none absolute flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white">
-                          <PlayGlyph />
-                        </span>
-                      </>
-                    ) : thumb ? (
+                    {thumb ? (
                       <img
                         src={thumb}
                         alt={asset.name}
@@ -486,6 +462,11 @@ export function AssetsView(): JSX.Element {
                         {kindGlyph(asset.kind)}
                         {ext && <span className="text-2xs uppercase tracking-wide">{ext}</span>}
                       </div>
+                    )}
+                    {isVideo && (
+                      <span className="pointer-events-none absolute flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white">
+                        <PlayGlyph />
+                      </span>
                     )}
                     <span
                       role="button"

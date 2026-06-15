@@ -44,7 +44,7 @@ import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { completionNavKeymapFor } from '../lib/cm-completion-nav'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
-import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
+import { assetSourcePath, classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 
@@ -325,19 +325,24 @@ export function PinnedReferencePane(): JSX.Element | null {
   )
 
   const isAsset = pinnedRefKind === 'asset'
+  const pinnedAsset = useStore((s) =>
+    pinnedRefPath && isAsset ? s.assetFiles.find((asset) => asset.path === pinnedRefPath) : null
+  )
   const title = pinnedRefPath
     ? isAsset
-      ? pinnedRefPath.split('/').pop() ?? pinnedRefPath
+      ? pinnedAsset?.name ?? pinnedRefPath.split('/').pop() ?? pinnedRefPath
       : content?.title ??
         pinnedRefPath.split('/').pop()?.replace(/\.md$/i, '') ??
         pinnedRefPath
     : ''
   const assetUrl =
     pinnedRefPath && isAsset && vaultRoot
-      ? window.zen.resolveVaultAssetUrl(vaultRoot, pinnedRefPath)
+      ? window.zen.resolveVaultAssetUrl(vaultRoot, pinnedAsset ? assetSourcePath(pinnedAsset) : pinnedRefPath)
       : null
   const assetKind: LocalAssetKind | null =
-    pinnedRefPath && isAsset ? classifyLocalAssetHref(pinnedRefPath) ?? 'file' : null
+    pinnedRefPath && isAsset
+      ? pinnedAsset?.kind ?? classifyLocalAssetHref(pinnedRefPath) ?? 'file'
+      : null
   const useAssetIframe = assetKind === 'pdf' || assetKind === 'file'
 
   // Track every asset URL the user has pinned this session. One iframe

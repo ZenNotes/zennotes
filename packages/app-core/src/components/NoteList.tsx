@@ -17,8 +17,8 @@ import { Button, IconButton } from './ui/Button'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { extractTags } from '../lib/tags'
 import { setDragPayload } from '../lib/dnd'
+import { assetSourcePath } from '../lib/local-assets'
 import { promptApp } from '../lib/prompt-requests'
-import { confirmApp } from '../lib/confirm-requests'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import {
   assetBelongsToFolderView,
@@ -373,7 +373,9 @@ export function NoteList(): JSX.Element {
     items.push({
       label: t('Copy as Embed'),
       onSelect: async () => {
-        window.zen.clipboardWriteText(`![[${asset.path}]]`)
+        window.zen.clipboardWriteText(
+          asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`
+        )
       }
     })
     items.push({
@@ -401,20 +403,10 @@ export function NoteList(): JSX.Element {
     if (canDeleteAssets) {
       items.push({ kind: 'separator' })
       items.push({
-        label: t('Delete Asset…'),
+        label: t('Move to Trash'),
         icon: <TrashIcon />,
         danger: true,
-        onSelect: async () => {
-          const ok = await confirmApp({
-            title: `Delete ${asset.name}?`,
-            description:
-              'This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.',
-            confirmLabel: t('Delete asset'),
-            danger: true
-          })
-          if (!ok) return
-          await deleteAssetAction(asset.path)
-        }
+        onSelect: async () => deleteAssetAction(asset.path)
       })
     }
 
@@ -991,7 +983,7 @@ function FolderAssetRow({
   noteListIdx?: number
   vimHighlight?: boolean
 }): JSX.Element {
-  const url = assetUrl(vaultRoot, asset.path)
+  const url = assetUrl(vaultRoot, assetSourcePath(asset))
   const extension = asset.name.includes('.') ? asset.name.split('.').pop()?.toUpperCase() ?? '' : ''
 
   return (
@@ -1054,7 +1046,7 @@ function AssetCard({
   onOpen: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }): JSX.Element {
-  const url = assetUrl(vaultRoot, asset.path)
+  const url = assetUrl(vaultRoot, assetSourcePath(asset))
 
   return (
     <button
@@ -1101,7 +1093,7 @@ function AssetRow({
   onOpen: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }): JSX.Element {
-  const url = assetUrl(vaultRoot, asset.path)
+  const url = assetUrl(vaultRoot, assetSourcePath(asset))
 
   return (
     <button

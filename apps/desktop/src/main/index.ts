@@ -43,6 +43,7 @@ import {
   absolutePath,
   appendToNote,
   archiveNote,
+  assetThumbnailTarget,
   createFolder,
   createNote,
   deleteAsset,
@@ -77,6 +78,8 @@ import {
   purgeSoftDeleted,
   readNoteComments,
   readNote,
+  recordAssetThumbnailFailure,
+  recordAssetThumbnailResult,
   renameFolder,
   renameNote,
   renameAsset,
@@ -221,6 +224,7 @@ const MAIN_WINDOW_TABBING_IDENTIFIER = 'zennotes-vault-window'
 const APP_REPOSITORY_URL = 'https://github.com/songgnqing/zennotes'
 const APP_RELEASES_URL = 'https://github.com/songgnqing/zennotes/releases/latest'
 const APP_ISSUES_URL = 'https://github.com/songgnqing/zennotes/issues'
+const ASSET_THUMBNAIL_GENERATOR_VERSION = 1
 const userDataPathOverride = process.env['ZENNOTES_USER_DATA_PATH']?.trim()
 if (userDataPathOverride && (process.env['ZEN_PERF'] === '1' || !app.isPackaged)) {
   app.setPath('userData', path.resolve(userDataPathOverride))
@@ -563,6 +567,10 @@ function decodeLocalAssetRequestPath(url: string): string | null {
   } catch {
     return null
   }
+}
+
+function localAssetUrlFromAbs(abs: string): string {
+  return `${LOCAL_ASSET_SCHEME}://local?path=${encodeURIComponent(abs)}`
 }
 
 function decodeRemoteAssetRequest(url: string): { baseUrl: string; relPath: string } | null {
@@ -2493,11 +2501,42 @@ function registerIpc(): void {
     if (isRemoteWorkspaceActive()) return null
     const v = requireVault()
     try {
-      const abs = absolutePath(v.root, relPath)
+      const target = await assetThumbnailTarget(
+        v.root,
+        relPath,
+        maxSize,
+        ASSET_THUMBNAIL_GENERATOR_VERSION
+      )
+      if (target.readyPreviewAbs) return localAssetUrlFromAbs(target.readyPreviewAbs)
+      if (target.managed && (!target.previewAbs || !target.previewRel || !target.bundleAbs || !target.previewKey)) {
+        return null
+      }
       const size = Math.max(32, Math.min(1024, Math.round(maxSize) || 256))
-      const img = await nativeImage.createThumbnailFromPath(abs, { width: size, height: size })
-      if (img.isEmpty()) return null
-      return img.toDataURL()
+      const img = await nativeImage.createThumbnailFromPath(target.sourceAbs, { width: size, height: size })
+      if (img.isEmpty()) {
+        if (target.managed && target.bundleAbs && target.previewKey) {
+          await recordAssetThumbnailFailure(
+            target.bundleAbs,
+            target.previewKey,
+            'empty-thumbnail',
+            ASSET_THUMBNAIL_GENERATOR_VERSION
+          )
+        }
+        return null
+      }
+      if (!target.managed) return img.toDataURL()
+      await fsp.mkdir(path.dirname(target.previewAbs!), { recursive: true })
+      await fsp.writeFile(target.previewAbs!, img.toPNG())
+      const dimensions = img.getSize()
+      await recordAssetThumbnailResult(
+        target.bundleAbs!,
+        target.previewKey!,
+        target.previewRel!,
+        dimensions.width,
+        dimensions.height,
+        ASSET_THUMBNAIL_GENERATOR_VERSION
+      )
+      return localAssetUrlFromAbs(target.previewAbs!)
     } catch {
       return null
     }

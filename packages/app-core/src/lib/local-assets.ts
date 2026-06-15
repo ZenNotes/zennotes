@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import type { AssetMeta } from '@shared/ipc'
 
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -15,6 +16,47 @@ const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav
 const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
 export type LocalAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
+
+const ASSET_REF_RE = /^asset:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i
+
+export function assetIdFromHref(href: string): string | null {
+  const match = href.trim().match(ASSET_REF_RE)
+  return match?.[1] ?? null
+}
+
+function assetPathBasename(value: string | null | undefined): string {
+  return value?.split('/').filter(Boolean).pop()?.toLowerCase() ?? ''
+}
+
+export function assetSourcePath(asset: AssetMeta): string {
+  return asset.sourcePath || asset.path
+}
+
+function assetForId(id: string): AssetMeta | null {
+  const bundlePath = `assets/${id}.asset`
+  return (
+    useStore
+      .getState()
+      .assetFiles.find(
+        (asset) =>
+          asset.id === id ||
+          asset.path === bundlePath ||
+          asset.path?.startsWith(`${bundlePath}/`) ||
+          asset.bundlePath === bundlePath ||
+          asset.sourcePath?.startsWith(`${bundlePath}/`)
+      ) ?? null
+  )
+}
+
+function assetForHref(href: string): AssetMeta | null {
+  const id = assetIdFromHref(href)
+  return id ? assetForId(id) : null
+}
+
+function assetUrlForVaultRelativePath(vaultRoot: string, relPath: string): string | null {
+  const asset = useStore.getState().assetFiles.find((item) => item.path === relPath)
+  return window.zen.resolveVaultAssetUrl(vaultRoot, asset ? assetSourcePath(asset) : relPath)
+}
 
 function stripQueryAndHash(href: string): string {
   return href.split('#')[0]?.split('?')[0] ?? href
@@ -59,6 +101,9 @@ function assetExtension(href: string): string {
 
 export function classifyLocalAssetHref(href: string): LocalAssetKind | null {
   if (!href || href.startsWith('#') || href.startsWith('//')) return null
+  const asset = assetForHref(href)
+  if (asset) return asset.kind
+  if (assetIdFromHref(href)) return 'file'
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href)) return null
   const ext = assetExtension(href)
   if (IMAGE_EXTENSIONS.has(ext)) return 'image'
@@ -74,9 +119,19 @@ export function resolveLocalAssetUrl(
   href: string
 ): string | null {
   if (!vaultRoot || !notePath) return null
+  const trimmed = href.trim()
   const resolvedRel = resolveAssetVaultRelativePath(vaultRoot, notePath, href)
   if (resolvedRel) {
-    return window.zen.resolveVaultAssetUrl(vaultRoot, resolvedRel)
+    return assetUrlForVaultRelativePath(vaultRoot, resolvedRel)
+  }
+  if (
+    !trimmed ||
+    trimmed.startsWith('#') ||
+    trimmed.startsWith('//') ||
+    assetIdFromHref(trimmed) ||
+    /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)
+  ) {
+    return null
   }
   // If the asset list hasn't arrived yet (cold start, before
   // `listAssets` resolves), skip producing a URL rather than baking in
@@ -102,6 +157,8 @@ export function resolveAssetVaultRelativePath(
   if (!vaultRoot || !notePath) return null
   const trimmed = href.trim()
   if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
+  const assetRef = assetForHref(trimmed)
+  if (assetRef) return assetRef.path
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return null
 
   const noteDir = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
@@ -115,14 +172,18 @@ export function resolveAssetVaultRelativePath(
   if (target.startsWith('../') || target === '..') return null
 
   const assets = useStore.getState().assetFiles
-  if (assets.some((asset) => asset.path === target)) return target
+  const exact = assets.find((asset) => asset.path === target || asset.sourcePath === target)
+  if (exact) return exact.path
 
   const targetBase = target.split('/').filter(Boolean).pop()?.toLowerCase()
   if (!targetBase) return null
 
   const basenameMatches = assets.filter((asset) => {
-    const assetBase = asset.path.split('/').filter(Boolean).pop()?.toLowerCase()
-    return assetBase === targetBase
+    return (
+      asset.name.toLowerCase() === targetBase ||
+      assetPathBasename(asset.sourcePath) === targetBase ||
+      assetPathBasename(asset.path) === targetBase
+    )
   })
   if (basenameMatches.length === 1) {
     return basenameMatches[0]!.path
@@ -132,6 +193,8 @@ export function resolveAssetVaultRelativePath(
 }
 
 function localAssetLabel(href: string, fallback: string): string {
+  const asset = assetForHref(href)
+  if (asset) return asset.name
   const clean = href.split('#')[0]?.split('?')[0] ?? href
   const parts = clean.split('/').filter(Boolean)
   const last = parts[parts.length - 1]
@@ -304,6 +367,113 @@ function buildEmbed(
   return figure
 }
 
+function buildVideoEmbed(
+  url: string,
+  label: string,
+  href: string,
+  onOpenAsset?: (() => void) | null,
+  posterUrl?: string | null
+): HTMLElement {
+  const figure = document.createElement('figure')
+  figure.className = 'local-video-embed not-prose'
+  figure.dataset.localAssetUrl = url
+  figure.dataset.localAssetKind = 'video'
+  figure.dataset.localAssetHref = href
+
+  const frame = document.createElement('div')
+  frame.className = 'local-video-embed-frame'
+
+  const video = document.createElement('video')
+  video.className = 'local-video-embed-video'
+  video.src = url
+  video.controls = true
+  video.preload = 'metadata'
+  if (posterUrl) video.poster = posterUrl
+  video.addEventListener('loadedmetadata', () => {
+    figure.classList.toggle('is-portrait', video.videoHeight > video.videoWidth)
+  })
+  frame.append(video)
+
+  if (onOpenAsset) {
+    const controlsTop = document.createElement('div')
+    controlsTop.className = 'local-image-embed-controls local-image-embed-controls-top'
+    const openButton = buildImageAction('Open video', 'open')
+    openButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onOpenAsset()
+    })
+    controlsTop.append(openButton)
+    frame.append(controlsTop)
+  }
+
+  const caption = document.createElement('figcaption')
+  caption.className = 'local-video-embed-caption'
+  caption.textContent = label || localAssetLabel(href, 'Video')
+
+  figure.append(frame, caption)
+  return figure
+}
+
+function buildPdfBookEmbed(
+  url: string,
+  label: string,
+  href: string,
+  onOpenAsset?: (() => void) | null,
+  previewUrl?: string | null
+): HTMLElement {
+  const figure = document.createElement('figure')
+  figure.className = 'local-pdf-book-embed not-prose'
+  figure.dataset.localAssetUrl = url
+  figure.dataset.localAssetKind = 'pdf'
+  figure.dataset.localAssetHref = href
+
+  const shell = document.createElement('div')
+  shell.className = 'local-pdf-book-shell'
+
+  const cover = document.createElement('button')
+  cover.type = 'button'
+  cover.className = 'local-pdf-book-cover'
+  cover.title = 'Open PDF'
+  if (onOpenAsset) {
+    cover.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onOpenAsset()
+    })
+  }
+
+  if (previewUrl) {
+    const preview = document.createElement('img')
+    preview.className = 'local-pdf-book-thumbnail'
+    preview.src = previewUrl
+    preview.alt = ''
+    preview.draggable = false
+    cover.append(preview)
+  } else {
+    const fallback = document.createElement('div')
+    fallback.className = 'local-pdf-book-fallback'
+    const mark = document.createElement('span')
+    mark.className = 'local-pdf-book-mark'
+    mark.textContent = 'PDF'
+    fallback.append(mark)
+    cover.append(fallback)
+  }
+
+  const tag = document.createElement('span')
+  tag.className = 'local-pdf-book-tag'
+  tag.textContent = 'PDF'
+  cover.append(tag)
+
+  const caption = document.createElement('figcaption')
+  caption.className = 'local-pdf-book-caption'
+  caption.textContent = label || localAssetLabel(href, 'PDF')
+
+  shell.append(cover)
+  figure.append(shell, caption)
+  return figure
+}
+
 /**
  * Build a compact "showing in reference pane" placeholder used when an
  * embedded PDF in the note is the same one the user has pinned in the
@@ -349,6 +519,69 @@ function buildPinnedRefPlaceholder(
   return figure
 }
 
+type LocalAssetAnchorInfo = {
+  anchor: HTMLAnchorElement
+  raw: string
+  resolved: string
+  asset: AssetMeta | null
+  assetVaultRel: string | null
+  kind: LocalAssetKind
+  label: string
+}
+
+function paragraphHasOnlyLocalAssetAnchors(paragraph: HTMLParagraphElement): boolean {
+  if (!paragraph.querySelector('a[href], a[data-wikilink]')) return false
+  for (const node of Array.from(paragraph.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if ((node.textContent ?? '').trim()) return false
+      continue
+    }
+    if (node.nodeName === 'BR') continue
+    if (node.nodeName === 'A') continue
+    return false
+  }
+  return true
+}
+
+function assetHrefFromAnchor(anchor: HTMLAnchorElement): string {
+  const wikilinkTarget = anchor.dataset.wikilink?.trim() ?? ''
+  if (assetIdFromHref(wikilinkTarget)) return wikilinkTarget
+  return anchor.dataset.localAssetHref || anchor.getAttribute('href') || ''
+}
+
+function removeAdjacentAssetLineBreaks(embed: HTMLElement): void {
+  const removeIgnorable = (node: ChildNode | null, direction: 'previous' | 'next'): void => {
+    let current = node
+    while (
+      current &&
+      (current.nodeName === 'BR' ||
+        (current.nodeType === Node.TEXT_NODE && !(current.textContent ?? '').trim()))
+    ) {
+      const next = direction === 'previous' ? current.previousSibling : current.nextSibling
+      current.remove()
+      current = next
+    }
+  }
+
+  removeIgnorable(embed.previousSibling, 'previous')
+  removeIgnorable(embed.nextSibling, 'next')
+}
+
+function hoistAssetEmbedsFromTaskLists(root: HTMLElement): void {
+  root.querySelectorAll<HTMLOListElement | HTMLUListElement>('ol, ul').forEach((list) => {
+    const embeds = Array.from(
+      list.querySelectorAll<HTMLElement>('li.task-list-item figure[data-local-asset-kind]')
+    ).filter((figure) => figure.closest('ol, ul') === list)
+    if (embeds.length === 0) return
+    list.dataset.localAssetHoistSource = 'true'
+    embeds.forEach((embed) => {
+      removeAdjacentAssetLineBreaks(embed)
+      embed.dataset.localAssetHoisted = 'true'
+    })
+    list.after(...embeds)
+  })
+}
+
 export function enhanceLocalAssetNodes(
   root: HTMLElement,
   options: {
@@ -371,6 +604,90 @@ export function enhanceLocalAssetNodes(
     onOpenAsset
   } = options
   if (!vaultRoot || !notePath) return
+
+  const localAssetAnchorInfo = (anchor: HTMLAnchorElement): LocalAssetAnchorInfo | null => {
+    if (anchor.classList.contains('hashtag')) return null
+    const raw = assetHrefFromAnchor(anchor)
+    if (anchor.classList.contains('wikilink') && !assetIdFromHref(raw)) return null
+    const resolved = resolveLocalAssetUrl(vaultRoot, notePath, raw)
+    if (!resolved) return null
+    const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
+    const asset = assetVaultRel
+      ? useStore.getState().assetFiles.find((entry) => entry.path === assetVaultRel) ?? null
+      : assetForHref(raw)
+    const kind = classifyLocalAssetHref(raw) ?? 'file'
+    const label = localAssetLabel(raw, anchor.textContent?.trim() || 'Asset')
+
+    anchor.href = resolved
+    anchor.dataset.localAssetUrl = resolved
+    anchor.dataset.localAssetKind = kind
+    anchor.dataset.localAssetHref = raw
+    anchor.target = '_blank'
+    anchor.rel = 'noreferrer'
+    if (assetVaultRel && onOpenAsset && anchor.dataset.localAssetClick !== 'open-asset') {
+      anchor.dataset.localAssetClick = 'open-asset'
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onOpenAsset(assetVaultRel)
+      })
+    }
+
+    return { anchor, raw, resolved, asset, assetVaultRel, kind, label }
+  }
+
+  const buildAnchorEmbed = (info: LocalAssetAnchorInfo): HTMLElement | null => {
+    if (info.kind === 'file') return null
+    if (info.kind === 'image') {
+      const img = document.createElement('img')
+      img.src = info.resolved
+      img.alt = info.label
+      img.loading = 'lazy'
+      img.dataset.localAssetUrl = info.resolved
+      img.dataset.localAssetHref = info.raw
+      return buildImageEmbed(
+        img,
+        info.raw,
+        info.resolved,
+        onRequestEdit,
+        info.assetVaultRel && onOpenAsset ? () => onOpenAsset(info.assetVaultRel!) : null
+      )
+    }
+    if (info.kind === 'pdf' && pinnedAssetPath && info.assetVaultRel === pinnedAssetPath) {
+      return buildPinnedRefPlaceholder(info.resolved, info.raw, info.label, () => {
+        onActivatePinnedRef?.()
+      })
+    }
+    if (info.kind === 'pdf') {
+      const previewUrl =
+        info.asset?.previewPath ? window.zen.resolveVaultAssetUrl(vaultRoot, info.asset.previewPath) : null
+      return buildPdfBookEmbed(
+        info.resolved,
+        info.label,
+        info.raw,
+        info.assetVaultRel && onOpenAsset ? () => onOpenAsset(info.assetVaultRel!) : null,
+        previewUrl
+      )
+    }
+    if (info.kind === 'video') {
+      const posterUrl =
+        info.asset?.previewPath ? window.zen.resolveVaultAssetUrl(vaultRoot, info.asset.previewPath) : null
+      return buildVideoEmbed(
+        info.resolved,
+        info.label,
+        info.raw,
+        info.assetVaultRel && onOpenAsset ? () => onOpenAsset(info.assetVaultRel!) : null,
+        posterUrl
+      )
+    }
+    return buildEmbed(
+      info.kind,
+      info.resolved,
+      info.label,
+      info.raw,
+      info.assetVaultRel && onOpenAsset ? () => onOpenAsset(info.assetVaultRel!) : null
+    )
+  }
 
   root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
     const raw = img.getAttribute('src') || ''
@@ -395,52 +712,47 @@ export function enhanceLocalAssetNodes(
     )
   })
 
-  root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
-    if (anchor.classList.contains('wikilink') || anchor.classList.contains('hashtag')) return
-    const raw = anchor.getAttribute('href') || ''
-    const resolved = resolveLocalAssetUrl(vaultRoot, notePath, raw)
-    if (!resolved) return
+  root.querySelectorAll<HTMLAnchorElement>('a[href], a[data-wikilink]').forEach((anchor) => {
+    if (!root.contains(anchor)) return
+    const info = localAssetAnchorInfo(anchor)
+    if (!info) return
 
-    const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
-    const kind = classifyLocalAssetHref(raw) ?? 'file'
-    anchor.href = resolved
-    anchor.dataset.localAssetUrl = resolved
-    anchor.dataset.localAssetKind = kind
-    anchor.dataset.localAssetHref = raw
-    anchor.target = '_blank'
-    anchor.rel = 'noreferrer'
-    if (assetVaultRel && onOpenAsset) {
-      anchor.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        onOpenAsset(assetVaultRel)
-      })
-    }
-
-    if (kind === 'file' || kind === 'image') return
-
-    const paragraph = isStandaloneAnchorParagraph(anchor)
-    if (!paragraph || paragraph.dataset.assetEmbed === 'true') return
-    paragraph.dataset.assetEmbed = 'true'
-    const label = localAssetLabel(raw, anchor.textContent?.trim() || 'Asset')
-    if (kind === 'pdf' && pinnedAssetPath) {
-      if (assetVaultRel === pinnedAssetPath) {
-        paragraph.replaceWith(
-          buildPinnedRefPlaceholder(resolved, raw, label, () => {
-            onActivatePinnedRef?.()
-          })
-        )
+    const parentParagraph = anchor.parentElement as HTMLParagraphElement | null
+    if (
+      parentParagraph?.tagName === 'P' &&
+      parentParagraph.dataset.assetEmbed !== 'true' &&
+      paragraphHasOnlyLocalAssetAnchors(parentParagraph)
+    ) {
+      const embeds: HTMLElement[] = []
+      for (const item of Array.from(
+        parentParagraph.querySelectorAll<HTMLAnchorElement>('a[href], a[data-wikilink]')
+      )) {
+        const itemInfo = localAssetAnchorInfo(item)
+        const embed = itemInfo ? buildAnchorEmbed(itemInfo) : null
+        if (!embed) {
+          embeds.length = 0
+          break
+        }
+        embeds.push(embed)
+      }
+      if (embeds.length > 0) {
+        parentParagraph.dataset.assetEmbed = 'true'
+        parentParagraph.replaceWith(...embeds)
         return
       }
     }
-    paragraph.replaceWith(
-      buildEmbed(
-        kind,
-        resolved,
-        label,
-        raw,
-        assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
-      )
-    )
+
+    const embed = buildAnchorEmbed(info)
+    if (!embed) return
+    const paragraph = isStandaloneAnchorParagraph(anchor)
+    if (paragraph && paragraph.dataset.assetEmbed !== 'true') {
+      paragraph.dataset.assetEmbed = 'true'
+      paragraph.replaceWith(embed)
+      return
+    }
+    if (anchor.parentElement?.tagName === 'P') return
+    anchor.replaceWith(embed)
   })
+
+  hoistAssetEmbedsFromTaskLists(root)
 }

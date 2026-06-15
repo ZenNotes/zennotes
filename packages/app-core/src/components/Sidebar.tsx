@@ -2310,7 +2310,9 @@ export function Sidebar(): JSX.Element {
     items.push({
       label: t("Copy as Embed"),
       onSelect: async () => {
-        window.zen.clipboardWriteText(`![[${asset.path}]]`);
+        window.zen.clipboardWriteText(
+          asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`,
+        );
       },
     });
     items.push({
@@ -2338,20 +2340,10 @@ export function Sidebar(): JSX.Element {
     if (canDeleteAssets) {
       items.push({ kind: "separator" });
       items.push({
-        label: t("Delete Asset…"),
+        label: t("Move to Trash"),
         icon: <TrashIcon />,
         danger: true,
-        onSelect: async () => {
-          const ok = await confirmApp({
-            title: `Delete ${asset.name}?`,
-            description:
-              "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.",
-            confirmLabel: t("Delete asset"),
-            danger: true,
-          });
-          if (!ok) return;
-          await deleteAssetAction(asset.path);
-        },
+        onSelect: async () => deleteAssetAction(asset.path),
       });
     }
 

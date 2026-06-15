@@ -156,16 +156,30 @@ export interface VaultTextSearchMatch {
 export type ImportedAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'file'
 
 export interface AssetMeta {
+  /** Stable UUID for managed asset bundles. Legacy loose files omit this. */
+  id?: string
   /** Vault-relative path to the asset, POSIX-style. */
   path: string
   /** File name only. */
   name: string
   kind: ImportedAssetKind
+  /** True when the asset is stored as `<uuid>.asset/` with metadata + previews. */
+  managed?: boolean
+  /** Vault-relative path to the managed asset bundle directory. */
+  bundlePath?: string
+  /** Vault-relative path to the original/source file. For bundles this lives inside `bundlePath`. */
+  sourcePath?: string
+  /** Vault-relative path to a persisted preview image, when available. */
+  previewPath?: string
+  /** Zero-based order within the parent directory as read from disk. */
+  siblingOrder: number
   size: number
   updatedAt: number
 }
 
 export interface ImportedAsset {
+  /** Stable UUID for managed asset bundles. Legacy loose files omit this. */
+  id?: string
   /** File name stored under the vault-root attachments directory. */
   name: string
   /** Vault-relative path to the imported asset, POSIX-style. */

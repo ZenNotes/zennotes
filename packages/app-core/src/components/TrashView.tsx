@@ -224,7 +224,7 @@ export function TrashView(): JSX.Element {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-6 py-6">
         <CollectionViewHeader
           title={trashLabel}
-          description={t('Review deleted notes, folders, and forms, restore what you still need, and only empty the bin when you want permanent removal.')}
+          description={t('Review deleted notes, folders, forms, and assets, restore what you still need, and only empty the bin when you want permanent removal.')}
           count={trashed.length}
           filter={filter}
           onFilterChange={setFilter}
@@ -267,7 +267,7 @@ export function TrashView(): JSX.Element {
               </div>
               <div className="max-w-xl text-sm leading-7 text-ink-500">
                 {trashed.length === 0
-                  ? t('Deleted notes, folders, and forms land here first so you can recover them before removing them permanently.')
+                  ? t('Deleted notes, folders, forms, and assets land here first so you can recover them before removing them permanently.')
                   : t('Try a different title, path, or excerpt fragment.')}
               </div>
             </div>

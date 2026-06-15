@@ -32,9 +32,9 @@ type PositionedNode = AnyNode & {
 const URI_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/
 const FENCE_SOURCE_START_RE = /^ {0,3}(`{3,}|~{3,})/
 const FENCE_SOURCE_END_RE = /^ {0,3}(`{3,}|~{3,})\s*$/
-const ALLOWED_RENDERED_URI_SCHEME_RE = /^(?:https?|mailto|zen|zen-asset|blob|data):/i
+const ALLOWED_RENDERED_URI_SCHEME_RE = /^(?:https?|mailto|zen|zen-asset|asset|blob|data):/i
 const ALLOWED_RENDERED_URI_RE =
-  /^(?:(?:https?|mailto|zen|zen-asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+  /^(?:(?:https?|mailto|zen|zen-asset|asset|blob|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
 const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-callout',
   'data-function-plot-source',
@@ -445,18 +445,24 @@ const processor = unified()
   .use(rehypeStringify)
 
 const MARKDOWN_RENDER_CACHE_LIMIT = 24
+const MARKDOWN_RENDER_CACHE_VERSION = 'asset-uri-v1'
 const markdownRenderCache = new Map<string, string>()
 
+function markdownCacheKey(src: string): string {
+  return `${MARKDOWN_RENDER_CACHE_VERSION}\0${src}`
+}
+
 function getCachedMarkdown(src: string): string | null {
-  const cached = markdownRenderCache.get(src)
+  const key = markdownCacheKey(src)
+  const cached = markdownRenderCache.get(key)
   if (cached == null) return null
-  markdownRenderCache.delete(src)
-  markdownRenderCache.set(src, cached)
+  markdownRenderCache.delete(key)
+  markdownRenderCache.set(key, cached)
   return cached
 }
 
 function cacheRenderedMarkdown(src: string, html: string): void {
-  markdownRenderCache.set(src, html)
+  markdownRenderCache.set(markdownCacheKey(src), html)
   while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
     const oldest = markdownRenderCache.keys().next().value
     if (!oldest) break

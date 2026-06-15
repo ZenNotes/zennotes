@@ -4,8 +4,26 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { forceParsing } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { livePreviewPlugin } from './cm-live-preview'
 import { wysiwygBlocksPlugin } from './cm-wysiwyg-blocks'
+
+vi.mock('../store', () => {
+  const state = {
+    activeNote: null,
+    assetFiles: [],
+    noteRefs: {},
+    pdfEmbedInEditMode: 'compact',
+    pinnedRefKind: 'note',
+    pinnedRefPath: null,
+    vault: null
+  }
+  const useStore = Object.assign(() => null, {
+    getState: () => state,
+    subscribe: () => () => {}
+  })
+  return { useStore }
+})
 
 const DOC = `# Title
 
@@ -36,7 +54,36 @@ function mount(doc: string): EditorView {
   return view
 }
 
+function mountLivePreview(doc: string, anchor = doc.length): EditorView {
+  const parent = document.createElement('div')
+  document.body.append(parent)
+  const view = new EditorView({
+    parent,
+    state: EditorState.create({
+      doc,
+      selection: { anchor },
+      extensions: [markdown({ base: markdownLanguage }), livePreviewPlugin, wysiwygBlocksPlugin]
+    })
+  })
+  forceParsing(view, doc.length, 5000)
+  view.focus()
+  const nudge = anchor < doc.length ? anchor + 1 : Math.max(0, anchor - 1)
+  if (nudge !== anchor) {
+    view.dispatch({ selection: { anchor: nudge } })
+    view.dispatch({ selection: { anchor } })
+  }
+  return view
+}
+
 describe('wysiwygBlocksPlugin', () => {
+  beforeEach(() => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('renders bullets, an hr, and a blockquote bar without throwing', () => {
     const view = mount(DOC)
     expect(view.dom.querySelectorAll('.cm-wq-bullet').length).toBe(2)
@@ -71,6 +118,31 @@ describe('wysiwygBlocksPlugin', () => {
     view.dispatch({ selection: { anchor: firstItem + 3 } })
     // The active list line shows its `-`; only the second item stays a bullet.
     expect(view.dom.querySelectorAll('.cm-wq-bullet').length).toBe(1)
+    view.destroy()
+  })
+
+  it('hides task list markers when the checkbox widget is rendered', () => {
+    const view = mountLivePreview('- [ ] Buy milk\n1. [x] Done')
+
+    expect(view.dom.querySelectorAll('input.cm-task-checkbox-input')).toHaveLength(2)
+    expect(view.dom.querySelectorAll('.cm-wq-bullet')).toHaveLength(0)
+    expect(view.dom.textContent).not.toContain('-')
+    expect(view.dom.textContent).not.toContain('1.')
+    expect(view.dom.textContent).not.toContain('[ ]')
+    expect(view.dom.textContent).not.toContain('[x]')
+    expect(view.dom.textContent).toContain('Buy milk')
+    expect(view.dom.textContent).toContain('Done')
+
+    view.destroy()
+  })
+
+  it('reveals task list source when the cursor is on the marker', () => {
+    const doc = '- [ ] Edit me'
+    const view = mountLivePreview(doc, doc.indexOf('[ ]') + 1)
+
+    expect(view.dom.querySelectorAll('input.cm-task-checkbox-input')).toHaveLength(0)
+    expect(view.dom.textContent).toContain('- [ ] Edit me')
+
     view.destroy()
   })
 })

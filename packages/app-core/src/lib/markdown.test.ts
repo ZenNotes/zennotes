@@ -49,6 +49,13 @@ describe('renderMarkdown', () => {
     expect(html).toContain('graph TD; A--&gt;B')
   })
 
+  it('preserves asset hrefs so preview post-processing can render embeds', () => {
+    const html = renderMarkdown('![[asset:1948417e-30d2-4175-8cd4-6cfcf4ee90fb|Clip.mp4]]')
+
+    expect(html).toContain('href="asset:1948417e-30d2-4175-8cd4-6cfcf4ee90fb"')
+    expect(html).toContain('Clip.mp4')
+  })
+
   it('renders an unclosed fence as ordinary text', () => {
     const html = renderMarkdown('```\n1111111111111111111111')
 

@@ -116,6 +116,11 @@ type AssetMeta struct {
 	Path         string `json:"path"`
 	Name         string `json:"name"`
 	Kind         string `json:"kind"`
+	ID           string `json:"id,omitempty"`
+	Managed      bool   `json:"managed,omitempty"`
+	BundlePath   string `json:"bundlePath,omitempty"`
+	SourcePath   string `json:"sourcePath,omitempty"`
+	PreviewPath  string `json:"previewPath,omitempty"`
 	SiblingOrder int    `json:"siblingOrder"`
 	Size         int64  `json:"size"`
 	UpdatedAt    int64  `json:"updatedAt"`
@@ -123,6 +128,7 @@ type AssetMeta struct {
 
 // ImportedAsset — mirrors shared/ipc.ts ImportedAsset.
 type ImportedAsset struct {
+	ID       string `json:"id,omitempty"`
 	Name     string `json:"name"`
 	Path     string `json:"path"`
 	Markdown string `json:"markdown"`

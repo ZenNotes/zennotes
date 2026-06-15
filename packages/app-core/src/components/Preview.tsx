@@ -39,7 +39,6 @@ import { NoteHoverPreview } from "./NoteHoverPreview";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ArrowUpRightIcon, MaximizeIcon, MinimizeIcon } from "./icons";
 import { promptApp } from "../lib/prompt-requests";
-import { confirmApp } from "../lib/confirm-requests";
 import { useT } from "../lib/i18n";
 
 // ---------------------------------------------------------------------------
@@ -433,13 +432,13 @@ export const Preview = memo(function Preview({
     window.zen.getAppInfo().runtime === "desktop" &&
     workspaceMode !== "remote";
 
-  const html = useMemo(() => renderMarkdown(markdown), [markdown]);
-  // Leading YAML frontmatter is no longer rendered inline here — it's surfaced
-  // (and edited) in the right-hand Properties panel (PropertiesPanel.tsx).
   const assetFilesKey = useMemo(
-    () => assetFiles.map((asset) => asset.path).join("\n"),
+    () => assetFiles.map((asset) => `${asset.id ?? ""}:${asset.path}:${asset.kind}:${asset.name}`).join("\n"),
     [assetFiles],
   );
+  const html = useMemo(() => renderMarkdown(markdown), [markdown, assetFilesKey]);
+  // Leading YAML frontmatter is no longer rendered inline here — it's surfaced
+  // (and edited) in the right-hand Properties panel (PropertiesPanel.tsx).
   const notesRef = useRef(notes);
   const markdownRef = useRef(markdown);
   const notePathRef = useRef(notePath);
@@ -846,7 +845,11 @@ export const Preview = memo(function Preview({
       label: t("Copy as Embed"),
       disabled: !vaultRel,
       onSelect: async () => {
-        if (vaultRel) window.zen.clipboardWriteText(`![[${vaultRel}]]`);
+        if (vaultRel) {
+          window.zen.clipboardWriteText(
+            asset?.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${vaultRel}]]`,
+          );
+        }
       },
     });
     items.push({
@@ -894,20 +897,9 @@ export const Preview = memo(function Preview({
     if (canDeleteAssets && vaultRel && asset) {
       items.push({ kind: "separator" });
       items.push({
-        label: t("Delete Asset…"),
+        label: t("Move to Trash"),
         danger: true,
-        onSelect: async () => {
-          const ok = await confirmApp({
-            title: t("Delete {name}?").replace("{name}", asset.name),
-            description: t(
-              "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render."
-            ),
-            confirmLabel: t("Delete asset"),
-            danger: true,
-          });
-          if (!ok) return;
-          await deleteAssetAction(vaultRel);
-        },
+        onSelect: async () => deleteAssetAction(vaultRel),
       });
     }
 

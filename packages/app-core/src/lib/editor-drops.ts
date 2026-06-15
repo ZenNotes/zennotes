@@ -7,10 +7,11 @@ import type { AssetMeta, ImportedAsset } from '@shared/ipc'
 
 export function importedAssetForExistingVaultAsset(asset: AssetMeta): ImportedAsset {
   return {
+    id: asset.id,
     name: asset.name,
     path: asset.path,
     kind: asset.kind,
-    markdown: `![[${asset.path}]]`
+    markdown: asset.id ? `![[asset:${asset.id}|${asset.name}]]` : `![[${asset.path}]]`
   }
 }
 

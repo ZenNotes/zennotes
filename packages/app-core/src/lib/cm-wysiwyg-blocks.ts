@@ -90,6 +90,31 @@ function activeLineSet(view: EditorView): Set<number> {
 
 type Pending = { from: number; to: number; deco: Decoration; line: boolean }
 
+function selectionTouchesRange(state: EditorState, from: number, to: number): boolean {
+  for (const range of state.selection.ranges) {
+    if (range.empty) {
+      if (range.from >= from && range.from <= to) return true
+      continue
+    }
+    if (Math.max(range.from, from) < Math.min(range.to, to)) return true
+  }
+  return false
+}
+
+function taskMarkerAfterListMark(
+  state: EditorState,
+  listMarkFrom: number,
+  listMarkTo: number
+): { from: number; to: number } | null {
+  const line = state.doc.lineAt(listMarkFrom)
+  if (state.doc.lineAt(listMarkTo).number !== line.number) return null
+  const tail = state.doc.sliceString(listMarkTo, line.to)
+  const match = tail.match(/^([ \t]+)\[[ xX]\](?:[ \t]|$)/)
+  if (!match) return null
+  const from = listMarkTo + match[1].length
+  return { from, to: from + 3 }
+}
+
 function buildCodeBlockGapDecorations(state: EditorState): DecorationSet {
   const pending: Array<{ from: number; deco: Decoration }> = []
   syntaxTree(state).iterate({
@@ -189,6 +214,12 @@ function buildDecorations(view: EditorView): DecorationSet {
           return false // don't descend into the code content
         }
         if (node.name === 'ListMark') {
+          const taskMarker = taskMarkerAfterListMark(state, node.from, node.to)
+          if (taskMarker) {
+            if (selectionTouchesRange(state, node.from, taskMarker.to)) return
+            pending.push({ from: node.from, to: taskMarker.from, deco: hideInline, line: false })
+            return
+          }
           const lineNo = state.doc.lineAt(node.from).number
           if (active.has(lineNo)) return
           const text = state.doc.sliceString(node.from, node.to)

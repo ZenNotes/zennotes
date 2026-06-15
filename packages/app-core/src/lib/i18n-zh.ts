@@ -866,8 +866,8 @@ export const ZH: Record<string, string> = {
   Asset: '资源',
   'trashed item(s)?': '个回收站项目?',
   'You can restore it later from the Trash view.': '之后可以在回收站视图中恢复它。',
-  'Deleted notes, folders, and forms land here first so you can recover them before removing them permanently.':
-    '删除的笔记、文件夹和表单会先放到这里,你可以在永久删除前恢复它们。',
+  'Deleted notes, folders, forms, and assets land here first so you can recover them before removing them permanently.':
+    '删除的笔记、文件夹、表单和资源会先放到这里,你可以在永久删除前恢复它们。',
   'Empty note': '空笔记',
   create: '创建',
   move: '移动',
@@ -925,8 +925,8 @@ export const ZH: Record<string, string> = {
   '{count} note': '{count} 篇笔记',
   '{count} notes': '{count} 篇笔记',
   // Trash view
-  'Review deleted notes, folders, and forms, restore what you still need, and only empty the bin when you want permanent removal.':
-    '查看已删除的笔记、文件夹和表单,恢复仍然需要的内容,只在想永久移除时才清空回收站。',
+  'Review deleted notes, folders, forms, and assets, restore what you still need, and only empty the bin when you want permanent removal.':
+    '查看已删除的笔记、文件夹、表单和资源,恢复仍然需要的内容,只在想永久移除时才清空回收站。',
   'Filter trashed notes…': '筛选回收站笔记…',
   'Empty {label}': '清空{label}',
   '{label} is empty.': '{label}是空的。',

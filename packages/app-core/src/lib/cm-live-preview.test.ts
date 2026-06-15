@@ -6,18 +6,34 @@ import { EditorView } from '@codemirror/view'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { livePreviewPlugin } from './cm-live-preview'
 
+const storeState = vi.hoisted(() => ({
+  activeNote: null as { path: string } | null,
+  assetFiles: [] as Array<{
+    id?: string
+    path: string
+    name: string
+    kind: 'image' | 'pdf' | 'audio' | 'video' | 'file'
+    sourcePath?: string
+    previewPath?: string
+    siblingOrder: number
+    size: number
+    updatedAt: number
+  }>,
+  editorViewRef: null as EditorView | null,
+  noteRefs: {} as Record<string, { kind: string; path: string }>,
+  openNoteInTab: vi.fn(),
+  pdfEmbedInEditMode: 'compact',
+  pinAssetReferenceForNote: vi.fn(),
+  pinnedRefKind: 'note',
+  pinnedRefPath: null as string | null,
+  pinnedRefVisible: false,
+  togglePinnedRefVisible: vi.fn(),
+  vault: null as { root: string } | null
+}))
+
 vi.mock('../store', () => {
-  const state = {
-    activeNote: null,
-    assetFiles: [],
-    noteRefs: {},
-    pdfEmbedInEditMode: 'compact',
-    pinnedRefKind: 'note',
-    pinnedRefPath: null,
-    vault: null
-  }
   const useStore = Object.assign(() => null, {
-    getState: () => state,
+    getState: () => storeState,
     subscribe: () => () => {}
   })
   return { useStore }
@@ -49,9 +65,68 @@ function mountEditor(
   return view
 }
 
+function configureVideoAsset(): void {
+  storeState.vault = { root: '/vault' }
+  storeState.activeNote = { path: 'quick/Note.md' }
+  storeState.assetFiles = [
+    {
+      id: '1948417e-30d2-4175-8cd4-6cfcf4ee90fb',
+      path: 'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset',
+      name: 'Clip (480p30).mp4',
+      kind: 'video',
+      sourcePath: 'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/source.mp4',
+      previewPath: 'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/previews/320.png',
+      siblingOrder: 0,
+      size: 123,
+      updatedAt: 456
+    }
+  ]
+  ;(window as unknown as {
+    zen: { resolveVaultAssetUrl: (root: string, rel: string) => string }
+  }).zen = {
+    resolveVaultAssetUrl: (_root, rel) => `zen-asset://local/${rel}`
+  }
+}
+
+function configurePdfAsset(): void {
+  storeState.vault = { root: '/vault' }
+  storeState.activeNote = { path: 'quick/Note.md' }
+  storeState.assetFiles = [
+    {
+      id: '26325d22-a8d7-49ab-8968-4df0c0f0b871',
+      path: 'assets/26325d22-a8d7-49ab-8968-4df0c0f0b871.asset',
+      name: '示例文档.pdf',
+      kind: 'pdf',
+      sourcePath: 'assets/26325d22-a8d7-49ab-8968-4df0c0f0b871.asset/source.pdf',
+      previewPath: 'assets/26325d22-a8d7-49ab-8968-4df0c0f0b871.asset/previews/320.png',
+      siblingOrder: 0,
+      size: 123,
+      updatedAt: 456
+    }
+  ]
+  ;(window as unknown as {
+    zen: { resolveVaultAssetUrl: (root: string, rel: string) => string }
+  }).zen = {
+    resolveVaultAssetUrl: (_root, rel) => `zen-asset://local/${rel}`
+  }
+}
+
 describe('livePreviewPlugin', () => {
   beforeEach(() => {
     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    storeState.activeNote = null
+    storeState.assetFiles = []
+    storeState.editorViewRef = null
+    storeState.noteRefs = {}
+    storeState.openNoteInTab.mockClear()
+    storeState.pdfEmbedInEditMode = 'compact'
+    storeState.pinAssetReferenceForNote.mockClear()
+    storeState.pinnedRefKind = 'note'
+    storeState.pinnedRefPath = null
+    storeState.pinnedRefVisible = false
+    storeState.togglePinnedRefVisible.mockClear()
+    storeState.vault = null
+    ;(window as unknown as { zen?: unknown }).zen = undefined
   })
 
   afterEach(() => {
@@ -181,6 +256,100 @@ describe('livePreviewPlugin', () => {
     expect(inputs[0]?.checked).toBe(false)
     expect(inputs[1]?.checked).toBe(true)
     expect(inputs[2]?.checked).toBe(false)
+
+    view.destroy()
+  })
+
+  it('renders an asset-id video embed as a video widget', () => {
+    configureVideoAsset()
+    const doc = '![[asset:1948417e-30d2-4175-8cd4-6cfcf4ee90fb|Clip (480p30).mp4]]'
+    const view = mountEditor(doc, doc.length)
+
+    const video = view.dom.querySelector<HTMLVideoElement>('video.local-video-embed-video')
+    expect(video).toBeTruthy()
+    expect(video?.src).toContain(
+      'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/source.mp4'
+    )
+    expect(video?.poster).toContain(
+      'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/previews/320.png'
+    )
+    expect(view.dom.querySelector<HTMLElement>('[data-local-asset-kind="video"]')).toBeTruthy()
+    expect(view.dom.querySelector('.local-pdf-embed-header')).toBeNull()
+    expect(view.dom.querySelector('.local-video-embed-caption')?.textContent).toBe(
+      'Clip (480p30).mp4'
+    )
+    Object.defineProperty(video, 'videoWidth', { value: 1080, configurable: true })
+    Object.defineProperty(video, 'videoHeight', { value: 2340, configurable: true })
+    video?.dispatchEvent(new Event('loadedmetadata'))
+    expect(view.dom.querySelector('.local-video-embed')?.classList.contains('is-portrait')).toBe(
+      true
+    )
+
+    view.destroy()
+  })
+
+  it('renders a direct source-path video embed as the same video widget', () => {
+    configureVideoAsset()
+    const doc = '![[assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/source.mp4]]'
+    const view = mountEditor(doc, doc.length)
+
+    const video = view.dom.querySelector<HTMLVideoElement>('video.local-video-embed-video')
+    expect(video).toBeTruthy()
+    expect(video?.src).toContain(
+      'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/source.mp4'
+    )
+    expect(view.dom.querySelector<HTMLElement>('[data-local-asset-kind="video"]')).toBeTruthy()
+    expect(view.dom.querySelector('.local-video-embed-caption')?.textContent).toBe(
+      'Clip (480p30).mp4'
+    )
+
+    view.destroy()
+  })
+
+  it('renders a direct display-name video embed with the original name as caption', () => {
+    configureVideoAsset()
+    const doc = '![[Clip (480p30).mp4]]'
+    const view = mountEditor(doc, doc.length)
+
+    const video = view.dom.querySelector<HTMLVideoElement>('video.local-video-embed-video')
+    expect(video).toBeTruthy()
+    expect(video?.src).toContain(
+      'assets/1948417e-30d2-4175-8cd4-6cfcf4ee90fb.asset/source.mp4'
+    )
+    expect(view.dom.querySelector('.local-video-embed-caption')?.textContent).toBe(
+      'Clip (480p30).mp4'
+    )
+
+    view.destroy()
+  })
+
+  it('renders compact PDF embeds as a book-style cover with a caption', () => {
+    configurePdfAsset()
+    const doc = '![[asset:26325d22-a8d7-49ab-8968-4df0c0f0b871|示例文档.pdf]]\n\nTail'
+    const view = mountEditor(doc, doc.length)
+
+    const cover = view.dom.querySelector<HTMLElement>('.local-pdf-book-embed')
+    const thumbnail = view.dom.querySelector<HTMLImageElement>('.local-pdf-book-thumbnail')
+    expect(cover).toBeTruthy()
+    expect(thumbnail?.src).toContain(
+      'assets/26325d22-a8d7-49ab-8968-4df0c0f0b871.asset/previews/320.png'
+    )
+    expect(view.dom.querySelector('.local-asset-pinned-ref-button')).toBeNull()
+    expect(cover?.classList.contains('cm-local-pdf-embed')).toBe(false)
+    expect(view.dom.querySelector('.local-pdf-book-tag')?.textContent).toBe('PDF')
+    expect(view.dom.querySelector('.local-pdf-book-caption')?.textContent).toBe('示例文档.pdf')
+
+    view.destroy()
+  })
+
+  it('keeps the PDF widget visible when the PDF embed line is active', () => {
+    configurePdfAsset()
+    const doc = '![[asset:26325d22-a8d7-49ab-8968-4df0c0f0b871|示例文档.pdf]]'
+    const view = mountEditor(doc, doc.indexOf('asset:') + 2)
+
+    expect(view.dom.textContent).toContain('![[asset:')
+    expect(view.dom.querySelector('.local-pdf-book-embed')).toBeTruthy()
+    expect(view.dom.querySelector('.local-pdf-book-caption')?.textContent).toBe('示例文档.pdf')
 
     view.destroy()
   })

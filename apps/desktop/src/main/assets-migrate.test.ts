@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, mkdir, access } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, mkdir, access, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -112,9 +112,19 @@ describe('importAssetsToVault', () => {
       path.join(srcDir, 'notes.md')
     ])
 
-    expect(imported.map((a) => a.path).sort()).toEqual(['assets/clip.mp4', 'assets/shot.png'])
-    expect(imported.find((a) => a.name === 'clip.mp4')?.kind).toBe('video')
-    expect(await exists(root, 'assets/clip.mp4')).toBe(true)
+    expect(imported.map((a) => a.name).sort()).toEqual(['clip.mp4', 'shot.png'])
+    const clip = imported.find((a) => a.name === 'clip.mp4')
+    const shot = imported.find((a) => a.name === 'shot.png')
+    expect(clip?.kind).toBe('video')
+    expect(clip?.path).toMatch(/^assets\/[0-9a-f-]+\.asset$/)
+    expect(clip?.sourcePath).toBe(`${clip?.path}/source.mp4`)
+    expect(shot?.path).toMatch(/^assets\/[0-9a-f-]+\.asset$/)
+    expect(shot?.sourcePath).toBe(`${shot?.path}/source.png`)
+    expect(await exists(root, `${clip!.path}/source.mp4`)).toBe(true)
+    expect(await exists(root, `${shot!.path}/source.png`)).toBe(true)
+    const clipMeta = JSON.parse(await readFile(path.join(root, clip!.path, 'meta.json'), 'utf8'))
+    expect(clipMeta.displayName).toBe('clip.mp4')
+    expect(clipMeta.sourceFile).toBe('source.mp4')
     // the .md was skipped
     expect(await exists(root, 'assets/notes.md')).toBe(false)
     // originals untouched (copy, not move)

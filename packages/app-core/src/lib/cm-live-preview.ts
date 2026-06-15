@@ -68,6 +68,13 @@ type ParsedPdf = {
   resolvedUrl: string
 }
 
+type ParsedVideo = {
+  label: string
+  href: string
+  resolvedUrl: string
+  posterUrl: string | null
+}
+
 function decodeURIComponentSafe(value: string | undefined): string {
   if (!value) return ''
   try {
@@ -216,6 +223,62 @@ function parseStandaloneLocalPdf(lineText: string): ParsedPdf | null {
     href,
     resolvedUrl
   }
+}
+
+function parseStandaloneLocalVideo(lineText: string): ParsedVideo | null {
+  const state = useStore.getState()
+  const fromMarkdown = lineText.match(STANDALONE_PDF_RE)
+  if (fromMarkdown) {
+    const href = (fromMarkdown[2] ?? fromMarkdown[3] ?? '').trim()
+    if (classifyLocalAssetHref(href) !== 'video') return null
+    const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
+    if (!resolvedUrl) return null
+    return {
+      label: (fromMarkdown[1] ?? '').trim() || localAssetDisplayName(href),
+      href,
+      resolvedUrl,
+      posterUrl: localAssetPreviewUrl(href)
+    }
+  }
+
+  const fromEmbed = lineText.match(STANDALONE_OBSIDIAN_EMBED_RE)
+  if (!fromEmbed) return null
+  const href = (fromEmbed[1] ?? '').trim()
+  if (classifyLocalAssetHref(href) !== 'video') return null
+  const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
+  if (!resolvedUrl) return null
+  return {
+    label: (fromEmbed[2] ?? '').trim() || localAssetDisplayName(href),
+    href,
+    resolvedUrl,
+    posterUrl: localAssetPreviewUrl(href)
+  }
+}
+
+function localAssetForHref(href: string) {
+  const state = useStore.getState()
+  const id = href.trim().match(/^asset:([^/]+)$/i)?.[1]
+  return id
+    ? state.assetFiles.find((entry) => entry.id === id)
+    : state.assetFiles.find(
+        (entry) =>
+          entry.path === href ||
+          entry.sourcePath === href ||
+          entry.name.toLowerCase() === href.split('/').filter(Boolean).pop()?.toLowerCase()
+      )
+}
+
+function localAssetDisplayName(href: string): string {
+  const asset = localAssetForHref(href)
+  return asset?.name ?? ''
+}
+
+function localAssetPreviewUrl(href: string): string | null {
+  const state = useStore.getState()
+  const asset = localAssetForHref(href)
+  return state.vault?.root && asset?.previewPath
+    ? window.zen.resolveVaultAssetUrl(state.vault.root, asset.previewPath)
+    : null
 }
 
 class LocalImageWidget extends WidgetType {
@@ -390,26 +453,40 @@ class LocalPdfWidget extends WidgetType {
   toDOM(): HTMLElement {
     const figure = document.createElement('figure')
     figure.className = this.compact
-      ? 'local-pdf-embed local-asset-pinned-ref cm-local-pdf-embed'
+      ? 'local-pdf-book-embed'
       : 'local-pdf-embed cm-local-pdf-embed'
     figure.dataset.localAssetUrl = this.resolvedUrl
     figure.dataset.localAssetKind = 'pdf'
     figure.dataset.localAssetHref = this.href
 
     if (this.compact) {
-      // Compact card: clicking either pins this PDF as the reference
-      // (if not already) or focuses the existing reference pane.
       const labelText =
         this.label ||
         decodeURIComponentSafe(this.href.split('/').filter(Boolean).pop()) ||
         'PDF'
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'local-asset-pinned-ref-button'
-      button.title = this.pinnedAsRef
+      const state = useStore.getState()
+      const vaultRoot = state.vault?.root
+      const vaultRel = vaultRoot
+        ? resolveAssetVaultRelativePath(vaultRoot, this.notePath, this.href)
+        : null
+      const asset = vaultRel
+        ? state.assetFiles.find((entry) => entry.path === vaultRel)
+        : null
+      const previewUrl =
+        vaultRoot && asset?.previewPath
+          ? window.zen.resolveVaultAssetUrl(vaultRoot, asset.previewPath)
+          : null
+
+      const shell = document.createElement('div')
+      shell.className = 'local-pdf-book-shell'
+
+      const cover = document.createElement('button')
+      cover.type = 'button'
+      cover.className = 'local-pdf-book-cover'
+      cover.title = this.pinnedAsRef
         ? 'Showing in the reference pane — click to focus'
         : 'Open this PDF in the reference pane'
-      button.addEventListener('click', (event) => {
+      cover.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
         const state = useStore.getState()
@@ -426,24 +503,35 @@ class LocalPdfWidget extends WidgetType {
         if (abs) state.pinAssetReferenceForNote(notePath, abs)
       })
 
-      const icon = document.createElement('span')
-      icon.className = 'local-asset-pinned-ref-icon'
-      icon.textContent = '↗'
-
-      const text = document.createElement('span')
-      text.className = 'local-asset-pinned-ref-text'
-      text.textContent = labelText
-
-      const badge = document.createElement('span')
-      badge.className = 'local-asset-pinned-ref-badge'
-      badge.textContent = this.pinnedAsRef ? 'in reference pane' : 'open as reference'
+      if (previewUrl) {
+        const preview = document.createElement('img')
+        preview.className = 'local-pdf-book-thumbnail'
+        preview.src = previewUrl
+        preview.alt = ''
+        preview.draggable = false
+        cover.append(preview)
+      } else {
+        const fallback = document.createElement('div')
+        fallback.className = 'local-pdf-book-fallback'
+        const mark = document.createElement('span')
+        mark.className = 'local-pdf-book-mark'
+        mark.textContent = 'PDF'
+        fallback.append(mark)
+        cover.append(fallback)
+      }
+      const tag = document.createElement('span')
+      tag.className = 'local-pdf-book-tag'
+      tag.textContent = 'PDF'
+      cover.append(tag)
 
       // Per-block preview toggle — opens the PDF inline right here in
       // the editor without pinning it as the side reference. Useful
       // when you just want to quickly read a page or two.
+      const actions = document.createElement('div')
+      actions.className = 'local-pdf-book-actions'
       const previewButton = document.createElement('button')
       previewButton.type = 'button'
-      previewButton.className = 'local-asset-pinned-ref-preview'
+      previewButton.className = 'local-pdf-book-action'
       previewButton.title = 'Show PDF inline (toggle)'
       previewButton.setAttribute('aria-label', 'Show PDF inline')
       previewButton.textContent = 'Preview'
@@ -456,10 +544,15 @@ class LocalPdfWidget extends WidgetType {
       })
 
       const editButton = this.buildEditButton()
-      editButton.classList.add('local-asset-pinned-ref-edit')
+      editButton.className = 'local-pdf-book-action'
 
-      button.append(icon, text, badge)
-      figure.append(button, previewButton, editButton)
+      const caption = document.createElement('figcaption')
+      caption.className = 'local-pdf-book-caption'
+      caption.textContent = labelText
+
+      actions.append(previewButton, editButton)
+      shell.append(cover, actions)
+      figure.append(shell, caption)
       return figure
     }
 
@@ -599,6 +692,61 @@ class TaskCheckboxWidget extends WidgetType {
   }
 }
 
+class LocalVideoWidget extends WidgetType {
+  constructor(
+    private readonly notePath: string,
+    private readonly lineFrom: number,
+    private readonly lineTo: number,
+    private readonly label: string,
+    private readonly href: string,
+    private readonly resolvedUrl: string,
+    private readonly posterUrl: string | null
+  ) {
+    super()
+  }
+
+  eq(other: LocalVideoWidget): boolean {
+    return (
+      other.notePath === this.notePath &&
+      other.lineFrom === this.lineFrom &&
+      other.lineTo === this.lineTo &&
+      other.label === this.label &&
+      other.href === this.href &&
+      other.resolvedUrl === this.resolvedUrl &&
+      other.posterUrl === this.posterUrl
+    )
+  }
+
+  toDOM(): HTMLElement {
+    const figure = document.createElement('figure')
+    figure.className = 'local-video-embed cm-local-video-embed'
+    figure.dataset.localAssetUrl = this.resolvedUrl
+    figure.dataset.localAssetKind = 'video'
+    figure.dataset.localAssetHref = this.href
+
+    const frame = document.createElement('div')
+    frame.className = 'local-video-embed-frame'
+    const video = document.createElement('video')
+    video.className = 'local-video-embed-video'
+    video.src = this.resolvedUrl
+    video.controls = true
+    video.preload = 'metadata'
+    if (this.posterUrl) video.poster = this.posterUrl
+    video.addEventListener('loadedmetadata', () => {
+      figure.classList.toggle('is-portrait', video.videoHeight > video.videoWidth)
+    })
+    frame.append(video)
+
+    const caption = document.createElement('figcaption')
+    caption.className = 'local-video-embed-caption'
+    caption.textContent =
+      this.label || decodeURIComponentSafe(this.href.split('/').filter(Boolean).pop()) || 'Video'
+
+    figure.append(frame, caption)
+    return figure
+  }
+}
+
 function computeDecorations(view: EditorView): DecorationSet {
   const { state } = view
   const revealSyntax = view.hasFocus
@@ -665,7 +813,36 @@ function computeDecorations(view: EditorView): DecorationSet {
         }
         continue
       }
-      if (lineActive) continue
+      const parsedVideo = parseStandaloneLocalVideo(line.text)
+      if (parsedVideo) {
+        const notePath = useStore.getState().activeNote?.path
+        if (!notePath) continue
+        replacedLines.add(lineNo)
+        pending.push({
+          from: line.to,
+          to: line.to,
+          deco: Decoration.widget({
+            side: 1,
+            widget: new LocalVideoWidget(
+              notePath,
+              line.from,
+              line.to,
+              parsedVideo.label,
+              parsedVideo.href,
+              parsedVideo.resolvedUrl,
+              parsedVideo.posterUrl
+            )
+          })
+        })
+        if (!lineActive) {
+          pending.push({
+            from: line.from,
+            to: line.to,
+            deco: imageSourceHide
+          })
+        }
+        continue
+      }
       const parsedPdf = parseStandaloneLocalPdf(line.text)
       if (parsedPdf) {
         const st = useStore.getState()
@@ -688,8 +865,8 @@ function computeDecorations(view: EditorView): DecorationSet {
         const compact = isPinned ? true : defaultCompact !== toggled
         replacedLines.add(lineNo)
         pending.push({
-          from: line.from,
-          to: line.from,
+          from: line.to,
+          to: line.to,
           deco: Decoration.widget({
             side: 1,
             widget: new LocalPdfWidget(
@@ -704,11 +881,13 @@ function computeDecorations(view: EditorView): DecorationSet {
             )
           })
         })
-        pending.push({
-          from: line.from,
-          to: line.to,
-          deco: imageSourceHide
-        })
+        if (!lineActive) {
+          pending.push({
+            from: line.from,
+            to: line.to,
+            deco: imageSourceHide
+          })
+        }
       }
     }
   }

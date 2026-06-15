@@ -210,7 +210,7 @@ import {
   diagramTitleFromTabPath,
   isDiagramTabPath
 } from '../lib/diagram-tabs'
-import { classifyLocalAssetHref } from '../lib/local-assets'
+import { assetSourcePath, classifyLocalAssetHref } from '../lib/local-assets'
 import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { useT } from '../lib/i18n'
@@ -2682,6 +2682,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
         if (isAssetTabPath(path)) {
           const assetPath = assetPathFromTab(path)
+          const asset = assetFiles.find((entry) => entry.path === assetPath)
           const rawTitle = assetTitleFromPath(assetPath)
           // A form rides the asset rail — show its `.base` folder name, not the
           // `data.csv` basename (loose `.csv` falls back to its name sans ext).
@@ -2689,11 +2690,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           return {
             ...base,
             title:
-              assetPath && formDirFromCsvPath(assetPath)
+              asset?.name ??
+              (assetPath && formDirFromCsvPath(assetPath)
                 ? formTitleFromCsvPath(assetPath)
                 : isDb
                   ? rawTitle.replace(/\.csv$/i, '')
-                  : rawTitle,
+                  : rawTitle),
             isAsset: true
           }
         }
@@ -2719,7 +2721,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
       })
     },
-    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash, folderLabels.assets]
+    [tabs, pinnedTabs, previewTab, content, notes, assetFiles, folderLabels.quick, folderLabels.archive, folderLabels.trash, folderLabels.assets]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -3838,10 +3840,12 @@ function AssetTabView({
   vaultRoot: string | null
 }): JSX.Element {
   const assetPath = assetPathFromTab(tabPath)
-  const title = assetTitleFromPath(assetPath)
+  const asset = useStore((s) => s.assetFiles.find((entry) => entry.path === assetPath))
+  const sourcePath = asset ? assetSourcePath(asset) : assetPath
+  const title = asset?.name ?? assetTitleFromPath(assetPath)
   const assetUrl =
-    assetPath && vaultRoot ? window.zen.resolveVaultAssetUrl(vaultRoot, assetPath) : null
-  const assetKind = assetPath ? classifyLocalAssetHref(assetPath) ?? 'file' : 'file'
+    sourcePath && vaultRoot ? window.zen.resolveVaultAssetUrl(vaultRoot, sourcePath) : null
+  const assetKind = asset?.kind ?? (sourcePath ? classifyLocalAssetHref(sourcePath) ?? 'file' : 'file')
   const canReveal =
     !!assetPath &&
     window.zen.getAppInfo().runtime === 'desktop' &&

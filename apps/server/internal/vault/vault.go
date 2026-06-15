@@ -27,6 +27,8 @@ const (
 	noteCommentsDir       = "comments"
 	noteCommentsSuffix    = ".comments.json"
 	noteMetaReadLimit     = 64
+	assetBundleSuffix     = ".asset"
+	assetBundleMetaFile   = "meta.json"
 )
 
 // ErrAssetTooLarge is returned when an asset upload exceeds the
@@ -34,6 +36,24 @@ const (
 var ErrAssetTooLarge = errors.New("asset exceeds maximum size")
 
 var legacyAttachmentsDirs = []string{"_assets"}
+
+type assetBundlePreviewMeta struct {
+	Status string `json:"status"`
+	File   string `json:"file"`
+}
+
+type assetBundleMeta struct {
+	Version     int                               `json:"version"`
+	ID          string                            `json:"id"`
+	DisplayName string                            `json:"displayName"`
+	Kind        string                            `json:"kind"`
+	SourceFile  string                            `json:"sourceFile"`
+	Size        int64                             `json:"size"`
+	MtimeMs     float64                           `json:"mtimeMs"`
+	UpdatedAt   float64                           `json:"updatedAt"`
+	Previews    map[string]assetBundlePreviewMeta `json:"previews"`
+}
+
 var reservedRootNames = map[string]struct{}{
 	string(FolderInbox):   {},
 	string(FolderQuick):   {},
@@ -819,6 +839,42 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 			}
 			full := filepath.Join(dir, name)
 			if entry.IsDir() {
+				if strings.HasSuffix(strings.ToLower(name), assetBundleSuffix) {
+					raw, err := os.ReadFile(filepath.Join(full, assetBundleMetaFile))
+					if err != nil {
+						continue
+					}
+					var meta assetBundleMeta
+					if err := json.Unmarshal(raw, &meta); err != nil || meta.Version != 1 || meta.ID == "" || meta.SourceFile == "" {
+						continue
+					}
+					rel, err := filepath.Rel(v.root, full)
+					if err != nil {
+						continue
+					}
+					relPosix := filepath.ToSlash(rel)
+					previewPath := ""
+					for _, preview := range meta.Previews {
+						if preview.Status == "ready" && preview.File != "" {
+							previewPath = filepath.ToSlash(filepath.Join(relPosix, preview.File))
+							break
+						}
+					}
+					out = append(out, AssetMeta{
+						Path:         relPosix,
+						Name:         meta.DisplayName,
+						Kind:         meta.Kind,
+						ID:           meta.ID,
+						Managed:      true,
+						BundlePath:   relPosix,
+						SourcePath:   filepath.ToSlash(filepath.Join(relPosix, meta.SourceFile)),
+						PreviewPath:  previewPath,
+						SiblingOrder: index,
+						Size:         meta.Size,
+						UpdatedAt:    int64(meta.UpdatedAt),
+					})
+					continue
+				}
 				if filepath.Clean(dir) == filepath.Clean(v.root) && name == internalVaultDir {
 					continue
 				}

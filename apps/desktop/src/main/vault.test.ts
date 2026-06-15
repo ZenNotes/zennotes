@@ -27,8 +27,11 @@ import {
   ensureVaultLayout,
   forgetLocalVault,
   getVaultSettings,
+  importAssetsToVault,
+  importFiles,
   importPastedImage,
   invalidateNoteMetaCache,
+  listAssets,
   listNotes,
   listFolders,
   listSoftDeleted,
@@ -152,7 +155,7 @@ describe('appendToNote', () => {
 })
 
 describe('importPastedImage', () => {
-  it('writes clipboard image bytes to assets/ and returns a wiki embed', async () => {
+  it('writes clipboard image bytes to a managed asset bundle and returns an asset-id embed', async () => {
     const root = await makeTempDir('zennotes-paste-image-')
     await ensureVaultLayout(root)
 
@@ -166,26 +169,24 @@ describe('importPastedImage', () => {
       new Date(2026, 4, 13, 15, 4, 5)
     )
 
-    expect(imported).toEqual({
+    const id = imported.id
+    if (!id) throw new Error('expected managed asset id')
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(imported).toMatchObject({
       name: 'Screenshot 2026-05-13.png',
-      path: 'assets/Screenshot 2026-05-13.png',
-      markdown: '![[assets/Screenshot 2026-05-13.png]]',
+      path: `assets/${id}.asset`,
+      markdown: `![[asset:${id}|Screenshot 2026-05-13.png]]`,
       kind: 'image'
     })
     await expect(
-      readFile(path.join(root, 'assets', 'Screenshot 2026-05-13.png'))
+      readFile(path.join(root, 'assets', `${id}.asset`, 'source.png'))
     ).resolves.toEqual(Buffer.from([137, 80, 78, 71]))
   })
 
-  it('generates a unique filename in assets/ when the clipboard has no useful name', async () => {
+  it('uses a generated display name when the clipboard has no useful name', async () => {
     const root = await makeTempDir('zennotes-paste-image-name-')
     await ensureVaultLayout(root)
     await mkdir(path.join(root, 'assets'), { recursive: true })
-    await writeFile(
-      path.join(root, 'assets', 'Pasted Image 2026-05-13 150405.webp'),
-      'existing',
-      'utf8'
-    )
 
     const imported = await importPastedImage(
       root,
@@ -196,12 +197,65 @@ describe('importPastedImage', () => {
       new Date(2026, 4, 13, 15, 4, 5)
     )
 
-    expect(imported.name).toBe('Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.path).toBe('assets/Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.markdown).toBe('![[assets/Pasted Image 2026-05-13 150405 2.webp]]')
-    await expect(readFile(path.join(root, 'assets', imported.name))).resolves.toEqual(
-      Buffer.from([1, 2, 3])
-    )
+    const id = imported.id
+    if (!id) throw new Error('expected managed asset id')
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(imported.name).toBe('Pasted Image 2026-05-13 150405.webp')
+    expect(imported.path).toBe(`assets/${id}.asset`)
+    expect(imported.markdown).toBe(`![[asset:${id}|Pasted Image 2026-05-13 150405.webp]]`)
+    await expect(
+      readFile(path.join(root, 'assets', `${id}.asset`, 'source.webp'))
+    ).resolves.toEqual(Buffer.from([1, 2, 3]))
+  })
+})
+
+describe('managed asset bundles', () => {
+  it('imports external files as UUID bundles and lists each bundle as one asset', async () => {
+    const root = await makeTempDir('zennotes-managed-assets-')
+    await ensureVaultLayout(root)
+    const sourceDir = await makeTempDir('zennotes-managed-source-')
+    const sourcePdf = path.join(sourceDir, 'Brief.pdf')
+    await writeFile(sourcePdf, 'pdf-bytes', 'utf8')
+
+    const [asset] = await importAssetsToVault(root, [sourcePdf])
+    if (!asset?.id) throw new Error('expected managed asset')
+
+    expect(asset).toMatchObject({
+      id: asset.id,
+      path: `assets/${asset.id}.asset`,
+      name: 'Brief.pdf',
+      kind: 'pdf',
+      managed: true,
+      bundlePath: `assets/${asset.id}.asset`,
+      sourcePath: `assets/${asset.id}.asset/source.pdf`
+    })
+    await expect(readFile(path.join(root, asset.sourcePath!), 'utf8')).resolves.toBe('pdf-bytes')
+
+    const listed = await listAssets(root)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({
+      id: asset.id,
+      path: asset.path,
+      name: 'Brief.pdf',
+      sourcePath: asset.sourcePath
+    })
+  })
+
+  it('returns asset-id embeds when files are imported into a note', async () => {
+    const root = await makeTempDir('zennotes-managed-note-import-')
+    await ensureVaultLayout(root)
+    await writeFile(path.join(root, 'inbox', 'Note.md'), '# Note\n', 'utf8')
+    const sourceDir = await makeTempDir('zennotes-managed-note-source-')
+    const sourceVideo = path.join(sourceDir, 'Clip.mp4')
+    await writeFile(sourceVideo, 'video-bytes', 'utf8')
+
+    const [imported] = await importFiles(root, 'inbox/Note.md', [sourceVideo])
+    if (!imported?.id) throw new Error('expected managed asset import')
+
+    expect(imported.markdown).toBe(`![[asset:${imported.id}|Clip.mp4]]`)
+    await expect(
+      readFile(path.join(root, 'assets', `${imported.id}.asset`, 'source.mp4'), 'utf8')
+    ).resolves.toBe('video-bytes')
   })
 })
 
@@ -250,6 +304,92 @@ describe('deleteAsset', () => {
 
     await expect(readFile(path.join(root, rel), 'utf8')).resolves.toBe('image-bytes')
     expect(await listSoftDeleted(root)).toHaveLength(0)
+  })
+
+  it('soft-deletes and restores a managed asset bundle as one unit', async () => {
+    const root = await makeTempDir('zennotes-delete-managed-asset-')
+    await ensureVaultLayout(root)
+    const sourceDir = await makeTempDir('zennotes-delete-managed-source-')
+    const sourcePdf = path.join(sourceDir, 'Brief.pdf')
+    await writeFile(sourcePdf, 'pdf-bytes', 'utf8')
+    const [asset] = await importAssetsToVault(root, [sourcePdf])
+    if (!asset?.id) throw new Error('expected managed asset')
+    await mkdir(path.join(root, asset.path, 'previews'), { recursive: true })
+    await writeFile(path.join(root, asset.path, 'previews', '320.png'), 'preview-bytes', 'utf8')
+
+    const handle = await deleteAsset(root, asset.path)
+
+    const [entry] = await listSoftDeleted(root)
+    expect(entry).toMatchObject({
+      kind: 'asset',
+      top: 'trash',
+      name: `${asset.id}.asset`,
+      originalRel: asset.path,
+      title: 'Brief.pdf'
+    })
+    await expect(readFile(path.join(root, asset.path, 'source.pdf'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(
+      readFile(path.join(root, entry.top, entry.id, `${asset.id}.asset`, 'source.pdf'), 'utf8')
+    ).resolves.toBe('pdf-bytes')
+    await expect(
+      readFile(path.join(root, entry.top, entry.id, `${asset.id}.asset`, 'previews', '320.png'), 'utf8')
+    ).resolves.toBe('preview-bytes')
+
+    await restoreSoftDeleted(root, handle)
+
+    await expect(readFile(path.join(root, asset.path, 'source.pdf'), 'utf8')).resolves.toBe('pdf-bytes')
+    await expect(
+      readFile(path.join(root, asset.path, 'previews', '320.png'), 'utf8')
+    ).resolves.toBe('preview-bytes')
+  })
+
+  it('treats a managed asset source path as the whole bundle for deletion', async () => {
+    const root = await makeTempDir('zennotes-delete-managed-source-path-')
+    await ensureVaultLayout(root)
+    const sourceDir = await makeTempDir('zennotes-delete-managed-source-file-')
+    const sourcePdf = path.join(sourceDir, 'Brief.pdf')
+    await writeFile(sourcePdf, 'pdf-bytes', 'utf8')
+    const [asset] = await importAssetsToVault(root, [sourcePdf])
+    if (!asset?.id || !asset.sourcePath) throw new Error('expected managed asset')
+    await mkdir(path.join(root, asset.path, 'previews'), { recursive: true })
+    await writeFile(path.join(root, asset.path, 'previews', '320.png'), 'preview-bytes', 'utf8')
+
+    const handle = await deleteAsset(root, asset.sourcePath)
+
+    const [entry] = await listSoftDeleted(root)
+    expect(entry).toMatchObject({
+      kind: 'asset',
+      originalRel: asset.path,
+      title: 'Brief.pdf'
+    })
+    await expect(readFile(path.join(root, asset.path, 'source.pdf'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(
+      readFile(path.join(root, entry.top, entry.id, `${asset.id}.asset`, 'previews', '320.png'), 'utf8')
+    ).resolves.toBe('preview-bytes')
+
+    await restoreSoftDeleted(root, handle)
+
+    await expect(readFile(path.join(root, asset.path, 'source.pdf'), 'utf8')).resolves.toBe('pdf-bytes')
+  })
+
+  it('does not delete managed asset previews as standalone assets', async () => {
+    const root = await makeTempDir('zennotes-delete-managed-preview-')
+    await ensureVaultLayout(root)
+    const sourceDir = await makeTempDir('zennotes-delete-managed-preview-source-')
+    const sourcePdf = path.join(sourceDir, 'Brief.pdf')
+    await writeFile(sourcePdf, 'pdf-bytes', 'utf8')
+    const [asset] = await importAssetsToVault(root, [sourcePdf])
+    if (!asset?.id) throw new Error('expected managed asset')
+    const previewRel = `${asset.path}/previews/320.png`
+    await mkdir(path.join(root, asset.path, 'previews'), { recursive: true })
+    await writeFile(path.join(root, previewRel), 'preview-bytes', 'utf8')
+
+    await expect(deleteAsset(root, previewRel)).rejects.toThrow(/asset bundle path/i)
+    await expect(readFile(path.join(root, previewRel), 'utf8')).resolves.toBe('preview-bytes')
   })
 
   it('does not delete markdown notes through the asset path', async () => {
