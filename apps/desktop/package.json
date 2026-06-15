@@ -191,6 +191,7 @@
     "electronVersion": "41.2.1",
     "electronUpdaterCompatibility": ">=2.16",
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
