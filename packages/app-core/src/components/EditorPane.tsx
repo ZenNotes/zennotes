@@ -51,6 +51,8 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { setYankToClipboardEnabled } from '../lib/cm-vim-clipboard'
+import { wireYankHighlight, yankHighlightExtension } from '../lib/cm-yank-highlight'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
@@ -183,7 +185,7 @@ import {
   isDiagramTabPath
 } from '../lib/diagram-tabs'
 import { classifyLocalAssetHref } from '../lib/local-assets'
-import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
+import { formatKeyToken, getKeymapDisplay, type KeymapId } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 
 const MODE_OPTIONS: Array<{
@@ -588,6 +590,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const pendingJumpLocation = useStore((s) => s.pendingJumpLocation)
   const clearPendingJumpLocation = useStore((s) => s.clearPendingJumpLocation)
   const vimMode = useStore((s) => s.vimMode)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const livePreview = useStore((s) => s.livePreview)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
@@ -740,6 +743,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:toggle-connections', handler)
     return () => window.removeEventListener('zen:toggle-connections', handler)
   }, [isActive, toggleConnectionsPanel])
+
+  // Mirror `set clipboard=unnamed`: when enabled, Vim yank/delete/change also
+  // copy to the system clipboard. The patch is global, so any pane can drive it.
+  // Also install the highlight-on-yank handler (idempotent). (#144)
+  useEffect(() => {
+    setYankToClipboardEnabled(vimYankToClipboard)
+    wireYankHighlight()
+  }, [vimYankToClipboard])
 
   const toggleOutlinePanel = useCallback(() => {
     setOutlineOpen((open) => !open)
@@ -1308,6 +1319,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           drawSelection(),
           highlightActiveLine(),
           taskJumpHighlightField,
+          yankHighlightExtension,
           commentDecorationField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           markdownCompartment.of(deferInitialRichMarkdown ? [] : markdownEditingExtensions()),
@@ -3300,13 +3312,13 @@ function buildEditorContextItems(
       }
     },
     { kind: 'separator' },
-    { label: 'Cut', hint: '⌘X', disabled: !hasSelection, onSelect: cut },
-    { label: 'Copy', hint: '⌘C', disabled: !hasSelection, onSelect: copy },
-    { label: 'Paste', hint: '⌘V', onSelect: paste },
+    { label: 'Cut', hint: formatKeyToken('Mod+X'), disabled: !hasSelection, onSelect: cut },
+    { label: 'Copy', hint: formatKeyToken('Mod+C'), disabled: !hasSelection, onSelect: copy },
+    { label: 'Paste', hint: formatKeyToken('Mod+V'), onSelect: paste },
     { kind: 'separator' },
     {
       label: 'Select All',
-      hint: '⌘A',
+      hint: formatKeyToken('Mod+A'),
       onSelect: async () => {
         selectAll(view)
         view.focus()
@@ -3315,7 +3327,7 @@ function buildEditorContextItems(
     { kind: 'separator' },
     {
       label: 'Undo',
-      hint: '⌘Z',
+      hint: formatKeyToken('Mod+Z'),
       onSelect: async () => {
         undo(view)
         view.focus()
@@ -3323,7 +3335,7 @@ function buildEditorContextItems(
     },
     {
       label: 'Redo',
-      hint: '⇧⌘Z',
+      hint: formatKeyToken('Mod+Shift+Z'),
       onSelect: async () => {
         redo(view)
         view.focus()

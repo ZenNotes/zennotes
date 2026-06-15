@@ -215,6 +215,8 @@ export function SettingsModal(): JSX.Element {
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
+  const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -1002,6 +1004,13 @@ export function SettingsModal(): JSX.Element {
                   placeholder="jk"
                   settingId="vim-insert-escape"
                   onChange={(next) => setVimInsertEscape(next ?? '')}
+                />
+                <ToggleRow
+                  label="Yank to system clipboard"
+                  description="Copy yanked, deleted, and changed text to the system clipboard (like Vim's clipboard=unnamed), so y/d/c/x are available to paste in other apps."
+                  value={vimYankToClipboard}
+                  settingId="vim-yank-to-clipboard"
+                  onChange={setVimYankToClipboard}
                 />
                 <ToggleRow
                   label="Leader key hints"

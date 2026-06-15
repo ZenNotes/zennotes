@@ -264,6 +264,9 @@ interface Prefs {
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
    *  Empty disables it. */
   vimInsertEscape: string
+  /** When true, Vim yank/delete/change also copy to the system clipboard
+   *  (like `set clipboard=unnamed`). */
+  vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
   /** When true, pressing the leader key shows the next available Vim-style actions. */
   whichKeyHints: boolean
@@ -410,6 +413,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
+  vimYankToClipboard: false,
   keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
@@ -488,6 +492,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimInsertEscape === 'string'
         ? p.vimInsertEscape.trim().slice(0, 5)
         : DEFAULT_PREFS.vimInsertEscape,
+    vimYankToClipboard:
+      typeof p.vimYankToClipboard === 'boolean'
+        ? p.vimYankToClipboard
+        : DEFAULT_PREFS.vimYankToClipboard,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
     whichKeyHints:
       typeof p.whichKeyHints === 'boolean'
@@ -1058,6 +1066,7 @@ async function rewriteTagAcrossVault(
 function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
+  vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1115,6 +1124,7 @@ function collectPrefs(s: {
   return {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
+    vimYankToClipboard: s.vimYankToClipboard,
     keymapOverrides: s.keymapOverrides,
     whichKeyHints: s.whichKeyHints,
     whichKeyHintMode: s.whichKeyHintMode,
@@ -1465,6 +1475,8 @@ interface Store {
   vimMode: boolean
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
   vimInsertEscape: string
+  /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
+  vimYankToClipboard: boolean
   keymapOverrides: KeymapOverrides
   whichKeyHints: boolean
   whichKeyHintMode: WhichKeyHintMode
@@ -1743,6 +1755,7 @@ interface Store {
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
+  setVimYankToClipboard: (on: boolean) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
@@ -2768,6 +2781,7 @@ export const useStore = create<Store>((set, get) => {
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
+  vimYankToClipboard: loadPrefs().vimYankToClipboard,
   keymapOverrides: loadPrefs().keymapOverrides,
   whichKeyHints: loadPrefs().whichKeyHints,
   whichKeyHintMode: loadPrefs().whichKeyHintMode,
@@ -4103,6 +4117,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimInsertEscape: (sequence) => {
     set({ vimInsertEscape: sequence.trim().slice(0, 5) })
+    savePrefs(collectPrefs(get()))
+  },
+  setVimYankToClipboard: (on) => {
+    set({ vimYankToClipboard: on })
     savePrefs(collectPrefs(get()))
   },
   setKeymapBinding: (id, binding) => {
