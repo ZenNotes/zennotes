@@ -3737,6 +3737,66 @@ textarea,
   color: inherit;
 }
 
+/* Callout cards in Edit mode — mirrors the Preview `.callout` colors. Every
+   line of the callout carries `cm-callout` (+ `-head`/`-foot` to round the
+   ends); the per-group class sets `--callout-color`, used for the box border,
+   tint, and the bold typed title. */
+.cm-wysiwyg .cm-editor .cm-callout {
+  --callout-color: var(--z-grey-0);
+  background: rgb(var(--callout-color) / 0.08);
+  border-left: 1px solid rgb(var(--callout-color) / 0.35);
+  border-right: 1px solid rgb(var(--callout-color) / 0.35);
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.cm-wysiwyg .cm-editor .cm-callout-note {
+  --callout-color: var(--z-blue);
+}
+.cm-wysiwyg .cm-editor .cm-callout-tip {
+  --callout-color: var(--z-green);
+}
+.cm-wysiwyg .cm-editor .cm-callout-warning {
+  --callout-color: var(--z-yellow);
+}
+.cm-wysiwyg .cm-editor .cm-callout-danger {
+  --callout-color: var(--z-red);
+}
+.cm-wysiwyg .cm-editor .cm-callout-quote {
+  --callout-color: var(--z-grey-0);
+}
+.cm-wysiwyg .cm-editor .cm-callout-head {
+  border-top: 1px solid rgb(var(--callout-color) / 0.35);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  padding-top: 4px;
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+.cm-wysiwyg .cm-editor .cm-callout-foot {
+  border-bottom: 1px solid rgb(var(--callout-color) / 0.35);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  padding-bottom: 4px;
+}
+.cm-wysiwyg .cm-editor .cm-callout-title {
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+/* A list line inside a callout/blockquote keeps its hanging indent, but it has
+   to sit on TOP of the box's own left padding. Otherwise the list's negative
+   text-indent (see .cm-markdown-list-line) drags the bullet out past the box's
+   left edge. Re-add the box padding to the hanging indent. */
+.cm-wysiwyg .cm-editor .cm-callout .tok-quote {
+  font-style: normal;
+  color: inherit;
+}
+.cm-wysiwyg .cm-editor .cm-callout.cm-markdown-list-line {
+  padding-left: calc(14px + var(--z-list-hanging-indent, 0));
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote.cm-markdown-list-line {
+  padding-left: calc(16px + var(--z-list-hanging-indent, 0));
+}
+
 /* Unordered-list bullet rendered in place of `-` / `*` / `+`. */
 .cm-wysiwyg .cm-editor .cm-wq-bullet {
   color: rgb(var(--z-grey-1));

@@ -62,6 +62,25 @@ describe('wysiwygBlocksPlugin', () => {
     view.destroy()
   })
 
+  it('renders a callout as a colored card with its custom title', () => {
+    const view = mount('# T\n\n> [!warning] Heads up\n> body line\n\nEnd.')
+    expect(view.dom.querySelectorAll('.cm-callout').length).toBeGreaterThanOrEqual(2)
+    expect(view.dom.querySelector('.cm-callout-warning')).toBeTruthy()
+    expect(view.dom.querySelector('.cm-callout-head')).toBeTruthy()
+    expect(view.dom.querySelector('.cm-callout-foot')).toBeTruthy()
+    // The `[!warning]` token is hidden; the custom title stays.
+    expect(view.dom.textContent).not.toContain('[!warning]')
+    expect(view.dom.textContent).toContain('Heads up')
+    view.destroy()
+  })
+
+  it('shows the type name as the title when a callout has no custom title', () => {
+    const view = mount('# T\n\n> [!note]\n> body\n\nEnd.')
+    expect(view.dom.querySelector('.cm-callout-title')?.textContent).toBe('Note')
+    expect(view.dom.textContent).not.toContain('[!note]')
+    view.destroy()
+  })
+
   it('hides the marker on task-list items (only the plain item gets a bullet)', () => {
     // `- [ ]` / `- [x]` are task items — their `-` is hidden (the checkbox from
     // the live-preview plugin stands in), matching Obsidian. Only the plain

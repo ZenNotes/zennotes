@@ -68,6 +68,51 @@ const hrRule = Decoration.replace({ widget: new HrWidget() })
  *  line + its card styling) when the cursor is outside the code block. */
 const hideInline = Decoration.replace({})
 
+/** Header of an Obsidian-style callout: `> [!type] optional title`. */
+const CALLOUT_RE = /^(\s*>\s?)\[!(\w+)\]\s?(.*)$/
+
+/** Collapse callout type aliases onto one color group, mirroring the Preview
+ *  renderer (markdown.ts). Unknown types fall back to the neutral group. */
+function calloutGroup(type: string): string {
+  const t = type.toLowerCase()
+  if (t === 'note' || t === 'info' || t === 'abstract' || t === 'summary') return 'note'
+  if (t === 'tip' || t === 'hint' || t === 'success' || t === 'check' || t === 'done')
+    return 'tip'
+  if (t === 'warning' || t === 'warn' || t === 'caution' || t === 'attention') return 'warning'
+  if (t === 'danger' || t === 'error' || t === 'bug' || t === 'fail' || t === 'failure')
+    return 'danger'
+  if (t === 'quote' || t === 'cite') return 'quote'
+  return 'note'
+}
+
+/** Default title for a callout with no custom title: the capitalized type. */
+function calloutTitle(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1).toLowerCase()
+}
+
+/** Styled label shown in place of a `[!type]` token when the callout has no
+ *  custom title (e.g. renders "Note"). */
+class CalloutTitleWidget extends WidgetType {
+  constructor(
+    private readonly label: string,
+    private readonly group: string
+  ) {
+    super()
+  }
+  eq(other: CalloutTitleWidget): boolean {
+    return other.label === this.label && other.group === this.group
+  }
+  toDOM(): HTMLElement {
+    const span = document.createElement('span')
+    span.className = `cm-callout-title cm-callout-${this.group}`
+    span.textContent = this.label
+    return span
+  }
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
 function activeLineSet(view: EditorView): Set<number> {
   const lines = new Set<number>()
   for (const r of view.state.selection.ranges) {
@@ -96,9 +141,51 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name === 'Blockquote') {
-          // Tag every line the blockquote spans for the left bar.
           const first = state.doc.lineAt(node.from).number
           const last = state.doc.lineAt(Math.max(node.from, node.to - 1)).number
+          const firstLine = state.doc.line(first)
+          const callout = firstLine.text.match(CALLOUT_RE)
+          if (callout) {
+            // Obsidian-style callout: a colored card with a typed title. Tag
+            // each line for the box (head/foot round the top/bottom).
+            const group = calloutGroup(callout[2])
+            for (let n = first; n <= last; n++) {
+              if (quotedLines.has(n)) continue
+              quotedLines.add(n)
+              const ln = state.doc.line(n)
+              let cls = `cm-callout cm-callout-${group}`
+              if (n === first) cls += ' cm-callout-head'
+              if (n === last) cls += ' cm-callout-foot'
+              pending.push({
+                from: ln.from,
+                to: ln.from,
+                deco: Decoration.line({ class: cls }),
+                line: true
+              })
+            }
+            // Header: render the title. Off the line, hide the `[!type]` token —
+            // the custom title stays (styled), or we show the type name.
+            if (!active.has(first)) {
+              const bStart = firstLine.from + callout[1].length
+              const bEnd = bStart + `[!${callout[2]}]`.length
+              if (callout[3].trim()) {
+                let to = bEnd
+                if (state.doc.sliceString(to, to + 1) === ' ') to += 1
+                pending.push({ from: bStart, to, deco: hideInline, line: false })
+              } else {
+                pending.push({
+                  from: bStart,
+                  to: bEnd,
+                  deco: Decoration.replace({
+                    widget: new CalloutTitleWidget(calloutTitle(callout[2]), group)
+                  }),
+                  line: false
+                })
+              }
+            }
+            return
+          }
+          // Plain blockquote: a left bar on every line it spans.
           for (let n = first; n <= last; n++) {
             if (quotedLines.has(n)) continue
             quotedLines.add(n)
