@@ -2,6 +2,7 @@ node_modules
 out
 dist
 .turbo
+.playwright-mcp/
 apps/*/.turbo
 apps/web/dist
 apps/server/bin
