@@ -8,6 +8,7 @@ import {
   hintTargetOpensNote,
   isEditorInsertMode,
   isEditorFocused,
+  isVimAwaitingArgument,
   resolveNextPanel
 } from '../lib/vim-nav'
 import { focusPaneInDirection } from '../lib/pane-nav'
@@ -713,7 +714,11 @@ export function VimNav(): JSX.Element | null {
 
       if (
         sequenceTokenFromEvent(e) === leaderToken &&
-        !editorInsertMode
+        !editorInsertMode &&
+        // While Vim is mid-command in the focused editor (e.g. after f/t/r or an
+        // operator), Space is the command's argument (r<Space>, f<Space>), not
+        // the leader — let it fall through to codemirror-vim. (#147)
+        !(isEditorFocused(state.editorViewRef) && isVimAwaitingArgument(state.editorViewRef))
       ) {
         const tag = (e.target as HTMLElement | null)?.tagName
         if (tag !== 'INPUT' && tag !== 'TEXTAREA') {

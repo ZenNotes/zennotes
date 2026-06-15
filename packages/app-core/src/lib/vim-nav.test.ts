@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import type { EditorView } from '@codemirror/view'
 import { TASKS_TAB_PATH } from '@shared/tasks'
 import { databaseTabPath } from '@shared/databases'
-import { hintTargetOpensNote } from './vim-nav'
+
+const cmMock = vi.hoisted(() => ({ vim: undefined as unknown }))
+vi.mock('@replit/codemirror-vim', () => ({
+  getCM: () => ({ state: { vim: cmMock.vim } })
+}))
+
+import { hintTargetOpensNote, isVimAwaitingArgument } from './vim-nav'
 
 function el(html: string): HTMLElement {
   const container = document.createElement('div')
@@ -44,5 +51,30 @@ describe('hintTargetOpensNote (#100 — hint into a note lands in the editor)', 
   it('is false for a plain button and for null', () => {
     expect(hintTargetOpensNote(el('<button>Settings</button>'))).toBe(false)
     expect(hintTargetOpensNote(null)).toBe(false)
+  })
+})
+
+describe('isVimAwaitingArgument (#147 — Space is the Vim arg, not the leader)', () => {
+  const view = {} as unknown as EditorView // getCM is mocked, so the view is unused
+
+  it('is true while a partial command is buffered (f/t/r, operators, counts)', () => {
+    cmMock.vim = { inputState: { keyBuffer: ['f'] } }
+    expect(isVimAwaitingArgument(view)).toBe(true)
+  })
+
+  it('is true when a literal next character is expected (e.g. r)', () => {
+    cmMock.vim = { expectLiteralNext: true, inputState: { keyBuffer: [] } }
+    expect(isVimAwaitingArgument(view)).toBe(true)
+  })
+
+  it('is false when Vim is at rest', () => {
+    cmMock.vim = { expectLiteralNext: false, inputState: { keyBuffer: [] } }
+    expect(isVimAwaitingArgument(view)).toBe(false)
+  })
+
+  it('is false with no vim state, and for a null view', () => {
+    cmMock.vim = null
+    expect(isVimAwaitingArgument(view)).toBe(false)
+    expect(isVimAwaitingArgument(null)).toBe(false)
   })
 })

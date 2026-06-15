@@ -74,6 +74,22 @@ export function isEditorInsertMode(view: EditorView | null, vimMode: boolean): b
   return cm?.state.vim?.insertMode === true
 }
 
+/**
+ * True when codemirror-vim is mid-command, waiting for a character or motion
+ * argument — e.g. after `f`/`t`/`F`/`T`/`r`, an operator like `d`/`c`, or a
+ * pending count. In that state the next key (including Space) belongs to the Vim
+ * sequence, not the global leader, so the leader must stand down. (#147)
+ */
+export function isVimAwaitingArgument(view: EditorView | null): boolean {
+  if (!view) return false
+  const vim = getCM(view)?.state?.vim as
+    | { expectLiteralNext?: boolean; inputState?: { keyBuffer?: unknown[] } }
+    | undefined
+  if (!vim) return false
+  if (vim.expectLiteralNext) return true
+  return (vim.inputState?.keyBuffer?.length ?? 0) > 0
+}
+
 export function clearEditorPendingVimStatus(view: EditorView | null): void {
   if (!view) return
   const cm = getCM(view)
