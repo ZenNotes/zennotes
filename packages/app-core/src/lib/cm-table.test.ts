@@ -2,10 +2,17 @@
 
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { forceParsing } from '@codemirror/language'
+import { history } from '@codemirror/commands'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
-import { tablePlugin, nextWordStart, prevWordStart, nextWordEnd } from './cm-table'
+import {
+  tablePlugin,
+  nextWordStart,
+  prevWordStart,
+  nextWordEnd,
+  textObjectRange
+} from './cm-table'
 import { closeTableContextMenu } from './cm-table-menu'
 
 const TABLE_DOC = `Intro text.
@@ -24,7 +31,7 @@ function mount(doc: string): EditorView {
     parent,
     state: EditorState.create({
       doc,
-      extensions: [markdown({ base: markdownLanguage }), tablePlugin]
+      extensions: [markdown({ base: markdownLanguage }), history(), tablePlugin]
     })
   })
   // Ensure the GFM table node is parsed, then nudge the field to rebuild.
@@ -110,6 +117,87 @@ describe('tablePlugin', () => {
     closeTableContextMenu()
     view.destroy()
   })
+
+  it('supports x / dd / D editing operators in a cell', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    expect(cell.dataset.raw).toBe('Alice')
+    // x deletes the char under the cursor (offset 0).
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true }))
+    expect(cell.dataset.raw).toBe('lice')
+    // D deletes to end of cell.
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'D', bubbles: true, cancelable: true }))
+    expect(cell.dataset.raw).toBe('')
+    view.destroy()
+  })
+
+  it('supports char-wise visual mode: v + motion + d deletes the selection', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    expect(cell.dataset.raw).toBe('Alice')
+    // v (anchor at 0) → l (extend to 1) → d (delete [0,2) = "Al").
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', bubbles: true, cancelable: true }))
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true, cancelable: true }))
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }))
+    expect(cell.dataset.raw).toBe('ice')
+    view.destroy()
+  })
+
+  it('u commits the pending cell edit and undoes it', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', bubbles: true, cancelable: true }))
+    expect(cell.dataset.raw).toBe('lice')
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'u', bubbles: true, cancelable: true }))
+    // The committed edit is undone — the source table is back to "Alice".
+    expect(view.state.doc.toString()).toContain('| Alice |')
+    view.destroy()
+  })
+
+  it('diw deletes the inner word (operator + text object)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    expect(cell.dataset.raw).toBe('Alice')
+    for (const key of ['d', 'i', 'w']) {
+      cell.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+    expect(cell.dataset.raw).toBe('')
+    view.destroy()
+  })
+
+  it('Esc in a normal-mode cell is a no-op (stays put, no jump below)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    const ev = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    // Cell content untouched; widget still present (didn't tear down / jump out).
+    expect(cell.dataset.raw).toBe('Alice')
+    expect(view.dom.querySelector('.cm-table-widget')).toBeTruthy()
+    view.destroy()
+  })
+
+  it('supports the dd operator (clear cell) via operator-pending', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="1"][data-col="0"]'
+    )!
+    expect(cell.dataset.raw).toBe('Bob')
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }))
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }))
+    expect(cell.dataset.raw).toBe('')
+    view.destroy()
+  })
 })
 
 describe('vim word motions (cell cursor)', () => {
@@ -132,5 +220,26 @@ describe('vim word motions (cell cursor)', () => {
     // "a, b" → a(0) ,(1) space(2) b(3)
     expect(nextWordStart('a, b', 0)).toBe(1) // 'a' → ','
     expect(nextWordStart('a, b', 1)).toBe(3) // ',' → 'b'
+  })
+})
+
+describe('text objects (vi / va, di / ca)', () => {
+  it('iw / aw select the word (a includes trailing space)', () => {
+    const t = 'foo bar baz'
+    expect(textObjectRange(t, 5, 'i', 'w')).toEqual({ from: 4, to: 7 }) // "bar"
+    expect(textObjectRange(t, 5, 'a', 'w')).toEqual({ from: 4, to: 8 }) // "bar "
+  })
+  it('i" / a" select inside / around quotes', () => {
+    const t = 'say "hi" now'
+    expect(textObjectRange(t, 5, 'i', '"')).toEqual({ from: 5, to: 7 }) // hi
+    expect(textObjectRange(t, 5, 'a', '"')).toEqual({ from: 4, to: 8 }) // "hi"
+  })
+  it('i( / a) select inside / around brackets', () => {
+    const t = 'f(x, y)'
+    expect(textObjectRange(t, 3, 'i', '(')).toEqual({ from: 2, to: 6 }) // x, y
+    expect(textObjectRange(t, 3, 'a', ')')).toEqual({ from: 1, to: 7 }) // (x, y)
+  })
+  it('returns null when the object is absent', () => {
+    expect(textObjectRange('plain', 0, 'i', '"')).toBeNull()
   })
 })

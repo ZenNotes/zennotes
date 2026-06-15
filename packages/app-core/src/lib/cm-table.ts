@@ -33,6 +33,7 @@ import {
 import { openTableContextMenu } from './cm-table-menu'
 import { renderMarkdown } from './markdown'
 import { getCM } from '@replit/codemirror-vim'
+import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
 
 /** True when the editor is in Vim mode — gates the table's modal (normal /
@@ -100,6 +101,16 @@ class TableWidget extends WidgetType {
   /** Where to land the block cursor on the next cell focus: a char index, or
    *  'end' (last char). Lets h/l carry the cursor across cell boundaries. */
   private pendingOffset: number | 'end' | null = null
+  /** A pending operator (`d`/`c`) waiting for its motion key (dw, cc, d$, …). */
+  private pendingOp: 'd' | 'c' | null = null
+  /** Char-wise visual mode: true after `v`; `visualAnchor` is the fixed end of
+   *  the selection, `cursorOffset` is the moving end. */
+  private visualMode = false
+  private visualAnchor = 0
+  /** Pending text-object scope after `i`/`a` — in visual mode (`viw`) and in
+   *  operator-pending (`diw`, `ca"`). */
+  private visualScope: 'i' | 'a' | null = null
+  private pendingScope: 'i' | 'a' | null = null
   /** Set in toDOM — CodeMirror hands the live view there. Block widgets are
    *  provided by a StateField, which has no view at build time. */
   private view!: EditorView
@@ -274,6 +285,10 @@ class TableWidget extends WidgetType {
         // Vim: land in NORMAL mode at the pending offset (carried across cells
         // by h/l), or 0. The cell becomes a block cursor over its source.
         this.cellMode = 'normal'
+        this.pendingOp = null
+        this.pendingScope = null
+        this.visualMode = false
+        this.visualScope = null
         const len = (editable.dataset.raw ?? '').length
         this.cursorOffset =
           this.pendingOffset === 'end'
@@ -489,6 +504,36 @@ class TableWidget extends WidgetType {
           event.stopPropagation()
         }
         const cellText = editable.dataset.raw ?? ''
+        if (this.visualMode) {
+          event.preventDefault()
+          this.handleVisualKey(editable, event.key, cellText)
+          return
+        }
+        if (this.pendingOp) {
+          event.preventDefault()
+          const op = this.pendingOp
+          if (this.pendingScope) {
+            // Third key: the text-object char (diw, ca", di(, …).
+            const scope = this.pendingScope
+            this.pendingOp = null
+            this.pendingScope = null
+            const r = textObjectRange(cellText, this.cursorOffset, scope, event.key)
+            if (r) {
+              this.deleteRange(editable, r.from, r.to)
+              if (op === 'c') this.enterInsertMode(editable, r.from)
+            }
+            return
+          }
+          if (event.key === 'i' || event.key === 'a') {
+            // Operator + text-object scope (di…, ca…): wait for the object key.
+            this.pendingScope = event.key
+            return
+          }
+          // Plain motion: dd / cc, dw / cw, d$ / c$, etc.
+          this.pendingOp = null
+          this.applyOperator(editable, op, event.key, cellText)
+          return
+        }
         switch (event.key) {
           case 'h':
             event.preventDefault()
@@ -547,9 +592,57 @@ class TableWidget extends WidgetType {
             this.cursorOffset = Math.max(0, cellText.length - 1)
             this.renderCellCursor(editable)
             return
-          case 'Escape':
+          case 'x':
             event.preventDefault()
-            this.exitToEditor('after')
+            this.deleteRange(editable, this.cursorOffset, this.cursorOffset + 1)
+            return
+          case 'D':
+            event.preventDefault()
+            this.deleteRange(editable, this.cursorOffset, cellText.length)
+            return
+          case 'C': {
+            event.preventDefault()
+            const at = this.cursorOffset
+            this.deleteRange(editable, at, cellText.length)
+            this.enterInsertMode(editable, at)
+            return
+          }
+          case 'd':
+            event.preventDefault()
+            this.pendingOp = 'd'
+            return
+          case 'c':
+            event.preventDefault()
+            this.pendingOp = 'c'
+            return
+          case 'v':
+            event.preventDefault()
+            this.visualMode = true
+            this.visualAnchor = this.cursorOffset
+            this.renderCellSelection(editable)
+            return
+          case 'u':
+            // Undo: flush pending cell edits as one history step, then undo it
+            // (or the previous change). Hands focus back to the editor.
+            event.preventDefault()
+            this.commitIfDirty()
+            undo(this.view)
+            this.view.focus()
+            return
+          case 'r':
+            // Ctrl-r → redo. Plain `r` is swallowed (no replace-char yet).
+            event.preventDefault()
+            if (event.ctrlKey) {
+              event.stopPropagation()
+              this.commitIfDirty()
+              redo(this.view)
+              this.view.focus()
+            }
+            return
+          case 'Escape':
+            // Vim: Esc in normal mode is a no-op — don't jump out of the table.
+            // Leave a cell with j/k at the top/bottom edges (or click away).
+            event.preventDefault()
             return
           case 'm':
             // Open the full table action menu (add/move/duplicate/delete/align/
@@ -651,6 +744,7 @@ class TableWidget extends WidgetType {
 
   private clearCellCursor(cell: HTMLElement): void {
     cell.querySelector('.cm-table-cell-cursor')?.remove()
+    cell.querySelector('.cm-table-cell-sel')?.remove()
   }
 
   /** Draw the block cursor over the character at `cursorOffset`, measuring its
@@ -738,6 +832,10 @@ class TableWidget extends WidgetType {
    *  focus handler, snapping back to NORMAL. */
   private enterInsertMode(cell: HTMLElement, caretOffset: number): void {
     this.cellMode = 'insert'
+    this.pendingOp = null
+    this.pendingScope = null
+    this.visualMode = false
+    this.visualScope = null
     this.clearCellCursor(cell)
     cell.classList.remove('is-vim-normal')
     cell.setAttribute('contenteditable', 'true')
@@ -748,11 +846,199 @@ class TableWidget extends WidgetType {
     placeCaretAt(cell, caretOffset)
   }
 
+  /** Delete `[from, to)` from the focused cell's source in place (no dispatch —
+   *  committed on blur, like typing). Re-renders the NORMAL block cursor. */
+  private deleteRange(cell: HTMLElement, from: number, to: number): void {
+    const text = cell.dataset.raw ?? ''
+    const a = Math.max(0, Math.min(from, text.length))
+    const b = Math.max(a, Math.min(to, text.length))
+    if (b === a) return
+    const next = text.slice(0, a) + text.slice(b)
+    cell.dataset.raw = next
+    this.dirty = true
+    this.cursorOffset = Math.max(0, Math.min(a, next.length - 1))
+    cell.textContent = next
+    cell.dataset.rendered = 'false'
+    this.renderCellCursor(cell)
+  }
+
+  /** Apply a pending operator (`d`/`c`) over the motion in `key`: dd/cc clear
+   *  the cell; dw/cw, d$/c$, d0/c0, dl, db act over that range. `c` then edits. */
+  private applyOperator(
+    cell: HTMLElement,
+    op: 'd' | 'c',
+    key: string,
+    text: string
+  ): void {
+    const off = this.cursorOffset
+    let from = off
+    let to = off
+    if (key === op) {
+      // dd / cc → the whole cell
+      from = 0
+      to = text.length
+    } else {
+      switch (key) {
+        case 'w':
+          to = op === 'c' ? Math.min(text.length, nextWordEnd(text, off) + 1) : nextWordStart(text, off)
+          break
+        case 'e':
+          to = Math.min(text.length, nextWordEnd(text, off) + 1)
+          break
+        case '$':
+          to = text.length
+          break
+        case '0':
+          from = 0
+          to = off
+          break
+        case 'l':
+          to = Math.min(text.length, off + 1)
+          break
+        case 'h':
+          from = Math.max(0, off - 1)
+          break
+        case 'b':
+          from = prevWordStart(text, off)
+          break
+        default:
+          return // unknown motion — cancel the operator
+      }
+    }
+    const wholeCell = from === 0 && to === text.length
+    if (to > from || wholeCell) {
+      this.deleteRange(cell, from, to)
+      if (op === 'c') this.enterInsertMode(cell, from)
+    }
+  }
+
+  /** Render the char-wise visual selection [anchor..head] as a themed overlay
+   *  measured over the range — NOT a native DOM selection, which CodeMirror
+   *  would mirror into a multi-cell editor selection (and which falls back to
+   *  the washed-out OS color). */
+  private renderCellSelection(cell: HTMLElement): void {
+    this.clearCellCursor(cell)
+    const text = cell.dataset.raw ?? ''
+    const node = cell.firstChild
+    if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return
+    const from = Math.max(0, Math.min(this.visualAnchor, this.cursorOffset))
+    const to = Math.min(text.length, Math.max(this.visualAnchor, this.cursorOffset) + 1)
+    const range = document.createRange()
+    range.setStart(node, from)
+    range.setEnd(node, to)
+    if (typeof range.getBoundingClientRect !== 'function') return
+    const rect = range.getBoundingClientRect()
+    const cellRect = cell.getBoundingClientRect()
+    const overlay = document.createElement('span')
+    overlay.className = 'cm-table-cell-sel'
+    overlay.style.left = `${rect.left - cellRect.left}px`
+    overlay.style.top = `${rect.top - cellRect.top}px`
+    overlay.style.width = `${Math.max(rect.width, 2)}px`
+    overlay.style.height = `${rect.height || 18}px`
+    cell.appendChild(overlay)
+  }
+
+  private exitVisual(): void {
+    this.visualMode = false
+    this.visualScope = null
+    window.getSelection()?.removeAllRanges()
+  }
+
+  /** Keys while in char-wise visual mode: motions extend the selection; d/x
+   *  delete it, c/s change it, y yanks it, Esc cancels. */
+  private handleVisualKey(cell: HTMLElement, key: string, text: string): void {
+    const selFrom = (): number => Math.max(0, Math.min(this.visualAnchor, this.cursorOffset))
+    const selTo = (): number =>
+      Math.min(text.length, Math.max(this.visualAnchor, this.cursorOffset) + 1)
+    if (this.visualScope) {
+      // `vi{obj}` / `va{obj}`: select the text object.
+      const scope = this.visualScope
+      this.visualScope = null
+      const r = textObjectRange(text, this.cursorOffset, scope, key)
+      if (r) {
+        this.visualAnchor = r.from
+        this.cursorOffset = Math.max(r.from, r.to - 1)
+        this.renderCellSelection(cell)
+      }
+      return
+    }
+    if (key === 'i' || key === 'a') {
+      this.visualScope = key
+      return
+    }
+    switch (key) {
+      case 'h':
+        this.cursorOffset = Math.max(0, this.cursorOffset - 1)
+        this.renderCellSelection(cell)
+        return
+      case 'l':
+        this.cursorOffset = Math.min(Math.max(0, text.length - 1), this.cursorOffset + 1)
+        this.renderCellSelection(cell)
+        return
+      case 'w':
+        this.cursorOffset = nextWordStart(text, this.cursorOffset)
+        this.renderCellSelection(cell)
+        return
+      case 'e':
+        this.cursorOffset = nextWordEnd(text, this.cursorOffset)
+        this.renderCellSelection(cell)
+        return
+      case 'b':
+        this.cursorOffset = prevWordStart(text, this.cursorOffset)
+        this.renderCellSelection(cell)
+        return
+      case '0':
+        this.cursorOffset = 0
+        this.renderCellSelection(cell)
+        return
+      case '$':
+        this.cursorOffset = Math.max(0, text.length - 1)
+        this.renderCellSelection(cell)
+        return
+      case 'd':
+      case 'x': {
+        const from = selFrom()
+        const to = selTo()
+        this.exitVisual()
+        this.deleteRange(cell, from, to)
+        return
+      }
+      case 'c':
+      case 's': {
+        const from = selFrom()
+        const to = selTo()
+        this.exitVisual()
+        this.deleteRange(cell, from, to)
+        this.enterInsertMode(cell, from)
+        return
+      }
+      case 'y': {
+        const from = selFrom()
+        const to = selTo()
+        void navigator.clipboard?.writeText(text.slice(from, to))
+        this.cursorOffset = from
+        this.exitVisual()
+        this.renderCellCursor(cell)
+        return
+      }
+      case 'Escape':
+        this.exitVisual()
+        this.renderCellCursor(cell)
+        return
+      default:
+        return
+    }
+  }
+
   /** Leave the table, returning the caret to the document just before/after the
    *  table block. The atomic range keeps it from sliding back in. */
   private exitToEditor(side: 'before' | 'after'): void {
     this.commitIfDirty()
     this.cellMode = 'normal'
+    this.pendingOp = null
+    this.pendingScope = null
+    this.visualMode = false
+    this.visualScope = null
     const dom = this.dom
     if (!dom) {
       this.view.focus()
@@ -848,6 +1134,103 @@ export function nextWordEnd(text: string, off: number): number {
   const cls = charClass(text[i])
   while (i + 1 < n && charClass(text[i + 1]) === cls) i++
   return Math.min(i, n - 1)
+}
+
+/** Vim text object: the range covering `iw`/`aw` (word), `i"`/`a"` (and `'`/`` ` ``),
+ *  and `i(`/`a(` etc. (brackets) around `offset`. `to` is exclusive. Returns
+ *  null if the object isn't found (e.g. unbalanced brackets). */
+export function textObjectRange(
+  text: string,
+  offset: number,
+  scope: 'i' | 'a',
+  obj: string
+): { from: number; to: number } | null {
+  const n = text.length
+  if (n === 0) return null
+  const off = Math.max(0, Math.min(offset, n - 1))
+
+  if (obj === 'w') {
+    const cls = charClass(text[off])
+    let from = off
+    let to = off + 1
+    while (from > 0 && charClass(text[from - 1]) === cls) from--
+    while (to < n && charClass(text[to]) === cls) to++
+    if (scope === 'a') {
+      const afterEnd = to
+      while (to < n && charClass(text[to]) === 0) to++
+      if (to === afterEnd) while (from > 0 && charClass(text[from - 1]) === 0) from--
+    }
+    return { from, to }
+  }
+
+  if (obj === '"' || obj === "'" || obj === '`') {
+    let open = -1
+    for (let i = off; i >= 0; i--) {
+      if (text[i] === obj) {
+        open = i
+        break
+      }
+    }
+    if (open === -1) {
+      for (let i = off; i < n; i++) {
+        if (text[i] === obj) {
+          open = i
+          break
+        }
+      }
+    }
+    if (open === -1) return null
+    let close = -1
+    for (let i = open + 1; i < n; i++) {
+      if (text[i] === obj) {
+        close = i
+        break
+      }
+    }
+    if (close === -1) return null
+    return scope === 'i' ? { from: open + 1, to: close } : { from: open, to: close + 1 }
+  }
+
+  const OPENERS: Record<string, string> = { '(': ')', '[': ']', '{': '}' }
+  const CLOSERS: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
+  let openCh: string
+  let closeCh: string
+  if (OPENERS[obj]) {
+    openCh = obj
+    closeCh = OPENERS[obj]
+  } else if (CLOSERS[obj]) {
+    openCh = CLOSERS[obj]
+    closeCh = obj
+  } else {
+    return null
+  }
+  let depth = 0
+  let openPos = -1
+  for (let i = off; i >= 0; i--) {
+    if (text[i] === closeCh && i !== off) depth++
+    else if (text[i] === openCh) {
+      if (depth === 0) {
+        openPos = i
+        break
+      }
+      depth--
+    }
+  }
+  if (openPos === -1) return null
+  depth = 0
+  let closePos = -1
+  for (let i = openPos + 1; i < n; i++) {
+    if (text[i] === openCh) depth++
+    else if (text[i] === closeCh) {
+      if (depth === 0) {
+        closePos = i
+        break
+      }
+      depth--
+    }
+  }
+  if (closePos === -1) return null
+  return scope === 'i' ? { from: openPos + 1, to: closePos } : { from: openPos, to: closePos + 1 }
 }
 
 /** Collapse the caret at a character offset within the element's text node. */

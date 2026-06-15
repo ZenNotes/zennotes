@@ -3515,6 +3515,15 @@ textarea,
   white-space: pre-wrap;
   word-break: break-word;
   cursor: text;
+  /* No native text selection in view/normal mode — it renders as the OS color
+     and CodeMirror mirrors it across cells. Vim visual mode draws its own
+     themed overlay instead. Editing (contenteditable) re-enables selection. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cm-table-widget .cm-table-cell[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 .cm-table-widget .cm-table-cell:focus {
   background: rgb(var(--z-accent) / 0.1);
@@ -3536,10 +3545,26 @@ textarea,
   border-radius: 1px;
   pointer-events: none;
 }
+/* Vim visual-mode selection inside a cell uses the native selection; match the
+   editor's own selection tint (theme accent at the same strength) so it reads
+   consistently instead of the washed-out OS default. */
+.cm-table-widget .cm-table-cell::selection,
+.cm-table-widget .cm-table-cell ::selection {
+  background: rgb(var(--z-accent) / 0.22);
+}
+/* Vim visual-mode selection overlay (cm-table.ts renderCellSelection) — themed
+   so it matches the editor selection across every theme. */
+.cm-table-widget .cm-table-cell-sel {
+  position: absolute;
+  background: rgb(var(--z-accent) / 0.28);
+  border-radius: 2px;
+  pointer-events: none;
+}
 /* While a table cell is focused, the "real" cursor lives in the cell, so hide
    the editor's own cursor layer — otherwise its Vim block cursor lingers at the
    last document position (e.g. above the table) as a second block cursor. */
-.cm-editor:has(.cm-table-cell:focus) .cm-cursorLayer {
+.cm-editor:has(.cm-table-cell:focus) .cm-cursorLayer,
+.cm-editor:has(.cm-table-cell:focus) .cm-selectionLayer {
   display: none;
 }
 /* Rendered inline markdown inside idle cells (the source pipeline emits real
