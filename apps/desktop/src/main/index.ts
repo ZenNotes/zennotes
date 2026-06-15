@@ -391,7 +391,12 @@ function findWindowForVaultRoot(root: string): BrowserWindow | null {
 
 function queueMarkdownFileOpen(rawPath: string, reuseMainWindow: boolean): void {
   pendingFileOpens.push({ absPath: path.resolve(rawPath), reuseMainWindow })
-  if (app.isReady()) void flushPendingFileOpens()
+  // Only flush eagerly once startup is finished. During startup `app.isReady()`
+  // is already true (we're inside whenReady), so an eager flush here would
+  // drain the queue before whenReady's own flush runs — that flush would then
+  // report "nothing opened" and open a redundant default window alongside the
+  // file's window, so `zen open` (and double-clicking a .md) opened two. (#178)
+  if (app.isReady() && appStartupComplete) void flushPendingFileOpens()
 }
 
 function handleStartupMarkdownArgs(argv: string[], reuseMainWindow: boolean): void {
