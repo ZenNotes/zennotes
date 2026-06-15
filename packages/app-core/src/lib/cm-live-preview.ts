@@ -724,11 +724,11 @@ function computeDecorations(view: EditorView): DecorationSet {
         if (name === TASK_MARKER_NODE) {
           const line = state.doc.lineAt(node.from).number
           if (replacedLines.has(line)) return
-          // Reveal the raw `[ ]` / `[x]` so the user can edit it directly
-          // when the cursor lands inside the marker. Cursor elsewhere on
-          // the line still shows the checkbox — same model headings use
-          // for `#` markers.
-          if (selectionTouchesRange(state, node.from, node.to)) return
+          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
+          // line reads as source — matching Obsidian, and consistent with the
+          // list/quote/heading markers, which also reveal on the active line.
+          // Off the line, render the checkbox.
+          if (activeLines.has(line)) return
           const markerText = state.doc.sliceString(node.from, node.to)
           // `markerText` is `[ ]` / `[x]` / `[X]`; default to unchecked if the
           // parser ever hands us something unexpected.

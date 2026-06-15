@@ -69,6 +69,11 @@ import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
+import { tablePlugin, tableVimEntry } from '../lib/cm-table'
+import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
+import { hashtagExtension } from '../lib/cm-hashtags'
+import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
@@ -226,6 +231,29 @@ function markdownSyntaxHighlightExtensions(): Extension[] {
   ]
 }
 
+/**
+ * Live-preview ("WYSIWYG") rendering bundle: the base marker-hiding/inline
+ * plugin plus block-level renderers — tables, blockquote bars, list
+ * bullets, horizontal rules, fenced-code cards, hashtag chips, and
+ * wikilink rendering. Loaded by the livePreview compartment (gated by the
+ * `livePreview` setting); cleared to `[]` when off.
+ *
+ * Ported from the WYSIWYG work in PR #185 (author: songgnqing). That PR's
+ * frontmatter-properties panel is intentionally excluded — it depends on
+ * the PR's breaking database restructure.
+ */
+function wysiwygExtensions(): Extension[] {
+  return [
+    livePreviewPlugin,
+    codeBlockFlairPlugin,
+    tablePlugin,
+    tableVimEntry,
+    wysiwygBlocksPlugin,
+    ...hashtagExtension,
+    ...wikilinkRenderExtension
+  ]
+}
+
 const paperHighlight = HighlightStyle.define([
   // Markdown-level tokens
   { tag: t.heading1, class: 'tok-heading1' },
@@ -236,6 +264,7 @@ const paperHighlight = HighlightStyle.define([
   { tag: t.heading6, class: 'tok-heading6' },
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
+  { tag: t.strikethrough, class: 'tok-strikethrough' },
   { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
@@ -1327,7 +1356,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            s0.livePreview && !deferInitialRichMarkdown ? livePreviewPlugin : []
+            s0.livePreview && !deferInitialRichMarkdown ? wysiwygExtensions() : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
@@ -1467,7 +1496,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
           if (useStore.getState().livePreview) {
-            restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+            restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
         }, LARGE_DOC_LIVE_PREVIEW_DEFER_MS)
@@ -1559,7 +1588,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
       )
       if (livePreviewEnabled && livePreviewCompartment) {
-        effects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+        effects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
       }
     }
     const dispatchStartedAt = performance.now()
@@ -1606,7 +1635,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (useStore.getState().livePreview && livePreviewCompartment) {
-          restoreEffects.push(livePreviewCompartment.reconfigure(livePreviewPlugin))
+          restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
         }
         view.dispatch({
           effects: restoreEffects
@@ -1658,12 +1687,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           )
         }
-        effects.push(comp.reconfigure(livePreviewPlugin))
+        effects.push(comp.reconfigure(wysiwygExtensions()))
         view.dispatch({ effects })
       }
       return
     }
-    view.dispatch({ effects: comp.reconfigure(livePreview ? livePreviewPlugin : []) })
+    view.dispatch({ effects: comp.reconfigure(livePreview ? wysiwygExtensions() : []) })
   }, [livePreview])
   useEffect(() => {
     const view = viewRef.current
@@ -3070,7 +3099,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     </div>
                   )}
                   {editorReady ? (
-                    <div ref={setContainerRef} className="min-h-0 min-w-0 flex-1" />
+                    <div
+                      ref={setContainerRef}
+                      className={[
+                        'min-h-0 min-w-0 flex-1',
+                        // WYSIWYG styling (code-block cards, etc.) is gated on
+                        // the same `livePreview` condition that loads the
+                        // wysiwyg plugins, so CSS and plugins stay in lockstep.
+                        livePreview ? 'cm-wysiwyg' : ''
+                      ].join(' ')}
+                    />
                   ) : (
                     <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-ink-400">
                       Preparing editor…

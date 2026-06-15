@@ -60,6 +60,7 @@ const paperHighlight = HighlightStyle.define([
   { tag: t.heading6, class: 'tok-heading6' },
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
+  { tag: t.strikethrough, class: 'tok-strikethrough' },
   { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },

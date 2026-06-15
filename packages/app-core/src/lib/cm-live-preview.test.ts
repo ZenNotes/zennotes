@@ -73,9 +73,9 @@ describe('livePreviewPlugin', () => {
   })
 
   it('replaces an unchecked task marker with a checkbox widget', () => {
-    const doc = '- [ ] Buy milk'
-    // Cursor at end of line, off the marker.
-    const view = mountEditor(doc, doc.length)
+    // Cursor on the intro line — the task line is inactive, so it renders.
+    const doc = 'intro\n\n- [ ] Buy milk'
+    const view = mountEditor(doc, 0)
 
     const inputs = view.dom.querySelectorAll<HTMLInputElement>('input.cm-task-checkbox-input')
     expect(inputs).toHaveLength(1)
@@ -89,8 +89,8 @@ describe('livePreviewPlugin', () => {
   })
 
   it('replaces a checked task marker with a checked checkbox', () => {
-    const doc = '- [x] Done\n- [X] Also done'
-    const view = mountEditor(doc, doc.length)
+    const doc = 'intro\n\n- [x] Done\n- [X] Also done'
+    const view = mountEditor(doc, 0)
 
     const inputs = view.dom.querySelectorAll<HTMLInputElement>('input.cm-task-checkbox-input')
     expect(inputs).toHaveLength(2)
@@ -114,35 +114,36 @@ describe('livePreviewPlugin', () => {
   })
 
   it('toggles the underlying marker when the checkbox is clicked', () => {
-    const doc = '- [ ] Buy milk'
-    const view = mountEditor(doc, doc.length)
+    const doc = 'intro\n\n- [ ] Buy milk'
+    const view = mountEditor(doc, 0)
 
     const input = view.dom.querySelector<HTMLInputElement>('input.cm-task-checkbox-input')
     expect(input).toBeTruthy()
     input!.click()
 
-    expect(view.state.doc.toString()).toBe('- [x] Buy milk')
+    expect(view.state.doc.toString()).toBe('intro\n\n- [x] Buy milk')
 
     view.destroy()
   })
 
   it('toggles back to unchecked from a `[x]` marker', () => {
-    const doc = '- [x] Already done'
-    const view = mountEditor(doc, doc.length)
+    const doc = 'intro\n\n- [x] Already done'
+    const view = mountEditor(doc, 0)
 
     const input = view.dom.querySelector<HTMLInputElement>('input.cm-task-checkbox-input')
     expect(input).toBeTruthy()
     input!.click()
 
-    expect(view.state.doc.toString()).toBe('- [ ] Already done')
+    expect(view.state.doc.toString()).toBe('intro\n\n- [ ] Already done')
 
     view.destroy()
   })
 
   it('renders checkboxes for ordered, nested, and quoted tasks', () => {
-    // Task variants the TASK_LINE_RE in shared/tasklists supports.
-    const doc = ['1. [ ] Ordered', '   - [x] Nested', '> - [ ] Quoted'].join('\n')
-    const view = mountEditor(doc, doc.length)
+    // Task variants the TASK_LINE_RE in shared/tasklists supports. Cursor on
+    // the intro line so every task line is inactive (and thus rendered).
+    const doc = ['intro', '1. [ ] Ordered', '   - [x] Nested', '> - [ ] Quoted'].join('\n')
+    const view = mountEditor(doc, 0)
 
     const inputs = view.dom.querySelectorAll<HTMLInputElement>('input.cm-task-checkbox-input')
     expect(inputs).toHaveLength(3)
