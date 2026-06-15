@@ -610,24 +610,9 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:add-comment'))
         return
       }
-      // ⌥h/j/k/l — focus the neighbouring pane/panel. Works regardless of vim
-      // mode (unlike <C-w>hjkl) and never needs the command palette.
-      {
-        const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
-          ? 'h'
-          : matchesShortcut(e, overrides, 'global.focusPaneDown')
-            ? 'j'
-            : matchesShortcut(e, overrides, 'global.focusPaneUp')
-              ? 'k'
-              : matchesShortcut(e, overrides, 'global.focusPaneRight')
-                ? 'l'
-                : null
-        if (paneDir) {
-          e.preventDefault()
-          focusPaneOrEdgePanel(paneDir)
-          return
-        }
-      }
+      // Pane-focus shortcuts (⌥h/j/k/l by default) are handled by a separate
+      // capture-phase listener so a remap onto an editor key still wins over
+      // CodeMirror — see focusPaneHandler below. (#124)
       if (matchesShortcut(e, overrides, 'global.modeEdit')) {
         e.preventDefault()
         requestPaneMode('edit')
@@ -656,8 +641,53 @@ function App(): JSX.Element {
         return
       }
     }
+    // Pane-focus shortcuts must win over the editor. CodeMirror binds keys such
+    // as Ctrl-h (delete character) and Ctrl-k (delete to line end), so when a
+    // user remaps a focusPane shortcut onto one of them the bubble-phase handler
+    // above would run *after* CodeMirror already executed its command — the key
+    // would both delete text and move focus (#124). Handle these in the capture
+    // phase and consume the event so the editor never sees the key.
+    const focusPaneHandler = (e: KeyboardEvent): void => {
+      const state = useStore.getState()
+      // Don't move focus (or swallow the key) while a modal, palette, or the
+      // Settings keybinding recorder is open — the recorder also captures keys
+      // in this phase, so a focusPane shortcut bound to e.g. Ctrl+H must not
+      // intercept it. (#124)
+      if (
+        state.settingsOpen ||
+        state.searchOpen ||
+        state.vaultTextSearchOpen ||
+        state.commandPaletteOpen ||
+        state.bufferPaletteOpen ||
+        state.templatePaletteOpen ||
+        state.outlinePaletteOpen ||
+        document.querySelector('[data-ctx-menu]') ||
+        document.querySelector('[data-prompt-modal]') ||
+        document.querySelector('[data-confirm-modal]')
+      ) {
+        return
+      }
+      const overrides = state.keymapOverrides
+      const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
+        ? 'h'
+        : matchesShortcut(e, overrides, 'global.focusPaneDown')
+          ? 'j'
+          : matchesShortcut(e, overrides, 'global.focusPaneUp')
+            ? 'k'
+            : matchesShortcut(e, overrides, 'global.focusPaneRight')
+              ? 'l'
+              : null
+      if (!paneDir) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      focusPaneOrEdgePanel(paneDir)
+    }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    window.addEventListener('keydown', focusPaneHandler, true)
+    return () => {
+      window.removeEventListener('keydown', handler)
+      window.removeEventListener('keydown', focusPaneHandler, true)
+    }
   }, [
     setBufferPaletteOpen,
     setCommandPaletteOpen,
