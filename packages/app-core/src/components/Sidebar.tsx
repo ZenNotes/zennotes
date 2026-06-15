@@ -2834,7 +2834,7 @@ export function Sidebar(): JSX.Element {
         >
           <SearchIcon width={15} height={15} className="shrink-0" />
           <span className="flex-1 truncate">{t("Search")}</span>
-          <kbd className="ml-auto w-14 shrink-0 rounded bg-paper-200 px-1 py-0.5 text-right font-sans text-2xs font-medium leading-none tracking-wide text-ink-500">
+          <kbd className="ml-auto w-14 shrink-0 text-right font-sans text-2xs font-medium leading-none tracking-wide text-current opacity-50">
             ⌘P
           </kbd>
         </button>
@@ -2983,7 +2983,7 @@ export function Sidebar(): JSX.Element {
                   );
                   void createAndOpen("quick", "", { title, focusTitle: true });
                 }}
-                className="flex w-14 items-center justify-end rounded py-0.5 text-right font-sans text-2xs font-medium leading-none tracking-wide text-current opacity-50 transition hover:bg-current/15 hover:opacity-100"
+                className="flex w-14 items-center justify-end text-right font-sans text-2xs font-medium leading-none tracking-wide text-current opacity-50 transition hover:opacity-100"
               >
                 {newQuickNoteShortcut}
               </button>
