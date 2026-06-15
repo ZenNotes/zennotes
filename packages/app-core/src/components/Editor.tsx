@@ -41,6 +41,7 @@ import {
 } from '../lib/keymaps'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -315,6 +316,35 @@ function extractLinkAtCursor(doc: string, pos: number): string | null {
   return null
 }
 
+/**
+ * Report an ex-command error as a non-blocking, in-editor notification — the
+ * same red bottom-of-editor message codemirror-vim uses for its own errors
+ * (e.g. an unknown `:command`). The previous native `window.alert` blurred
+ * CodeMirror, leaving Vim users unable to type until the editor was refocused.
+ * Falls back to an alert (then refocuses) if the editor notification is
+ * unavailable. (#173)
+ */
+function alertEditorError(message: string): void {
+  const view = useStore.getState().editorViewRef
+  const cm = view ? getCM(view) : null
+  const openNotification = (
+    cm as unknown as {
+      openNotification?: (node: Node, opts: { bottom?: boolean; duration?: number }) => void
+    } | null
+  )?.openNotification
+  if (cm && typeof openNotification === 'function') {
+    const el = document.createElement('div')
+    el.className = 'cm-vim-message'
+    el.style.color = 'red'
+    el.style.whiteSpace = 'pre'
+    el.textContent = message
+    openNotification.call(cm, el, { bottom: true, duration: 4000 })
+    return
+  }
+  window.alert(message)
+  focusEditorNormalMode()
+}
+
 function registerVimCommands(): void {
   if (vimCommandsRegistered) return
   vimCommandsRegistered = true
@@ -537,7 +567,7 @@ function registerVimCommands(): void {
         state.setFocusedPanel('editor')
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
       } catch (err) {
-        window.alert((err as Error).message)
+        alertEditorError((err as Error).message)
       }
     })
   })
@@ -602,7 +632,7 @@ function registerVimNoteCommands(): void {
     try {
       parsed = parseCreateNotePath(value)
     } catch (err) {
-      window.alert((err as Error).message)
+      alertEditorError((err as Error).message)
       return
     }
     const state = useStore.getState()
@@ -663,7 +693,7 @@ function registerVimNoteCommands(): void {
 
     const error = validateMoveNoteTarget(target)
     if (error) {
-      window.alert(error)
+      alertEditorError(error)
       return
     }
     const dest = parseMoveNoteTarget(target)
