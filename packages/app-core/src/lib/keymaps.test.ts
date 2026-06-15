@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { getKeymapDefinition, shortcutBindingFromEvent, sequenceTokenFromEvent } from './keymaps'
+import {
+  getKeymapDefinition,
+  shortcutBindingFromEvent,
+  sequenceTokenFromEvent,
+  matchesShortcut,
+  getKeymapDisplay
+} from './keymaps'
 
 interface FakeEventInit {
   key: string
@@ -204,5 +210,48 @@ describe('buffer keymap definitions', () => {
       title: 'Previous tab',
       defaultBinding: 'g T'
     })
+  })
+})
+
+describe('global (mode-independent) note history navigation', () => {
+  it('⌃- triggers Go Back and ⌘- (zoom out) does not', () => {
+    withPlatform('darwin', () => {
+      const back = fakeEvent({ key: '-', code: 'Minus', ctrlKey: true })
+      expect(matchesShortcut(back, null, 'global.historyBack')).toBe(true)
+      const zoomOut = fakeEvent({ key: '-', code: 'Minus', metaKey: true })
+      expect(matchesShortcut(zoomOut, null, 'global.historyBack')).toBe(false)
+    })
+  })
+
+  it('⌃⇧- triggers Go Forward — Shift+Minus resolves to "_" so the default binding stores "_"', () => {
+    withPlatform('darwin', () => {
+      expect(getKeymapDefinition('global.historyForward').defaultBinding).toBe('Ctrl+Shift+_')
+      const fwd = fakeEvent({ key: '_', code: 'Minus', ctrlKey: true, shiftKey: true })
+      expect(shortcutBindingFromEvent(fwd)).toBe('Ctrl+Shift+_')
+      expect(matchesShortcut(fwd, null, 'global.historyForward')).toBe(true)
+    })
+  })
+
+  it('displays the "_" key as "-" on mac (⌃- / ⌃⇧-)', () => {
+    withPlatform('darwin', () => {
+      expect(getKeymapDisplay(null, 'global.historyBack')).toBe('⌃-')
+      expect(getKeymapDisplay(null, 'global.historyForward')).toBe('⌃⇧-')
+    })
+  })
+
+  it('falls back to Alt+←/Alt+→ off macOS (VS Code Windows/Linux defaults)', () => {
+    for (const platform of ['win32', 'linux'] as const) {
+      withPlatform(platform, () => {
+        const back = fakeEvent({ key: 'ArrowLeft', code: 'ArrowLeft', altKey: true })
+        const fwd = fakeEvent({ key: 'ArrowRight', code: 'ArrowRight', altKey: true })
+        expect(matchesShortcut(back, null, 'global.historyBack')).toBe(true)
+        expect(matchesShortcut(fwd, null, 'global.historyForward')).toBe(true)
+        expect(getKeymapDisplay(null, 'global.historyBack')).toBe('Alt+←')
+        expect(getKeymapDisplay(null, 'global.historyForward')).toBe('Alt+→')
+        // The macOS Control binding must NOT fire here (Ctrl normalizes to Mod).
+        const ctrlMinus = fakeEvent({ key: '-', code: 'Minus', ctrlKey: true })
+        expect(matchesShortcut(ctrlMinus, null, 'global.historyBack')).toBe(false)
+      })
+    }
   })
 })

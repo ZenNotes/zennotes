@@ -150,6 +150,8 @@ import {
   PaperclipIcon,
   ListTreeIcon,
   MoreVerticalIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
   PanelLeftIcon,
   PanelRightIcon,
   PinIcon,
@@ -587,9 +589,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const assetFiles = useStore((s) => s.assetFiles)
   const databases = useStore((s) => s.databases)
-  const editorMaxWidth = useStore((s) => s.editorMaxWidth)
-  const contentAlign = useStore((s) => s.contentAlign)
   const propertiesWidth = useStore((s) => s.panelWidths.properties)
+  const previewMaxWidth = useStore((s) => s.previewMaxWidth)
+  const editorMaxWidth = useStore((s) => s.editorMaxWidth)
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const refreshAssets = useStore((s) => s.refreshAssets)
@@ -598,6 +600,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
   const closeTabInPane = useStore((s) => s.closeTabInPane)
+  const jumpToPreviousNote = useStore((s) => s.jumpToPreviousNote)
+  const jumpToNextNote = useStore((s) => s.jumpToNextNote)
+  const canGoBack = useStore((s) => s.noteBackstack.length > 0)
+  const canGoForward = useStore((s) => s.noteForwardstack.length > 0)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const navVimMode = useStore((s) => s.vimMode)
   const reorderTabInPane = useStore((s) => s.reorderTabInPane)
   const movePaneTab = useStore((s) => s.movePaneTab)
   const splitPaneWithTab = useStore((s) => s.splitPaneWithTab)
@@ -644,6 +652,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
   const mode = paneModeForPath(modesByPath, activeTab)
+  const activeContentMaxWidth = mode === 'preview' ? previewMaxWidth : editorMaxWidth
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
@@ -2630,8 +2639,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isAsset: boolean
       isDiagram: boolean
       isAssetsView: boolean
-    },
-    isFirst = false) => {
+    }) => {
       const active = tab.path === activeTab
       const isVirtual =
         tab.isQuick ||
@@ -2728,9 +2736,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               // accent ring is for keyboard focus only. Tabs fill the full
               // bar height (no top gap).
               'group relative flex h-full min-h-8 min-w-0 items-center gap-1.5 border-r border-paper-300/60 px-2 text-sm transition-colors',
-              // The first tab also needs a divider on its left edge (other
-              // tabs inherit theirs from the previous tab's right divider).
-              isFirst ? 'border-l border-paper-300/60' : '',
+              // The first tab's left edge is the fixed divider that lives in
+              // the non-scrolling nav frame (so it survives tab scrolling),
+              // not a border on the tab itself.
               tab.pinned ? 'max-w-[150px]' : 'max-w-[230px]',
               active && isActive
                 ? focusedPanel === 'tabs'
@@ -2958,25 +2966,30 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const showEditor = !!content && mode !== 'preview'
   const showPreview = !!content && mode !== 'edit'
   const splitMode = mode === 'split'
-  // The Properties card floats *inside* the content area, centered in the right
-  // reading gutter — the writing column stays full width, so its scrollbar is at
-  // the far right, past the card. The card is shown only while that gutter is
-  // wide enough to hold it with breathing room; when the window shrinks or a
-  // docked right panel (Connections / Comments / …) narrows the column past that
-  // point, the gutter falls below the threshold and the card hides on its own.
-  const PROPERTIES_MIN_SIDE_GAP = 16
+  // Codex-style Properties card. The editor/preview scrollers stay full width;
+  // the card floats absolutely on the right. As the side gutter changes we hide,
+  // shift, or leave the content in place, but never shrink its reading width.
+  const PROPERTIES_EDGE_GAP = 16
+  const PROPERTIES_OVERLAY_GUTTER = 180
+  const PROPERTIES_SHIFT_GUTTER = 400
   const propertiesLayout = useMemo(() => {
-    const W = writingColumnWidth
-    if (splitMode || W <= 0) return { visible: false, left: 0 }
-    const contentWidth = Math.min(editorMaxWidth, W)
-    const contentRight = contentAlign === 'left' ? contentWidth : (W + contentWidth) / 2
-    const rightGutter = W - contentRight
-    const visible = rightGutter >= propertiesWidth + PROPERTIES_MIN_SIDE_GAP * 2
-    const left = contentRight + (rightGutter - propertiesWidth) / 2
-    return { visible, left }
-  }, [writingColumnWidth, editorMaxWidth, contentAlign, propertiesWidth, splitMode])
+    if (splitMode || writingColumnWidth <= 0) {
+      return { visible: false, contentShift: 0, right: PROPERTIES_EDGE_GAP }
+    }
+
+    const contentWidth = Math.min(activeContentMaxWidth, writingColumnWidth)
+    const sideGutter = Math.max(0, (writingColumnWidth - contentWidth) / 2)
+    if (sideGutter < PROPERTIES_OVERLAY_GUTTER) {
+      return { visible: false, contentShift: 0, right: PROPERTIES_EDGE_GAP }
+    }
+
+    const contentShift =
+      sideGutter < PROPERTIES_SHIFT_GUTTER ? -(propertiesWidth + PROPERTIES_EDGE_GAP) / 2 : 0
+    return { visible: true, contentShift, right: PROPERTIES_EDGE_GAP }
+  }, [activeContentMaxWidth, writingColumnWidth, propertiesWidth, splitMode])
   const showPropertiesPanel =
     !!content && noteHasProperties && !zenMode && propertiesLayout.visible
+  const propertiesShift = showPropertiesPanel ? propertiesLayout.contentShift : 0
   const hasTabs = !zenMode && tabsEnabled && tabs.length > 0
   const tabStripMeasureKey = useMemo(
     () =>
@@ -3018,8 +3031,43 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
   }, [hasTabs, wrapTabs, tabStripMeasureKey])
 
+  // Keep the active tab scrolled into view inside the horizontally
+  // scrollable strip. Switching tabs via the sidebar, command palette, or
+  // keyboard can otherwise leave the new active tab off-screen when many
+  // tabs are open. This is always on — independent of the sidebar
+  // auto-reveal preference — because every editor keeps its current tab
+  // visible. No-op in wrap mode (no horizontal scroll) and when the strip
+  // already fits. Adjusting scrollLeft directly avoids the vertical page
+  // jump that element.scrollIntoView() can cause.
+  useEffect(() => {
+    if (!hasTabs || wrapTabs || !activeTab) return
+    const container = tabStripRef.current
+    if (!container) return
+    const raf = requestAnimationFrame(() => {
+      const el = container.querySelector<HTMLElement>('[data-tab-active="true"]')
+      if (!el) return
+      const cRect = container.getBoundingClientRect()
+      const eRect = el.getBoundingClientRect()
+      const pad = 12
+      if (eRect.left < cRect.left) {
+        container.scrollLeft -= cRect.left - eRect.left + pad
+      } else if (eRect.right > cRect.right) {
+        container.scrollLeft += eRect.right - cRect.right + pad
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [activeTab, hasTabs, wrapTabs, tabStripMeasureKey])
+
+  // The strip is split into a non-scrolling frame (nav arrows + separator)
+  // and the scrollable tab area. The arrows must live outside the scroll
+  // container so they stay pinned while tabs scroll, and so their hover
+  // tooltips aren't clipped by the scroll container's overflow.
+  const tabStripFrameClass = [
+    'glass-header flex shrink-0 items-stretch border-b border-paper-300/70 pl-2',
+    wrapTabs ? 'min-h-10' : 'h-10'
+  ].join(' ')
   const tabStripClass = [
-    'workspace-tab-strip glass-header flex shrink-0 items-stretch gap-0 border-b border-paper-300/70 px-3',
+    'workspace-tab-strip flex min-w-0 flex-1 items-stretch gap-0 pr-3',
     wrapTabs
       ? 'min-h-10 flex-wrap content-start overflow-x-hidden overflow-y-visible'
       : `h-10 ${tabStripOverflowing ? 'overflow-x-auto' : 'overflow-x-hidden'} overflow-y-hidden`
@@ -3211,12 +3259,33 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }}
     >
       {hasTabs && (
-        <div
-          ref={tabStripRef}
-          className={tabStripClass}
-          onDragOver={handleTabStripDragOver}
-          onDrop={handleTabStripDrop}
-        >
+        <div className={tabStripFrameClass}>
+          <div className="flex h-10 shrink-0 items-center gap-0.5 self-start">
+            <IconBtn
+              title={`${tr('Go Back')} (${getKeymapDisplay(keymapOverrides, navVimMode ? 'vim.historyBack' : 'global.historyBack')})`}
+              onClick={() => void jumpToPreviousNote()}
+              disabled={!canGoBack}
+            >
+              <ArrowLeftIcon width={16} height={16} />
+            </IconBtn>
+            <IconBtn
+              title={`${tr('Go Forward')} (${getKeymapDisplay(keymapOverrides, navVimMode ? 'vim.historyForward' : 'global.historyForward')})`}
+              onClick={() => void jumpToNextNote()}
+              disabled={!canGoForward}
+            >
+              <ArrowRightIcon width={16} height={16} />
+            </IconBtn>
+            {/* Fixed boundary between the nav arrows and the tab list. It lives
+                in the non-scrolling frame and matches the inter-tab dividers,
+                so it stays put when the tab list overflows and scrolls. */}
+            <div aria-hidden className="ml-1.5 h-full border-l border-paper-300/60" />
+          </div>
+          <div
+            ref={tabStripRef}
+            className={tabStripClass}
+            onDragOver={handleTabStripDragOver}
+            onDrop={handleTabStripDrop}
+          >
           {tabItems.map((tab, i) => {
             // Draw a subtle vertical separator between the last pinned
             // tab and the first unpinned one (VSCode convention). The
@@ -3232,10 +3301,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     className="mx-0.5 h-5 shrink-0 self-center border-l border-paper-300/70"
                   />
                 )}
-                {renderTab(tab, i === 0)}
+                {renderTab(tab)}
               </Fragment>
             )
           })}
+          </div>
         </div>
       )}
       {content && !zenMode && (
@@ -3311,12 +3381,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
             <div
               ref={setWritingColumnRef}
+              // The Properties card floats over the right side; on medium widths
+              // the content shifts left like Codex instead of losing width.
+              data-properties-open={showPropertiesPanel || undefined}
+              style={
+                { '--z-properties-shift': `${propertiesShift}px` } as React.CSSProperties
+              }
               className={[
-                // The writing column fills the area and centers its own content
-                // (max-width + auto margins). The Properties card is an absolute
-                // overlay positioned in the right centering gutter (see
-                // propertiesLayout), so the column keeps its full width and the
-                // editor's scrollbar stays at the far right, past the card.
                 'relative min-h-0 min-w-0 flex flex-1',
                 splitMode ? 'flex-row' : 'flex-col'
               ].join(' ')}
@@ -3396,7 +3467,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 </div>
               )}
               {showPropertiesPanel && (
-                <PropertiesPanel note={content} left={propertiesLayout.left} />
+                <PropertiesPanel note={content} right={propertiesLayout.right} />
               )}
             </div>
             </div>
@@ -3733,24 +3804,29 @@ function IconBtn({
   children,
   onClick,
   title,
-  active = false
+  active = false,
+  disabled = false
 }: {
   children: JSX.Element
   onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
   title: string
   active?: boolean
+  disabled?: boolean
 }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={title}
       aria-pressed={active}
       className={[
         'group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors',
-        active
-          ? 'bg-paper-200 text-ink-900'
-          : 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
+        disabled
+          ? 'cursor-default text-ink-300'
+          : active
+            ? 'bg-paper-200 text-ink-900'
+            : 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
       ].join(' ')}
     >
       <span className="pointer-events-none">{children}</span>

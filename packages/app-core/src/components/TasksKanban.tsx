@@ -33,6 +33,7 @@ import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/
 import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { formatDate } from '../lib/format-date'
 
 interface Props {
   tasks: VaultTask[]
@@ -858,8 +859,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
         </div>
         <div className="text-xs text-current/40">
           {dndEnabled
-            ? 'Drag cards to move · h/l column · j/k card · Space toggle · Enter open'
-            : 'h/l column · j/k card · Space toggle · Enter open'}
+            ? t('Drag cards to move · h/l column · j/k card · Space toggle · Enter open')
+            : t('h/l column · j/k card · Space toggle · Enter open')}
         </div>
       </div>
 
@@ -1027,11 +1028,9 @@ interface CardProps {
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
 }
 
-function formatDue(iso: string | undefined): string {
+function formatDue(iso: string | undefined, language?: string): string {
   if (!iso) return ''
-  const d = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatDate(iso, language, { year: 'never' })
 }
 
 function TaskCard({
@@ -1049,6 +1048,7 @@ function TaskCard({
   onPointerDown
 }: CardProps): JSX.Element {
   const t = useT()
+  const language = useStore((s) => s.language)
   return (
     <div
       ref={cardRef ?? undefined}
@@ -1126,7 +1126,7 @@ function TaskCard({
             task.checked ? 'text-current/50 line-through' : 'text-current/90'
           ].join(' ')}
         >
-          {task.content ? <InlineMarkdown text={task.content} /> : '(empty task)'}
+          {task.content ? <InlineMarkdown text={task.content} /> : t('(empty task)')}
         </div>
         <button
           type="button"
@@ -1173,7 +1173,7 @@ function TaskCard({
                 : 'bg-paper-300/60 text-current/70'
             ].join(' ')}
           >
-            {formatDue(task.due)}
+            {formatDue(task.due, language)}
           </span>
         )}
         {task.waiting && (

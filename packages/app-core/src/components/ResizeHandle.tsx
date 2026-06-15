@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react'
+import { useT } from '../lib/i18n'
 
 /**
  * Thin vertical grabber along the right edge of a panel. Reports new
@@ -15,6 +16,7 @@ export function ResizeHandle({
   getWidth: () => number
   onResize: (nextWidth: number) => void
 }): JSX.Element {
+  const t = useT()
   const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   const onMouseMove = useCallback(
@@ -51,7 +53,7 @@ export function ResizeHandle({
     <div
       onMouseDown={onMouseDown}
       onDoubleClick={() => onResize(0)}
-      title="Drag to resize"
+      title={t('Drag to resize')}
       className="group absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize select-none"
     >
       <div className="h-full w-full opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-active:opacity-100" style={{ background: 'rgb(var(--z-accent) / 0.5)' }} />

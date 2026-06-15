@@ -144,13 +144,13 @@ export function OutlinePalette(): JSX.Element {
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> {t('move')}
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↵</kbd> jump
+            <kbd className="rounded bg-paper-200 px-1">↵</kbd> {t('jump')}
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
+            <kbd className="rounded bg-paper-200 px-1">esc</kbd> {t('close')}
           </span>
         </div>
     </Modal>

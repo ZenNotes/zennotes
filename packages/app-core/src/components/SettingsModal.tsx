@@ -379,6 +379,8 @@ export function SettingsModal(): JSX.Element {
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons)
   const sidebarHideTasks = useStore((s) => s.sidebarHideTasks)
   const setSidebarHideTasks = useStore((s) => s.setSidebarHideTasks)
+  const autoReveal = useStore((s) => s.autoReveal)
+  const setAutoReveal = useStore((s) => s.setAutoReveal)
   const appUpdateState = useAppUpdateState()
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: 'create' | 'edit'
@@ -434,7 +436,10 @@ export function SettingsModal(): JSX.Element {
       (state) => {
         if (state.phase === 'available') {
           window.alert(
-            `ZenNotes ${state.availableVersion ?? ''} is available. Use “Download Update” to fetch it.`
+            t('ZenNotes {version} is available. Use “Download Update” to fetch it.').replace(
+              '{version}',
+              state.availableVersion ?? ''
+            )
           )
           return
         }
@@ -448,7 +453,7 @@ export function SettingsModal(): JSX.Element {
       },
       (error) => {
         const message =
-          error instanceof Error ? error.message : 'Could not check for updates.'
+          error instanceof Error ? error.message : t('Could not check for updates.')
         window.alert(message)
       }
     )
@@ -801,6 +806,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['tasks', 'hide', 'remove']
         },
         {
+          id: 'auto-reveal',
+          title: 'Auto-reveal active note',
+          description: 'Follow the active tab in the sidebar — expand its folders and scroll it into view.',
+          keywords: ['reveal', 'follow', 'active', 'locate', 'tab', 'sync', 'scroll']
+        },
+        {
           id: 'inbox-label',
           title: 'Inbox label',
           description: 'Shown in the sidebar, breadcrumbs, commands, and note actions.',
@@ -857,6 +868,13 @@ export function SettingsModal(): JSX.Element {
               value={sidebarHideTasks}
               settingId="hide-tasks"
               onChange={setSidebarHideTasks}
+            />
+            <ToggleRow
+              label={t('Auto-reveal active note')}
+              description={t('Follow the active tab in the sidebar — expand its folders and scroll it into view.')}
+              value={autoReveal}
+              settingId="auto-reveal"
+              onChange={setAutoReveal}
             />
           </Section>
 
@@ -3096,10 +3114,10 @@ function TemplateSelectRow({
         onChange={(e) => onChange(e.target.value ? e.target.value : undefined)}
         className="w-[23rem] max-w-[50vw] rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none focus:border-accent/45"
       >
-        <option value="">None (blank note)</option>
+        <option value="">{tr('None (blank note)')}</option>
         {missing && (
           <option value="__missing__" disabled>
-            [Missing template]
+            {tr('[Missing template]')}
           </option>
         )}
         {templates.map((template) => (
@@ -3127,6 +3145,7 @@ function FontRow({
   settingId?: string
   onChange: (next: string | null) => void
 }): JSX.Element {
+  const tr = useT()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
@@ -3291,7 +3310,7 @@ function FontRow({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKey}
-                placeholder="Search fonts…"
+                placeholder={tr('Search fonts…')}
                 className="w-full rounded-lg bg-paper-200 px-2.5 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400"
               />
             </div>
@@ -4291,7 +4310,7 @@ function McpInstructionsEditor(): JSX.Element {
       <div className="space-y-3 px-5 py-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-ink-500">
-            <span>Prompt</span>
+            <span>{t('Prompt')}</span>
             {payload?.isCustom ? (
               <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium tracking-[0.14em] text-accent">
                 {t('Custom')}

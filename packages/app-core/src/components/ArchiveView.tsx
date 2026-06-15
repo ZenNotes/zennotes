@@ -2,23 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SoftDeletedEntry } from '@shared/ipc'
 import { isArchiveViewActive, useStore } from '../store'
 import { useT } from '../lib/i18n';
+import { formatDate } from '../lib/format-date'
 import { ArchiveIcon, ArrowUpRightIcon, DatabaseIcon, DocumentTextIcon, PaperclipIcon, TrashIcon } from './icons'
 import { FolderGlyphIcon } from './FolderIcons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { confirmApp } from '../lib/confirm-requests'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
-
-function formatDate(ms: number): string {
-  const d = new Date(ms)
-  const now = new Date()
-  const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: sameYear ? undefined : 'numeric'
-  })
-}
 
 function cssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -27,6 +17,7 @@ function cssEscape(value: string): string {
 
 export function ArchiveView(): JSX.Element {
   const t = useT();
+  const language = useStore((s) => s.language)
   const softDeletedEntries = useStore((s) => s.softDeleted)
   const restoreSoftDeleted = useStore((s) => s.restoreSoftDeleted)
   const purgeSoftDeleted = useStore((s) => s.purgeSoftDeleted)
@@ -291,7 +282,7 @@ export function ArchiveView(): JSX.Element {
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
                         <span className="truncate text-sm font-medium text-ink-900">{entry.title}</span>
                         <span className="text-xs uppercase tracking-[0.16em] text-ink-500">
-                          {kindLabel(entry.kind)} · {formatDate(entry.deletedAt)}
+                          {kindLabel(entry.kind)} · {formatDate(entry.deletedAt, language)}
                         </span>
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ink-500">{entry.originalRel}</div>

@@ -1,5 +1,7 @@
 import type { VaultTask } from '@shared/tasks'
+import { useStore } from '../store'
 import { useT } from '../lib/i18n';
+import { formatDate } from '../lib/format-date'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 
@@ -26,11 +28,9 @@ function priorityClass(p: VaultTask['priority']): string {
   return 'text-current/50'
 }
 
-function formatDue(iso: string | undefined): string {
+function formatDue(iso: string | undefined, language?: string): string {
   if (!iso) return ''
-  const d = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  return formatDate(iso, language, { year: 'never' })
 }
 
 export function TasksRow({
@@ -42,6 +42,7 @@ export function TasksRow({
   onFocusRow
 }: Props): JSX.Element {
   const t = useT()
+  const language = useStore((s) => s.language)
   return (
     <div
       data-task-row={task.id}
@@ -97,7 +98,7 @@ export function TasksRow({
             task.checked ? 'text-current/50 line-through' : 'text-current/90'
           ].join(' ')}
         >
-          {task.content ? <InlineMarkdown text={task.content} /> : '(empty task)'}
+          {task.content ? <InlineMarkdown text={task.content} /> : t('(empty task)')}
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-current/50">
           <span className="truncate">{task.noteTitle}</span>
@@ -123,14 +124,14 @@ export function TasksRow({
                 : 'bg-current/10 text-current/70'
             ].join(' ')}
           >
-            {formatDue(task.due)}
+            {formatDue(task.due, language)}
           </span>
         )}
         {isCursor && (
           // Inline key hints — only on the cursor row so the strip stays
           // quiet and acts as an in-line cheat sheet for the user.
           <div className="flex items-center gap-1 text-2xs text-current/60">
-            <KeyHint keyLabel="Space" label={task.checked ? 'uncheck' : 'check'} />
+            <KeyHint keyLabel="Space" label={task.checked ? t('uncheck') : t('check')} />
             <KeyHint keyLabel="⏎" label={t("open")} />
           </div>
         )}

@@ -7,6 +7,7 @@ import electronUpdater, {
   type UpdateInfo
 } from 'electron-updater'
 import { IPC, type AppUpdateState } from '@shared/ipc'
+import { t } from './i18n'
 
 const { autoUpdater } = electronUpdater
 const execFileAsync = promisify(execFile)
@@ -24,7 +25,7 @@ let notifiedDownloadedVersion: string | null = null
 let downloadedFilePath: string | null = null
 let updateState: AppUpdateState = makeState({
   phase: 'unsupported',
-  message: 'Updates are only available in packaged builds.'
+  message: t('Updates are only available in packaged builds.')
 })
 
 function makeState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
@@ -39,7 +40,7 @@ function makeState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
     transferredBytes: null,
     totalBytes: null,
     bytesPerSecond: null,
-    message: 'Check GitHub releases for a newer ZenNotes build.',
+    message: t('Check GitHub releases for a newer ZenNotes build.'),
     ...overrides
   }
 }
@@ -82,7 +83,7 @@ function nextStateFromInfo(
 function humanizeUpdateError(error: unknown): string {
   const base =
     error instanceof Error ? error.message.trim() : String(error).trim()
-  const message = base.length > 0 ? base : 'Unknown updater error.'
+  const message = base.length > 0 ? base : t('Unknown updater error.')
   if (/5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(message)) {
     return `${message} GitHub returned a temporary network or server error while checking for updates. Try again in a moment, or open the latest release directly.`
   }
@@ -146,7 +147,10 @@ function handleDownloadProgress(progress: ProgressInfo): void {
     nextStateFromInfo(
       'downloading',
       lastInfo,
-      `Downloading ZenNotes ${version}… ${Math.round(progress.percent)}%.`,
+      t('Downloading ZenNotes {version}… {percent}%.', {
+        version,
+        percent: Math.round(progress.percent)
+      }),
       {
         progressPercent: progress.percent,
         transferredBytes: progress.transferred,
@@ -161,6 +165,29 @@ export function getAppUpdateState(): AppUpdateState {
   return { ...updateState }
 }
 
+/**
+ * Re-translate the cached state's message after the UI language arrives or
+ * changes. Only the static, event-independent phases need this: their message
+ * is built once at startup (before the renderer reports the language). Dynamic
+ * phases (checking/available/downloading/downloaded) rebuild their message on
+ * the next updater event, which always happens after the language is known.
+ */
+export function relocalizeUpdaterState(): void {
+  if (updateState.phase === 'unsupported') {
+    setUpdateState({
+      ...updateState,
+      message: app.isPackaged
+        ? t('Updates are only available in packaged builds.')
+        : t('Update checks only work in packaged ZenNotes builds.')
+    })
+  } else if (updateState.phase === 'idle') {
+    setUpdateState({
+      ...updateState,
+      message: t('Check GitHub releases for a newer ZenNotes build.')
+    })
+  }
+}
+
 export function initAppUpdater(): void {
   if (initialized) return
   initialized = true
@@ -169,7 +196,7 @@ export function initAppUpdater(): void {
     setUpdateState(
       makeState({
         phase: 'unsupported',
-        message: 'Update checks only work in packaged ZenNotes builds.'
+        message: t('Update checks only work in packaged ZenNotes builds.')
       })
     )
     return
@@ -181,7 +208,7 @@ export function initAppUpdater(): void {
 
   updater.on('checking-for-update', () => {
     setUpdateState(
-      nextStateFromInfo('checking', lastInfo, 'Checking GitHub releases for updates…')
+      nextStateFromInfo('checking', lastInfo, t('Checking GitHub releases for updates…'))
     )
   })
   updater.on('update-available', (info) => {
@@ -190,14 +217,18 @@ export function initAppUpdater(): void {
       nextStateFromInfo(
         'available',
         info,
-        `ZenNotes ${info.version} is available. Download it from inside the app.`
+        t('ZenNotes {version} is available. Download it from inside the app.', {
+          version: info.version
+        })
       )
     )
     if (notifiedAvailableVersion !== info.version) {
       notifiedAvailableVersion = info.version
       showNativeUpdateNotification(
-        'ZenNotes Update Available',
-        `ZenNotes ${info.version} is available. Click to open Settings and download it.`
+        t('ZenNotes Update Available'),
+        t('ZenNotes {version} is available. Click to open Settings and download it.', {
+          version: info.version
+        })
       )
     }
   })
@@ -207,7 +238,7 @@ export function initAppUpdater(): void {
       nextStateFromInfo(
         'not-available',
         info,
-        `You're already on ZenNotes ${app.getVersion()}.`
+        t("You're already on ZenNotes {version}.", { version: app.getVersion() })
       )
     )
   })
@@ -226,14 +257,18 @@ export function initAppUpdater(): void {
       nextStateFromInfo(
         'downloaded',
         info,
-        `ZenNotes ${info.version} is ready. Restart to install the update.`
+        t('ZenNotes {version} is ready. Restart to install the update.', {
+          version: info.version
+        })
       )
     )
     if (notifiedDownloadedVersion !== info.version) {
       notifiedDownloadedVersion = info.version
       showNativeUpdateNotification(
-        'ZenNotes Update Ready',
-        `ZenNotes ${info.version} is downloaded and ready to install. Click to open Settings.`
+        t('ZenNotes Update Ready'),
+        t('ZenNotes {version} is downloaded and ready to install. Click to open Settings.', {
+          version: info.version
+        })
       )
     }
   })
@@ -252,7 +287,7 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
   if (updateState.phase === 'checking') return getAppUpdateState()
 
   setUpdateState(
-    nextStateFromInfo('checking', lastInfo, 'Checking GitHub releases for updates…')
+    nextStateFromInfo('checking', lastInfo, t('Checking GitHub releases for updates…'))
   )
 
   for (let attempt = 1; attempt <= UPDATE_CHECK_MAX_ATTEMPTS; attempt += 1) {
@@ -267,7 +302,10 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
           nextStateFromInfo(
             'checking',
             lastInfo,
-            `GitHub update check hit a temporary server error. Retrying (${attempt + 1}/${UPDATE_CHECK_MAX_ATTEMPTS})…`
+            t('GitHub update check hit a temporary server error. Retrying ({attempt}/{total})…', {
+              attempt: attempt + 1,
+              total: UPDATE_CHECK_MAX_ATTEMPTS
+            })
           )
         )
         await sleep(UPDATE_CHECK_RETRY_DELAY_MS)
@@ -303,7 +341,7 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
     nextStateFromInfo(
       'downloading',
       lastInfo,
-      `Downloading ZenNotes ${updateState.availableVersion ?? ''}…`,
+      t('Downloading ZenNotes {version}…', { version: updateState.availableVersion ?? '' }),
       {
         progressPercent: 0,
         transferredBytes: 0,
@@ -409,7 +447,9 @@ async function installLinuxPackageUpdate(file: string): Promise<void> {
     nextStateFromInfo(
       'downloaded',
       lastInfo,
-      `Installing ZenNotes ${lastInfo?.version ?? ''}… approve the administrator prompt to finish.`
+      t('Installing ZenNotes {version}… approve the administrator prompt to finish.', {
+        version: lastInfo?.version ?? ''
+      })
     )
   )
 
@@ -454,7 +494,7 @@ function handleLinuxInstallFailure(
       nextStateFromInfo(
         'downloaded',
         lastInfo,
-        'Update install was canceled. Click “Install and Relaunch” to try again.'
+        t('Update install was canceled. Click “Install and Relaunch” to try again.')
       )
     )
     return

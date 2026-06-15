@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTagsViewActive, useStore } from '../store'
 import { useT } from '../lib/i18n';
+import { formatDate } from '../lib/format-date'
 import type { NoteMeta } from '@shared/ipc'
 import { extractTags } from '../lib/tags'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
-
-function formatDate(ms: number): string {
-  const d = new Date(ms)
-  const now = new Date()
-  const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: sameYear ? undefined : 'numeric'
-  })
-}
 
 function folderLabel(note: NoteMeta): string {
   const vaultSettings = useStore.getState().vaultSettings
@@ -29,6 +19,7 @@ function folderLabel(note: NoteMeta): string {
 
 export function TagView(): JSX.Element {
   const tr = useT();
+  const language = useStore((s) => s.language)
   const notes = useStore((s) => s.notes)
   const activeNote = useStore((s) => s.activeNote)
   const selectedTags = useStore((s) => s.selectedTags)
@@ -412,7 +403,7 @@ export function TagView(): JSX.Element {
                   )}
                 </div>
                 <span className="shrink-0 text-xs text-current/40">
-                  {formatDate(note.updatedAt)}
+                  {formatDate(note.updatedAt, language)}
                 </span>
               </button>
             )

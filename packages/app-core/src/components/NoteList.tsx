@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { useT } from '../lib/i18n'
+import { formatDate } from '../lib/format-date'
 import type { AssetMeta, NoteMeta } from '@shared/ipc'
 import { isDatabaseCsvPath } from '@shared/databases'
 import {
@@ -27,17 +28,6 @@ import {
 } from '../lib/vault-layout'
 import { assetTabPath } from '../lib/asset-tabs'
 import { getScrollTopForVirtualIndex, getVirtualRange } from '../lib/virtual-list'
-
-function formatDate(ms: number): string {
-  const d = new Date(ms)
-  const now = new Date()
-  const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: sameYear ? undefined : 'numeric'
-  })
-}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -945,6 +935,7 @@ function NoteRow({
   noteListIdx?: number
   vimHighlight?: boolean
 }): JSX.Element {
+  const language = useStore((s) => s.language)
   return (
     <button
       onClick={onSelect}
@@ -978,7 +969,7 @@ function NoteRow({
     >
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>
-        <span className="shrink-0 text-xs text-ink-500">{formatDate(note.updatedAt)}</span>
+        <span className="shrink-0 text-xs text-ink-500">{formatDate(note.updatedAt, language)}</span>
       </div>
       <span className="line-clamp-2 text-xs text-ink-500">
         {note.excerpt || 'Empty note'}

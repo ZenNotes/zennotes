@@ -172,6 +172,20 @@ export const ChevronLeftIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+export const ArrowLeftIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M19 12H5" />
+    <path d="m12 19-7-7 7-7" />
+  </I>
+)
+
+export const ArrowRightIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </I>
+)
+
 export const CalendarIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="5" width="18" height="16" rx="2" />

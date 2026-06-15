@@ -169,6 +169,8 @@ const api: ZenBridge = {
   zoomInApp: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_IN),
   zoomOutApp: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_OUT),
   resetAppZoom: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_RESET),
+  setAppLanguage: (language: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.APP_SET_LANGUAGE, language),
   getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
   checkForAppUpdates: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
   checkForAppUpdatesWithUi: (): Promise<void> =>

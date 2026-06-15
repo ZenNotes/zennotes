@@ -129,13 +129,13 @@ export function SearchPalette(): JSX.Element {
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
             <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd>{' '}
-            <kbd className="rounded bg-paper-200 px-1">Ctrl+J/K</kbd> move
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+J/K</kbd> {t('move')}
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↵</kbd> open
+            <kbd className="rounded bg-paper-200 px-1">↵</kbd> {t('open')}
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
+            <kbd className="rounded bg-paper-200 px-1">esc</kbd> {t('close')}
           </span>
         </div>
     </Modal>

@@ -83,6 +83,9 @@ export const IPC = {
   VAULT_LIST_SOFT_DELETED: 'vault:list-soft-deleted',
   APP_LIST_FONTS: 'app:list-fonts',
   APP_ICON_DATA_URL: 'app:icon-data-url',
+  // Renderer pushes the chosen UI language so the main process can localize
+  // native dialogs/notifications (e.g. the updater) it shows directly.
+  APP_SET_LANGUAGE: 'app:set-language',
   APP_OPEN_SETTINGS: 'app:open-settings',
   APP_OPEN_NOTE_REQUESTED: 'app:open-note-requested',
   // Sent from the macOS Edit-menu Copy/Paste items so the renderer can

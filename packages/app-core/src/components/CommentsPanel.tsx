@@ -10,6 +10,7 @@ import {
 import type { NoteComment, NoteContent } from '@shared/ipc'
 import { useStore } from '../store'
 import { useT } from '../lib/i18n'
+import { formatDateTime } from '../lib/format-date'
 import { commentQuote } from '../lib/comments'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
@@ -37,12 +38,6 @@ interface Props {
   onJump: (comment: NoteComment) => void
 }
 
-const dateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: 'short',
-  day: 'numeric',
-  hour: 'numeric',
-  minute: '2-digit'
-})
 const EMPTY_COMMENTS: NoteComment[] = []
 
 function cssEscape(value: string): string {
@@ -199,7 +194,7 @@ export function CommentsPanel({
               {t("Comments")}
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs text-ink-500">
-              <Pill>{unresolved.length} {t("open")}</Pill>
+              <Pill>{unresolved.length} {t("unresolved")}</Pill>
               <Pill>{resolved.length} {t("resolved")}</Pill>
             </div>
           </div>
@@ -386,6 +381,7 @@ function CommentCard({
   onDelete: () => void
 }): JSX.Element {
   const t = useT()
+  const language = useStore((s) => s.language)
   const resolved = comment.resolvedAt != null
   const showActionShortcuts = active && commentsFocused && !editing
   const handleCardClick = (event: MouseEvent<HTMLElement>): void => {
@@ -418,7 +414,7 @@ function CommentCard({
           <div className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-semibold text-ink-900">{t("You")}</span>
             <span className="shrink-0 text-xs text-ink-400">
-              {dateFormatter.format(new Date(comment.updatedAt))}
+              {formatDateTime(comment.updatedAt, language)}
             </span>
           </div>
 

@@ -25,12 +25,15 @@ import type { VaultTask } from '@shared/tasks'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
 import {
+  csvPathForFormDir,
   databaseTabPath,
+  FORM_PAGES_DIR,
   isDatabaseInternalPath,
   isDatabaseTabPath,
   isDatabaseCsvPath,
   formDirFromCsvPath,
-  formTitleFromCsvPath
+  formTitleFromCsvPath,
+  isFormDirName
 } from '@shared/databases'
 import { parseFrontmatter } from '@shared/template-files'
 import { recordTitle } from './lib/database-cells'
@@ -474,7 +477,7 @@ const DEFAULT_PREFS: Prefs = {
   noteListWidth: 300,
   noteSortOrder: 'none',
   groupByKind: true,
-  autoReveal: false,
+  autoReveal: true,
   unifiedSidebar: true,
   darkSidebar: true,
   showSidebarChevrons: true,
@@ -2244,12 +2247,14 @@ async function ensureWebServerSession(
   const session = await window.zen.getServerSession()
   if (session.authenticated) return true
 
+  const tr = (s: string): string => translate(useStore.getState().language, s)
   const token = await promptApp({
-    title: 'Server Auth Token',
-    description:
-      'This ZenNotes server requires its auth token before notes can be accessed in the browser.',
-    placeholder: 'Enter the server auth token',
-    okLabel: 'Sign In'
+    title: tr('Server Auth Token'),
+    description: tr(
+      'This ZenNotes server requires its auth token before notes can be accessed in the browser.'
+    ),
+    placeholder: tr('Enter the server auth token'),
+    okLabel: tr('Sign In')
   })
   if (!token?.trim()) return false
 
@@ -2384,12 +2389,39 @@ function clearNoteContentReadCaches(): void {
   prefetchedNotePaths.length = 0
 }
 
-function readNoteContent(relPath: string, state: Store): Promise<NoteContent> {
+function recordPageDatabaseCsvPath(relPath: string): string | null {
+  const path = relPath.replace(/\\/g, '/').replace(/^\/+/, '')
+  const pagesMarker = `/${FORM_PAGES_DIR}/`
+  const pagesIndex = path.lastIndexOf(pagesMarker)
+  if (pagesIndex < 0) return null
+  const formDir = path.slice(0, pagesIndex)
+  return isFormDirName(formDir) ? csvPathForFormDir(formDir) : null
+}
+
+async function loadRecordPageDatabase(relPath: string): Promise<void> {
+  const csvPath = recordPageDatabaseCsvPath(relPath)
+  if (!csvPath) return
+  const state = useStore.getState()
+  if (state.databases[csvPath] || state.databasesLoading[csvPath]) return
+  await state.loadDatabase(csvPath)
+}
+
+function readNoteContent(
+  relPath: string,
+  state: Store,
+  opts?: { loadRecordPageDatabase?: boolean }
+): Promise<NoteContent> {
   const cacheKey = noteReadCacheKey(state, relPath)
   const pending = noteReadPromises.get(cacheKey)
   if (pending) return pending
 
-  const next = window.zen.readNote(relPath).finally(() => {
+  const next = (async () => {
+    const databaseLoad =
+      opts?.loadRecordPageDatabase === false ? Promise.resolve() : loadRecordPageDatabase(relPath)
+    const note = await window.zen.readNote(relPath)
+    await databaseLoad
+    return note
+  })().finally(() => {
     noteReadPromises.delete(cacheKey)
   })
   noteReadPromises.set(cacheKey, next)
@@ -2544,6 +2576,7 @@ export const useStore = create<Store>((set, get) => {
       state.noteContents[relPath] &&
       !state.loadingNote
     ) {
+      await loadRecordPageDatabase(relPath)
       if (!activeLeaf.tabs.includes(relPath)) {
         const layout =
           updateLeaf(state.paneLayout, activeLeaf.id, (l) => addTabToLeaf(l, relPath)) ??
@@ -2568,6 +2601,7 @@ export const useStore = create<Store>((set, get) => {
     }
 
     if (state.noteContents[relPath]) {
+      await loadRecordPageDatabase(relPath)
       const nextLayout =
         updateLeaf(state.paneLayout, activeLeaf.id, (l) => addTabToLeaf(l, relPath)) ??
         state.paneLayout
@@ -2616,9 +2650,11 @@ export const useStore = create<Store>((set, get) => {
     const nextForwardstack = shouldPushHistory ? [] : latest.noteForwardstack
 
     set({ loadingNote: true })
+    const databaseLoad = loadRecordPageDatabase(relPath)
     try {
       const readScopeKey = noteReadCacheKey(latest, relPath)
-      const content = await readNoteContent(relPath, latest)
+      const content = await readNoteContent(relPath, latest, { loadRecordPageDatabase: false })
+      await databaseLoad
       const s = get()
       if (noteReadCacheKey(s, relPath) !== readScopeKey) {
         set({ loadingNote: false })
@@ -2696,7 +2732,9 @@ export const useStore = create<Store>((set, get) => {
         return
       }
       try {
-        const content = await readNoteContent(target.path, get())
+        const databaseLoad = loadRecordPageDatabase(target.path)
+        const content = await readNoteContent(target.path, get(), { loadRecordPageDatabase: false })
+        await databaseLoad
         const latest = get()
         const leaf = findLeaf(latest.paneLayout, latest.activePaneId)
         if (!leaf) continue
@@ -3159,7 +3197,7 @@ export const useStore = create<Store>((set, get) => {
     } else if (typeof window.zen.deleteDatabase === 'function') {
       await window.zen.deleteDatabase(csvPath)
     } else {
-      window.alert('Base deletion is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Base deletion is not available until the app is restarted.'))
       return
     }
     set((s) => databaseRemovalPatch(s, csvPath))
@@ -3168,7 +3206,7 @@ export const useStore = create<Store>((set, get) => {
 
   archiveDatabase: async (csvPath) => {
     if (typeof window.zen.moveDatabaseTo !== 'function') {
-      window.alert('Archiving forms is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Archiving forms is not available until the app is restarted.'))
       return
     }
     await window.zen.moveDatabaseTo(csvPath, 'archive')
@@ -3190,7 +3228,7 @@ export const useStore = create<Store>((set, get) => {
 
   renameDatabase: async (csvPath, nextName) => {
     if (typeof window.zen.renameDatabase !== 'function') {
-      window.alert('Base rename is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Base rename is not available until the app is restarted.'))
       return
     }
     const newCsvPath = await window.zen.renameDatabase(csvPath, nextName)
@@ -3560,7 +3598,7 @@ export const useStore = create<Store>((set, get) => {
 
     const reads = candidates.map((path) => {
       const readScopeKey = noteReadCacheKey(state, path)
-      return readNoteContent(path, state).then(
+      return readNoteContent(path, state, { loadRecordPageDatabase: false }).then(
         (content) => ({ path, readScopeKey, content }),
         () => null
       )
@@ -3745,7 +3783,7 @@ export const useStore = create<Store>((set, get) => {
 
   deleteAsset: async (relPath) => {
     if (typeof window.zen.deleteAsset !== 'function') {
-      window.alert('Asset deletion is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Asset deletion is not available until the app is restarted.'))
       return
     }
     try {
@@ -3768,7 +3806,7 @@ export const useStore = create<Store>((set, get) => {
     const entry = get().assetUndoStack.at(-1)
     if (!entry) return false
     if (typeof window.zen.restoreSoftDeleted !== 'function') {
-      window.alert('Asset undo is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Asset undo is not available until the app is restarted.'))
       return false
     }
 
@@ -4298,7 +4336,9 @@ export const useStore = create<Store>((set, get) => {
       preparedExportWindow?.close()
       console.error('exportNotePdf failed', err)
       window.alert(
-        err instanceof Error ? err.message : 'Could not export the note as a PDF.'
+        err instanceof Error
+          ? err.message
+          : translate(get().language, 'Could not export the note as a PDF.')
       )
     }
   },
@@ -4845,10 +4885,10 @@ export const useStore = create<Store>((set, get) => {
       }
       if (!title) {
         const entered = await promptApp({
-          title: 'New note from template',
+          title: translate(get().language, 'New note from template'),
           description: template.name,
           initialValue: template.name,
-          okLabel: 'Create'
+          okLabel: translate(get().language, 'Create')
         })
         if (entered == null) return // cancelled
         title = entered.trim()
@@ -4875,10 +4915,13 @@ export const useStore = create<Store>((set, get) => {
     const active = get().activeNote
     if (!active) return
     const name = await promptApp({
-      title: 'Save note as template',
-      description: 'Saved to .zennotes/templates and shown in the template picker.',
+      title: translate(get().language, 'Save note as template'),
+      description: translate(
+        get().language,
+        'Saved to .zennotes/templates and shown in the template picker.'
+      ),
       initialValue: active.title,
-      okLabel: 'Save'
+      okLabel: translate(get().language, 'Save')
     })
     if (name == null) return
     const trimmed = name.trim()
@@ -5087,11 +5130,15 @@ export const useStore = create<Store>((set, get) => {
       return
     }
 
+    if (s.noteContents[path]) await loadRecordPageDatabase(path)
+
     const needContent = !s.noteContents[path]
     if (needContent) {
       set({ loadingNote: paneId === s.activePaneId })
+      const databaseLoad = loadRecordPageDatabase(path)
       try {
-        const content = await readNoteContent(path, s)
+        const content = await readNoteContent(path, s, { loadRecordPageDatabase: false })
+        await databaseLoad
         set((cur) => {
           const contents = { ...cur.noteContents, [path]: content }
           const dirty = { ...cur.noteDirty, [path]: false }
@@ -5144,9 +5191,12 @@ export const useStore = create<Store>((set, get) => {
       })
       return
     }
+    if (s.noteContents[path]) await loadRecordPageDatabase(path)
     if (!s.noteContents[path]) {
+      const databaseLoad = loadRecordPageDatabase(path)
       try {
-        const content = await readNoteContent(path, s)
+        const content = await readNoteContent(path, s, { loadRecordPageDatabase: false })
+        await databaseLoad
         set((cur) => {
           const contents = { ...cur.noteContents, [path]: content }
           const dirty = { ...cur.noteDirty, [path]: false }
@@ -5506,7 +5556,7 @@ export const useStore = create<Store>((set, get) => {
 
   archiveFolder: async (folder, subpath) => {
     if (typeof window.zen.moveFolderTo !== 'function') {
-      window.alert('Archiving folders is not available until the app is restarted.')
+      window.alert(translate(get().language, 'Archiving folders is not available until the app is restarted.'))
       return
     }
     await window.zen.moveFolderTo(folder, subpath, 'archive')
@@ -5964,16 +6014,18 @@ export const useStore = create<Store>((set, get) => {
         detail: profile.vaultPath ?? undefined
       }))
       const baseUrl = await promptApp({
-        title: 'Connect to ZenNotes Server',
-        description:
-          'Enter the base URL for the ZenNotes server, for example `http://localhost:7878` or `https://notes.example.com`.',
+        title: translate(get().language, 'Connect to ZenNotes Server'),
+        description: translate(
+          get().language,
+          'Enter the base URL for the ZenNotes server, for example `http://localhost:7878` or `https://notes.example.com`.'
+        ),
         initialValue: currentRemote?.baseUrl ?? 'http://localhost:7878',
         placeholder: 'http://localhost:7878',
-        okLabel: 'Next',
+        okLabel: translate(get().language, 'Next'),
         suggestions: profileSuggestions,
         suggestionsHint:
           profileSuggestions.length > 0
-            ? 'Saved remote workspaces are suggested here.'
+            ? translate(get().language, 'Saved remote workspaces are suggested here.')
             : undefined,
         validate: (value) => {
           try {
@@ -5994,13 +6046,18 @@ export const useStore = create<Store>((set, get) => {
         ) ?? null
 
       const authToken = await promptApp({
-        title: 'Server Auth Token',
-        description:
-          matchingBaseProfile?.hasCredential
-            ? 'If this server needs a different token than the one already stored for the saved remote, enter it here. Otherwise leave this blank.'
-            : 'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.',
-        placeholder: 'Optional',
-        okLabel: 'Connect',
+        title: translate(get().language, 'Server Auth Token'),
+        description: matchingBaseProfile?.hasCredential
+          ? translate(
+              get().language,
+              'If this server needs a different token than the one already stored for the saved remote, enter it here. Otherwise leave this blank.'
+            )
+          : translate(
+              get().language,
+              'If your ZenNotes server requires a bearer token, enter it here. Otherwise leave this blank.'
+            ),
+        placeholder: translate(get().language, 'Optional'),
+        okLabel: translate(get().language, 'Connect'),
         allowEmptySubmit: true
       })
       if (authToken == null) return

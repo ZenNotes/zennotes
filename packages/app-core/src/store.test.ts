@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TASKS_TAB_PATH, type VaultTask } from '@shared/tasks'
-import { databaseTabPath } from '@shared/databases'
+import { databaseTabPath, type DatabaseDoc } from '@shared/databases'
 import { assetTabPath } from './lib/asset-tabs'
 import { findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
 
@@ -36,6 +36,37 @@ function makeNote(body: string) {
     hasAttachments: false,
     excerpt: body,
     body
+  }
+}
+
+function makeRecordPageFixture(): { page: ReturnType<typeof makeNote>; doc: DatabaseDoc } {
+  const page = {
+    ...makeNote('# 深入理解计算机系统\n'),
+    path: '读书清单.base/pages/深入理解计算机系统.md',
+    title: '深入理解计算机系统'
+  }
+  return {
+    page,
+    doc: {
+      version: 1,
+      path: '读书清单.base/data.csv',
+      title: '读书清单',
+      idFieldId: 'id',
+      fields: [
+        { id: 'id', name: 'id', type: 'text', hidden: true },
+        { id: 'name', name: 'Name', type: 'text' },
+        { id: 'status', name: '状态', type: 'select' }
+      ],
+      views: [{ id: 'table', name: 'Table', type: 'table', filters: [], sorts: [] }],
+      activeViewId: 'table',
+      pages: { r1: page.path },
+      rows: [
+        {
+          id: 'r1',
+          cells: { id: 'r1', name: '深入理解计算机系统', status: '在读' }
+        }
+      ]
+    }
   }
 }
 
@@ -475,5 +506,67 @@ describe('note jump history with database tabs', () => {
     // Ctrl+O → jump back to the grid.
     await useStore.getState().jumpToPreviousNote()
     expect(useStore.getState().selectedPath).toBe(dbTab)
+  })
+})
+
+describe('record page properties', () => {
+  it('loads the owning database when a record page note opens directly', async () => {
+    const { page, doc } = makeRecordPageFixture()
+    const openDatabase = vi.fn().mockResolvedValue(doc)
+    installZen({
+      readNote: vi.fn().mockResolvedValue(page),
+      openDatabase
+    })
+
+    const { useStore } = await loadStore()
+
+    await useStore.getState().selectNote(page.path)
+
+    expect(openDatabase).toHaveBeenCalledWith('读书清单.base/data.csv')
+    expect(useStore.getState().databases[doc.path]).toEqual(doc)
+  })
+
+  it('loads the owning database when a prefetched record page is opened from cache', async () => {
+    const { page, doc } = makeRecordPageFixture()
+    const openDatabase = vi.fn().mockResolvedValue(doc)
+    installZen({
+      readNote: vi.fn().mockResolvedValue(page),
+      openDatabase
+    })
+
+    const { useStore } = await loadStore()
+    useStore.setState({ notes: [page] })
+
+    useStore.getState().prefetchNotes([page.path])
+    await flushAsyncWork()
+    expect(useStore.getState().noteContents[page.path]).toEqual(page)
+    expect(openDatabase).not.toHaveBeenCalled()
+
+    await useStore.getState().selectNote(page.path)
+
+    expect(openDatabase).toHaveBeenCalledWith('读书清单.base/data.csv')
+    expect(useStore.getState().databases[doc.path]).toEqual(doc)
+  })
+
+  it('loads the owning database when opening races with a pending prefetch', async () => {
+    const { page, doc } = makeRecordPageFixture()
+    const pendingRead = deferred<typeof page>()
+    const openDatabase = vi.fn().mockResolvedValue(doc)
+    installZen({
+      readNote: vi.fn().mockReturnValue(pendingRead.promise),
+      openDatabase
+    })
+
+    const { useStore } = await loadStore()
+    useStore.setState({ notes: [page] })
+
+    useStore.getState().prefetchNotes([page.path])
+    const open = useStore.getState().selectNote(page.path)
+
+    pendingRead.resolve(page)
+    await open
+
+    expect(openDatabase).toHaveBeenCalledWith('读书清单.base/data.csv')
+    expect(useStore.getState().databases[doc.path]).toEqual(doc)
   })
 })

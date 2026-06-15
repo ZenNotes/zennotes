@@ -146,8 +146,10 @@ import {
   getAppUpdateState,
   initAppUpdater,
   installAppUpdate,
+  relocalizeUpdaterState,
   scheduleBackgroundAppUpdateCheck
 } from './updater'
+import { setMainLanguage, t } from './i18n'
 import type { McpClientId, McpInstructionsPayload } from '@shared/mcp-clients'
 import {
   instructionsFilePath,
@@ -1002,9 +1004,9 @@ async function ensureMainWindow(): Promise<void> {
 
 async function openVaultInNewWindow(parentWindow?: BrowserWindow | null): Promise<VaultInfo | null> {
   const options: Electron.OpenDialogOptions = {
-    title: 'Open Vault in New Window',
+    title: t('Open Vault in New Window'),
     properties: ['openDirectory', 'createDirectory'],
-    buttonLabel: 'Open Vault'
+    buttonLabel: t('Open Vault')
   }
   const result =
     parentWindow && !parentWindow.isDestroyed()
@@ -1443,9 +1445,9 @@ async function exportNotePdf(
 
   const suggestedName = `${sanitizePdfFilename(noteTitleFromRelPath(relPath))}.pdf`
   const saveDialogOptions = {
-    title: 'Export Note as PDF',
+    title: t('Export Note as PDF'),
     defaultPath: path.join(app.getPath('documents'), suggestedName),
-    buttonLabel: 'Export PDF',
+    buttonLabel: t('Export PDF'),
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   }
   const result = parentWindow
@@ -1919,6 +1921,13 @@ function registerIpc(): void {
   handle(IPC.APP_ZOOM_RESET, async (e) => {
     return await setWindowZoom(BrowserWindow.fromWebContents(e.sender), DEFAULT_ZOOM_FACTOR)
   })
+  handle(IPC.APP_SET_LANGUAGE, (_e, language: string) => {
+    setMainLanguage(language)
+    // Native menus are static — rebuild so labels follow the new language. And
+    // re-translate any cached updater message that was built pre-language.
+    installAppMenu()
+    relocalizeUpdaterState()
+  })
   handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState())
   handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates())
   handle(IPC.APP_UPDATER_CHECK_WITH_UI, async () => {
@@ -1970,9 +1979,9 @@ function registerIpc(): void {
   handle(IPC.VAULT_PICK, async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
-      title: 'Choose a vault folder',
+      title: t('Choose a vault folder'),
       properties: ['openDirectory', 'createDirectory'],
-      buttonLabel: 'Open Vault'
+      buttonLabel: t('Open Vault')
     }
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
     if (result.canceled || result.filePaths.length === 0) return null
@@ -2471,9 +2480,9 @@ function registerIpc(): void {
     const v = requireVault()
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
-      title: 'Add to assets',
+      title: t('Add to assets'),
       properties: ['openFile', 'multiSelections'],
-      buttonLabel: 'Add'
+      buttonLabel: t('Add')
     }
     const result = win
       ? await dialog.showOpenDialog(win, options)
@@ -2995,17 +3004,17 @@ function installAppMenu(): void {
     {
       label: 'ZenNotes',
       submenu: [
-        { label: 'About ZenNotes', role: 'about' },
+        { label: t('About ZenNotes'), role: 'about' },
         { type: 'separator' },
         {
-          label: 'Check for Updates…',
+          label: t('Check for Updates…'),
           click: () => {
             void runMenuUpdateCheck()
           }
         },
         { type: 'separator' },
         {
-          label: 'Settings…',
+          label: t('Settings…'),
           accelerator: 'CmdOrCtrl+,',
           click: () => {
             const target = BrowserWindow.getFocusedWindow() ?? mainWindow
@@ -3015,18 +3024,18 @@ function installAppMenu(): void {
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
-        { role: 'hide', label: 'Hide ZenNotes' },
+        { role: 'hide', label: t('Hide ZenNotes') },
         { role: 'hideOthers' },
         { role: 'unhide' },
         { type: 'separator' },
-        { role: 'quit', label: 'Quit ZenNotes' }
+        { role: 'quit', label: t('Quit ZenNotes') }
       ]
     },
     {
-      label: 'File',
+      label: t('File'),
       submenu: [
         {
-          label: 'Open Vault in New Window…',
+          label: t('Open Vault in New Window…'),
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => {
             void openVaultInNewWindow(BrowserWindow.getFocusedWindow() ?? mainWindow)
@@ -3035,7 +3044,7 @@ function installAppMenu(): void {
       ]
     },
     {
-      label: 'Edit',
+      label: t('Edit'),
       submenu: [
         { role: 'undo' },
         { role: 'redo' },
@@ -3051,7 +3060,7 @@ function installAppMenu(): void {
         // copy/paste. When a note row is focused the text op is a harmless
         // no-op and the renderer stages/duplicates the note.
         {
-          label: 'Copy',
+          label: t('Copy'),
           accelerator: 'CmdOrCtrl+C',
           click: (_item, win) => {
             const target =
@@ -3064,7 +3073,7 @@ function installAppMenu(): void {
           }
         },
         {
-          label: 'Paste',
+          label: t('Paste'),
           accelerator: 'CmdOrCtrl+V',
           click: (_item, win) => {
             const target =
@@ -3081,7 +3090,7 @@ function installAppMenu(): void {
       ]
     },
     {
-      label: 'View',
+      label: t('View'),
       submenu: [
         { role: 'reload' },
         { role: 'forceReload' },
@@ -3090,21 +3099,21 @@ function installAppMenu(): void {
           : ([{ role: 'toggleDevTools' }] as Electron.MenuItemConstructorOptions[])),
         { type: 'separator' },
         {
-          label: 'Actual Size',
+          label: t('Actual Size'),
           accelerator: 'CmdOrCtrl+0',
           click: () => {
             void setWindowZoom(BrowserWindow.getFocusedWindow(), DEFAULT_ZOOM_FACTOR)
           }
         },
         {
-          label: 'Zoom In',
+          label: t('Zoom In'),
           accelerator: 'CmdOrCtrl+=',
           click: () => {
             void adjustWindowZoom(BrowserWindow.getFocusedWindow(), ZOOM_STEP)
           }
         },
         {
-          label: 'Zoom Out',
+          label: t('Zoom Out'),
           accelerator: 'CmdOrCtrl+-',
           click: () => {
             void adjustWindowZoom(BrowserWindow.getFocusedWindow(), -ZOOM_STEP)
@@ -3115,7 +3124,7 @@ function installAppMenu(): void {
       ]
     },
     {
-      label: 'Window',
+      label: t('Window'),
       submenu: [
         { role: 'minimize' },
         { role: 'zoom' },
@@ -3129,35 +3138,35 @@ function installAppMenu(): void {
       ]
     },
     {
-      label: 'Help',
+      label: t('Help'),
       submenu: [
         {
-          label: 'ZenNotes Website',
+          label: t('ZenNotes Website'),
           click: () => {
             openAllowedExternalUrl(APP_WEBSITE_URL)
           }
         },
         {
-          label: 'Join Discord',
+          label: t('Join Discord'),
           click: () => {
             openAllowedExternalUrl(APP_DISCORD_URL)
           }
         },
         { type: 'separator' },
         {
-          label: 'GitHub Repository',
+          label: t('GitHub Repository'),
           click: () => {
             openAllowedExternalUrl(APP_REPOSITORY_URL)
           }
         },
         {
-          label: 'Latest Release',
+          label: t('Latest Release'),
           click: () => {
             openAllowedExternalUrl(APP_RELEASES_URL)
           }
         },
         {
-          label: 'Report an Issue',
+          label: t('Report an Issue'),
           click: () => {
             openAllowedExternalUrl(APP_ISSUES_URL)
           }
@@ -3182,22 +3191,24 @@ async function runMenuUpdateCheck(): Promise<void> {
   if (state.phase === 'available') {
     const { response } = await showDialog({
       type: 'info',
-      buttons: ['Download Update', 'Later'],
+      buttons: [t('Download Update'), t('Later')],
       defaultId: 0,
       cancelId: 1,
-      title: 'ZenNotes Update Available',
-      message: `ZenNotes ${state.availableVersion ?? ''} is available.`,
+      title: t('ZenNotes Update Available'),
+      message: t('ZenNotes {version} is available.', { version: state.availableVersion ?? '' }),
       detail: state.message
     })
     if (response === 0) {
       void downloadAppUpdate()
       await showDialog({
         type: 'info',
-        buttons: ['OK'],
+        buttons: [t('OK')],
         defaultId: 0,
-        title: 'Downloading Update',
-        message: `ZenNotes ${state.availableVersion ?? ''} is downloading in the background.`,
-        detail: 'Open Settings → About to track progress and install when the download finishes.'
+        title: t('Downloading Update'),
+        message: t('ZenNotes {version} is downloading in the background.', {
+          version: state.availableVersion ?? ''
+        }),
+        detail: t('Open Settings → About to track progress and install when the download finishes.')
       })
     }
     return
@@ -3206,11 +3217,13 @@ async function runMenuUpdateCheck(): Promise<void> {
   if (state.phase === 'downloaded') {
     const { response } = await showDialog({
       type: 'info',
-      buttons: ['Install and Relaunch', 'Later'],
+      buttons: [t('Install and Relaunch'), t('Later')],
       defaultId: 0,
       cancelId: 1,
-      title: 'ZenNotes Update Ready',
-      message: `ZenNotes ${state.availableVersion ?? ''} is ready to install.`,
+      title: t('ZenNotes Update Ready'),
+      message: t('ZenNotes {version} is ready to install.', {
+        version: state.availableVersion ?? ''
+      }),
       detail: state.message
     })
     if (response === 0) {
@@ -3222,10 +3235,10 @@ async function runMenuUpdateCheck(): Promise<void> {
   if (state.phase === 'downloading' || state.phase === 'checking') {
     await showDialog({
       type: 'info',
-      buttons: ['OK'],
+      buttons: [t('OK')],
       defaultId: 0,
-      title: 'ZenNotes Updates',
-      message: state.phase === 'checking' ? 'Checking for updates…' : 'Downloading update…',
+      title: t('ZenNotes Updates'),
+      message: state.phase === 'checking' ? t('Checking for updates…') : t('Downloading update…'),
       detail: state.message
     })
     return
@@ -3233,17 +3246,17 @@ async function runMenuUpdateCheck(): Promise<void> {
 
   await showDialog({
     type: state.phase === 'error' ? 'warning' : 'info',
-    buttons: ['OK'],
+    buttons: [t('OK')],
     defaultId: 0,
-    title: 'ZenNotes Updates',
+    title: t('ZenNotes Updates'),
     message:
       state.phase === 'not-available'
-        ? 'ZenNotes is up to date.'
+        ? t('ZenNotes is up to date.')
         : state.phase === 'unsupported'
-          ? 'Update checks are unavailable.'
+          ? t('Update checks are unavailable.')
           : state.phase === 'error'
-            ? 'Could not check for updates.'
-            : 'ZenNotes Updates',
+            ? t('Could not check for updates.')
+            : t('ZenNotes Updates'),
     detail: state.message
   })
 }

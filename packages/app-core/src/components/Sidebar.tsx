@@ -29,14 +29,10 @@ import {
   HelpCircleIcon,
   PaperclipIcon,
   ExpandAllIcon,
-  FolderPlusIcon,
-  NotePlusIcon,
-  PanelLeftIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
   SortIcon,
-  TargetIcon,
   TrashIcon,
 } from "./icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
@@ -44,6 +40,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
+import { formatMonthName } from '../lib/format-date'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { getKeymapDisplay } from "../lib/keymaps";
 import { recordRendererPerf } from "../lib/perf";
@@ -131,17 +128,6 @@ function sidebarAnchorSelectorForElement(el: HTMLElement): string | null {
   return `[data-sidebar-type="${escapeForAttr(type)}"]`;
 }
 
-function defaultNewNoteTarget(
-  activeNote: NoteMeta | null,
-  vaultSettings: ReturnType<typeof useStore.getState>["vaultSettings"],
-): { folder: NoteFolder; subpath: string } {
-  if (!activeNote) return { folder: "inbox", subpath: "" };
-  return {
-    folder: activeNote.folder,
-    subpath: noteFolderSubpath(activeNote, vaultSettings),
-  };
-}
-
 function remoteWorkspaceLabel(baseUrl: string | null): string {
   if (!baseUrl) return "Remote vault";
   try {
@@ -164,7 +150,7 @@ function SidebarGlyph({
   return (
     <span
       className={[
-        "flex h-5 w-5 shrink-0 items-center justify-center transition-colors",
+        "relative z-10 flex h-5 w-5 shrink-0 items-center justify-center transition-colors",
         active ? "text-white" : rowActive ? "text-accent" : "text-ink-500 group-hover:text-ink-800",
       ].join(" ")}
     >
@@ -176,9 +162,13 @@ function SidebarGlyph({
 function SidebarSectionHeading({
   label,
   onDropPayload,
+  onAddClick,
+  addLabel,
 }: {
   label: string;
   onDropPayload?: (payload: DragPayload) => void | Promise<void>;
+  onAddClick?: (e: React.MouseEvent) => void;
+  addLabel?: string;
 }): JSX.Element {
   const [dragHover, setDragHover] = useState(false);
   const droppable = !!onDropPayload;
@@ -186,7 +176,7 @@ function SidebarSectionHeading({
   return (
     <div
       className={[
-        "rounded-lg px-2 pb-2 pt-4 text-xs font-medium uppercase tracking-wide transition-colors",
+        "group/heading relative flex items-center gap-1 rounded-lg px-2 pb-2 pt-4 text-xs font-medium uppercase tracking-wide transition-colors",
         dragHover ? "bg-accent/10 text-accent" : "text-ink-500",
       ].join(" ")}
       onDragOver={
@@ -218,7 +208,19 @@ function SidebarSectionHeading({
           : undefined
       }
     >
-      {label}
+      <span className="min-w-0 truncate pr-16">{label}</span>
+      {onAddClick && (
+        <button
+          type="button"
+          onClick={onAddClick}
+          onContextMenu={onAddClick}
+          title={addLabel}
+          aria-label={addLabel}
+          className="absolute right-2 top-[calc(50%+6px)] flex h-5 w-14 -translate-y-1/2 shrink-0 items-center justify-end rounded text-ink-400 transition-colors hover:bg-paper-200 hover:text-ink-800"
+        >
+          <PlusIcon width={14} height={14} />
+        </button>
+      )}
     </div>
   );
 }
@@ -399,13 +401,11 @@ export function Sidebar(): JSX.Element {
   const renameDatabaseAction = useStore((s) => s.renameDatabase);
   const restoreSoftDeletedAction = useStore((s) => s.restoreSoftDeleted);
   const purgeSoftDeletedAction = useStore((s) => s.purgeSoftDeleted);
-  const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
   const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix);
   const keymapOverrides = useStore((s) => s.keymapOverrides);
   const newQuickNoteShortcut = getKeymapDisplay(keymapOverrides, "global.newQuickNote");
-  const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setFocusedPanel = useStore((s) => s.setFocusedPanel);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const appUpdateState = useAppUpdateState();
@@ -429,7 +429,6 @@ export function Sidebar(): JSX.Element {
   const groupByKind = useStore((s) => s.groupByKind);
   const setGroupByKind = useStore((s) => s.setGroupByKind);
   const autoReveal = useStore((s) => s.autoReveal);
-  const setAutoReveal = useStore((s) => s.setAutoReveal);
   const unifiedSidebar = useStore((s) => s.unifiedSidebar);
   const selectNote = useStore((s) => s.selectNote);
   const previewNote = useStore((s) => s.previewNote);
@@ -1159,16 +1158,29 @@ export function Sidebar(): JSX.Element {
    */
   const activePath =
     selectedPath && !selectedPath.startsWith("zen://") ? selectedPath : null;
+  const activeRevealTarget = useMemo(() => {
+    if (!activePath) return null;
+    const activeMeta = notes.find((note) => note.path === activePath);
+    const folder =
+      activeMeta?.folder ?? folderForVaultRelativePath(activePath, vaultSettings);
+    if (!folder) return null;
+    return {
+      folder,
+      subpath: noteFolderSubpath(
+        activeMeta ?? { folder, path: activePath },
+        vaultSettings,
+      ),
+    };
+  }, [activePath, notes, vaultSettings]);
   useEffect(() => {
-    if (!autoReveal || !activePath) return;
+    if (!autoReveal || !activePath || !activeRevealTarget) return;
     const startedAt = performance.now();
-    const parts = activePath.split("/");
-    const folder = parts[0] as NoteFolder;
+    const { folder, subpath } = activeRevealTarget;
     // Collect every ancestor key we need to make sure is expanded.
     const ancestors: string[] = [`${folder}:`];
     let acc = "";
-    for (let i = 1; i < parts.length - 1; i++) {
-      acc = acc ? `${acc}/${parts[i]}` : parts[i];
+    for (const segment of subpath.split("/").filter(Boolean)) {
+      acc = acc ? `${acc}/${segment}` : segment;
       ancestors.push(`${folder}:${acc}`);
     }
     const prev = new Set(useStore.getState().collapsedFolders);
@@ -1196,12 +1208,11 @@ export function Sidebar(): JSX.Element {
         return;
       }
 
-      const parts = activePath.split("/");
-      const folder = parts[0] as NoteFolder;
-      for (let i = parts.length - 1; i >= 1; i--) {
-        const subpath = parts.slice(1, i).join("/");
+      const segments = subpath ? subpath.split("/") : [];
+      for (let i = segments.length; i >= 0; i--) {
+        const folderSubpath = segments.slice(0, i).join("/");
         const folderEl = document.querySelector(
-          `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(subpath)}"]`,
+          `[data-sidebar-type="folder"][data-sidebar-folder="${folder}"][data-sidebar-subpath="${escapeForAttr(folderSubpath)}"]`,
         ) as HTMLElement | null;
         if (folderEl) {
           folderEl.scrollIntoView({ block: "nearest" });
@@ -1224,7 +1235,7 @@ export function Sidebar(): JSX.Element {
       cancelAnimationFrame(raf1);
       cancelAnimationFrame(raf2);
     };
-  }, [autoReveal, activePath, selectedPath, setCollapsedFoldersAction]);
+  }, [autoReveal, activePath, activeRevealTarget, setCollapsedFoldersAction]);
 
   const [activeBodyTagSnapshot, setActiveBodyTagSnapshot] = useState<{
     path: string;
@@ -2757,7 +2768,7 @@ export function Sidebar(): JSX.Element {
             data-sidebar-idx={vaultHeaderIdx}
             data-sidebar-type="vault"
           >
-            <VaultBadge name={vault?.name ?? "ZenNotes"} size={28} />
+            <VaultBadge name={vault?.name ?? "ZenNotes"} size={30} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium text-ink-800">
                 {vault?.name ?? "ZenNotes"}
@@ -2776,7 +2787,7 @@ export function Sidebar(): JSX.Element {
           </button>
         ) : (
           <div className="flex min-w-0 items-center gap-2">
-            <VaultBadge name={vault?.name ?? "ZenNotes"} size={28} />
+            <VaultBadge name={vault?.name ?? "ZenNotes"} size={30} />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-ink-800">
                 {vault?.name ?? "ZenNotes"}
@@ -2793,91 +2804,13 @@ export function Sidebar(): JSX.Element {
             </div>
           </div>
         )}
-        <div className="flex items-center gap-0.5">
-          <IconBtn title={t("Hide sidebar (⌘1)")} onClick={toggleSidebar}>
-            <PanelLeftIcon />
-          </IconBtn>
-        </div>
-      </div>
-
-      {/* Search + toolbar on one row */}
-      <div className="flex items-center gap-1 px-3">
-        <button
-          onClick={() => setSearchOpen(true)}
-          className="group flex h-7 flex-1 min-w-0 items-center gap-2 rounded-md px-2 text-left text-sm text-ink-700 transition-colors hover:bg-paper-200/70 hover:text-ink-900"
-          title={t("Search (⌘P)")}
-        >
-          <SearchIcon />
-          <span className="flex-1 truncate">{t("Search")}</span>
-          <kbd className="rounded bg-paper-200 px-1 py-0.5 text-2xs text-ink-500">
-            ⌘P
-          </kbd>
-        </button>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <IconBtn
-            title={t("New note (choose folder)")}
-            onClick={() => {
-              const state = useStore.getState();
-              const target = defaultNewNoteTarget(
-                state.activeNote,
-                state.vaultSettings,
-              );
-              // Prefill the picker with the current context (only the notes
-              // area is pickable, so archive/quick fall back to the root).
-              const initialPath = target.folder === "inbox" ? target.subpath : "";
-              void createNoteInChosenFolder({ initialPath });
-            }}
-          >
-            <NotePlusIcon />
-          </IconBtn>
-          <IconBtn
-            title={t("New folder")}
-            onClick={async () => {
-              const view = useStore.getState().view;
-              // Quick Notes is intentionally flat — fall back to inbox
-              // when the user is currently viewing it.
-              const noFolders =
-                view.kind === "folder" &&
-                (view.folder === "trash" || view.folder === "quick");
-              const parentFolder: NoteFolder =
-                view.kind === "folder" && !noFolders ? view.folder : "inbox";
-              const parentSub =
-                view.kind === "folder" && !noFolders ? view.subpath : "";
-              const name = await promptApp({
-                title: t("New folder"),
-                placeholder: t("Folder name"),
-                okLabel: t("Create"),
-                validate: (v) => {
-                  if (v.includes("/")) return t('Folder name cannot contain "/"');
-                  return null;
-                },
-              });
-              if (!name) return;
-              const clean = name.trim().replace(/^\/+|\/+$/g, "");
-              if (!clean) return;
-              const next = parentSub ? `${parentSub}/${clean}` : clean;
-              try {
-                await createFolderAction(parentFolder, next);
-              } catch (err) {
-                window.alert((err as Error).message);
-              }
-            }}
-          >
-            <FolderPlusIcon />
-          </IconBtn>
+        <div className="ml-3 flex shrink-0 items-center gap-0.5">
           <IconBtn
             title={`${t("Sort:")} ${sortOrderLabel(noteSortOrder, t)}${groupByKind ? t(", Group by kind") : ""}`}
             onClick={(e) => setSortMenu({ x: e.clientX, y: e.clientY })}
             active={noteSortOrder !== "none"}
           >
             <SortIcon />
-          </IconBtn>
-          <IconBtn
-            title={autoReveal ? t("Auto-reveal: on") : t("Auto-reveal: off")}
-            onClick={() => setAutoReveal(!autoReveal)}
-            active={autoReveal}
-          >
-            <TargetIcon />
           </IconBtn>
           <IconBtn
             title={t("Collapse all")}
@@ -2892,11 +2825,25 @@ export function Sidebar(): JSX.Element {
         </div>
       </div>
 
+      {/* Search + toolbar on one row */}
+      <div className="mt-1 flex items-center gap-1 px-3">
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="group flex h-8 flex-1 min-w-0 items-center gap-2 rounded-lg px-2 text-left text-sm text-ink-700 transition-colors hover:bg-paper-200/70 hover:text-ink-900"
+          title={t("Search (⌘P)")}
+        >
+          <SearchIcon width={15} height={15} className="shrink-0" />
+          <span className="flex-1 truncate">{t("Search")}</span>
+          <kbd className="ml-auto w-14 shrink-0 rounded bg-paper-200 px-1 py-0.5 text-right font-sans text-2xs font-medium leading-none tracking-wide text-ink-500">
+            ⌘P
+          </kbd>
+        </button>
+      </div>
+
       {/* Main scrollable tree area */}
       <div
         ref={sidebarScrollRef}
-        className="mt-3 min-h-0 flex-1 overflow-y-auto px-3"
-        style={{ scrollbarGutter: "stable" }}
+        className="min-h-0 flex-1 overflow-y-auto px-3"
         onClick={(e) => {
           if (e.target === e.currentTarget) setFocusedPanel("editor");
         }}
@@ -2978,6 +2925,8 @@ export function Sidebar(): JSX.Element {
 
           <SidebarSectionHeading
             label={t("Notes")}
+            onAddClick={(e) => setRootMenu({ x: e.clientX, y: e.clientY })}
+            addLabel={t("New…")}
             onDropPayload={
               primaryNotesAtRoot
                 ? (payload) => handleDropOnFolder(payload, "inbox", "")
@@ -3034,7 +2983,7 @@ export function Sidebar(): JSX.Element {
                   );
                   void createAndOpen("quick", "", { title, focusTitle: true });
                 }}
-                className="mr-1 rounded px-1.5 py-0.5 text-2xs font-medium tracking-wide text-current opacity-50 transition hover:bg-current/15 hover:opacity-100"
+                className="flex w-14 items-center justify-end rounded py-0.5 text-right font-sans text-2xs font-medium leading-none tracking-wide text-current opacity-50 transition hover:bg-current/15 hover:opacity-100"
               >
                 {newQuickNoteShortcut}
               </button>
@@ -3133,7 +3082,7 @@ export function Sidebar(): JSX.Element {
                   </span>
                 )}
                 <span>{t("Tags")}</span>
-                <span className="ml-1 text-ink-500 normal-case tracking-normal">
+                <span className="ml-auto w-14 text-right text-ink-500 normal-case tracking-normal">
                   {tags.length}
                 </span>
               </button>
@@ -4290,7 +4239,7 @@ const NoteLeaf = memo(function NoteLeaf({
       draggable
       onDragStart={handleDragStart}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative isolate flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4329,7 +4278,7 @@ const NoteLeaf = memo(function NoteLeaf({
           <path d="M14 3v6h6" />
         </svg>
       </SidebarGlyph>
-      <span className="flex-1 truncate">{note.title}</span>
+      <span className="min-w-0 flex-1 truncate pr-16">{note.title}</span>
       {note.isSymlink && (
         <span
           aria-label={t("Symlinked note")}
@@ -4390,7 +4339,9 @@ const NoteLeaf = memo(function NoteLeaf({
         </span>
       )}
       {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active || selected} label={t("menu")} keyLabel="m" />
+        <span className="absolute right-2 top-1/2 flex w-14 -translate-y-1/2 justify-end">
+          <RowKeyHint active={active || selected} label={t("menu")} keyLabel="m" />
+        </span>
       )}
     </button>
   );
@@ -4477,7 +4428,7 @@ function AssetLeaf({
       draggable
       onDragStart={handleDragStart}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4517,12 +4468,12 @@ function AssetLeaf({
           </svg>
         )}
       </SidebarGlyph>
-      <span className="flex-1 truncate">{asset.name}</span>
+      <span className="min-w-0 flex-1 truncate pr-16">{asset.name}</span>
       {/* Databases lean on their icon; only plain assets show the type tag. */}
       {!isDatabase && extension && (
         <span
           className={[
-            "shrink-0 pr-2 text-2xs uppercase tracking-wide",
+            "absolute right-2 top-1/2 w-14 shrink-0 -translate-y-1/2 text-right text-2xs uppercase tracking-wide",
             active
               ? sidebarFocused && !vimHighlight
                 ? "text-accent/70"
@@ -4602,6 +4553,19 @@ function TreeRow({
 }): JSX.Element {
   const t = useT();
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
+  const surfaceClass = active
+    ? vimHighlight
+      ? "vim-cursor-on-active bg-accent"
+      : sidebarFocused
+        ? ""
+        : "bg-accent"
+    : dropTarget
+      ? "bg-accent/20 ring-1 ring-accent/60"
+      : selected
+        ? "bg-accent/[0.09]"
+      : vimHighlight
+        ? "vim-cursor"
+        : "";
 
   return (
     <div
@@ -4621,19 +4585,19 @@ function TreeRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "text-white"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "text-white"
           : dropTarget
-            ? "bg-accent/20 text-ink-900 ring-1 ring-accent/60"
+            ? "text-ink-900"
             : selected
-              ? "bg-accent/[0.09] text-ink-900"
+              ? "text-ink-900"
             : vimHighlight
-              ? "vim-cursor"
+              ? "text-ink-900"
               : "text-ink-800 hover:bg-paper-200/70",
       ].join(" ")}
       {...(sidebarIdx != null
@@ -4650,6 +4614,15 @@ function TreeRow({
         : {})}
       style={{ paddingLeft: 4 + depth * 14 }}
     >
+      {surfaceClass && (
+        <span
+          aria-hidden
+          className={[
+            "pointer-events-none absolute -inset-x-1 inset-y-0 z-0 rounded-lg",
+            surfaceClass,
+          ].join(" ")}
+        />
+      )}
       {expandable && showExpandChevron ? (
         <button
           onClick={(e) => {
@@ -4658,7 +4631,7 @@ function TreeRow({
           }}
           data-vim-hint-ignore
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
+            "relative z-10 flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
             strongActive
               ? "text-white/80 hover:bg-white/15"
               : "text-ink-500 hover:bg-paper-300/60",
@@ -4680,52 +4653,59 @@ function TreeRow({
           </svg>
         </button>
       ) : reserveLeadingSlot ? (
-        <span className="h-5 w-5 shrink-0" />
+        <span className="relative z-10 h-5 w-5 shrink-0" />
       ) : null}
       <SidebarGlyph active={strongActive} rowActive={active || selected}>
         {icon}
       </SidebarGlyph>
-      <span className="flex-1 truncate">{label}</span>
-      {isSymlink && (
-        <span
-          aria-label={t("Symlinked folder")}
-          title={t("Symlinked into this vault")}
-          className={[
-            "shrink-0",
-            strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-500",
-          ].join(" ")}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M7 17 17 7" />
-            <path d="M7 7h10v10" />
-          </svg>
-        </span>
-      )}
-      {sidebarFocused && vimHighlight && (
-        <RowKeyHint
-          active={active || selected}
-          keyLabel="m"
-          compact={typeof count === "number" && count > 0}
-        />
-      )}
-      {trailing && <span className="shrink-0">{trailing}</span>}
-      {typeof count === "number" && count > 0 && (
-        <span
-          className={[
-            "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-500",
-          ].join(" ")}
-        >
-          {count}
+      <span className="relative z-10 min-w-0 flex-1 truncate pr-16">{label}</span>
+      {(isSymlink ||
+        (sidebarFocused && vimHighlight) ||
+        trailing ||
+        (typeof count === "number" && count > 0)) && (
+        <span className="absolute right-2 top-1/2 z-10 flex w-14 -translate-y-1/2 items-center justify-end gap-1">
+          {isSymlink && (
+            <span
+              aria-label={t("Symlinked folder")}
+              title={t("Symlinked into this vault")}
+              className={[
+                "shrink-0",
+                strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-500",
+              ].join(" ")}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M7 17 17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
+            </span>
+          )}
+          {sidebarFocused && vimHighlight && (
+            <RowKeyHint
+              active={active || selected}
+              keyLabel="m"
+              compact={typeof count === "number" && count > 0}
+            />
+          )}
+          {trailing}
+          {typeof count === "number" && count > 0 && (
+            <span
+              className={[
+                "w-7 shrink-0 text-right text-xs tabular-nums",
+                strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-500",
+              ].join(" ")}
+            >
+              {count}
+            </span>
+          )}
         </span>
       )}
     </div>
@@ -4747,6 +4727,7 @@ function TaskSidebarRow({
   vimHighlight?: boolean;
   sidebarFocused?: boolean;
 }): JSX.Element {
+  const t = useT();
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
   return (
     <div
@@ -4780,9 +4761,9 @@ function TaskSidebarRow({
         : {})}
     >
       <SidebarGlyph active={strongActive} rowActive={active}>
-        <CheckSquareIcon width={12} height={12} strokeWidth={2.15} />
+        <CheckSquareIcon width={14} height={14} strokeWidth={2} />
       </SidebarGlyph>
-      <span className="flex-1 truncate">Tasks</span>
+      <span className="flex-1 truncate">{t("Tasks")}</span>
     </div>
   );
 }
@@ -4823,7 +4804,7 @@ function ArchiveSidebarRow({
       }}
       onContextMenu={onContextMenu}
       className={[
-        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full select-none items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4845,20 +4826,26 @@ function ArchiveSidebarRow({
           })}
     >
       <SidebarGlyph active={strongActive} rowActive={active}>
-        {icon}
+        <span className="flex h-3.5 w-3.5 items-center justify-center [&>svg]:h-3.5 [&>svg]:w-3.5">
+          {icon}
+        </span>
       </SidebarGlyph>
-      <span className="flex-1 truncate">{label}</span>
-      {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
-      )}
-      {count > 0 && (
-        <span
-          className={[
-            "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
-          ].join(" ")}
-        >
-          {count}
+      <span className="min-w-0 flex-1 truncate pr-16">{label}</span>
+      {((sidebarFocused && vimHighlight) || count > 0) && (
+        <span className="absolute right-2 top-1/2 flex w-14 -translate-y-1/2 items-center justify-end gap-1">
+          {sidebarFocused && vimHighlight && (
+            <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
+          )}
+          {count > 0 && (
+            <span
+              className={[
+                "w-7 shrink-0 text-right text-xs tabular-nums",
+                strongActive ? "text-white/80" : "text-ink-500",
+              ].join(" ")}
+            >
+              {count}
+            </span>
+          )}
         </span>
       )}
     </div>
@@ -4898,7 +4885,7 @@ function AssetsSidebarRow({
         }
       }}
       className={[
-        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full select-none items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4920,13 +4907,15 @@ function AssetsSidebarRow({
           })}
     >
       <SidebarGlyph active={strongActive} rowActive={active}>
-        {icon}
+        <span className="flex h-3.5 w-3.5 items-center justify-center [&>svg]:h-3.5 [&>svg]:w-3.5">
+          {icon}
+        </span>
       </SidebarGlyph>
-      <span className="flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1 truncate pr-16">{label}</span>
       {count > 0 && (
         <span
           className={[
-            "shrink-0 pr-2 text-xs",
+            "absolute right-2 top-1/2 w-14 shrink-0 -translate-y-1/2 text-right text-xs tabular-nums",
             strongActive ? "text-white/80" : "text-ink-500",
           ].join(" ")}
         >
@@ -4973,7 +4962,7 @@ function TrashSidebarRow({
       }}
       onContextMenu={onContextMenu}
       className={[
-        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full select-none items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -4997,18 +4986,22 @@ function TrashSidebarRow({
       <SidebarGlyph active={strongActive} rowActive={active}>
         {icon}
       </SidebarGlyph>
-      <span className="flex-1 truncate">{label}</span>
-      {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
-      )}
-      {count > 0 && (
-        <span
-          className={[
-            "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
-          ].join(" ")}
-        >
-          {count}
+      <span className="min-w-0 flex-1 truncate pr-16">{label}</span>
+      {((sidebarFocused && vimHighlight) || count > 0) && (
+        <span className="absolute right-2 top-1/2 flex w-14 -translate-y-1/2 items-center justify-end gap-1">
+          {sidebarFocused && vimHighlight && (
+            <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
+          )}
+          {count > 0 && (
+            <span
+              className={[
+                "w-7 shrink-0 text-right text-xs tabular-nums",
+                strongActive ? "text-white/80" : "text-ink-500",
+              ].join(" ")}
+            >
+              {count}
+            </span>
+          )}
         </span>
       )}
     </div>
@@ -5044,7 +5037,7 @@ function SidebarRow({
     <button
       onClick={onClick}
       className={[
-        "group flex h-8 items-center gap-2 rounded-lg px-2 text-sm outline-none transition-colors focus:outline-none",
+        "group relative flex h-8 w-full items-center gap-2 rounded-lg px-2 text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
@@ -5069,25 +5062,31 @@ function SidebarRow({
       >
         {icon}
       </span>
-      <span className="flex-1 truncate text-left">{label}</span>
-      {sidebarFocused && vimHighlight && (
-        <RowKeyHint
-          active={!!active}
-          keyLabel="m"
-          compact={typeof count === "number" && count > 0}
-        />
-      )}
-      {typeof count === "number" && count > 0 && (
-        <span
-          className={[
-            "text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
-          ].join(" ")}
-        >
-          {count}
+      <span className="min-w-0 flex-1 truncate pr-16 text-left">{label}</span>
+      {((sidebarFocused && vimHighlight) ||
+        (typeof count === "number" && count > 0) ||
+        trailing) && (
+        <span className="absolute right-2 top-1/2 flex w-14 -translate-y-1/2 items-center justify-end gap-1">
+          {sidebarFocused && vimHighlight && (
+            <RowKeyHint
+              active={!!active}
+              keyLabel="m"
+              compact={typeof count === "number" && count > 0}
+            />
+          )}
+          {typeof count === "number" && count > 0 && (
+            <span
+              className={[
+                "w-7 shrink-0 text-right text-xs tabular-nums",
+                strongActive ? "text-white/80" : "text-ink-500",
+              ].join(" ")}
+            >
+              {count}
+            </span>
+          )}
+          {trailing}
         </span>
       )}
-      {trailing}
     </button>
   );
 }
@@ -5272,9 +5271,10 @@ function DateNotesNav({
   dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
   onRootContextMenu?: (e: React.MouseEvent, subpath: string) => void;
 }): JSX.Element | null {
+  const language = useStore((s) => s.language);
   const rows: JSX.Element[] = [];
   const monthName = (year: number, month: number): string =>
-    new Date(year, month, 1).toLocaleDateString(undefined, { month: "long" });
+    formatMonthName(new Date(year, month, 1), language);
   const groupRow = (
     key: string,
     label: string,

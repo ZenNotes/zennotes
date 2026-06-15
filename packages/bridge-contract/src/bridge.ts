@@ -79,6 +79,8 @@ export interface ZenBridge {
   zoomInApp(): Promise<number>
   zoomOutApp(): Promise<number>
   resetAppZoom(): Promise<number>
+  /** Tell the main process which UI language to use for native dialogs. */
+  setAppLanguage(language: string): Promise<void>
   getAppUpdateState(): Promise<AppUpdateState>
   checkForAppUpdates(): Promise<AppUpdateState>
   checkForAppUpdatesWithUi(): Promise<void>

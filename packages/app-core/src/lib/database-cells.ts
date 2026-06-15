@@ -5,6 +5,7 @@
  * through `updateDatabaseSchema`. All cell values are raw CSV strings.
  */
 import { defaultGenId } from '@shared/database-csv'
+import { formatDate as formatDisplayDate } from './format-date'
 import {
   splitMultiSelect,
   joinMultiSelect,
@@ -23,18 +24,12 @@ export { splitMultiSelect, joinMultiSelect, isCheckboxTrue }
 
 const genId = defaultGenId
 
+// Database date cells always show the full date (year included). The display
+// rules live in the shared `format-date` module so every view formats dates
+// the same way (zh → YYYY-MM-DD, en → "Jun 15, 2026").
 export function formatDate(iso: string, language?: string): string {
   if (!iso) return ''
-  const d = new Date(`${iso}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return iso
-  // Chinese: the US-style "Nov 2, 2025" reads wrong; use the universal,
-  // locale-neutral YYYY-MM-DD (sortable, unambiguous, matches CN conventions).
-  if (language === 'zh') {
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${d.getFullYear()}-${m}-${day}`
-  }
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return formatDisplayDate(iso, language, { year: 'always' })
 }
 
 export function optionLabel(field: DbField, value: string): string {

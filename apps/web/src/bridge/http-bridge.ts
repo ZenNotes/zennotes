@@ -911,6 +911,9 @@ const unsupportedUpdateState: AppUpdateState = {
   message: 'The web build updates automatically when you reload.'
 }
 
+async function setAppLanguage(_language: string): Promise<void> {
+  // Web has no native dialogs to localize.
+}
 async function getAppUpdateState(): Promise<AppUpdateState> {
   return unsupportedUpdateState
 }
@@ -1142,6 +1145,7 @@ export const httpBridge: ZenBridge = {
   zoomInApp,
   zoomOutApp,
   resetAppZoom,
+  setAppLanguage,
   getAppUpdateState,
   checkForAppUpdates,
   checkForAppUpdatesWithUi,

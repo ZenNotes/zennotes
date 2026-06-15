@@ -157,9 +157,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: async () => {
         const ok = await confirmApp({
           title: tr('Remove all built-in templates?'),
-          description:
-            'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.',
-          confirmLabel: 'Remove',
+          description: tr(
+            'The shipped templates will be hidden from the picker and palette. Your custom templates are unaffected, and you can restore the built-ins anytime.'
+          ),
+          confirmLabel: tr('Remove'),
           danger: true
         })
         if (!ok) return
@@ -707,7 +708,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.back',
       title: tr('Go Back'),
       category: tr('Tabs'),
-      shortcut: shortcut('vim.historyBack'),
+      shortcut: shortcut('global.historyBack'),
       keywords: 'history previous',
       run: () => getState().jumpToPreviousNote()
     },
@@ -715,7 +716,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.forward',
       title: tr('Go Forward'),
       category: tr('Tabs'),
-      shortcut: shortcut('vim.historyForward'),
+      shortcut: shortcut('global.historyForward'),
       keywords: 'history next',
       run: () => getState().jumpToNextNote()
     }
@@ -1265,9 +1266,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: async () => {
         const ok = await confirmApp({
           title: tr('Remove the built-in demo tour from this vault?'),
-          description:
-            'This deletes the seeded demo notes under inbox/demo and the demo attachment file.',
-          confirmLabel: 'Remove demo tour',
+          description: tr(
+            'This deletes the seeded demo notes under inbox/demo and the demo attachment file.'
+          ),
+          confirmLabel: tr('Remove demo tour'),
           danger: true
         })
         if (!ok) return

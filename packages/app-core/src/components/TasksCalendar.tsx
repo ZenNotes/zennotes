@@ -22,6 +22,7 @@ import {
   toIsoDateLocal
 } from '@shared/tasks'
 import { useStore } from '../store'
+import { formatMonthYear, formatWeekdayDate } from '../lib/format-date'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 
@@ -63,12 +64,13 @@ function buildMonthGrid(anchor: Date): Date[] {
   return Array.from({ length: 42 }, (_, i) => addDays(start, i))
 }
 
-function formatMonthLabel(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+function formatMonthLabel(d: Date, language?: string): string {
+  return formatMonthYear(d, language)
 }
 
 export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props): JSX.Element {
   const tr = useT()
+  const language = useStore((s) => s.language)
   const monthAnchorIso = useStore((s) => s.tasksCalendarMonthAnchor)
   const setMonthAnchor = useStore((s) => s.setTasksCalendarMonthAnchor)
   const selectedDateIso = useStore((s) => s.tasksCalendarSelectedDate)
@@ -260,7 +262,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
           </button>
         </div>
         <div className="text-sm font-semibold text-current/85">
-          {formatMonthLabel(monthAnchor)}
+          {formatMonthLabel(monthAnchor, language)}
         </div>
         <div className="text-xs text-current/40">
           h/j/k/l move · [ ] month · gt today · Enter open
@@ -270,7 +272,7 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
       <div className="grid shrink-0 grid-cols-7 px-3 pt-2 text-2xs uppercase tracking-wide text-current/40">
         {WEEKDAY_LABELS.map((d) => (
           <div key={d} className="px-1 py-1 text-center">
-            {d}
+            {tr(d)}
           </div>
         ))}
       </div>
@@ -344,12 +346,8 @@ export function TasksCalendar({ tasks, today, onOpenTask, onToggleTask }: Props)
         <div className="mb-2 flex items-baseline gap-2">
           <h2 className="text-xs font-semibold uppercase tracking-wide text-current/60">
             {selectedIso === todayIso
-              ? 'Today'
-              : selectedDate.toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  month: 'short',
-                  day: 'numeric'
-                })}
+              ? tr('Today')
+              : formatWeekdayDate(selectedDate, language)}
           </h2>
           <span className="text-xs text-current/40">
             {selectedTasks.length} task{selectedTasks.length === 1 ? '' : 's'}

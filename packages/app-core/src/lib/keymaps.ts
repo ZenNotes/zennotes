@@ -33,6 +33,8 @@ export type KeymapId =
   | "global.zoomIn"
   | "global.zoomOut"
   | "global.zoomReset"
+  | "global.historyBack"
+  | "global.historyForward"
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
@@ -98,6 +100,11 @@ export interface KeymapDefinition {
   title: string;
   description: string;
   defaultBinding: string;
+  // Platform-divergent default. When set, this binding is used off macOS
+  // instead of `defaultBinding`. Needed when the Mac default relies on
+  // physical Control (which normalizes to "Mod" on Windows/Linux) — e.g.
+  // history nav is ⌃-/⌃⇧- on macOS but Alt+←/Alt+→ elsewhere, matching VS Code.
+  defaultBindingNonMac?: string;
   vimOnly?: boolean;
   nonVimOnly?: boolean;
   maxTokens?: number;
@@ -320,6 +327,34 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Reset zoom",
     description: "Restore the app zoom factor to its default size.",
     defaultBinding: "Mod+0",
+  },
+  {
+    id: "global.historyBack",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go back in note history",
+    description:
+      "Jump to the previous note location in history. Works in any mode.",
+    // Matches VS Code: ⌃- on macOS, Alt+← on Windows/Linux. (On macOS ⌥← is
+    // word-motion, so Control is used there; on Win/Linux word-motion is
+    // Ctrl+←, leaving Alt+← free.) Distinct from the Vim-only ⌃O binding so
+    // mouse users get a keyboard shortcut too.
+    defaultBinding: "Ctrl+-",
+    defaultBindingNonMac: "Alt+ArrowLeft",
+  },
+  {
+    id: "global.historyForward",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go forward in note history",
+    description: "Jump forward in note history. Works in any mode.",
+    // Matches VS Code: ⌃⇧- on macOS, Alt+→ on Windows/Linux. On macOS Shift+
+    // Minus yields "_" as the resolved key, so the binding stores "_" to match
+    // the keypress; it displays as ⌃⇧-.
+    defaultBinding: "Ctrl+Shift+_",
+    defaultBindingNonMac: "Alt+ArrowRight",
   },
   {
     id: "vim.leaderPrefix",
@@ -936,7 +971,11 @@ export function getKeymapGroupLabel(group: KeymapGroup): string {
 }
 
 export function getDefaultKeymapBinding(id: KeymapId): string {
-  return getKeymapDefinition(id).defaultBinding;
+  const definition = getKeymapDefinition(id);
+  if (definition.defaultBindingNonMac !== undefined && !isMacPlatform()) {
+    return definition.defaultBindingNonMac;
+  }
+  return definition.defaultBinding;
 }
 
 export function getKeymapBinding(
@@ -1301,6 +1340,9 @@ export function formatKeyToken(token: string, mac = isMacPlatform()): string {
   if (token === "Ctrl") return mac ? "⌃" : "Ctrl";
   if (token === "Alt") return mac ? "⌥" : "Alt";
   if (token === "Shift") return mac ? "⇧" : "Shift";
+  // Shift+Minus resolves to "_" on macOS; show it as the key's printed
+  // label ("-") since the Shift modifier is already displayed alongside.
+  if (token === "_") return "-";
   if (token === "Escape" || token === "Esc") return "Esc";
   if (token === "Enter") return mac ? "↵" : "Enter";
   if (token === "Tab") return "Tab";

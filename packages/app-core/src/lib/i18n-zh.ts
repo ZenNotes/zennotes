@@ -62,6 +62,9 @@ export const ZH: Record<string, string> = {
   'Sidebar arrows': '侧边栏箭头',
   'Show disclosure arrows for collapsible folders and sidebar sections.':
     '为可折叠的文件夹和侧边栏分区显示展开箭头。',
+  'Auto-reveal active note': '自动定位当前笔记',
+  'Follow the active tab in the sidebar — expand its folders and scroll it into view.':
+    '侧边栏跟随当前标签页:自动展开它所在的文件夹并滚动到可见位置。',
 
   // ── Settings → Editor ────────────────────────────────────────────────────
   'Keyboard-first editing behavior and leader guidance.': '键盘优先的编辑行为与 leader 引导。',
@@ -694,6 +697,7 @@ export const ZH: Record<string, string> = {
   'Change icon…': '更换图标…',
   'Reset icon': '重置图标',
   'New note': '新建笔记',
+  'New…': '新建…',
   'New from template': '从模板新建',
   Open: '打开',
   'Open as Tab': '作为标签打开',
@@ -786,7 +790,12 @@ export const ZH: Record<string, string> = {
   // ── CommentsPanel ────────────────────────────────────────────────────────
   Comments: '评论',
   Comment: '评论',
-  open: '未解决',
+  // `open` is the verb ("press Enter to open") used by task/connection key
+  // hints. The comments panel's "open vs resolved" comment state uses the
+  // separate `unresolved` key so both senses of the English word "open"
+  // translate correctly (natural-key homonym).
+  open: '打开',
+  unresolved: '未解决',
   resolved: '已解决',
   'New comment': '新建评论',
   'Add a comment…': '添加评论…',
@@ -825,6 +834,9 @@ export const ZH: Record<string, string> = {
   'No backlinks yet.': '还没有反向链接。',
   'No unlinked mentions found.': '未找到未链接的提及。',
   'Scanning notes…': '正在扫描笔记…',
+  // Template/demo confirmation dialogs (were tr()-wrapped but missing).
+  'Remove all built-in templates?': '移除所有内置模板?',
+  'Remove the built-in demo tour from this vault?': '从此仓库移除内置的演示导览?',
   'No excerpt available yet.': '暂无摘要。',
 
   // ── OutlinePanel ─────────────────────────────────────────────────────────
@@ -944,6 +956,28 @@ export const ZH: Record<string, string> = {
   Medium: '中',
   Low: '低',
   'No priority': '无优先级',
+  Kanban: '看板',
+  total: '总计',
+  overdue: '逾期',
+  'scanning…': '扫描中…',
+  check: '勾选',
+  uncheck: '取消勾选',
+  '(empty task)': '(空任务)',
+  // Note: `Rename` and the Sun–Sat weekday headers are already defined above.
+  // Tasks list empty state — split around the inline `- [ ] …` code sample.
+  'No tasks found. Add': '未找到任务。添加',
+  'lines in any note to see them here.': '行到任意笔记即可在此显示。',
+  // Tasks footer key-hint cheat sheets (key names kept; actions translated).
+  'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close':
+    'j/k 移动 · Enter/o 打开 · Space/x 切换 · / 过滤 · 1/2/3 视图 · : 命令 · Esc 关闭',
+  'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · Esc close':
+    'h/j/k/l 日 · [ ] 月 · gt 今天 · Enter 打开 · 1/2/3 视图 · : 命令 · Esc 关闭',
+  'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · Esc close':
+    'h/l 列 · j/k 卡片 · Space 切换 · Enter 打开 · 1/2/3 视图 · : 命令 · Esc 关闭',
+  'Drag cards to move · h/l column · j/k card · Space toggle · Enter open':
+    '拖动卡片移动 · h/l 列 · j/k 卡片 · Space 切换 · Enter 打开',
+  'h/l column · j/k card · Space toggle · Enter open':
+    'h/l 列 · j/k 卡片 · Space 切换 · Enter 打开',
   'Rescan vault': '重新扫描仓库',
   // Database
   'Type:': '类型:',
@@ -1747,4 +1781,50 @@ export const ZH: Record<string, string> = {
   "Rename the built-in areas as shown in the UI. This changes labels only; the internal ids stay `inbox`, `quick`, `archive`, `trash`, and `assets`. Leave blank to follow the interface language.": "重命名内置区域在界面中的显示名。这只改变标签;内部 id 仍为 `inbox`、`quick`、`archive`、`trash`、`assets`。留空则跟随界面语言。",
   "Hide Tasks": "隐藏 Tasks",
   "Remove the Tasks entry from the sidebar.": "从侧边栏移除 Tasks 入口。",
+
+  // --- i18n sweep: strings that were not wrapped / not in the dictionary ---
+  // store.ts — feature-unavailable alerts + server/template prompts
+  'Base deletion is not available until the app is restarted.': '删除多维表格功能在应用重启前不可用。',
+  'Base rename is not available until the app is restarted.': '重命名多维表格功能在应用重启前不可用。',
+  'Archiving forms is not available until the app is restarted.': '归档表单功能在应用重启前不可用。',
+  'Archiving folders is not available until the app is restarted.': '归档文件夹功能在应用重启前不可用。',
+  'Asset deletion is not available until the app is restarted.': '删除素材功能在应用重启前不可用。',
+  'Asset undo is not available until the app is restarted.': '素材撤销功能在应用重启前不可用。',
+  'Could not export the note as a PDF.': '无法将笔记导出为 PDF。',
+  'Server Auth Token': '服务器鉴权令牌',
+  'Enter the server auth token': '输入服务器鉴权令牌',
+  'Sign In': '登录',
+  'New note from template': '从模板新建笔记',
+  'Save note as template': '将笔记保存为模板',
+  Next: '下一步',
+  'Saved remote workspaces are suggested here.': '这里会推荐已保存的远程工作区。',
+  'Enter a valid server URL.': '请输入有效的服务器 URL。',
+  // SettingsModal
+  'ZenNotes {version} is available. Use “Download Update” to fetch it.':
+    'ZenNotes {version} 可用。点击“下载更新”获取。',
+  'Could not check for updates.': '无法检查更新。',
+  'None (blank note)': '无(空白笔记)',
+  '[Missing template]': '[缺失的模板]',
+  'Search fonts…': '搜索字体…',
+  Prompt: '提示词',
+  // Preview asset context menu + validations
+  'Open as Reference (This Note)': '作为引用打开(本笔记)',
+  'Open as Reference (Global)': '作为引用打开(全局)',
+  'Delete {name}?': '删除 {name}?',
+  // CalendarPanel
+  '{name} does not exist yet. Create it?': '{name} 尚不存在。要创建吗?',
+  // commands.ts
+  'Remove demo tour': '移除演示导览',
+  // App.tsx
+  'Loading editor': '正在加载编辑器',
+  // Command-palette / panel keyboard hints
+  run: '运行',
+  'keep theme': '保留主题',
+  switch: '切换',
+  close: '关闭',
+  revert: '还原',
+  back: '返回',
+  jump: '跳转',
+  'Resize panel': '调整面板大小',
+  'Drag to resize': '拖动以调整大小'
 }

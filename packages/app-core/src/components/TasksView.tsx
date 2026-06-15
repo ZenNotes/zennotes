@@ -332,9 +332,9 @@ export function TasksView(): JSX.Element {
         <CheckSquareIcon width={18} height={18} />
         <h1 className="text-sm font-semibold">{t("Tasks")}</h1>
         <span className="ml-2 rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
-          {tasks.length} total
+          {tasks.length} {t('total')}
         </span>
-        {loading && <span className="text-xs text-current/50">scanning…</span>}
+        {loading && <span className="text-xs text-current/50">{t('scanning…')}</span>}
 
         <div className="ml-2 flex items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
           {VIEW_BUTTONS.map(({ id, label, shortcut, Icon }) => {
@@ -386,7 +386,7 @@ export function TasksView(): JSX.Element {
             className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title={t("Rescan vault")}
           >
-            Refresh
+            {t('Refresh')}
           </button>
           <button
             type="button"
@@ -394,16 +394,26 @@ export function TasksView(): JSX.Element {
             className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title={t("Close (:q or Esc)")}
           >
-            Close
+            {t('Close')}
           </button>
         </div>
       </div>
 
       {viewMode === 'list' && (
+        // Full-width scroll container, but the rows themselves sit in a
+        // centered column capped at the editor width (`--z-editor-max-width`)
+        // — same reading measure as a note, so long lists don't stretch
+        // edge-to-edge on wide windows.
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          <div
+            className="mx-auto w-full"
+            style={{ maxWidth: 'var(--z-editor-max-width, 920px)' }}
+          >
           {render.rows.length === 0 && !loading && (
             <div className="px-6 py-10 text-center text-sm text-current/50">
-              No tasks found. Add <code className="rounded bg-paper-300/60 px-1">- [ ] …</code> lines in any note to see them here.
+              {t('No tasks found. Add')}{' '}
+              <code className="rounded bg-paper-300/60 px-1">- [ ] …</code>{' '}
+              {t('lines in any note to see them here.')}
             </div>
           )}
           {render.rows.map((row, idx) => {
@@ -422,7 +432,7 @@ export function TasksView(): JSX.Element {
                     <span className="text-current/40">{row.count ?? 0}</span>
                     {key === 'today' && row.overdueCount ? (
                       <span className="ml-1 rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">
-                        {row.overdueCount} overdue
+                        {row.overdueCount} {t('overdue')}
                       </span>
                     ) : null}
                   </button>
@@ -446,6 +456,7 @@ export function TasksView(): JSX.Element {
               />
             )
           })}
+          </div>
         </div>
       )}
 
@@ -503,10 +514,10 @@ export function TasksView(): JSX.Element {
       ) : (
         <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
           {viewMode === 'list'
-            ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close'
+            ? t('j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close')
             : viewMode === 'calendar'
-              ? 'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · Esc close'
-              : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · Esc close'}
+              ? t('h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · Esc close')
+              : t('h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · Esc close')}
         </div>
       )}
     </div>

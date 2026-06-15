@@ -1314,6 +1314,20 @@ textarea,
   margin-left: 0;
   margin-right: 0;
 }
+/* Floating Properties card (Codex-style). Keep the scrollers full width and
+   shift their contents only on medium-width panes, so the note's reading width
+   is not reduced by the card. */
+[data-properties-open] .cm-editor .cm-scroller > *,
+[data-properties-open] .prose-zen {
+  translate: var(--z-properties-shift, 0px) 0;
+}
+/* Center the column even when the global alignment is "left" while the floating
+   card is visible. `:root` raises specificity past the left-align rules above. */
+:root [data-properties-open] .cm-editor .cm-content,
+:root [data-properties-open] .prose-zen {
+  margin-left: auto;
+  margin-right: auto;
+}
 .cm-editor .cm-line {
   padding: 0;
   line-height: var(--z-editor-line-height, 1.7);

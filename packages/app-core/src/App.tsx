@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 import { useStore } from './store'
+import { useT } from './lib/i18n'
 import { resolveThemeId } from './lib/themes'
 import { Sidebar } from './components/Sidebar'
 import { NoteList } from './components/NoteList'
@@ -242,7 +243,8 @@ const OnboardingWizard = lazy(async () => {
 })
 
 function EditorLoadingFallback(): JSX.Element {
-  return <div className="min-w-0 flex-1 bg-paper-100" aria-label="Loading editor" />
+  const t = useT()
+  return <div className="min-w-0 flex-1 bg-paper-100" aria-label={t('Loading editor')} />
 }
 
 function AppUpdateNotice({
@@ -326,6 +328,7 @@ function App(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const language = useStore((s) => s.language)
   const themeLightId = useStore((s) => s.themeLightId)
   const themeDarkId = useStore((s) => s.themeDarkId)
   const themeMode = useStore((s) => s.themeMode)
@@ -350,6 +353,12 @@ function App(): JSX.Element {
   useEffect(() => {
     void init()
   }, [init])
+
+  // Mirror the UI language into the main process so native dialogs it shows
+  // directly (the updater, etc.) are localized too.
+  useEffect(() => {
+    void window.zen.setAppLanguage(language)
+  }, [language])
 
   useEffect(() => {
     if (!vault) return undefined
@@ -601,6 +610,18 @@ function App(): JSX.Element {
           state.quickNoteTitlePrefix ?? undefined
         )
         void state.createAndOpen('quick', '', { title, focusTitle: true })
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.historyBack')) {
+        // ⌃- — go back in note navigation history (works in any mode)
+        e.preventDefault()
+        void state.jumpToPreviousNote()
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.historyForward')) {
+        // ⌃⇧- — go forward in note navigation history (works in any mode)
+        e.preventDefault()
+        void state.jumpToNextNote()
         return
       }
       if (matchesShortcut(e, overrides, 'global.toggleWordWrap')) {

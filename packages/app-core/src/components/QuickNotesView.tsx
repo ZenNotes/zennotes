@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isQuickNotesViewActive, useStore } from '../store'
 import { useT } from '../lib/i18n';
+import { formatDate } from '../lib/format-date'
 import { ArrowUpRightIcon, PlusIcon, ZapIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { resolveQuickNoteTitle } from '../lib/quick-note-title'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
-
-function formatDate(ms: number): string {
-  const d = new Date(ms)
-  const now = new Date()
-  const sameYear = d.getFullYear() === now.getFullYear()
-  return d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: sameYear ? undefined : 'numeric'
-  })
-}
 
 function cssEscape(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -25,6 +15,7 @@ function cssEscape(value: string): string {
 
 export function QuickNotesView(): JSX.Element {
   const t = useT();
+  const language = useStore((s) => s.language)
   const notes = useStore((s) => s.notes)
   const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
@@ -254,7 +245,7 @@ export function QuickNotesView(): JSX.Element {
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
                         <span className="truncate text-sm font-medium text-ink-900">{note.title}</span>
                         <span className="text-xs uppercase tracking-[0.16em] text-ink-500">
-                          {formatDate(note.updatedAt)}
+                          {formatDate(note.updatedAt, language)}
                         </span>
                       </div>
                       <div className="mt-0.5 truncate text-xs text-ink-500">{note.path}</div>

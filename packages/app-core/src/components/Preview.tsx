@@ -367,6 +367,7 @@ export const Preview = memo(function Preview({
   onRequestEdit?: (() => void) | null;
   onRendered?: (() => void) | null;
 }): JSX.Element {
+  const t = useT();
   const ref = useRef<HTMLDivElement | null>(null);
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
@@ -772,14 +773,14 @@ export const Preview = memo(function Preview({
     const currentDir = vaultRel?.split("/").slice(0, -1).join("/") ?? "";
     const items: ContextMenuItem[] = [
       {
-        label: "Open",
+        label: t("Open"),
         onSelect: async () => {
           if (vaultRel) await openNoteInTab(assetTabPath(vaultRel));
         },
         disabled: !vaultRel,
       },
       {
-        label: "Open in New Tab",
+        label: t("Open in New Tab"),
         onSelect: async () => {
           if (vaultRel) await openNoteInTab(assetTabPath(vaultRel));
         },
@@ -789,12 +790,12 @@ export const Preview = memo(function Preview({
 
     if (canManageAssets && vaultRel && asset) {
       items.push({
-        label: "Rename…",
+        label: t("Rename…"),
         onSelect: async () => {
           const next = await promptApp({
-            title: "Rename asset",
+            title: t("Rename asset"),
             initialValue: asset.name,
-            okLabel: "Rename",
+            okLabel: t("Rename"),
             validate: (value) => {
               const clean = value.trim();
               if (!clean) return "Asset name is required";
@@ -809,14 +810,14 @@ export const Preview = memo(function Preview({
         },
       });
       items.push({
-        label: "Move…",
+        label: t("Move…"),
         onSelect: async () => {
           const target = await promptApp({
-            title: "Move asset",
-            description: "Enter a vault-relative folder path. Leave empty to move to the vault root.",
+            title: t("Move asset"),
+            description: t("Enter a vault-relative folder path. Leave empty to move to the vault root."),
             initialValue: currentDir,
             placeholder: "media/screenshots",
-            okLabel: "Move",
+            okLabel: t("Move"),
             allowEmptySubmit: true,
             validate: (value) => {
               const clean = value.trim();
@@ -833,7 +834,7 @@ export const Preview = memo(function Preview({
         },
       });
       items.push({
-        label: "Duplicate",
+        label: t("Duplicate"),
         onSelect: async () => {
           await window.zen.duplicateAsset(vaultRel);
           await refreshAssets();
@@ -842,21 +843,21 @@ export const Preview = memo(function Preview({
     }
 
     items.push({
-      label: "Copy as Embed",
+      label: t("Copy as Embed"),
       disabled: !vaultRel,
       onSelect: async () => {
         if (vaultRel) window.zen.clipboardWriteText(`![[${vaultRel}]]`);
       },
     });
     items.push({
-      label: "Copy Path",
+      label: t("Copy Path"),
       disabled: !vaultRel,
       onSelect: async () => {
         if (vaultRel) window.zen.clipboardWriteText(vaultRel);
       },
     });
     items.push({
-      label: workspaceMode === "remote" ? "Copy Server Path" : "Copy Absolute Path",
+      label: workspaceMode === "remote" ? t("Copy Server Path") : t("Copy Absolute Path"),
       disabled: !vaultRel || !abs,
       onSelect: async () => {
         if (abs) window.zen.clipboardWriteText(abs);
@@ -864,7 +865,7 @@ export const Preview = memo(function Preview({
     });
     items.push(
       {
-        label: "Open as Reference (This Note)",
+        label: t("Open as Reference (This Note)"),
         disabled: !vaultRel,
         onSelect: async () => {
           if (vaultRel) {
@@ -873,7 +874,7 @@ export const Preview = memo(function Preview({
         },
       },
       {
-        label: "Open as Reference (Global)",
+        label: t("Open as Reference (Global)"),
         disabled: !vaultRel,
         onSelect: async () => {
           if (vaultRel) pinAssetReference(vaultRel);
@@ -883,7 +884,7 @@ export const Preview = memo(function Preview({
 
     if (canRevealInFileManager && vaultRel) {
       items.push({
-        label: "Reveal in File Manager",
+        label: t("Reveal in File Manager"),
         onSelect: async () => {
           await window.zen.revealNote(vaultRel);
         },
@@ -893,14 +894,15 @@ export const Preview = memo(function Preview({
     if (canDeleteAssets && vaultRel && asset) {
       items.push({ kind: "separator" });
       items.push({
-        label: "Delete Asset…",
+        label: t("Delete Asset…"),
         danger: true,
         onSelect: async () => {
           const ok = await confirmApp({
-            title: `Delete ${asset.name}?`,
-            description:
-              "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render.",
-            confirmLabel: "Delete asset",
+            title: t("Delete {name}?").replace("{name}", asset.name),
+            description: t(
+              "This removes the file from the vault. Notes that embed it will keep the link, but the media will no longer render."
+            ),
+            confirmLabel: t("Delete asset"),
             danger: true,
           });
           if (!ok) return;

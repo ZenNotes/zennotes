@@ -17,6 +17,7 @@ import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { parseTasksFromBody } from '@shared/tasks'
 import { useStore } from '../store'
 import { useT } from '../lib/i18n'
+import { formatMonthYear } from '../lib/format-date'
 import {
   classifyDateNote,
   noteFolderSubpath,
@@ -87,8 +88,8 @@ function isoWeekStr(d: Date): string {
   return `${getISOWeekYear(d)}-W${String(getISOWeek(d)).padStart(2, '0')}`
 }
 
-function monthLabel(d: Date): string {
-  return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+function monthLabel(d: Date, language?: string): string {
+  return formatMonthYear(d, language)
 }
 
 /** Number of word-count dots for a note (0 = none/unknown), plus a faint flag. */
@@ -100,6 +101,7 @@ function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean 
 
 export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   const t = useT()
+  const language = useStore((s) => s.language)
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
@@ -242,7 +244,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       }
       const ok = await confirmApp({
         title: t('New daily note'),
-        description: `${iso} does not exist yet. Create it?`,
+        description: t('{name} does not exist yet. Create it?').replace('{name}', iso),
         confirmLabel: t('Create'),
         cancelLabel: t('Never mind'),
       })
@@ -260,7 +262,10 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       }
       const ok = await confirmApp({
         title: t('New weekly note'),
-        description: `${weeklyNoteTitle(monday)} does not exist yet. Create it?`,
+        description: t('{name} does not exist yet. Create it?').replace(
+          '{name}',
+          weeklyNoteTitle(monday)
+        ),
         confirmLabel: t('Create'),
         cancelLabel: t('Never mind'),
       })
@@ -380,7 +385,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
             title={t("Go to current month")}
             className="rounded px-1.5 py-0.5 text-xs font-medium text-ink-700 transition-colors hover:text-accent"
           >
-            {monthLabel(anchor)}
+            {monthLabel(anchor, language)}
           </button>
           <button
             type="button"
@@ -406,7 +411,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
             onClick={() => setAnchor(new Date(refDate.getFullYear(), refDate.getMonth(), 1))}
             className="mt-1 w-full rounded px-2 py-1 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-accent"
           >
-            Back to {monthLabel(refDate)}
+            Back to {monthLabel(refDate, language)}
           </button>
         )}
       </div>
