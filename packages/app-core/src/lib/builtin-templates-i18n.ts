@@ -160,52 +160,6 @@ const ZH: Record<string, TemplateText> = {
 
 `
   },
-  'builtin.daily': {
-    name: '每日笔记',
-    description: '带专注、日程与任务的当日记录',
-    titleTemplate: '{{date:YYYY-MM-DD}}',
-    body: `# {{date:YYYY年M月D日}}
-
-## 专注
-
-- {{cursor}}
-
-## 日程
-
-## 记录
-
-## 任务
-
-- [ ]
-
-## 日志
-
-`
-  },
-  'builtin.weekly': {
-    name: '每周回顾',
-    description: '回顾上周并规划下周',
-    titleTemplate: '{{date:YYYY}}-W{{week}}',
-    body: `# {{date:YYYY}} 第 {{week}} 周
-
-## 上周 — 回顾
-
-- {{cursor}}
-
-## 成果
-
-## 本周 — 计划
-
-- [ ]
-
-## 顺延
-
-## 记录
-
-## 相关
-
-`
-  },
   'builtin.reading': {
     name: '读书笔记',
     description: '书或文章的笔记:观点、摘录、收获',

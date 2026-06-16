@@ -105,6 +105,8 @@ export const ZH: Record<string, string> = {
   'Live preview': '实时预览',
   "Hide markdown syntax on lines you're not editing. Turn off to always see raw #, **, [[…]], and other source text.":
     '隐藏你未在编辑的行上的 Markdown 语法。关闭后将始终显示原始的 #、**、[[…]] 等源文本。',
+  'Allow the editor to show source and preview side by side.':
+    '允许编辑器并排显示源码和预览。',
   'Note tabs': '笔记标签页',
   'Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior.':
     '用标签页打开笔记并支持分屏式的标签工作流。关闭则保留更简单的单笔记模式。',
@@ -230,49 +232,9 @@ export const ZH: Record<string, string> = {
   'Primary notes location': '主要笔记位置',
   "`Inbox` keeps ZenNotes' original lifecycle structure. `Vault root` surfaces top-level markdown files and folders directly.":
     '「Inbox」保留 ZenNotes 原本的生命周期结构;「Vault root」直接展示顶层的 Markdown 文件和文件夹。',
-  'Daily Notes': '每日笔记',
-  'Create one note per day with a simple date title and keep them in a dedicated directory.':
-    '每天创建一篇以简单日期为标题的笔记,统一存放在专门的目录里。',
-  'Enable daily notes': '启用每日笔记',
-  'Adds a dedicated daily-notes workflow without changing ordinary note creation.':
-    '增加一套专门的每日笔记工作流,不影响普通笔记的创建。',
-  'Daily notes directory': '每日笔记目录',
-  'Stored inside your primary notes area. The default is `Daily Notes`.':
-    '存放在你的主要笔记区内,默认是 `Daily Notes`。',
-  'Daily note template': '每日笔记模板',
-  'Applied when a daily note is created. None creates a blank note.':
-    '创建每日笔记时套用。选「None」则创建空白笔记。',
-  "Open today's daily note": '打开今天的每日笔记',
-  "Opens today's note if it exists, otherwise creates it with a YYYY-MM-DD title.":
-    '若今天的笔记已存在则打开,否则以 YYYY-MM-DD 为标题创建。',
-  'Open today': '打开今天',
-  'Weekly Notes': '每周笔记',
-  'Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory.':
-    '每个 ISO 周创建一篇以 YYYY-Www 为标题的笔记,统一存放在专门的目录里。',
-  'Enable weekly notes': '启用每周笔记',
-  'Adds a dedicated weekly-notes workflow alongside daily notes.':
-    '在每日笔记之外增加一套专门的每周笔记工作流。',
-  'Weekly notes directory': '每周笔记目录',
-  'Stored inside your primary notes area. The default is `Weekly Notes`.':
-    '存放在你的主要笔记区内,默认是 `Weekly Notes`。',
-  'Weekly note template': '每周笔记模板',
-  'Applied when a weekly note is created. None creates a blank note.':
-    '创建每周笔记时套用。选「None」则创建空白笔记。',
-  "Open this week's note": '打开本周的笔记',
-  "Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.":
-    '若本周的笔记已存在则打开,否则以 YYYY-Www 为标题创建。',
-  'Open this week': '打开本周',
-  'Show calendar in daily & weekly notes': '在每日和每周笔记中显示日历',
-  'Auto-open a calendar panel on the right while viewing a daily or weekly note, for jumping between dates. Toggle it anytime with the calendar icon or the leader-c shortcut.':
-    '查看每日或每周笔记时,自动在右侧打开日历面板用于在日期间跳转。可随时用日历图标或 leader-c 快捷键开关。',
-  'Calendar starts week on': '日历每周起始日',
-  'Which weekday the calendar grid begins with.': '日历网格从星期几开始。',
   Monday: '周一',
   Sunday: '周日',
   Locale: '区域',
-  'Show week numbers': '显示周数',
-  'Display the ISO week-number column in the calendar. Click a week number to open or create its weekly note.':
-    '在日历中显示 ISO 周数列。点击周数可打开或创建对应的每周笔记。',
   'System Folders': '系统文件夹',
   "Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root.":
     '自定义内置文件夹在界面中的名称。这只改变显示标签;内部文件夹 id 仍为 `inbox`、`quick`、`archive`、`trash`,即使主要笔记位于仓库根目录也是如此。',
@@ -391,6 +353,9 @@ export const ZH: Record<string, string> = {
     '几个最常用的命令。带空格的路径请加引号,或用 `--path` 传入。完整列表请运行 `zen --help`。',
   'Something went wrong:': '出错了:',
   Copy: '复制',
+  Copied: '已复制',
+  Failed: '失败',
+  'Copy failed': '复制失败',
 
   // ── Settings → CLI → Raycast ─────────────────────────────────────────────
   'Raycast Extension': 'Raycast 扩展',
@@ -466,8 +431,6 @@ export const ZH: Record<string, string> = {
   'New Note in Vault Root': '在仓库根目录新建笔记',
   'New Note in Current Folder': '在当前文件夹新建笔记',
   'New Base': '新建多维表格',
-  "Open Today's Daily Note": '打开今天的每日笔记',
-  "Open This Week's Note": '打开本周笔记',
   'New Note from Template…': '从模板新建笔记…',
   'Insert Template into Current Note…': '在当前笔记插入模板…',
   'Remove Built-in Templates': '移除内置模板',
@@ -532,7 +495,6 @@ export const ZH: Record<string, string> = {
   'Toggle Outline Panel': '切换大纲面板',
   'Toggle Connections Panel': '切换连接面板',
   'Toggle Comments Panel': '切换评论面板',
-  'Toggle Calendar Panel': '切换日历面板',
   'Close Right Panel': '关闭右侧面板',
   'Open Note Outline…': '打开笔记大纲…',
   'Open Buffer Switcher…': '打开缓冲区切换器…',
@@ -848,13 +810,6 @@ export const ZH: Record<string, string> = {
   'Nothing to show.': '没有内容。',
   'No matches.': '没有匹配。',
 
-  // ── CalendarPanel ────────────────────────────────────────────────────────
-  Calendar: '日历',
-  'Previous month': '上个月',
-  'Next month': '下个月',
-  'Go to current month': '回到本月',
-  'New daily note': '新建每日笔记',
-  'New weekly note': '新建每周笔记',
   'Never mind': '算了',
   'Open note': '打开笔记',
   'Move to Trash': '移到回收站',
@@ -1027,7 +982,6 @@ export const ZH: Record<string, string> = {
   'Toggle sidebar': '切换侧边栏',
   'Note outline': '笔记大纲',
   'Insert template into note': '向笔记插入模板',
-  'Toggle calendar': '切换日历',
   // Modals: Template editor
   'Preview…': '预览…',
   Variables: '变量',
@@ -1095,9 +1049,6 @@ export const ZH: Record<string, string> = {
   Tools: '工具',
   Web: '网页',
   'Server URL': '服务器 URL',
-  "Today's daily note": '今天的每日笔记',
-  "This week's note": '本周的笔记',
-
   // ── Keymap definitions (keymaps.ts: titles + descriptions) ───────────────
   // Titles
   'Open command palette': '打开命令面板',
@@ -1173,10 +1124,7 @@ export const ZH: Record<string, string> = {
   'Leader: switch vault': 'Leader:切换仓库',
   'Leader: open quick capture': 'Leader:打开快速记录',
   'Leader: toggle sidebar': 'Leader:切换侧边栏',
-  'Leader: toggle calendar': 'Leader:切换日历',
   'Leader: hint mode': 'Leader:提示模式',
-  "Leader: today's daily note": 'Leader:今天的每日笔记',
-  "Leader: this week's note": 'Leader:本周的笔记',
   // Descriptions
   'Open the vault-wide note search palette.': '打开全库笔记搜索面板。',
   'Extra direct search shortcut when Vim mode is off.': 'Vim 模式关闭时的额外直达搜索快捷键。',
@@ -1188,7 +1136,6 @@ export const ZH: Record<string, string> = {
   'Toggle the connections panel in the active pane.': '在当前窗格中切换连接面板。',
   'Toggle the outline panel in the active pane.': '在当前窗格中切换大纲面板。',
   'Toggle the comments panel in the active pane.': '在当前窗格中切换评论面板。',
-  'Toggle the calendar panel for the active daily or weekly note.': '为当前每日或每周笔记切换日历面板。',
   'Expand or collapse the current sidebar folder.': '展开或折叠当前侧边栏文件夹。',
   'Check or uncheck the selected task.': '勾选或取消勾选选中的任务。',
   'Hide or restore the app chrome.': '隐藏或恢复应用界面。',
@@ -1249,9 +1196,6 @@ export const ZH: Record<string, string> = {
   'Open the floating quick capture window.': '打开浮动快速记录窗口。',
   'Open the template picker to create a note.': '打开模板选择器以创建笔记。',
   'Render a template into the current note.': '把模板渲染进当前笔记。',
-  'Open or create today’s daily note.': '打开或创建今天的每日笔记。',
-  "Open or create today's daily note.": '打开或创建今天的每日笔记。',
-  "Open or create this week's weekly note.": '打开或创建本周的每周笔记。',
   'Show or hide the left sidebar.': '显示或隐藏左侧边栏。',
   'Hide or show the left sidebar.': '隐藏或显示左侧边栏。',
   'Start leader mode and leader hints.': '进入 leader 模式并显示 leader 提示。',
@@ -1313,13 +1257,11 @@ export const ZH: Record<string, string> = {
   "Vault layout": "仓库布局",
   "Pick a vault first — these settings live inside the vault.": "请先选择仓库 —— 这些设置保存在仓库内。",
   "Back to vault": "返回仓库",
-  "How the vault should be organized. You can change either of these later in Settings.": "仓库的组织方式。这两项之后都可以在设置中更改。",
+  "How the vault should be organized. You can change this later in Settings.": "仓库的组织方式。之后可以在设置中更改。",
   "Inbox folder": "Inbox 文件夹",
   "Notes live under inbox/. Keeps ZenNotes' lifecycle structure: inbox → archive → trash.": "笔记存放在 inbox/ 下。保留 ZenNotes 的生命周期结构:inbox → archive → trash。",
   "Vault root": "仓库根目录",
   "Top-level .md files become the primary view. Obsidian-style flat vault.": "顶层的 .md 文件成为主视图。Obsidian 风格的扁平仓库。",
-  "Daily notes": "每日笔记",
-  "One note per day with a YYYY-MM-DD title, opened with a single command.": "每天一篇、以 YYYY-MM-DD 为标题的笔记,一个命令即可打开。",
   "All set": "全部就绪",
   "You're ready to write": "你可以开始写作了",
   "Choose a vault when you want to start": "想开始时再选择仓库",
@@ -1410,7 +1352,7 @@ export const ZH: Record<string, string> = {
   "Create a note in the folder you are already in": "在当前所在的文件夹中创建笔记",
   "When you are browsing a folder, use the current-folder note command instead of creating in Inbox and moving later. That keeps new notes close to the project or area you were already working in.": "浏览某个文件夹时,使用“当前文件夹新建笔记”命令,而不是先在收件箱创建再移动。这样新笔记就靠近你正在处理的项目或领域。",
   "Start a note from a template": "用模板新建笔记",
-  "Open the template picker with `Space t`, the `:template` (or `:tmpl`) ex command, or the “New Note from Template…” command palette entry. Pick a built-in template — engineering ones like ADR, RFC/Design Doc, Bug Report, Postmortem, Meeting Notes, and 1:1, or personal ones like Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, and To-do — or one of your own. ZenNotes then asks which folder to create it in (defaulting to the folder you are viewing) and fills in variables like the date and week before placing your cursor where the template marks it. To create straight into a specific folder, right-click that folder in the sidebar and choose “New from template”.": "用 `Space t`、`:template`(或 `:tmpl`)ex 命令,或命令面板中的“从模板新建笔记…”条目打开模板选择器。挑选一个内置模板 —— 工程类如 ADR、RFC/设计文档、Bug 报告、复盘、会议记录、1:1,个人类如每日笔记、每周回顾、读书笔记、日志、项目启动、待办 —— 或你自己的模板。随后 ZenNotes 会询问要在哪个文件夹创建(默认是你正在查看的文件夹),并填入日期、周数等变量,再把光标放到模板标记的位置。要直接创建到某个文件夹,可在侧边栏右键该文件夹并选择“从模板新建”。",
+  "Open the template picker with `Space t`, the `:template` (or `:tmpl`) ex command, or the “New Note from Template…” command palette entry. Pick a built-in template — engineering ones like ADR, RFC/Design Doc, Bug Report, Postmortem, Meeting Notes, and 1:1, or personal ones like Reading Notes, Journal, Project Kickoff, and To-do — or one of your own. ZenNotes then asks which folder to create it in (defaulting to the folder you are viewing) and fills in variables like the date and week before placing your cursor where the template marks it. To create straight into a specific folder, right-click that folder in the sidebar and choose “New from template”.": "用 `Space t`、`:template`(或 `:tmpl`)ex 命令,或命令面板中的“从模板新建笔记…”条目打开模板选择器。挑选一个内置模板 —— 工程类如 ADR、RFC/设计文档、Bug 报告、复盘、会议记录、1:1,个人类如读书笔记、日志、项目启动、待办 —— 或你自己的模板。随后 ZenNotes 会询问要在哪个文件夹创建(默认是你正在查看的文件夹),并填入日期、周数等变量,再把光标放到模板标记的位置。要直接创建到某个文件夹,可在侧边栏右键该文件夹并选择“从模板新建”。",
   "Make and edit your own templates": "创建并编辑你自己的模板",
   "Open Settings → Templates. Press “New template” to author one: a template is just markdown with optional YAML frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and a body. Use the variables `{{title}}`, `{{date}}`, `{{date:YYYY-MM-DD}}` (any moment-style format), `{{time}}`, `{{week}}`, and `{{cursor}}` (where the caret lands). Custom templates are saved as plain `.md` files under `.zennotes/templates/`. You can also fork a built-in by pressing Edit on it — that creates an editable copy that shadows the original, and Reset restores the built-in. From any note, the “Save Current Note as Template…” command captures it as a new template.": "打开“设置 → 模板”。点击“新建模板”来撰写:模板就是带可选 YAML frontmatter(`name`、`description`、`category`、`titleTemplate`、`targetFolder`、`targetSubpath`)和正文的 Markdown。可使用变量 `{{title}}`、`{{date}}`、`{{date:YYYY-MM-DD}}`(任意 moment 风格格式)、`{{time}}`、`{{week}}` 和 `{{cursor}}`(光标落点)。自定义模板以纯 `.md` 文件保存在 `.zennotes/templates/` 下。你也可以对内置模板点击“编辑”来派生:这会创建一个覆盖原模板的可编辑副本,“重置”则恢复内置版本。在任意笔记中,“将当前笔记保存为模板…”命令可把它保存为新模板。",
   "Move a note without dragging": "不用拖拽移动笔记",
@@ -1456,7 +1398,7 @@ export const ZH: Record<string, string> = {
   "@ shortcuts insert relative dates": "@ 快捷方式插入相对日期",
   "Typing `@` in normal text opens date suggestions for Today, Yesterday, and Tomorrow. Choosing one inserts an ISO date like `2026-04-15`, which keeps notes file-friendly, searchable, and easy to sort.": "在普通文本中输入 `@` 会打开“今天”“昨天”“明天”的日期建议。选择其一会插入像 `2026-04-15` 这样的 ISO 日期,让笔记对文件友好、可搜索、易排序。",
   "Templates scaffold new notes": "模板为新笔记搭好骨架",
-  "Templates turn a repeated note shape into one keystroke. ZenNotes ships built-in templates for engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do), and you can author your own under Settings → Templates. A template is plain markdown with optional frontmatter and variables — `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}` — substituted at creation time. Custom templates are stored as `.md` files in `.zennotes/templates/`, so they stay portable like everything else. Daily and weekly notes can each be assigned a template so dated notes start pre-filled.": "模板把重复的笔记结构变成一次按键。ZenNotes 内置了工程类(ADR、RFC、Bug 报告、复盘、会议记录、1:1)和个人类(每日笔记、每周回顾、读书笔记、日志、项目启动、待办)模板,你也可以在“设置 → 模板”下撰写自己的。模板就是带可选 frontmatter 和变量的纯 Markdown —— `{{title}}`、`{{date}}`、`{{date:FORMAT}}`、`{{time}}`、`{{week}}` 和 `{{cursor}}` —— 在创建时替换。自定义模板以 `.md` 文件存放在 `.zennotes/templates/` 中,因此和其他一切一样可移植。每日和每周笔记可各自指定一个模板,让带日期的笔记一开始就预填好。",
+  "Templates turn a repeated note shape into one keystroke. ZenNotes ships built-in templates for engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Reading Notes, Journal, Project Kickoff, To-do), and you can author your own under Settings → Templates. A template is plain markdown with optional frontmatter and variables — `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}` — substituted at creation time. Custom templates are stored as `.md` files in `.zennotes/templates/`, so they stay portable like everything else.": "模板把重复的笔记结构变成一次按键。ZenNotes 内置了工程类(ADR、RFC、Bug 报告、复盘、会议记录、1:1)和个人类(读书笔记、日志、项目启动、待办)模板,你也可以在“设置 → 模板”下撰写自己的。模板就是带可选 frontmatter 和变量的纯 Markdown —— `{{title}}`、`{{date}}`、`{{date:FORMAT}}`、`{{time}}`、`{{week}}` 和 `{{cursor}}` —— 在创建时替换。自定义模板以 `.md` 文件存放在 `.zennotes/templates/` 中,因此和其他一切一样可移植。",
   "Reference and connections support research-heavy work": "引用与连接支持研究密集型工作",
   "Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft.": "在引用面板固定一篇配套笔记或 PDF,然后切换连接面板,在起草时查看反向链接和未解析的链接。",
   "Zen mode removes chrome": "禅模式移除界面装饰",
@@ -1598,8 +1540,6 @@ export const ZH: Record<string, string> = {
   "Open the vault-wide Tasks virtual tab.": "打开全库的任务虚拟标签。",
   "New note from a template": "从模板新建笔记",
   "Open the template picker. With an argument like `:template ADR` it skips the picker and creates from the best-matching template directly.": "打开模板选择器。带上 `:template ADR` 这样的参数时,会跳过选择器,直接从最匹配的模板创建。",
-  "Open or create today’s daily note (requires daily notes enabled in Settings → Vault). Uses the assigned daily template if one is set.": "打开或创建今天的每日笔记(需在“设置 → 仓库”中启用每日笔记)。若已设置每日模板,则使用它。",
-  "Open or create this week’s note with a YYYY-Www title (requires weekly notes enabled in Settings → Vault). Uses the assigned weekly template if one is set.": "打开或创建本周、以 YYYY-Www 为标题的笔记(需在“设置 → 仓库”中启用每周笔记)。若已设置每周模板,则使用它。",
   "Open Tags with a selection": "带选择打开标签",
   "Open the Tags view and replace the selected tag set with the given tags.": "打开标签视图,并用给定标签替换当前所选标签集。",
   "Open Trash": "打开回收站",
@@ -1648,10 +1588,6 @@ export const ZH: Record<string, string> = {
   "Leader vault switcher": "Leader 仓库切换器",
   "Leader new from template": "Leader 从模板新建",
   "Open the template picker to create a note from a built-in or custom template.": "打开模板选择器,从内置或自定义模板创建笔记。",
-  "Leader today's daily note": "Leader 今天的每日笔记",
-  "Open or create today’s daily note (when daily notes are enabled in Settings → Vault).": "打开或创建今天的每日笔记(当“设置 → 仓库”中启用了每日笔记时)。",
-  "Leader this week's note": "Leader 本周的笔记",
-  "Open or create this week’s note (when weekly notes are enabled in Settings → Vault).": "打开或创建本周的笔记(当“设置 → 仓库”中启用了每周笔记时)。",
   "Note outline palette": "笔记大纲面板",
   "The ex-line path to the same searchable note outline opened by the Leader outline binding.": "通往与 Leader 大纲绑定相同的可搜索笔记大纲的 ex 命令行路径。",
   "Switch the active note layout": "切换当前笔记布局",
@@ -1700,18 +1636,15 @@ export const ZH: Record<string, string> = {
   "Clear an individual override or reset the entire keymap table back to the shipped defaults.": "清除单个覆盖,或把整张键位表重置回出厂默认。",
   "Reveal or change the root folder ZenNotes treats as the active vault.": "显示或更改 ZenNotes 视为当前仓库的根文件夹。",
   "Treat `inbox/` as the main notes area, or use the vault root directly for an Obsidian-style flat vault.": "把 `inbox/` 当作主要笔记区域,或直接使用仓库根目录以获得 Obsidian 风格的扁平仓库。",
-  "Enable a daily-notes workflow, choose its directory, and assign a template so each day’s note starts pre-filled. Open today’s note with `Space d`, `:daily`, or the command palette.": "启用每日笔记工作流,选择其目录,并指定一个模板,让每天的笔记一开始就预填好。用 `Space d`、`:daily` 或命令面板打开今天的笔记。",
-  "Weekly notes": "每周笔记",
-  "Enable weekly notes with a YYYY-Www title, choose a directory, and assign a template. Open this week’s note with `Space w`, `:weekly`, or the command palette.": "启用以 YYYY-Www 为标题的每周笔记,选择目录并指定模板。用 `Space w`、`:weekly` 或命令面板打开本周的笔记。",
   "System folder labels": "系统文件夹标签",
   "Rename how Inbox, Quick Notes, Archive, and Trash appear in the UI without renaming the real folders on disk.": "重命名收件箱、速记、归档和回收站在界面上的显示名称,而无需重命名磁盘上的真实文件夹。",
   "Template library": "模板库",
-  "Browse every template — built-in and custom. Built-ins cover engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do).": "浏览每个模板 —— 内置和自定义。内置涵盖工程类(ADR、RFC、Bug 报告、复盘、会议记录、1:1)和个人类(每日笔记、每周回顾、读书笔记、日志、项目启动、待办)。",
+  "Browse every template — built-in and custom. Built-ins cover engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Reading Notes, Journal, Project Kickoff, To-do).": "浏览每个模板 —— 内置和自定义。内置涵盖工程类(ADR、RFC、Bug 报告、复盘、会议记录、1:1)和个人类(读书笔记、日志、项目启动、待办)。",
   "Author a new template as markdown with optional frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and variables like `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}`. It is saved as a `.md` file in `.zennotes/templates/`.": "把新模板撰写为带可选 frontmatter(`name`、`description`、`category`、`titleTemplate`、`targetFolder`、`targetSubpath`)和变量(如 `{{title}}`、`{{date}}`、`{{date:FORMAT}}`、`{{time}}`、`{{week}}` 和 `{{cursor}}`)的 Markdown。它会保存为 `.zennotes/templates/` 中的 `.md` 文件。",
   "Edit or reset built-ins": "编辑或重置内置模板",
   "Press Edit on a built-in to fork an editable copy that shadows the original everywhere; Reset removes the copy and restores the built-in. Custom templates can be edited or deleted directly.": "对内置模板点击“编辑”以派生一个处处覆盖原模板的可编辑副本;“重置”会移除该副本并恢复内置版本。自定义模板可直接编辑或删除。",
   "Where templates appear": "模板出现在哪里",
-  "Use a template via the picker (`Space t` / `:template` / “New Note from Template…”), from a folder’s right-click “New from template”, or as the assigned daily/weekly note template. Custom templates require a local vault; built-ins work everywhere.": "通过选择器(`Space t` / `:template` / “从模板新建笔记…”)、文件夹右键的“从模板新建”,或作为指定的每日/每周笔记模板来使用模板。自定义模板需要本地仓库;内置模板处处可用。",
+  "Use a template via the picker (`Space t` / `:template` / “New Note from Template…”), or from a folder’s right-click “New from template”. Custom templates require a local vault; built-ins work everywhere.": "通过选择器(`Space t` / `:template` / “从模板新建笔记…”),或文件夹右键的“从模板新建”来使用模板。自定义模板需要本地仓库;内置模板处处可用。",
   "Install Command-Line Tool": "安装命令行工具",
   "Symlink the bundled `zen` wrapper into a usable PATH location so any terminal session can capture, search, and edit notes. ZenNotes prefers user-writable directories and only prompts for admin access when no writable PATH target is available. The CLI runtime stays packaged with the app, including the dependencies needed by `zen mcp`, so updates ship together.": "把捆绑的 `zen` 包装器软链接到可用的 PATH 位置,这样任意终端会话都能记录、搜索和编辑笔记。ZenNotes 优先用户可写目录,只有在没有可写 PATH 目标时才请求管理员权限。CLI 运行时与应用一起打包,包括 `zen mcp` 所需的依赖,因此更新会一并发布。",
   "Status, path, and quick reference": "状态、路径与速查",
@@ -1744,7 +1677,7 @@ export const ZH: Record<string, string> = {
   "Raycast local install requirements": "Raycast 本地安装要求",
   "The local Raycast installer is macOS-only. It needs Raycast, the `zen` CLI, Node.js 22.14 or newer, and npm 7 or newer available from your login shell. Settings shows each requirement, the local extension path, and whether the installed copy is current with the bundled ZenNotes version.": "本地 Raycast 安装器仅限 macOS。它需要 Raycast、`zen` CLI、Node.js 22.14 或更新版本,以及登录 shell 中可用的 npm 7 或更新版本。设置会显示每项要求、本地扩展路径,以及已安装副本是否与捆绑的 ZenNotes 版本一致。",
   "Edit incrementally": "增量编辑",
-  "Prefer `zen append` and `zen prepend` over `zen write` for journals and running lists — they preserve the rest of the body. Both accept `--body \"literal\"` or `--body -` to read stdin (so `cat ideas.txt | zen append daily.md --body -` works).": "对日志和持续列表,优先用 `zen append` 和 `zen prepend` 而非 `zen write` —— 它们会保留正文的其余部分。两者都接受 `--body \"literal\"` 或 `--body -` 以读取 stdin(因此 `cat ideas.txt | zen append daily.md --body -` 可用)。",
+  "Prefer `zen append` and `zen prepend` over `zen write` for journals and running lists — they preserve the rest of the body. Both accept `--body \"literal\"` or `--body -` to read stdin (so `cat ideas.txt | zen append journal.md --body -` works).": "对日志和持续列表,优先用 `zen append` 和 `zen prepend` 而非 `zen write` —— 它们会保留正文的其余部分。两者都接受 `--body \"literal\"` 或 `--body -` 以读取 stdin(因此 `cat ideas.txt | zen append journal.md --body -` 可用)。",
   "Tasks and folders": "任务与文件夹",
   "`zen task list` enumerates open checkboxes across the vault with stable ids. `zen task toggle <id>` flips a task without opening the note. `zen folder list / create / rename / delete` keep your subfolder tree manageable from the terminal.": "`zen task list` 列举仓库中所有打开的复选框并带稳定 id。`zen task toggle <id>` 在不打开笔记的情况下翻转一个任务。`zen folder list / create / rename / delete` 让你从终端管理子文件夹树。",
   "MCP for AI agents": "面向 AI 智能体的 MCP",
@@ -1815,8 +1748,6 @@ export const ZH: Record<string, string> = {
   'Open as Reference (This Note)': '作为引用打开(本笔记)',
   'Open as Reference (Global)': '作为引用打开(全局)',
   'Delete {name}?': '删除 {name}?',
-  // CalendarPanel
-  '{name} does not exist yet. Create it?': '{name} 尚不存在。要创建吗?',
   // commands.ts
   'Remove demo tour': '移除演示导览',
   // App.tsx

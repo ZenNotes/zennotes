@@ -33,7 +33,6 @@ import {
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -98,7 +97,6 @@ import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
-import { CalendarPanel } from './CalendarPanel'
 import { PropertiesPanel } from './PropertiesPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -151,7 +149,6 @@ import {
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
-  CalendarIcon,
   CheckSquareIcon,
   CloseIcon,
   DocumentIcon,
@@ -175,10 +172,8 @@ import {
   resolveSystemFolderLabels
 } from '../lib/system-folder-labels'
 import {
-  classifyDateNote,
   isPrimaryNotesAtRoot,
-  noteFolderSubpath,
-  normalizeVaultSettings
+  noteFolderSubpath
 } from '../lib/vault-layout'
 import {
   dragHasAttachmentFile,
@@ -214,7 +209,7 @@ import { assetSourcePath, classifyLocalAssetHref } from '../lib/local-assets'
 import { getKeymapDisplay, type KeymapId } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { useT } from '../lib/i18n'
-import { firstBindableH1 } from '../lib/note-title-heading'
+import { bindableH1TitleCursorOffset, firstBindableH1 } from '../lib/note-title-heading'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
 import { markdownSnippetExtension } from '../lib/cm-markdown-snippets'
 
@@ -791,6 +786,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const clearNoteRenameTransition = useStore((s) => s.clearNoteRenameTransition)
   const vimMode = useStore((s) => s.vimMode)
   const livePreview = useStore((s) => s.livePreview)
+  const splitModeEnabled = useStore((s) => s.splitModeEnabled)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
@@ -801,17 +797,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels, tr)
-  const vaultSettings = useStore((s) => s.vaultSettings)
-  const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
 
   const [modesByPath, setModesByPath] = useState<PaneModesByPath>({})
-  const mode = paneModeForPath(modesByPath, activeTab)
+  const rawMode = paneModeForPath(modesByPath, activeTab)
+  const mode = rawMode === 'split' && !splitModeEnabled ? 'edit' : rawMode
   const activeContentMaxWidth = mode === 'preview' ? previewMaxWidth : editorMaxWidth
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
-  const [calendarOpen, setCalendarOpen] = useState(false)
   // The Properties card surfaces a note's frontmatter beside the text. It's an
   // intrinsic part of the note — not a toggleable panel — so it simply shows
   // whenever the note has properties (plain frontmatter keys, or a record page's
@@ -821,17 +815,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (parseFrontmatterRaw(content.body).length > 0) return true
     return findRecordLink(databases, content.path) != null
   }, [content?.body, content?.path, databases])
-  // The calendar panel is a date navigator. It auto-opens while the pane shows
-  // a daily/weekly note, but stays available (Obsidian-style) on any note as
-  // long as the daily or weekly feature is enabled.
-  const isDateNote = useMemo(
-    () => (content ? classifyDateNote(content, vaultSettings) != null : false),
-    [content, vaultSettings]
-  )
-  const calendarAvailable = useMemo(() => {
-    const s = normalizeVaultSettings(vaultSettings)
-    return s.dailyNotes.enabled || s.weeklyNotes.enabled
-  }, [vaultSettings])
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null)
   const [selectionCommentAction, setSelectionCommentAction] =
     useState<SelectionCommentAction>(null)
@@ -1139,12 +1122,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCommentsOpen((open) => !open)
   }, [])
 
-  const toggleCalendarPanel = useCallback(() => {
-    setCalendarOpen((open) => !open)
-  }, [])
-
-
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
+    if (nextMode === 'split' && !splitModeEnabled) return
     setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
     setActivePane(paneId)
     setFocusedPanel('editor')
@@ -1155,7 +1134,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       focusEditorNormalMode()
     })
-  }, [activeTab, paneId, setActivePane, setFocusedPanel])
+  }, [activeTab, paneId, setActivePane, setFocusedPanel, splitModeEnabled])
+
+  useEffect(() => {
+    if (splitModeEnabled || rawMode !== 'split') return
+    setModesByPath((current) => paneModesWithPathMode(current, activeTab, 'edit'))
+  }, [activeTab, rawMode, splitModeEnabled])
 
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
@@ -1177,16 +1161,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener('zen:toggle-comments', handler)
   }, [isActive, toggleCommentsPanel])
 
-  // `zen:toggle-calendar` — same active-pane routing as the panels above.
-  useEffect(() => {
-    if (!isActive) return
-    const handler = (): void => {
-      toggleCalendarPanel()
-    }
-    window.addEventListener('zen:toggle-calendar', handler)
-    return () => window.removeEventListener('zen:toggle-calendar', handler)
-  }, [isActive, toggleCalendarPanel])
-
   // `zen:close-right-panel` — Esc (when a right panel is focused) or the
   // "Close right panel" command dismiss whichever right-hand panel is open in
   // the active pane and return focus to the editor.
@@ -1196,7 +1170,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setConnectionsOpen(false)
       setOutlineOpen(false)
       setCommentsOpen(false)
-      setCalendarOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
       if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
@@ -1206,19 +1179,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:close-right-panel', handler)
     return () => window.removeEventListener('zen:close-right-panel', handler)
   }, [isActive, setConnectionPreview, setFocusedPanel])
-
-  // Auto-show the calendar when this pane lands on a daily/weekly note. On other
-  // notes we leave it as-is (Obsidian-style persistence) so it stays open while
-  // you browse, and only force it closed when the feature is turned off entirely.
-  // Keyed on the note identity (not every render) so a manual `leader c` / icon
-  // close sticks until the note changes.
-  useEffect(() => {
-    if (!calendarAvailable) {
-      setCalendarOpen(false)
-      return
-    }
-    if (isDateNote && autoCalendarPanel) setCalendarOpen(true)
-  }, [content?.path, isDateNote, autoCalendarPanel, calendarAvailable])
 
   useEffect(() => {
     if (!isActive) return
@@ -1707,7 +1667,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           }),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
-          drawSelection(),
           highlightActiveLine(),
           taskJumpHighlightField,
           commentDecorationField,
@@ -2042,6 +2001,31 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     noteRenameTransition?.newPath,
     noteRenameTransition?.oldPath,
     pendingJumpLocation?.path
+  ])
+
+  useLayoutEffect(() => {
+    if (!isActive || mode === 'preview' || !content) return
+    if (pendingTitleFocusPath !== content.path) return
+    const view = viewRef.current
+    if (!view) return
+    const anchor = bindableH1TitleCursorOffset(view.state.doc.toString()) ?? 0
+    const clampedAnchor = Math.min(anchor, view.state.doc.length)
+    view.dispatch({
+      annotations: [programmatic.of(true)],
+      selection: { anchor: clampedAnchor },
+      effects: EditorView.scrollIntoView(clampedAnchor, { y: 'start' })
+    })
+    setFocusedPanel('editor')
+    view.focus()
+    clearPendingTitleFocus()
+  }, [
+    clearPendingTitleFocus,
+    content?.body,
+    content?.path,
+    isActive,
+    mode,
+    pendingTitleFocusPath,
+    setFocusedPanel
   ])
 
   // A note that is a database record page projects the form's columns as its
@@ -3110,7 +3094,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!content) return null
     return (
       <div className="flex items-center gap-1 text-ink-500">
-        <ToggleGroup mode={mode} onChange={applyPaneMode} />
+        <ToggleGroup
+          mode={mode}
+          splitModeEnabled={splitModeEnabled}
+          onChange={applyPaneMode}
+        />
         <div className="mx-2 h-4 w-px bg-paper-300" />
         <IconBtn
           title={connectionsOpen ? 'Hide connections' : 'Show connections'}
@@ -3137,15 +3125,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         >
           <ListTreeIcon />
         </IconBtn>
-        {calendarAvailable && (
-          <IconBtn
-            title={calendarOpen ? 'Hide calendar' : 'Show calendar'}
-            active={calendarOpen}
-            onClick={toggleCalendarPanel}
-          >
-            <CalendarIcon />
-          </IconBtn>
-        )}
         <IconBtn
           title={tr("More actions")}
           active={!!overflowMenu}
@@ -3164,6 +3143,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [
     content,
     mode,
+    splitModeEnabled,
     applyPaneMode,
     connectionsOpen,
     toggleConnectionsPanel,
@@ -3172,9 +3152,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     toggleCommentsPanel,
     outlineOpen,
     toggleOutlinePanel,
-    calendarAvailable,
-    calendarOpen,
-    toggleCalendarPanel,
     overflowMenu
   ])
 
@@ -3585,7 +3562,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             )}
             <Breadcrumb
               note={content}
-              autoFocus={isActive && pendingTitleFocusPath === content.path}
+              autoFocus={false}
               onAutoFocusHandled={clearPendingTitleFocus}
               onRename={(next) => {
                 if (next && next !== content.title) void renameActive(next)
@@ -3766,9 +3743,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             activeLine={activeOutlineLine}
             onJump={jumpToOutlineLine}
           />
-        )}
-        {content && calendarOpen && calendarAvailable && !zenMode && (
-          <CalendarPanel note={content} />
         )}
       </div>
       {editorLinkHover && showEditor && mode === 'edit' && (
@@ -4105,34 +4079,38 @@ function IconBtn({
 
 function ToggleGroup({
   mode,
+  splitModeEnabled,
   onChange
 }: {
   mode: PaneMode
+  splitModeEnabled: boolean
   onChange: (m: PaneMode) => void
 }): JSX.Element {
   const tr = useT()
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
-      {MODE_OPTIONS.map((option) => {
-        const shortcut = getKeymapDisplay(keymapOverrides, option.keymapId)
-        return (
-          <button
-            key={option.mode}
-            onClick={() => onChange(option.mode)}
-            title={`${tr(option.tooltipLabel)} (${shortcut})`}
-            aria-label={`${tr(option.tooltipLabel)} (${shortcut})`}
-            className={[
-              'rounded px-2 py-1 transition-colors',
-              mode === option.mode
-                ? 'bg-paper-50 text-ink-900 shadow-sm'
-                : 'text-ink-500 hover:text-ink-800'
-            ].join(' ')}
-          >
-            {tr(option.label)}
-          </button>
-        )
-      })}
+      {MODE_OPTIONS.filter((option) => splitModeEnabled || option.mode !== 'split').map(
+        (option) => {
+          const shortcut = getKeymapDisplay(keymapOverrides, option.keymapId)
+          return (
+            <button
+              key={option.mode}
+              onClick={() => onChange(option.mode)}
+              title={`${tr(option.tooltipLabel)} (${shortcut})`}
+              aria-label={`${tr(option.tooltipLabel)} (${shortcut})`}
+              className={[
+                'rounded px-2 py-1 transition-colors',
+                mode === option.mode
+                  ? 'bg-paper-50 text-ink-900 shadow-sm'
+                  : 'text-ink-500 hover:text-ink-800'
+              ].join(' ')}
+            >
+              {tr(option.label)}
+            </button>
+          )
+        }
+      )}
     </div>
   )
 }

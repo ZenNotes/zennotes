@@ -4,7 +4,6 @@ import { useT } from '../lib/i18n';
 import { formatDate } from '../lib/format-date'
 import { ArrowUpRightIcon, PlusIcon, ZapIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
-import { resolveQuickNoteTitle } from '../lib/quick-note-title'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 
@@ -20,8 +19,6 @@ export function QuickNotesView(): JSX.Element {
   const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
-  const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
-  const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
@@ -80,13 +77,8 @@ export function QuickNotesView(): JSX.Element {
   )
 
   const createQuickNote = useCallback(async () => {
-    const title = resolveQuickNoteTitle(
-      useStore.getState().notes,
-      quickNoteDateTitle,
-      quickNoteTitlePrefix ?? undefined
-    )
-    await createAndOpen('quick', '', { title, focusTitle: true })
-  }, [createAndOpen, quickNoteDateTitle, quickNoteTitlePrefix])
+    await createAndOpen('quick', '', { focusTitle: true })
+  }, [createAndOpen])
 
   useEffect(() => {
     if (!amActive || !vimMode) return

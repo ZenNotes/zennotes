@@ -1086,7 +1086,7 @@ export async function createNote(
   await fs.mkdir(dir, { recursive: true })
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
-  const content = body ?? (title?.trim() ? `# ${finalTitle}\n\n` : '# \n\n')
+  const content = body ?? (title?.trim() ? `# ${finalTitle}\n` : '# \n')
   await fs.writeFile(abs, content, 'utf8')
   return await readMeta(root, abs, folder)
 }

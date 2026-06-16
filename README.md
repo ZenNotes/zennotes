@@ -10,7 +10,7 @@ ZenNotes is a keyboard-first Markdown notes app with a shared product core and m
 - a self-hosted web app backed by a Go server
 - a future hosted deployment mode built on the same web/server stack
 
-ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, daily notes, CSV databases (Notion-style Table + Board views over plain `.csv` files), and MCP integration on top of the files you already own.
+ZenNotes keeps your notes as ordinary Markdown files on disk. It adds Vim-friendly editing, split and preview workflows, tasks, tags, archive/trash, diagrams, search, CSV databases (Notion-style Table + Board views over plain `.csv` files), and MCP integration on top of the files you already own.
 On macOS, the first-party `zen` CLI also powers launcher workflows such as the Raycast extension.
 
 Grab the latest build from [GitHub Releases](https://github.com/ZenNotes/zennotes/releases/latest) — see [Install](#install) below.  
@@ -141,15 +141,6 @@ System folders still exist, but the vault model is more flexible now:
 
 The built-in folder labels are also customizable in the UI without changing the underlying internal ids.
 
-### Daily notes
-
-Daily notes are optional and can be enabled from Settings.
-
-- when enabled, ZenNotes can open or create today's note automatically
-- the title is a simple ISO date like `2026-04-21`
-- daily notes live in a dedicated directory under your primary notes area
-- the default directory is `Daily Notes`
-
 ### Editor and preview
 
 The editor stack is CodeMirror 6 with a Markdown-oriented workflow:
@@ -229,7 +220,6 @@ The settings surface includes:
 - Vim toggles and leader hint behavior
 - search backend selection
 - vault layout settings
-- daily notes settings
 - system-folder display labels
 
 ## Desktop vs web

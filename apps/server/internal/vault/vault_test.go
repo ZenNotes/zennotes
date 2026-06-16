@@ -535,23 +535,23 @@ func TestTrashRoundTripPreservesSubfolder(t *testing.T) {
 	}
 }
 
-func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
+func TestVaultSettingsDropsLegacyDateNoteFields(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Mirrors what the web client POSTs: weekly notes enabled with a custom
-	// directory and a template, plus a daily-notes template. Before the fix
-	// the server struct lacked WeeklyNotes (and DailyNotes.TemplateID), so
-	// these were silently dropped on decode/normalize and never persisted —
-	// the toggle always reverted after a reload. (#117)
-	if _, err := v.SetSettings(VaultSettings{
-		PrimaryNotesLocation: PrimaryNotesInbox,
-		DailyNotes:           DailyNotesSettings{Enabled: true, Directory: "Daily", TemplateID: "daily-tmpl"},
-		WeeklyNotes:          WeeklyNotesSettings{Enabled: true, Directory: "My Weeks", TemplateID: "weekly-tmpl"},
-	}); err != nil {
+	legacy := []byte(`{
+		"primaryNotesLocation": "root",
+		"dailyNotes": { "enabled": true, "directory": "Daily", "templateId": "daily-tmpl" },
+		"weeklyNotes": { "enabled": true, "directory": "My Weeks", "templateId": "weekly-tmpl" },
+		"folderIcons": { "inbox:Projects": "book" }
+	}`)
+	if err := os.MkdirAll(filepath.Dir(v.settingsPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(v.settingsPath(), legacy, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -559,41 +559,21 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.WeeklyNotes.Enabled {
-		t.Error("weekly notes enabled did not persist")
+	if got.PrimaryNotesLocation != PrimaryNotesRoot {
+		t.Errorf("primary notes location = %q, want root", got.PrimaryNotesLocation)
 	}
-	if got.WeeklyNotes.Directory != "My Weeks" {
-		t.Errorf("weekly directory = %q, want %q", got.WeeklyNotes.Directory, "My Weeks")
-	}
-	if got.WeeklyNotes.TemplateID != "weekly-tmpl" {
-		t.Errorf("weekly templateId = %q, want %q", got.WeeklyNotes.TemplateID, "weekly-tmpl")
-	}
-	if got.DailyNotes.TemplateID != "daily-tmpl" {
-		t.Errorf("daily templateId = %q, want %q", got.DailyNotes.TemplateID, "daily-tmpl")
+	if got.FolderIcons["inbox:Projects"] != "book" {
+		t.Errorf("folder icon did not survive legacy settings: %#v", got.FolderIcons)
 	}
 
-	// The key must actually reach vault.json — the original bug was that it
-	// never hit disk.
+	if _, err := v.SetSettings(got); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(v.settingsPath())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte("weeklyNotes")) {
-		t.Errorf("vault.json missing weeklyNotes key:\n%s", raw)
-	}
-
-	// An empty weekly directory normalizes to the default, mirroring daily.
-	if _, err := v.SetSettings(VaultSettings{
-		PrimaryNotesLocation: PrimaryNotesInbox,
-		WeeklyNotes:          WeeklyNotesSettings{Enabled: true, Directory: ""},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	got, err = v.GetSettings()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.WeeklyNotes.Directory != DefaultWeeklyNotesDirectory {
-		t.Errorf("empty weekly directory = %q, want default %q", got.WeeklyNotes.Directory, DefaultWeeklyNotesDirectory)
+	if bytes.Contains(raw, []byte("dailyNotes")) || bytes.Contains(raw, []byte("weeklyNotes")) {
+		t.Errorf("legacy date-note settings were written back:\n%s", raw)
 	}
 }

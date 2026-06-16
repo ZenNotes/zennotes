@@ -369,6 +369,7 @@ export const Preview = memo(function Preview({
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const assetFiles = useStore((s) => s.assetFiles);
+  const language = useStore((s) => s.language);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
   const effectiveMode = usePreviewDiagramThemeMode();
@@ -696,7 +697,13 @@ export const Preview = memo(function Preview({
     });
 
     enhancePreviewHeadingFolds(stage);
-    enhanceCodeBlockCopy(stage, { notePath });
+    enhanceCodeBlockCopy(stage, {
+      notePath,
+      copyLabel: t("Copy"),
+      copiedLabel: t("Copied"),
+      failedLabel: t("Failed"),
+      copyFailedLabel: t("Copy failed"),
+    });
 
     stage
       .querySelectorAll<HTMLInputElement>('li.task-list-item input[type="checkbox"]')
@@ -736,6 +743,7 @@ export const Preview = memo(function Preview({
     assetFilesKey,
     effectiveMode,
     html,
+    language,
     notePath,
     notes,
     onRequestEdit,

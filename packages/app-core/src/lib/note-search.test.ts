@@ -49,7 +49,7 @@ describe('note search', () => {
 
   it('ranks title matches ahead of weaker excerpt matches', () => {
     const entries = buildNoteSearchIndex([
-      note('inbox/body.md', 'Weekly notes', {
+      note('inbox/body.md', 'Research notes', {
         excerpt: 'Database migration runbook',
         updatedAt: 3
       }),
@@ -61,7 +61,7 @@ describe('note search', () => {
 
     expect(searchNoteIndex(entries, 'migration', { limit: 10 }).map((n) => n.title)).toEqual([
       'Migration plan',
-      'Weekly notes'
+      'Research notes'
     ])
   })
 

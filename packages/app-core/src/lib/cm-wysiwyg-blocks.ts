@@ -17,6 +17,10 @@ import {
   WidgetType
 } from '@codemirror/view'
 import { isClosedFencedCodeBlock } from './cm-code-blocks'
+import {
+  hasPendingMarkdownBlockSnippet,
+  isPendingMarkdownBlockSnippetStart
+} from './cm-markdown-snippets'
 import { frontmatterEndLine } from './cm-properties'
 
 const quoteLine = Decoration.line({ class: 'cm-wq-quote' })
@@ -133,6 +137,10 @@ function buildBlockGapDecorations(state: EditorState): DecorationSet {
   while (child) {
     const node = child
     const next = node.nextSibling
+    if (node.name === 'FencedCode' && isPendingMarkdownBlockSnippetStart(state, node.from)) {
+      child = next
+      continue
+    }
     const firstLine = state.doc.lineAt(node.from)
     // The first block (and the block opening / immediately after frontmatter)
     // gets no top gap — Preview's `:first-child` has margin-top: 0.
@@ -156,6 +164,9 @@ function buildBlockGapDecorations(state: EditorState): DecorationSet {
 const blockGapField = StateField.define<DecorationSet>({
   create: (state) => buildBlockGapDecorations(state),
   update(value, tr) {
+    if (hasPendingMarkdownBlockSnippet(tr.state)) {
+      return tr.docChanged ? value.map(tr.changes) : value
+    }
     if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
       return buildBlockGapDecorations(tr.state)
     }
@@ -199,6 +210,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           return
         }
         if (node.name === 'FencedCode') {
+          if (isPendingMarkdownBlockSnippetStart(state, node.from)) return false
           if (!isClosedFencedCodeBlock(state, node.from, node.to)) return false
           // Hide the ``` fence lines when the cursor is outside the block, so
           // it reads as a clean card (the language flair still shows the lang).
@@ -262,6 +274,10 @@ const wysiwygInlineBlocksPlugin = ViewPlugin.fromClass(
       this.decorations = buildDecorations(view)
     }
     update(update: ViewUpdate): void {
+      if (hasPendingMarkdownBlockSnippet(update.state)) {
+        if (update.docChanged) this.decorations = this.decorations.map(update.changes)
+        return
+      }
       if (update.docChanged || update.selectionSet || update.viewportChanged) {
         this.decorations = buildDecorations(update.view)
       }

@@ -56,7 +56,6 @@ const storeState = vi.hoisted(() => ({
   ],
   vaultSettings: {
     primaryNotesLocation: 'root' as const,
-    dailyNotes: { enabled: false, directory: 'Daily Notes' },
     folderIcons: {}
   }
 }))

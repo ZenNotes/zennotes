@@ -4,6 +4,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   archiveNote,
+  createNote,
   deleteAsset,
   importAssetsToVault,
   listAssets,
@@ -142,6 +143,18 @@ describe('vault-ops layout and assets', () => {
     await expect(
       fs.readFile(path.join(root, imported.path, 'previews', '320.png'), 'utf8')
     ).resolves.toBe('preview')
+  })
+})
+
+describe('vault-ops createNote', () => {
+  it('creates a one-line title scaffold for blank notes', async () => {
+    const root = await makeVault('zennotes-mcp-create-note-')
+
+    const untitled = await createNote(root, 'inbox')
+    const titled = await createNote(root, 'inbox', 'Draft')
+
+    await expect(fs.readFile(path.join(root, untitled.path), 'utf8')).resolves.toBe('# \n')
+    await expect(fs.readFile(path.join(root, titled.path), 'utf8')).resolves.toBe('# Draft\n')
   })
 })
 

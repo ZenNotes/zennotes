@@ -22,6 +22,7 @@ import {
   absolutePath,
   appendToNote,
   archiveNote,
+  createNote,
   deleteAsset,
   duplicateAsset,
   ensureVaultLayout,
@@ -151,6 +152,19 @@ describe('appendToNote', () => {
 
     const next = await readFile(path.join(root, rel), 'utf8')
     expect(next).toBe(original)
+  })
+})
+
+describe('createNote', () => {
+  it('creates a one-line title scaffold for blank notes', async () => {
+    const root = await makeTempDir('zennotes-create-note-')
+    await ensureVaultLayout(root)
+
+    const untitled = await createNote(root, 'inbox')
+    const titled = await createNote(root, 'inbox', 'Draft')
+
+    await expect(readFile(path.join(root, untitled.path), 'utf8')).resolves.toBe('# \n')
+    await expect(readFile(path.join(root, titled.path), 'utf8')).resolves.toBe('# Draft\n')
   })
 })
 

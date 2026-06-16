@@ -48,8 +48,8 @@ describe('parseCustomTemplate', () => {
   })
 
   it('falls back to the filename stem when name is absent', () => {
-    const t = parseCustomTemplate('# body', '.zennotes/templates/weekly-review.md')
-    expect(t.name).toBe('weekly-review')
+    const t = parseCustomTemplate('# body', '.zennotes/templates/project-review.md')
+    expect(t.name).toBe('project-review')
   })
 
   it('normalizes an unknown category to Custom and rejects trash as target', () => {
@@ -64,13 +64,13 @@ describe('composeTemplateFile + round trip', () => {
   it('serializes fields and parses back to the same metadata', () => {
     const raw = composeTemplateFile({
       name: 'Standup',
-      description: 'Daily standup',
+      description: 'Team standup',
       category: 'Engineering',
       body: '# {{title}}\n\n{{cursor}}\n'
     })
     const t = parseCustomTemplate(raw, '.zennotes/templates/standup.md')
     expect(t.name).toBe('Standup')
-    expect(t.description).toBe('Daily standup')
+    expect(t.description).toBe('Team standup')
     expect(t.category).toBe('Engineering')
     expect(t.body.trimEnd()).toBe('# {{title}}\n\n{{cursor}}')
   })

@@ -57,6 +57,19 @@ export function firstBindableH1(body: string): BindableH1 | null {
   return { lineFrom: line.from, lineTo: line.to, title }
 }
 
+export function bindableH1TitleCursorOffset(body: string): number | null {
+  const h1 = firstBindableH1(body)
+  if (!h1) return null
+  const lineText = body.slice(h1.lineFrom, h1.lineTo)
+  const marker = lineText.match(/^#[ \t]*/u)
+  if (!marker) return h1.lineTo
+  const titleStart = h1.lineFrom + marker[0].length
+  if (!h1.title) return titleStart
+  const titleIndex = lineText.slice(marker[0].length).indexOf(h1.title)
+  if (titleIndex < 0) return h1.lineTo
+  return titleStart + titleIndex + h1.title.length
+}
+
 function bindableH1InsertOffset(body: string): number {
   const lines = lineSpans(body)
   let index = 0

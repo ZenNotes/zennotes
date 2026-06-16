@@ -32,6 +32,7 @@ import {
 } from './markdown-table'
 import { openTableContextMenu } from './cm-table-menu'
 import { renderMarkdown } from './markdown'
+import { hasPendingMarkdownBlockSnippet } from './cm-markdown-snippets'
 
 /** Render a cell's markdown source to inline HTML (sanitized by the markdown
  *  pipeline). Strips the wrapping `<p>` so the content sits inline in the cell.
@@ -521,6 +522,9 @@ function buildDecorations(state: EditorState): DecorationSet {
 export const tablePlugin = StateField.define<DecorationSet>({
   create: (state) => buildDecorations(state),
   update(deco, tr) {
+    if (hasPendingMarkdownBlockSnippet(tr.state)) {
+      return tr.docChanged ? deco.map(tr.changes) : deco
+    }
     // Rebuild on edits and whenever the parser advances (the syntax tree is a
     // fresh object); otherwise positions are unchanged, so reuse as-is.
     if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {

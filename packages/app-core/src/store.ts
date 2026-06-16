@@ -95,13 +95,9 @@ import {
   duplicateFolderIcons,
   folderForVaultRelativePath,
   isPrimaryNotesAtRoot,
-  normalizeDailyNotesDirectory,
-  normalizeWeeklyNotesDirectory,
   removeFolderIcons,
   normalizeVaultSettings,
   noteFolderSubpath,
-  noteTitleForDate,
-  weeklyNoteTitle,
   rewriteFolderIconsForRename
 } from './lib/vault-layout'
 import { renderTemplate, renderTitle } from './lib/template-render'
@@ -246,24 +242,17 @@ function resolveTemplate(
 }
 
 
-/** Which weekday the calendar grid starts on. `locale` derives it from the
- *  user's locale (falling back to Monday). */
-export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
-const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
-
 /** The editor-pane right-side panels whose width the user can drag-resize. */
 export type RightPanelId =
   | 'outline'
   | 'connections'
   | 'comments'
-  | 'calendar'
   | 'databaseSettings'
   | 'properties'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
-  calendar: number
   databaseSettings: number
   properties: number
 }
@@ -273,7 +262,6 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
-  calendar: 280,
   databaseSettings: 288,
   properties: 300
 }
@@ -290,7 +278,6 @@ function normalizePanelWidths(value: unknown): PanelWidths {
     outline: pick('outline'),
     connections: pick('connections'),
     comments: pick('comments'),
-    calendar: pick('calendar'),
     databaseSettings: pick('databaseSettings'),
     properties: pick('properties')
   }
@@ -315,6 +302,7 @@ interface Prefs {
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
   livePreview: boolean      // hide markdown syntax on inactive lines
+  splitModeEnabled: boolean
   hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -396,13 +384,6 @@ interface Prefs {
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
-  /** Auto-show the calendar panel when the active note is a daily or
-   *  weekly note. Persisted. */
-  autoCalendarPanel: boolean
-  /** Which weekday the calendar grid starts on. Persisted. */
-  calendarWeekStart: CalendarWeekStart
-  /** Show the ISO week-number column in the calendar. Persisted. */
-  calendarShowWeekNumbers: boolean
   /** Last selected view inside the Tasks tab. List is the v1 default. */
   tasksViewMode: TasksViewMode
   /** Column source used when the Tasks Kanban view is active. */
@@ -459,6 +440,7 @@ const DEFAULT_PREFS: Prefs = {
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
   livePreview: true,
+  splitModeEnabled: false,
   hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
@@ -502,9 +484,6 @@ const DEFAULT_PREFS: Prefs = {
   noteRefs: {},
   contentAlign: 'center',
   tagsCollapsed: false,
-  autoCalendarPanel: true,
-  calendarWeekStart: 'monday',
-  calendarShowWeekNumbers: true,
   tasksViewMode: 'list',
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
@@ -577,6 +556,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.fzfBinaryPath,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
+    splitModeEnabled:
+      typeof p.splitModeEnabled === 'boolean'
+        ? p.splitModeEnabled
+        : DEFAULT_PREFS.splitModeEnabled,
     hideBuiltinTemplates:
       typeof p.hideBuiltinTemplates === 'boolean'
         ? p.hideBuiltinTemplates
@@ -721,18 +704,6 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.contentAlign,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
-    autoCalendarPanel:
-      typeof p.autoCalendarPanel === 'boolean'
-        ? p.autoCalendarPanel
-        : DEFAULT_PREFS.autoCalendarPanel,
-    calendarWeekStart:
-      p.calendarWeekStart && VALID_CALENDAR_WEEK_STARTS.includes(p.calendarWeekStart)
-        ? p.calendarWeekStart
-        : DEFAULT_PREFS.calendarWeekStart,
-    calendarShowWeekNumbers:
-      typeof p.calendarShowWeekNumbers === 'boolean'
-        ? p.calendarShowWeekNumbers
-        : DEFAULT_PREFS.calendarShowWeekNumbers,
     tasksViewMode:
       p.tasksViewMode && VALID_TASKS_VIEW_MODES.includes(p.tasksViewMode)
         ? p.tasksViewMode
@@ -1214,6 +1185,7 @@ function collectPrefs(s: {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  splitModeEnabled: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -1253,9 +1225,6 @@ function collectPrefs(s: {
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
-  autoCalendarPanel: boolean
-  calendarWeekStart: CalendarWeekStart
-  calendarShowWeekNumbers: boolean
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
@@ -1272,6 +1241,7 @@ function collectPrefs(s: {
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
+    splitModeEnabled: s.splitModeEnabled,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
@@ -1312,9 +1282,6 @@ function collectPrefs(s: {
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
-    autoCalendarPanel: s.autoCalendarPanel,
-    calendarWeekStart: s.calendarWeekStart,
-    calendarShowWeekNumbers: s.calendarShowWeekNumbers,
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
@@ -1636,6 +1603,7 @@ interface Store {
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
   livePreview: boolean
+  splitModeEnabled: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
@@ -1711,14 +1679,6 @@ interface Store {
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
   tagsCollapsed: boolean
-  /** Auto-show the calendar panel when the active note is a daily or
-   *  weekly note. Persisted. */
-  autoCalendarPanel: boolean
-  /** Which weekday the calendar grid starts on. Persisted. */
-  calendarWeekStart: CalendarWeekStart
-  /** Show the ISO week-number column in the calendar. Persisted. */
-  calendarShowWeekNumbers: boolean
-
   /** Vault-wide Tasks view state. Populated lazily when the view is opened
    *  and kept incrementally fresh via the chokidar watcher while the view
    *  is visible. */
@@ -1934,6 +1894,7 @@ interface Store {
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
+  setSplitModeEnabled: (enabled: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
@@ -1977,8 +1938,6 @@ interface Store {
 
   setQuickNoteDateTitle: (on: boolean) => void
   setQuickNoteTitlePrefix: (prefix: string | null) => void
-  openTodayDailyNote: () => Promise<void>
-  openThisWeekWeeklyNote: () => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   /** Open the template picker scoped to a folder; the chosen template is
    *  created there directly (no destination prompt). */
@@ -2011,11 +1970,6 @@ interface Store {
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
   setContentAlign: (align: 'center' | 'left') => void
   setTagsCollapsed: (collapsed: boolean) => void
-  setAutoCalendarPanel: (enabled: boolean) => void
-  setCalendarWeekStart: (start: CalendarWeekStart) => void
-  setCalendarShowWeekNumbers: (show: boolean) => void
-  openDailyNoteForDate: (date: Date) => Promise<void>
-  openWeeklyNoteForDate: (date: Date) => Promise<void>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
   /** Re-open the first-run onboarding wizard. Persists. */
@@ -2943,6 +2897,7 @@ export const useStore = create<Store>((set, get) => {
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
+  splitModeEnabled: loadPrefs().splitModeEnabled,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
@@ -2984,9 +2939,6 @@ export const useStore = create<Store>((set, get) => {
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
-  autoCalendarPanel: loadPrefs().autoCalendarPanel,
-  calendarWeekStart: loadPrefs().calendarWeekStart,
-  calendarShowWeekNumbers: loadPrefs().calendarShowWeekNumbers,
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
@@ -4488,6 +4440,10 @@ export const useStore = create<Store>((set, get) => {
     set({ livePreview: on })
     savePrefs(collectPrefs(get()))
   },
+  setSplitModeEnabled: (enabled) => {
+    set({ splitModeEnabled: enabled })
+    savePrefs(collectPrefs(get()))
+  },
   setHideBuiltinTemplates: (hidden) => {
     set({ hideBuiltinTemplates: hidden })
     savePrefs(collectPrefs(get()))
@@ -4780,64 +4736,6 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  openDailyNoteForDate: async (date) => {
-    const state = get()
-    const settings = normalizeVaultSettings(state.vaultSettings)
-    if (!settings.dailyNotes.enabled) return
-    const title = noteTitleForDate(date)
-    const subpath = normalizeDailyNotesDirectory(settings.dailyNotes.directory)
-    const existing = state.notes.find(
-      (note) =>
-        note.folder === 'inbox' &&
-        note.title === title &&
-        noteFolderSubpath(note, settings) === subpath
-    )
-    if (existing) {
-      set({ view: { kind: 'folder', folder: 'inbox', subpath } })
-      await get().selectNote(existing.path)
-      return
-    }
-    const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId, state.language)
-    if (template) {
-      await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
-      return
-    }
-    await get().createAndOpen('inbox', subpath, { title })
-  },
-
-  openTodayDailyNote: async () => {
-    await get().openDailyNoteForDate(new Date())
-  },
-
-  openWeeklyNoteForDate: async (date) => {
-    const state = get()
-    const settings = normalizeVaultSettings(state.vaultSettings)
-    if (!settings.weeklyNotes.enabled) return
-    const title = weeklyNoteTitle(date)
-    const subpath = normalizeWeeklyNotesDirectory(settings.weeklyNotes.directory)
-    const existing = state.notes.find(
-      (note) =>
-        note.folder === 'inbox' &&
-        note.title === title &&
-        noteFolderSubpath(note, settings) === subpath
-    )
-    if (existing) {
-      set({ view: { kind: 'folder', folder: 'inbox', subpath } })
-      await get().selectNote(existing.path)
-      return
-    }
-    const template = resolveTemplate(state.customTemplates, settings.weeklyNotes.templateId, state.language)
-    if (template) {
-      await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
-      return
-    }
-    await get().createAndOpen('inbox', subpath, { title })
-  },
-
-  openThisWeekWeeklyNote: async () => {
-    await get().openWeeklyNoteForDate(new Date())
-  },
-
   setTemplatePaletteOpen: (open) =>
     set({ templatePaletteOpen: open, templatePaletteTarget: null, templatePaletteMode: 'create' }),
 
@@ -5001,18 +4899,6 @@ export const useStore = create<Store>((set, get) => {
   },
   setTagsCollapsed: (collapsed) => {
     set({ tagsCollapsed: collapsed })
-    savePrefs(collectPrefs(get()))
-  },
-  setAutoCalendarPanel: (enabled) => {
-    set({ autoCalendarPanel: enabled })
-    savePrefs(collectPrefs(get()))
-  },
-  setCalendarWeekStart: (start) => {
-    set({ calendarWeekStart: start })
-    savePrefs(collectPrefs(get()))
-  },
-  setCalendarShowWeekNumbers: (show) => {
-    set({ calendarShowWeekNumbers: show })
     savePrefs(collectPrefs(get()))
   },
   completeOnboarding: () => {

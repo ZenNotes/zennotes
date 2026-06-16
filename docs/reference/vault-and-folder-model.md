@@ -81,16 +81,6 @@ Trash:
 - allows restore
 - can be emptied
 
-## Daily notes
-
-Daily notes are optional.
-
-When enabled:
-
-- ZenNotes creates one note per day
-- title format is an ISO date
-- notes live in a dedicated daily notes directory under the primary notes area
-
 ## Assets and local files
 
 ZenNotes now behaves more like an Obsidian-compatible file-based vault:

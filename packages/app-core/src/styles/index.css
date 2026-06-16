@@ -1378,8 +1378,10 @@ textarea,
 .cm-editor .cm-dropCursor {
   border-left: 2px solid rgb(var(--z-accent));
 }
-.cm-editor .cm-selectionBackground,
-.cm-editor ::selection {
+.cm-editor .cm-selectionBackground {
+  background: rgb(var(--z-accent) / 0.22) !important;
+}
+.cm-editor:not(:has(> .cm-scroller > .cm-selectionLayer)) ::selection {
   background: rgb(var(--z-accent) / 0.22) !important;
 }
 
@@ -2312,6 +2314,13 @@ button.np-checkbox:hover {
   padding: 0;
   border-radius: 0;
 }
+.cm-editor .cm-pending-code-block-line .tok-monospace {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
 
 /* --- WYSIWYG code-block card + language flair (Edit mode only) -------- */
 /* Give fenced code blocks a continuous "card": a shared background with side
@@ -2364,6 +2373,36 @@ button.np-checkbox:hover {
 .cm-wysiwyg .cm-code-flair:hover {
   background: rgb(var(--z-bg-3) / 0.85);
   color: rgb(var(--z-fg));
+}
+.cm-wysiwyg .cm-code-flair[data-copy-tooltip]::after,
+.prose-zen .zen-code-copy-button[data-copy-tooltip]::after {
+  content: attr(data-copy-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: max-content;
+  max-width: 160px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  background: rgb(var(--z-fg));
+  color: rgb(var(--z-bg));
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  white-space: nowrap;
+}
+.cm-wysiwyg .cm-code-flair[data-copy-tooltip]:hover::after,
+.cm-wysiwyg .cm-code-flair[data-copy-tooltip]:focus-visible::after,
+.prose-zen .zen-code-copy-button[data-copy-tooltip]:hover::after,
+.prose-zen .zen-code-copy-button[data-copy-tooltip]:focus-visible::after {
+  opacity: 1;
+  transform: translateY(0);
 }
 .cm-wysiwyg .cm-code-flair.is-copied {
   color: rgb(var(--z-accent));
@@ -2462,7 +2501,7 @@ button.np-checkbox:hover {
 .cm-table-widget th[align="right"] .cm-table-cell {
   text-align: right;
 }
-/* Hover add-buttons: a thin "+" rail along the right edge (column) and the
+/* Hover add-buttons: a thin "+" rail outside the right edge (column) and the
    bottom edge (row) of the grid. */
 .cm-table-widget .cm-table-add {
   position: absolute;
@@ -2489,16 +2528,15 @@ button.np-checkbox:hover {
 }
 .cm-table-widget .cm-table-add-col {
   top: 0;
-  right: 0;
+  right: -14px;
   width: 13px;
   height: 100%;
 }
 .cm-table-widget .cm-table-add-row {
   left: 0;
-  bottom: 0;
+  bottom: -14px;
   height: 13px;
-  /* Span the grid, not the button rail on the right. */
-  width: calc(100% - 14px);
+  width: 100%;
 }
 
 /* Drag-to-reorder grips: row grip left of each body row, column grip above
@@ -3077,6 +3115,7 @@ button.np-checkbox:hover {
   justify-content: flex-end;
 }
 .prose-zen .zen-code-copy-button {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;

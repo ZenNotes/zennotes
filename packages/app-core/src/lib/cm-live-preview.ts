@@ -16,6 +16,7 @@ import {
 } from './local-assets'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { assetTabPath } from './asset-tabs'
+import { hasPendingMarkdownBlockSnippet } from './cm-markdown-snippets'
 
 /**
  * Live-preview extension: hides markdown syntax markers unless the focused
@@ -1056,6 +1057,10 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
       const externalRefresh = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(refreshLivePreviewEffect))
       )
+      if (hasPendingMarkdownBlockSnippet(update.state) && !externalRefresh) {
+        if (update.docChanged) this.decorations = this.decorations.map(update.changes)
+        return
+      }
       if (
         update.docChanged ||
         update.selectionSet ||

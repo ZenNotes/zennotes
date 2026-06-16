@@ -1,4 +1,11 @@
-import { Prec, type EditorState, type Extension, type TransactionSpec } from '@codemirror/state'
+import {
+  Facet,
+  Prec,
+  StateField,
+  type EditorState,
+  type Extension,
+  type TransactionSpec
+} from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
 
 export type MarkdownSnippetMode = 'inline' | 'block'
@@ -16,6 +23,11 @@ export interface MarkdownSnippetExtensionConfig {
   shouldHandle?: (view: EditorView) => boolean
 }
 
+interface PendingBlockSnippet {
+  ruleId: string
+  lineFrom: number
+}
+
 export const defaultMarkdownSnippetRules: readonly MarkdownSnippetRule[] = [
   { id: 'fenced-code-backtick', open: '```', close: '```', triggerKeys: ['Enter'], mode: 'block' },
   { id: 'fenced-code-tilde', open: '~~~', close: '~~~', triggerKeys: ['Enter'], mode: 'block' },
@@ -29,25 +41,19 @@ export const defaultMarkdownSnippetRules: readonly MarkdownSnippetRule[] = [
   { id: 'comment', open: '%%', close: '%%', triggerKeys: ['Space'], mode: 'inline' }
 ]
 
-function hasBlockCloserBelow(
-  state: EditorState,
-  lineNumber: number,
-  indent: string,
-  close: string
-): boolean {
-  const expected = indent + close
-  for (let number = lineNumber + 1; number <= state.doc.lines; number++) {
-    if (state.doc.line(number).text.trimEnd() === expected) return true
-  }
-  return false
-}
+const markdownSnippetRulesFacet = Facet.define<
+  readonly MarkdownSnippetRule[],
+  readonly MarkdownSnippetRule[]
+>({
+  combine: (values) => values.at(-1) ?? defaultMarkdownSnippetRules
+})
 
 function isBlockOpenerLine(rule: MarkdownSnippetRule, text: string): boolean {
   const content = text.trimEnd().trimStart()
   if (!content.startsWith(rule.open)) return false
   const after = content.slice(rule.open.length)
   if (rule.open === '$$') return after.trim() === ''
-  return after === '' || /^\s/.test(after)
+  return true
 }
 
 function isBlockCloserLine(rule: MarkdownSnippetRule, text: string): boolean {
@@ -73,23 +79,77 @@ function hasUnclosedBlockOpenerAbove(
   return open
 }
 
-function blockSnippetTransaction(
+function blockPendingAt(
   state: EditorState,
-  rule: MarkdownSnippetRule,
-  pos: number
-): TransactionSpec | null {
+  pos: number,
+  rules: readonly MarkdownSnippetRule[]
+): PendingBlockSnippet | null {
   const line = state.doc.lineAt(pos)
   if (pos !== line.to) return null
 
-  const before = state.doc.sliceString(line.from, pos)
-  const indentLength = before.search(/[^\t ]/)
-  const indent = indentLength === -1 ? before : before.slice(0, indentLength)
-  if (before.slice(indent.length) !== rule.open) return null
-  if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) return null
-  if (hasBlockCloserBelow(state, line.number, indent, rule.close)) return null
+  for (const rule of rules) {
+    if (rule.mode !== 'block') continue
+    if (!isBlockOpenerLine(rule, line.text)) continue
+    if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) continue
+    return { ruleId: rule.id, lineFrom: line.from }
+  }
+  return null
+}
 
-  const insert = `${indent}${rule.open}\n${indent}\n${indent}${rule.close}`
-  const cursor = line.from + indent.length + rule.open.length + 1 + indent.length
+const pendingBlockSnippetField = StateField.define<PendingBlockSnippet | null>({
+  create: () => null,
+  update: (pending, tr) => {
+    if (!tr.docChanged) {
+      if (!pending) return null
+      const selection = tr.state.selection.main
+      if (!selection.empty) return null
+      const line = tr.state.doc.lineAt(selection.head)
+      if (line.from !== pending.lineFrom || selection.head !== line.to) return null
+      const rule = tr.state
+        .facet(markdownSnippetRulesFacet)
+        .find((candidate) => candidate.id === pending.ruleId)
+      if (!rule || !isBlockOpenerLine(rule, line.text)) return null
+      return pending
+    }
+    if (!tr.isUserEvent('input')) return null
+    const selection = tr.state.selection.main
+    if (!selection.empty) return null
+    return blockPendingAt(tr.state, selection.head, tr.state.facet(markdownSnippetRulesFacet))
+  }
+})
+
+export function pendingMarkdownBlockSnippetLineFrom(state: EditorState): number | null {
+  return state.field(pendingBlockSnippetField, false)?.lineFrom ?? null
+}
+
+export function hasPendingMarkdownBlockSnippet(state: EditorState): boolean {
+  return pendingMarkdownBlockSnippetLineFrom(state) != null
+}
+
+export function isPendingMarkdownBlockSnippetStart(state: EditorState, from: number): boolean {
+  return pendingMarkdownBlockSnippetLineFrom(state) === state.doc.lineAt(from).from
+}
+
+function blockSnippetTransaction(
+  state: EditorState,
+  pending: PendingBlockSnippet,
+  rules: readonly MarkdownSnippetRule[]
+): TransactionSpec | null {
+  const rule = rules.find((candidate) => candidate.id === pending.ruleId)
+  if (!rule) return null
+
+  const selection = state.selection.main
+  if (!selection.empty) return null
+  const line = state.doc.lineAt(selection.head)
+  if (line.from !== pending.lineFrom || selection.head !== line.to) return null
+  if (!isBlockOpenerLine(rule, line.text)) return null
+  if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) return null
+
+  const indentMatch = line.text.match(/^[\t ]*/)
+  const indent = indentMatch?.[0] ?? ''
+
+  const insert = `${line.text}\n${indent}\n${indent}${rule.close}`
+  const cursor = line.from + line.text.length + 1 + indent.length
   return {
     changes: { from: line.from, to: line.to, insert },
     selection: { anchor: cursor }
@@ -151,18 +211,25 @@ function inlineSnippetTransaction(
 
 export function markdownSnippetTransaction(
   state: EditorState,
-  triggerKey: string,
-  rules: readonly MarkdownSnippetRule[] = defaultMarkdownSnippetRules
+  triggerKey: string
 ): TransactionSpec | null {
   const selection = state.selection.main
   if (!selection.empty) return null
 
+  const rules = state.facet(markdownSnippetRulesFacet)
+  const pending = state.field(pendingBlockSnippetField, false)
+  if (pending) {
+    const rule = rules.find((candidate) => candidate.id === pending.ruleId)
+    if (rule?.triggerKeys.includes(triggerKey)) {
+      const transaction = blockSnippetTransaction(state, pending, rules)
+      if (transaction) return transaction
+    }
+  }
+
   for (const rule of rules) {
+    if (rule.mode === 'block') continue
     if (!rule.triggerKeys.includes(triggerKey)) continue
-    const transaction =
-      rule.mode === 'block'
-        ? blockSnippetTransaction(state, rule, selection.head)
-        : inlineSnippetTransaction(state, rule, selection.head)
+    const transaction = inlineSnippetTransaction(state, rule, selection.head)
     if (transaction) return transaction
   }
   return null
@@ -171,18 +238,22 @@ export function markdownSnippetTransaction(
 export function markdownSnippetExtension(config: MarkdownSnippetExtensionConfig = {}): Extension {
   const rules = config.rules ?? defaultMarkdownSnippetRules
   const triggerKeys = [...new Set(rules.flatMap((rule) => rule.triggerKeys))]
-  return Prec.high(
-    keymap.of(
-      triggerKeys.map((triggerKey) => ({
-        key: triggerKey,
-        run: (view) => {
-          if (config.shouldHandle && !config.shouldHandle(view)) return false
-          const transaction = markdownSnippetTransaction(view.state, triggerKey, rules)
-          if (!transaction) return false
-          view.dispatch(transaction)
-          return true
-        }
-      }))
+  return [
+    markdownSnippetRulesFacet.of(rules),
+    pendingBlockSnippetField,
+    Prec.high(
+      keymap.of(
+        triggerKeys.map((triggerKey) => ({
+          key: triggerKey,
+          run: (view) => {
+            if (config.shouldHandle && !config.shouldHandle(view)) return false
+            const transaction = markdownSnippetTransaction(view.state, triggerKey)
+            if (!transaction) return false
+            view.dispatch(transaction)
+            return true
+          }
+        }))
+      )
     )
-  )
+  ]
 }

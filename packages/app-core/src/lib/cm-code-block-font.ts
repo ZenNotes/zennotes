@@ -10,7 +10,7 @@
  * to cover tokens *and* the plain whitespace/punctuation between them.
  */
 import { syntaxTree } from '@codemirror/language'
-import { RangeSetBuilder } from '@codemirror/state'
+import { RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -19,12 +19,45 @@ import {
   type ViewUpdate,
 } from '@codemirror/view'
 import { isClosedFencedCodeBlock } from './cm-code-blocks'
+import {
+  hasPendingMarkdownBlockSnippet,
+  isPendingMarkdownBlockSnippetStart,
+  pendingMarkdownBlockSnippetLineFrom
+} from './cm-markdown-snippets'
 
 const codeBlockLine = Decoration.line({ class: 'cm-code-block-line' })
+const pendingCodeBlockLine = Decoration.line({ class: 'cm-pending-code-block-line' })
 // First / last line of each block also carry begin/end classes so the WYSIWYG
 // stylesheet can round the top and bottom of the code "card".
 const codeBlockBegin = Decoration.line({ class: 'cm-code-block-begin' })
 const codeBlockEnd = Decoration.line({ class: 'cm-code-block-end' })
+
+function buildPendingDecorations(state: EditorState): DecorationSet {
+  if (!hasPendingMarkdownBlockSnippet(state)) return Decoration.none
+  const tree = syntaxTree(state)
+  const lines = new Set<number>()
+
+  tree.iterate({
+    enter: (node) => {
+      if (node.name !== 'FencedCode') return
+      if (!isPendingMarkdownBlockSnippetStart(state, node.from)) return
+      let pos = node.from
+      while (pos <= node.to) {
+        const line = state.doc.lineAt(pos)
+        lines.add(line.from)
+        if (line.to >= node.to) break
+        pos = line.to + 1
+      }
+      return false
+    }
+  })
+
+  const builder = new RangeSetBuilder<Decoration>()
+  for (const from of [...lines].sort((a, b) => a - b)) {
+    builder.add(from, from, pendingCodeBlockLine)
+  }
+  return builder.finish()
+}
 
 function buildDecorations(view: EditorView): DecorationSet {
   const tree = syntaxTree(view.state)
@@ -43,6 +76,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name !== 'FencedCode' && node.name !== 'CodeBlock') return
+        if (
+          node.name === 'FencedCode' &&
+          isPendingMarkdownBlockSnippetStart(view.state, node.from)
+        ) {
+          return false
+        }
         if (
           node.name === 'FencedCode' &&
           !isClosedFencedCodeBlock(view.state, node.from, node.to)
@@ -66,7 +105,8 @@ function buildDecorations(view: EditorView): DecorationSet {
   }
   const builder = new RangeSetBuilder<Decoration>()
   for (const from of [...lineClasses.keys()].sort((a, b) => a - b)) {
-    const entry = lineClasses.get(from)!
+    const entry = lineClasses.get(from)
+    if (!entry) continue
     // Order matters: RangeSetBuilder keeps insertion order for equal points,
     // and CodeMirror merges the classes of stacked line decorations.
     if (entry.line) builder.add(from, from, codeBlockLine)
@@ -76,7 +116,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish()
 }
 
-export const codeBlockFontPlugin = ViewPlugin.fromClass(
+const codeBlockFontViewPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
 
@@ -85,10 +125,32 @@ export const codeBlockFontPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged) {
+      if (hasPendingMarkdownBlockSnippet(update.state)) {
+        if (update.docChanged) this.decorations = this.decorations.map(update.changes)
+        return
+      }
+      const pendingChanged =
+        pendingMarkdownBlockSnippetLineFrom(update.startState) !==
+        pendingMarkdownBlockSnippetLineFrom(update.state)
+      if (update.docChanged || update.viewportChanged || pendingChanged) {
         this.decorations = buildDecorations(update.view)
       }
     }
   },
   { decorations: (plugin) => plugin.decorations }
 )
+
+const pendingCodeBlockLineField = StateField.define<DecorationSet>({
+  create: (state) => buildPendingDecorations(state),
+  update(value, tr) {
+    if (hasPendingMarkdownBlockSnippet(tr.state)) return buildPendingDecorations(tr.state)
+    if (pendingMarkdownBlockSnippetLineFrom(tr.startState) != null) return Decoration.none
+    return tr.docChanged ? value.map(tr.changes) : value
+  },
+  provide: (field) => EditorView.decorations.from(field)
+})
+
+export const codeBlockFontPlugin: Extension = [
+  codeBlockFontViewPlugin,
+  pendingCodeBlockLineField
+]

@@ -246,34 +246,8 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	}
 	return VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
-		DailyNotes: DailyNotesSettings{
-			Enabled:    settings.DailyNotes.Enabled,
-			Directory:  settings.DailyNotes.Directory,
-			TemplateID: settings.DailyNotes.TemplateID,
-		},
-		WeeklyNotes: WeeklyNotesSettings{
-			Enabled:    settings.WeeklyNotes.Enabled,
-			Directory:  settings.WeeklyNotes.Directory,
-			TemplateID: settings.WeeklyNotes.TemplateID,
-		},
-		FolderIcons: folderIcons,
+		FolderIcons:          folderIcons,
 	}
-}
-
-func normalizeDailyNotesDirectory(value string) string {
-	trimmed := strings.Trim(value, "/")
-	if trimmed == "" {
-		return DefaultDailyNotesDirectory
-	}
-	return trimmed
-}
-
-func normalizeWeeklyNotesDirectory(value string) string {
-	trimmed := strings.Trim(value, "/")
-	if trimmed == "" {
-		return DefaultWeeklyNotesDirectory
-	}
-	return trimmed
 }
 
 func normalizePrimaryNotesLocation(value PrimaryNotesLocation) PrimaryNotesLocation {
@@ -301,16 +275,6 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			}
 			return value.PrimaryNotesLocation
 		}()),
-		DailyNotes: DailyNotesSettings{
-			Enabled:    value.DailyNotes.Enabled,
-			Directory:  normalizeDailyNotesDirectory(value.DailyNotes.Directory),
-			TemplateID: value.DailyNotes.TemplateID,
-		},
-		WeeklyNotes: WeeklyNotesSettings{
-			Enabled:    value.WeeklyNotes.Enabled,
-			Directory:  normalizeWeeklyNotesDirectory(value.WeeklyNotes.Directory),
-			TemplateID: value.WeeklyNotes.TemplateID,
-		},
 		FolderIcons: folderIcons,
 	}
 }
@@ -1599,8 +1563,6 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 	}
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
-		DailyNotes:           settings.DailyNotes,
-		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
 	})
 	if err != nil {
@@ -1634,8 +1596,6 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 	}
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
-		DailyNotes:           settings.DailyNotes,
-		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
 	})
 	return err
@@ -1667,8 +1627,6 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 	relPath := filepath.ToSlash(rel)
 	_, err = v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
-		DailyNotes:           settings.DailyNotes,
-		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
 	})
 	if err != nil {

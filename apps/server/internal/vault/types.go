@@ -20,10 +20,8 @@ const (
 	FolderArchive NoteFolder = "archive"
 	FolderTrash   NoteFolder = "trash"
 
-	PrimaryNotesInbox           PrimaryNotesLocation = "inbox"
-	PrimaryNotesRoot            PrimaryNotesLocation = "root"
-	DefaultDailyNotesDirectory                       = "Daily Notes"
-	DefaultWeeklyNotesDirectory                      = "Weekly Notes"
+	PrimaryNotesInbox PrimaryNotesLocation = "inbox"
+	PrimaryNotesRoot  PrimaryNotesLocation = "root"
 )
 
 func IsValidFolder(f NoteFolder) bool {
@@ -51,22 +49,8 @@ func FolderForRelativePath(rel string) (NoteFolder, bool) {
 	return FolderInbox, true
 }
 
-type DailyNotesSettings struct {
-	Enabled    bool   `json:"enabled"`
-	Directory  string `json:"directory"`
-	TemplateID string `json:"templateId,omitempty"`
-}
-
-type WeeklyNotesSettings struct {
-	Enabled    bool   `json:"enabled"`
-	Directory  string `json:"directory"`
-	TemplateID string `json:"templateId,omitempty"`
-}
-
 type VaultSettings struct {
 	PrimaryNotesLocation PrimaryNotesLocation    `json:"primaryNotesLocation"`
-	DailyNotes           DailyNotesSettings      `json:"dailyNotes"`
-	WeeklyNotes          WeeklyNotesSettings     `json:"weeklyNotes"`
 	FolderIcons          map[string]FolderIconID `json:"folderIcons"`
 }
 

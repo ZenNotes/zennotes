@@ -185,7 +185,7 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
       role="menu"
       tabIndex={-1}
       onKeyDown={handleKeyDown}
-      className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-paper-100 p-1 shadow-float ring-1 ring-paper-300"
+      className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-paper-100 p-1 shadow-float outline-none ring-1 ring-paper-300"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
     >

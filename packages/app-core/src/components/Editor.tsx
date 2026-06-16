@@ -397,14 +397,6 @@ function registerVimCommands(): void {
   Vim.defineEx('template', 'template', runTemplateEx)
   Vim.defineEx('tmpl', 'tmpl', runTemplateEx)
 
-  Vim.defineEx('daily', 'daily', () => {
-    void useStore.getState().openTodayDailyNote()
-  })
-
-  Vim.defineEx('weekly', 'weekly', () => {
-    void useStore.getState().openThisWeekWeeklyNote()
-  })
-
   // `:tag foo` starts (or updates) the Tags view with `foo` selected.
   // `:tag foo bar baz` replaces the selection set wholesale. `:tag`
   // alone opens the Tags tab with whatever's currently selected (if
@@ -716,7 +708,7 @@ function registerVimNoteCommands(): void {
   }
   Vim.defineEx('outline', 'outline', openOutline)
   // `:closepanel` / `:closep` closes whichever right-hand panel (connections,
-  // outline, comments, or calendar) is open in the active pane.
+  // outline, or comments) is open in the active pane.
   Vim.defineEx('closepanel', 'closep', () => {
     window.dispatchEvent(new Event('zen:close-right-panel'))
   })
@@ -735,6 +727,7 @@ function registerVimNoteCommands(): void {
     })
   }
   const setPaneMode = (mode: 'edit' | 'split' | 'preview'): void => {
+    if (mode === 'split' && !useStore.getState().splitModeEnabled) return
     requestAnimationFrame(() => {
       requestPaneMode(mode)
     })
@@ -846,8 +839,6 @@ const MANUAL_EX_NAMES = new Set([
   'tag',
   'template',
   'tmpl',
-  'daily',
-  'weekly',
   'split',
   'sp',
   'vsplit',

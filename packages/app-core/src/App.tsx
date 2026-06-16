@@ -8,7 +8,6 @@ import { TitleBar } from './components/TitleBar'
 import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
-import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { matchesShortcut, matchesSequenceToken } from './lib/keymaps'
 import { focusPaneOrEdgePanel } from './lib/pane-nav'
 import { requestPaneMode } from './lib/pane-mode'
@@ -328,6 +327,7 @@ function App(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const splitModeEnabled = useStore((s) => s.splitModeEnabled)
   const openHelpView = useStore((s) => s.openHelpView)
   const language = useStore((s) => s.language)
   const themeLightId = useStore((s) => s.themeLightId)
@@ -612,12 +612,7 @@ function App(): JSX.Element {
       if (matchesShortcut(e, overrides, 'global.newQuickNote')) {
         // ⇧⌘N — new quick note
         e.preventDefault()
-        const title = resolveQuickNoteTitle(
-          state.notes,
-          state.quickNoteDateTitle,
-          state.quickNoteTitlePrefix ?? undefined
-        )
-        void state.createAndOpen('quick', '', { title, focusTitle: true })
+        void state.createAndOpen('quick', '', { focusTitle: true })
         return
       }
       if (matchesShortcut(e, overrides, 'global.historyBack')) {
@@ -764,6 +759,7 @@ function App(): JSX.Element {
       }
       if (matchesShortcut(e, overrides, 'global.modeSplit')) {
         e.preventDefault()
+        if (!splitModeEnabled) return
         requestPaneMode('split')
         return
       }
@@ -793,6 +789,7 @@ function App(): JSX.Element {
     setOutlinePaletteOpen,
     setTemplatePaletteOpen,
     setSearchOpen,
+    splitModeEnabled,
     setVaultTextSearchOpen
   ])
 

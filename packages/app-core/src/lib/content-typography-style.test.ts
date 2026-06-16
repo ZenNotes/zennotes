@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const stylesSource = readFileSync(new URL('../styles/index.css', import.meta.url), 'utf8')
+const editorPaneSource = readFileSync(
+  new URL('../components/EditorPane.tsx', import.meta.url),
+  'utf8'
+)
 
 describe('editor and preview typography rhythm', () => {
   it('uses the same content line-height for editor and preview headings', () => {
@@ -140,6 +144,16 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(
       /\.prose-zen h5\s*\{[^}]*letter-spacing:\s*0;/s
     )
+  })
+
+  it('keeps selection visible while the main editor uses native text selection', () => {
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-selectionBackground\s*\{[^}]*background:\s*rgb\(var\(--z-accent\)\s*\/\s*0\.22\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor:not\(:has\(> \.cm-scroller > \.cm-selectionLayer\)\) ::selection\s*\{[^}]*background:\s*rgb\(var\(--z-accent\)\s*\/\s*0\.22\)\s*!important;/s
+    )
+    expect(editorPaneSource).not.toMatch(/drawSelection\(\)/)
   })
 
   it('keeps search match highlights visible inside code blocks and inline code', () => {

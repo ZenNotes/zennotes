@@ -168,17 +168,6 @@ Options:
 
 `Vault root` surfaces top-level vault notes and folders directly, which is better for flat vaults and many imported Obsidian setups.
 
-### Daily notes
-
-Daily notes are optional.
-
-Related settings include:
-
-- enable/disable daily notes
-- daily notes directory
-
-When enabled, ZenNotes can open or create today's note using an ISO-style date title.
-
 ### Quick Notes label
 
 Lets you rename the user-facing label for the Quick Notes section without changing its underlying system meaning.

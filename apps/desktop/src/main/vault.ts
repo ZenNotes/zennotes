@@ -12,8 +12,6 @@ import {
   type RenameNoteRef
 } from './wikilink-rename'
 import {
-  DEFAULT_DAILY_NOTES_DIRECTORY,
-  DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
   type FolderIconId,
   type PrimaryNotesLocation,
@@ -162,14 +160,6 @@ function isFolderIconId(value: unknown): value is FolderIconId {
 
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
-  dailyNotes: {
-    enabled: false,
-    directory: DEFAULT_DAILY_NOTES_DIRECTORY
-  },
-  weeklyNotes: {
-    enabled: false,
-    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
-  },
   folderIcons: {}
 }
 
@@ -707,36 +697,8 @@ export function databaseSidecarPath(root: string, rel: string): string {
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
   return {
     primaryNotesLocation: settings.primaryNotesLocation,
-    dailyNotes: {
-      enabled: settings.dailyNotes.enabled,
-      directory: settings.dailyNotes.directory,
-      templateId: settings.dailyNotes.templateId
-    },
-    weeklyNotes: {
-      enabled: settings.weeklyNotes.enabled,
-      directory: settings.weeklyNotes.directory,
-      templateId: settings.weeklyNotes.templateId
-    },
     folderIcons: { ...settings.folderIcons }
   }
-}
-
-function normalizeDailyNotesDirectory(value: unknown): string {
-  if (typeof value !== 'string') return DEFAULT_DAILY_NOTES_DIRECTORY
-  const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
-  return trimmed || DEFAULT_DAILY_NOTES_DIRECTORY
-}
-
-function normalizeWeeklyNotesDirectory(value: unknown): string {
-  if (typeof value !== 'string') return DEFAULT_WEEKLY_NOTES_DIRECTORY
-  const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
-  return trimmed || DEFAULT_WEEKLY_NOTES_DIRECTORY
-}
-
-function normalizeTemplateId(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined
-  const trimmed = value.trim()
-  return trimmed || undefined
 }
 
 function normalizePrimaryNotesLocation(value: unknown): PrimaryNotesLocation {
@@ -750,21 +712,11 @@ function normalizeVaultSettings(
   if (!value || typeof value !== 'object') {
     return {
       primaryNotesLocation: fallbackPrimary,
-      dailyNotes: {
-        enabled: DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
-        directory: DEFAULT_DAILY_NOTES_DIRECTORY
-      },
-      weeklyNotes: {
-        enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
-        directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
-      },
       folderIcons: {}
     }
   }
   const candidate = value as {
     primaryNotesLocation?: unknown
-    dailyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
-    weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
     folderIcons?: Record<string, unknown> | null
   }
   const folderIcons: Record<string, FolderIconId> = {}
@@ -778,22 +730,6 @@ function normalizeVaultSettings(
     primaryNotesLocation: normalizePrimaryNotesLocation(
       candidate.primaryNotesLocation ?? fallbackPrimary
     ),
-    dailyNotes: {
-      enabled:
-        typeof candidate.dailyNotes?.enabled === 'boolean'
-          ? candidate.dailyNotes.enabled
-          : DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
-      directory: normalizeDailyNotesDirectory(candidate.dailyNotes?.directory),
-      templateId: normalizeTemplateId(candidate.dailyNotes?.templateId)
-    },
-    weeklyNotes: {
-      enabled:
-        typeof candidate.weeklyNotes?.enabled === 'boolean'
-          ? candidate.weeklyNotes.enabled
-          : DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
-      directory: normalizeWeeklyNotesDirectory(candidate.weeklyNotes?.directory),
-      templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
-    },
     folderIcons
   }
 }
@@ -2654,7 +2590,7 @@ export async function createNote(
   await fs.mkdir(dir, { recursive: true })
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
-  const body = title?.trim() ? `# ${finalTitle}\n\n` : '# \n\n'
+  const body = title?.trim() ? `# ${finalTitle}\n` : '# \n'
   await fs.writeFile(abs, body, 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
   invalidateVaultTextSearchCache(root)

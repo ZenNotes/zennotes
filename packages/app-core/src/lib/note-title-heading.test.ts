@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  bindableH1TitleCursorOffset,
   ensureBindableH1,
   firstBindableH1,
   isGeneratedUntitledTitle,
@@ -38,6 +39,26 @@ describe('replaceFirstBindableH1Title', () => {
   it('leaves the body unchanged without a bindable H1', () => {
     const body = 'Intro\n\n# Later'
     expect(replaceFirstBindableH1Title(body, 'New')).toBe(body)
+  })
+})
+
+describe('bindableH1TitleCursorOffset', () => {
+  it('places the cursor after the empty H1 marker', () => {
+    expect(bindableH1TitleCursorOffset('# \n')).toBe(2)
+    expect(bindableH1TitleCursorOffset('#')).toBe(1)
+  })
+
+  it('places the cursor at the end of the bindable H1 title', () => {
+    expect(bindableH1TitleCursorOffset('# Draft\n')).toBe('# Draft'.length)
+  })
+
+  it('finds the title cursor after frontmatter and blank lines', () => {
+    const body = ['---', 'status: draft', '---', '', '# Draft', '', 'Body'].join('\n')
+    expect(bindableH1TitleCursorOffset(body)).toBe(body.indexOf('# Draft') + '# Draft'.length)
+  })
+
+  it('returns null without a bindable H1', () => {
+    expect(bindableH1TitleCursorOffset('Body\n\n# Later')).toBeNull()
   })
 })
 

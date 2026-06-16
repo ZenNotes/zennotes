@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@shared/ipc'
 import type {
   AppUpdateState,
   CliInstallStatus,
@@ -37,7 +36,6 @@ import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
-import { normalizeDailyNotesDirectory, normalizeWeeklyNotesDirectory } from '../lib/vault-layout'
 import { localizedBuiltinTemplates } from '../lib/builtin-templates-i18n'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
 import { TemplateEditorModal } from './TemplateEditorModal'
@@ -239,6 +237,8 @@ export function SettingsModal(): JSX.Element {
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const splitModeEnabled = useStore((s) => s.splitModeEnabled)
+  const setSplitModeEnabled = useStore((s) => s.setSplitModeEnabled)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
@@ -271,14 +271,6 @@ export function SettingsModal(): JSX.Element {
   const disconnectRemoteWorkspace = useStore((s) => s.disconnectRemoteWorkspace)
   const saveRemoteWorkspaceProfile = useStore((s) => s.saveRemoteWorkspaceProfile)
   const deleteRemoteWorkspaceProfile = useStore((s) => s.deleteRemoteWorkspaceProfile)
-  const openTodayDailyNote = useStore((s) => s.openTodayDailyNote)
-  const openThisWeekWeeklyNote = useStore((s) => s.openThisWeekWeeklyNote)
-  const autoCalendarPanel = useStore((s) => s.autoCalendarPanel)
-  const setAutoCalendarPanel = useStore((s) => s.setAutoCalendarPanel)
-  const calendarWeekStart = useStore((s) => s.calendarWeekStart)
-  const setCalendarWeekStart = useStore((s) => s.setCalendarWeekStart)
-  const calendarShowWeekNumbers = useStore((s) => s.calendarShowWeekNumbers)
-  const setCalendarShowWeekNumbers = useStore((s) => s.setCalendarShowWeekNumbers)
   const customTemplates = useStore((s) => s.customTemplates)
   const deleteCustomTemplate = useStore((s) => s.deleteCustomTemplate)
   const hideBuiltinTemplates = useStore((s) => s.hideBuiltinTemplates)
@@ -1170,6 +1162,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['preview', 'markdown']
         },
         {
+          id: 'split-mode',
+          title: 'Split mode',
+          description: 'Allow the editor to show source and preview side by side.',
+          keywords: ['split', 'preview']
+        },
+        {
           id: 'note-tabs',
           title: 'Note tabs',
           description: 'Open notes in tabs and allow split-friendly tab workflows.',
@@ -1344,6 +1342,13 @@ export function SettingsModal(): JSX.Element {
               onChange={setLivePreview}
             />
             <ToggleRow
+              label={t('Split mode')}
+              description={t('Allow the editor to show source and preview side by side.')}
+              value={splitModeEnabled}
+              settingId="split-mode"
+              onChange={setSplitModeEnabled}
+            />
+            <ToggleRow
               label={t('Note tabs')}
               description={t('Open notes in tabs and allow split-friendly tab workflows. Turn off to keep the simpler single-note behavior.')}
               value={tabsEnabled}
@@ -1456,72 +1461,6 @@ export function SettingsModal(): JSX.Element {
           title: 'Primary notes location',
           description: 'Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly.',
           keywords: ['primary notes', 'inbox', 'vault root']
-        },
-        {
-          id: 'enable-daily-notes',
-          title: 'Enable daily notes',
-          description: 'Adds a dedicated daily-notes workflow without changing ordinary note creation.',
-          keywords: ['daily notes']
-        },
-        {
-          id: 'daily-notes-directory',
-          title: 'Daily notes directory',
-          description: 'Stored inside your primary notes area.',
-          keywords: ['daily notes', 'directory', 'folder']
-        },
-        {
-          id: 'open-todays-daily-note',
-          title: "Open today's daily note",
-          description: "Opens today's note if it exists, otherwise creates it.",
-          keywords: ['daily notes', 'today']
-        },
-        {
-          id: 'daily-notes-template',
-          title: 'Daily note template',
-          description: 'Template applied when a daily note is created.',
-          keywords: ['daily notes', 'template']
-        },
-        {
-          id: 'enable-weekly-notes',
-          title: 'Enable weekly notes',
-          description: 'Adds a dedicated weekly-notes workflow alongside daily notes.',
-          keywords: ['weekly notes']
-        },
-        {
-          id: 'weekly-notes-directory',
-          title: 'Weekly notes directory',
-          description: 'Stored inside your primary notes area.',
-          keywords: ['weekly notes', 'directory', 'folder']
-        },
-        {
-          id: 'weekly-notes-template',
-          title: 'Weekly note template',
-          description: 'Template applied when a weekly note is created.',
-          keywords: ['weekly notes', 'template']
-        },
-        {
-          id: 'open-this-week-note',
-          title: "Open this week's note",
-          description: "Opens this week's note if it exists, otherwise creates it.",
-          keywords: ['weekly notes', 'this week']
-        },
-        {
-          id: 'auto-calendar-panel',
-          title: 'Show calendar in daily & weekly notes',
-          description: 'Auto-open a calendar panel on the right while viewing a daily or weekly note.',
-          keywords: ['calendar', 'daily notes', 'weekly notes', 'date', 'navigate']
-        },
-        {
-          id: 'calendar-week-start',
-          title: 'Calendar starts week on',
-          description: 'Which weekday the calendar grid begins with.',
-          keywords: ['calendar', 'week start', 'monday', 'sunday', 'locale']
-        },
-        {
-          id: 'calendar-week-numbers',
-          title: 'Show week numbers',
-          description: 'Display the ISO week-number column in the calendar.',
-          keywords: ['calendar', 'week numbers', 'iso week', 'weekly notes']
         }
       ],
       content: (
@@ -1698,180 +1637,6 @@ export function SettingsModal(): JSX.Element {
             />
           </Section>
 
-          <Section
-            title={t('Daily Notes')}
-            description={t('Create one note per day with a simple date title and keep them in a dedicated directory.')}
-          >
-            <ToggleRow
-              label={t('Enable daily notes')}
-              description={t('Adds a dedicated daily-notes workflow without changing ordinary note creation.')}
-              value={vaultSettings.dailyNotes.enabled}
-              settingId="enable-daily-notes"
-              onChange={(enabled) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  dailyNotes: {
-                    ...vaultSettings.dailyNotes,
-                    enabled
-                  }
-                })
-              }
-            />
-            <TextInputRow
-              label={t('Daily notes directory')}
-              description={t('Stored inside your primary notes area. The default is `Daily Notes`.')}
-              value={vaultSettings.dailyNotes.directory}
-              placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
-              settingId="daily-notes-directory"
-              onChange={(next) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  dailyNotes: {
-                    ...vaultSettings.dailyNotes,
-                    directory: normalizeDailyNotesDirectory(next)
-                  }
-                })
-              }
-            />
-            <TemplateSelectRow
-              label={t('Daily note template')}
-              description={t('Applied when a daily note is created. None creates a blank note.')}
-              value={vaultSettings.dailyNotes.templateId}
-              templates={allTemplates}
-              settingId="daily-notes-template"
-              onChange={(templateId) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  dailyNotes: { ...vaultSettings.dailyNotes, templateId }
-                })
-              }
-            />
-            <div
-              className="flex items-center justify-between gap-4 px-5 py-4"
-              {...settingsSearchTargetProps('open-todays-daily-note')}
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-ink-900">{t("Open today's daily note")}</div>
-                <div className="mt-1 text-xs leading-5 text-ink-500">
-                  {t("Opens today's note if it exists, otherwise creates it with a YYYY-MM-DD title.")}
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={!vaultSettings.dailyNotes.enabled}
-                onClick={() => void openTodayDailyNote()}
-                className={[
-                  'shrink-0 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
-                  vaultSettings.dailyNotes.enabled
-                    ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                ].join(' ')}
-              >
-                {t('Open today')}
-              </button>
-            </div>
-          </Section>
-
-          <Section
-            title={t('Weekly Notes')}
-            description={t('Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory.')}
-          >
-            <ToggleRow
-              label={t('Enable weekly notes')}
-              description={t('Adds a dedicated weekly-notes workflow alongside daily notes.')}
-              value={vaultSettings.weeklyNotes.enabled}
-              settingId="enable-weekly-notes"
-              onChange={(enabled) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  weeklyNotes: {
-                    ...vaultSettings.weeklyNotes,
-                    enabled
-                  }
-                })
-              }
-            />
-            <TextInputRow
-              label={t('Weekly notes directory')}
-              description={t('Stored inside your primary notes area. The default is `Weekly Notes`.')}
-              value={vaultSettings.weeklyNotes.directory}
-              placeholder={DEFAULT_WEEKLY_NOTES_DIRECTORY}
-              settingId="weekly-notes-directory"
-              onChange={(next) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  weeklyNotes: {
-                    ...vaultSettings.weeklyNotes,
-                    directory: normalizeWeeklyNotesDirectory(next)
-                  }
-                })
-              }
-            />
-            <TemplateSelectRow
-              label={t('Weekly note template')}
-              description={t('Applied when a weekly note is created. None creates a blank note.')}
-              value={vaultSettings.weeklyNotes.templateId}
-              templates={allTemplates}
-              settingId="weekly-notes-template"
-              onChange={(templateId) =>
-                void persistVaultSettings({
-                  ...vaultSettings,
-                  weeklyNotes: { ...vaultSettings.weeklyNotes, templateId }
-                })
-              }
-            />
-            <div
-              className="flex items-center justify-between gap-4 px-5 py-4"
-              {...settingsSearchTargetProps('open-this-week-note')}
-            >
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-ink-900">{t("Open this week's note")}</div>
-                <div className="mt-1 text-xs leading-5 text-ink-500">
-                  {t("Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.")}
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={!vaultSettings.weeklyNotes.enabled}
-                onClick={() => void openThisWeekWeeklyNote()}
-                className={[
-                  'shrink-0 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors',
-                  vaultSettings.weeklyNotes.enabled
-                    ? 'border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200'
-                    : 'cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400'
-                ].join(' ')}
-              >
-                {t('Open this week')}
-              </button>
-            </div>
-            <ToggleRow
-              label={t('Show calendar in daily & weekly notes')}
-              description={t('Auto-open a calendar panel on the right while viewing a daily or weekly note, for jumping between dates. Toggle it anytime with the calendar icon or the leader-c shortcut.')}
-              value={autoCalendarPanel}
-              settingId="auto-calendar-panel"
-              onChange={setAutoCalendarPanel}
-            />
-            <SegmentedRow
-              label={t('Calendar starts week on')}
-              description={t('Which weekday the calendar grid begins with.')}
-              value={calendarWeekStart}
-              settingId="calendar-week-start"
-              options={[
-                { value: 'monday', label: t('Monday') },
-                { value: 'sunday', label: t('Sunday') },
-                { value: 'locale', label: t('Locale') }
-              ]}
-              onChange={setCalendarWeekStart}
-            />
-            <ToggleRow
-              label={t('Show week numbers')}
-              description={t('Display the ISO week-number column in the calendar. Click a week number to open or create its weekly note.')}
-              value={calendarShowWeekNumbers}
-              settingId="calendar-week-numbers"
-              onChange={setCalendarShowWeekNumbers}
-            />
-          </Section>
-
         </div>
       )
     },
@@ -1887,8 +1652,6 @@ export function SettingsModal(): JSX.Element {
         'adr',
         'rfc',
         'meeting',
-        'daily',
-        'weekly',
         'journal',
         'custom',
         'scaffold',
@@ -3119,7 +2882,7 @@ function TemplateSelectRow({
 }): JSX.Element {
   const tr = useT()
   // A configured template that no longer exists (deleted) shows as missing so
-  // the user can pick a replacement; daily/weekly creation falls back to blank.
+  // the user can pick a replacement.
   const missing = !!value && !templates.some((t) => t.id === value)
   return (
     <div
@@ -3922,7 +3685,7 @@ function CliSettings(): JSX.Element {
           <div>zen read "inbox/Project.md"</div>
           <div>zen read --path "hellointerview/system design.md"</div>
           <div>echo "hello" | zen capture</div>
-          <div>zen append daily.md --body "- talked to alice"</div>
+          <div>zen append journal.md --body "- talked to alice"</div>
           <div>zen search "deadline" --json | jq .</div>
           <div>zen mcp           # used by Claude Code/Desktop/Codex</div>
         </div>

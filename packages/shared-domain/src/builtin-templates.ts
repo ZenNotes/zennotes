@@ -169,56 +169,6 @@ export const BUILTIN_TEMPLATES: NoteTemplate[] = [
   }),
   // ------------------------------------------------------------------- Personal
   builtin({
-    id: 'builtin.daily',
-    name: 'Daily Note',
-    description: 'A dated daily log with focus, schedule, and tasks',
-    category: 'Personal',
-    titleTemplate: '{{date:YYYY-MM-DD}}',
-    body: `# {{date:dddd, MMMM D, YYYY}}
-
-## Focus
-
-- {{cursor}}
-
-## Schedule
-
-## Notes
-
-## Tasks
-
-- [ ]
-
-## Log
-
-`
-  }),
-  builtin({
-    id: 'builtin.weekly',
-    name: 'Weekly Review',
-    description: 'Review last week and plan the next',
-    category: 'Personal',
-    titleTemplate: '{{date:YYYY}}-W{{week}}',
-    body: `# Week {{week}}, {{date:YYYY}}
-
-## Last week — review
-
-- {{cursor}}
-
-## Wins
-
-## This week — plan
-
-- [ ]
-
-## Carry-overs
-
-## Notes
-
-## Related
-
-`
-  }),
-  builtin({
     id: 'builtin.reading',
     name: 'Reading Notes',
     description: 'Notes on a book or article: ideas, quotes, takeaways',

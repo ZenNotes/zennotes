@@ -265,40 +265,13 @@ export type FolderIconId =
   | 'chart'
   | 'home'
 
-export interface DailyNotesSettings {
-  enabled: boolean
-  directory: string
-  /** Template applied to new daily notes. Empty/undefined = blank note. */
-  templateId?: string
-}
-
-export interface WeeklyNotesSettings {
-  enabled: boolean
-  directory: string
-  /** Template applied to new weekly notes. Empty/undefined = blank note. */
-  templateId?: string
-}
-
 export interface VaultSettings {
   primaryNotesLocation: PrimaryNotesLocation
-  dailyNotes: DailyNotesSettings
-  weeklyNotes: WeeklyNotesSettings
   folderIcons: Record<string, FolderIconId>
 }
 
-export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
-export const DEFAULT_WEEKLY_NOTES_DIRECTORY = 'Weekly Notes'
-
 export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
-  dailyNotes: {
-    enabled: false,
-    directory: DEFAULT_DAILY_NOTES_DIRECTORY
-  },
-  weeklyNotes: {
-    enabled: false,
-    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
-  },
   folderIcons: {}
 }
 

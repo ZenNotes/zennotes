@@ -15,16 +15,16 @@ describe('parseOpenNoteDeepLink', () => {
   })
 
   it('parses single-slash action URLs', () => {
-    expect(parseOpenNoteDeepLink('zennotes:/open?path=inbox%2Fdaily.md')).toEqual({
+    expect(parseOpenNoteDeepLink('zennotes:/open?path=inbox%2Fnote.md')).toEqual({
       target: 'tab',
-      path: 'inbox/daily.md'
+      path: 'inbox/note.md'
     })
   })
 
   it('normalizes duplicate separators', () => {
-    expect(parseOpenNoteDeepLink('zennotes://open?path=inbox//daily.md')).toEqual({
+    expect(parseOpenNoteDeepLink('zennotes://open?path=inbox//note.md')).toEqual({
       target: 'tab',
-      path: 'inbox/daily.md'
+      path: 'inbox/note.md'
     })
   })
 

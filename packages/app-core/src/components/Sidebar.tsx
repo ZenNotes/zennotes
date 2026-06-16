@@ -19,7 +19,6 @@ import { isQuickNotesTabPath } from "@shared/quick-notes";
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
-  CalendarIcon,
   ChevronRightIcon,
   CheckSquareIcon,
   CloseIcon,
@@ -37,8 +36,6 @@ import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
-import { formatMonthName } from '../lib/format-date'
-import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { getKeymapDisplay } from "../lib/keymaps";
 import { recordRendererPerf } from "../lib/perf";
 import {
@@ -205,7 +202,7 @@ function SidebarSectionHeading({
           : undefined
       }
     >
-      <span className="min-w-0 truncate pr-16">{label}</span>
+      <span className="min-w-0 truncate pr-8">{label}</span>
       {onAddClick && (
         <button
           type="button"
@@ -213,7 +210,7 @@ function SidebarSectionHeading({
           onContextMenu={onAddClick}
           title={addLabel}
           aria-label={addLabel}
-          className="absolute right-2 top-[calc(50%+6px)] flex h-5 w-14 -translate-y-1/2 shrink-0 items-center justify-end rounded text-ink-400 transition-colors hover:bg-paper-200 hover:text-ink-800"
+          className="absolute right-2 top-[calc(50%+6px)] flex h-5 w-5 -translate-y-1/2 shrink-0 items-center justify-center rounded text-ink-400 transition-colors hover:text-ink-800"
         >
           <PlusIcon width={14} height={14} />
         </button>
@@ -247,6 +244,14 @@ function selectionKeyForItem(item: SidebarSelectionItem): string {
   return item.kind === "note"
     ? noteSelectionKey(item.path)
     : folderSelectionKey(item.folder, item.subpath);
+}
+
+function normalizeSidebarPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+/, "").normalize("NFC");
+}
+
+function sameSidebarPath(left: string, right: string): boolean {
+  return normalizeSidebarPath(left) === normalizeSidebarPath(right);
 }
 
 function parseSelectionKey(key: string): SidebarSelectionItem | null {
@@ -397,8 +402,6 @@ export function Sidebar(): JSX.Element {
   const restoreSoftDeletedAction = useStore((s) => s.restoreSoftDeleted);
   const purgeSoftDeletedAction = useStore((s) => s.purgeSoftDeleted);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
-  const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
-  const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix);
   const keymapOverrides = useStore((s) => s.keymapOverrides);
   const newQuickNoteShortcut = getKeymapDisplay(keymapOverrides, "global.newQuickNote");
   const setFocusedPanel = useStore((s) => s.setFocusedPanel);
@@ -485,6 +488,19 @@ export function Sidebar(): JSX.Element {
     () => resolveSystemFolderLabels(systemFolderLabels, t),
     [systemFolderLabels, t],
   );
+  const sidebarSelectedPath = useMemo(() => {
+    const candidates = [
+      selectedPath && !selectedPath.startsWith("zen://") ? selectedPath : null,
+      activeNote?.path ?? null,
+      selectedPath,
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const meta = notes.find((note) => sameSidebarPath(note.path, candidate));
+      if (meta) return meta.path;
+    }
+    return candidates.find((candidate): candidate is string => !!candidate) ?? null;
+  }, [activeNote?.path, notes, selectedPath]);
   const openAssetInTab = useCallback(
     (path: string): void => {
       void openNoteInTab(assetTabPath(path));
@@ -1004,19 +1020,6 @@ export function Sidebar(): JSX.Element {
         vaultSettings,
       ),
     };
-    // Daily/Weekly directories are surfaced in their own pinned, date-grouped
-    // section above NOTES (see DateNotesNav), so drop them from the inbox tree
-    // to avoid showing them twice.
-    const ds = normalizeVaultSettings(vaultSettings);
-    const hideSubpaths = new Set<string>();
-    if (ds.dailyNotes.enabled) hideSubpaths.add(ds.dailyNotes.directory);
-    if (ds.weeklyNotes.enabled) hideSubpaths.add(ds.weeklyNotes.directory);
-    if (hideSubpaths.size) {
-      next.inbox = {
-        ...next.inbox,
-        children: next.inbox.children.filter((c) => !hideSubpaths.has(c.subpath)),
-      };
-    }
     recordRendererPerf("sidebar.tree-build", performance.now() - startedAt, {
       notes: notes.length,
       folders: allFolders.length,
@@ -1024,82 +1027,6 @@ export function Sidebar(): JSX.Element {
     });
     return next;
   }, [notes, allFolders, assetFiles, vaultSettings]);
-
-  // Daily/weekly notes grouped for the pinned date-nav: daily by year → month →
-  // day, weekly by year → week, all newest-first.
-  const dateNav = useMemo(() => {
-    const s = normalizeVaultSettings(vaultSettings);
-    const dailyDir = s.dailyNotes.directory;
-    const weeklyDir = s.weeklyNotes.directory;
-    const daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[] =
-      [];
-    const weekly: { year: number; notes: NoteMeta[] }[] = [];
-
-    if (s.dailyNotes.enabled) {
-      const byYear = new Map<number, Map<number, NoteMeta[]>>();
-      for (const n of notes) {
-        if (n.folder !== "inbox") continue;
-        if (noteFolderSubpath(n, vaultSettings) !== dailyDir) continue;
-        const m = /^(\d{4})-(\d{2})-\d{2}$/.exec(n.title);
-        if (!m) continue;
-        const year = Number(m[1]);
-        const month = Number(m[2]) - 1;
-        let months = byYear.get(year);
-        if (!months) byYear.set(year, (months = new Map()));
-        (months.get(month) ?? months.set(month, []).get(month)!).push(n);
-      }
-      for (const [year, months] of [...byYear.entries()].sort((a, b) => b[0] - a[0])) {
-        let total = 0;
-        const mlist = [...months.entries()]
-          .sort((a, b) => b[0] - a[0])
-          .map(([month, ns]) => {
-            ns.sort((a, b) => b.title.localeCompare(a.title));
-            total += ns.length;
-            return { month, notes: ns };
-          });
-        daily.push({ year, total, months: mlist });
-      }
-    }
-
-    if (s.weeklyNotes.enabled) {
-      const byYear = new Map<number, NoteMeta[]>();
-      for (const n of notes) {
-        if (n.folder !== "inbox") continue;
-        if (noteFolderSubpath(n, vaultSettings) !== weeklyDir) continue;
-        if (!/^\d{4}-W\d{2}$/.test(n.title)) continue;
-        const year = Number(n.title.slice(0, 4));
-        (byYear.get(year) ?? byYear.set(year, []).get(year)!).push(n);
-      }
-      for (const [year, ns] of [...byYear.entries()].sort((a, b) => b[0] - a[0])) {
-        ns.sort((a, b) => b.title.localeCompare(a.title));
-        weekly.push({ year, notes: ns });
-      }
-    }
-
-    return {
-      dailyEnabled: s.dailyNotes.enabled,
-      weeklyEnabled: s.weeklyNotes.enabled,
-      dailyDir,
-      weeklyDir,
-      dailyLabel: dailyDir.split("/").pop() || dailyDir,
-      weeklyLabel: weeklyDir.split("/").pop() || weeklyDir,
-      daily,
-      weekly,
-      dailyTotal: daily.reduce((sum, y) => sum + y.total, 0),
-      weeklyTotal: weekly.reduce((sum, y) => sum + y.notes.length, 0),
-    };
-  }, [notes, vaultSettings]);
-
-  // Local (session) expand state for the pinned date-nav, default all collapsed.
-  const [dateNavExpanded, setDateNavExpanded] = useState<Set<string>>(() => new Set());
-  const toggleDateNav = useCallback((key: string) => {
-    setDateNavExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
 
   const treeSortComparator = useMemo<
     ((a: NoteMeta, b: NoteMeta) => number) | null
@@ -1153,7 +1080,9 @@ export function Sidebar(): JSX.Element {
    * collapsed folder.
    */
   const activePath =
-    selectedPath && !selectedPath.startsWith("zen://") ? selectedPath : null;
+    sidebarSelectedPath && !sidebarSelectedPath.startsWith("zen://")
+      ? sidebarSelectedPath
+      : null;
   const activeRevealTarget = useMemo(() => {
     if (!activePath) return null;
     const activeMeta = notes.find((note) => note.path === activePath);
@@ -1729,18 +1658,13 @@ export function Sidebar(): JSX.Element {
     }
 
     // Quick Notes is a special note type — its only folder action is to
-    // create a new quick note (with the date/prefix title rules).
+    // create a blank quick note.
     if (folder === "quick" && isTop) {
       return [
         {
           label: t("New note"),
           onSelect: async () => {
-            const title = resolveQuickNoteTitle(
-              notes,
-              quickNoteDateTitle,
-              quickNoteTitlePrefix ?? undefined,
-            );
-            await createAndOpen("quick", "", { title, focusTitle: true });
+            await createAndOpen("quick", "", { focusTitle: true });
           },
         },
       ];
@@ -1750,7 +1674,7 @@ export function Sidebar(): JSX.Element {
       {
         label: t("New note"),
         onSelect: async () => {
-          await createAndOpen(folder, subpath);
+          await createAndOpen(folder, subpath, { focusTitle: true });
         },
       },
       {
@@ -1952,8 +1876,6 @@ export function Sidebar(): JSX.Element {
   }, [
     folderMenu,
     notes,
-    quickNoteDateTitle,
-    quickNoteTitlePrefix,
     allFolders,
     vault,
     createAndOpen,
@@ -1993,7 +1915,7 @@ export function Sidebar(): JSX.Element {
       {
         label: t("New note"),
         onSelect: async () => {
-          await createAndOpen("inbox", "");
+          await createAndOpen("inbox", "", { focusTitle: true });
         },
       },
       {
@@ -2633,34 +2555,34 @@ export function Sidebar(): JSX.Element {
         ) as HTMLElement | null;
       }
 
-      if (selectedPath) {
+      if (sidebarSelectedPath) {
         if (
-          isArchiveTabPath(selectedPath) ||
-          selectedPath.startsWith("archive/")
+          isArchiveTabPath(sidebarSelectedPath) ||
+          sidebarSelectedPath.startsWith("archive/")
         ) {
           return document.querySelector(
             '[data-sidebar-type="archive"]',
           ) as HTMLElement | null;
         }
-        if (isTrashTabPath(selectedPath) || selectedPath.startsWith("trash/")) {
+        if (isTrashTabPath(sidebarSelectedPath) || sidebarSelectedPath.startsWith("trash/")) {
           return document.querySelector(
             '[data-sidebar-type="trash"]',
           ) as HTMLElement | null;
         }
       }
 
-      if (selectedPath && unifiedSidebar) {
-        if (isQuickNotesTabPath(selectedPath)) {
+      if (sidebarSelectedPath && unifiedSidebar) {
+        if (isQuickNotesTabPath(sidebarSelectedPath)) {
           return document.querySelector(
             '[data-sidebar-type="folder"][data-sidebar-folder="quick"][data-sidebar-subpath=""]',
           ) as HTMLElement | null;
         }
         const noteEl = document.querySelector(
-          `[data-sidebar-path="${escapeForAttr(selectedPath)}"]`,
+          `[data-sidebar-path="${escapeForAttr(sidebarSelectedPath)}"]`,
         ) as HTMLElement | null;
         if (noteEl) return noteEl;
 
-        const selectedMeta = notes.find((note) => note.path === selectedPath);
+        const selectedMeta = notes.find((note) => note.path === sidebarSelectedPath);
         const folder = selectedMeta?.folder ?? "inbox";
         const subpath = selectedMeta
           ? noteFolderSubpath(selectedMeta, vaultSettings)
@@ -2709,7 +2631,7 @@ export function Sidebar(): JSX.Element {
     archiveViewActive,
     isSidebarFocused,
     quickNotesViewActive,
-    selectedPath,
+    sidebarSelectedPath,
     notes,
     vaultSettings,
     unifiedSidebar,
@@ -2862,24 +2784,6 @@ export function Sidebar(): JSX.Element {
             sidebarFocused={sidebarKbFocused}
           />
 
-          <DateNotesNav
-            dateNav={dateNav}
-            expanded={dateNavExpanded}
-            onToggle={toggleDateNav}
-            dailyIcon={<CalendarIcon />}
-            weeklyIcon={<CalendarIcon />}
-            isFolderActive={isFolderActive}
-            selectedPath={selectedPath}
-            selectedKeys={selectedSidebarKeys}
-            sidebarFocused={sidebarKbFocused}
-            showSidebarChevrons={showSidebarChevrons}
-            onSelectNote={handleSelectNote}
-            onSelectItem={handleSidebarItemSelect}
-            onNoteContextMenu={openNoteMenu}
-            dragPayloadForItem={dragPayloadForItem}
-            onRootContextMenu={(e, subpath) => openFolderMenu(e, "inbox", subpath)}
-          />
-
           <div className="mt-1">
             <ArchiveSidebarRow
               label={folderLabels.archive}
@@ -2888,7 +2792,7 @@ export function Sidebar(): JSX.Element {
               active={
                 archiveViewActive ||
                 (view.kind === "folder" && view.folder === "archive") ||
-                !!selectedPath?.startsWith("archive/")
+                !!sidebarSelectedPath?.startsWith("archive/")
               }
               onClick={() => {
                 void openArchiveView();
@@ -2928,7 +2832,7 @@ export function Sidebar(): JSX.Element {
             setView={setView}
             onContextMenu={openFolderMenu}
             showNotes={unifiedSidebar}
-            selectedPath={selectedPath}
+            selectedPath={sidebarSelectedPath}
             vaultRoot={vault?.root ?? null}
             onSelectNote={handleSelectNote}
             onOpenAsset={openAssetInTab}
@@ -2953,12 +2857,7 @@ export function Sidebar(): JSX.Element {
                 aria-label={`${t("New note in")} ${folderLabels.quick}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  const title = resolveQuickNoteTitle(
-                    notes,
-                    quickNoteDateTitle,
-                    quickNoteTitlePrefix ?? undefined,
-                  );
-                  void createAndOpen("quick", "", { title, focusTitle: true });
+                  void createAndOpen("quick", "", { focusTitle: true });
                 }}
                 className="flex w-14 items-center justify-end text-right font-sans text-2xs font-medium leading-none tracking-wide text-current opacity-50 transition hover:opacity-100"
               >
@@ -2982,7 +2881,7 @@ export function Sidebar(): JSX.Element {
                 setView={setView}
                 onContextMenu={openFolderMenu}
                 showNotes={unifiedSidebar}
-                selectedPath={selectedPath}
+                selectedPath={sidebarSelectedPath}
                 vaultRoot={vault?.root ?? null}
                 onSelectNote={handleSelectNote}
                 onOpenAsset={openAssetInTab}
@@ -3015,7 +2914,7 @@ export function Sidebar(): JSX.Element {
               setView={setView}
               onContextMenu={openFolderMenu}
               showNotes={unifiedSidebar}
-              selectedPath={selectedPath}
+              selectedPath={sidebarSelectedPath}
               vaultRoot={vault?.root ?? null}
               onSelectNote={handleSelectNote}
               onOpenAsset={openAssetInTab}
@@ -3131,7 +3030,7 @@ export function Sidebar(): JSX.Element {
           icon={<TrashIcon />}
           label={folderLabels.trash}
           count={countNotesInTree(trees.trash) + trashSoftCount}
-          active={trashViewActive || !!selectedPath?.startsWith("trash/")}
+          active={trashViewActive || !!sidebarSelectedPath?.startsWith("trash/")}
           onClick={() => void openTrashView()}
           onContextMenu={(e) => openFolderMenu(e, "trash", "")}
           sidebarIdx={idxCounter.current.value++}
@@ -3794,6 +3693,7 @@ function FolderTreeRoot({
     [tree, showNotes, sortComparator, groupByKind],
   );
   const rootActive = isFolderActive(folder, "");
+  const rootRowActive = folder === "quick" ? false : rootActive;
   const rootProgressive = shouldProgressivelyRenderEntries(entries);
   const rootPrefetchEntries = useMemo(
     () =>
@@ -3806,9 +3706,12 @@ function FolderTreeRoot({
   const hasChildren = entries.length > 0;
   const [dragHover, setDragHover] = useState(false);
   const myIdx = idxCounter.value++;
+  const rootRowVimHighlight = folder === "quick" ? false : vimCursor === myIdx;
 
   const handleSelect = (): void => {
-    setView({ kind: "folder", folder, subpath: "" });
+    if (folder !== "quick") {
+      setView({ kind: "folder", folder, subpath: "" });
+    }
     // Click toggles the expand state on every folder row.
     if (hasChildren) {
       if (isCollapsed) prefetchSidebarEdgeNotes(entries, showNotes);
@@ -3822,7 +3725,7 @@ function FolderTreeRoot({
         icon={icon}
         label={label}
         count={hideCount ? undefined : total}
-        active={rootActive}
+        active={rootRowActive}
         expandable={hasChildren}
         collapsed={isCollapsed}
         depth={0}
@@ -3848,7 +3751,7 @@ function FolderTreeRoot({
           void onDropOnFolder(payload, folder, "");
         }}
         sidebarIdx={myIdx}
-        vimHighlight={vimCursor === myIdx}
+        vimHighlight={rootRowVimHighlight}
         sidebarFocused={sidebarFocused}
         sidebarData={{ type: "folder", folder, subpath: "", key: rootKey }}
         trailing={headerAction}
@@ -4169,7 +4072,8 @@ const NoteLeaf = memo(function NoteLeaf({
   vimHighlight,
 }: NoteLeafProps): JSX.Element {
   const t = useT();
-  const strongActive = active && (!sidebarFocused || !!vimHighlight);
+  const activeSurface = active && (!sidebarFocused || !!vimHighlight || note.folder === "quick");
+  const strongActive = activeSurface;
   const selectionKey = noteSelectionKey(note.path);
   // Zustand actions are stable references, so pulling this here keeps the
   // memoized row cheap without threading another prop through the tree.
@@ -4209,7 +4113,7 @@ const NoteLeaf = memo(function NoteLeaf({
         active
           ? vimHighlight
             ? "vim-cursor-on-active bg-accent text-white"
-            : sidebarFocused
+            : !activeSurface
               ? "text-accent"
               : "bg-accent text-white"
           : selected
@@ -4252,7 +4156,7 @@ const NoteLeaf = memo(function NoteLeaf({
           className={[
             "shrink-0",
             active
-              ? sidebarFocused && !vimHighlight
+              ? !activeSurface
                 ? "text-accent/70"
                 : "text-white/70"
               : selected
@@ -4282,7 +4186,7 @@ const NoteLeaf = memo(function NoteLeaf({
           className={[
             "shrink-0",
             active
-              ? sidebarFocused && !vimHighlight
+              ? !activeSurface
                 ? "text-accent/70"
                 : "text-white/70"
               : selected
@@ -5179,198 +5083,6 @@ function IconBtn({
       </span>
     </button>
   );
-}
-
-interface DateNavData {
-  dailyEnabled: boolean;
-  weeklyEnabled: boolean;
-  dailyDir: string;
-  weeklyDir: string;
-  dailyLabel: string;
-  weeklyLabel: string;
-  daily: { year: number; total: number; months: { month: number; notes: NoteMeta[] }[] }[];
-  weekly: { year: number; notes: NoteMeta[] }[];
-  dailyTotal: number;
-  weeklyTotal: number;
-}
-
-/**
- * Pinned, date-grouped navigator for daily/weekly notes, shown above the NOTES
- * section. Daily notes nest year → month → day, weekly notes year → week, all
- * newest-first and collapsed by default so the sidebar stays compact no matter
- * how many notes exist. Reuses TreeRow (group headers) and NoteLeaf (leaves).
- */
-function DateNotesNav({
-  dateNav,
-  expanded,
-  onToggle,
-  dailyIcon,
-  weeklyIcon,
-  isFolderActive,
-  selectedPath,
-  selectedKeys,
-  sidebarFocused,
-  showSidebarChevrons,
-  onSelectNote,
-  onSelectItem,
-  onNoteContextMenu,
-  dragPayloadForItem,
-  onRootContextMenu,
-}: {
-  dateNav: DateNavData;
-  expanded: Set<string>;
-  onToggle: (key: string) => void;
-  dailyIcon: JSX.Element;
-  weeklyIcon: JSX.Element;
-  isFolderActive: (folder: NoteFolder, subpath: string) => boolean;
-  selectedPath: string | null;
-  selectedKeys: Set<string>;
-  sidebarFocused: boolean;
-  showSidebarChevrons: boolean;
-  onSelectNote: (path: string) => void;
-  onSelectItem: (
-    event: React.MouseEvent | React.KeyboardEvent,
-    item: SidebarSelectionItem,
-    primaryAction: () => void,
-  ) => void;
-  onNoteContextMenu: (e: React.MouseEvent, note: NoteMeta) => void;
-  dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
-  onRootContextMenu?: (e: React.MouseEvent, subpath: string) => void;
-}): JSX.Element | null {
-  const language = useStore((s) => s.language);
-  const rows: JSX.Element[] = [];
-  const monthName = (year: number, month: number): string =>
-    formatMonthName(new Date(year, month, 1), language);
-  const groupRow = (
-    key: string,
-    label: string,
-    count: number,
-    depth: number,
-    onSelect: () => void,
-    icon: JSX.Element,
-    active: boolean,
-    chevron: boolean,
-    onContextMenu?: (e: React.MouseEvent) => void,
-  ): JSX.Element => (
-    <TreeRow
-      key={key}
-      icon={icon}
-      label={label}
-      count={count}
-      active={active}
-      expandable
-      collapsed={!expanded.has(key)}
-      depth={depth}
-      onToggle={() => onToggle(key)}
-      onSelect={onSelect}
-      onContextMenu={onContextMenu}
-      reserveLeadingSlot={chevron}
-      showExpandChevron={chevron}
-    />
-  );
-  const leaf = (note: NoteMeta, depth: number): JSX.Element => (
-    <NoteLeaf
-      key={note.path}
-      note={note}
-      depth={depth}
-      showSidebarChevrons={showSidebarChevrons}
-      active={note.path === selectedPath}
-      selected={selectedKeys.has(noteSelectionKey(note.path))}
-      sidebarFocused={sidebarFocused}
-      onSelectItem={onSelectItem}
-      onSelectNote={onSelectNote}
-      onContextMenuNote={onNoteContextMenu}
-      dragPayloadForItem={dragPayloadForItem}
-    />
-  );
-
-  if (dateNav.dailyEnabled && dateNav.dailyTotal > 0) {
-    rows.push(
-      groupRow(
-        "d",
-        dateNav.dailyLabel,
-        dateNav.dailyTotal,
-        0,
-        () => onToggle("d"),
-        dailyIcon,
-        isFolderActive("inbox", dateNav.dailyDir),
-        false,
-        onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.dailyDir) : undefined,
-      ),
-    );
-    if (expanded.has("d")) {
-      for (const yg of dateNav.daily) {
-        const yKey = `d:${yg.year}`;
-        rows.push(
-          groupRow(
-            yKey,
-            String(yg.year),
-            yg.total,
-            1,
-            () => onToggle(yKey),
-            <FolderGlyphIcon open={expanded.has(yKey)} />,
-            false,
-            showSidebarChevrons,
-          ),
-        );
-        if (expanded.has(yKey)) {
-          for (const mg of yg.months) {
-            const mKey = `d:${yg.year}:${mg.month}`;
-            rows.push(
-              groupRow(
-                mKey,
-                monthName(yg.year, mg.month),
-                mg.notes.length,
-                2,
-                () => onToggle(mKey),
-                <FolderGlyphIcon open={expanded.has(mKey)} />,
-                false,
-                showSidebarChevrons,
-              ),
-            );
-            if (expanded.has(mKey)) for (const n of mg.notes) rows.push(leaf(n, 3));
-          }
-        }
-      }
-    }
-  }
-
-  if (dateNav.weeklyEnabled && dateNav.weeklyTotal > 0) {
-    rows.push(
-      groupRow(
-        "w",
-        dateNav.weeklyLabel,
-        dateNav.weeklyTotal,
-        0,
-        () => onToggle("w"),
-        weeklyIcon,
-        isFolderActive("inbox", dateNav.weeklyDir),
-        false,
-        onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.weeklyDir) : undefined,
-      ),
-    );
-    if (expanded.has("w")) {
-      for (const yg of dateNav.weekly) {
-        const yKey = `w:${yg.year}`;
-        rows.push(
-          groupRow(
-            yKey,
-            String(yg.year),
-            yg.notes.length,
-            1,
-            () => onToggle(yKey),
-            <FolderGlyphIcon open={expanded.has(yKey)} />,
-            false,
-            showSidebarChevrons,
-          ),
-        );
-        if (expanded.has(yKey)) for (const n of yg.notes) rows.push(leaf(n, 2));
-      }
-    }
-  }
-
-  if (rows.length === 0) return null;
-  return <div className="mt-1 flex flex-col">{rows}</div>;
 }
 
 function RowKeyHint({

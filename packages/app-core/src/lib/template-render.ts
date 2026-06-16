@@ -33,10 +33,10 @@ const CURSOR_TOKEN = '{{cursor}}'
 
 const TOKEN_RE = /\{\{\s*([^}]+?)\s*\}\}/g
 
-// Month and weekday names follow the host locale so daily-note templates read
+// Month and weekday names follow the host locale so dated templates read
 // naturally for non-English users (e.g. `{{date:dddd D MMMM}}` →
-// "lundi 9 juin"). Numeric tokens stay locale-neutral, and the daily-note title
-// itself remains ISO `YYYY-MM-DD` for file-friendly sorting and searching.
+// "lundi 9 juin"). Numeric tokens stay locale-neutral for file-friendly
+// sorting and searching.
 function localeName(
   date: Date,
   field: 'month' | 'weekday',

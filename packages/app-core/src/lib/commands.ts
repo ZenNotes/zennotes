@@ -13,12 +13,10 @@ import { buildMoveNotePrompt, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { findLeaf } from './pane-layout'
 import { requestPaneMode } from './pane-mode'
-import { resolveQuickNoteTitle } from './quick-note-title'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { translate } from './i18n'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
-import { normalizeVaultSettings } from './vault-layout'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -87,13 +85,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       shortcut: shortcut('global.newQuickNote'),
       keywords: 'scratch capture jot',
       run: () => {
-        const s = getState()
-        const title = resolveQuickNoteTitle(
-          s.notes,
-          s.quickNoteDateTitle,
-          s.quickNoteTitlePrefix ?? undefined
-        )
-        return s.createAndOpen('quick', '', { title, focusTitle: true })
+        return getState().createAndOpen('quick', '', { focusTitle: true })
       }
     },
     {
@@ -114,28 +106,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().createDatabase('inbox', '')
     },
     {
-      id: 'note.daily.today',
-      title: tr("Open Today's Daily Note"),
-      category: tr('Note'),
-      keywords: 'daily journal date today log',
-      shortcut: leaderShortcut('vim.leaderDailyNote'),
-      when: () => getState().vaultSettings.dailyNotes.enabled,
-      run: () => getState().openTodayDailyNote()
-    },
-    {
-      id: 'note.weekly.thisWeek',
-      title: tr("Open This Week's Note"),
-      category: tr('Note'),
-      keywords: 'weekly week review date log',
-      shortcut: leaderShortcut('vim.leaderWeeklyNote'),
-      when: () => getState().vaultSettings.weeklyNotes.enabled,
-      run: () => getState().openThisWeekWeeklyNote()
-    },
-    {
       id: 'template.create',
       title: tr('New Note from Template…'),
       category: tr('Note'),
-      keywords: 'template scaffold adr rfc meeting daily weekly boilerplate new',
+      keywords: 'template scaffold adr rfc meeting boilerplate new',
       shortcut: leaderShortcut('vim.leaderTemplatePicker'),
       run: () => getState().setTemplatePaletteOpen(true)
     },
@@ -544,24 +518,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
-      id: 'view.calendar-panel',
-      title: tr('Toggle Calendar Panel'),
-      category: tr('View'),
-      shortcut: getState().vimMode ? leaderShortcut('vim.leaderCalendar') : undefined,
-      keywords: 'calendar daily weekly date navigate month week',
-      when: () => {
-        const s = normalizeVaultSettings(getState().vaultSettings)
-        return s.dailyNotes.enabled || s.weeklyNotes.enabled
-      },
-      run: () => {
-        window.dispatchEvent(new Event('zen:toggle-calendar'))
-      }
-    },
-    {
       id: 'view.close-right-panel',
       title: tr('Close Right Panel'),
       category: tr('View'),
-      keywords: 'close hide dismiss right panel pane connections comments outline calendar',
+      keywords: 'close hide dismiss right panel pane connections comments outline',
       when: () => !!getState().activeNote,
       run: () => {
         window.dispatchEvent(new Event('zen:close-right-panel'))
@@ -582,8 +542,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: tr('View'),
       shortcut: shortcut('global.modeSplit'),
       keywords: 'editor preview side by side pane mode toolbar splitmode',
-      when: () => !!getState().activeNote,
-      run: () => requestPaneMode('split')
+      when: () => !!getState().activeNote && getState().splitModeEnabled,
+      run: () => {
+        if (!getState().splitModeEnabled) return
+        requestPaneMode('split')
+      }
     },
     {
       id: 'view.mode.preview',
@@ -1103,7 +1066,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         : tr('Enable Quick Note Date Titles')
       ,
       category: tr('Editor'),
-      keywords: 'daily date today yyyy-mm-dd',
+      keywords: 'date today yyyy-mm-dd',
       run: () => getState().setQuickNoteDateTitle(!getState().quickNoteDateTitle)
     },
     {

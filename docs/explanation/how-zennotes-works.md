@@ -155,7 +155,7 @@ So ZenNotes now allows:
 - `Inbox` as the main notes location
 - `Vault root` as the main notes location
 
-This is not just cosmetic. It changes how the app interprets the note tree, quick capture, daily notes placement, and how natural imported vaults feel.
+This is not just cosmetic. It changes how the app interprets the note tree, where new notes are created, and how natural imported vaults feel.
 
 This is also why Obsidian compatibility work matters:
 

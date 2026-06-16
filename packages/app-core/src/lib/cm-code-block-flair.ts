@@ -18,8 +18,19 @@ import {
   WidgetType
 } from '@codemirror/view'
 import { isClosedFencedCodeBlock } from './cm-code-blocks'
+import {
+  hasPendingMarkdownBlockSnippet,
+  isPendingMarkdownBlockSnippetStart,
+  pendingMarkdownBlockSnippetLineFrom
+} from './cm-markdown-snippets'
+import { translate } from './i18n'
+import { useStore } from '../store'
 
 const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)/
+
+function t(source: string): string {
+  return translate(useStore.getState().language, source)
+}
 
 class CodeFlairWidget extends WidgetType {
   constructor(
@@ -44,8 +55,10 @@ class CodeFlairWidget extends WidgetType {
     button.type = 'button'
     button.className = 'cm-code-flair'
     button.textContent = this.language
-    button.title = 'Copy code'
-    button.setAttribute('aria-label', `Copy ${this.language} code block`)
+    const copyLabel = t('Copy')
+    button.title = copyLabel
+    button.dataset.copyTooltip = copyLabel
+    button.setAttribute('aria-label', `${copyLabel} ${this.language} code block`)
     button.setAttribute('contenteditable', 'false')
 
     // Don't let the editor move the caret / start a selection when the label
@@ -63,11 +76,14 @@ class CodeFlairWidget extends WidgetType {
           : ''
       void navigator.clipboard?.writeText(text).then(
         () => {
+          const copiedLabel = t('Copied')
           button.classList.add('is-copied')
-          button.textContent = 'Copied'
+          button.textContent = copiedLabel
+          button.dataset.copyTooltip = copiedLabel
           window.setTimeout(() => {
             button.classList.remove('is-copied')
             button.textContent = this.language
+            button.dataset.copyTooltip = t('Copy')
           }, 1100)
         },
         () => {
@@ -95,6 +111,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name !== 'FencedCode') return
+        if (isPendingMarkdownBlockSnippetStart(state, node.from)) return false
         if (!isClosedFencedCodeBlock(state, node.from, node.to)) return false
         const beginLine = state.doc.lineAt(node.from)
         if (seen.has(beginLine.from)) return false
@@ -116,9 +133,9 @@ function buildDecorations(view: EditorView): DecorationSet {
             : beginLine.to
 
         pending.push({
-          at: beginLine.to,
+          at: beginLine.from,
           deco: Decoration.widget({
-            side: 1,
+            side: -1,
             widget: new CodeFlairWidget(language, contentFrom, contentTo)
           })
         })
@@ -142,7 +159,14 @@ export const codeBlockFlairPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate): void {
-      if (update.docChanged || update.viewportChanged) {
+      if (hasPendingMarkdownBlockSnippet(update.state)) {
+        if (update.docChanged) this.decorations = this.decorations.map(update.changes)
+        return
+      }
+      const pendingChanged =
+        pendingMarkdownBlockSnippetLineFrom(update.startState) !==
+        pendingMarkdownBlockSnippetLineFrom(update.state)
+      if (update.docChanged || update.viewportChanged || pendingChanged) {
         this.decorations = buildDecorations(update.view)
       }
     }

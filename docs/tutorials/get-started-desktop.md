@@ -234,8 +234,6 @@ Choose `Vault root` if you want the app to surface top-level vault files and fol
 You can also configure:
 
 - system folder labels
-- daily notes behavior
-- daily notes directory
 - folder icons
 
 ## 12. Understand what ZenNotes stores

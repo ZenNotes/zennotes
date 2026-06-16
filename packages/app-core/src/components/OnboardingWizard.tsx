@@ -9,11 +9,9 @@ import {
   type ThemeMode
 } from '../lib/themes'
 import {
-  DEFAULT_DAILY_NOTES_DIRECTORY,
   type PrimaryNotesLocation,
   type VaultSettings
 } from '@shared/ipc'
-import { normalizeDailyNotesDirectory } from '../lib/vault-layout'
 import { Button } from './ui/Button'
 import { useT } from '../lib/i18n'
 import appIcon from '../assets/zennotes-app-icon.png'
@@ -269,8 +267,6 @@ export function OnboardingWizard(): JSX.Element {
           {stepId === 'layout' && (
             <LayoutStep
               primaryLocation={vaultSettings.primaryNotesLocation}
-              dailyEnabled={vaultSettings.dailyNotes.enabled}
-              dailyDirectory={vaultSettings.dailyNotes.directory}
               setVaultSettings={setVaultSettings}
               hasVault={!!vault}
               onBack={goBack}
@@ -793,45 +789,25 @@ function VaultStep({
 
 function LayoutStep({
   primaryLocation,
-  dailyEnabled,
-  dailyDirectory,
   setVaultSettings,
   hasVault,
   onBack,
   onNext
 }: {
   primaryLocation: PrimaryNotesLocation
-  dailyEnabled: boolean
-  dailyDirectory: string
   setVaultSettings: (next: VaultSettings) => Promise<void>
   hasVault: boolean
   onBack: () => void
   onNext: () => void
 }): JSX.Element {
   const t = useT()
-  // Local draft so the directory input doesn't normalize on every keystroke.
-  const [dirDraft, setDirDraft] = useState<string>(dailyDirectory)
-
-  useEffect(() => {
-    setDirDraft(dailyDirectory)
-  }, [dailyDirectory])
-
   const commit = (patch: {
     primaryNotesLocation?: PrimaryNotesLocation
-    dailyEnabled?: boolean
-    dailyDirectory?: string
   }): void => {
     const current = useStore.getState().vaultSettings
     void setVaultSettings({
       ...current,
-      primaryNotesLocation: patch.primaryNotesLocation ?? current.primaryNotesLocation,
-      dailyNotes: {
-        enabled: patch.dailyEnabled ?? current.dailyNotes.enabled,
-        directory:
-          patch.dailyDirectory !== undefined
-            ? normalizeDailyNotesDirectory(patch.dailyDirectory)
-            : current.dailyNotes.directory
-      }
+      primaryNotesLocation: patch.primaryNotesLocation ?? current.primaryNotesLocation
     })
   }
 
@@ -854,70 +830,27 @@ function LayoutStep({
         eyebrow={t('Step 4')}
         title={t('Vault layout')}
         subtitle={t(
-          'How the vault should be organized. You can change either of these later in Settings.'
+          'How the vault should be organized. You can change this later in Settings.'
         )}
       />
 
-      <div className="space-y-6">
-        <div>
-          <div className="form-label mb-2">{t('Primary notes location')}</div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ChoiceCard
-              selected={primaryLocation === 'inbox'}
-              onClick={() => commit({ primaryNotesLocation: 'inbox' })}
-              title={t('Inbox folder')}
-              description={t(
-                "Notes live under inbox/. Keeps ZenNotes' lifecycle structure: inbox → archive → trash."
-              )}
-            />
-            <ChoiceCard
-              selected={primaryLocation === 'root'}
-              onClick={() => commit({ primaryNotesLocation: 'root' })}
-              title={t('Vault root')}
-              description={t('Top-level .md files become the primary view. Obsidian-style flat vault.')}
-            />
-          </div>
-        </div>
-
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <div className="form-label">{t('Daily notes')}</div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={dailyEnabled}
-              onClick={() => commit({ dailyEnabled: !dailyEnabled })}
-              className={[
-                'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
-                dailyEnabled ? 'bg-accent' : 'bg-paper-300'
-              ].join(' ')}
-            >
-              <span
-                className={[
-                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
-                  dailyEnabled ? 'translate-x-4' : 'translate-x-0.5'
-                ].join(' ')}
-              />
-            </button>
-          </div>
-          <p className="text-xs leading-5 text-ink-600">
-            {t('One note per day with a YYYY-MM-DD title, opened with a single command.')}
-          </p>
-          {dailyEnabled && (
-            <div className="mt-3 flex items-center gap-2">
-              <label className="text-xs text-ink-600" htmlFor="onboarding-daily-dir">
-                {t('Folder')}
-              </label>
-              <input
-                id="onboarding-daily-dir"
-                value={dirDraft}
-                onChange={(e) => setDirDraft(e.target.value)}
-                onBlur={() => commit({ dailyDirectory: dirDraft })}
-                placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
-                className="flex-1 rounded-lg border border-paper-300/70 bg-paper-100/60 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/60"
-              />
-            </div>
-          )}
+      <div>
+        <div className="form-label mb-2">{t('Primary notes location')}</div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ChoiceCard
+            selected={primaryLocation === 'inbox'}
+            onClick={() => commit({ primaryNotesLocation: 'inbox' })}
+            title={t('Inbox folder')}
+            description={t(
+              "Notes live under inbox/. Keeps ZenNotes' lifecycle structure: inbox → archive → trash."
+            )}
+          />
+          <ChoiceCard
+            selected={primaryLocation === 'root'}
+            onClick={() => commit({ primaryNotesLocation: 'root' })}
+            title={t('Vault root')}
+            description={t('Top-level .md files become the primary view. Obsidian-style flat vault.')}
+          />
         </div>
       </div>
 

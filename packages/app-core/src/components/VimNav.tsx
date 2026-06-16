@@ -229,21 +229,6 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderInsertTemplate'),
         label: t('Insert template into note'),
         detail: 'Render a template into the current note.'
-      },
-      {
-        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderDailyNote'),
-        label: t("Today's daily note"),
-        detail: 'Open or create the daily note for today.'
-      },
-      {
-        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderWeeklyNote'),
-        label: t("This week's note"),
-        detail: 'Open or create the weekly note for this week.'
-      },
-      {
-        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalendar'),
-        label: t('Toggle calendar'),
-        detail: 'Show or hide the calendar for the active daily/weekly note.'
       }
     ]
     if (whichKeyState.allowEditorActions) {
@@ -650,27 +635,6 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           state.openTemplatePaletteForInsert()
-          return
-        }
-        if (matchesSequenceToken(e, overrides, 'vim.leaderDailyNote')) {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          resetLeader()
-          void state.openTodayDailyNote()
-          return
-        }
-        if (matchesSequenceToken(e, overrides, 'vim.leaderWeeklyNote')) {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          resetLeader()
-          void state.openThisWeekWeeklyNote()
-          return
-        }
-        if (matchesSequenceToken(e, overrides, 'vim.leaderCalendar')) {
-          e.preventDefault()
-          e.stopImmediatePropagation()
-          resetLeader()
-          window.dispatchEvent(new Event('zen:toggle-calendar'))
           return
         }
         // Any other key cancels leader and falls through to normal routing.

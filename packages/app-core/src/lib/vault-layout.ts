@@ -1,6 +1,4 @@
 import {
-  DEFAULT_DAILY_NOTES_DIRECTORY,
-  DEFAULT_WEEKLY_NOTES_DIRECTORY,
   DEFAULT_VAULT_SETTINGS,
   type AssetMeta,
   type FolderIconId,
@@ -8,7 +6,6 @@ import {
   type NoteMeta,
   type VaultSettings
 } from '@shared/ipc'
-import { getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
 
 const SYSTEM_FOLDERS = new Set<NoteFolder>(['inbox', 'quick', 'archive', 'trash'])
 const RESERVED_ROOT_NAMES = new Set<string>([
@@ -66,25 +63,6 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
-function pad(n: number): string {
-  return n.toString().padStart(2, '0')
-}
-
-export function normalizeDailyNotesDirectory(directory: string | null | undefined): string {
-  const trimmed = (directory ?? '').trim().replace(/^\/+|\/+$/g, '')
-  return trimmed || DEFAULT_DAILY_NOTES_DIRECTORY
-}
-
-export function normalizeWeeklyNotesDirectory(directory: string | null | undefined): string {
-  const trimmed = (directory ?? '').trim().replace(/^\/+|\/+$/g, '')
-  return trimmed || DEFAULT_WEEKLY_NOTES_DIRECTORY
-}
-
-function normalizeTemplateId(value: string | null | undefined): string | undefined {
-  const trimmed = (value ?? '').trim()
-  return trimmed || undefined
-}
-
 export function normalizeVaultSettings(
   settings: VaultSettings | null | undefined
 ): VaultSettings {
@@ -101,16 +79,6 @@ export function normalizeVaultSettings(
       settings?.primaryNotesLocation === 'root'
         ? 'root'
         : DEFAULT_VAULT_SETTINGS.primaryNotesLocation,
-    dailyNotes: {
-      enabled: !!settings?.dailyNotes?.enabled,
-      directory: normalizeDailyNotesDirectory(settings?.dailyNotes?.directory),
-      templateId: normalizeTemplateId(settings?.dailyNotes?.templateId)
-    },
-    weeklyNotes: {
-      enabled: !!settings?.weeklyNotes?.enabled,
-      directory: normalizeWeeklyNotesDirectory(settings?.weeklyNotes?.directory),
-      templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
-    },
     folderIcons: normalizedFolderIcons
   }
 }
@@ -213,55 +181,6 @@ export function noteBelongsToFolderView(
   if (!subpath) return true
   const parent = noteFolderSubpath(note, settings)
   return parent === subpath || parent.startsWith(`${subpath}/`)
-}
-
-export function noteTitleForDate(date = new Date()): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
-export function weeklyNoteTitle(date = new Date()): string {
-  return `${getISOWeekYear(date)}-W${pad(getISOWeek(date))}`
-}
-
-const DAILY_TITLE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
-const WEEKLY_TITLE_RE = /^(\d{4})-W(\d{2})$/
-
-export interface DateNoteInfo {
-  kind: 'daily' | 'weekly'
-  /** Daily: that calendar day. Weekly: the Monday of that ISO week. */
-  date: Date
-}
-
-/**
- * Classify a note as a daily or weekly note, or `null` if it is neither.
- * A note qualifies only when its title matches the date/week format, it lives
- * in the configured daily/weekly directory, and that feature is enabled — so a
- * stray note titled `2026-06-08` outside the daily folder is not treated as one.
- */
-export function classifyDateNote(
-  note: Pick<NoteMeta, 'folder' | 'path' | 'title'>,
-  settings: VaultSettings | null | undefined
-): DateNoteInfo | null {
-  const normalized = normalizeVaultSettings(settings)
-  const subpath = noteFolderSubpath(note, settings)
-
-  if (normalized.dailyNotes.enabled && subpath === normalized.dailyNotes.directory) {
-    const m = DAILY_TITLE_RE.exec(note.title)
-    if (m) {
-      const [, y, mo, d] = m
-      return { kind: 'daily', date: new Date(Number(y), Number(mo) - 1, Number(d)) }
-    }
-  }
-
-  if (normalized.weeklyNotes.enabled && subpath === normalized.weeklyNotes.directory) {
-    const m = WEEKLY_TITLE_RE.exec(note.title)
-    if (m) {
-      const [, y, w] = m
-      return { kind: 'weekly', date: mondayOfISOWeek(Number(y), Number(w)) }
-    }
-  }
-
-  return null
 }
 
 export function folderForVaultRelativePath(
