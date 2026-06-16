@@ -47,6 +47,16 @@ import { cmdVaultInfo, cmdVaultList } from './commands/vault.js'
 import { cmdCapture } from './commands/capture.js'
 import { cmdOpen } from './commands/open.js'
 import { cmdMcp } from './commands/mcp.js'
+import {
+  cmdAssetDuplicate,
+  cmdAssetImport,
+  cmdAssetList,
+  cmdAssetMigrate,
+  cmdAssetMove,
+  cmdAssetRename,
+  cmdAssetRestore,
+  cmdAssetTrash
+} from './commands/assets.js'
 
 // `open` hands a file path to the desktop app; the file can live outside
 // any vault, so it doesn't need the CLI to resolve a vault root.
@@ -119,6 +129,14 @@ async function main(argv: string[]): Promise<number> {
     'tag find': cmdTagFind,
     'task list': cmdTaskList,
     'task toggle': cmdTaskToggle,
+    'asset list': cmdAssetList,
+    'asset import': cmdAssetImport,
+    'asset rename': cmdAssetRename,
+    'asset move': cmdAssetMove,
+    'asset duplicate': cmdAssetDuplicate,
+    'asset trash': cmdAssetTrash,
+    'asset restore': cmdAssetRestore,
+    'asset migrate': cmdAssetMigrate,
     'vault info': cmdVaultInfo,
     'vault list': cmdVaultList,
     capture: cmdCapture,
@@ -142,6 +160,7 @@ function peelSubcommand(
     folder: ['list', 'create', 'rename', 'delete'],
     tag: ['list', 'find'],
     task: ['list', 'toggle'],
+    asset: ['list', 'import', 'rename', 'move', 'duplicate', 'trash', 'restore', 'migrate'],
     vault: ['info', 'list']
   }
   const choices = SUBCOMMANDS[command]

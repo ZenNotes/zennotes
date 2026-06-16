@@ -4,11 +4,14 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   archiveNote,
+  deleteAsset,
+  importAssetsToVault,
   listAssets,
   listNotes,
   listSoftDeleted,
   moveToTrash,
   readPrimaryNotesLocation,
+  restoreSoftDeleted,
   restoreFromTrash,
   scanAllTasks,
   searchText,
@@ -54,6 +57,91 @@ describe('vault-ops layout and assets', () => {
       'assets/photo.png',
       'loose.pdf'
     ])
+  })
+
+  it('lists managed asset bundles as one AssetMeta and restores them as a unit', async () => {
+    const root = await makeVault('zennotes-mcp-managed-assets-')
+    const sourceDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zennotes-mcp-source-'))
+    roots.push(sourceDir)
+    const sourcePdf = path.join(sourceDir, 'Brief.pdf')
+    await fs.writeFile(sourcePdf, 'pdf-bytes', 'utf8')
+
+    const [imported] = await importAssetsToVault(root, [sourcePdf])
+    if (!imported?.id || !imported.sourcePath) throw new Error('expected managed asset')
+    await fs.writeFile(
+      path.join(root, imported.path, 'meta.json'),
+      JSON.stringify(
+        {
+          version: 1,
+          id: imported.id,
+          displayName: 'Brief.pdf',
+          kind: 'pdf',
+          sourceFile: 'source.pdf',
+          sourceName: 'Brief.pdf',
+          size: imported.size,
+          mtimeMs: imported.updatedAt,
+          createdAt: imported.updatedAt,
+          updatedAt: imported.updatedAt,
+          previews: {
+            '320': {
+              status: 'ready',
+              file: 'previews/320.png',
+              width: 320,
+              height: 200,
+              mime: 'image/png',
+              generatorVersion: 1,
+              generatedAt: Date.now(),
+              lastUsedAt: Date.now()
+            }
+          }
+        },
+        null,
+        2
+      ) + '\n',
+      'utf8'
+    )
+    await fs.writeFile(path.join(root, imported.path, 'previews', '320.png'), 'preview', 'utf8')
+
+    const listed = await listAssets(root)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]).toMatchObject({
+      id: imported.id,
+      path: `assets/${imported.id}.asset`,
+      name: 'Brief.pdf',
+      kind: 'pdf',
+      managed: true,
+      sourcePath: `assets/${imported.id}.asset/source.pdf`,
+      previewPath: `assets/${imported.id}.asset/previews/320.png`
+    })
+
+    const handle = await deleteAsset(root, imported.sourcePath)
+    expect(await listSoftDeleted(root)).toEqual([
+      expect.objectContaining({
+        handle,
+        top: 'trash',
+        kind: 'asset',
+        name: `${imported.id}.asset`,
+        originalRel: imported.path,
+        title: 'Brief.pdf'
+      })
+    ])
+    await expect(fs.readFile(path.join(root, imported.sourcePath), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+
+    const restored = await restoreSoftDeleted(root, handle)
+    expect(restored).toMatchObject({
+      itemKind: 'asset',
+      id: imported.id,
+      path: imported.path,
+      sourcePath: imported.sourcePath
+    })
+    await expect(fs.readFile(path.join(root, imported.sourcePath), 'utf8')).resolves.toBe(
+      'pdf-bytes'
+    )
+    await expect(
+      fs.readFile(path.join(root, imported.path, 'previews', '320.png'), 'utf8')
+    ).resolves.toBe('preview')
   })
 })
 

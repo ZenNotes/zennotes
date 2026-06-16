@@ -114,6 +114,19 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
     ]
   },
   {
+    heading: 'ASSETS',
+    rows: [
+      { name: 'asset list', description: 'List resources, including managed .asset bundles', flags: '--kind image|pdf|audio|video|file  --json' },
+      { name: 'asset import <file...>', description: 'Copy external files into assets/ as managed bundles', flags: '--json' },
+      { name: 'asset rename <path>', description: 'Rename a resource display name', flags: '--to <name>  --json' },
+      { name: 'asset move <path>', description: 'Move a resource directory; bundles move as one unit', flags: '--to <dir>  --json' },
+      { name: 'asset duplicate <path>', description: 'Duplicate a resource; bundles get a fresh id', flags: '--json' },
+      { name: 'asset trash <path>', description: 'Soft-delete a resource and print its recovery handle', flags: '--json' },
+      { name: 'asset restore <handle>', description: 'Restore a trashed resource handle', flags: '--json' },
+      { name: 'asset migrate', description: 'Move safe root-level loose resources into assets/', flags: '--json' }
+    ]
+  },
+  {
     heading: 'FOLDERS',
     rows: [
       { name: 'folder list', description: 'List every subfolder in the vault', flags: '--json' },

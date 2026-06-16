@@ -12,8 +12,8 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import type { SoftDeletedEntry, SoftDeleteTop } from '@shared/ipc'
-import { FORM_SCHEMA_FILE, isDatabaseInternalPath, isFormDirName } from '@shared/databases'
+import type { AssetMeta, ImportedAssetKind, SoftDeletedEntry, SoftDeleteTop } from '@shared/ipc'
+import { FORM_SCHEMA_FILE, isDatabaseCsvPath, isDatabaseInternalPath, isFormDirName } from '@shared/databases'
 import { toggleTaskAtIndex } from '@shared/tasklists'
 import { parseTasksFromBody, type VaultTask } from '@shared/tasks'
 import {
@@ -32,8 +32,25 @@ const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
 const PRIMARY_ATTACHMENTS_DIR = 'assets'
 const LEGACY_ATTACHMENTS_DIRS = ['attachements', '_assets']
 const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const ASSET_BUNDLE_SUFFIX = '.asset'
+const ASSET_BUNDLE_META_FILE = 'meta.json'
+const ASSET_BUNDLE_PREVIEWS_DIR = 'previews'
+const ASSET_BUNDLE_META_VERSION = 1
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
+const IMAGE_EXTENSIONS = new Set([
+  '.apng',
+  '.avif',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp'
+])
+const PDF_EXTENSIONS = new Set(['.pdf'])
+const AUDIO_EXTENSIONS = new Set(['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'])
+const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
 /** When the user has chosen `primaryNotesLocation: 'root'`, notes for
  *  the inbox folder live at the vault root. Skip these directory
@@ -386,6 +403,277 @@ async function resolveDirDescent(
   return ancestors.has(real) ? null : real
 }
 
+type AssetPreviewMeta =
+  | {
+      status: 'ready'
+      file: string
+      width: number
+      height: number
+      mime: 'image/png'
+      generatorVersion: number
+      generatedAt: number
+      lastUsedAt: number
+    }
+  | {
+      status: 'failed'
+      errorCode: string
+      generatorVersion: number
+      failedAt: number
+    }
+
+interface AssetBundleMeta {
+  version: 1
+  id: string
+  displayName: string
+  kind: ImportedAssetKind
+  sourceFile: string
+  sourceName: string
+  size: number
+  mtimeMs: number
+  createdAt: number
+  updatedAt: number
+  previews: Record<string, AssetPreviewMeta>
+}
+
+function classifyImportedAsset(filename: string): ImportedAssetKind {
+  const ext = path.extname(filename).toLowerCase()
+  if (IMAGE_EXTENSIONS.has(ext)) return 'image'
+  if (PDF_EXTENSIONS.has(ext)) return 'pdf'
+  if (AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.has(ext)) return 'video'
+  return 'file'
+}
+
+function isAssetBundleDirName(name: string): boolean {
+  return path.basename(name).toLowerCase().endsWith(ASSET_BUNDLE_SUFFIX)
+}
+
+function assetBundleMetaPath(bundleAbs: string): string {
+  return path.join(bundleAbs, ASSET_BUNDLE_META_FILE)
+}
+
+function normalizeAssetBundleMeta(value: unknown): AssetBundleMeta | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<AssetBundleMeta>
+  if (
+    candidate.version !== ASSET_BUNDLE_META_VERSION ||
+    typeof candidate.id !== 'string' ||
+    !candidate.id ||
+    typeof candidate.displayName !== 'string' ||
+    typeof candidate.sourceFile !== 'string' ||
+    !candidate.sourceFile ||
+    typeof candidate.sourceName !== 'string' ||
+    typeof candidate.size !== 'number' ||
+    typeof candidate.mtimeMs !== 'number' ||
+    typeof candidate.createdAt !== 'number' ||
+    typeof candidate.updatedAt !== 'number' ||
+    !candidate.previews ||
+    typeof candidate.previews !== 'object' ||
+    Array.isArray(candidate.previews)
+  ) {
+    return null
+  }
+  if (
+    candidate.kind !== 'image' &&
+    candidate.kind !== 'pdf' &&
+    candidate.kind !== 'audio' &&
+    candidate.kind !== 'video' &&
+    candidate.kind !== 'file'
+  ) {
+    return null
+  }
+  return {
+    version: 1,
+    id: candidate.id,
+    displayName: candidate.displayName,
+    kind: candidate.kind,
+    sourceFile: candidate.sourceFile,
+    sourceName: candidate.sourceName,
+    size: candidate.size,
+    mtimeMs: candidate.mtimeMs,
+    createdAt: candidate.createdAt,
+    updatedAt: candidate.updatedAt,
+    previews: candidate.previews as Record<string, AssetPreviewMeta>
+  }
+}
+
+async function readAssetBundleMeta(bundleAbs: string): Promise<AssetBundleMeta | null> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(assetBundleMetaPath(bundleAbs), 'utf8')) as unknown
+    return normalizeAssetBundleMeta(parsed)
+  } catch {
+    return null
+  }
+}
+
+async function writeAssetBundleMeta(bundleAbs: string, meta: AssetBundleMeta): Promise<void> {
+  const file = assetBundleMetaPath(bundleAbs)
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
+  await fs.mkdir(bundleAbs, { recursive: true })
+  await fs.writeFile(tmp, `${JSON.stringify(meta, null, 2)}\n`, 'utf8')
+  await fs.rename(tmp, file)
+}
+
+function firstReadyPreview(meta: AssetBundleMeta): string | undefined {
+  for (const key of Object.keys(meta.previews).sort()) {
+    const preview = meta.previews[key]
+    if (preview?.status === 'ready' && preview.file) return preview.file
+  }
+  return undefined
+}
+
+async function assetMetaForBundle(
+  root: string,
+  bundleAbs: string,
+  siblingOrder = 0
+): Promise<AssetMeta | null> {
+  const meta = await readAssetBundleMeta(bundleAbs)
+  if (!meta) return null
+  const rel = toPosix(path.relative(root, bundleAbs))
+  const sourceRel = toPosix(path.join(rel, meta.sourceFile))
+  const readyPreview = firstReadyPreview(meta)
+  return {
+    id: meta.id,
+    path: rel,
+    name: meta.displayName,
+    kind: meta.kind,
+    managed: true,
+    bundlePath: rel,
+    sourcePath: sourceRel,
+    previewPath: readyPreview ? toPosix(path.join(rel, readyPreview)) : undefined,
+    siblingOrder,
+    size: meta.size,
+    updatedAt: meta.updatedAt
+  }
+}
+
+async function assetMetaForPath(root: string, abs: string, siblingOrder = 0): Promise<AssetMeta> {
+  const stat = await fs.stat(abs)
+  return {
+    path: toPosix(path.relative(root, abs)),
+    name: path.basename(abs),
+    kind: classifyImportedAsset(abs),
+    siblingOrder,
+    size: stat.size,
+    updatedAt: stat.mtimeMs
+  }
+}
+
+function cleanAssetFilename(name: string): string {
+  const raw = name.trim()
+  if (/[\\/]/.test(raw)) throw new Error('Use only a file name.')
+  const trimmed = path.basename(raw)
+  if (!trimmed || trimmed === '.' || trimmed === '..') throw new Error('Asset name is required.')
+  if (path.extname(trimmed).toLowerCase() === '.md') {
+    throw new Error('Use note actions for markdown notes.')
+  }
+  return trimmed
+}
+
+function cleanAssetTargetDir(root: string, targetDir: string): string {
+  const normalized = targetDir.replace(/^\/+|\/+$/g, '')
+  if (!normalized) return root
+  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
+    throw new Error('Cannot move assets into internal ZenNotes files.')
+  }
+  return resolveSafe(root, normalized)
+}
+
+function assetsAbsolutePath(root: string): string {
+  return path.join(root, PRIMARY_ATTACHMENTS_DIR)
+}
+
+async function createAssetBundleFromFile(
+  root: string,
+  sourceAbs: string,
+  destDir: string
+): Promise<AssetMeta> {
+  const id = randomUUID()
+  const sourceName = path.basename(sourceAbs)
+  const ext = path.extname(sourceName).toLowerCase()
+  const sourceFile = ext ? `source${ext}` : 'source'
+  const bundleAbs = path.join(destDir, `${id}${ASSET_BUNDLE_SUFFIX}`)
+  await fs.mkdir(path.join(bundleAbs, ASSET_BUNDLE_PREVIEWS_DIR), { recursive: true })
+  const destAbs = path.join(bundleAbs, sourceFile)
+  await fs.copyFile(sourceAbs, destAbs)
+  const stat = await fs.stat(destAbs)
+  const now = Date.now()
+  const meta: AssetBundleMeta = {
+    version: 1,
+    id,
+    displayName: sourceName,
+    kind: classifyImportedAsset(sourceName),
+    sourceFile,
+    sourceName,
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    createdAt: now,
+    updatedAt: stat.mtimeMs || now,
+    previews: {}
+  }
+  await writeAssetBundleMeta(bundleAbs, meta)
+  const result = await assetMetaForBundle(root, bundleAbs)
+  if (!result) throw new Error('Could not read imported asset bundle.')
+  return result
+}
+
+async function assetBundleForRel(
+  root: string,
+  rel: string
+): Promise<{ bundleAbs: string; meta: AssetBundleMeta } | null> {
+  const abs = resolveSafe(root, rel)
+  try {
+    const stat = await fs.stat(abs)
+    if (stat.isDirectory() && isAssetBundleDirName(abs)) {
+      const meta = await readAssetBundleMeta(abs)
+      return meta ? { bundleAbs: abs, meta } : null
+    }
+  } catch {
+    return null
+  }
+  const parent = path.dirname(abs)
+  if (!isAssetBundleDirName(parent)) return null
+  const meta = await readAssetBundleMeta(parent)
+  if (!meta) return null
+  const sourceAbs = path.join(parent, meta.sourceFile)
+  return path.resolve(sourceAbs) === path.resolve(abs) ? { bundleAbs: parent, meta } : null
+}
+
+async function assertAssetFile(
+  root: string,
+  rel: string
+): Promise<{ rel: string; abs: string; managed: boolean; meta?: AssetBundleMeta }> {
+  const normalized = rel.replace(/^\/+/, '').trim()
+  if (!normalized) throw new Error('Asset path is required.')
+  if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
+    throw new Error('Cannot modify internal ZenNotes files.')
+  }
+  if (path.extname(normalized).toLowerCase() === '.md') {
+    throw new Error('Use note actions to modify markdown notes.')
+  }
+  const abs = resolveSafe(root, normalized)
+  const info = await fs.stat(abs)
+  if (info.isDirectory() && isAssetBundleDirName(abs)) {
+    const meta = await readAssetBundleMeta(abs)
+    if (!meta) throw new Error('Asset bundle metadata is invalid.')
+    return { rel: normalized, abs, managed: true, meta }
+  }
+  if (!info.isFile()) throw new Error('Asset path is not a file.')
+  const bundle = await assetBundleForRel(root, normalized)
+  if (bundle) {
+    return {
+      rel: toPosix(path.relative(root, bundle.bundleAbs)),
+      abs: bundle.bundleAbs,
+      managed: true,
+      meta: bundle.meta
+    }
+  }
+  if (normalized.split('/').some((part) => isAssetBundleDirName(part))) {
+    throw new Error('Use the asset bundle path to modify managed assets.')
+  }
+  return { rel: normalized, abs, managed: false }
+}
+
 /* ---------- Markdown parsing ----------------------------------------- */
 
 function stripCodeContent(body: string): string {
@@ -515,10 +803,8 @@ export async function listFolders(root: string): Promise<{ folder: NoteFolder; s
   return out
 }
 
-export async function listAssets(root: string): Promise<
-  { path: string; name: string; size: number; updatedAt: number }[]
-> {
-  const out: { path: string; name: string; size: number; updatedAt: number }[] = []
+export async function listAssets(root: string): Promise<AssetMeta[]> {
+  const out: AssetMeta[] = []
   const walk = async (dirAbs: string, ancestors: Set<string>): Promise<void> => {
     let entries
     try {
@@ -529,6 +815,12 @@ export async function listAssets(root: string): Promise<
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue
       const full = path.join(dirAbs, entry.name)
+      const siblingOrder = entries.indexOf(entry)
+      if (entry.isDirectory() && isAssetBundleDirName(entry.name)) {
+        const meta = await assetMetaForBundle(root, full, siblingOrder)
+        if (meta) out.push(meta)
+        continue
+      }
       const childReal = await resolveDirDescent(full, entry, ancestors)
       if (childReal !== null) {
         if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
@@ -546,19 +838,175 @@ export async function listAssets(root: string): Promise<
       if (entry.name.toLowerCase().endsWith('.md')) continue
       if (entry.name === FORM_SCHEMA_FILE && isFormDirName(path.basename(dirAbs))) continue
       if (isDatabaseInternalPath(entry.name)) continue
-      const stat = await fs.stat(full)
-      out.push({
-        path: toPosix(path.relative(root, full)),
-        name: path.basename(full),
-        size: stat.size,
-        updatedAt: stat.mtimeMs
-      })
+      out.push(await assetMetaForPath(root, full, siblingOrder))
     }
   }
   const rootReal = await realpathOrResolve(root)
   await walk(root, new Set([rootReal]))
-  out.sort((a, b) => b.updatedAt - a.updatedAt)
+  out.sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   return out
+}
+
+export async function importAssetsToVault(root: string, sourcePaths: string[]): Promise<AssetMeta[]> {
+  const destDir = assetsAbsolutePath(root)
+  await fs.mkdir(destDir, { recursive: true })
+  const out: AssetMeta[] = []
+  for (const sourcePath of sourcePaths) {
+    const sourceAbs = path.resolve(sourcePath)
+    let stat
+    try {
+      stat = await fs.stat(sourceAbs)
+    } catch {
+      continue
+    }
+    if (!stat.isFile()) continue
+    if (sourceAbs.toLowerCase().endsWith('.md')) continue
+    out.push(await createAssetBundleFromFile(root, sourceAbs, destDir))
+  }
+  return out
+}
+
+export async function renameAsset(
+  root: string,
+  rel: string,
+  nextName: string
+): Promise<AssetMeta> {
+  const source = await assertAssetFile(root, rel)
+  const cleanName = cleanAssetFilename(nextName)
+  if (source.managed) {
+    const meta = source.meta!
+    if (cleanName !== meta.displayName) {
+      await writeAssetBundleMeta(source.abs, {
+        ...meta,
+        displayName: cleanName,
+        updatedAt: Date.now()
+      })
+    }
+    const next = await assetMetaForBundle(root, source.abs)
+    if (!next) throw new Error('Could not read renamed asset bundle.')
+    return next
+  }
+  const destAbs = path.join(path.dirname(source.abs), cleanName)
+  if (destAbs !== source.abs) {
+    try {
+      await fs.access(destAbs)
+      const [srcStat, dstStat] = await Promise.all([fs.stat(source.abs), fs.stat(destAbs)])
+      if (srcStat.ino !== dstStat.ino) {
+        throw new Error(`An asset named "${cleanName}" already exists in this folder.`)
+      }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+    if (source.abs.toLowerCase() === destAbs.toLowerCase() && source.abs !== destAbs) {
+      const tmp = `${source.abs}_rename_tmp_${Date.now()}`
+      await fs.rename(source.abs, tmp)
+      await fs.rename(tmp, destAbs)
+    } else {
+      await fs.rename(source.abs, destAbs)
+    }
+  }
+  return await assetMetaForPath(root, destAbs)
+}
+
+export async function moveAsset(
+  root: string,
+  rel: string,
+  targetDir: string
+): Promise<AssetMeta> {
+  const source = await assertAssetFile(root, rel)
+  const destDir = cleanAssetTargetDir(root, targetDir)
+  await fs.mkdir(destDir, { recursive: true })
+  if (path.resolve(destDir) === path.dirname(source.abs)) {
+    if (source.managed) {
+      const meta = await assetMetaForBundle(root, source.abs)
+      if (!meta) throw new Error('Could not read asset bundle.')
+      return meta
+    }
+    return await assetMetaForPath(root, source.abs)
+  }
+  const finalName = await uniqueFilename(destDir, path.basename(source.abs))
+  const destAbs = path.join(destDir, finalName)
+  if (destAbs !== source.abs) await fs.rename(source.abs, destAbs)
+  if (source.managed) {
+    const meta = await assetMetaForBundle(root, destAbs)
+    if (!meta) throw new Error('Could not read moved asset bundle.')
+    return meta
+  }
+  return await assetMetaForPath(root, destAbs)
+}
+
+export async function duplicateAsset(root: string, rel: string): Promise<AssetMeta> {
+  const source = await assertAssetFile(root, rel)
+  if (source.managed) {
+    const current = source.meta!
+    const nextId = randomUUID()
+    const destAbs = path.join(path.dirname(source.abs), `${nextId}${ASSET_BUNDLE_SUFFIX}`)
+    await fs.cp(source.abs, destAbs, { recursive: true })
+    const ext = path.extname(current.displayName)
+    const base = path.basename(current.displayName, ext)
+    await writeAssetBundleMeta(destAbs, {
+      ...current,
+      id: nextId,
+      displayName: `${base} copy${ext}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    })
+    const meta = await assetMetaForBundle(root, destAbs)
+    if (!meta) throw new Error('Could not read duplicated asset bundle.')
+    return meta
+  }
+  const ext = path.extname(source.abs)
+  const base = path.basename(source.abs, ext)
+  const finalName = await uniqueFilename(path.dirname(source.abs), `${base} copy${ext}`)
+  const destAbs = path.join(path.dirname(source.abs), finalName)
+  await fs.copyFile(source.abs, destAbs)
+  return await assetMetaForPath(root, destAbs)
+}
+
+export async function deleteAsset(root: string, rel: string): Promise<string> {
+  const source = await assertAssetFile(root, rel)
+  return softDeleteVaultPath(
+    root,
+    source.rel,
+    'trash',
+    'asset',
+    source.managed ? source.meta!.displayName : path.basename(source.abs)
+  )
+}
+
+export async function migrateLooseAssets(
+  root: string
+): Promise<{ moved: string[]; skipped: { path: string; reason: string }[] }> {
+  const assets = await listAssets(root)
+  const rootLevel = assets.filter((a) => !a.path.includes('/') && !isDatabaseCsvPath(a.name))
+  const primaryBasenames = new Set(
+    assets
+      .filter((a) => a.path.startsWith(`${PRIMARY_ATTACHMENTS_DIR}/`))
+      .map((a) => a.name.toLowerCase())
+  )
+  const counts = new Map<string, number>()
+  for (const a of rootLevel) {
+    const basename = a.name.toLowerCase()
+    counts.set(basename, (counts.get(basename) ?? 0) + 1)
+  }
+
+  const moved: string[] = []
+  const skipped: { path: string; reason: string }[] = []
+  for (const a of rootLevel) {
+    const basename = a.name.toLowerCase()
+    if (primaryBasenames.has(basename) || (counts.get(basename) ?? 0) > 1) {
+      skipped.push({ path: a.path, reason: 'duplicate-basename' })
+      continue
+    }
+    try {
+      const meta = await moveAsset(root, a.path, PRIMARY_ATTACHMENTS_DIR)
+      moved.push(meta.path)
+      primaryBasenames.add(basename)
+    } catch (err) {
+      skipped.push({ path: a.path, reason: (err as Error).message })
+    }
+  }
+  return { moved, skipped }
 }
 
 /* ---------- Read / write / create ------------------------------------ */
@@ -703,25 +1151,24 @@ async function moveBetweenFolders(
   return await readMeta(root, destAbs, target)
 }
 
-async function softDeleteNote(
+async function softDeleteVaultPath(
   root: string,
-  rel: string,
-  target: SoftDeleteTop
+  srcVaultRel: string,
+  target: SoftDeleteTop,
+  kind: SoftDeletedEntry['kind'],
+  title: string
 ): Promise<string> {
-  const abs = resolveSafe(root, rel)
-  const folder = folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   const id = randomUUID()
-  const name = path.basename(abs)
+  const name = path.basename(srcVaultRel)
   const wrapperAbs = path.join(root, target, id)
   await fs.mkdir(wrapperAbs, { recursive: true })
   try {
-    await fs.rename(abs, path.join(wrapperAbs, name))
+    await fs.rename(resolveSafe(root, srcVaultRel), path.join(wrapperAbs, name))
     await addSoftDeleteEntry(root, target, id, {
-      kind: 'note',
+      kind,
       name,
-      originalRel: toPosix(path.relative(root, abs)),
-      title: path.basename(abs, path.extname(abs)),
+      originalRel: toPosix(srcVaultRel),
+      title,
       deletedAt: Date.now()
     })
   } catch (err) {
@@ -731,13 +1178,34 @@ async function softDeleteNote(
   return softDeleteHandle(target, id)
 }
 
-async function restoreSoftDeletedNote(root: string, handle: string): Promise<NoteMeta> {
+async function softDeleteNote(
+  root: string,
+  rel: string,
+  target: SoftDeleteTop
+): Promise<string> {
+  const abs = resolveSafe(root, rel)
+  const folder = folderOf(root, abs)
+  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  return softDeleteVaultPath(
+    root,
+    toPosix(path.relative(root, abs)),
+    target,
+    'note',
+    path.basename(abs, path.extname(abs))
+  )
+}
+
+async function restoreSoftDeletedPath(
+  root: string,
+  handle: string,
+  expectedKind?: SoftDeletedEntry['kind']
+): Promise<{ meta: SoftDeletedEntry; destAbs: string }> {
   const parsed = parseSoftDeleteHandle(handle)
   if (!parsed) throw new Error('Invalid soft-delete handle')
   const { top, id } = parsed
   const meta = await getSoftDeleteEntry(root, top, id)
   if (!meta) throw new Error('Nothing soft-deleted at that path')
-  if (meta.kind !== 'note') {
+  if (expectedKind && meta.kind !== expectedKind) {
     throw new Error(`Soft-deleted ${meta.kind} must be restored in ZenNotes.`)
   }
   const srcAbs = path.join(root, top, id, meta.name)
@@ -748,6 +1216,11 @@ async function restoreSoftDeletedNote(root: string, handle: string): Promise<Not
   await fs.rename(srcAbs, destAbs)
   await fs.rm(path.join(root, top, id), { recursive: true, force: true })
   await removeSoftDeleteEntry(root, top, id)
+  return { meta: { id, top, ...meta }, destAbs }
+}
+
+async function restoreSoftDeletedNote(root: string, handle: string): Promise<NoteMeta> {
+  const { destAbs } = await restoreSoftDeletedPath(root, handle, 'note')
   const folder = folderOf(root, destAbs)
   if (!folder) throw new Error(`Note not in a known folder: ${toPosix(path.relative(root, destAbs))}`)
   return await readMeta(root, destAbs, folder)
@@ -755,6 +1228,31 @@ async function restoreSoftDeletedNote(root: string, handle: string): Promise<Not
 
 export const moveToTrash = (root: string, rel: string) => softDeleteNote(root, rel, 'trash')
 export const archiveNote = (root: string, rel: string) => softDeleteNote(root, rel, 'archive')
+
+export type RestoredSoftDeleted =
+  | ({ itemKind: 'note' } & NoteMeta)
+  | ({ itemKind: 'asset' } & AssetMeta)
+  | { itemKind: 'folder' | 'database'; path: string; ok: true }
+
+export async function restoreSoftDeleted(
+  root: string,
+  handle: string
+): Promise<RestoredSoftDeleted> {
+  const { meta, destAbs } = await restoreSoftDeletedPath(root, handle)
+  if (meta.kind === 'note') {
+    const folder = folderOf(root, destAbs)
+    if (!folder) throw new Error(`Note not in a known folder: ${toPosix(path.relative(root, destAbs))}`)
+    return { itemKind: 'note', ...(await readMeta(root, destAbs, folder)) }
+  }
+  if (meta.kind === 'asset') {
+    const asset = isAssetBundleDirName(destAbs)
+      ? await assetMetaForBundle(root, destAbs)
+      : await assetMetaForPath(root, destAbs)
+    if (!asset) throw new Error('Could not read restored asset.')
+    return { itemKind: 'asset', ...asset }
+  }
+  return { itemKind: meta.kind, path: toPosix(path.relative(root, destAbs)), ok: true }
+}
 
 export async function listSoftDeleted(
   root: string

@@ -25,24 +25,31 @@ import {
   backlinks,
   createFolder,
   createNote,
+  deleteAsset,
   deleteFolder,
   deleteNote,
+  duplicateAsset,
   duplicateNote,
   emptyTrash,
+  importAssetsToVault,
   insertAtLine,
   listAssets,
   listFolders,
   listNotes,
   listSoftDeleted,
+  migrateLooseAssets,
+  moveAsset,
   moveNote,
   moveToTrash,
   prependToNote,
   readNote,
   readPrimaryNotesLocation,
   renameFolder,
+  renameAsset,
   renameNote,
   replaceInNote,
   resolveVaultRoot,
+  restoreSoftDeleted,
   restoreFromTrash,
   scanAllTasks,
   searchText,
@@ -110,6 +117,12 @@ function optionalStringArray(args: Record<string, unknown>, key: string): string
     throw new Error(`${key} must be an array of strings`)
   }
   return value as string[]
+}
+
+function requireStringArray(args: Record<string, unknown>, key: string): string[] {
+  const value = optionalStringArray(args, key)
+  if (!value || value.length === 0) throw new Error(`Missing required string array argument: ${key}`)
+  return value
 }
 
 /* ---------- Tool definitions ----------------------------------------- */
@@ -224,10 +237,110 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_assets',
       description:
-        'List non-note files across the vault (images, PDFs, audio, video, other binaries), excluding internal files and soft-delete wrappers. Useful when a note references an asset you need to inspect.',
+        'List managed and legacy asset resources across the vault. Managed resources are returned as one AssetMeta with id/path/sourcePath/previewPath; use ![[asset:<id>|<name>]] for embeds when id is present.',
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, vault) => await listAssets(vault)
+  },
+  {
+    schema: {
+      name: 'import_assets',
+      description:
+        'Copy external files into the vault resources library as managed asset bundles. Markdown files are skipped. Returns AssetMeta entries.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sourcePaths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Absolute or process-resolvable source file paths to import.'
+          }
+        },
+        required: ['sourcePaths']
+      }
+    },
+    handler: async (args, vault) => await importAssetsToVault(vault, requireStringArray(args, 'sourcePaths'))
+  },
+  {
+    schema: {
+      name: 'rename_asset',
+      description:
+        'Rename a resource display name. For managed assets, pass the AssetMeta path or sourcePath; the bundle stays intact.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'AssetMeta path, bundlePath, or sourcePath.' },
+          newName: { type: 'string', description: 'New file/display name only.' }
+        },
+        required: ['path', 'newName']
+      }
+    },
+    handler: async (args, vault) =>
+      await renameAsset(vault, requireString(args, 'path'), requireString(args, 'newName'))
+  },
+  {
+    schema: {
+      name: 'move_asset',
+      description:
+        'Move a resource to another vault-relative directory. Managed assets move as whole .asset bundles.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'AssetMeta path, bundlePath, or sourcePath.' },
+          targetDir: { type: 'string', description: 'Vault-relative target directory, e.g. "assets/screenshots". Empty means vault root.' }
+        },
+        required: ['path', 'targetDir']
+      }
+    },
+    handler: async (args, vault) =>
+      await moveAsset(vault, requireString(args, 'path'), requireString(args, 'targetDir'))
+  },
+  {
+    schema: {
+      name: 'duplicate_asset',
+      description: 'Duplicate a resource. Managed assets are copied as a new bundle with a fresh id.',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'AssetMeta path, bundlePath, or sourcePath.' } },
+        required: ['path']
+      }
+    },
+    handler: async (args, vault) => await duplicateAsset(vault, requireString(args, 'path'))
+  },
+  {
+    schema: {
+      name: 'delete_asset',
+      description:
+        'Soft-delete a resource into trash and return a recovery handle. Managed assets are trashed as whole bundles.',
+      inputSchema: {
+        type: 'object',
+        properties: { path: { type: 'string', description: 'AssetMeta path, bundlePath, or sourcePath.' } },
+        required: ['path']
+      }
+    },
+    handler: async (args, vault) => await deleteAsset(vault, requireString(args, 'path'))
+  },
+  {
+    schema: {
+      name: 'restore_soft_deleted',
+      description:
+        'Restore any UUID-wrapped soft-deleted item (note, folder, database, or asset) from a trash/archive handle.',
+      inputSchema: {
+        type: 'object',
+        properties: { handle: { type: 'string', description: 'Handle like "trash/<id>" or "archive/<id>".' } },
+        required: ['handle']
+      }
+    },
+    handler: async (args, vault) => await restoreSoftDeleted(vault, requireString(args, 'handle'))
+  },
+  {
+    schema: {
+      name: 'migrate_loose_assets',
+      description:
+        'Move root-level loose resources into assets/ when doing so preserves basename references. Returns moved and skipped paths.',
+      inputSchema: { type: 'object', properties: {} }
+    },
+    handler: async (_args, vault) => await migrateLooseAssets(vault)
   },
   {
     schema: {
@@ -424,7 +537,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_soft_deleted',
       description:
-        'List UUID-wrapped recovery entries in trash/archive. Use the returned handle with restore_from_trash or unarchive_note.',
+        'List UUID-wrapped recovery entries in trash/archive. Use the returned handle with restore_soft_deleted; note-only legacy flows may use restore_from_trash or unarchive_note.',
       inputSchema: {
         type: 'object',
         properties: {

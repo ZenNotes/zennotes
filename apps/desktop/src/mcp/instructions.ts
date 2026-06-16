@@ -184,6 +184,19 @@ when the folder is \`Linear Algebra/\`), synonyms, and feeling tags
 
 **Callouts**: \`> [!note]\`, \`> [!tip]\`, \`> [!warning]\`.
 
+## Resources / assets
+
+ZenNotes resources are listed with list_assets. Some resources are
+managed bundles stored as \`assets/<uuid>.asset/\`; treat the whole
+bundle as one resource. Use the AssetMeta \`path\` / \`bundlePath\` for
+resource operations, and \`sourcePath\` only when you need the actual
+file bytes for opening or inspection. Never edit \`meta.json\`,
+\`source.*\`, or \`previews/\` inside a \`.asset\` bundle directly.
+
+When embedding a managed resource in markdown, use
+\`![[asset:<id>|<name>]]\`. For legacy loose assets without an \`id\`,
+use \`![[<path>]]\`.
+
 ## Tool etiquette
 
 - read_note before overwriting. Always.
@@ -199,6 +212,9 @@ when the folder is \`Linear Algebra/\`), synonyms, and feeling tags
 - Archive: archive_note returns a handle like \`archive/<id>\`;
   pass that handle to unarchive_note. Do not use move_note for
   archive/trash destinations.
+- Resources: use import_assets, rename_asset, move_asset,
+  duplicate_asset, delete_asset, and restore_soft_deleted instead of
+  editing files under assets/ by hand.
 - Before rename_note, run backlinks.
 - Task ids from list_tasks (\`path#index\`) are stable \u2014 pass
   them to toggle_task.

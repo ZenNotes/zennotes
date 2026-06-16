@@ -89,7 +89,18 @@ Task ids come from `zen task list`; do not invent them.
 
 ## Assets
 
-The CLI can list assets indirectly through MCP, but the shell CLI does not provide asset create/move/delete commands. Do not edit files under `assets/`, `attachements/`, or `_assets` unless the user explicitly asks for filesystem-level asset work.
+Use asset commands instead of editing files under `assets/`, `attachements/`, or `_assets` directly:
+
+- `zen asset list --json`
+- `zen asset import "/absolute/file.pdf" --json`
+- `zen asset rename "<path>" --to "Name.pdf" --json`
+- `zen asset move "<path>" --to "assets/Project" --json`
+- `zen asset duplicate "<path>" --json`
+- `zen asset trash "<path>" --json`
+- `zen asset restore "trash/<id>" --json`
+- `zen asset migrate --json`
+
+Managed resources live as `assets/<uuid>.asset/` bundles. Treat the bundle as one asset. Use the returned `path` for asset commands, `sourcePath` only when you need the real file bytes, and embed managed assets as `![[asset:<id>|<name>]]`. Never edit bundle `meta.json`, `source.*`, or `previews/` by hand.
 
 ## Safety Rules
 
