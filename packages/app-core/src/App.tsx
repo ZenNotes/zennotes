@@ -529,6 +529,17 @@ function App(): JSX.Element {
         void window.zen.resetAppZoom()
         return
       }
+      if (matchesShortcut(e, overrides, 'global.historyBack')) {
+        // Back in note navigation history (works in any mode).
+        e.preventDefault()
+        void state.jumpToPreviousNote()
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.historyForward')) {
+        e.preventDefault()
+        void state.jumpToNextNote()
+        return
+      }
       if (matchesShortcut(e, overrides, 'global.searchNotes')) {
         // ⌘P — note search
         e.preventDefault()

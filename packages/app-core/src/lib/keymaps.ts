@@ -33,6 +33,8 @@ export type KeymapId =
   | "global.zoomIn"
   | "global.zoomOut"
   | "global.zoomReset"
+  | "global.historyBack"
+  | "global.historyForward"
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
@@ -320,6 +322,24 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Reset zoom",
     description: "Restore the app zoom factor to its default size.",
     defaultBinding: "Mod+0",
+  },
+  {
+    id: "global.historyBack",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go back in note history",
+    description: "Jump to the previous note location in history. Works in any mode.",
+    defaultBinding: "Alt+ArrowLeft",
+  },
+  {
+    id: "global.historyForward",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go forward in note history",
+    description: "Jump forward in note history. Works in any mode.",
+    defaultBinding: "Alt+ArrowRight",
   },
   {
     id: "vim.leaderPrefix",

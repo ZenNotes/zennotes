@@ -134,6 +134,8 @@ import {
 } from '../lib/preview-outline-jump'
 import {
   ArchiveIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
   ArrowUpRightIcon,
   CalendarIcon,
   CheckSquareIcon,
@@ -628,6 +630,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
+  const jumpToPreviousNote = useStore((s) => s.jumpToPreviousNote)
+  const jumpToNextNote = useStore((s) => s.jumpToNextNote)
+  const canGoBack = useStore((s) => s.noteBackstack.length > 0)
+  const canGoForward = useStore((s) => s.noteForwardstack.length > 0)
+  const tabNavOverrides = useStore((s) => s.keymapOverrides)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
@@ -2510,15 +2517,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           )}
           <div
             className={[
-              'group flex h-8 min-w-0 items-center gap-1 rounded-t-lg border border-b-0 px-1.5 text-sm transition-colors',
+              // Flat, full-height segmented tabs (VS Code-style): right-border
+              // separators, no rounded tops; the active tab is filled. (#185)
+              'group relative flex h-full min-h-8 min-w-0 items-center gap-1.5 border-r border-paper-300/60 px-2 text-sm transition-colors',
               tab.pinned ? 'max-w-[140px]' : 'max-w-[220px]',
               active && isActive
                 ? focusedPanel === 'tabs'
-                  ? 'border-accent/70 bg-paper-100 text-ink-900 ring-1 ring-inset ring-accent/60'
-                  : 'border-paper-300/80 bg-paper-100 text-ink-900'
+                  ? 'bg-paper-200 font-medium text-ink-900 ring-1 ring-inset ring-accent/60'
+                  : 'bg-paper-200 font-medium text-ink-900'
                 : active
-                  ? 'border-paper-300/60 bg-paper-100/70 text-ink-800'
-                  : 'border-transparent bg-paper-200/45 text-ink-500 hover:bg-paper-200/70 hover:text-ink-900'
+                  ? 'bg-paper-200/70 text-ink-700'
+                  : 'text-ink-500 hover:bg-paper-200/40 hover:text-ink-900'
             ].join(' ')}
           >
             {tab.pinned && (
@@ -2573,10 +2582,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               aria-label={`Close ${tab.title}`}
               onClick={() => void closeTabInPane(paneId, tab.path)}
               className={[
-                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors',
+                // The active tab keeps its close affordance; inactive tabs
+                // reveal it on hover/focus (VS Code convention). (#185)
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition',
                 active
                   ? 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
-                  : 'hover:bg-paper-300/70'
+                  : 'opacity-0 hover:bg-paper-300/70 group-hover:opacity-100 focus-visible:opacity-100'
               ].join(' ')}
             >
               <CloseIcon width={12} height={12} />
@@ -2735,11 +2746,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
   }, [hasTabs, wrapTabs, tabStripMeasureKey])
 
+  // Keep the active tab scrolled into view in the horizontally-scrolling strip,
+  // so switching tabs (e.g. via the keyboard) never leaves it off-screen. (#185)
+  useEffect(() => {
+    if (!hasTabs || wrapTabs || !activeTab) return
+    const el = tabStripRef.current?.querySelector<HTMLElement>('[data-tab-active="true"]')
+    el?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+  }, [activeTab, hasTabs, wrapTabs, tabStripMeasureKey])
+
+  // Outer header holds the back/forward nav buttons + the (flex-1) tab strip.
+  const tabStripHeaderClass = [
+    'glass-header flex shrink-0 items-stretch border-b border-paper-300/70 pl-1',
+    wrapTabs ? 'min-h-10' : 'h-10'
+  ].join(' ')
   const tabStripClass = [
-    'workspace-tab-strip glass-header flex shrink-0 items-start gap-1 border-b border-paper-300/70 px-3 pt-2',
+    'workspace-tab-strip flex min-w-0 flex-1 items-stretch gap-0',
     wrapTabs
       ? 'min-h-10 flex-wrap content-start overflow-x-hidden overflow-y-visible'
-      : `${tabStripOverflowing ? 'h-14 overflow-x-auto' : 'h-10 overflow-x-hidden'} overflow-y-hidden`
+      : `h-10 ${tabStripOverflowing ? 'overflow-x-auto' : 'overflow-x-hidden'} overflow-y-hidden`
   ].join(' ')
   const deferEditorHydration = shouldDeferEditorHydration(
     showEditor,
@@ -2962,13 +2986,36 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }}
     >
       {hasTabs && (
-        <div
-          ref={tabStripRef}
-          className={tabStripClass}
-          onDragOver={handleTabStripDragOver}
-          onDrop={handleTabStripDrop}
-        >
-          {tabItems.map((tab, i) => {
+        <div className={tabStripHeaderClass}>
+          <div className="flex shrink-0 items-center gap-0.5 self-center">
+            <IconBtn
+              title={`Go back (${getKeymapDisplay(
+                tabNavOverrides,
+                vimMode ? 'vim.historyBack' : 'global.historyBack'
+              )})`}
+              onClick={() => void jumpToPreviousNote()}
+              disabled={!canGoBack}
+            >
+              <ArrowLeftIcon width={16} height={16} />
+            </IconBtn>
+            <IconBtn
+              title={`Go forward (${getKeymapDisplay(
+                tabNavOverrides,
+                vimMode ? 'vim.historyForward' : 'global.historyForward'
+              )})`}
+              onClick={() => void jumpToNextNote()}
+              disabled={!canGoForward}
+            >
+              <ArrowRightIcon width={16} height={16} />
+            </IconBtn>
+          </div>
+          <div
+            ref={tabStripRef}
+            className={tabStripClass}
+            onDragOver={handleTabStripDragOver}
+            onDrop={handleTabStripDrop}
+          >
+            {tabItems.map((tab, i) => {
             // Draw a subtle vertical separator between the last pinned
             // tab and the first unpinned one (VSCode convention). The
             // separator is a flex sibling, not a wrapper, so drag hit-
@@ -2987,6 +3034,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               </Fragment>
             )
           })}
+          </div>
         </div>
       )}
       {content && !zenMode && (
@@ -3448,24 +3496,29 @@ function IconBtn({
   children,
   onClick,
   title,
-  active = false
+  active = false,
+  disabled = false
 }: {
   children: JSX.Element
   onClick: () => void
   title: string
   active?: boolean
+  disabled?: boolean
 }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={title}
       aria-pressed={active}
       className={[
         'group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors',
-        active
-          ? 'bg-paper-200 text-ink-900'
-          : 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
+        disabled
+          ? 'cursor-default text-ink-500/40'
+          : active
+            ? 'bg-paper-200 text-ink-900'
+            : 'text-ink-500 hover:bg-paper-200 hover:text-ink-900'
       ].join(' ')}
     >
       <span className="pointer-events-none">{children}</span>
