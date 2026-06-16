@@ -41,10 +41,9 @@ func main() {
 		log.Printf("warning: ignoring legacy vault config at %s; server secrets now stay in host config only", config.LegacyVaultConfigPath(v.Root()))
 	}
 
-	w, err := watcher.Start(v.Root())
-	if err != nil {
-		log.Fatalf("watcher start: %v", err)
-	}
+	// Never fatal: where inotify is restricted (e.g. unprivileged LXC) the
+	// watcher falls back to a no-op so the server still serves the vault. (#179)
+	w := watcher.StartOrDisabled(v.Root(), cfg.DisableWatcher)
 	defer w.Close()
 
 	dist, err := web.Dist()

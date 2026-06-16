@@ -86,10 +86,9 @@ func (s *Server) switchVaultRoot(nextPath string) (*vault.Vault, error) {
 	if err != nil {
 		return nil, err
 	}
-	nextWatcher, err := watcher.Start(nextVault.Root())
-	if err != nil {
-		return nil, err
-	}
+	// Non-fatal: a vault switch must not fail just because inotify is
+	// unavailable; fall back to a no-op watcher in that case. (#179)
+	nextWatcher := watcher.StartOrDisabled(nextVault.Root(), cfg.DisableWatcher)
 
 	s.mu.Lock()
 	prevWatcher := s.Watcher

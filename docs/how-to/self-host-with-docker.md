@@ -190,6 +190,11 @@ or via the orchestrator of your choice.
   subpath instead of the domain root. Use this when deploying behind a
   reverse proxy that routes by path (e.g. `example.com/zennotes/`).
   See [Reverse-proxy with a path prefix](#reverse-proxy-with-a-path-prefix).
+- `ZENNOTES_DISABLE_WATCHER=1` — turn off the inotify file watcher. The
+  vault is still fully served; only live updates (auto-refresh when files
+  change on disk) stop. Set this where inotify is restricted or unstable —
+  notably **unprivileged LXC containers**, where inotify on a bind-mount can
+  wedge the process and lock the volume (see Common problems below).
 
 ## Reverse-proxy with a path prefix
 
@@ -270,6 +275,23 @@ not directly in the vault root.
 If you want a flatter layout, change:
 
 - `Settings -> Vault -> Primary notes location -> Vault root`
+
+### The container hangs and won't stop (unprivileged LXC)
+
+If the web page loads but the container ignores `docker stop`/`docker kill`
+(and even `kill -9`), and the bind-mounted volume on the host is locked, the
+culprit is almost always the inotify file watcher on a restricted host —
+typically an **unprivileged LXC container**, where inotify on a bind-mounted
+directory can put the process into an unkillable state.
+
+Run with the watcher off:
+
+- `ZENNOTES_DISABLE_WATCHER=1`
+
+The vault is still fully served; you only lose live auto-refresh when files
+change on disk (reload the page to pick up external edits). On startup the
+server now also logs a warning instead of failing silently if it can only
+watch part of the vault.
 
 ## Related docs
 
