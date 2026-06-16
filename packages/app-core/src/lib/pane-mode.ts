@@ -1,8 +1,7 @@
 export type PaneMode = 'edit' | 'preview' | 'split'
 
 export const ZEN_SET_PANE_MODE_EVENT = 'zen:set-pane-mode'
-// TEMP: default to split while comparing Edit and Preview typography.
-export const DEFAULT_PANE_MODE: PaneMode = 'split'
+export const DEFAULT_PANE_MODE: PaneMode = 'edit'
 
 export type PaneModesByPath = Record<string, PaneMode>
 

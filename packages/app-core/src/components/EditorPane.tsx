@@ -236,11 +236,6 @@ const MODE_OPTIONS: Array<{
 const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
-const TEMP_WYSIWYG_IN_SPLIT = true
-
-function modeUsesWysiwyg(mode: PaneMode): boolean {
-  return mode === 'edit' || (TEMP_WYSIWYG_IN_SPLIT && mode === 'split')
-}
 
 function markdownEditingExtensions(): Extension[] {
   return [
@@ -1696,7 +1691,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const initialBody = initialContent?.body ?? ''
       const deferInitialRichMarkdown =
         initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
-        !modeUsesWysiwyg(modeRef.current)
+        modeRef.current !== 'edit'
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
       const state = EditorState.create({
@@ -1716,7 +1711,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            modeUsesWysiwyg(modeRef.current) && s0.livePreview && !deferInitialRichMarkdown
+            modeRef.current === 'edit' && s0.livePreview && !deferInitialRichMarkdown
               ? wysiwygExtensions()
               : []
           ),
@@ -1866,7 +1861,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownCompartment.reconfigure(markdownEditingExtensions()),
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
-          if (modeUsesWysiwyg(modeRef.current) && useStore.getState().livePreview) {
+          if (modeRef.current === 'edit' && useStore.getState().livePreview) {
             restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
@@ -1940,7 +1935,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const markdownCompartment = markdownCompartmentRef.current
     const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
     const livePreviewCompartment = livePreviewCompartmentRef.current
-    const richEditing = modeUsesWysiwyg(modeRef.current)
+    const richEditing = modeRef.current === 'edit'
     const deferRichMarkdown =
       pathChanged &&
       !isRenameTransition &&
@@ -2021,7 +2016,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
         if (
-          modeUsesWysiwyg(modeRef.current) &&
+          modeRef.current === 'edit' &&
           useStore.getState().livePreview &&
           livePreviewCompartment
         ) {
@@ -2105,13 +2100,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
   }, [vimMode])
-  // Temporary comparison mode: load WYSIWYG live-preview extensions in Edit
-  // and Split, while Preview stays a pure rendered surface.
+  // WYSIWYG live-preview extensions are only loaded in Edit. Split keeps a
+  // raw source editor paired with Preview.
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
     if (!view || !comp) return
-    const richEditing = modeUsesWysiwyg(mode)
+    const richEditing = mode === 'edit'
     const loadWysiwyg = richEditing && livePreview
     if (deferredLivePreviewTimerRef.current != null) {
       if (richEditing) {
@@ -3698,7 +3693,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       ref={setContainerRef}
                       className={[
                         'min-h-0 min-w-0 flex-1',
-                        modeUsesWysiwyg(mode) ? 'cm-wysiwyg' : ''
+                        mode === 'edit' ? 'cm-wysiwyg' : ''
                       ].join(' ')}
                     />
                   ) : (
