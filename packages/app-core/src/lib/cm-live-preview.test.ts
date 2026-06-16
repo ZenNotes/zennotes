@@ -53,6 +53,17 @@ describe('livePreviewPlugin', () => {
     view.destroy()
   })
 
+  it('keeps the colon visible in a reference-link definition (#188)', () => {
+    // The `:` parses as a LinkMark; live preview must not hide it, or the
+    // definition reads as a broken `[label] url`.
+    const doc = 'intro\n\n[Markdown Lang]: https://www.markdownlang.com'
+    const view = mountEditor(doc, 0) // cursor on "intro" → definition line inactive
+
+    expect(view.dom.textContent).toContain('[Markdown Lang]: https://www.markdownlang.com')
+
+    view.destroy()
+  })
+
   it('keeps heading markers hidden when editing the heading text', () => {
     const doc = '# Code blocks\n\nBody'
     const view = mountEditor(doc, doc.indexOf('Code'))

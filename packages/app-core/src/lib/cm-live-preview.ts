@@ -757,6 +757,11 @@ function computeDecorations(view: EditorView): DecorationSet {
         if ((name === 'CodeMark' || name === 'CodeInfo') &&
             node.node.parent?.name === 'FencedCode') return
 
+        // The `:` in a reference-link definition (`[label]: url`) parses as a
+        // LinkMark whose parent is LinkReference. Keep it visible — hiding it
+        // makes the definition read as a broken `[label] url`. (#188)
+        if (name === 'LinkMark' && node.node.parent?.name === 'LinkReference') return
+
         const line = state.doc.lineAt(node.from).number
         if (replacedLines.has(line)) return
         if (isLinkSyntax) {
