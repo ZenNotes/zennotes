@@ -218,6 +218,8 @@ export interface PersistedConfig {
   /** When true, the quick-capture window stays pinned on top of all windows
    *  and does not auto-hide when it loses focus. */
   quickCapturePinned: boolean
+  /** GitHub repo in "owner/repo" format for sync. */
+  githubRepo?: string | null
 }
 
 export const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'
@@ -232,7 +234,8 @@ const DEFAULT_CONFIG: PersistedConfig = {
   windowState: null,
   zoomFactor: 1,
   quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY,
-  quickCapturePinned: false
+  quickCapturePinned: false,
+  githubRepo: null
 }
 
 let configWriteQueue = Promise.resolve()
@@ -368,7 +371,11 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     windowState: normalizeWindowState(candidate.windowState),
     zoomFactor,
     quickCaptureHotkey,
-    quickCapturePinned
+    quickCapturePinned,
+    githubRepo:
+      typeof candidate.githubRepo === 'string' && candidate.githubRepo.trim()
+        ? candidate.githubRepo.trim()
+        : null
   }
 }
 

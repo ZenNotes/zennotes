@@ -34,7 +34,6 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   VaultSettings,
-  VaultChangeEvent,
   VaultInfo,
   VaultTextSearchBackendPreference,
   VaultTextSearchToolPaths
@@ -158,6 +157,13 @@ import {
   markdownPathsFromArgv,
   resolveMarkdownOpenTarget
 } from './file-open'
+import {
+  handleGetConfig as ghHandleGetConfig,
+  handleSetConfig as ghHandleSetConfig,
+  handleListRepos as ghHandleListRepos,
+  handleSync as ghHandleSync
+} from './github-sync'
+import type { GithubConfig, GithubSyncResult } from '@shared/ipc'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const LOCAL_ASSET_SCHEME = 'zen-asset'
@@ -247,7 +253,7 @@ function windowIconPath(): string {
 
 function openAllowedExternalUrl(url: string): void {
   if (/^(https?:|mailto:)/i.test(url)) {
-    shell.openExternal(url).catch(() => {})
+    shell.openExternal(url).catch(() => { })
   }
 }
 
@@ -259,10 +265,10 @@ function registerAppDeepLinkProtocol(): void {
     const didRegister =
       defaultApp && process.argv[1]
         ? app.setAsDefaultProtocolClient(
-            ZENNOTES_DEEP_LINK_SCHEME,
-            process.execPath,
-            [path.resolve(process.argv[1])]
-          )
+          ZENNOTES_DEEP_LINK_SCHEME,
+          process.execPath,
+          [path.resolve(process.argv[1])]
+        )
         : app.setAsDefaultProtocolClient(ZENNOTES_DEEP_LINK_SCHEME)
 
     if (!didRegister) {
@@ -869,17 +875,17 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     trafficLightPosition: { x: 16, y: 16 },
     ...(mac
       ? {
-          // The renderer now runs fully opaque, so keeping the
-          // BrowserWindow transparent forces macOS into an unnecessary
-          // compositing path that makes typing feel mushy on large
-          // displays. Use a solid background instead.
-          backgroundColor: MAC_WINDOW_BACKGROUND_COLOR,
-          tabbingIdentifier: MAIN_WINDOW_TABBING_IDENTIFIER
-        }
+        // The renderer now runs fully opaque, so keeping the
+        // BrowserWindow transparent forces macOS into an unnecessary
+        // compositing path that makes typing feel mushy on large
+        // displays. Use a solid background instead.
+        backgroundColor: MAC_WINDOW_BACKGROUND_COLOR,
+        tabbingIdentifier: MAIN_WINDOW_TABBING_IDENTIFIER
+      }
       : {
-          backgroundColor: '#faf7f0',
-          icon: windowIconPath()
-        }),
+        backgroundColor: '#faf7f0',
+        icon: windowIconPath()
+      }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       // Keep the renderer isolated and node-free, but the current preload
@@ -1148,8 +1154,8 @@ async function migrateLegacyRemoteWorkspaceSecrets(): Promise<void> {
     ...current,
     remoteWorkspace: nextRemoteWorkspace
       ? {
-          baseUrl: normalizeRemoteBaseUrl(nextRemoteWorkspace.baseUrl)
-        }
+        baseUrl: normalizeRemoteBaseUrl(nextRemoteWorkspace.baseUrl)
+      }
       : null,
     remoteWorkspaceProfiles: nextProfiles.map((profile) => ({
       id: profile.id,
@@ -1457,12 +1463,12 @@ async function exportNotePdf(
     trafficLightPosition: { x: 12, y: 12 },
     ...(mac
       ? {
-          backgroundColor: '#ffffff'
-        }
+        backgroundColor: '#ffffff'
+      }
       : {
-          backgroundColor: '#ffffff',
-          icon: windowIconPath()
-        }),
+        backgroundColor: '#ffffff',
+        icon: windowIconPath()
+      }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -1605,7 +1611,7 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
       !!deletedProfile &&
       !!cfg.remoteWorkspace &&
       normalizeRemoteBaseUrl(cfg.remoteWorkspace.baseUrl) ===
-        normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
+      normalizeRemoteBaseUrl(deletedProfile.baseUrl) &&
       !nextProfiles.some(
         (entry) =>
           normalizeRemoteBaseUrl(entry.baseUrl) === normalizeRemoteBaseUrl(deletedProfile.baseUrl)
@@ -2648,6 +2654,13 @@ function registerIpc(): void {
   handle(IPC.CLI_UNINSTALL, async () => await uninstallCli())
   handle(IPC.RAYCAST_GET_STATUS, async () => await getRaycastExtensionStatus())
   handle(IPC.RAYCAST_INSTALL, async () => await installRaycastExtension())
+  handle(IPC.GITHUB_GET_CONFIG, async () => await ghHandleGetConfig())
+  handle(IPC.GITHUB_SET_CONFIG, async (_ev, config: GithubConfig) => await ghHandleSetConfig(config))
+  handle(IPC.GITHUB_LIST_REPOS, async () => await ghHandleListRepos())
+  handle(IPC.GITHUB_SYNC, async () => {
+    const v = requireVault()
+    return await ghHandleSync(v.root)
+  })
 }
 
 /**
@@ -2680,12 +2693,12 @@ function openFloatingNoteWindow(relPath: string): void {
     trafficLightPosition: { x: 12, y: 12 },
     ...(mac
       ? {
-          backgroundColor: MAC_WINDOW_BACKGROUND_COLOR
-        }
+        backgroundColor: MAC_WINDOW_BACKGROUND_COLOR
+      }
       : {
-          backgroundColor: '#faf7f0',
-          icon: windowIconPath()
-        }),
+        backgroundColor: '#faf7f0',
+        icon: windowIconPath()
+      }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       // Keep the renderer isolated and node-free, but the current preload
