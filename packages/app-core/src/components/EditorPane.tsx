@@ -216,6 +216,7 @@ import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { useT } from '../lib/i18n'
 import { firstBindableH1 } from '../lib/note-title-heading'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
+import { markdownSnippetExtension } from '../lib/cm-markdown-snippets'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -1698,6 +1699,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         doc: initialBody,
         extensions: [
           macLineStartDeleteExtension(),
+          markdownSnippetExtension({
+            shouldHandle: (view) => {
+              if (!useStore.getState().vimMode) return true
+              return !!getCM(view)?.state.vim?.insertMode
+            }
+          }),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
           drawSelection(),

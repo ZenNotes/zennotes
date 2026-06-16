@@ -9,7 +9,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { useT } from '../lib/i18n';
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
-import { vim } from '@replit/codemirror-vim'
+import { getCM, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
@@ -25,6 +25,7 @@ import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-v
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { completionNavKeymapFor } from '../lib/cm-completion-nav'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
+import { markdownSnippetExtension } from '../lib/cm-markdown-snippets'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -112,6 +113,12 @@ export function TemplateEditorModal({
       doc: initialRaw ?? SKELETON,
       extensions: [
         macLineStartDeleteExtension(),
+        markdownSnippetExtension({
+          shouldHandle: (view) => {
+            if (!vimModeRef.current) return true
+            return !!getCM(view)?.state.vim?.insertMode
+          }
+        }),
         new Compartment().of(vimModeRef.current ? vim() : []),
         history(),
         drawSelection(),

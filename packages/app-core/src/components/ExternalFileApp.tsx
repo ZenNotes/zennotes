@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../lib/i18n';
 import { Annotation, Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view'
-import { Vim, vim } from '@replit/codemirror-vim'
+import { Vim, getCM, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
@@ -25,6 +25,7 @@ import { searchKeymap } from '@codemirror/search'
 import type { ExternalFileContent } from '@shared/ipc'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
+import { markdownSnippetExtension } from '../lib/cm-markdown-snippets'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, InboxIcon } from './icons'
@@ -112,6 +113,12 @@ export function ExternalFileApp(): JSX.Element {
         doc: bodyRef.current ?? '',
         extensions: [
           macLineStartDeleteExtension(),
+          markdownSnippetExtension({
+            shouldHandle: (view) => {
+              if (!prefs.vimMode) return true
+              return !!getCM(view)?.state.vim?.insertMode
+            }
+          }),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),

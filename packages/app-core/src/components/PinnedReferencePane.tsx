@@ -26,7 +26,7 @@ import {
   lineNumbers,
   tooltips
 } from '@codemirror/view'
-import { vim } from '@replit/codemirror-vim'
+import { getCM, vim } from '@replit/codemirror-vim'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
@@ -44,6 +44,7 @@ import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
 import { completionNavKeymapFor } from '../lib/cm-completion-nav'
 import { macLineStartDeleteExtension } from '../lib/cm-mac-line-delete'
+import { markdownSnippetExtension } from '../lib/cm-markdown-snippets'
 import { assetSourcePath, classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
@@ -184,6 +185,12 @@ export function PinnedReferencePane(): JSX.Element | null {
         doc: initialContent?.body ?? '',
         extensions: [
           macLineStartDeleteExtension(),
+          markdownSnippetExtension({
+            shouldHandle: (view) => {
+              if (!useStore.getState().vimMode) return true
+              return !!getCM(view)?.state.vim?.insertMode
+            }
+          }),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
           drawSelection(),
