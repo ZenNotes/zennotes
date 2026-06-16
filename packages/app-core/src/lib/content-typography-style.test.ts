@@ -46,6 +46,11 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(/\.prose-zen h6\s*\{[^}]*margin-top:\s*var\(--z-prose-section-gap\);/s)
   })
 
+  it('uses one checkbox→text gap for editor and preview todos', () => {
+    expect(stylesSource).toMatch(/--z-render-task-checkbox-gap:\s*0\.45em;/s)
+    expect(stylesSource).toMatch(/--z-prose-task-checkbox-gap:\s*0\.45em;/s)
+  })
+
   it('keeps editor heading lines free of vertical box-model offsets', () => {
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*padding-(top|bottom):/s)
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*margin-(top|bottom):/s)
@@ -54,7 +59,7 @@ describe('editor and preview typography rhythm', () => {
       /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*var\(--z-render-h1-rhythm-height\);/s
     )
     expect(stylesSource).toMatch(
-      /\.cm-wysiwyg \.cm-code-block-gap\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*0\.6em\);/s
+      /\.cm-wysiwyg \.cm-wysiwyg-block-gap\s*\{[^}]*height:\s*var\(--z-wysiwyg-block-gap,/s
     )
     expect(stylesSource).toMatch(
       /\.cm-wysiwyg \.cm-editor \.cm-heading-line-h1\s*\{[^}]*--z-heading-line-height:\s*var\(--z-render-h1-line-height\);/s

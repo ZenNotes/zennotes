@@ -102,13 +102,37 @@ describe('wysiwygBlocksPlugin', () => {
 
   it('adds a rendered block gap when text runs directly into a code block', () => {
     const view = mount('before\n```js\nconst x = 1\n```\n\nafter')
-    expect(view.dom.querySelectorAll('.cm-code-block-gap')).toHaveLength(1)
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(1)
     view.destroy()
   })
 
   it('does not add a second block gap when a blank line already separates code', () => {
     const view = mount('before\n\n```js\nconst x = 1\n```\n\nafter')
-    expect(view.dom.querySelectorAll('.cm-code-block-gap')).toHaveLength(0)
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(0)
+    view.destroy()
+  })
+
+  it('adds a block gap before a heading that runs directly under text', () => {
+    const view = mount('intro text\n## Heading\n\nbody')
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(1)
+    view.destroy()
+  })
+
+  it('adds a block gap before a list that runs directly under a paragraph', () => {
+    const view = mount('a paragraph\n- first\n- second')
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(1)
+    view.destroy()
+  })
+
+  it('does not add a block gap before the first block', () => {
+    const view = mount('# Title\n\nbody')
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(0)
+    view.destroy()
+  })
+
+  it('does not stack a block gap on the block right after the H1 rhythm', () => {
+    const view = mount('# Title\nbody runs straight into the title')
+    expect(view.dom.querySelectorAll('.cm-wysiwyg-block-gap')).toHaveLength(0)
     view.destroy()
   })
 

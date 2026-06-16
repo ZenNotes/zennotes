@@ -52,13 +52,15 @@ class HrWidget extends WidgetType {
   }
 }
 
-class CodeBlockGapWidget extends WidgetType {
+/** A block-level spacer inserted before a block that has no blank line above
+ *  it, so the Edit pane's block rhythm matches Preview's collapsed margins. */
+class BlockGapWidget extends WidgetType {
   eq(): boolean {
     return true
   }
   toDOM(): HTMLElement {
     const div = document.createElement('div')
-    div.className = 'cm-code-block-gap'
+    div.className = 'cm-wysiwyg-block-gap'
     div.setAttribute('aria-hidden', 'true')
     return div
   }
@@ -72,10 +74,10 @@ const hrRule = Decoration.replace({ widget: new HrWidget() })
 /** Hide a fence line's ``` ```lang ``` / ``` ``` ``` text (inline, keeps the
  *  line + its card styling) when the cursor is outside the code block. */
 const hideInline = Decoration.replace({})
-const codeBlockGap = Decoration.widget({
+const blockGap = Decoration.widget({
   block: true,
   side: -1,
-  widget: new CodeBlockGapWidget()
+  widget: new BlockGapWidget()
 })
 
 function activeLineSet(view: EditorView): Set<number> {
@@ -115,33 +117,47 @@ function taskMarkerAfterListMark(
   return { from, to: from + 3 }
 }
 
-function buildCodeBlockGapDecorations(state: EditorState): DecorationSet {
-  const pending: Array<{ from: number; deco: Decoration }> = []
-  syntaxTree(state).iterate({
-    enter: (node) => {
-      if (node.name !== 'FencedCode') return
-      if (!isClosedFencedCodeBlock(state, node.from, node.to)) return false
-      const firstLine = state.doc.lineAt(node.from)
-      const hasLeadingBlank =
-        firstLine.number > 1 &&
-        state.doc.line(firstLine.number - 1).text.trim() === ''
-      if (!hasLeadingBlank) {
-        pending.push({ from: firstLine.from, deco: codeBlockGap })
-      }
-      return false
+/**
+ * Insert a block-level gap before every top-level block (heading, paragraph,
+ * list, blockquote, code, table…) that isn't already separated from the block
+ * above it by a blank line. Preview collapses source blank lines into uniform
+ * block margins; this reproduces that rhythm in the Edit pane without touching
+ * the source. Iterating only the Document's direct children means list items
+ * and nested blocks never get an internal gap.
+ */
+function buildBlockGapDecorations(state: EditorState): DecorationSet {
+  const fmEnd = frontmatterEndLine(state)
+  const pending: number[] = []
+  let prevName: string | null = null
+  let child = syntaxTree(state).topNode.firstChild
+  while (child) {
+    const node = child
+    const next = node.nextSibling
+    const firstLine = state.doc.lineAt(node.from)
+    // The first block (and the block opening / immediately after frontmatter)
+    // gets no top gap — Preview's `:first-child` has margin-top: 0.
+    const isLeading = firstLine.number <= 1 || (fmEnd >= 1 && firstLine.number <= fmEnd + 1)
+    if (!isLeading) {
+      const prevBlank = state.doc.line(firstLine.number - 1).text.trim() === ''
+      // The H1 title already carries its own rhythm spacer (the underline gap),
+      // so the block after it is separated — don't stack a second gap.
+      const prevIsH1 = prevName === 'ATXHeading1' || prevName === 'SetextHeading1'
+      if (!prevBlank && !prevIsH1) pending.push(firstLine.from)
     }
-  })
+    prevName = node.name
+    child = next
+  }
 
   const builder = new RangeSetBuilder<Decoration>()
-  for (const p of pending) builder.add(p.from, p.from, p.deco)
+  for (const from of pending) builder.add(from, from, blockGap)
   return builder.finish()
 }
 
-const codeBlockGapField = StateField.define<DecorationSet>({
-  create: (state) => buildCodeBlockGapDecorations(state),
+const blockGapField = StateField.define<DecorationSet>({
+  create: (state) => buildBlockGapDecorations(state),
   update(value, tr) {
     if (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
-      return buildCodeBlockGapDecorations(tr.state)
+      return buildBlockGapDecorations(tr.state)
     }
     return value
   },
@@ -254,4 +270,4 @@ const wysiwygInlineBlocksPlugin = ViewPlugin.fromClass(
   { decorations: (p) => p.decorations }
 )
 
-export const wysiwygBlocksPlugin: Extension = [codeBlockGapField, wysiwygInlineBlocksPlugin]
+export const wysiwygBlocksPlugin: Extension = [blockGapField, wysiwygInlineBlocksPlugin]

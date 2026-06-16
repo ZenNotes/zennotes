@@ -1215,8 +1215,13 @@ textarea,
     var(--z-editor-font-size, 16px) * var(--z-editor-line-height, 1.7) * 0.82
   );
   --z-render-task-checkbox-size: 1em;
-  --z-render-task-checkbox-gap: 0.15em;
+  /* Editor checkbox→text gap matches Preview's task indent so todos line up. */
+  --z-render-task-checkbox-gap: 0.45em;
   --z-prose-task-checkbox-gap: 0.45em;
+  /* Height of the WYSIWYG block-rhythm spacer (cm-wysiwyg-blocks.ts). Tuned so
+     a no-blank-line block boundary in Edit matches Preview's collapsed margin;
+     the editor line-leading already supplies part of the visual gap. */
+  --z-wysiwyg-block-gap: 0.6em;
 }
 
 ::-webkit-scrollbar {
@@ -1595,7 +1600,12 @@ textarea,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  vertical-align: text-bottom;
+  /* Center the box on the text line. `vertical-align: middle` aligns to the
+     Latin x-height midpoint, which sits below the optical center of CJK
+     glyphs, so the box reads low — nudge it up to land on the glyph center. */
+  vertical-align: middle;
+  position: relative;
+  top: -0.08em;
   width: var(--z-render-task-checkbox-size);
   height: var(--z-render-task-checkbox-size);
   margin-right: var(--z-render-task-checkbox-gap);
@@ -2325,8 +2335,11 @@ button.np-checkbox:hover {
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
-.cm-wysiwyg .cm-code-block-gap {
-  height: calc(var(--z-editor-line-height, 1.7) * 0.6em);
+/* Block-rhythm spacer inserted before blocks with no blank line above them
+   (see cm-wysiwyg-blocks.ts). Height mirrors Preview's --z-prose-rendered-gap
+   so the Edit pane's block spacing matches the rendered margins. */
+.cm-wysiwyg .cm-wysiwyg-block-gap {
+  height: var(--z-wysiwyg-block-gap, calc(var(--z-editor-line-height, 1.7) * 0.6em));
   pointer-events: none;
 }
 /* Language label pinned top-right of the block; clicking it copies the code,
@@ -4415,10 +4428,27 @@ button.np-checkbox:hover {
   color: inherit;
 }
 
-/* Unordered-list bullet rendered in place of `-` / `*` / `+`. */
+/* Unordered-list bullet rendered in place of `-` / `*` / `+`. Drawn as a
+   round disc in the text color so it matches Preview's `list-style: disc`
+   marker (the `•` glyph itself is hidden but keeps the marker's advance
+   width). */
 .cm-wysiwyg .cm-editor .cm-wq-bullet {
-  color: rgb(var(--z-grey-1));
-  font-weight: 700;
+  position: relative;
+  color: transparent;
+  /* Pad the marker so the disc sits off the text the way Preview's
+     list-style marker box does (≈6px at the 16px base font). */
+  padding: 0.375em;
+}
+.cm-wysiwyg .cm-editor .cm-wq-bullet::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0.34em;
+  height: 0.34em;
+  border-radius: 50%;
+  background: rgb(var(--z-fg));
+  transform: translate(-50%, -50%);
 }
 
 /* Horizontal rule rendered in place of `---` / `***` / `___`. */
