@@ -20,6 +20,7 @@ import { parseFrontmatter, slugifyTemplateName } from '@shared/template-files'
 import { renderTemplate } from '../lib/template-render'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
@@ -109,6 +110,7 @@ export function TemplateEditorModal({
     const state = EditorState.create({
       doc: initialRaw ?? SKELETON,
       extensions: [
+        appMarkdownSnippetExtension(),
         new Compartment().of(vimModeRef.current ? vim() : []),
         history(),
         drawSelection(),

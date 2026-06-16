@@ -78,6 +78,7 @@ import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource } from '../lib/cm-wikilinks'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
@@ -1354,6 +1355,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const state = EditorState.create({
         doc: initialBody,
         extensions: [
+          appMarkdownSnippetExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           history(),
           drawSelection(),

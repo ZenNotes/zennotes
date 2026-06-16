@@ -31,6 +31,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
@@ -291,6 +292,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
         // toggles (the `content` closure would recreate it empty).
         doc: dirtyBodyRef.current ?? content?.body ?? '',
         extensions: [
+          appMarkdownSnippetExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),

@@ -44,6 +44,7 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirro
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
@@ -407,6 +408,7 @@ export function QuickCaptureApp(): JSX.Element {
       const state = EditorState.create({
         doc: '',
         extensions: [
+          appMarkdownSnippetExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),

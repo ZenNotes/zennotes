@@ -235,6 +235,8 @@ export function SettingsModal(): JSX.Element {
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const markdownSnippets = useStore((s) => s.markdownSnippets)
+  const setMarkdownSnippets = useStore((s) => s.setMarkdownSnippets)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
@@ -935,6 +937,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['preview', 'markdown']
         },
         {
+          id: 'markdown-snippets',
+          title: 'Markdown snippets',
+          description: 'Auto-close markdown delimiters as you type (** then Space, ``` then Enter).',
+          keywords: ['snippets', 'auto close', 'autoclose', 'auto-pair', 'brackets', 'markdown', 'completion']
+        },
+        {
           id: 'note-tabs',
           title: 'Note tabs',
           description: 'Open notes in tabs and allow split-friendly tab workflows.',
@@ -1114,6 +1122,13 @@ export function SettingsModal(): JSX.Element {
               value={livePreview}
               settingId="live-preview"
               onChange={setLivePreview}
+            />
+            <ToggleRow
+              label="Markdown snippets"
+              description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. In Vim mode this only applies in insert mode."
+              value={markdownSnippets}
+              settingId="markdown-snippets"
+              onChange={setMarkdownSnippets}
             />
             <ToggleRow
               label="Note tabs"
