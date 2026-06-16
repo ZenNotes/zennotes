@@ -52,6 +52,20 @@ describe('markdownSnippetTransaction', () => {
     expect(applySnippet('****', 'Space', 2)).toBeNull()
   })
 
+  it('does not treat closing delimiters as new openers', () => {
+    expect(applySnippet('**text**', 'Space')).toBeNull()
+    expect(applySnippet('`code`', 'Space')).toBeNull()
+    expect(applySnippet('~~done~~', 'Space')).toBeNull()
+    expect(applySnippet('%%comment%%', 'Space')).toBeNull()
+  })
+
+  it('still expands a later unmatched delimiter after a closed pair', () => {
+    const state = applySnippet('**text** **', 'Space')
+
+    expect(state?.doc.toString()).toBe('**text** ****')
+    expect(state?.selection.main.head).toBe(11)
+  })
+
   it('does not handle unrelated keys or text', () => {
     expect(applySnippet('**', 'Enter')).toBeNull()
     expect(applySnippet('hello', 'Space')).toBeNull()

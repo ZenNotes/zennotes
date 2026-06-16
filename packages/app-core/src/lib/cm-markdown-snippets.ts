@@ -64,6 +64,32 @@ function blockSnippetTransaction(
   }
 }
 
+function hasOddBackslashRun(text: string, before: number): boolean {
+  let count = 0
+  for (let i = before - 1; i >= 0 && text[i] === '\\'; i--) count++
+  return count % 2 === 1
+}
+
+function countUnescapedOccurrences(text: string, token: string): number {
+  let count = 0
+  for (let index = 0; index <= text.length - token.length; index++) {
+    if (text.slice(index, index + token.length) !== token) continue
+    if (!hasOddBackslashRun(text, index)) count++
+    index += token.length - 1
+  }
+  return count
+}
+
+function isOpeningDelimiter(state: EditorState, rule: MarkdownSnippetRule, from: number): boolean {
+  const line = state.doc.lineAt(from)
+  const before = state.doc.sliceString(line.from, from)
+  if (hasOddBackslashRun(before, before.length)) return false
+  if (rule.open === rule.close && countUnescapedOccurrences(before, rule.open) % 2 === 1) {
+    return false
+  }
+  return true
+}
+
 function inlineSnippetTransaction(
   state: EditorState,
   rule: MarkdownSnippetRule,
@@ -72,6 +98,7 @@ function inlineSnippetTransaction(
   if (pos < rule.open.length) return null
   const from = pos - rule.open.length
   if (state.doc.sliceString(from, pos) !== rule.open) return null
+  if (!isOpeningDelimiter(state, rule, from)) return null
   if (
     rule.open.length > 0 &&
     [...rule.open].every((char) => char === rule.open[0]) &&
