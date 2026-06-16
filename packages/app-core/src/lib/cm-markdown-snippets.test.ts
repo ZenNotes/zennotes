@@ -34,6 +34,19 @@ describe('markdownSnippetTransaction', () => {
     expect(applySnippet('```\nbody\n```', 'Enter', 3)).toBeNull()
   })
 
+  it('does not treat a closing block delimiter as a new opener', () => {
+    expect(applySnippet('```\ncode\n```', 'Enter')).toBeNull()
+    expect(applySnippet('``` js\ncode\n```', 'Enter')).toBeNull()
+    expect(applySnippet('$$\nmath\n$$', 'Enter')).toBeNull()
+  })
+
+  it('still expands a later block delimiter after a closed block', () => {
+    const state = applySnippet('```\ncode\n```\n```', 'Enter')
+
+    expect(state?.doc.toString()).toBe('```\ncode\n```\n```\n\n```')
+    expect(state?.selection.main.head).toBe(17)
+  })
+
   it('expands inline strong markup with Space', () => {
     const state = applySnippet('**', 'Space')
 

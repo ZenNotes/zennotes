@@ -42,6 +42,37 @@ function hasBlockCloserBelow(
   return false
 }
 
+function isBlockOpenerLine(rule: MarkdownSnippetRule, text: string): boolean {
+  const content = text.trimEnd().trimStart()
+  if (!content.startsWith(rule.open)) return false
+  const after = content.slice(rule.open.length)
+  if (rule.open === '$$') return after.trim() === ''
+  return after === '' || /^\s/.test(after)
+}
+
+function isBlockCloserLine(rule: MarkdownSnippetRule, text: string): boolean {
+  return text.trim() === rule.close
+}
+
+function hasUnclosedBlockOpenerAbove(
+  state: EditorState,
+  lineNumber: number,
+  rule: MarkdownSnippetRule
+): boolean {
+  let open = false
+  for (let number = 1; number < lineNumber; number++) {
+    const text = state.doc.line(number).text
+    if (rule.open === rule.close) {
+      if (isBlockOpenerLine(rule, text)) open = !open
+    } else if (isBlockOpenerLine(rule, text)) {
+      open = true
+    } else if (isBlockCloserLine(rule, text)) {
+      open = false
+    }
+  }
+  return open
+}
+
 function blockSnippetTransaction(
   state: EditorState,
   rule: MarkdownSnippetRule,
@@ -54,6 +85,7 @@ function blockSnippetTransaction(
   const indentLength = before.search(/[^\t ]/)
   const indent = indentLength === -1 ? before : before.slice(0, indentLength)
   if (before.slice(indent.length) !== rule.open) return null
+  if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) return null
   if (hasBlockCloserBelow(state, line.number, indent, rule.close)) return null
 
   const insert = `${indent}${rule.open}\n${indent}\n${indent}${rule.close}`
