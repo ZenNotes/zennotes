@@ -60,6 +60,20 @@ describe('markdownSnippetTransaction', () => {
     expect(state?.selection.main.head).toBe(4)
   })
 
+  it('normalizes a middle-dot fence typo to a backtick fence', () => {
+    const state = triggerSnippet(typeChars(createState(''), '···'), 'Enter')
+
+    expect(state?.doc.toString()).toBe('```\n\n```')
+    expect(state?.selection.main.head).toBe(4)
+  })
+
+  it('normalizes a middle-dot fence typo with an info string', () => {
+    const state = triggerSnippet(typeChars(createState(''), '···ts'), 'Enter')
+
+    expect(state?.doc.toString()).toBe('```ts\n\n```')
+    expect(state?.selection.main.head).toBe(6)
+  })
+
   it('keeps a pending block snippet across selection-only updates', () => {
     const state = triggerSnippet(selectionOnlyUpdate(typeChars(createState(''), '```')), 'Enter')
 
@@ -96,6 +110,12 @@ describe('markdownSnippetTransaction', () => {
 
     expect(state?.doc.toString()).toBe('```\ncode\n```\n```\n\n```')
     expect(state?.selection.main.head).toBe(17)
+  })
+
+  it('does not treat a middle-dot fence typo above as an unclosed code block', () => {
+    const state = typeThenTrigger('···\n', '```', 'Enter')
+
+    expect(state?.doc.toString()).toBe('···\n```\n\n```')
   })
 
   it('expands after a prior fenced code block with an info string', () => {

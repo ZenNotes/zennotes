@@ -13,6 +13,7 @@ export type MarkdownSnippetMode = 'inline' | 'block'
 export interface MarkdownSnippetRule {
   id: string
   open: string
+  openAliases?: readonly string[]
   close: string
   triggerKeys: readonly string[]
   mode: MarkdownSnippetMode
@@ -29,7 +30,7 @@ interface PendingBlockSnippet {
 }
 
 export const defaultMarkdownSnippetRules: readonly MarkdownSnippetRule[] = [
-  { id: 'fenced-code-backtick', open: '```', close: '```', triggerKeys: ['Enter'], mode: 'block' },
+  { id: 'fenced-code-backtick', open: '```', openAliases: ['···'], close: '```', triggerKeys: ['Enter'], mode: 'block' },
   { id: 'fenced-code-tilde', open: '~~~', close: '~~~', triggerKeys: ['Enter'], mode: 'block' },
   { id: 'math-block', open: '$$', close: '$$', triggerKeys: ['Enter'], mode: 'block' },
   { id: 'strong-asterisk', open: '**', close: '**', triggerKeys: ['Space'], mode: 'inline' },
@@ -48,12 +49,38 @@ const markdownSnippetRulesFacet = Facet.define<
   combine: (values) => values.at(-1) ?? defaultMarkdownSnippetRules
 })
 
-function isBlockOpenerLine(rule: MarkdownSnippetRule, text: string): boolean {
-  const content = text.trimEnd().trimStart()
-  if (!content.startsWith(rule.open)) return false
-  const after = content.slice(rule.open.length)
-  if (rule.open === '$$') return after.trim() === ''
-  return true
+function blockOpeners(rule: MarkdownSnippetRule, includeAliases: boolean): readonly string[] {
+  return includeAliases ? [rule.open, ...(rule.openAliases ?? [])] : [rule.open]
+}
+
+function blockOpenerLineMatch(
+  rule: MarkdownSnippetRule,
+  text: string,
+  includeAliases: boolean
+): { opener: string; prefix: string } | null {
+  const prefix = text.match(/^[\t ]*/)?.[0] ?? ''
+  const content = text.slice(prefix.length).trimEnd()
+  for (const opener of blockOpeners(rule, includeAliases)) {
+    if (!content.startsWith(opener)) continue
+    const after = content.slice(opener.length)
+    if (rule.open === '$$' && after.trim() !== '') continue
+    return { opener, prefix }
+  }
+  return null
+}
+
+function isBlockOpenerLine(
+  rule: MarkdownSnippetRule,
+  text: string,
+  includeAliases = false
+): boolean {
+  return blockOpenerLineMatch(rule, text, includeAliases) != null
+}
+
+function canonicalBlockOpenerLine(rule: MarkdownSnippetRule, text: string): string {
+  const match = blockOpenerLineMatch(rule, text, true)
+  if (!match || match.opener === rule.open) return text
+  return `${match.prefix}${rule.open}${text.slice(match.prefix.length + match.opener.length)}`
 }
 
 function isBlockCloserLine(rule: MarkdownSnippetRule, text: string): boolean {
@@ -89,7 +116,7 @@ function blockPendingAt(
 
   for (const rule of rules) {
     if (rule.mode !== 'block') continue
-    if (!isBlockOpenerLine(rule, line.text)) continue
+    if (!isBlockOpenerLine(rule, line.text, true)) continue
     if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) continue
     return { ruleId: rule.id, lineFrom: line.from }
   }
@@ -108,7 +135,7 @@ const pendingBlockSnippetField = StateField.define<PendingBlockSnippet | null>({
       const rule = tr.state
         .facet(markdownSnippetRulesFacet)
         .find((candidate) => candidate.id === pending.ruleId)
-      if (!rule || !isBlockOpenerLine(rule, line.text)) return null
+      if (!rule || !isBlockOpenerLine(rule, line.text, true)) return null
       return pending
     }
     if (!tr.isUserEvent('input')) return null
@@ -142,14 +169,15 @@ function blockSnippetTransaction(
   if (!selection.empty) return null
   const line = state.doc.lineAt(selection.head)
   if (line.from !== pending.lineFrom || selection.head !== line.to) return null
-  if (!isBlockOpenerLine(rule, line.text)) return null
+  if (!isBlockOpenerLine(rule, line.text, true)) return null
   if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) return null
 
   const indentMatch = line.text.match(/^[\t ]*/)
   const indent = indentMatch?.[0] ?? ''
+  const openingLine = canonicalBlockOpenerLine(rule, line.text)
 
-  const insert = `${line.text}\n${indent}\n${indent}${rule.close}`
-  const cursor = line.from + line.text.length + 1 + indent.length
+  const insert = `${openingLine}\n${indent}\n${indent}${rule.close}`
+  const cursor = line.from + openingLine.length + 1 + indent.length
   return {
     changes: { from: line.from, to: line.to, insert },
     selection: { anchor: cursor }
