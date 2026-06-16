@@ -166,6 +166,16 @@ const SettingsModal = lazy(async () => {
   return { default: module.SettingsModal }
 })
 
+const GithubSyncModal = lazy(async () => {
+  const module = await import('./components/GithubSyncModal')
+  return { default: module.GithubSyncModal }
+})
+
+const GithubConfigModal = lazy(async () => {
+  const module = await import('./components/GithubConfigModal')
+  return { default: module.GithubConfigModal }
+})
+
 const EmptyVault = lazy(async () => {
   const module = await import('./components/EmptyVault')
   return { default: module.EmptyVault }
@@ -260,6 +270,8 @@ function App(): JSX.Element {
   const pinnedRefVisible = useStore((s) => s.pinnedRefVisible)
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
+  const githubSyncOpen = useStore((s) => s.githubSyncOpen)
+  const githubConfigOpen = useStore((s) => s.githubConfigOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const themeId = useStore((s) => s.themeId)
   const themeFamily = useStore((s) => s.themeFamily)
@@ -745,6 +757,16 @@ function App(): JSX.Element {
       {settingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal />
+        </Suspense>
+      )}
+      {githubSyncOpen && (
+        <Suspense fallback={null}>
+          <GithubSyncModal onClose={() => useStore.getState().setGithubSyncOpen(false)} />
+        </Suspense>
+      )}
+      {githubConfigOpen && (
+        <Suspense fallback={null}>
+          <GithubConfigModal onClose={() => useStore.getState().setGithubConfigOpen(false)} />
         </Suspense>
       )}
       <PromptHost />

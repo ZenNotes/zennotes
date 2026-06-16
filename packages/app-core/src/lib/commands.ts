@@ -1297,6 +1297,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setSettingsOpen(true)
     },
     {
+      id: 'sync.github',
+      title: 'Sync with GitHub…',
+      category: 'App',
+      keywords: 'github sync backup push pull git remote',
+      when: () => window.zen.getAppInfo().runtime === 'desktop',
+      run: () => getState().setGithubSyncOpen(true)
+    },
+    {
+      id: 'sync.github.configure',
+      title: 'Configure GitHub Sync…',
+      category: 'App',
+      keywords: 'github configure setup pat token repo repository',
+      when: () => window.zen.getAppInfo().runtime === 'desktop',
+      run: () => getState().setGithubConfigOpen(true)
+    },
+    {
       id: 'app.vault.pick',
       title:
         window.zen.getCapabilities().supportsRemoteWorkspace &&

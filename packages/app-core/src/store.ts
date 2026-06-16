@@ -1476,6 +1476,8 @@ interface Store {
   tabsEnabled: boolean
   wrapTabs: boolean
   settingsOpen: boolean
+  githubSyncOpen: boolean
+  githubConfigOpen: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -1755,6 +1757,8 @@ interface Store {
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
+  setGithubSyncOpen: (open: boolean) => void
+  setGithubConfigOpen: (open: boolean) => void
   setTheme: (next: { id: string; family: ThemeFamily; mode: ThemeMode }) => void
   setEditorFontSize: (px: number) => void
   setEditorLineHeight: (mult: number) => void
@@ -2698,6 +2702,8 @@ export const useStore = create<Store>((set, get) => {
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
   settingsOpen: false,
+  githubSyncOpen: false,
+  githubConfigOpen: false,
   themeId: loadPrefs().themeId,
   themeFamily: loadPrefs().themeFamily,
   themeMode: loadPrefs().themeMode,
@@ -4107,6 +4113,8 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setGithubSyncOpen: (open) => set({ githubSyncOpen: open }),
+  setGithubConfigOpen: (open) => set({ githubConfigOpen: open }),
   setTheme: ({ id, family, mode }) => {
     set({ themeId: id, themeFamily: family, themeMode: mode })
     savePrefs(collectPrefs(get()))
