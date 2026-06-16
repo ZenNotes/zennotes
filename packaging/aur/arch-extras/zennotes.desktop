@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ZenNotes
+Comment=ZenNotes desktop shell
+Exec=zennotes %U
+Icon=zennotes
+Terminal=false
+Type=Application
+Categories=Office;
+MimeType=text/markdown;x-scheme-handler/zennotes;
+StartupWMClass=ZenNotes

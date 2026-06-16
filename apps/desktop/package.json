@@ -228,11 +228,28 @@
       "target": [
         "AppImage",
         "deb",
-        "pacman"
+        "pacman",
+        "tar.gz"
       ],
       "icon": "build/icons",
       "maintainer": "Adib Hanna <adibhanna@gmail.com>",
-      "category": "Office"
+      "category": "Office",
+      "extraResources": [
+        {
+          "from": "../../packaging/aur/arch-extras/zennotes.desktop",
+          "to": "arch-extras/zennotes.desktop"
+        },
+        {
+          "from": "build/icons",
+          "to": "arch-extras/icons"
+        }
+      ],
+      "extraFiles": [
+        {
+          "from": "../../LICENSE",
+          "to": "LICENSE"
+        }
+      ]
     },
     "deb": {
       "afterInstall": "build/after-install.sh"
