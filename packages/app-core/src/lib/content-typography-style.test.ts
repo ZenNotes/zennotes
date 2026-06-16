@@ -9,14 +9,14 @@ describe('editor and preview typography rhythm', () => {
       /\.cm-editor\s*\{[^}]*--z-heading-line-height:\s*var\(--z-editor-line-height,\s*1\.7\);/s
     )
     expect(stylesSource).toMatch(
-      /\.prose-zen\s*\{[^}]*--z-heading-line-height:\s*var\(--z-editor-line-height,\s*1\.7\);/s
+      /\.prose-zen\s*\{[^}]*--z-heading-line-height:\s*var\(--z-render-heading-line-height\);/s
     )
   })
 
   it('maps preview block spacing to the shared split-view rhythm and removes extra editor heading padding', () => {
     expect(stylesSource).toMatch(/\.cm-editor\s*\{[^}]*--z-heading-bottom-gap:\s*0px;/s)
     expect(stylesSource).toMatch(
-      /\.prose-zen\s*\{[^}]*--z-prose-line-gap:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*1em\);/s
+      /\.prose-zen\s*\{[^}]*--z-prose-line-gap:\s*calc\(var\(--z-editor-font-size,\s*16px\)\s*\*\s*var\(--z-editor-line-height,\s*1\.7\)\);/s
     )
     expect(stylesSource).toMatch(
       /\.prose-zen\s*\{[^}]*--z-prose-rendered-gap:\s*calc\(var\(--z-prose-line-gap\)\s*\*\s*0\.6\);/s
@@ -30,7 +30,15 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).toMatch(
       /\.prose-zen\s*\{[^}]*--z-prose-heading-gap:\s*var\(--z-prose-rendered-gap\);/s
     )
-    expect(stylesSource).toMatch(/\.prose-zen h1\s*\{[^}]*margin-bottom:\s*var\(--z-prose-heading-gap\);/s)
+    expect(stylesSource).toMatch(/\.prose-zen h1\s*\{[^}]*position:\s*relative;/s)
+    expect(stylesSource).toMatch(/\.prose-zen h1\s*\{[^}]*margin-bottom:\s*var\(--z-render-h1-rhythm-height\);/s)
+    expect(stylesSource).toMatch(
+      /\.prose-zen h1::after\s*\{[^}]*position:\s*absolute;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.prose-zen h1::after\s*\{[^}]*top:\s*calc\(100%\s*\+\s*var\(--z-render-h1-rule-offset\)\);/s
+    )
+    expect(stylesSource).toMatch(/\.prose-zen h1::after\s*\{[^}]*border-top:\s*1px solid rgb\(var\(--z-bg-3\) \/ 0\.32\);/s)
     expect(stylesSource).toMatch(/\.prose-zen h2\s*\{[^}]*margin-top:\s*var\(--z-prose-section-gap\);/s)
     expect(stylesSource).toMatch(/\.prose-zen h3\s*\{[^}]*margin-top:\s*var\(--z-prose-section-gap\);/s)
     expect(stylesSource).toMatch(/\.prose-zen h4\s*\{[^}]*margin-top:\s*var\(--z-prose-section-gap\);/s)
@@ -43,13 +51,13 @@ describe('editor and preview typography rhythm', () => {
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*margin-(top|bottom):/s)
     expect(stylesSource).not.toMatch(/\.cm-editor \.cm-heading-line-h1\s*\{[^}]*box-shadow:/s)
     expect(stylesSource).toMatch(
-      /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*2\.0em\);/s
+      /\.cm-editor \.cm-heading-h1-rhythm\s*\{[^}]*height:\s*var\(--z-render-h1-rhythm-height\);/s
     )
     expect(stylesSource).toMatch(
       /\.cm-wysiwyg \.cm-code-block-gap\s*\{[^}]*height:\s*calc\(var\(--z-editor-line-height,\s*1\.7\)\s*\*\s*0\.6em\);/s
     )
     expect(stylesSource).toMatch(
-      /\.cm-wysiwyg \.cm-editor \.cm-heading-line-h1\s*\{[^}]*--z-heading-line-height:\s*1\.2;/s
+      /\.cm-wysiwyg \.cm-editor \.cm-heading-line-h1\s*\{[^}]*--z-heading-line-height:\s*var\(--z-render-h1-line-height\);/s
     )
   })
 
@@ -59,10 +67,60 @@ describe('editor and preview typography rhythm', () => {
       /\.prose-zen pre code\s*\{[^}]*line-height:\s*var\(--z-editor-line-height,\s*1\.7\);/s
     )
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block\s*\{[^}]*--z-code-toolbar-line:\s*max\(var\(--z-prose-line-gap\),\s*28px\);/s
+      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*var\(--z-prose-line-gap\)\s*16px;/s
     )
     expect(stylesSource).toMatch(
-      /\.prose-zen \.zen-code-block pre\s*\{[^}]*padding:\s*var\(--z-code-toolbar-line\)\s*16px\s*var\(--z-prose-line-gap\);/s
+      /\.prose-zen \.zen-code-copy-button\s*\{[^}]*background:\s*transparent;/s
+    )
+  })
+
+  it('keeps task checkboxes aligned between editor and preview', () => {
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-task-checkbox-input\s*\{[^}]*width:\s*var\(--z-render-task-checkbox-size\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-task-checkbox-input\s*\{[^}]*height:\s*var\(--z-render-task-checkbox-size\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.prose-zen li\.task-list-item input\[type="checkbox"\]\s*\{[^}]*width:\s*var\(--z-render-task-checkbox-size\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.prose-zen li\.task-list-item input\[type="checkbox"\]\s*\{[^}]*height:\s*var\(--z-render-task-checkbox-size\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.prose-zen li\.task-list-item\s*\{[^}]*padding-left:\s*calc\(var\(--z-render-task-checkbox-size\)\s*\+\s*var\(--z-prose-task-checkbox-gap\)\);/s
+    )
+  })
+
+  it('keeps editor blockquotes on the rendered preview card style', () => {
+    expect(stylesSource).toMatch(
+      /\.prose-zen blockquote\s*\{[^}]*border-left:\s*3px solid theme\("colors\.paper\.400"\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.prose-zen blockquote\s*\{[^}]*background:\s*theme\("colors\.paper\.50"\);/s
+    )
+    expect(stylesSource).toMatch(/\.prose-zen blockquote\s*\{[^}]*font-style:\s*italic;/s)
+    expect(stylesSource).toMatch(
+      /\.cm-wysiwyg \.cm-editor \.cm-wq-quote\s*\{[^}]*border-left:\s*3px solid theme\("colors\.paper\.400"\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-wysiwyg \.cm-editor \.cm-wq-quote\s*\{[^}]*background:\s*theme\("colors\.paper\.50"\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-wysiwyg \.cm-editor \.cm-wq-quote\s*\{[^}]*font-style:\s*italic;/s
+    )
+  })
+
+  it('keeps preview tables visually aligned with the editable table widget', () => {
+    expect(stylesSource).toMatch(/\.prose-zen table\s*\{[^}]*width:\s*fit-content;/s)
+    expect(stylesSource).toMatch(/\.prose-zen table\s*\{[^}]*font-size:\s*0\.94em;/s)
+    expect(stylesSource).toMatch(/\.cm-table-wrapper\s*\{[^}]*width:\s*fit-content;/s)
+    expect(stylesSource).toMatch(/\.cm-table-widget\s*\{[^}]*font-size:\s*0\.94em;/s)
+    expect(stylesSource).toMatch(
+      /\.prose-zen th,\s*\.prose-zen td\s*\{[^}]*border:\s*1px solid rgb\(var\(--z-bg-3\) \/ 0\.9\);/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-table-widget th,\s*\.cm-table-widget td\s*\{[^}]*border:\s*1px solid rgb\(var\(--z-bg-3\) \/ 0\.9\);/s
     )
   })
 

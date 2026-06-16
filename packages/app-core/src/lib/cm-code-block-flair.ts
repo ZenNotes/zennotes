@@ -101,7 +101,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         seen.add(beginLine.from)
 
         const langMatch = beginLine.text.match(FENCE_RE)
-        const language = (langMatch?.[1] || 'text').toLowerCase()
+        const language = (langMatch?.[1] || 'TEXT').toUpperCase()
 
         const lastLine = state.doc.lineAt(Math.max(node.from, node.to - 1))
         // Content sits between the opening and closing fence lines. When the

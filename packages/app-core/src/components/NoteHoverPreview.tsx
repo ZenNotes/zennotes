@@ -8,10 +8,8 @@ import { enhanceLocalAssetNodes } from '../lib/local-assets'
 import { assetTabPath } from '../lib/asset-tabs'
 import {
   CODE_COPY_BUTTON_SELECTOR,
-  CODE_FOLD_BUTTON_SELECTOR,
   copyCodeBlockToClipboard,
-  enhanceCodeBlockCopy,
-  toggleCodeBlockFold
+  enhanceCodeBlockCopy
 } from '../lib/code-block-copy'
 
 type AnchorRectLike = Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>
@@ -105,13 +103,6 @@ export function NoteHoverPreview({
         e.stopPropagation()
         copyCodeBlockToClipboard(copyButton)
         return
-      }
-
-      const foldButton = target.closest<HTMLButtonElement>(CODE_FOLD_BUTTON_SELECTOR)
-      if (foldButton) {
-        e.preventDefault()
-        e.stopPropagation()
-        toggleCodeBlockFold(foldButton)
       }
     }
 

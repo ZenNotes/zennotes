@@ -16,10 +16,8 @@ import { renderDiagrams } from "../lib/diagram-renderers";
 import { attachInlineDiagramPanZoom } from "../lib/inline-diagram-pan-zoom";
 import {
   CODE_COPY_BUTTON_SELECTOR,
-  CODE_FOLD_BUTTON_SELECTOR,
   copyCodeBlockToClipboard,
   enhanceCodeBlockCopy,
-  toggleCodeBlockFold,
 } from "../lib/code-block-copy";
 import {
   diagramZoomLabel,
@@ -507,16 +505,6 @@ export const Preview = memo(function Preview({
         copyCodeBlockToClipboard(copyButton);
         return;
       }
-      const foldButton = target.closest<HTMLButtonElement>(
-        CODE_FOLD_BUTTON_SELECTOR,
-      );
-      if (foldButton) {
-        e.preventDefault();
-        e.stopPropagation();
-        toggleCodeBlockFold(foldButton);
-        return;
-      }
-
       const expandButton = target.closest(
         ".zen-diagram-expand",
       ) as HTMLButtonElement | null;

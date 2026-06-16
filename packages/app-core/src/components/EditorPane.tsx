@@ -236,6 +236,11 @@ const MODE_OPTIONS: Array<{
 const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
+const TEMP_WYSIWYG_IN_SPLIT = true
+
+function modeUsesWysiwyg(mode: PaneMode): boolean {
+  return mode === 'edit' || (TEMP_WYSIWYG_IN_SPLIT && mode === 'split')
+}
 
 function markdownEditingExtensions(): Extension[] {
   return [
@@ -1691,7 +1696,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const initialBody = initialContent?.body ?? ''
       const deferInitialRichMarkdown =
         initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
-        modeRef.current !== 'edit'
+        !modeUsesWysiwyg(modeRef.current)
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
       const state = EditorState.create({
@@ -1711,7 +1716,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             deferInitialRichMarkdown ? [] : markdownSyntaxHighlightExtensions()
           ),
           livePreviewCompartment.of(
-            modeRef.current === 'edit' && s0.livePreview && !deferInitialRichMarkdown
+            modeUsesWysiwyg(modeRef.current) && s0.livePreview && !deferInitialRichMarkdown
               ? wysiwygExtensions()
               : []
           ),
@@ -1861,7 +1866,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             markdownCompartment.reconfigure(markdownEditingExtensions()),
             markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
           ]
-          if (modeRef.current === 'edit' && useStore.getState().livePreview) {
+          if (modeUsesWysiwyg(modeRef.current) && useStore.getState().livePreview) {
             restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
           }
           view.dispatch({ effects: restoreEffects })
@@ -1935,7 +1940,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const markdownCompartment = markdownCompartmentRef.current
     const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
     const livePreviewCompartment = livePreviewCompartmentRef.current
-    const richEditing = modeRef.current === 'edit'
+    const richEditing = modeUsesWysiwyg(modeRef.current)
     const deferRichMarkdown =
       pathChanged &&
       !isRenameTransition &&
@@ -2015,7 +2020,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           markdownCompartment.reconfigure(markdownEditingExtensions()),
           markdownSyntaxCompartment.reconfigure(markdownSyntaxHighlightExtensions())
         ]
-        if (modeRef.current === 'edit' && useStore.getState().livePreview && livePreviewCompartment) {
+        if (
+          modeUsesWysiwyg(modeRef.current) &&
+          useStore.getState().livePreview &&
+          livePreviewCompartment
+        ) {
           restoreEffects.push(livePreviewCompartment.reconfigure(wysiwygExtensions()))
         }
         view.dispatch({
@@ -2096,14 +2105,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
   }, [vimMode])
-  // WYSIWYG (live-preview) extensions load only in Edit mode AND only when the
-  // Live Preview setting is on; Split, Preview, or the setting off keep the raw
-  // source editor. Reconfigure when either the mode or the setting flips.
+  // Temporary comparison mode: load WYSIWYG live-preview extensions in Edit
+  // and Split, while Preview stays a pure rendered surface.
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
     if (!view || !comp) return
-    const richEditing = mode === 'edit'
+    const richEditing = modeUsesWysiwyg(mode)
     const loadWysiwyg = richEditing && livePreview
     if (deferredLivePreviewTimerRef.current != null) {
       if (richEditing) {
@@ -3690,10 +3698,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       ref={setContainerRef}
                       className={[
                         'min-h-0 min-w-0 flex-1',
-                        // WYSIWYG (live-preview) styling — proportional body
-                        // font, code-block cards, rendered tables — applies
-                        // only in Edit mode. Split keeps the raw source look.
-                        mode === 'edit' ? 'cm-wysiwyg' : ''
+                        modeUsesWysiwyg(mode) ? 'cm-wysiwyg' : ''
                       ].join(' ')}
                     />
                   ) : (

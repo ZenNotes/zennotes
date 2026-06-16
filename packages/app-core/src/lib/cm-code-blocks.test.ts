@@ -46,7 +46,7 @@ describe('WYSIWYG fenced code blocks', () => {
   it('still renders a paired fence as a code block', () => {
     const view = mount('before\n\n```text\nconst x = 1\n```\n\nafter')
 
-    expect(view.dom.querySelector('.cm-code-flair')?.textContent).toBe('text')
+    expect(view.dom.querySelector('.cm-code-flair')?.textContent).toBe('TEXT')
     expect(view.dom.querySelectorAll('.cm-code-block-line')).toHaveLength(3)
     expect(view.dom.textContent).not.toContain('```text')
     expect(view.dom.textContent).toContain('const x = 1')

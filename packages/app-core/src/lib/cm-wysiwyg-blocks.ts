@@ -4,7 +4,7 @@
  * rules. Like the rest of live preview, the raw source is revealed on the
  * line the cursor is on; everything else renders.
  *
- * WYSIWYG-only: registered via `wysiwygExtensions()`; never loads in Split.
+ * Enabled wherever `wysiwygExtensions()` is loaded.
  */
 import { syntaxTree } from '@codemirror/language'
 import { RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
