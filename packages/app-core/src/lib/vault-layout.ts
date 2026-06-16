@@ -21,6 +21,7 @@ const RESERVED_ROOT_NAMES = new Set<string>([
   'quick',
   'archive',
   'trash',
+  'assets',
   'attachements',
   '_assets',
   '.zennotes'

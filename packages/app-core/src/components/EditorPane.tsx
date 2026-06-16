@@ -90,6 +90,7 @@ import { TagView } from './TagView'
 import { HelpView } from './HelpView'
 import { ArchiveView } from './ArchiveView'
 import { TrashView } from './TrashView'
+import { AssetsView } from './AssetsView'
 import { QuickNotesView } from './QuickNotesView'
 import { isTasksTabPath } from '@shared/tasks'
 import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
@@ -97,6 +98,7 @@ import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
+import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import {
   hasZenAssetItem,
@@ -140,6 +142,7 @@ import {
   CalendarIcon,
   CheckSquareIcon,
   CloseIcon,
+  PaperclipIcon,
   DocumentIcon,
   FileDownIcon,
   FeedbackIcon,
@@ -2181,6 +2184,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isHelp: false,
           isArchive: false,
           isTrash: false,
+          isAssetsView: false,
           isAsset: false,
           isDiagram: false,
           isDatabase: false
@@ -2225,6 +2229,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ...base,
             title: folderLabels.trash,
             isTrash: true
+          }
+        }
+        if (isAssetsViewTabPath(path)) {
+          return {
+            ...base,
+            title: 'Assets',
+            isAssetsView: true
           }
         }
         if (isAssetTabPath(path)) {
@@ -2429,6 +2440,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isHelp: boolean
       isArchive: boolean
       isTrash: boolean
+      isAssetsView: boolean
       isAsset: boolean
       isDiagram: boolean
     }) => {
@@ -2440,6 +2452,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         tab.isHelp ||
         tab.isArchive ||
         tab.isTrash ||
+        tab.isAssetsView ||
         tab.isAsset ||
         tab.isDiagram
       return (
@@ -2566,6 +2579,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isTrash && (
                 <TrashIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isAssetsView && (
+                <PaperclipIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isAsset && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -3091,6 +3107,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ArchiveView />
           ) : isTrashTabPath(activeTab) ? (
             <TrashView />
+          ) : isAssetsViewTabPath(activeTab) ? (
+            <AssetsView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
               <DatabaseView

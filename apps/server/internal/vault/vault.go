@@ -19,6 +19,9 @@ import (
 )
 
 const (
+	// AssetsDir is the canonical top-level folder for assets; attachements/_assets
+	// are recognized legacy dirs. Asset migration runs on the desktop (#185).
+	AssetsDir             = "assets"
 	PrimaryAttachmentsDir = "attachements"
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
@@ -43,12 +46,13 @@ func isFormDirName(name string) bool {
 // vault's MaxAssetBytes limit.
 var ErrAssetTooLarge = errors.New("asset exceeds maximum size")
 
-var legacyAttachmentsDirs = []string{"_assets"}
+var legacyAttachmentsDirs = []string{PrimaryAttachmentsDir, "_assets"}
 var reservedRootNames = map[string]struct{}{
 	string(FolderInbox):   {},
 	string(FolderQuick):   {},
 	string(FolderArchive): {},
 	string(FolderTrash):   {},
+	AssetsDir:             {},
 	PrimaryAttachmentsDir: {},
 	internalVaultDir:      {},
 }
@@ -57,6 +61,7 @@ var hiddenPrimaryRootNames = map[string]struct{}{
 	string(FolderQuick):   {},
 	string(FolderArchive): {},
 	string(FolderTrash):   {},
+	AssetsDir:             {},
 	PrimaryAttachmentsDir: {},
 	internalVaultDir:      {},
 }
@@ -975,7 +980,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 func (v *Vault) HasAssetsDir() bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	for _, dir := range append([]string{PrimaryAttachmentsDir}, legacyAttachmentsDirs...) {
+	for _, dir := range append([]string{AssetsDir}, legacyAttachmentsDirs...) {
 		info, err := os.Stat(filepath.Join(v.root, dir))
 		if err == nil && info.IsDir() {
 			return true

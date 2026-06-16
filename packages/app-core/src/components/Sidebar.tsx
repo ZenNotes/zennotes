@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   isArchiveViewActive,
+  isAssetsViewActive,
   isHelpViewActive,
   isQuickNotesViewActive,
   isTagsViewActive,
@@ -26,6 +27,7 @@ import {
   DatabaseIcon,
   DocumentIcon,
   ExpandAllIcon,
+  PaperclipIcon,
   FolderPlusIcon,
   NotePlusIcon,
   PanelLeftIcon,
@@ -375,6 +377,9 @@ export function Sidebar(): JSX.Element {
   const archiveViewActive = useStore(isArchiveViewActive);
   const openTrashView = useStore((s) => s.openTrashView);
   const trashViewActive = useStore(isTrashViewActive);
+  const openAssetsView = useStore((s) => s.openAssetsView);
+  const assetsViewActive = useStore(isAssetsViewActive);
+  const assetCount = useStore((s) => s.assetFiles.length);
   const openTagView = useStore((s) => s.openTagView);
   const selectedTags = useStore((s) => s.selectedTags);
   const tagsViewActive = useStore(isTagsViewActive);
@@ -2832,6 +2837,19 @@ export function Sidebar(): JSX.Element {
                 void openTrashView();
               }}
               onContextMenu={(e) => openFolderMenu(e, "trash", "")}
+              sidebarIdx={idxCounter.current.value++}
+              vimHighlight={vimCursor === idxCounter.current.value - 1}
+              sidebarFocused={isSidebarFocused}
+            />
+
+            <TrashSidebarRow
+              label="Assets"
+              icon={<PaperclipIcon width={16} height={16} />}
+              count={assetCount}
+              active={assetsViewActive}
+              onClick={() => {
+                void openAssetsView();
+              }}
               sidebarIdx={idxCounter.current.value++}
               vimHighlight={vimCursor === idxCounter.current.value - 1}
               sidebarFocused={isSidebarFocused}

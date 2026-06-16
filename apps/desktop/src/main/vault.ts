@@ -44,6 +44,7 @@ import {
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import {
   DATABASE_SIDECAR_SUFFIX,
+  databaseCsvPathFor,
   databaseSchemaPathFor,
   FORM_DATA_FILE,
   FORM_DIR_SUFFIX,
@@ -56,9 +57,12 @@ import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const SYSTEM_FOLDERS = new Set<NoteFolder>(FOLDERS)
+// Assets are unified under a top-level `assets/` folder. `attachements`/`_assets`
+// are recognized legacy dirs (read + migrated, never the import target). (#185)
+const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
-const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
+const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const DELETED_ASSETS_DIR = 'deleted-assets'
 const VAULT_SETTINGS_FILE = 'vault.json'
@@ -1050,7 +1054,82 @@ export async function ensureVaultLayout(root: string): Promise<void> {
     } catch (err) {
       console.error('legacy database migration failed', err)
     }
+    try {
+      await migrateLooseAssets(root)
+    } catch (err) {
+      console.error('loose asset migration failed', err)
+    }
   }
+}
+
+/**
+ * One-time, idempotent migration: unify assets under `assets/`. Moves loose
+ * root-level attachments and any files in the legacy `attachements/` / `_assets/`
+ * dirs into `assets/`, skipping a file whose basename already exists there (so
+ * the basename-fallback resolution of `![[…]]`/`![](…)` embeds stays
+ * unambiguous). Never touches notes (`.md`) or database files. Safe on every
+ * open. Returns the moved (assets-relative) and skipped (source) paths.
+ */
+export async function migrateLooseAssets(
+  root: string
+): Promise<{ moved: string[]; skipped: string[] }> {
+  const moved: string[] = []
+  const skipped: string[] = []
+  const assetsAbs = path.join(root, ASSETS_DIR)
+
+  const moveIntoAssets = async (srcRel: string): Promise<void> => {
+    const destRel = `${ASSETS_DIR}/${path.basename(srcRel)}`
+    if (toPosix(srcRel) === destRel) return
+    const destAbs = resolveSafe(root, destRel)
+    try {
+      await fs.access(destAbs) // a same-named asset already exists — don't clobber/rename
+      skipped.push(toPosix(srcRel))
+      return
+    } catch {
+      /* destination free */
+    }
+    await fs.mkdir(assetsAbs, { recursive: true })
+    await fs.rename(resolveSafe(root, srcRel), destAbs)
+    moved.push(destRel)
+  }
+
+  // 1. Loose asset files sitting directly at the vault root.
+  let rootEntries: Dirent[]
+  try {
+    rootEntries = await fs.readdir(root, { withFileTypes: true })
+  } catch {
+    return { moved, skipped }
+  }
+  for (const entry of rootEntries) {
+    if (entry.name.startsWith('.') || !entry.isFile()) continue
+    if (entry.name.toLowerCase().endsWith('.md')) continue // a note
+    if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
+    await moveIntoAssets(entry.name)
+  }
+
+  // 2. Files in the legacy attachment dirs, then drop the dir if it empties.
+  for (const dir of LEGACY_ATTACHMENTS_DIRS) {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(path.join(root, dir), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || !entry.isFile()) continue
+      await moveIntoAssets(`${dir}/${entry.name}`)
+    }
+    try {
+      await fs.rmdir(path.join(root, dir))
+    } catch {
+      /* not empty — leave it */
+    }
+  }
+
+  if (moved.length > 0) {
+    console.log(`[zen] migrated ${moved.length} asset(s) into ${ASSETS_DIR}/`)
+  }
+  return { moved, skipped }
 }
 
 /**
@@ -2530,7 +2609,8 @@ function cleanAssetFilename(name: string): string {
 
 function cleanAssetTargetDir(root: string, targetDir: string): string {
   const normalized = normalizeVaultRelativePath(targetDir).replace(/^\/+|\/+$/g, '')
-  if (!normalized) return root
+  // No explicit target → the unified `assets/` folder (not loose at the root).
+  if (!normalized) return resolveSafe(root, ASSETS_DIR)
   if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
     throw new Error('Cannot move assets into internal ZenNotes files.')
   }
@@ -3076,7 +3156,7 @@ export function folderAbsolutePath(
 }
 
 export function assetsAbsolutePath(root: string): string {
-  return path.join(root, PRIMARY_ATTACHMENTS_DIR)
+  return path.join(root, ASSETS_DIR)
 }
 
 async function removeFileIfExists(abs: string): Promise<void> {
@@ -3300,13 +3380,14 @@ export async function importPastedImage(
   input: PastedImageInput,
   now = new Date()
 ): Promise<ImportedAsset> {
-  await fs.mkdir(root, { recursive: true })
-
   const bytes = pastedImageBuffer(input.data)
   if (bytes.byteLength === 0) throw new Error('Clipboard image is empty.')
 
-  const finalName = await uniqueFilename(root, pastedImageFilename(input, now))
-  const destAbs = path.join(root, finalName)
+  // Pasted images land in the unified `assets/` folder.
+  const assetsDir = path.join(root, ASSETS_DIR)
+  await fs.mkdir(assetsDir, { recursive: true })
+  const finalName = await uniqueFilename(assetsDir, pastedImageFilename(input, now))
+  const destAbs = path.join(assetsDir, finalName)
   await fs.writeFile(destAbs, bytes)
 
   const vaultRelPath = toPosix(path.relative(root, destAbs))

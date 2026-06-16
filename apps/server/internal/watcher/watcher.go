@@ -256,7 +256,9 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	}
 	folder, ok := vault.FolderForRelativePath(relPosix)
 	if !ok {
-		if relPosix == vault.PrimaryAttachmentsDir ||
+		if relPosix == vault.AssetsDir ||
+			strings.HasPrefix(relPosix, vault.AssetsDir+"/") ||
+			relPosix == vault.PrimaryAttachmentsDir ||
 			strings.HasPrefix(relPosix, vault.PrimaryAttachmentsDir+"/") ||
 			relPosix == "_assets" ||
 			strings.HasPrefix(relPosix, "_assets/") {

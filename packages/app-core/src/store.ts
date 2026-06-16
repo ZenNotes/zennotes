@@ -38,6 +38,7 @@ import { TAGS_TAB_PATH, isTagsTabPath } from '@shared/tags'
 import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
+import { ASSETS_VIEW_TAB_PATH, isAssetsViewTabPath } from '@shared/assets-view'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
 import { isAssetTabPath, assetPathFromTab, assetTabPath } from './lib/asset-tabs'
 import {
@@ -1420,6 +1421,15 @@ export function isArchiveViewActive(state: {
   return leaf?.activeTab === ARCHIVE_TAB_PATH
 }
 
+/** True when the active pane's active tab is the built-in Assets view. */
+export function isAssetsViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return leaf?.activeTab === ASSETS_VIEW_TAB_PATH
+}
+
 /** True when the active pane's active tab is the built-in Quick Notes view. */
 export function isQuickNotesViewActive(state: {
   paneLayout: PaneLayout
@@ -1644,6 +1654,7 @@ interface Store {
   openQuickNotesView: () => Promise<void>
   /** Open the built-in Archive tab in the active pane. */
   openArchiveView: () => Promise<void>
+  openAssetsView: () => Promise<void>
   /** Open the built-in Trash tab in the active pane. */
   openTrashView: () => Promise<void>
   /** Read a CSV database (CSV + sidecar) into `databases` if not already loaded. */
@@ -2984,6 +2995,14 @@ export const useStore = create<Store>((set, get) => {
   openTrashView: async () => {
     const state = get()
     await get().openNoteInPane(state.activePaneId, TRASH_TAB_PATH)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
+  },
+
+  openAssetsView: async () => {
+    const state = get()
+    await get().refreshAssets()
+    await get().openNoteInPane(state.activePaneId, ASSETS_VIEW_TAB_PATH)
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },

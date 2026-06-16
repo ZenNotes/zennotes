@@ -19,9 +19,10 @@ const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
  *  internals (data.csv, schema.json, record-page notes) aren't part of the MCP
  *  note/folder surface, so the walks skip these folders. */
 const isFormDirName = (name: string): boolean => name.toLowerCase().endsWith('.base')
+const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
-const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
+const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
 
