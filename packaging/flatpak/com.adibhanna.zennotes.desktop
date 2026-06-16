@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=ZenNotes
+Comment=Keyboard-first Markdown notes app
+Exec=zennotes %U
+Terminal=false
+Type=Application
+Icon=com.adibhanna.zennotes
+StartupWMClass=ZenNotes
+MimeType=text/markdown;x-scheme-handler/zennotes;
+Categories=Office;Utility;TextEditor;
