@@ -538,16 +538,28 @@ function App(): JSX.Element {
         return
       }
       if (matchesShortcut(e, overrides, 'global.closeActiveTab')) {
-        // On Linux/Windows `Mod+W` (close tab) resolves to Ctrl+W, which also
-        // is the vim pane-focus prefix (`<C-w>hjkl`) and insert-mode word
-        // delete. When vim mode is on, reserve that key for vim — VimNav's
-        // capture-phase handler arms the prefix; close tabs via :q / :bd / the
-        // command palette. On macOS close-tab is Cmd+W, so this never triggers.
-        if (state.vimMode && matchesSequenceToken(e, overrides, 'vim.panePrefix')) {
+        // On Linux/Windows `Mod+W` (close tab) resolves to Ctrl+W, which is also
+        // the vim pane-focus prefix (`<C-w>hjkl`) and insert-mode word delete.
+        // When vim mode is on AND a tab is open, reserve Ctrl+W for vim (close
+        // tabs via :q / :bd / the palette). With no tab open the prefix has
+        // nothing to act on, so fall through and close the window. On macOS
+        // close-tab is Cmd+W, so the vim guard never matches there.
+        const hasActiveTab = !!state.selectedPath
+        if (
+          state.vimMode &&
+          hasActiveTab &&
+          matchesSequenceToken(e, overrides, 'vim.panePrefix')
+        ) {
           return
         }
         e.preventDefault()
-        void state.closeActiveNote()
+        if (hasActiveTab) {
+          void state.closeActiveNote()
+        } else {
+          // No tab left to close — close the window, matching native Cmd+W
+          // (macOS) / Ctrl+W behavior even with vim mode on (#192).
+          window.zen.windowClose()
+        }
         return
       }
       if (e.key === 'Escape' && state.searchOpen) {
