@@ -5,6 +5,8 @@ import type {
   DeletedAsset,
   ExternalFileContent,
   FolderEntry,
+  GithubConfig,
+  GithubSyncResult,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -222,6 +224,10 @@ export interface ZenBridge {
   cliUninstall(): Promise<CliInstallStatus>
   raycastGetStatus(): Promise<RaycastExtensionStatus>
   raycastInstall(): Promise<RaycastExtensionStatus>
+  getGithubConfig(): Promise<GithubConfig>
+  setGithubConfig(config: GithubConfig): Promise<void>
+  listGithubRepos(): Promise<string[]>
+  syncWithGithub(): Promise<GithubSyncResult>
   clipboardWriteText(text: string): void
   clipboardReadText(): string
 }

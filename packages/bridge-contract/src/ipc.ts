@@ -112,7 +112,11 @@ export const IPC = {
   CLI_INSTALL: 'cli:install',
   CLI_UNINSTALL: 'cli:uninstall',
   RAYCAST_GET_STATUS: 'raycast:get-status',
-  RAYCAST_INSTALL: 'raycast:install'
+  RAYCAST_INSTALL: 'raycast:install',
+  GITHUB_GET_CONFIG: 'github:get-config',
+  GITHUB_SET_CONFIG: 'github:set-config',
+  GITHUB_LIST_REPOS: 'github:list-repos',
+  GITHUB_SYNC: 'github:sync'
 } as const
 
 export interface TikzRenderResponse {
@@ -536,3 +540,12 @@ export interface VaultChangeEvent {
   folder: NoteFolder
   scope?: VaultChangeScope
 }
+
+export interface GithubConfig {
+  pat: string | null
+  repo: string | null
+}
+
+export type GithubSyncResult =
+  | { ok: true; message: string }
+  | { ok: false; error: string }
