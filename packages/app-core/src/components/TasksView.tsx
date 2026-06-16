@@ -7,6 +7,7 @@ import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban } from './TasksKanban'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { isImeComposing } from '../lib/ime'
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done'
 
@@ -367,6 +368,8 @@ export function TasksView(): JSX.Element {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
+                // While composing (IME), let the input own Enter/Arrows. (#183)
+                if (isImeComposing(e)) return
                 if (e.key === 'Escape') {
                   e.stopPropagation()
                   if (filter) setFilter('')

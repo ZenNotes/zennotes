@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { isImeComposing } from '../lib/ime'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -151,6 +152,9 @@ export function PromptModal({
             setDismissed(false)
           }}
           onKeyDown={(e) => {
+            // Let the IME own Enter/Tab/Arrows while composing (e.g. confirming
+            // a Japanese conversion) instead of submitting the prompt. (#183)
+            if (isImeComposing(e)) return
             if (e.key === 'Tab' && filteredSuggestions.length > 0) {
               e.preventDefault()
               moveSuggestion(e.shiftKey ? -1 : 1)

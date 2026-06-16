@@ -5,6 +5,7 @@ import { extractTags } from '../lib/tags'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
+import { isImeComposing } from '../lib/ime'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -298,7 +299,7 @@ export function TagView(): JSX.Element {
                 if (filter) setFilter('')
                 else e.currentTarget.blur()
               }
-              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
             }}
             className="w-56 rounded-md border border-current/15 bg-current/5 px-2 py-1 text-xs outline-none focus:border-current/30"
           />

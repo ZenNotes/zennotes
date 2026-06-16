@@ -10,6 +10,7 @@ import {
   removeView,
   renameView
 } from '../lib/database-cells'
+import { isImeComposing } from '../lib/ime'
 import { DatabaseTableView } from './DatabaseTableView'
 import { DatabaseBoardView } from './DatabaseBoardView'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -98,7 +99,7 @@ export function DatabaseView({
                     setRenamingView(null)
                   }}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') e.currentTarget.blur()
+                    if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
                     else if (e.key === 'Escape') setRenamingView(null)
                   }}
                   className="w-24 rounded border border-accent bg-paper-50 px-1.5 py-1 text-xs text-ink-900 outline-none"

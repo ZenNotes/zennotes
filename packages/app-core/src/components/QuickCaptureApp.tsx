@@ -62,6 +62,7 @@ import {
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { PinIcon } from './icons'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -696,6 +697,8 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
@@ -821,6 +824,8 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))

@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { parseOutline, type OutlineItem } from '../lib/outline'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -87,6 +88,8 @@ export function OutlinePalette(): JSX.Element {
             placeholder="Jump to heading…"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // While composing (IME), let the input own Enter/Arrows. (#183)
+              if (isImeComposing(e)) return
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()

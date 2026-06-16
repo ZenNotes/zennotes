@@ -63,6 +63,7 @@ import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
+import { isImeComposing } from '../lib/ime'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
 
@@ -3267,7 +3268,7 @@ function TextInputRow({
         }}
         onKeyDown={(e) => {
           if (!commitOnBlur) return
-          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
           if (e.key === 'Escape') {
             setDraft(value)
             e.currentTarget.blur()
@@ -3434,6 +3435,8 @@ function FontRow({
   }
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActiveIdx((i) => (i + 1 >= items.length ? items.length - 1 : i + 1))

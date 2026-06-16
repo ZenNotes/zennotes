@@ -13,6 +13,7 @@ import {
   splitMultiSelect,
   isCheckboxTrue
 } from '../lib/database-cells'
+import { isImeComposing } from '../lib/ime'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
 
@@ -193,7 +194,7 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
                 setAddingOption(false)
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
+                if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
                 else if (e.key === 'Escape') {
                   setOptionDraft('')
                   setAddingOption(false)

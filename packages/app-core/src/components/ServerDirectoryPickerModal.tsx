@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { isImeComposing } from '../lib/ime'
 import type { DirectoryBrowseEntry, DirectoryBrowseShortcut } from '@shared/ipc'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -196,6 +197,8 @@ export function ServerDirectoryPickerModal({
                     setSubmitError(null)
                   }}
                   onKeyDown={(e) => {
+                    // While composing (IME), let the input own Enter/Arrows. (#183)
+                    if (isImeComposing(e)) return
                     if (e.key === 'Enter') {
                       e.preventDefault()
                       void loadDirectory(draftPath.trim())

@@ -48,6 +48,7 @@ import {
   undo
 } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
@@ -3614,6 +3615,9 @@ function Breadcrumb({
             if (commitRename()) setEditing(false)
           }}
           onKeyDown={(e) => {
+            // While an IME composition is active, Enter confirms the conversion
+            // (and Escape cancels it) — don't commit/cancel the rename. (#183)
+            if (isImeComposing(e)) return
             if (e.key === 'Enter') {
               e.preventDefault()
               e.stopPropagation()

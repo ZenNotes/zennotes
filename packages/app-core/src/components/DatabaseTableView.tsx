@@ -30,6 +30,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { IconButton } from './ui/Button'
 import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { isImeComposing } from '../lib/ime'
 
 const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   text: 'Text',
@@ -436,7 +437,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
                       gridRef.current?.focus({ preventScroll: true })
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') e.currentTarget.blur()
+                      if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
                       else if (e.key === 'Escape') {
                         setRenamingField(null)
                         gridRef.current?.focus({ preventScroll: true })
@@ -714,7 +715,7 @@ function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellP
         }}
         onKeyDown={(e) => {
           e.stopPropagation()
-          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
           else if (e.key === 'Escape') onEndEdit()
         }}
         className="w-full bg-paper-50 px-2 py-1.5 text-sm text-ink-900 outline-none ring-1 ring-inset ring-accent"
@@ -840,7 +841,7 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   e.stopPropagation()
-                  if (e.key === 'Enter' && draft.trim()) {
+                  if (e.key === 'Enter' && !isImeComposing(e) && draft.trim()) {
                     toggle(draft.trim().replace(/,/g, ' '))
                     setDraft('')
                   } else if (e.key === 'Escape') {

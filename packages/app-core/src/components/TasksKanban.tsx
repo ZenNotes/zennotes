@@ -32,6 +32,7 @@ import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/
 import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { isImeComposing } from '../lib/ime'
 
 interface Props {
   tasks: VaultTask[]
@@ -887,6 +888,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                       onClick={(e) => e.stopPropagation()}
                       onPointerDown={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
+                        // While composing (IME), let the input own Enter/Arrows. (#183)
+                        if (isImeComposing(e)) return
                         if (e.key === 'Enter') {
                           e.preventDefault()
                           commitColumnRename(column.id)
