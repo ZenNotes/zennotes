@@ -739,3 +739,84 @@ describe('note jump history with database tabs', () => {
     expect(useStore.getState().selectedPath).toBe(dbTab)
   })
 })
+
+describe('database deletion', () => {
+  it('forgets a deleted database instead of re-reading the gone file', async () => {
+    const csvPath = 'quick/Untitled Database.csv'
+    const doc = { path: csvPath, title: 'Untitled Database', rows: [], columns: [], views: [] }
+    const openDatabase = vi.fn().mockResolvedValue(doc)
+    installZen({ openDatabase })
+
+    const { useStore } = await loadStore()
+    const paneId = useStore.getState().activePaneId
+    const tabPath = databaseTabPath(csvPath)
+
+    // Open the database: caches the doc and opens its tab.
+    await useStore.getState().openDatabase(csvPath)
+    expect(useStore.getState().databases[csvPath]).toBeTruthy()
+    expect(findLeaf(useStore.getState().paneLayout, paneId)?.tabs).toContain(tabPath)
+
+    openDatabase.mockClear()
+
+    // The watcher reports the .csv was deleted (the user removed the database).
+    await useStore.getState().applyChange({
+      kind: 'unlink',
+      path: csvPath,
+      folder: 'quick',
+      scope: 'database'
+    })
+
+    // It must NOT re-read the gone file (that throws "Database not found" and
+    // logs an Electron handler error in the terminal).
+    expect(openDatabase).not.toHaveBeenCalled()
+    // The cached doc is dropped and its tab is closed.
+    expect(useStore.getState().databases[csvPath]).toBeUndefined()
+    expect(findLeaf(useStore.getState().paneLayout, paneId)?.tabs ?? []).not.toContain(tabPath)
+  })
+
+  it('still re-reads on a non-delete database change', async () => {
+    const csvPath = 'quick/Live.csv'
+    const v1 = { path: csvPath, title: 'Live', rows: [], columns: [], views: [] }
+    const v2 = { ...v1, rows: [{ id: 'r1' }] }
+    const openDatabase = vi.fn().mockResolvedValueOnce(v1).mockResolvedValue(v2)
+    installZen({ openDatabase })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().openDatabase(csvPath)
+    openDatabase.mockClear()
+
+    // A change (not a delete) more than the write-echo window ago re-syncs.
+    await useStore.getState().applyChange({
+      kind: 'change',
+      path: csvPath,
+      folder: 'quick',
+      scope: 'database'
+    })
+
+    expect(openDatabase).toHaveBeenCalledWith(csvPath)
+    expect(useStore.getState().databases[csvPath]).toBeTruthy()
+  })
+
+  it('closes a stale tab when the database no longer exists (open returns null)', async () => {
+    // Simulates a database tab restored on startup after its .csv was deleted:
+    // DatabaseView calls loadDatabase, the main process returns null (no throw),
+    // and the renderer forgets the tab instead of looping on a missing file.
+    const csvPath = 'inbox/Gone.csv'
+    const openDatabase = vi.fn().mockResolvedValue(null)
+    installZen({ openDatabase })
+
+    const { useStore } = await loadStore()
+    const paneId = useStore.getState().activePaneId
+    const tabPath = databaseTabPath(csvPath)
+
+    // Restore the tab directly (as the persisted layout would on launch).
+    await useStore.getState().openNoteInPane(paneId, tabPath)
+    expect(findLeaf(useStore.getState().paneLayout, paneId)?.tabs).toContain(tabPath)
+
+    // DatabaseView's effect fires this when it has no cached doc.
+    await useStore.getState().loadDatabase(csvPath)
+
+    expect(useStore.getState().databases[csvPath]).toBeUndefined()
+    expect(findLeaf(useStore.getState().paneLayout, paneId)?.tabs ?? []).not.toContain(tabPath)
+  })
+})

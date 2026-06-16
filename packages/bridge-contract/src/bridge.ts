@@ -135,7 +135,8 @@ export interface ZenBridge {
   writeNoteComments(relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]>
   scanTasks(): Promise<VaultTask[]>
   scanTasksForPath(relPath: string): Promise<VaultTask[]>
-  openDatabase(relPath: string): Promise<DatabaseDoc>
+  /** Resolves to null when the `.csv` no longer exists (e.g. a stale tab). */
+  openDatabase(relPath: string): Promise<DatabaseDoc | null>
   writeDatabaseRows(relPath: string, rows: DbRow[]): Promise<DatabaseDoc>
   writeDatabaseSchema(relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
   createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>

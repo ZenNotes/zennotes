@@ -2181,7 +2181,17 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_OPEN_DATABASE, async (_e, relPath: string) => {
     ensureLocalForDatabases()
-    return await readDatabase(requireVault().root, relPath)
+    try {
+      return await readDatabase(requireVault().root, relPath)
+    } catch (err) {
+      // A missing database isn't exceptional — its tab can simply outlive the
+      // file (deleted by us or another client). Return null so the renderer
+      // forgets it, instead of rejecting and logging a noisy
+      // "Error occurred in handler for 'vault:open-database'". Real errors
+      // (parse/permission) still throw.
+      if (err instanceof Error && err.message.startsWith('Database not found')) return null
+      throw err
+    }
   })
 
   handle(IPC.VAULT_WRITE_DATABASE_ROWS, async (_e, relPath: string, rows: DbRow[]) => {

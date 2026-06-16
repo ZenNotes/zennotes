@@ -38,7 +38,7 @@ import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
-import { isAssetTabPath, assetPathFromTab } from './lib/asset-tabs'
+import { isAssetTabPath, assetPathFromTab, assetTabPath } from './lib/asset-tabs'
 import {
   FENCE_RE,
   TASK_LINE_RE,
@@ -1657,6 +1657,8 @@ interface Store {
   updateDatabaseSchema: (csvPath: string, next: DatabaseDoc) => void
   /** Re-read a database from disk after an external change (skips our own write echoes). */
   syncDatabaseFromDisk: (csvPath: string) => Promise<void>
+  /** Drop a deleted database's cached doc and close its tab (no disk read). */
+  forgetDatabase: (csvPath: string) => Promise<void>
   /** Open a record as a markdown "page" note (creating + linking it on first open). */
   openRecordPage: (csvPath: string, rowId: string) => Promise<void>
   /** Rename a record's linked page note to match its title (no-op if unlinked). */
@@ -2987,15 +2989,28 @@ export const useStore = create<Store>((set, get) => {
     set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: true } }))
     try {
       const doc = await window.zen.openDatabase(csvPath)
+      if (!doc) {
+        // The .csv is gone — drop it and close any stale tab rather than leave
+        // a grid pointed at a deleted file (and re-requesting it on every render).
+        await get().forgetDatabase(csvPath)
+        return
+      }
       set((s) => ({ databases: { ...s.databases, [csvPath]: doc } }))
     } catch (err) {
       console.error('loadDatabase failed', err)
     } finally {
-      set((s) => ({ databasesLoading: { ...s.databasesLoading, [csvPath]: false } }))
+      set((s) =>
+        csvPath in s.databasesLoading
+          ? { databasesLoading: { ...s.databasesLoading, [csvPath]: false } }
+          : {}
+      )
     }
   },
   openDatabase: async (csvPath) => {
     await get().loadDatabase(csvPath)
+    // The load may have failed/forgotten a now-missing database — don't open an
+    // empty tab for it.
+    if (!get().databases[csvPath]) return
     await get().openNoteInPane(get().activePaneId, databaseTabPath(csvPath))
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
@@ -3027,10 +3042,36 @@ export const useStore = create<Store>((set, get) => {
     if (databaseSaveTimers.has(csvPath)) return
     try {
       const doc = await window.zen.openDatabase(csvPath)
+      if (!doc) {
+        await get().forgetDatabase(csvPath)
+        return
+      }
       set((s) => (s.databases[csvPath] ? { databases: { ...s.databases, [csvPath]: doc } } : {}))
     } catch (err) {
       console.error('syncDatabaseFromDisk failed', err)
     }
+  },
+  forgetDatabase: async (csvPath) => {
+    // Close the database's tab in every pane that holds it. A .csv can be open
+    // either as a `zen://database/…` tab or as a `.csv` asset tab that renders
+    // the same grid, so close both forms.
+    const tabPaths = [databaseTabPath(csvPath), assetTabPath(csvPath)]
+    for (const leaf of allLeaves(get().paneLayout)) {
+      for (const tabPath of tabPaths) {
+        if (leaf.tabs.includes(tabPath)) {
+          await get().closeTabInPane(leaf.id, tabPath)
+        }
+      }
+    }
+    // Drop the cached doc + loading flag so nothing re-reads a file that's gone.
+    set((s) => {
+      if (!(csvPath in s.databases) && !(csvPath in s.databasesLoading)) return {}
+      const databases = { ...s.databases }
+      const databasesLoading = { ...s.databasesLoading }
+      delete databases[csvPath]
+      delete databasesLoading[csvPath]
+      return { databases, databasesLoading }
+    })
   },
   openRecordPage: async (csvPath, rowId) => {
     const doc = get().databases[csvPath]
@@ -3554,7 +3595,13 @@ export const useStore = create<Store>((set, get) => {
       return
     }
     if (ev.scope === 'database') {
-      await get().syncDatabaseFromDisk(ev.path)
+      // On delete, forget the database instead of re-reading a file that's gone
+      // (which throws "Database not found"); otherwise sync from disk.
+      if (ev.kind === 'unlink') {
+        await get().forgetDatabase(ev.path)
+      } else {
+        await get().syncDatabaseFromDisk(ev.path)
+      }
       // Surface a newly-created (or removed) .csv in the note list.
       if (ev.kind !== 'change') await get().refreshAssets()
       return

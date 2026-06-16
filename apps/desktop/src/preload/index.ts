@@ -299,7 +299,7 @@ const api: ZenBridge = {
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
   scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
     ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),
-  openDatabase: (relPath: string): Promise<DatabaseDoc> =>
+  openDatabase: (relPath: string): Promise<DatabaseDoc | null> =>
     ipcRenderer.invoke(IPC.VAULT_OPEN_DATABASE, relPath),
   writeDatabaseRows: (relPath: string, rows: DbRow[]): Promise<DatabaseDoc> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_ROWS, relPath, rows),
