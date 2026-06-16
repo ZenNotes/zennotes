@@ -5,6 +5,7 @@ import { CollectionViewHeader } from './CollectionViewHeader'
 import { resolveQuickNoteTitle } from '../lib/quick-note-title'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -30,6 +31,7 @@ export function QuickNotesView(): JSX.Element {
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle)
   const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isQuickNotesViewActive)
@@ -97,6 +99,9 @@ export function QuickNotesView(): JSX.Element {
   useEffect(() => {
     if (!amActive) return
     const handler = (e: KeyboardEvent): void => {
+      // A modal/menu owns the keyboard while open — don't fire list shortcuts
+      // through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -106,6 +111,10 @@ export function QuickNotesView(): JSX.Element {
 
       const key = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o//…) are
+      // disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -122,35 +131,36 @@ export function QuickNotesView(): JSX.Element {
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.newQuickNote')) {
+      if (seq('nav.newQuickNote')) {
         consume()
         void createQuickNote()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      if (seq('nav.moveDown') || key === 'ArrowDown') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      if (seq('nav.moveUp') || key === 'ArrowUp') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i - 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -163,7 +173,7 @@ export function QuickNotesView(): JSX.Element {
       ) {
         return
       }
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
+      if ((key === 'Enter' || seq('nav.openResult')) && current) {
         consume()
         void openNote(current.path)
       }
@@ -174,7 +184,7 @@ export function QuickNotesView(): JSX.Element {
       if (gTimer.current) clearTimeout(gTimer.current)
       window.removeEventListener('keydown', handler, true)
     }
-  }, [amActive, closeActiveNote, createQuickNote, current, filter, filtered.length, keymapOverrides, openNote])
+  }, [amActive, closeActiveNote, createQuickNote, current, filter, filtered.length, keymapOverrides, vimMode, openNote])
 
   return (
     <div

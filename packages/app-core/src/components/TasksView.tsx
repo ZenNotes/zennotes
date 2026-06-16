@@ -8,6 +8,7 @@ import { TasksKanban } from './TasksKanban'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { isImeComposing } from '../lib/ime'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done'
 
@@ -41,6 +42,7 @@ export function TasksView(): JSX.Element {
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
   const closeTasksView = useStore((s) => s.closeTasksView)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const viewMode = useStore((s) => s.tasksViewMode)
   const setViewMode = useStore((s) => s.setTasksViewMode)
   // Only the Tasks panel in the *active* pane should listen for j/k/etc.
@@ -203,6 +205,9 @@ export function TasksView(): JSX.Element {
   useEffect(() => {
     if (!isActivePanel) return
     const handler = (e: KeyboardEvent): void => {
+      // A modal/menu owns the keyboard while open — don't fire list shortcuts
+      // through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
       // While the Vim hint overlay is open it owns the keyboard; don't let
       // task navigation (or Esc closing the view) steal its keys. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
@@ -215,6 +220,10 @@ export function TasksView(): JSX.Element {
 
       const key = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o/Space/1-3/…)
+      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -229,31 +238,31 @@ export function TasksView(): JSX.Element {
         return
       }
 
-      // View switcher works regardless of sub-view.
-      if (key === '1') {
+      // View switcher works regardless of sub-view (Vim mode only).
+      if (vimMode && key === '1') {
         consume()
         setViewMode('list')
         return
       }
-      if (key === '2') {
+      if (vimMode && key === '2') {
         consume()
         setViewMode('calendar')
         return
       }
-      if (key === '3') {
+      if (vimMode && key === '3') {
         consume()
         setViewMode('kanban')
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.localEx')) {
+      if (seq('nav.localEx')) {
         consume()
         setExValue('')
         setExOpen(true)
@@ -265,22 +274,23 @@ export function TasksView(): JSX.Element {
       // List-mode-only navigation. Calendar and Kanban have their own.
       if (viewMode !== 'list') return
 
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      if (seq('nav.moveDown') || key === 'ArrowDown') {
         consume()
         moveCursor(1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      if (seq('nav.moveUp') || key === 'ArrowUp') {
         consume()
         moveCursor(-1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(taskRowIndices.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -294,12 +304,12 @@ export function TasksView(): JSX.Element {
         return
       }
 
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && currentTask) {
+      if ((key === 'Enter' || seq('nav.openResult')) && currentTask) {
         consume()
         void openTaskAt(currentTask)
         return
       }
-      if ((key === ' ' || matchesSequenceToken(e, overrides, 'nav.toggleTask')) && currentTask) {
+      if (((vimMode && key === ' ') || seq('nav.toggleTask')) && currentTask) {
         consume()
         void toggleTaskFromList(currentTask)
         return
@@ -315,6 +325,7 @@ export function TasksView(): JSX.Element {
     taskRowIndices.length,
     currentTask,
     keymapOverrides,
+    vimMode,
     openTaskAt,
     toggleTaskFromList,
     closeTasksView,
