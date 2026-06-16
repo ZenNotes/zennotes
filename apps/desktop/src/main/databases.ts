@@ -1,8 +1,9 @@
 /**
  * Main-process IO for CSV-backed databases. Bridges the pure shared-domain
- * logic (@shared/database-csv) to disk, mirroring the comments/tasks helpers:
- * read/write the `.csv` + co-located `.csv.base.json` sidecar with the atomic
- * writer, and adopt a plain CSV (no sidecar) by inferring its schema.
+ * logic (@shared/database-csv) to disk. A database is a self-contained
+ * `<Name>.base/` folder holding `data.csv`, `schema.json` (the sidecar), and a
+ * `pages/` folder of record-page notes; a legacy loose `.csv` + co-located
+ * `.csv.base.json` sidecar is still read (and migrated elsewhere on open).
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -15,7 +16,12 @@ import {
   serializeRows
 } from '@shared/database-csv'
 import {
+  csvPathForFormDir,
   DATABASE_SIDECAR_SUFFIX,
+  FORM_DIR_SUFFIX,
+  formDirFromCsvPath,
+  formTitleFromCsvPath,
+  isFormDirName,
   type DatabaseDoc,
   type DatabaseSidecar,
   type DatabaseSummary,
@@ -39,9 +45,34 @@ function toPosix(p: string): string {
   return p.replace(/\\/g, '/')
 }
 
+/** Database title: its `.base` folder name (legacy: the `.csv` basename). */
 function titleFromPath(rel: string): string {
-  const base = toPosix(rel).split('/').filter(Boolean).pop() ?? rel
+  const posix = toPosix(rel)
+  if (formDirFromCsvPath(posix)) return formTitleFromCsvPath(posix)
+  const base = posix.split('/').filter(Boolean).pop() ?? rel
   return base.replace(/\.csv$/i, '')
+}
+
+// Record-page paths are stored RELATIVE to the database folder (e.g. `pages/X.md`)
+// so a folder rename/move never rewrites them; on read they're resolved to full
+// vault-relative paths (e.g. `Books.base/pages/X.md`). Legacy loose databases
+// have no folder, so paths pass through unchanged.
+function pagesToFull(csvRel: string, pages: Record<string, string>): Record<string, string> {
+  const formDir = formDirFromCsvPath(toPosix(csvRel))
+  if (!formDir) return pages
+  const prefix = `${formDir}/`
+  return Object.fromEntries(
+    Object.entries(pages).map(([id, p]) => [id, p.startsWith(prefix) ? p : `${prefix}${p}`])
+  )
+}
+
+function pagesToRelative(csvRel: string, pages: Record<string, string>): Record<string, string> {
+  const formDir = formDirFromCsvPath(toPosix(csvRel))
+  if (!formDir) return pages
+  const prefix = `${formDir}/`
+  return Object.fromEntries(
+    Object.entries(pages).map(([id, p]) => [id, p.startsWith(prefix) ? p.slice(prefix.length) : p])
+  )
 }
 
 function isMissing(err: unknown): boolean {
@@ -84,7 +115,9 @@ function normalizeSidecar(raw: unknown): DatabaseSidecar | null {
 async function readSidecar(root: string, rel: string): Promise<DatabaseSidecar | null> {
   try {
     const raw = await fs.readFile(databaseSidecarPath(root, rel), 'utf8')
-    return normalizeSidecar(JSON.parse(raw))
+    const sidecar = normalizeSidecar(JSON.parse(raw))
+    if (sidecar?.pages) sidecar.pages = pagesToFull(toPosix(rel), sidecar.pages)
+    return sidecar
   } catch (err) {
     if (isMissing(err)) return null
     if (err instanceof SyntaxError) return null
@@ -135,7 +168,12 @@ async function readPageContentFlags(
 }
 
 async function persistSidecar(root: string, rel: string, sidecar: DatabaseSidecar): Promise<void> {
-  await writeFileAtomic(databaseSidecarPath(root, rel), `${JSON.stringify(sidecar, null, 2)}\n`)
+  // Store record-page paths relative to the database folder (so a folder rename
+  // never rewrites them); a legacy loose database has no folder → unchanged.
+  const onDisk: DatabaseSidecar = sidecar.pages
+    ? { ...sidecar, pages: pagesToRelative(toPosix(rel), sidecar.pages) }
+    : sidecar
+  await writeFileAtomic(databaseSidecarPath(root, rel), `${JSON.stringify(onDisk, null, 2)}\n`)
 }
 
 // ---------------------------------------------------------------------------
@@ -224,18 +262,20 @@ export async function createDatabase(
   const cleanSub = toPosix(subpath).replace(/^\/+|\/+$/g, '')
   const dirAbs = cleanSub ? path.join(topAbs, cleanSub) : topAbs
   const dirRel = toPosix(path.relative(root, dirAbs))
-  const makeRel = (name: string): string => (dirRel ? `${dirRel}/${name}.csv` : `${name}.csv`)
-  // Resolve a non-colliding path under the directory.
-  let rel = makeRel(baseName)
+  const makeFormDir = (name: string): string =>
+    dirRel ? `${dirRel}/${name}${FORM_DIR_SUFFIX}` : `${name}${FORM_DIR_SUFFIX}`
+  // Resolve a non-colliding `<Name>.base` folder under the directory.
+  let formDirRel = makeFormDir(baseName)
   let n = 2
   for (;;) {
     try {
-      await fs.access(databaseDataPath(root, rel))
-      rel = makeRel(`${baseName} ${n++}`)
+      await fs.access(databaseDataPath(root, formDirRel))
+      formDirRel = makeFormDir(`${baseName} ${n++}`)
     } catch {
       break
     }
   }
+  const rel = csvPathForFormDir(formDirRel)
 
   const idField: DbField = { id: randomUUID(), name: 'id', type: 'text', hidden: true }
   const nameField: DbField = { id: randomUUID(), name: 'Name', type: 'text' }
@@ -248,15 +288,18 @@ export async function createDatabase(
     views,
     activeViewId
   }
+  // Create the folder, then the two data files.
+  await fs.mkdir(databaseDataPath(root, formDirRel), { recursive: true })
   await persistSidecar(root, rel, sidecar)
   await writeFileAtomic(databaseDataPath(root, rel), serializeRows([], fields))
   return hydrate(rel, sidecar, [])
 }
 
 /**
- * Create a "page" note for a database record under a per-database folder
- * (`<db dir>/<DbName>/<title>.md`) with the given pre-composed body, and return
- * its vault-relative path. The pages folder sits next to the `.csv`.
+ * Create a "page" note for a database record inside the database folder
+ * (`<Name>.base/<title>.md`) with the given pre-composed body, and return its
+ * vault-relative path. Record pages live directly in the `.base` folder so they
+ * nest under the database in the sidebar.
  */
 export async function createRecordPage(
   root: string,
@@ -264,20 +307,62 @@ export async function createRecordPage(
   title: string,
   body: string
 ): Promise<string> {
-  const posix = toPosix(csvPath)
-  const slash = posix.lastIndexOf('/')
-  const dbDir = slash >= 0 ? posix.slice(0, slash) : ''
-  const dbName = (slash >= 0 ? posix.slice(slash + 1) : posix).replace(/\.csv$/i, '')
-  const pagesDirRel = dbDir ? `${dbDir}/${dbName}` : dbName
-  const dirAbs = databaseDataPath(root, pagesDirRel) // resolveSafe + posix
+  const formDir = formDirFromCsvPath(toPosix(csvPath))
+  if (!formDir) throw new Error(`Not a database folder: ${csvPath}`)
+  const dirAbs = databaseDataPath(root, formDir) // resolveSafe + posix
   await fs.mkdir(dirAbs, { recursive: true })
   const finalTitle = await uniqueTitle(dirAbs, sanitizeNoteTitle(title))
-  const noteRel = `${pagesDirRel}/${finalTitle}.md`
+  const noteRel = `${formDir}/${finalTitle}.md`
   await fs.writeFile(databaseDataPath(root, noteRel), body, 'utf8')
   return noteRel
 }
 
-/** List `.csv` databases in the vault (skips sidecars, trash, and `.zennotes`). */
+/**
+ * Permanently delete a database: remove its entire `<Name>.base` folder
+ * (data.csv, schema.json, and the `pages/` record notes) in one shot.
+ */
+export async function deleteDatabase(root: string, csvRel: string): Promise<void> {
+  const formDir = formDirFromCsvPath(toPosix(csvRel))
+  if (!formDir) throw new Error(`Not a database folder: ${csvRel}`)
+  await fs.rm(databaseDataPath(root, formDir), { recursive: true, force: true })
+}
+
+/**
+ * Rename a database in place: rename its `<oldName>.base` folder to
+ * `<newName>.base` (non-colliding). Returns the new `data.csv` path. Because the
+ * data, schema, and pages all live inside, nothing else needs rewriting.
+ */
+export async function renameDatabase(
+  root: string,
+  csvRel: string,
+  newTitle: string
+): Promise<string> {
+  const formDir = formDirFromCsvPath(toPosix(csvRel))
+  if (!formDir) throw new Error(`Not a database folder: ${csvRel}`)
+  const parentRel = formDir.includes('/') ? formDir.slice(0, formDir.lastIndexOf('/')) : ''
+  const safeName = (newTitle.trim() || 'Untitled Database').replace(/[\\/:*?"<>|]/g, '-')
+  const makeFormDir = (name: string): string =>
+    parentRel ? `${parentRel}/${name}${FORM_DIR_SUFFIX}` : `${name}${FORM_DIR_SUFFIX}`
+  let targetRel = makeFormDir(safeName)
+  if (toPosix(targetRel) === toPosix(formDir)) return csvRel
+  let n = 2
+  for (;;) {
+    try {
+      await fs.access(databaseDataPath(root, targetRel))
+      targetRel = makeFormDir(`${safeName} ${n++}`)
+    } catch {
+      break
+    }
+  }
+  await fs.rename(databaseDataPath(root, formDir), databaseDataPath(root, targetRel))
+  return csvPathForFormDir(targetRel)
+}
+
+/**
+ * List databases in the vault: each `<Name>.base` folder (surfaced as its
+ * `data.csv` path), plus any legacy loose `.csv` not yet migrated. Skips
+ * `.base` internals, trash, and `.zennotes`.
+ */
 export async function listDatabases(root: string): Promise<DatabaseSummary[]> {
   const out: DatabaseSummary[] = []
   const walk = async (dirRel: string): Promise<void> => {
@@ -293,11 +378,18 @@ export async function listDatabases(root: string): Promise<DatabaseSummary[]> {
       if (name.startsWith('.') || name === 'trash' || name === 'node_modules') continue
       const childRel = dirRel ? `${dirRel}/${name}` : name
       if (entry.isDirectory()) {
+        if (isFormDirName(name)) {
+          // A database folder — surface it, don't descend into its internals.
+          const rel = csvPathForFormDir(childRel)
+          out.push({ path: toPosix(rel), title: titleFromPath(rel) })
+          continue
+        }
         await walk(childRel)
       } else if (
         name.toLowerCase().endsWith('.csv') &&
         !name.toLowerCase().endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)
       ) {
+        // Legacy loose `.csv` (pre-migration).
         out.push({ path: toPosix(childRel), title: titleFromPath(childRel) })
       }
     }

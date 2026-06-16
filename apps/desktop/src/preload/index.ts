@@ -311,6 +311,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_SCHEMA, relPath, sidecar, rows),
   createDatabase: (folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_DATABASE, folder, subpath, title),
+  renameDatabase: (csvPath: string, newTitle: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.VAULT_RENAME_DATABASE, csvPath, newTitle),
   createRecordPage: (csvPath: string, title: string, body: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_RECORD_PAGE, csvPath, title, body),
   listDatabases: (): Promise<DatabaseSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_DATABASES),

@@ -23,6 +23,7 @@ import {
   ChevronRightIcon,
   CheckSquareIcon,
   CloseIcon,
+  DatabaseIcon,
   DocumentIcon,
   ExpandAllIcon,
   FolderPlusIcon,
@@ -63,6 +64,12 @@ import {
 } from "../lib/dnd";
 import { resolveSystemFolderLabels } from "../lib/system-folder-labels";
 import { assetTabPath } from "../lib/asset-tabs";
+import {
+  csvPathForFormDir,
+  FORM_DIR_SUFFIX,
+  formTitleFromDir,
+  isFormDirName,
+} from "@shared/databases";
 import {
   FolderGlyphIcon,
   resolveFolderIconId,
@@ -1737,13 +1744,17 @@ export function Sidebar(): JSX.Element {
 
     if (!isTop) {
       items.push({ kind: "separator" });
+      const leafName = subpath.split("/").slice(-1)[0];
+      const isDb = isFormDirName(leafName);
       items.push({
         label: "Rename…",
         onSelect: async () => {
-          const leaf = subpath.split("/").slice(-1)[0];
+          const leaf = leafName;
+          // A database folder renames by its title; the `.base` suffix is part of
+          // the folder name and must be preserved. (#185)
           const next = await promptApp({
-            title: "Rename folder",
-            initialValue: leaf,
+            title: isDb ? "Rename database" : "Rename folder",
+            initialValue: isDb ? formTitleFromDir(leaf) : leaf,
             okLabel: "Rename",
             validate: (v) => {
               if (v.includes("/")) return "Use only a leaf name";
@@ -1752,9 +1763,11 @@ export function Sidebar(): JSX.Element {
           });
           if (!next) return;
           const clean = next.trim().replace(/^\/+|\/+$/g, "");
-          if (!clean || clean === leaf) return;
+          if (!clean) return;
+          const nextLeaf = isDb ? `${clean}${FORM_DIR_SUFFIX}` : clean;
+          if (nextLeaf === leaf) return;
           const parent = subpath.split("/").slice(0, -1).join("/");
-          const nextSubpath = parent ? `${parent}/${clean}` : clean;
+          const nextSubpath = parent ? `${parent}/${nextLeaf}` : nextLeaf;
           try {
             await renameFolderAction(folder, subpath, nextSubpath);
           } catch (err) {
@@ -1763,13 +1776,16 @@ export function Sidebar(): JSX.Element {
         },
       });
       items.push({
-        label: "Delete folder…",
+        label: isDb ? "Delete database…" : "Delete folder…",
         danger: true,
         onSelect: async () => {
+          const label = isDb ? formTitleFromDir(leafName) : subpath;
           const ok = await confirmApp({
-            title: `Delete "${subpath}" and everything inside it?`,
+            title: isDb
+              ? `Delete the "${label}" database and all its records?`
+              : `Delete "${label}" and everything inside it?`,
             description: "This cannot be undone.",
-            confirmLabel: "Delete folder",
+            confirmLabel: isDb ? "Delete database" : "Delete folder",
             danger: true,
           });
           if (!ok) return;
@@ -3780,6 +3796,10 @@ function SubTree({
     node.subpath,
     vaultSettings.folderIcons,
   );
+  // A `<Name>.base` folder is a database: render it with a database icon and a
+  // title without the suffix; clicking the row opens the grid, while the
+  // chevron still expands to reveal its record-page notes. (#185)
+  const isDatabase = isFormDirName(node.name);
   const entries = useMemo(
     () => getTreeRenderEntries(node, showNotes, sortComparator, groupByKind),
     [node, showNotes, sortComparator, groupByKind],
@@ -3815,6 +3835,15 @@ function SubTree({
   const handleSelect = (
     e: React.MouseEvent | React.KeyboardEvent,
   ): void => {
+    if (isDatabase) {
+      const csvPath = csvPathForFormDir(
+        vaultRelativeFolderPath(folder, node.subpath, vaultSettings),
+      );
+      onSelectItem(e, { kind: "folder", folder, subpath: node.subpath }, () => {
+        void useStore.getState().openDatabase(csvPath);
+      });
+      return;
+    }
     onSelectItem(e, { kind: "folder", folder, subpath: node.subpath }, () => {
       setView({ kind: "folder", folder, subpath: node.subpath });
       if (hasChildren) {
@@ -3827,8 +3856,16 @@ function SubTree({
   return (
     <div className="flex flex-col">
       <TreeRow
-        icon={iconOption.id === "folder" ? <FolderGlyphIcon open={!isCollapsed && hasChildren} /> : iconOption.icon}
-        label={node.name}
+        icon={
+          isDatabase ? (
+            <DatabaseIcon />
+          ) : iconOption.id === "folder" ? (
+            <FolderGlyphIcon open={!isCollapsed && hasChildren} />
+          ) : (
+            iconOption.icon
+          )
+        }
+        label={isDatabase ? formTitleFromDir(node.name) : node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}
         active={isFolderActive(folder, node.subpath)}

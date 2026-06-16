@@ -27,7 +27,17 @@ const (
 	noteCommentsDir       = "comments"
 	noteCommentsSuffix    = ".comments.json"
 	noteMetaReadLimit     = 64
+	// formDirSuffix marks a database folder (`<Name>.base/`), a self-contained
+	// folder holding data.csv, schema.json, and record-page notes. Databases are
+	// a desktop-only feature; the server hides these folders (it neither serves
+	// the grid nor exposes the internals as loose notes/assets).
+	formDirSuffix = ".base"
 )
+
+// isFormDirName reports whether a folder name marks a database folder.
+func isFormDirName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), formDirSuffix)
+}
 
 // ErrAssetTooLarge is returned when an asset upload exceeds the
 // vault's MaxAssetBytes limit.
@@ -751,6 +761,9 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 				if strings.HasPrefix(d.Name(), ".") && path != folderRoot {
 					return filepath.SkipDir
 				}
+				if isFormDirName(d.Name()) {
+					return filepath.SkipDir // database folder — not loose notes
+				}
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
 					if filepath.Clean(parent) == filepath.Clean(folderRoot) {
@@ -855,6 +868,9 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 			if strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
+			if isFormDirName(d.Name()) {
+				return filepath.SkipDir // database folder — not a user folder
+			}
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
@@ -913,6 +929,9 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 			if entry.IsDir() {
 				if filepath.Clean(dir) == filepath.Clean(v.root) && name == internalVaultDir {
 					continue
+				}
+				if isFormDirName(name) {
+					continue // database folder — its data.csv/schema.json aren't assets
 				}
 				if err := walk(full); err != nil {
 					if isSkippableWalkErr(err) {
@@ -1732,6 +1751,9 @@ func (v *Vault) ScanTasks() ([]Task, error) {
 			if d.IsDir() {
 				if strings.HasPrefix(d.Name(), ".") && path != folderRoot {
 					return filepath.SkipDir
+				}
+				if isFormDirName(d.Name()) {
+					return filepath.SkipDir // database folder — not loose notes
 				}
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)

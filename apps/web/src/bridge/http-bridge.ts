@@ -576,6 +576,9 @@ function writeDatabaseSchema(): Promise<DatabaseDoc> {
 function createDatabase(): Promise<DatabaseDoc> {
   return Promise.reject(new Error(DATABASES_WEB_MSG))
 }
+function renameDatabase(): Promise<string> {
+  return Promise.reject(new Error(DATABASES_WEB_MSG))
+}
 function createRecordPage(): Promise<string> {
   return Promise.reject(new Error(DATABASES_WEB_MSG))
 }
@@ -1135,6 +1138,7 @@ export const httpBridge: ZenBridge = {
   writeDatabaseRows,
   writeDatabaseSchema,
   createDatabase,
+  renameDatabase,
   createRecordPage,
   listDatabases,
   writeNote,

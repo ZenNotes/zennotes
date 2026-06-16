@@ -140,6 +140,8 @@ export interface ZenBridge {
   writeDatabaseRows(relPath: string, rows: DbRow[]): Promise<DatabaseDoc>
   writeDatabaseSchema(relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
   createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>
+  /** Rename a database's `.base` folder; resolves to the new `data.csv` path. */
+  renameDatabase(csvPath: string, newTitle: string): Promise<string>
   /** Create a record's "page" note (returns its vault-relative path). */
   createRecordPage(csvPath: string, title: string, body: string): Promise<string>
   listDatabases(): Promise<DatabaseSummary[]>

@@ -684,3 +684,81 @@ func TestListSkipsUnreadableEntries(t *testing.T) {
 		t.Fatalf("ListFolders aborted instead of skipping the unreadable dir: %v", err)
 	}
 }
+
+func TestDatabaseBaseFolderIsHidden(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A database folder with its internals + a record-page note.
+	baseDir := filepath.Join(root, "inbox", "Books.base")
+	if err := os.MkdirAll(baseDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"data.csv":    "id,Title\nr1,Dune\n",
+		"schema.json": `{"version":1}`,
+		"Dune.md":     "# Dune",
+	} {
+		if err := os.WriteFile(filepath.Join(baseDir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A regular note + folder that MUST still surface.
+	if err := os.WriteFile(filepath.Join(root, "inbox", "Regular.md"), []byte("# Hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "RealFolder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Path, ".base") {
+			t.Errorf("ListNotes leaked a database-internal note: %s", n.Path)
+		}
+	}
+	if !hasNotePath(notes, "inbox/Regular.md") {
+		t.Error("ListNotes dropped a regular note")
+	}
+
+	folders, err := v.ListFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawReal := false
+	for _, f := range folders {
+		if strings.Contains(f.Subpath, ".base") {
+			t.Errorf("ListFolders leaked a database folder: %s", f.Subpath)
+		}
+		if f.Subpath == "RealFolder" {
+			sawReal = true
+		}
+	}
+	if !sawReal {
+		t.Error("ListFolders dropped a regular folder")
+	}
+
+	assets, err := v.ListAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range assets {
+		if strings.Contains(a.Path, ".base") {
+			t.Errorf("ListAssets leaked a database-internal file: %s", a.Path)
+		}
+	}
+}
+
+func hasNotePath(notes []NoteMeta, path string) bool {
+	for _, n := range notes {
+		if n.Path == path {
+			return true
+		}
+	}
+	return false
+}

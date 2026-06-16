@@ -42,7 +42,15 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
-import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
+import {
+  DATABASE_SIDECAR_SUFFIX,
+  databaseSchemaPathFor,
+  FORM_DATA_FILE,
+  FORM_DIR_SUFFIX,
+  FORM_SCHEMA_FILE,
+  isDatabaseInternalPath,
+  isFormDirName
+} from '@shared/databases'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -674,9 +682,14 @@ export function databaseDataPath(root: string, rel: string): string {
   return resolveSafe(root, toPosix(rel))
 }
 
-/** Absolute path of a database's co-located `.csv.base.json` sidecar. */
+/**
+ * Absolute path of a database's schema/sidecar. New layout: `<Name>.base/
+ * schema.json`. A legacy loose `.csv` (not in a `.base` folder) falls back to
+ * the co-located `<rel>.csv.base.json` so old vaults still read.
+ */
 export function databaseSidecarPath(root: string, rel: string): string {
-  return resolveSafe(root, `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
+  const schemaRel = databaseSchemaPathFor(toPosix(rel))
+  return resolveSafe(root, schemaRel ?? `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
 }
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
@@ -1031,6 +1044,137 @@ export async function ensureVaultLayout(root: string): Promise<void> {
       await fs.writeFile(welcomePath, WELCOME_NOTE, 'utf8')
     }
   }
+  if (!wasEmpty) {
+    try {
+      await migrateLegacyDatabases(root)
+    } catch (err) {
+      console.error('legacy database migration failed', err)
+    }
+  }
+}
+
+/**
+ * One-time, idempotent migration: convert legacy loose databases — a
+ * `<dir>/<Name>.csv` + co-located `<dir>/<Name>.csv.base.json` sidecar, with
+ * record-page notes under `<dir>/<Name>/` — into the self-contained
+ * `<dir>/<Name>.base/` folder (data.csv + schema.json + record `.md` pages).
+ * Safe to run on every open: anything already in `.base` form, or whose target
+ * folder exists, is skipped. Per-database failures are logged, not fatal.
+ * Returns the number of databases migrated.
+ */
+export async function migrateLegacyDatabases(root: string): Promise<number> {
+  let migrated = 0
+  const walk = async (dirRel: string): Promise<void> => {
+    const dirAbs = dirRel ? path.join(root, dirRel) : root
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const name = entry.name
+      if (name.startsWith('.')) continue
+      const childRel = dirRel ? `${dirRel}/${name}` : name
+      if (entry.isDirectory()) {
+        if (isFormDirName(name)) continue // already a database folder
+        await walk(childRel)
+        continue
+      }
+      const lower = name.toLowerCase()
+      if (!lower.endsWith('.csv') || lower.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)) continue
+      // Only migrate a managed database (a `.csv` with a sibling sidecar); a
+      // plain CSV without one is left as a file.
+      const sidecarRel = `${childRel}${DATABASE_SIDECAR_SUFFIX}`
+      try {
+        await fs.access(resolveSafe(root, sidecarRel))
+      } catch {
+        continue
+      }
+      try {
+        if (await migrateOneLegacyDatabase(root, childRel, sidecarRel)) migrated++
+      } catch (err) {
+        console.error(`database migration failed for ${childRel}`, err)
+      }
+    }
+  }
+  await walk('')
+  if (migrated > 0) {
+    console.log(`[zen] migrated ${migrated} database(s) to the .base folder layout`)
+  }
+  return migrated
+}
+
+async function migrateOneLegacyDatabase(
+  root: string,
+  csvRel: string,
+  sidecarRel: string
+): Promise<boolean> {
+  const name = path.basename(csvRel).replace(/\.csv$/i, '')
+  const parentRel = csvRel.includes('/') ? csvRel.slice(0, csvRel.lastIndexOf('/')) : ''
+  const formDirRel = parentRel ? `${parentRel}/${name}${FORM_DIR_SUFFIX}` : `${name}${FORM_DIR_SUFFIX}`
+  const formDirAbs = resolveSafe(root, formDirRel)
+  // Idempotent / collision safety: never clobber an existing folder.
+  try {
+    await fs.access(formDirAbs)
+    return false
+  } catch {
+    /* target free — proceed */
+  }
+
+  let sidecar: Record<string, unknown> = {}
+  try {
+    sidecar = JSON.parse(await fs.readFile(resolveSafe(root, sidecarRel), 'utf8')) as Record<
+      string,
+      unknown
+    >
+  } catch {
+    /* unreadable sidecar — still migrate the data, infer schema on next open */
+  }
+
+  await fs.mkdir(formDirAbs, { recursive: true })
+
+  // Move record-page notes into the folder; rewrite pages → relative basenames.
+  const pages =
+    sidecar.pages && typeof sidecar.pages === 'object'
+      ? (sidecar.pages as Record<string, unknown>)
+      : {}
+  const newPages: Record<string, string> = {}
+  const oldPageDirs = new Set<string>()
+  for (const [rowId, p] of Object.entries(pages)) {
+    if (typeof p !== 'string') continue
+    const srcAbs = resolveSafe(root, p)
+    try {
+      await fs.access(srcAbs)
+    } catch {
+      continue // page note already gone — drop the mapping
+    }
+    const finalTitle = await uniqueTitle(formDirAbs, sanitizeNoteTitle(path.basename(p, '.md')))
+    await fs.rename(srcAbs, resolveSafe(root, `${formDirRel}/${finalTitle}.md`))
+    newPages[rowId] = `${finalTitle}.md`
+    if (p.includes('/')) oldPageDirs.add(p.slice(0, p.lastIndexOf('/')))
+  }
+
+  // Move the data file, write schema.json (relative pages), drop the old sidecar.
+  await fs.rename(resolveSafe(root, csvRel), resolveSafe(root, `${formDirRel}/${FORM_DATA_FILE}`))
+  const outSidecar: Record<string, unknown> = { ...sidecar }
+  if (Object.keys(newPages).length > 0) outSidecar.pages = newPages
+  else delete outSidecar.pages
+  await writeFileAtomic(
+    resolveSafe(root, `${formDirRel}/${FORM_SCHEMA_FILE}`),
+    `${JSON.stringify(outSidecar, null, 2)}\n`
+  )
+  await fs.rm(resolveSafe(root, sidecarRel), { force: true })
+
+  // Remove now-empty legacy per-database page folders (e.g. `<dir>/<Name>/`).
+  for (const d of oldPageDirs) {
+    try {
+      await fs.rmdir(resolveSafe(root, d))
+    } catch {
+      /* not empty / not ours — leave it */
+    }
+  }
+  return true
 }
 
 export function vaultInfo(root: string): VaultInfo {
@@ -2005,6 +2149,10 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
         if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(e.name)) continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
         out.push({ folder, subpath: nextSub, siblingOrder: index, isSymlink: e.isSymbolicLink() })
+        // A `<Name>.base` database folder is listed (the renderer shows it as a
+        // database), but we don't descend — its data.csv/schema.json internals
+        // aren't folders, and its record-page notes are surfaced via listNotes.
+        if (isFormDirName(e.name)) continue
         ancestors.add(childReal)
         await walk(full, childReal, nextSub)
         ancestors.delete(childReal)
@@ -3017,6 +3165,9 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       const childReal = await resolveDirDescent(full, entry, dirReal, ancestors)
       if (childReal !== null) {
         if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
+        // A `<Name>.base` database folder isn't an asset container — its
+        // data.csv/schema.json/record notes never appear in the assets list.
+        if (isFormDirName(entry.name)) continue
         ancestors.add(childReal)
         await walk(full, childReal, ancestors)
         ancestors.delete(childReal)
@@ -3024,6 +3175,8 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
+      // Legacy co-located sidecar/.bak (pre-migration) — not a user asset.
+      if (isDatabaseInternalPath(entry.name)) continue
       let stat
       try {
         stat = await fs.stat(full)

@@ -110,6 +110,7 @@ import {
   writeDatabaseRows,
   writeDatabaseSchema,
   createDatabase,
+  renameDatabase,
   createRecordPage,
   listDatabases
 } from './databases'
@@ -2214,6 +2215,11 @@ function registerIpc(): void {
       return await createDatabase(requireVault().root, folder, subpath, title)
     }
   )
+
+  handle(IPC.VAULT_RENAME_DATABASE, async (_e, csvPath: string, newTitle: string) => {
+    ensureLocalForDatabases()
+    return await renameDatabase(requireVault().root, csvPath, newTitle)
+  })
 
   handle(
     IPC.VAULT_CREATE_RECORD_PAGE,

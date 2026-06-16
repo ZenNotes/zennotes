@@ -2,7 +2,13 @@ import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createDatabase, createRecordPage, readDatabase, writeDatabaseRows } from './databases'
+import {
+  createDatabase,
+  createRecordPage,
+  readDatabase,
+  renameDatabase,
+  writeDatabaseRows
+} from './databases'
 
 const tmpDirs: string[] = []
 async function makeVault(): Promise<string> {
@@ -17,19 +23,19 @@ afterEach(async () => {
 })
 
 describe('createDatabase + readDatabase', () => {
-  it('creates a .csv + sidecar and reads it back', async () => {
+  it('creates a .base folder (data.csv + schema.json) and reads it back', async () => {
     const root = await makeVault()
     const doc = await createDatabase(root, 'inbox', '', 'Projects')
-    expect(doc.path.endsWith('Projects.csv')).toBe(true)
+    expect(doc.path).toBe('inbox/Projects.base/data.csv')
     expect(doc.title).toBe('Projects')
     expect(doc.fields.map((f) => f.name)).toEqual(['id', 'Name'])
     expect(doc.rows).toEqual([])
     expect(doc.views).toHaveLength(1)
 
-    // both files exist on disk
+    // both files exist inside the .base folder on disk
     await expect(readFile(path.join(root, doc.path), 'utf8')).resolves.toContain('id,Name')
     const sidecar = JSON.parse(
-      await readFile(path.join(root, `${doc.path}.base.json`), 'utf8')
+      await readFile(path.join(root, 'inbox/Projects.base/schema.json'), 'utf8')
     )
     expect(sidecar.version).toBe(1)
     expect(sidecar.fields).toHaveLength(2)
@@ -67,7 +73,7 @@ describe('writeDatabaseRows round-trip', () => {
 })
 
 describe('createRecordPage', () => {
-  it('creates a page note in a per-database folder', async () => {
+  it('creates a record-page note inside the database .base folder', async () => {
     const root = await makeVault()
     const doc = await createDatabase(root, 'inbox', '', 'Projects')
     const noteRel = await createRecordPage(
@@ -76,9 +82,28 @@ describe('createRecordPage', () => {
       'My Task',
       '---\nName: My Task\n---\n# My Task\n'
     )
-    expect(noteRel.endsWith('.md')).toBe(true)
-    expect(noteRel).toContain('Projects/') // pages folder named after the db
+    expect(noteRel).toBe('inbox/Projects.base/My Task.md') // record pages live in the .base folder
     await expect(readFile(path.join(root, noteRel), 'utf8')).resolves.toContain('# My Task')
+  })
+})
+
+describe('renameDatabase', () => {
+  it('renames the .base folder, preserving data, schema, and record pages', async () => {
+    const root = await makeVault()
+    const doc = await createDatabase(root, 'inbox', '', 'Old')
+    await createRecordPage(root, doc.path, 'Rec', '# Rec')
+
+    const newPath = await renameDatabase(root, doc.path, 'New Name')
+    expect(newPath).toBe('inbox/New Name.base/data.csv')
+
+    const reopened = await readDatabase(root, newPath)
+    expect(reopened.title).toBe('New Name')
+    // The record page moved with the folder.
+    await expect(
+      readFile(path.join(root, 'inbox/New Name.base/Rec.md'), 'utf8')
+    ).resolves.toContain('# Rec')
+    // The old folder is gone.
+    await expect(readFile(path.join(root, 'inbox/Old.base/data.csv'), 'utf8')).rejects.toThrow()
   })
 })
 

@@ -69,6 +69,7 @@ export const IPC = {
   VAULT_WRITE_DATABASE_ROWS: 'vault:write-database-rows',
   VAULT_WRITE_DATABASE_SCHEMA: 'vault:write-database-schema',
   VAULT_CREATE_DATABASE: 'vault:create-database',
+  VAULT_RENAME_DATABASE: 'vault:rename-database',
   VAULT_CREATE_RECORD_PAGE: 'vault:create-record-page',
   VAULT_LIST_DATABASES: 'vault:list-databases',
   APP_LIST_FONTS: 'app:list-fonts',

@@ -725,7 +725,11 @@ function Cell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: CellP
 
   return (
     <button type="button" onClick={onStartEdit} className="block h-full w-full px-2 py-1.5 text-left">
-      <span className="block truncate text-ink-900">{field.type === 'date' ? formatDate(value) : value}</span>
+      {/* min-h reserves one line so an empty cell keeps the same row height as a
+          filled one (otherwise a new/blank row collapses shorter). (#185) */}
+      <span className="block min-h-5 truncate text-ink-900">
+        {field.type === 'date' ? formatDate(value) : value}
+      </span>
     </button>
   )
 }

@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc --noEmit -p tsconfig.json",
-    "test": "echo 'No shared-domain tests yet'",
-    "test:run": "echo 'No shared-domain tests yet'"
+    "test": "vitest",
+    "test:run": "vitest run"
   }
 }

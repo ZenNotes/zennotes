@@ -27,6 +27,7 @@ import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
 import {
   databaseTabPath,
+  formTitleFromCsvPath,
   isDatabaseInternalPath,
   isDatabaseTabPath,
   isDatabaseCsvPath
@@ -1651,6 +1652,8 @@ interface Store {
   openDatabase: (csvPath: string) => Promise<void>
   /** Create a new empty database under `folder`/`subpath` and open it. */
   createDatabase: (folder: NoteFolder, subpath?: string, title?: string) => Promise<void>
+  /** Rename a database (its `.base` folder); rehomes the open grid tab. */
+  renameDatabase: (csvPath: string, newTitle: string) => Promise<void>
   /** Optimistically replace a database's rows and debounce-persist the CSV. */
   updateDatabaseRows: (csvPath: string, next: DatabaseDoc) => void
   /** Optimistically replace a database's schema/views and debounce-persist sidecar + CSV. */
@@ -3024,6 +3027,47 @@ export const useStore = create<Store>((set, get) => {
       set({ focusedPanel: 'editor' })
     } catch (err) {
       console.error('createDatabase failed', err)
+    }
+  },
+  renameDatabase: async (csvPath, newTitle) => {
+    if (typeof window.zen.renameDatabase !== 'function') return
+    try {
+      const newCsvPath = await window.zen.renameDatabase(csvPath, newTitle)
+      if (!newCsvPath || newCsvPath === csvPath) {
+        await get().refreshNotes()
+        return
+      }
+      // The `.base` folder moved, so the open grid tab's path changed. Rehome it
+      // in place (and the cached doc) instead of leaving a stale tab.
+      const oldTab = databaseTabPath(csvPath)
+      const newTab = databaseTabPath(newCsvPath)
+      set((s) => {
+        const rewrite = (p: string): string => (p === oldTab ? newTab : p)
+        const ensured = ensureActivePane(rewritePathsInTree(s.paneLayout, rewrite), s.activePaneId)
+        const databases = { ...s.databases }
+        const loading = { ...s.databasesLoading }
+        const prev = databases[csvPath]
+        if (prev) {
+          databases[newCsvPath] = {
+            ...prev,
+            path: newCsvPath,
+            title: formTitleFromCsvPath(newCsvPath)
+          }
+          delete databases[csvPath]
+        }
+        delete loading[csvPath]
+        return {
+          paneLayout: ensured.layout,
+          activePaneId: ensured.activePaneId,
+          databases,
+          databasesLoading: loading,
+          ...activeFieldsFrom(ensured.layout, ensured.activePaneId, s.noteContents, s.noteDirty)
+        }
+      })
+      await get().refreshNotes()
+    } catch (err) {
+      console.error('renameDatabase failed', err)
+      window.alert(err instanceof Error ? err.message : String(err))
     }
   },
   updateDatabaseRows: (csvPath, next) => {

@@ -4,11 +4,20 @@
  * are typed fields. The same data is shown through multiple VIEWS (an editable
  * Table and a Board grouped by a field).
  *
- * On disk a database is a pair:
- *   <folder>/<Name>.csv            — the data (an `id` UUID column gives rows a
- *                                    stable identity across external edits)
- *   <folder>/<Name>.csv.base.json  — the sidecar: field types, select options,
- *                                    and view definitions (a CSV can't hold these)
+ * On disk a database is ONE self-contained folder whose name ends with the
+ * reserved `.base` suffix (so it never collides with an ordinary folder):
+ *   <Name>.base/data.csv      — the data (an `id` UUID column gives rows a
+ *                               stable identity across external edits)
+ *   <Name>.base/schema.json   — field types, select options, view definitions,
+ *                               and the row→page map (a CSV can't hold these)
+ *   <Name>.base/pages/        — the record-page notes (one `.md` per record)
+ * The database's identity / cache key is its `data.csv` path; its title is the
+ * folder name minus `.base`. Because everything lives in one folder, rename =
+ * folder rename and trash/move = folder move (no path rewriting). Record-page
+ * paths in `schema.json` are stored RELATIVE to the folder for the same reason.
+ *
+ * Legacy layout (pre-2.4.0), still recognized so old vaults keep working until
+ * migrated: a loose `<Name>.csv` + co-located `<Name>.csv.base.json` sidecar.
  *
  * This module is PURE (no node/DOM imports) so it is shared by the main process
  * and the renderer. Cell values are stored as raw CSV strings; the field type
@@ -16,10 +25,88 @@
  * on load).
  */
 
+/** Legacy sidecar suffix (`<Name>.csv.base.json`) — kept only for path guards. */
 export const DATABASE_SIDECAR_SUFFIX = '.base.json'
 export const DEFAULT_ID_FIELD_NAME = 'id'
 /** Board column key for rows whose group-by cell is empty/unmatched. */
 export const EMPTY_GROUP = '__empty__'
+
+/** A database lives in a folder whose name ends with this suffix. */
+export const FORM_DIR_SUFFIX = '.base'
+/** Fixed names of a database folder's contents. */
+export const FORM_DATA_FILE = 'data.csv'
+export const FORM_SCHEMA_FILE = 'schema.json'
+export const FORM_PAGES_DIR = 'pages'
+
+const toPosixPath = (p: string): string => p.replace(/\\/g, '/')
+const lastSegment = (p: string): string => {
+  const s = toPosixPath(p)
+  return s.slice(s.lastIndexOf('/') + 1)
+}
+
+/** True when a folder name (or a path's last segment) marks a database folder. */
+export function isFormDirName(nameOrPath: string): boolean {
+  return lastSegment(nameOrPath).toLowerCase().endsWith(FORM_DIR_SUFFIX)
+}
+
+/**
+ * The database folder path for a `data.csv` path, or null when `csvPath` isn't a
+ * database data file. e.g. `a/X.base/data.csv` → `a/X.base`.
+ */
+export function formDirFromCsvPath(csvPath: string): string | null {
+  const p = toPosixPath(csvPath)
+  const slash = p.lastIndexOf('/')
+  if (slash < 0) return null
+  const dir = p.slice(0, slash)
+  const file = p.slice(slash + 1)
+  if (file.toLowerCase() !== FORM_DATA_FILE) return null
+  return isFormDirName(dir) ? dir : null
+}
+
+/** The `data.csv` path for a database folder path. e.g. `a/X.base` → `a/X.base/data.csv`. */
+export function csvPathForFormDir(formDir: string): string {
+  return `${toPosixPath(formDir)}/${FORM_DATA_FILE}`
+}
+
+/** The `schema.json` path for a database's `data.csv` path, or null. */
+export function databaseSchemaPathFor(csvPath: string): string | null {
+  const dir = formDirFromCsvPath(csvPath)
+  return dir ? `${dir}/${FORM_SCHEMA_FILE}` : null
+}
+
+/** The pages-dir path for a database's `data.csv` path, or null. */
+export function pagesDirFromCsvPath(csvPath: string): string | null {
+  const dir = formDirFromCsvPath(csvPath)
+  return dir ? `${dir}/${FORM_PAGES_DIR}` : null
+}
+
+/**
+ * If `relPath` lives inside a `.base` database folder, return that folder path;
+ * otherwise null. e.g. `a/X.base/pages/r.md` → `a/X.base`.
+ */
+export function formDirContaining(relPath: string): string | null {
+  const parts = toPosixPath(relPath).split('/')
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].toLowerCase().endsWith(FORM_DIR_SUFFIX)) {
+      return parts.slice(0, i + 1).join('/')
+    }
+  }
+  return null
+}
+
+/** Display title from a database folder name/path (strips the `.base` suffix). */
+export function formTitleFromDir(nameOrPath: string): string {
+  const name = lastSegment(nameOrPath)
+  return name.toLowerCase().endsWith(FORM_DIR_SUFFIX)
+    ? name.slice(0, -FORM_DIR_SUFFIX.length)
+    : name
+}
+
+/** Display title from a database's `data.csv` path. */
+export function formTitleFromCsvPath(csvPath: string): string {
+  const dir = formDirFromCsvPath(csvPath)
+  return dir ? formTitleFromDir(dir) : csvPath
+}
 
 export type FieldType = 'text' | 'number' | 'checkbox' | 'date' | 'select' | 'multiSelect'
 
@@ -94,7 +181,7 @@ export interface DbView {
   cardFieldIds?: string[]
 }
 
-/** The sidecar JSON written to `<name>.csv.base.json`. */
+/** The sidecar JSON written to `<Name>.base/schema.json`. */
 export interface DatabaseSidecar {
   version: 1
   /** Field whose cells hold the row UUID (its `name` is the CSV header). */
@@ -116,9 +203,9 @@ export interface DbRow {
 
 /** Fully-hydrated database handed to the renderer (sidecar + rows + identity). */
 export interface DatabaseDoc extends DatabaseSidecar {
-  /** Vault-relative POSIX path of the `.csv` — identity / cache key. */
+  /** Vault-relative POSIX path of the `data.csv` — identity / cache key. */
   path: string
-  /** Basename without `.csv`. */
+  /** Database name: the `.base` folder name (legacy: the `.csv` basename). */
   title: string
   rows: DbRow[]
   /**
@@ -164,6 +251,8 @@ export function csvPathFromDatabaseTab(path: string | null | undefined): string 
 export function databaseTitleFromTab(path: string | null | undefined): string {
   const csv = csvPathFromDatabaseTab(path)
   if (!csv) return 'Database'
+  // A database's title is its `<Name>.base` folder name, not the `data.csv` basename.
+  if (formDirFromCsvPath(csv)) return formTitleFromCsvPath(csv)
   const base = csv.split('/').filter(Boolean).pop() ?? csv
   return base.replace(/\.csv$/i, '')
 }
@@ -174,11 +263,19 @@ export function isDatabaseSidecarPath(relPath: string): boolean {
 }
 
 /**
- * True for files that belong to a database but aren't the user-facing `.csv` —
- * the sidecar and any `.bak` backups. These are hidden from the note list.
+ * True for files that belong to a database but aren't the user-facing entity.
+ * New layout: inside a `.base` folder, the record-page notes (`*.md`) are
+ * user-facing (they nest under the database); `data.csv`, `schema.json`, and any
+ * backups are internal. Legacy: the co-located sidecar and `.bak` backups.
+ * Hidden from the note/asset list.
  */
 export function isDatabaseInternalPath(relPath: string): boolean {
-  const l = relPath.toLowerCase()
+  const p = toPosixPath(relPath)
+  if (formDirContaining(p)) {
+    // Record pages are markdown; everything else in the folder is internal.
+    return !p.toLowerCase().endsWith('.md')
+  }
+  const l = p.toLowerCase()
   return (
     l.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`) ||
     l.endsWith('.csv.bak') ||
@@ -186,15 +283,30 @@ export function isDatabaseInternalPath(relPath: string): boolean {
   )
 }
 
-/** True for a database data file (`*.csv`, but not the sidecar). */
+/** True for a database data file: new `<Name>.base/data.csv`, or a legacy loose `.csv`. */
 export function isDatabaseCsvPath(relPath: string): boolean {
-  const lower = relPath.toLowerCase()
+  if (formDirFromCsvPath(relPath)) return true
+  const lower = toPosixPath(relPath).toLowerCase()
+  // Legacy loose CSV — but not one that lives inside a `.base` folder.
+  if (formDirContaining(relPath)) return false
   return lower.endsWith('.csv') && !lower.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)
 }
 
-/** Given a `.csv` or its `.base.json` sidecar, return the canonical `.csv` path. */
+/**
+ * Given any file that belongs to a database (`data.csv`, `schema.json`, or a
+ * legacy `.csv`/sidecar), return the canonical `data.csv` path; null otherwise.
+ * Used to normalize a watcher event on any database file back to its identity.
+ */
 export function databaseCsvPathFor(relPath: string): string | null {
-  if (isDatabaseSidecarPath(relPath)) return relPath.slice(0, -DATABASE_SIDECAR_SUFFIX.length)
-  if (isDatabaseCsvPath(relPath)) return relPath
+  const p = toPosixPath(relPath)
+  if (p.toLowerCase().endsWith(`/${FORM_SCHEMA_FILE}`)) {
+    const dir = p.slice(0, p.lastIndexOf('/'))
+    if (isFormDirName(dir)) return `${dir}/${FORM_DATA_FILE}`
+  }
+  if (formDirFromCsvPath(p)) return p
+  // Legacy: a `<Name>.csv.base.json` sidecar maps to its `.csv`.
+  if (isDatabaseSidecarPath(p)) return p.slice(0, -DATABASE_SIDECAR_SUFFIX.length)
+  // Legacy loose `.csv` (not inside a `.base` folder).
+  if (!formDirContaining(p) && isDatabaseCsvPath(p)) return p
   return null
 }

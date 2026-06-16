@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { csvPathFromDatabaseTab } from '@shared/databases'
+import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@shared/databases'
 import { serializeRows } from '@shared/database-csv'
 import { useStore } from '../store'
 import {
@@ -36,9 +36,13 @@ export function DatabaseView({
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const renameDatabase = useStore((s) => s.renameDatabase)
   const [viewMenu, setViewMenu] = useState<{ viewId: string; x: number; y: number } | null>(null)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [rawMode, setRawMode] = useState(false)
+  const [editingTitle, setEditingTitle] = useState(false)
+  // Only `.base` databases rename by title (a legacy loose `.csv` doesn't).
+  const canRenameTitle = !!csvPath && !!formDirFromCsvPath(csvPath)
 
   useEffect(() => {
     if (csvPath && !doc && !loading) void loadDatabase(csvPath)
@@ -80,7 +84,39 @@ export function DatabaseView({
           </IconButton>
         )}
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
-        <h2 className="truncate text-sm font-semibold text-ink-900">{doc.title}</h2>
+        {editingTitle && canRenameTitle ? (
+          <input
+            autoFocus
+            defaultValue={doc.title}
+            size={Math.max(doc.title.length + 1, 6)}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => {
+              const next = e.currentTarget.value.trim()
+              setEditingTitle(false)
+              if (next && next !== doc.title && csvPath) void renameDatabase(csvPath, next)
+            }}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
+              else if (e.key === 'Escape') {
+                e.currentTarget.value = doc.title
+                e.currentTarget.blur()
+              }
+            }}
+            className="max-w-full rounded border border-accent bg-paper-50 px-1.5 py-0.5 text-sm font-semibold text-ink-900 outline-none"
+          />
+        ) : (
+          <h2
+            className={[
+              'truncate text-sm font-semibold text-ink-900',
+              canRenameTitle ? 'cursor-text rounded px-1 -mx-1 hover:bg-paper-200/60' : ''
+            ].join(' ')}
+            title={canRenameTitle ? 'Double-click to rename' : undefined}
+            onDoubleClick={() => canRenameTitle && setEditingTitle(true)}
+          >
+            {doc.title}
+          </h2>
+        )}
         <span className="shrink-0 text-xs text-ink-500">{doc.rows.length}</span>
 
         <div className="ml-2 flex items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
