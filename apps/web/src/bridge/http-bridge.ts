@@ -33,6 +33,8 @@ import type {
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
+  GithubConfig,
+  GithubSyncResult,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -1054,6 +1056,20 @@ async function raycastInstall(): Promise<RaycastExtensionStatus> {
   return notImplemented('raycastInstall')
 }
 
+async function getGithubConfig(): Promise<GithubConfig> {
+  return { pat: null, repo: null }
+}
+
+async function setGithubConfig(): Promise<void> {}
+
+async function listGithubRepos(): Promise<string[]> {
+  return []
+}
+
+async function syncWithGithub(): Promise<GithubSyncResult> {
+  return { ok: false, error: 'GitHub sync is only available in the desktop build.' }
+}
+
 // --------------------------------------------------------------------
 // Clipboard (web build uses navigator.clipboard)
 // --------------------------------------------------------------------
@@ -1203,6 +1219,10 @@ export const httpBridge: ZenBridge = {
   cliUninstall,
   raycastGetStatus,
   raycastInstall,
+  getGithubConfig,
+  setGithubConfig,
+  listGithubRepos,
+  syncWithGithub,
   clipboardWriteText,
   clipboardReadText
 }

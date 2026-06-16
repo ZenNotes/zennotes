@@ -19,6 +19,8 @@ import type {
   DirectoryBrowseResult,
   ExternalFileContent,
   FolderEntry,
+  GithubConfig,
+  GithubSyncResult,
   ImportedAsset,
   LocalVaultEntry,
   MoveExternalFileResult,
@@ -478,6 +480,10 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.RAYCAST_GET_STATUS),
   raycastInstall: (): Promise<RaycastExtensionStatus> =>
     ipcRenderer.invoke(IPC.RAYCAST_INSTALL),
+  getGithubConfig: (): Promise<GithubConfig> => ipcRenderer.invoke(IPC.GITHUB_GET_CONFIG),
+  setGithubConfig: (config: GithubConfig): Promise<void> => ipcRenderer.invoke(IPC.GITHUB_SET_CONFIG, config),
+  listGithubRepos: (): Promise<string[]> => ipcRenderer.invoke(IPC.GITHUB_LIST_REPOS),
+  syncWithGithub: (): Promise<GithubSyncResult> => ipcRenderer.invoke(IPC.GITHUB_SYNC),
   clipboardWriteText: (text: string): void => clipboard.writeText(text),
   clipboardReadText: (): string => clipboard.readText()
 }
