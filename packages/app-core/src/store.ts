@@ -3001,7 +3001,8 @@ export const useStore = create<Store>((set, get) => {
 
   openAssetsView: async () => {
     const state = get()
-    await get().refreshAssets()
+    // Refresh both: assets for the list, notes for fresh assetEmbeds (usage).
+    await Promise.all([get().refreshAssets(), get().refreshNotes()])
     await get().openNoteInPane(state.activePaneId, ASSETS_VIEW_TAB_PATH)
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })

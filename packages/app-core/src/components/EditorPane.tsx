@@ -3004,6 +3004,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       {hasTabs && (
         <div className={tabStripHeaderClass}>
           <div className="flex shrink-0 items-center gap-0.5 self-center">
+            {!sidebarOpen && (
+              <IconBtn
+                title="Show sidebar (⌘1)"
+                onClick={toggleSidebar}
+                tooltipAlign="left"
+              >
+                <PanelLeftIcon width={16} height={16} />
+              </IconBtn>
+            )}
             <IconBtn
               title={`Go back (${getKeymapDisplay(
                 tabNavOverrides,
@@ -3011,6 +3020,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )})`}
               onClick={() => void jumpToPreviousNote()}
               disabled={!canGoBack}
+              tooltipAlign="left"
             >
               <ArrowLeftIcon width={16} height={16} />
             </IconBtn>
@@ -3021,6 +3031,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )})`}
               onClick={() => void jumpToNextNote()}
               disabled={!canGoForward}
+              tooltipAlign="left"
             >
               <ArrowRightIcon width={16} height={16} />
             </IconBtn>
@@ -3056,11 +3067,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       {content && !zenMode && (
         <header className="glass-header flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-1">
-            {!sidebarOpen && isActive && (
-              <IconBtn title="Show sidebar (⌘1)" onClick={toggleSidebar}>
-                <PanelLeftIcon />
-              </IconBtn>
-            )}
             <Breadcrumb
               note={content}
               autoFocus={isActive && pendingTitleFocusPath === content.path}
@@ -3515,13 +3521,17 @@ function IconBtn({
   onClick,
   title,
   active = false,
-  disabled = false
+  disabled = false,
+  tooltipAlign = 'center'
 }: {
   children: JSX.Element
   onClick: () => void
   title: string
   active?: boolean
   disabled?: boolean
+  /** 'left' anchors the tooltip to the button's left edge so it never spills
+   *  off the left of the window (used by the leftmost toolbar buttons). */
+  tooltipAlign?: 'center' | 'left'
 }): JSX.Element {
   return (
     <button
@@ -3540,7 +3550,12 @@ function IconBtn({
       ].join(' ')}
     >
       <span className="pointer-events-none">{children}</span>
-      <span className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block">
+      <span
+        className={[
+          'pointer-events-none absolute top-full z-30 mt-1.5 hidden whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block',
+          tooltipAlign === 'left' ? 'left-0' : 'left-1/2 -translate-x-1/2'
+        ].join(' ')}
+      >
         {title}
       </span>
     </button>

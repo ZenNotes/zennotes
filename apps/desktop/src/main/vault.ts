@@ -67,7 +67,7 @@ const INTERNAL_VAULT_DIR = '.zennotes'
 const DELETED_ASSETS_DIR = 'deleted-assets'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
-const NOTE_META_CACHE_VERSION = 1
+const NOTE_META_CACHE_VERSION = 2
 const NOTE_COMMENTS_DIR = 'comments'
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
@@ -1351,6 +1351,37 @@ function extractWikilinks(body: string): string[] {
   return [...seen]
 }
 
+/** Pull unique asset-embed targets out of markdown — both `![[asset]]` (which
+ *  extractWikilinks deliberately skips) and `![](path)` image/file embeds. The
+ *  raw targets are resolved to assets per-note by the renderer (relative path +
+ *  basename fallback), to show which notes use each asset. */
+function extractAssetEmbeds(body: string): string[] {
+  const stripped = stripCodeContent(body)
+  const seen = new Set<string>()
+  if (stripped.includes('![[')) {
+    const re = /!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(stripped)) !== null) {
+      const t = (m[1] ?? '').trim()
+      if (t && localAssetTargetKind(t)) seen.add(t)
+    }
+  }
+  if (stripped.includes('](')) {
+    const re = /!\[[^\]]*\]\(\s*<?([^)>\s]+)>?[^)]*\)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(stripped)) !== null) {
+      const raw = (m[1] ?? '').trim()
+      if (!raw || raw.startsWith('#') || /^[a-zA-Z][\w+.-]*:/.test(raw)) continue // skip URLs/anchors
+      try {
+        seen.add(decodeURIComponent(raw))
+      } catch {
+        seen.add(raw)
+      }
+    }
+  }
+  return [...seen]
+}
+
 /** Build a short plaintext preview from markdown. */
 function buildExcerpt(body: string): string {
   const withoutFront = body.startsWith('---\n') ? body.replace(/^---\n[\s\S]*?\n---\n/, '') : body
@@ -1485,6 +1516,8 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     !candidate.tags.every((tag) => typeof tag === 'string') ||
     !Array.isArray(candidate.wikilinks) ||
     !candidate.wikilinks.every((wikilink) => typeof wikilink === 'string') ||
+    !Array.isArray(candidate.assetEmbeds) ||
+    !candidate.assetEmbeds.every((embed) => typeof embed === 'string') ||
     typeof candidate.hasAttachments !== 'boolean' ||
     typeof candidate.excerpt !== 'string'
   ) {
@@ -1500,6 +1533,7 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     size: candidate.size,
     tags: candidate.tags,
     wikilinks: candidate.wikilinks,
+    assetEmbeds: candidate.assetEmbeds,
     hasAttachments: candidate.hasAttachments,
     excerpt: candidate.excerpt
   }
@@ -2153,6 +2187,7 @@ async function readMeta(
     size: stat.size,
     tags: extractTags(body),
     wikilinks: extractWikilinks(body),
+    assetEmbeds: extractAssetEmbeds(body),
     hasAttachments: bodyHasLocalAsset(body),
     excerpt: buildExcerpt(body),
     isSymlink: linked

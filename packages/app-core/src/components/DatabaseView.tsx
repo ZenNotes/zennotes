@@ -15,7 +15,7 @@ import { DatabaseTableView } from './DatabaseTableView'
 import { DatabaseBoardView } from './DatabaseBoardView'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { Button, IconButton } from './ui/Button'
-import { DatabaseIcon, TableIcon, KanbanIcon, PlusIcon, PanelLeftIcon } from './icons'
+import { DatabaseIcon, TableIcon, KanbanIcon, PlusIcon } from './icons'
 
 /**
  * Host for a CSV database tab: loads the database, renders the header
@@ -34,8 +34,6 @@ export function DatabaseView({
   const loadDatabase = useStore((s) => s.loadDatabase)
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
-  const sidebarOpen = useStore((s) => s.sidebarOpen)
-  const toggleSidebar = useStore((s) => s.toggleSidebar)
   const renameDatabase = useStore((s) => s.renameDatabase)
   const [viewMenu, setViewMenu] = useState<{ viewId: string; x: number; y: number } | null>(null)
   const [renamingView, setRenamingView] = useState<string | null>(null)
@@ -78,11 +76,6 @@ export function DatabaseView({
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
       <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
-        {!sidebarOpen && isActive && (
-          <IconButton size="sm" title="Show sidebar (⌘1)" onClick={() => toggleSidebar()}>
-            <PanelLeftIcon className="h-4 w-4" />
-          </IconButton>
-        )}
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
         {editingTitle && canRenameTitle ? (
           <input

@@ -536,7 +536,7 @@ describe('listNotes metadata cache', () => {
     await writeFile(
       path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         entries: [
           {
             path: rel,
@@ -552,6 +552,7 @@ describe('listNotes metadata cache', () => {
               size: info.size,
               tags: ['cached'],
               wikilinks: ['Cached Target'],
+              assetEmbeds: [],
               hasAttachments: false,
               excerpt: 'cached excerpt'
             }
@@ -614,6 +615,23 @@ describe('listNotes metadata cache', () => {
     expect(note?.title).toBe('stale')
     expect(note?.tags).toEqual(['fresh'])
     expect(note?.excerpt).toContain('Fresh Title')
+  })
+})
+
+describe('listNotes asset embeds (#185 usage)', () => {
+  it('captures ![[asset]] and ![](asset) targets, not note wikilinks or URLs', async () => {
+    const root = await makeTempDir('zennotes-asset-embeds-')
+    await ensureVaultLayout(root)
+    await writeFile(
+      path.join(root, 'inbox', 'n.md'),
+      // Includes the angle-bracket + alt-text form the editor writes: ![alt](<path>).
+      '![[photo.png]]\n![](assets/doc.pdf)\n![GreenGrass](<GreenGrass.jpg>)\n[[Some Note]]\n![](https://x.com/a.png)\n',
+      'utf8'
+    )
+    const notes = await listNotes(root)
+    const note = notes.find((n) => n.path === 'inbox/n.md')
+    expect(note?.assetEmbeds.sort()).toEqual(['GreenGrass.jpg', 'assets/doc.pdf', 'photo.png'])
+    expect(note?.wikilinks).toEqual(['Some Note']) // note links stay separate
   })
 })
 

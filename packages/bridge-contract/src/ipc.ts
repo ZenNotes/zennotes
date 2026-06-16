@@ -329,6 +329,9 @@ export interface NoteMeta {
   tags: string[]
   /** Outbound [[wikilink]] targets (note titles), unique. */
   wikilinks: string[]
+  /** Outbound asset-embed targets (`![[asset]]` / `![](asset)`), unique. Used to
+   *  show which notes use a given asset in the Assets view. */
+  assetEmbeds: string[]
   /** True when the body references at least one local non-text asset
    *  (PDF, image, audio, video, generic file). Surfaced in the sidebar
    *  as a small paperclip hint so attachments are discoverable. */
