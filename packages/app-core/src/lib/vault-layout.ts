@@ -567,7 +567,10 @@ export function notePathWithinFolder(
 ): string {
   if (folder === 'inbox' && isPrimaryNotesAtRoot(settings)) return path
   const prefix = `${folder}/`
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path
+  // Case-insensitive so a note under a capitalized on-disk system folder
+  // (e.g. `Inbox/`) lands in the same subpath as its sibling assets, which use
+  // the same lenient stripping. Mirrors `assetPathWithinFolder`. (#186)
+  return path.toLowerCase().startsWith(prefix) ? path.slice(prefix.length) : path
 }
 
 export function noteFolderSubpath(
@@ -955,6 +958,18 @@ export function findDateNoteByTitle(
   return null
 }
 
+// Match a path's top segment to a system folder case-insensitively. On
+// case-insensitive filesystems (macOS/Windows) the inbox folder can be stored
+// with different casing than the canonical lowercase the rest of the app emits:
+// `listNotes` builds note paths from `folderRoot()` (always `inbox/…`), but
+// `listAssets`/the watcher walk real directory entries and preserve the on-disk
+// case (e.g. `Inbox/…`). Comparing case-sensitively dropped those assets to
+// `null`, so a capitalized `Inbox/` showed its notes but hid its images/PDFs. (#186)
+function systemFolderForTopSegment(top: string): NoteFolder | null {
+  const lower = top.toLowerCase()
+  return SYSTEM_FOLDERS.has(lower as NoteFolder) ? (lower as NoteFolder) : null
+}
+
 export function folderForVaultRelativePath(
   relPath: string,
   settings: VaultSettings | null | undefined
@@ -962,8 +977,9 @@ export function folderForVaultRelativePath(
   const normalized = relPath.replace(/\\/g, '/').replace(/^\/+/, '')
   const top = normalized.split('/')[0] ?? ''
   if (!top || top.startsWith('.')) return null
-  if (SYSTEM_FOLDERS.has(top as NoteFolder)) return top as NoteFolder
-  if (isPrimaryNotesAtRoot(settings) && !RESERVED_ROOT_NAMES.has(top)) return 'inbox'
+  const system = systemFolderForTopSegment(top)
+  if (system) return system
+  if (isPrimaryNotesAtRoot(settings) && !RESERVED_ROOT_NAMES.has(top.toLowerCase())) return 'inbox'
   return null
 }
 
@@ -975,7 +991,11 @@ export function assetPathWithinFolder(
   const normalized = assetPath.replace(/\\/g, '/').replace(/^\/+/, '')
   if (folder === 'inbox' && isPrimaryNotesAtRoot(settings)) return normalized
   const prefix = `${folder}/`
-  return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized
+  // Strip the system-folder prefix case-insensitively so a capitalized on-disk
+  // folder (e.g. `Inbox/`) lands in the same subpath tree as its notes. (#186)
+  return normalized.toLowerCase().startsWith(prefix)
+    ? normalized.slice(prefix.length)
+    : normalized
 }
 
 export function assetFolderSubpath(

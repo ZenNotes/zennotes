@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { NoteMeta, VaultSettings } from '@shared/ipc'
 import {
+  assetBelongsToFolderView,
+  assetFolderSubpath,
   classifyDateNote,
   dailyNoteLocationForDate,
   dateNoteFolderMayBelongToDatePattern,
   dateNoteDirectoryDisplayLabel,
+  folderForVaultRelativePath,
+  noteFolderSubpath,
   weeklyNoteLocationForDate
 } from './vault-layout'
 
@@ -405,5 +409,46 @@ describe('dateNoteFolderMayBelongToDatePattern', () => {
     expect(dateNoteFolderMayBelongToDatePattern('2026/Jun-Jun', vaultSettings)).toBe(true)
     expect(dateNoteFolderMayBelongToDatePattern('Daily Notes', vaultSettings)).toBe(true)
     expect(dateNoteFolderMayBelongToDatePattern('Projects', vaultSettings)).toBe(false)
+  })
+})
+
+describe('folderForVaultRelativePath — case-insensitive system folders (#186)', () => {
+  // On case-insensitive filesystems, `listAssets` preserves the on-disk casing
+  // (`Inbox/photo.png`) while notes always arrive canonical-lowercased
+  // (`inbox/note.md`). Both must classify to the same folder, or the browser
+  // shows the markdown but hides the images/PDFs.
+  const inboxMode = { primaryNotesLocation: 'inbox' } as VaultSettings
+
+  it('classifies a capitalized inbox folder the same as lowercase', () => {
+    expect(folderForVaultRelativePath('inbox/photo.png', inboxMode)).toBe('inbox')
+    expect(folderForVaultRelativePath('Inbox/photo.png', inboxMode)).toBe('inbox')
+    expect(folderForVaultRelativePath('INBOX/photo.png', inboxMode)).toBe('inbox')
+  })
+
+  it('matches the other system folders case-insensitively too', () => {
+    expect(folderForVaultRelativePath('Archive/scan.pdf', inboxMode)).toBe('archive')
+    expect(folderForVaultRelativePath('Quick/clip.png', inboxMode)).toBe('quick')
+    expect(folderForVaultRelativePath('Trash/old.png', inboxMode)).toBe('trash')
+  })
+
+  it('still returns null for a non-system root folder in inbox mode', () => {
+    expect(folderForVaultRelativePath('Random/photo.png', inboxMode)).toBeNull()
+  })
+
+  it('keeps a capitalized asset in the same subpath tree as its notes', () => {
+    // A note under a capital `Inbox/Projects/` resolves to subpath `Projects`
+    // (folder is assigned authoritatively by the main-process walk); the asset
+    // under the same folder must resolve to the identical `Projects`.
+    expect(noteFolderSubpath({ folder: 'inbox', path: 'Inbox/Projects/n.md' }, inboxMode)).toBe(
+      'Projects'
+    )
+    expect(assetFolderSubpath({ path: 'Inbox/Projects/photo.png' }, inboxMode)).toBe('Projects')
+    expect(
+      assetBelongsToFolderView({ path: 'Inbox/Projects/photo.png' }, 'inbox', 'Projects', inboxMode)
+    ).toBe(true)
+    expect(assetBelongsToFolderView({ path: 'Inbox/photo.png' }, 'inbox', '', inboxMode)).toBe(true)
+    // A top-level note in a capital `Inbox/` is at the root of the view, not
+    // nested under a phantom `Inbox` subfolder.
+    expect(noteFolderSubpath({ folder: 'inbox', path: 'Inbox/n.md' }, inboxMode)).toBe('')
   })
 })
