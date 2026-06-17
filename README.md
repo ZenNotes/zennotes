@@ -51,6 +51,8 @@ Pick whatever suits your distro:
   ```sh
   sudo apt install ./ZenNotes-<version>-linux-amd64.deb
   ```
+- **Nix / NixOS:**
+  Read [packaging/nix/README.md](packaging/nix/README.md) for installation instructions
 - **Any distro — AppImage:**
   ```sh
   chmod +x ZenNotes-<version>-linux-x86_64.AppImage
