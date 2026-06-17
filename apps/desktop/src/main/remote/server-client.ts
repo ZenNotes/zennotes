@@ -77,6 +77,33 @@ export class RemoteServerClient {
     return this.jsonRequest<SyncManifestEntry[]>('/api/sync/manifest')
   }
 
+  /** Push raw bytes to an exact vault path (binary file sync). */
+  async writeSyncFile(relPath: string, bytes: Buffer): Promise<void> {
+    const form = new FormData()
+    form.set('path', relPath)
+    form.set('file', new Blob([bytes]))
+    const headers: Record<string, string> = {}
+    if (this.authToken) headers['Authorization'] = `Bearer ${this.authToken}`
+    const response = await fetch(`${this.baseUrl}/api/sync/write`, {
+      method: 'POST',
+      headers,
+      body: form
+    })
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(
+        `Sync write failed (${response.status} ${response.statusText}) for ${relPath}${text ? `: ${text}` : ''}`
+      )
+    }
+  }
+
+  /** Read raw bytes for an exact vault path (binary file sync). */
+  async readSyncFile(relPath: string): Promise<Buffer> {
+    const response = await this.fetchAssetResponse(relPath)
+    const buf = await response.arrayBuffer()
+    return Buffer.from(buf)
+  }
+
   async listFolders(): Promise<FolderEntry[]> {
     return this.jsonRequest<FolderEntry[]>('/api/folders')
   }

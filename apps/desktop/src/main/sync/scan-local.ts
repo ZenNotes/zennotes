@@ -9,51 +9,30 @@ export function hashBytes(body: Buffer): string {
   return 'sha256:' + createHash('sha256').update(body).digest('hex')
 }
 
-// Top-level names hidden from the vault-root walk in root mode (mirrors the Go
-// shouldHidePrimaryRootName) so they aren't double-listed.
-const HIDDEN_PRIMARY_ROOT_NAMES = new Set([
-  'quick',
-  'archive',
-  'trash',
-  'assets',
-  'attachements',
-  '_assets',
-  '.zennotes'
-])
-const TOP_FOLDERS = ['quick', 'archive', 'trash']
+const INTERNAL_DIR = '.zennotes'
 
-function isNoteFile(name: string): boolean {
-  const lower = name.toLowerCase()
-  return lower.endsWith('.md') || lower.endsWith('.excalidraw')
-}
-
-function isFormDir(name: string): boolean {
-  return name.toLowerCase().endsWith('.base')
-}
-
-async function walkFolder(
+async function walkAll(
   vaultRoot: string,
-  folderRoot: string,
-  primaryRoot: boolean,
+  dir: string,
   out: Map<string, FileState>
 ): Promise<void> {
   let entries: Dirent[]
   try {
-    entries = await fs.readdir(folderRoot, { withFileTypes: true })
+    entries = await fs.readdir(dir, { withFileTypes: true })
   } catch {
-    return // folder may not exist (e.g. no quick/ yet)
+    return
   }
   for (const entry of entries) {
     const name = entry.name
-    if (name.startsWith('.')) continue // hidden, incl. .zennotes
-    if (primaryRoot && HIDDEN_PRIMARY_ROOT_NAMES.has(name.toLowerCase())) continue
-    const full = path.join(folderRoot, name)
+    const full = path.join(dir, name)
     if (entry.isDirectory()) {
-      if (isFormDir(name)) continue // database folder — synced as a unit later
-      await walkFolder(vaultRoot, full, false, out)
+      // Walk into `.zennotes` (for vault.json + comments); skip other dot-dirs.
+      if (name !== INTERNAL_DIR && name.startsWith('.')) continue
+      await walkAll(vaultRoot, full, out)
       continue
     }
-    if (!isNoteFile(name)) continue
+    if (name.startsWith('.')) continue // dotfiles (.DS_Store, etc.)
+    if (name.endsWith('.tmp') || name.endsWith('.synctmp')) continue
     const rel = path.relative(vaultRoot, full).split(path.sep).join('/')
     if (isNeverSync(rel)) continue
     try {
@@ -66,31 +45,13 @@ async function walkFolder(
 }
 
 /**
- * Walk every synced note/.excalidraw file in a vault and hash it, mirroring the
- * server's collectNoteFiles: the primary notes area (root in root mode, else
- * `inbox/`) plus `quick`/`archive`/`trash`, excluding databases, hidden files,
- * and `.zennotes/`.
+ * Walk and hash every syncable file in a vault — notes, drawings, databases,
+ * assets, comments, and vault settings — mirroring the server's collectSyncFiles
+ * (the whole tree, excluding the per-device sync-state, the meta cache, dotfiles,
+ * unrelated dot-dirs, and temp files).
  */
-export async function scanLocalVault(
-  root: string,
-  primaryNotesAtRoot: boolean
-): Promise<Map<string, FileState>> {
+export async function scanLocalVault(root: string): Promise<Map<string, FileState>> {
   const out = new Map<string, FileState>()
-  const inboxRoot = primaryNotesAtRoot ? root : path.join(root, 'inbox')
-  await walkFolder(root, inboxRoot, primaryNotesAtRoot, out)
-  for (const folder of TOP_FOLDERS) {
-    await walkFolder(root, path.join(root, folder), false, out)
-  }
+  await walkAll(root, root, out)
   return out
-}
-
-/** Read primaryNotesLocation from the local vault settings; defaults to inbox. */
-export async function readPrimaryNotesAtRoot(root: string): Promise<boolean> {
-  try {
-    const raw = await fs.readFile(path.join(root, '.zennotes', 'vault.json'), 'utf8')
-    const parsed = JSON.parse(raw) as { primaryNotesLocation?: string }
-    return parsed.primaryNotesLocation === 'root'
-  } catch {
-    return false
-  }
 }

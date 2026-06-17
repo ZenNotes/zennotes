@@ -11,7 +11,17 @@ import {
 } from './reconcile'
 import { loadSyncState, saveSyncState, type SyncState } from './sync-state'
 import { conflictCopyPath, type ConflictPolicy } from './conflict'
-import { hashBytes, readPrimaryNotesAtRoot, scanLocalVault } from './scan-local'
+import { hashBytes, scanLocalVault } from './scan-local'
+
+// Text files transfer as UTF-8 strings via writeNote/readNote; everything else
+// is treated as binary and transferred byte-for-byte via the sync-write endpoint.
+const TEXT_EXTS = new Set(['.md', '.excalidraw', '.json', '.csv', '.txt', '.markdown'])
+function isTextPath(p: string): boolean {
+  const dot = p.lastIndexOf('.')
+  const slash = p.lastIndexOf('/')
+  const ext = dot > slash ? p.slice(dot).toLowerCase() : ''
+  return TEXT_EXTS.has(ext)
+}
 
 export interface SyncEngineOptions {
   root: string
@@ -142,9 +152,8 @@ export class SyncEngine {
   private async reconcileOnce(): Promise<void> {
     const state = this.state
     if (!state) return
-    const primaryAtRoot = await readPrimaryNotesAtRoot(this.opts.root)
     const [localMap, remoteList] = await Promise.all([
-      scanLocalVault(this.opts.root, primaryAtRoot),
+      scanLocalVault(this.opts.root),
       this.opts.client.getSyncManifest()
     ])
     const remoteMap = new Map<string, FileState>(
@@ -187,14 +196,21 @@ export class SyncEngine {
     const root = this.opts.root
     switch (action.kind) {
       case 'push': {
-        const body = await readLocal(root, action.path)
-        await client.writeNote(action.path, body)
+        if (isTextPath(action.path)) {
+          await client.writeNote(action.path, await readLocal(root, action.path))
+        } else {
+          await client.writeSyncFile(action.path, await readLocalBinary(root, action.path))
+        }
         setBase(state, action.path, localMap.get(action.path))
         break
       }
       case 'pull': {
-        const content = await client.readNote(action.path)
-        await writeLocalAtomic(root, action.path, content.body)
+        if (isTextPath(action.path)) {
+          const content = await client.readNote(action.path)
+          await writeLocalAtomic(root, action.path, content.body)
+        } else {
+          await writeLocalBinaryAtomic(root, action.path, await client.readSyncFile(action.path))
+        }
         setBase(state, action.path, remoteMap.get(action.path))
         break
       }
@@ -233,31 +249,39 @@ export class SyncEngine {
   ): Promise<void> {
     const client = this.opts.client
     const root = this.opts.root
+    const text = isTextPath(p)
     // delete-vs-edit: resurrect from the server (the edit wins over the delete).
     if (reason === 'delete-vs-edit') {
-      const content = await client.readNote(p)
-      await writeLocalAtomic(root, p, content.body)
+      if (text) await writeLocalAtomic(root, p, (await client.readNote(p)).body)
+      else await writeLocalBinaryAtomic(root, p, await client.readSyncFile(p))
       setBase(state, p, remoteMap.get(p))
       conflicts.push(p)
       return
     }
     // edit-vs-delete: resurrect to the server (the edit wins over the delete).
     if (reason === 'edit-vs-delete') {
-      const body = await readLocal(root, p)
-      await client.writeNote(p, body)
+      if (text) await client.writeNote(p, await readLocal(root, p))
+      else await client.writeSyncFile(p, await readLocalBinary(root, p))
       setBase(state, p, localMap.get(p))
       conflicts.push(p)
       return
     }
     // both-edited / first-sync-clash: keep both. Local stays canonical; the
     // server's differing version is written next to it as a conflict copy.
-    const remoteContent = await client.readNote(p)
     const copyPath = conflictCopyPath(p, state.deviceId, new Date())
-    const remoteBytes = Buffer.from(remoteContent.body, 'utf8')
-    await writeLocalAtomic(root, copyPath, remoteContent.body)
-    await client.writeNote(copyPath, remoteContent.body)
-    const localBody = await readLocal(root, p)
-    await client.writeNote(p, localBody) // server's path now matches local (canonical)
+    let remoteBytes: Buffer
+    if (text) {
+      const remote = await client.readNote(p)
+      remoteBytes = Buffer.from(remote.body, 'utf8')
+      await writeLocalAtomic(root, copyPath, remote.body)
+      await client.writeNote(copyPath, remote.body)
+      await client.writeNote(p, await readLocal(root, p)) // server path = local (canonical)
+    } else {
+      remoteBytes = await client.readSyncFile(p)
+      await writeLocalBinaryAtomic(root, copyPath, remoteBytes)
+      await client.writeSyncFile(copyPath, remoteBytes)
+      await client.writeSyncFile(p, await readLocalBinary(root, p))
+    }
     setBase(state, p, localMap.get(p))
     state.entries[copyPath] = { contentHash: hashBytes(remoteBytes), size: remoteBytes.length }
     conflicts.push(copyPath)
@@ -300,6 +324,18 @@ async function writeLocalAtomic(root: string, rel: string, body: string): Promis
   await fs.mkdir(path.dirname(abs), { recursive: true })
   const tmp = `${abs}.${process.pid}.${Date.now()}.synctmp`
   await fs.writeFile(tmp, body, 'utf8')
+  await fs.rename(tmp, abs)
+}
+
+async function readLocalBinary(root: string, rel: string): Promise<Buffer> {
+  return fs.readFile(safeAbs(root, rel))
+}
+
+async function writeLocalBinaryAtomic(root: string, rel: string, bytes: Buffer): Promise<void> {
+  const abs = safeAbs(root, rel)
+  await fs.mkdir(path.dirname(abs), { recursive: true })
+  const tmp = `${abs}.${process.pid}.${Date.now()}.synctmp`
+  await fs.writeFile(tmp, bytes)
   await fs.rename(tmp, abs)
 }
 

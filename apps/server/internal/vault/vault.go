@@ -918,12 +918,63 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 // its base snapshot to decide pushes/pulls without downloading bodies. Hashes
 // are cached in the note-meta-cache (keyed by mtime+size), so an unchanged vault
 // answers from stat() calls alone.
+// collectSyncFiles walks every syncable file in the vault — notes, drawings,
+// databases, assets (binary), comments, and vault settings — excluding only the
+// per-device sync-state, the meta cache, OS junk, temp files, and unrelated
+// dot-directories. `.zennotes` itself is walked (for vault.json + comments).
+// Callers hold v.mu (at least RLock).
+func (v *Vault) collectSyncFiles() ([]string, error) {
+	out := []string{}
+	err := filepath.WalkDir(v.root, func(p string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if isSkippableWalkErr(walkErr) {
+				return nil
+			}
+			return walkErr
+		}
+		if p == v.root {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			if name == internalVaultDir {
+				return nil // walk into .zennotes for vault.json + comments
+			}
+			if strings.HasPrefix(name, ".") {
+				return filepath.SkipDir // unrelated dot-dirs (.git, …)
+			}
+			return nil
+		}
+		if strings.HasPrefix(name, ".") {
+			return nil // dotfiles (.DS_Store, etc.)
+		}
+		if strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".synctmp") {
+			return nil
+		}
+		rel, err := filepath.Rel(v.root, p)
+		if err != nil {
+			return nil
+		}
+		relPosix := filepath.ToSlash(rel)
+		if relPosix == internalVaultDir+"/sync-state.json" ||
+			relPosix == internalVaultDir+"/"+noteMetaCacheFile {
+			return nil
+		}
+		out = append(out, p)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (v *Vault) Manifest() ([]ManifestEntry, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	v.hydratePersistedNoteMetaCache()
 
-	files, err := v.collectNoteFiles()
+	files, err := v.collectSyncFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -939,17 +990,17 @@ func (v *Vault) Manifest() ([]ManifestEntry, error) {
 	}
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
-	for index, file := range files {
+	for index, filePath := range files {
 		wg.Add(1)
-		go func(index int, file noteFile) {
+		go func(index int, filePath string) {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			info, err := os.Stat(file.path)
+			info, err := os.Stat(filePath)
 			if err != nil {
 				return
 			}
-			h := v.cachedContentHash(file.path, info)
+			h := v.cachedContentHash(filePath, info)
 			if h == "" {
 				return
 			}
@@ -957,16 +1008,16 @@ func (v *Vault) Manifest() ([]ManifestEntry, error) {
 			sizes[index] = info.Size()
 			mtimes[index] = info.ModTime().UnixMilli()
 			okFlags[index] = true
-		}(index, file)
+		}(index, filePath)
 	}
 	wg.Wait()
 
 	out := make([]ManifestEntry, 0, len(files))
-	for index, file := range files {
+	for index, filePath := range files {
 		if !okFlags[index] {
 			continue
 		}
-		rel, err := filepath.Rel(v.root, file.path)
+		rel, err := filepath.Rel(v.root, filePath)
 		if err != nil {
 			continue
 		}
@@ -2264,6 +2315,46 @@ func (v *Vault) AssetAbsPath(rel string) (string, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return SafeJoin(v.root, rel)
+}
+
+// WriteSyncFile writes raw bytes to an exact vault-relative path (used by the
+// sync client to push binary files). Creates parent dirs, caps at the asset
+// size limit, and commits atomically via temp + rename.
+func (v *Vault) WriteSyncFile(rel string, body io.Reader) error {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	abs, err := SafeJoin(v.root, rel)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(abs), v.dirMode); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.%d.%d.synctmp", abs, os.Getpid(), time.Now().UnixNano())
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.fileMode)
+	if err != nil {
+		return err
+	}
+	written, copyErr := io.Copy(f, io.LimitReader(body, v.maxAssetBytes+1))
+	closeErr := f.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+	if written > v.maxAssetBytes {
+		_ = os.Remove(tmp)
+		return ErrAssetTooLarge
+	}
+	if err := os.Rename(tmp, abs); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	v.invalidateTextSearchCache()
+	return nil
 }
 
 func makeAssetMarkdown(relPath, kind, name string) string {

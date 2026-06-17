@@ -829,29 +829,57 @@ func TestManifestHashesStableAndChange(t *testing.T) {
 	}
 }
 
-func TestManifestExcludesDatabasesAndInternal(t *testing.T) {
+func TestManifestIncludesSyncablesExcludesInternal(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "inbox", "Keep.md"), []byte("# Keep"), 0o600); err != nil {
-		t.Fatal(err)
+	// Syncable files of various kinds.
+	writes := map[string]string{
+		"inbox/Keep.md":                                  "# Keep",
+		"inbox/DB.base/data.csv":                         "id,Title\n",
+		"inbox/DB.base/schema.json":                      `{"version":1}`,
+		"assets/pic.png":                                 "PNGDATA",
+		".zennotes/vault.json":                           `{"primaryNotesLocation":"inbox"}`,
+		".zennotes/comments/inbox/Keep.md.comments.json": "[]",
+		// These must NEVER appear in the manifest.
+		".zennotes/sync-state.json":         `{"version":1}`,
+		".zennotes/note-meta-cache-v1.json": `{"version":2}`,
+		".DS_Store":                         "junk",
 	}
-	base := filepath.Join(root, "inbox", "DB.base")
-	if err := os.MkdirAll(base, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(base, "Rec.md"), []byte("# Rec"), 0o600); err != nil {
-		t.Fatal(err)
+	for rel, body := range writes {
+		abs := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(abs, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	m, err := v.Manifest()
 	if err != nil {
 		t.Fatal(err)
 	}
+	present := map[string]bool{}
 	for _, e := range m {
-		if strings.Contains(e.Path, ".base") || strings.HasPrefix(e.Path, ".zennotes") {
-			t.Errorf("manifest leaked excluded path: %s", e.Path)
+		present[e.Path] = true
+	}
+	for _, want := range []string{
+		"inbox/Keep.md",
+		"inbox/DB.base/data.csv",
+		"inbox/DB.base/schema.json",
+		"assets/pic.png",
+		".zennotes/vault.json",
+		".zennotes/comments/inbox/Keep.md.comments.json",
+	} {
+		if !present[want] {
+			t.Errorf("manifest missing syncable file: %s", want)
+		}
+	}
+	for _, banned := range []string{".zennotes/sync-state.json", ".zennotes/note-meta-cache-v1.json", ".DS_Store"} {
+		if present[banned] {
+			t.Errorf("manifest leaked excluded path: %s", banned)
 		}
 	}
 }
