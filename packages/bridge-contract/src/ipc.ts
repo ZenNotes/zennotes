@@ -18,6 +18,7 @@ export const IPC = {
   VAULT_GET_CURRENT: 'vault:get-current',
   VAULT_GET_SETTINGS: 'vault:get-settings',
   VAULT_SET_SETTINGS: 'vault:set-settings',
+  VAULT_ROOT_CONTENT_HIDDEN: 'vault:root-content-hidden',
   VAULT_LIST_NOTES: 'vault:list-notes',
   VAULT_LIST_NOTES_STREAM: 'vault:list-notes-stream',
   VAULT_LIST_FOLDERS: 'vault:list-folders',

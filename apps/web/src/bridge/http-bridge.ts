@@ -280,6 +280,11 @@ function setVaultSettings(next: VaultSettings): Promise<VaultSettings> {
   })
 }
 
+function rootContentHiddenByInboxMode(): Promise<boolean> {
+  // Desktop-local concern; the web/server build never hides root content this way.
+  return Promise.resolve(false)
+}
+
 function listLocalVaults(): Promise<LocalVaultEntry[]> {
   return Promise.resolve([])
 }
@@ -1116,6 +1121,7 @@ export const httpBridge: ZenBridge = {
   browseServerDirectories,
   getVaultSettings,
   setVaultSettings,
+  rootContentHiddenByInboxMode,
 
   listNotes,
   listFolders,

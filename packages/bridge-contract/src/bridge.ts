@@ -110,6 +110,9 @@ export interface ZenBridge {
   browseServerDirectories(path?: string): Promise<DirectoryBrowseResult>
   getVaultSettings(): Promise<VaultSettings>
   setVaultSettings(next: VaultSettings): Promise<VaultSettings>
+  /** True when the vault is in `inbox` mode but its root holds notes that only
+   *  `root` mode would surface (drives the "Switch to Vault root" banner). */
+  rootContentHiddenByInboxMode(): Promise<boolean>
 
   listNotes(): Promise<NoteMeta[]>
   listNotesPage?(request: ListNotesPageRequest): Promise<ListNotesPageResponse>

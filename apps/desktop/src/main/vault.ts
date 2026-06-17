@@ -963,6 +963,20 @@ async function inferPrimaryNotesLocation(root: string): Promise<PrimaryNotesLoca
   return DEFAULT_VAULT_SETTINGS.primaryNotesLocation
 }
 
+/**
+ * True when the vault is in `inbox` primary-notes mode but its root holds
+ * markdown files or non-system folders that only `root` mode would surface —
+ * i.e. an Obsidian-style flat vault that was detected as Inbox (e.g. a flaky
+ * first directory read on an iCloud/symlinked folder fell back to the default)
+ * and is now silently hiding the user's notes. Drives the "Switch to Vault
+ * root" banner so an empty-looking vault is explained instead of silent.
+ */
+export async function rootContentHiddenByInboxMode(root: string): Promise<boolean> {
+  const settings = await getVaultSettings(root)
+  if (settings.primaryNotesLocation !== 'inbox') return false
+  return (await inferPrimaryNotesLocation(root)) === 'root'
+}
+
 async function vaultLooksEmpty(root: string): Promise<boolean> {
   let entries: Dirent[]
   try {

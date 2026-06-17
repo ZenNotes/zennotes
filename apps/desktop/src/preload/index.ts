@@ -262,6 +262,8 @@ const api: ZenBridge = {
   getVaultSettings: (): Promise<VaultSettings> => ipcRenderer.invoke(IPC.VAULT_GET_SETTINGS),
   setVaultSettings: (next: VaultSettings): Promise<VaultSettings> =>
     ipcRenderer.invoke(IPC.VAULT_SET_SETTINGS, next),
+  rootContentHiddenByInboxMode: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.VAULT_ROOT_CONTENT_HIDDEN),
 
   listNotes: (): Promise<NoteMeta[]> => listNotesStreamed(),
   listNotesPage: (request: ListNotesPageRequest): Promise<ListNotesPageResponse> =>

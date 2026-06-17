@@ -22,6 +22,7 @@ import {
   renameFolder,
   restoreDeletedAsset,
   restoreFromTrash,
+  rootContentHiddenByInboxMode,
   searchVaultText,
   searchVaultTextCapabilities,
   setVaultSettings,
@@ -39,6 +40,35 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
+
+describe('rootContentHiddenByInboxMode (#195)', () => {
+  it('flags an Obsidian-style vault (root notes + custom folders) stuck in inbox mode', async () => {
+    const root = await makeTempDir('zennotes-vault-hidden-')
+    await mkdir(root, { recursive: true })
+    await writeFile(path.join(root, 'index.md'), '# Index\n')
+    await mkdir(path.join(root, 'concepts'), { recursive: true })
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(true)
+  })
+
+  it('is false once the vault is switched to root mode', async () => {
+    const root = await makeTempDir('zennotes-vault-rootmode-')
+    await mkdir(root, { recursive: true })
+    await writeFile(path.join(root, 'index.md'), '# Index\n')
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'root' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
+
+  it('is false for an inbox-mode vault with no root content to hide', async () => {
+    const root = await makeTempDir('zennotes-vault-emptyroot-')
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
 })
 
 describe('absolutePath', () => {

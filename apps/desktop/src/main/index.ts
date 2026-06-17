@@ -82,6 +82,7 @@ import {
   searchVaultTextCapabilities,
   searchVaultText,
   setVaultSettings,
+  rootContentHiddenByInboxMode,
   type PersistedRemoteWorkspaceConfig,
   type PersistedRemoteWorkspaceProfile,
   type PersistedWindowState,
@@ -2007,6 +2008,13 @@ function registerIpc(): void {
     }
     const v = requireVault()
     return await setVaultSettings(v.root, next)
+  })
+
+  handle(IPC.VAULT_ROOT_CONTENT_HIDDEN, async () => {
+    // Local-vault only: a remote workspace manages its own layout server-side.
+    if (isRemoteWorkspaceActive()) return false
+    const v = requireVault()
+    return await rootContentHiddenByInboxMode(v.root)
   })
 
   handle(IPC.VAULT_LIST_NOTES, async () => {

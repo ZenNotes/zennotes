@@ -201,7 +201,12 @@ async function listNotesFromBridge(): Promise<NoteMeta[]> {
 
 async function refreshVaultIndexes(): Promise<void> {
   const state = useStore.getState()
-  await Promise.all([state.refreshNotes(), state.refreshAssets(), state.loadCustomTemplates()])
+  await Promise.all([
+    state.refreshNotes(),
+    state.refreshAssets(),
+    state.loadCustomTemplates(),
+    state.refreshRootContentHidden()
+  ])
 }
 
 /** Find a template (built-in or custom) by id, or undefined if it's gone. */
@@ -1457,6 +1462,8 @@ interface Store {
   localVaults: LocalVaultEntry[]
   workspaceSetupError: string | null
   vaultSettings: VaultSettings
+  /** Vault is in `inbox` mode but its root holds notes only `root` mode shows. */
+  rootContentHiddenByInboxMode: boolean
   notes: NoteMeta[]
   folders: FolderEntry[]
   assetFiles: AssetMeta[]
@@ -1738,6 +1745,7 @@ interface Store {
   jumpToNextNote: () => Promise<void>
   applyChange: (ev: VaultChangeEvent) => Promise<void>
   refreshNotes: () => Promise<void>
+  refreshRootContentHidden: () => Promise<void>
   refreshAssets: () => Promise<void>
   deleteAsset: (relPath: string) => Promise<void>
   undoLastAssetAction: () => Promise<boolean>
@@ -2778,6 +2786,7 @@ export const useStore = create<Store>((set, get) => {
   localVaults: [],
   workspaceSetupError: null,
   vaultSettings: DEFAULT_VAULT_SETTINGS,
+  rootContentHiddenByInboxMode: false,
   notes: [],
   folders: [],
   assetFiles: [],
@@ -2905,8 +2914,19 @@ export const useStore = create<Store>((set, get) => {
         vaultSettings: settings
       })
       await get().refreshNotes()
+      await get().refreshRootContentHidden()
     } catch (err) {
       console.error('setVaultSettings failed', err)
+    }
+  },
+  refreshRootContentHidden: async () => {
+    try {
+      const hidden = await window.zen.rootContentHiddenByInboxMode()
+      if (get().rootContentHiddenByInboxMode !== hidden) {
+        set({ rootContentHiddenByInboxMode: hidden })
+      }
+    } catch {
+      // Non-fatal: the banner is advisory; keep the previous value on error.
     }
   },
   setNotes: (notes) => set({ notes }),

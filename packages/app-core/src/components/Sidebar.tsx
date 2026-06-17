@@ -9,6 +9,7 @@ import {
   isTrashViewActive,
   useStore,
 } from "../store";
+import { Button } from "./ui/Button";
 import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
@@ -364,6 +365,7 @@ export function Sidebar(): JSX.Element {
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
   const vaultSettings = useStore((s) => s.vaultSettings);
+  const rootContentHiddenByInboxMode = useStore((s) => s.rootContentHiddenByInboxMode);
   const view = useStore((s) => s.view);
   const assetFiles = useStore((s) => s.assetFiles);
   const setView = useStore((s) => s.setView);
@@ -2706,6 +2708,29 @@ export function Sidebar(): JSX.Element {
           </IconBtn>
         </div>
       </div>
+
+      {rootContentHiddenByInboxMode && (
+        <div className="mx-3 mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2.5">
+          <p className="text-xs font-semibold text-ink-900">Notes at your vault root aren’t shown</p>
+          <p className="mt-1 text-xs leading-5 text-ink-600">
+            This vault opened in <span className="font-medium text-ink-800">Inbox</span> mode, so
+            top-level files and folders are hidden. Switch to{" "}
+            <span className="font-medium text-ink-800">Vault root</span> to see them — the
+            Obsidian-style flat layout.
+          </p>
+          <div className="mt-2">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() =>
+                void setVaultSettings({ ...vaultSettings, primaryNotesLocation: "root" })
+              }
+            >
+              Switch to Vault root
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Main scrollable tree area */}
       <div
