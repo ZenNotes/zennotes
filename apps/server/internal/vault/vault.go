@@ -42,6 +42,37 @@ func isFormDirName(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), formDirSuffix)
 }
 
+// excalidrawExt marks a standalone Excalidraw drawing — the native Excalidraw
+// JSON scene format. Drawings are a first-class file type alongside Markdown
+// notes: listed in the sidebar (not as assets) and opened in a dedicated editor.
+const excalidrawExt = ".excalidraw"
+
+// isExcalidrawName reports whether a filename is an Excalidraw drawing.
+func isExcalidrawName(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), excalidrawExt)
+}
+
+// noteExt returns the on-disk extension for a note-like file, preserving
+// `.excalidraw` for drawings and defaulting to `.md` otherwise. Rename/move/
+// duplicate use it so a drawing never silently becomes a Markdown note.
+func noteExt(name string) string {
+	if isExcalidrawName(name) {
+		return excalidrawExt
+	}
+	return ".md"
+}
+
+// emptyExcalidrawJSON mirrors emptyExcalidrawDocument() in
+// packages/shared-domain/src/excalidraw.ts (JSON.stringify, 2-space indent).
+const emptyExcalidrawJSON = `{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "zennotes",
+  "elements": [],
+  "appState": {},
+  "files": {}
+}`
+
 // ErrAssetTooLarge is returned when an asset upload exceeds the
 // vault's MaxAssetBytes limit.
 var ErrAssetTooLarge = errors.New("asset exceeds maximum size")
@@ -487,7 +518,7 @@ func (v *Vault) inferPrimaryNotesLocation() PrimaryNotesLocation {
 		if _, reserved := reservedRootNames[name]; reserved {
 			continue
 		}
-		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") {
+		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
 			return PrimaryNotesRoot
 		}
 	}
@@ -787,7 +818,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 					}
 				}
 			}
-			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
+			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") && !isExcalidrawName(d.Name()) {
 				return nil
 			}
 			files = append(files, noteFile{folder: folder, path: path})
@@ -946,7 +977,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 				}
 				continue
 			}
-			if !entry.Type().IsRegular() || strings.EqualFold(filepath.Ext(name), ".md") {
+			if !entry.Type().IsRegular() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
 				continue
 			}
 			info, err := entry.Info()
@@ -1005,6 +1036,30 @@ func kindForExt(ext string) string {
 
 // --- Read / Write ---
 
+// buildNoteMeta assembles NoteMeta for a note-like file. Excalidraw drawings
+// store JSON, not Markdown, so their tags/wikilinks/excerpt are skipped — a hex
+// color like "#1971c2" in the scene must not register as a #tag.
+func buildNoteMeta(relPosix, title string, folder NoteFolder, info os.FileInfo, bodyStr string) NoteMeta {
+	meta := NoteMeta{
+		Path:      relPosix,
+		Title:     title,
+		Folder:    folder,
+		CreatedAt: info.ModTime().UnixMilli(),
+		UpdatedAt: info.ModTime().UnixMilli(),
+		Size:      info.Size(),
+		Tags:      []string{},
+		Wikilinks: []string{},
+	}
+	if isExcalidrawName(relPosix) {
+		return meta
+	}
+	meta.Tags = ExtractTags(bodyStr)
+	meta.Wikilinks = ExtractWikilinks(bodyStr)
+	meta.HasAttachments = BodyHasLocalAsset(bodyStr)
+	meta.Excerpt = BuildExcerpt(bodyStr)
+	return meta
+}
+
 func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 	info, err := os.Stat(abs)
 	if err != nil {
@@ -1037,18 +1092,7 @@ func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
 
-	meta := NoteMeta{
-		Path:           relPosix,
-		Title:          title,
-		Folder:         folder,
-		CreatedAt:      info.ModTime().UnixMilli(),
-		UpdatedAt:      info.ModTime().UnixMilli(),
-		Size:           info.Size(),
-		Tags:           ExtractTags(bodyStr),
-		Wikilinks:      ExtractWikilinks(bodyStr),
-		HasAttachments: BodyHasLocalAsset(bodyStr),
-		Excerpt:        BuildExcerpt(bodyStr),
-	}
+	meta := buildNoteMeta(relPosix, title, folder, info, bodyStr)
 	v.metaCacheMu.Lock()
 	v.metaCache[abs] = noteMetaCacheEntry{
 		mtimeMs: statMtimeMs,
@@ -1078,18 +1122,7 @@ func (v *Vault) ReadNote(rel string) (NoteContent, error) {
 	bodyStr := string(body)
 	rel = filepath.ToSlash(rel)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	meta := NoteMeta{
-		Path:           rel,
-		Title:          title,
-		Folder:         folder,
-		CreatedAt:      info.ModTime().UnixMilli(),
-		UpdatedAt:      info.ModTime().UnixMilli(),
-		Size:           info.Size(),
-		Tags:           ExtractTags(bodyStr),
-		Wikilinks:      ExtractWikilinks(bodyStr),
-		HasAttachments: BodyHasLocalAsset(bodyStr),
-		Excerpt:        BuildExcerpt(bodyStr),
-	}
+	meta := buildNoteMeta(rel, title, folder, info, bodyStr)
 	return NoteContent{NoteMeta: meta, Body: bodyStr}, nil
 }
 
@@ -1369,6 +1402,40 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 	return v.readMeta(folder, abs)
 }
 
+// CreateExcalidraw writes a new empty `.excalidraw` drawing under folder/subpath
+// and returns its meta. Mirrors CreateNote but seeds an empty Excalidraw scene.
+func (v *Vault) CreateExcalidraw(folder NoteFolder, title, subpath string) (NoteMeta, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !IsValidFolder(folder) {
+		return NoteMeta{}, fmt.Errorf("invalid folder: %s", folder)
+	}
+	if title == "" {
+		title = defaultTitle()
+	}
+	title = sanitizeFileStem(title)
+	dir, err := v.folderRoot(folder)
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	if subpath != "" {
+		sub, err := SafeJoin(dir, subpath)
+		if err != nil {
+			return NoteMeta{}, err
+		}
+		dir = sub
+	}
+	if err := os.MkdirAll(dir, v.dirMode); err != nil {
+		return NoteMeta{}, err
+	}
+	abs := uniquePath(dir, title, excalidrawExt)
+	if err := os.WriteFile(abs, []byte(emptyExcalidrawJSON), v.fileMode); err != nil {
+		return NoteMeta{}, err
+	}
+	v.invalidateTextSearchCache()
+	return v.readMeta(folder, abs)
+}
+
 func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
 	// Snapshot the vault before the rename (ListNotes takes its own read lock)
 	// so inbound [[wikilinks]] still resolve to this note under its current name.
@@ -1397,7 +1464,7 @@ func (v *Vault) renameNoteFile(rel, nextTitle string) (NoteMeta, error) {
 		return NoteMeta{}, errors.New("empty title")
 	}
 	dir := filepath.Dir(abs)
-	newAbs := uniquePath(dir, nextTitle, ".md")
+	newAbs := uniquePath(dir, nextTitle, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1517,7 +1584,7 @@ func (v *Vault) moveBetweenFolders(rel string, target NoteFolder) (NoteMeta, err
 	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	newAbs := uniquePath(destDir, title, ".md")
+	newAbs := uniquePath(destDir, title, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1557,7 +1624,7 @@ func (v *Vault) DuplicateNote(rel string) (NoteMeta, error) {
 	}
 	folder, _ := v.folderOf(abs)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)) + " copy"
-	newAbs := uniquePath(filepath.Dir(abs), sanitizeFileStem(title), ".md")
+	newAbs := uniquePath(filepath.Dir(abs), sanitizeFileStem(title), noteExt(abs))
 	if err := copyFile(abs, newAbs, v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1597,7 +1664,7 @@ func (v *Vault) MoveNote(rel string, target NoteFolder, targetSubpath string) (N
 		return NoteMeta{}, err
 	}
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	newAbs := uniquePath(destDir, title, ".md")
+	newAbs := uniquePath(destDir, title, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}

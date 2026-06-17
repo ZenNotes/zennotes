@@ -762,3 +762,108 @@ func hasNotePath(notes []NoteMeta, path string) bool {
 	}
 	return false
 }
+
+func TestExcalidrawListedAsNoteNotAsset(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A drawing whose JSON body contains a hex color (#1971c2) that must NOT
+	// be mistaken for a #tag, plus an image that should stay an asset.
+	scene := `{"type":"excalidraw","version":2,"elements":[{"strokeColor":"#1971c2"}],"appState":{},"files":{}}`
+	if err := os.WriteFile(filepath.Join(root, "inbox", "Sketch.excalidraw"), []byte(scene), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "pic.png"), []byte("PNG"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNotePath(notes, "inbox/Sketch.excalidraw") {
+		t.Error("ListNotes dropped the .excalidraw drawing")
+	}
+	for _, n := range notes {
+		if n.Path == "inbox/Sketch.excalidraw" {
+			if n.Title != "Sketch" {
+				t.Errorf("drawing title = %q, want Sketch", n.Title)
+			}
+			if len(n.Tags) != 0 {
+				t.Errorf("drawing leaked tags from JSON hex colors: %v", n.Tags)
+			}
+		}
+	}
+
+	assets, err := v.ListAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawImage := false
+	for _, a := range assets {
+		if strings.HasSuffix(a.Path, ".excalidraw") {
+			t.Errorf("ListAssets leaked a drawing: %s", a.Path)
+		}
+		if a.Path == "assets/pic.png" {
+			sawImage = true
+		}
+	}
+	if !sawImage {
+		t.Error("ListAssets dropped a real asset")
+	}
+}
+
+func TestCreateExcalidrawSeedsEmptyScene(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := v.CreateExcalidraw(FolderInbox, "My Drawing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(meta.Path, ".excalidraw") {
+		t.Errorf("created path = %q, want a .excalidraw file", meta.Path)
+	}
+	content, err := v.ReadNote(meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content.Body, `"type": "excalidraw"`) {
+		t.Errorf("seeded scene missing excalidraw type: %s", content.Body)
+	}
+}
+
+func TestRenameAndMovePreserveExcalidrawExt(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := v.CreateExcalidraw(FolderInbox, "Diagram", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := v.RenameNote(created.Path, "Flowchart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(renamed.Path, ".excalidraw") {
+		t.Errorf("rename dropped the extension: %q", renamed.Path)
+	}
+
+	moved, err := v.MoveNote(renamed.Path, FolderArchive, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(moved.Path, ".excalidraw") {
+		t.Errorf("move dropped the extension: %q", moved.Path)
+	}
+}
