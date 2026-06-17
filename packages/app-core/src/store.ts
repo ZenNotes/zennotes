@@ -82,10 +82,14 @@ import {
   findDailyNoteForDate,
   findWeeklyNoteForDate,
   isPrimaryNotesAtRoot,
+  removeFavoritesForFolder,
   removeFolderColors,
   removeFolderIcons,
   normalizeVaultSettings,
   noteFolderSubpath,
+  rewriteFavoriteNotePath,
+  rewriteFavoritesForFolderRename,
+  toggleFavorite as toggleFavoriteKey,
   weeklyNoteLocationForDate,
   rewriteFolderColorsForRename,
   rewriteFolderIconsForRename
@@ -1658,6 +1662,15 @@ interface Store {
 
   setVault: (v: VaultInfo | null) => void
   setVaultSettings: (next: VaultSettings) => Promise<void>
+  /**
+   * Toggle a favorite (a note path or a `folder:subpath` key) and persist it.
+   * Favorites pin to the top of the sidebar.
+   */
+  toggleFavorite: (key: string) => Promise<void>
+  /** Toggle favorite for the active editor note (Vim leader command). */
+  toggleFavoriteActiveNote: () => Promise<void>
+  /** @internal Replace the favorites list and persist (no note refresh). */
+  applyFavorites: (nextFavorites: string[]) => Promise<void>
   setNotes: (notes: NoteMeta[]) => void
   setView: (view: View) => void
   /** Open the Tasks panel as a tab in the active pane. If the tab is
@@ -2925,6 +2938,36 @@ export const useStore = create<Store>((set, get) => {
       console.error('setVaultSettings failed', err)
     }
   },
+  applyFavorites: async (nextFavorites) => {
+    const current = get().vaultSettings
+    if (
+      current.favorites.length === nextFavorites.length &&
+      current.favorites.every((f, i) => f === nextFavorites[i])
+    ) {
+      return // unchanged — skip the disk write
+    }
+    // Favorites don't affect note listing, so update optimistically and persist
+    // without a full refreshNotes.
+    set({ vaultSettings: { ...current, favorites: nextFavorites } })
+    try {
+      const saved = normalizeVaultSettings(
+        await window.zen.setVaultSettings({ ...get().vaultSettings, favorites: nextFavorites })
+      )
+      set({ vaultSettings: saved })
+    } catch (err) {
+      console.error('applyFavorites failed', err)
+      set({ vaultSettings: current }) // revert on failure
+    }
+  },
+  toggleFavorite: async (key) => {
+    if (!key) return
+    await get().applyFavorites(toggleFavoriteKey(get().vaultSettings.favorites, key))
+  },
+  toggleFavoriteActiveNote: async () => {
+    const path = get().activeNote?.path ?? get().selectedPath
+    if (!path) return
+    await get().toggleFavorite(path)
+  },
   refreshRootContentHidden: async () => {
     try {
       const hidden = await window.zen.rootContentHiddenByInboxMode()
@@ -3998,6 +4041,9 @@ export const useStore = create<Store>((set, get) => {
     try {
       const meta = await window.zen.renameNote(oldPath, nextTitle)
       set((s) => renameNoteState(s, oldPath, meta))
+      await get().applyFavorites(
+        rewriteFavoriteNotePath(get().vaultSettings.favorites, oldPath, meta.path)
+      )
       await get().refreshNotes()
     } catch (err) {
       console.error('renameNote failed', err)
@@ -5384,6 +5430,19 @@ export const useStore = create<Store>((set, get) => {
       }
     })
 
+    // Repoint favorites at the renamed folder (its own key, descendant folder
+    // keys, and note favorites that lived under it) and persist.
+    await get().applyFavorites(
+      rewriteFavoritesForFolderRename(
+        get().vaultSettings.favorites,
+        folder,
+        oldSubpath,
+        newSubpath,
+        oldPrefix,
+        newPrefix
+      )
+    )
+
     await get().refreshNotes()
 
     const v = get().view
@@ -5440,6 +5499,10 @@ export const useStore = create<Store>((set, get) => {
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
+    // Drop favorites for the deleted folder and the notes that lived under it.
+    await get().applyFavorites(
+      removeFavoritesForFolder(get().vaultSettings.favorites, folder, subpath, prefix)
+    )
   },
 
   duplicateFolder: async (folder, subpath) => {
@@ -5507,6 +5570,9 @@ export const useStore = create<Store>((set, get) => {
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
+      await get().applyFavorites(
+        rewriteFavoriteNotePath(get().vaultSettings.favorites, relPath, meta.path)
+      )
     } catch (err) {
       console.error('moveNote failed', err)
     }

@@ -84,6 +84,9 @@ type VaultSettings struct {
 	DailyNotes           DailyNotesSettings      `json:"dailyNotes"`
 	WeeklyNotes          WeeklyNotesSettings     `json:"weeklyNotes"`
 	FolderIcons          map[string]FolderIconID `json:"folderIcons"`
+	// Favorites are note paths or `folder:subpath` keys pinned to the top of
+	// the sidebar. Persisted so the web client's favorites survive a round-trip.
+	Favorites []string `json:"favorites"`
 }
 
 // NoteMeta — vault-relative note metadata. Mirrors shared/ipc.ts NoteMeta.

@@ -270,6 +270,8 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	for key, value := range settings.FolderIcons {
 		folderIcons[key] = value
 	}
+	favorites := make([]string, len(settings.Favorites))
+	copy(favorites, settings.Favorites)
 	dailyLegacyPatterns := make([]DateNotePatternSettings, len(settings.DailyNotes.LegacyPatterns))
 	copy(dailyLegacyPatterns, settings.DailyNotes.LegacyPatterns)
 	weeklyLegacyPatterns := make([]DateNotePatternSettings, len(settings.WeeklyNotes.LegacyPatterns))
@@ -293,6 +295,7 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 			TemplateID:     settings.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
+		Favorites:   favorites,
 	}
 }
 
@@ -424,7 +427,24 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			TemplateID:     value.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
+		Favorites:   normalizeFavorites(value.Favorites),
 	}
+}
+
+func normalizeFavorites(value []string) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	for _, entry := range value {
+		if entry == "" {
+			continue
+		}
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func folderIconKey(folder NoteFolder, subpath string) string {
@@ -1729,6 +1749,9 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
+		// Favorites are carried through verbatim; the client rewrites stale
+		// favorite keys after the rename and re-persists them.
+		Favorites: settings.Favorites,
 	})
 	if err != nil {
 		return "", err
@@ -1764,6 +1787,9 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
+		// Favorites are carried through verbatim; the client prunes the deleted
+		// folder's favorites and re-persists them.
+		Favorites: settings.Favorites,
 	})
 	return err
 }
@@ -1797,6 +1823,8 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
+		// A duplicated folder isn't auto-favorited; carry existing favorites through.
+		Favorites: settings.Favorites,
 	})
 	if err != nil {
 		return "", err

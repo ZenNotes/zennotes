@@ -166,7 +166,8 @@ describe('daily note patterns', () => {
         },
         weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
         folderIcons: {},
-        folderColors: {}
+        folderColors: {},
+        favorites: []
       }
     })
 
@@ -204,7 +205,8 @@ describe('weekly note patterns', () => {
           locale: 'en-US'
         },
         folderIcons: {},
-        folderColors: {}
+        folderColors: {},
+        favorites: []
       }
     })
 
@@ -226,7 +228,8 @@ describe('date note pattern history', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     }
     const nextSettings = {
       ...oldSettings,
@@ -292,7 +295,8 @@ describe('date note pattern history', () => {
         locale: 'en-US'
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     }
     const nextSettings = {
       ...oldSettings,

@@ -305,6 +305,14 @@ export interface VaultSettings {
   folderIcons: Record<string, FolderIconId>
   /** Per-folder accent color, keyed by `folder:subpath` (same key as folderIcons). */
   folderColors: Record<string, FolderColorId>
+  /**
+   * Favorited notes and folders, pinned to the top of the sidebar. Each entry is
+   * either a note's vault-relative path (e.g. `inbox/Idea.md`) or a folder key
+   * `folder:subpath` (e.g. `inbox:Projects`). Folder keys always contain a `:`;
+   * note paths never do (`:` is a forbidden filename char), so the two are
+   * distinguishable. Order is the display order in the Favorites section.
+   */
+  favorites: string[]
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -329,7 +337,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
   folderIcons: {},
-  folderColors: {}
+  folderColors: {},
+  favorites: []
 }
 
 export interface NoteMeta {

@@ -763,6 +763,63 @@ func hasNotePath(notes []NoteMeta, path string) bool {
 	return false
 }
 
+func TestFavoritesRoundTripAndDedupe(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := v.SetSettings(VaultSettings{
+		// Mix of a note path and a folder key, with a duplicate and an empty entry.
+		Favorites: []string{"inbox/Idea.md", "inbox:Projects", "inbox/Idea.md", ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"inbox/Idea.md", "inbox:Projects"}
+	if len(saved.Favorites) != len(want) {
+		t.Fatalf("favorites = %v, want %v", saved.Favorites, want)
+	}
+	for i, f := range want {
+		if saved.Favorites[i] != f {
+			t.Errorf("favorites[%d] = %q, want %q", i, saved.Favorites[i], f)
+		}
+	}
+	// Persisted to disk and reloaded.
+	reloaded, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Favorites) != len(want) {
+		t.Errorf("reloaded favorites = %v, want %v", reloaded.Favorites, want)
+	}
+}
+
+func TestFavoritesSurviveFolderRename(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "Projects"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.SetSettings(VaultSettings{Favorites: []string{"inbox:Projects", "inbox/Idea.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.RenameFolder("inbox", "Projects", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	// The server carries favorites through verbatim (the client rewrites keys).
+	settings, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.Favorites) != 2 {
+		t.Fatalf("folder rename dropped favorites: %v", settings.Favorites)
+	}
+}
+
 func TestExcalidrawListedAsNoteNotAsset(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})

@@ -166,6 +166,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCopyMarkdown'),
         label: 'Copy as Markdown',
         detail: "Copy the whole note's Markdown to the clipboard."
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleFavorite'),
+        label: 'Toggle favorite',
+        detail: 'Add or remove the active note from Favorites.'
       }
       ]
     }
@@ -701,6 +706,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.copyActiveNoteAsMarkdown()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderToggleFavorite')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.toggleFavoriteActiveNote()
           return
         }
         resetLeader()
@@ -1761,6 +1773,8 @@ export function VimNav(): JSX.Element | null {
       void state.openArchiveView()
     } else if (itemType === 'trash') {
       void state.openTrashView()
+    } else if (itemType === 'assets') {
+      void state.openAssetsView()
     }
   }
 

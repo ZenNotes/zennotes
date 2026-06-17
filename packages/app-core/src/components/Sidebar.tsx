@@ -54,11 +54,14 @@ import {
   classifyDateNote,
   dateNoteFolderMayBelongToDatePattern,
   dateNoteDirectoryDisplayLabel,
+  favoriteFolderKey,
   folderIconKey,
+  isFavoriteFolderKey,
   isPrimaryNotesAtRoot,
   folderForVaultRelativePath,
   normalizeVaultSettings,
   noteFolderSubpath,
+  parseFavoriteFolderKey,
 } from "../lib/vault-layout";
 import {
   hasZenItem,
@@ -248,6 +251,11 @@ type SidebarSelectionItem =
   | { kind: "note"; path: string }
   | { kind: "folder"; folder: NoteFolder; subpath: string };
 
+/** A favorite resolved to a live note or folder for rendering. */
+type FavoriteItem =
+  | { kind: "note"; key: string; path: string; title: string; isDrawing: boolean }
+  | { kind: "folder"; key: string; folder: NoteFolder; subpath: string; label: string };
+
 function noteSelectionKey(path: string): string {
   return `note:${encodeURIComponent(path)}`;
 }
@@ -401,6 +409,7 @@ export function Sidebar(): JSX.Element {
   const setSearchOpen = useStore((s) => s.setSearchOpen);
   const createAndOpen = useStore((s) => s.createAndOpen);
   const createDrawingAndOpen = useStore((s) => s.createDrawingAndOpen);
+  const toggleFavorite = useStore((s) => s.toggleFavorite);
   const createDatabase = useStore((s) => s.createDatabase);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
@@ -1094,6 +1103,41 @@ export function Sidebar(): JSX.Element {
     return next;
   }, [notes, allFolders, assetFiles, vaultSettings]);
 
+  // Resolve favorite keys to live notes/folders. Keys whose target no longer
+  // exists (renamed away, deleted, trashed) are silently skipped — the Favorites
+  // section never shows a broken row. Order follows the stored favorites list.
+  const favoriteItems = useMemo<FavoriteItem[]>(() => {
+    const out: FavoriteItem[] = [];
+    for (const key of vaultSettings.favorites) {
+      if (isFavoriteFolderKey(key)) {
+        const parsed = parseFavoriteFolderKey(key);
+        if (!parsed || !parsed.subpath) continue;
+        const exists = allFolders.some(
+          (f) => f.folder === parsed.folder && f.subpath === parsed.subpath,
+        );
+        if (!exists) continue;
+        out.push({
+          kind: "folder",
+          key,
+          folder: parsed.folder,
+          subpath: parsed.subpath,
+          label: parsed.subpath.split("/").slice(-1)[0],
+        });
+      } else {
+        const note = notes.find((n) => n.path === key);
+        if (!note || note.folder === "trash") continue;
+        out.push({
+          kind: "note",
+          key,
+          path: note.path,
+          title: note.title,
+          isDrawing: isExcalidrawPath(note.path),
+        });
+      }
+    }
+    return out;
+  }, [vaultSettings.favorites, notes, allFolders]);
+
   // Daily/weekly notes grouped for the pinned date-nav: daily by year → month →
   // day, weekly by year → week, all newest-first.
   const dateNav = useMemo(() => {
@@ -1758,6 +1802,14 @@ export function Sidebar(): JSX.Element {
 
     if (!isTop) {
       items.push({ kind: "separator" });
+      const favKey = favoriteFolderKey(folder, subpath);
+      const isFav = vaultSettings.favorites.includes(favKey);
+      items.push({
+        label: isFav ? "Remove from Favorites" : "Add to Favorites",
+        onSelect: async () => {
+          await toggleFavorite(favKey);
+        },
+      });
       items.push({
         label: "Duplicate",
         onSelect: async () => {
@@ -1916,6 +1968,7 @@ export function Sidebar(): JSX.Element {
     resetFolderIcon,
     openFolderColorPicker,
     resetFolderColor,
+    toggleFavorite,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
   ]);
@@ -1996,6 +2049,13 @@ export function Sidebar(): JSX.Element {
       });
     }
     if (n.folder !== "trash") {
+      const isFav = vaultSettings.favorites.includes(n.path);
+      items.push({
+        label: isFav ? "Remove from Favorites" : "Add to Favorites",
+        onSelect: async () => {
+          await toggleFavorite(n.path);
+        },
+      });
       items.push({
         label: "Rename…",
         onSelect: async () => {
@@ -2156,6 +2216,8 @@ export function Sidebar(): JSX.Element {
     absolutePathLabel,
     tabsEnabled,
     openNoteInTab,
+    toggleFavorite,
+    vaultSettings.favorites,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
     folderLabels.archive,
@@ -2697,8 +2759,11 @@ export function Sidebar(): JSX.Element {
         )}
         <div className="flex items-center gap-0.5">
           <IconBtn
-            title="New note (choose folder)"
-            onClick={() => void createNoteInChosenFolder()}
+            title="Create… (note, drawing, folder, database)"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setRootMenu({ x: r.left, y: r.bottom + 4 });
+            }}
           >
             <PlusIcon />
           </IconBtn>
@@ -2848,6 +2913,82 @@ export function Sidebar(): JSX.Element {
             }
           }}
         >
+          {favoriteItems.length > 0 && (
+            <>
+              <SidebarSectionHeading label="Favorites" />
+              {favoriteItems.map((item) => {
+                  const idx = idxCounter.current.value++;
+                  const vimHighlight = vimCursor === idx;
+                  if (item.kind === "note") {
+                    return (
+                      <FavoriteRow
+                        key={item.key}
+                        label={item.title || "Untitled"}
+                        icon={
+                          item.isDrawing ? (
+                            <ExcalidrawIcon width={13} height={13} />
+                          ) : (
+                            <DocumentIcon width={13} height={13} />
+                          )
+                        }
+                        active={selectedPath === item.path}
+                        onClick={() => {
+                          setFocusedPanel("editor");
+                          handleSelectNote(item.path);
+                        }}
+                        onContextMenu={(e) => {
+                          const note = notes.find((n) => n.path === item.path);
+                          if (note) openNoteMenu(e, note);
+                        }}
+                        sidebarIdx={idx}
+                        vimHighlight={vimHighlight}
+                        sidebarFocused={isSidebarFocused}
+                        dataAttrs={{
+                          "data-sidebar-type": "note",
+                          "data-sidebar-path": item.path,
+                        }}
+                      />
+                    );
+                  }
+                  return (
+                    <FavoriteRow
+                      key={item.key}
+                      label={item.label}
+                      icon={
+                        resolveFolderIconOption(
+                          item.folder,
+                          item.subpath,
+                          vaultSettings.folderIcons,
+                        ).icon
+                      }
+                      active={isFolderActive(item.folder, item.subpath)}
+                      onClick={() => {
+                        setFocusedPanel("editor");
+                        setView({
+                          kind: "folder",
+                          folder: item.folder,
+                          subpath: item.subpath,
+                        });
+                      }}
+                      onContextMenu={(e) =>
+                        openFolderMenu(e, item.folder, item.subpath)
+                      }
+                      sidebarIdx={idx}
+                      vimHighlight={vimHighlight}
+                      sidebarFocused={isSidebarFocused}
+                      dataAttrs={{
+                        "data-sidebar-type": "folder",
+                        "data-sidebar-folder": item.folder,
+                        "data-sidebar-subpath": item.subpath,
+                      }}
+                    />
+                  );
+                })}
+            </>
+          )}
+
+          <SidebarSectionHeading label="Quick access" />
+
           <TaskSidebarRow
             active={tasksViewActive}
             onClick={() => void openTasksView()}
@@ -2923,54 +3064,9 @@ export function Sidebar(): JSX.Element {
             onNoteContextMenu={openNoteMenu}
             dragPayloadForItem={dragPayloadForItem}
             onRootContextMenu={(e, subpath) => openFolderMenu(e, "inbox", subpath)}
+            idxCounter={idxCounter.current}
+            vimCursor={vimCursor}
           />
-
-          <div className="mt-1">
-            <ArchiveSidebarRow
-              label={folderLabels.archive}
-              icon={resolveFolderIconOption("archive", "", vaultSettings.folderIcons).icon}
-              count={countNotesInTree(trees.archive)}
-              active={
-                archiveViewActive ||
-                (view.kind === "folder" && view.folder === "archive") ||
-                !!selectedPath?.startsWith("archive/")
-              }
-              onClick={() => {
-                void openArchiveView();
-              }}
-              onContextMenu={(e) => openFolderMenu(e, "archive", "")}
-              sidebarIdx={idxCounter.current.value++}
-              vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={isSidebarFocused}
-            />
-
-            <TrashSidebarRow
-              label={folderLabels.trash}
-              icon={resolveFolderIconOption("trash", "", vaultSettings.folderIcons).icon}
-              count={countNotesInTree(trees.trash)}
-              active={trashViewActive || !!selectedPath?.startsWith("trash/")}
-              onClick={() => {
-                void openTrashView();
-              }}
-              onContextMenu={(e) => openFolderMenu(e, "trash", "")}
-              sidebarIdx={idxCounter.current.value++}
-              vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={isSidebarFocused}
-            />
-
-            <TrashSidebarRow
-              label="Assets"
-              icon={<PaperclipIcon width={16} height={16} />}
-              count={assetCount}
-              active={assetsViewActive}
-              onClick={() => {
-                void openAssetsView();
-              }}
-              sidebarIdx={idxCounter.current.value++}
-              vimHighlight={vimCursor === idxCounter.current.value - 1}
-              sidebarFocused={isSidebarFocused}
-            />
-          </div>
 
           <SidebarSectionHeading
             label="Notes"
@@ -3048,10 +3144,9 @@ export function Sidebar(): JSX.Element {
             />
           )}
 
-          {/* Tag pills — pushed to the bottom of the tree area, just above
-              the footer, via mt-auto (the wrapper is min-h-full flex-col). */}
+          {/* Tags flow with the content, right after the notes tree. */}
           {tags.length > 0 && (
-            <div className="mt-auto pt-5">
+            <div className="pt-4">
               <button
                 type="button"
                 onClick={() => setTagsCollapsed(!tagsCollapsed)}
@@ -3059,19 +3154,6 @@ export function Sidebar(): JSX.Element {
                 aria-expanded={!tagsCollapsed}
                 className="flex w-full items-center gap-1 rounded px-2 pb-2 text-xs font-medium uppercase tracking-wide text-ink-500 transition-colors hover:text-ink-800"
               >
-                {showSidebarChevrons && (
-                  <span
-                    aria-hidden
-                    className="inline-block transition-transform"
-                    style={{
-                      transform: tagsCollapsed
-                        ? "rotate(-90deg)"
-                        : "rotate(0deg)",
-                    }}
-                  >
-                    ▾
-                  </span>
-                )}
                 <span>Tags</span>
                 <span className="ml-1 text-ink-500 normal-case tracking-normal">
                   {tags.length}
@@ -3130,7 +3212,51 @@ export function Sidebar(): JSX.Element {
                 </div>
               )}
             </div>
-          )}
+            )}
+
+          {/* System (Archive / Trash / Assets) pinned to the bottom. */}
+          <div className="mt-auto pt-4">
+            <SidebarSectionHeading label="System" />
+              <SystemRow
+                icon={resolveFolderIconOption("archive", "", vaultSettings.folderIcons).icon}
+                label={folderLabels.archive}
+                count={countNotesInTree(trees.archive)}
+                active={
+                  archiveViewActive ||
+                  (view.kind === "folder" && view.folder === "archive") ||
+                  !!selectedPath?.startsWith("archive/")
+                }
+                onClick={() => void openArchiveView()}
+                onContextMenu={(e) => openFolderMenu(e, "archive", "")}
+                sidebarIdx={idxCounter.current.value++}
+                vimHighlight={vimCursor === idxCounter.current.value - 1}
+                sidebarFocused={isSidebarFocused}
+                sidebarType="archive"
+              />
+              <SystemRow
+                icon={resolveFolderIconOption("trash", "", vaultSettings.folderIcons).icon}
+                label={folderLabels.trash}
+                count={countNotesInTree(trees.trash)}
+                active={trashViewActive || !!selectedPath?.startsWith("trash/")}
+                onClick={() => void openTrashView()}
+                onContextMenu={(e) => openFolderMenu(e, "trash", "")}
+                sidebarIdx={idxCounter.current.value++}
+                vimHighlight={vimCursor === idxCounter.current.value - 1}
+                sidebarFocused={isSidebarFocused}
+                sidebarType="trash"
+              />
+              <SystemRow
+                icon={<PaperclipIcon width={16} height={16} />}
+                label="Assets"
+                count={assetCount}
+                active={assetsViewActive}
+                onClick={() => void openAssetsView()}
+                sidebarIdx={idxCounter.current.value++}
+                vimHighlight={vimCursor === idxCounter.current.value - 1}
+                sidebarFocused={isSidebarFocused}
+                sidebarType="assets"
+              />
+            </div>
         </div>
       </div>
 
@@ -3151,7 +3277,7 @@ export function Sidebar(): JSX.Element {
             sidebarIdx={idxCounter.current.value++}
             vimHighlight={vimCursor === idxCounter.current.value - 1}
             sidebarFocused={isSidebarFocused}
-            sidebarData={{ type: "assets" }}
+            sidebarData={{ type: "files" }}
           />
         )}
         {(!hasAssetsDir || !canRevealInFileManager) && <div />}
@@ -4704,29 +4830,31 @@ function TaskSidebarRow({
   );
 }
 
-function ArchiveSidebarRow({
+// A single favorited note/folder row. Sets the same data-sidebar-* attributes
+// as a regular note/folder row so the shared Vim activation (Enter) and the
+// `m` context-menu key work without special-casing.
+function FavoriteRow({
   label,
   icon,
-  count,
   active,
   onClick,
   onContextMenu,
   sidebarIdx,
   vimHighlight,
   sidebarFocused = false,
+  dataAttrs,
 }: {
   label: string;
   icon: JSX.Element;
-  count: number;
   active: boolean;
   onClick: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   sidebarIdx?: number;
   vimHighlight?: boolean;
   sidebarFocused?: boolean;
+  dataAttrs: Record<string, string | number>;
 }): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
-
   return (
     <div
       role="button"
@@ -4752,37 +4880,24 @@ function ArchiveSidebarRow({
             : "text-ink-800 hover:bg-paper-200/70",
       ].join(" ")}
       style={{ paddingLeft: 4 }}
-      {...(sidebarIdx != null
-        ? {
-            "data-sidebar-idx": sidebarIdx,
-            "data-sidebar-type": "archive",
-          }
-        : {
-            "data-sidebar-type": "archive",
-          })}
+      {...(sidebarIdx != null ? { "data-sidebar-idx": sidebarIdx } : {})}
+      {...dataAttrs}
     >
       <SidebarGlyph active={strongActive} rowActive={active}>
         {icon}
       </SidebarGlyph>
       <span className="flex-1 truncate">{label}</span>
       {sidebarFocused && vimHighlight && (
-        <RowKeyHint active={active} keyLabel="m" compact={count > 0} />
-      )}
-      {count > 0 && (
-        <span
-          className={[
-            "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
-          ].join(" ")}
-        >
-          {count}
-        </span>
+        <RowKeyHint active={active} keyLabel="m" compact />
       )}
     </div>
   );
 }
 
-function TrashSidebarRow({
+// A System row (Archive / Trash / Assets): a full-width vertical row with a
+// leading glyph, label, and trailing count. Vim-navigable and activatable via
+// its data-sidebar-type.
+function SystemRow({
   label,
   icon,
   count,
@@ -4792,6 +4907,7 @@ function TrashSidebarRow({
   sidebarIdx,
   vimHighlight,
   sidebarFocused = false,
+  sidebarType,
 }: {
   label: string;
   icon: JSX.Element;
@@ -4802,6 +4918,7 @@ function TrashSidebarRow({
   sidebarIdx?: number;
   vimHighlight?: boolean;
   sidebarFocused?: boolean;
+  sidebarType: string;
 }): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
 
@@ -4831,13 +4948,8 @@ function TrashSidebarRow({
       ].join(" ")}
       style={{ paddingLeft: 4 }}
       {...(sidebarIdx != null
-        ? {
-            "data-sidebar-idx": sidebarIdx,
-            "data-sidebar-type": "trash",
-          }
-        : {
-            "data-sidebar-type": "trash",
-          })}
+        ? { "data-sidebar-idx": sidebarIdx, "data-sidebar-type": sidebarType }
+        : { "data-sidebar-type": sidebarType })}
     >
       <SidebarGlyph active={strongActive} rowActive={active}>
         {icon}
@@ -5092,6 +5204,8 @@ function DateNotesNav({
   onNoteContextMenu,
   dragPayloadForItem,
   onRootContextMenu,
+  idxCounter,
+  vimCursor,
 }: {
   dateNav: DateNavData;
   expanded: Set<string>;
@@ -5112,6 +5226,8 @@ function DateNotesNav({
   onNoteContextMenu: (e: React.MouseEvent, note: NoteMeta) => void;
   dragPayloadForItem: (item: SidebarSelectionItem) => DragPayload;
   onRootContextMenu?: (e: React.MouseEvent, subpath: string) => void;
+  idxCounter: { value: number };
+  vimCursor: number;
 }): JSX.Element | null {
   const rows: JSX.Element[] = [];
   const monthName = (year: number, month: number): string =>
@@ -5125,39 +5241,58 @@ function DateNotesNav({
     icon: JSX.Element,
     active: boolean,
     chevron: boolean,
+    // The date directory this group belongs to, so Vim Enter navigates there.
+    sidebarSubpath: string,
     onContextMenu?: (e: React.MouseEvent) => void,
-  ): JSX.Element => (
-    <TreeRow
-      key={key}
-      icon={icon}
-      label={label}
-      count={count}
-      active={active}
-      expandable
-      collapsed={!expanded.has(key)}
-      depth={depth}
-      onToggle={() => onToggle(key)}
-      onSelect={onSelect}
-      onContextMenu={onContextMenu}
-      reserveLeadingSlot={chevron}
-      showExpandChevron={chevron}
-    />
-  );
-  const leaf = (note: NoteMeta, depth: number): JSX.Element => (
-    <NoteLeaf
-      key={note.path}
-      note={note}
-      depth={depth}
-      showSidebarChevrons={showSidebarChevrons}
-      active={note.path === selectedPath}
-      selected={selectedKeys.has(noteSelectionKey(note.path))}
-      sidebarFocused={sidebarFocused}
-      onSelectItem={onSelectItem}
-      onSelectNote={onSelectNote}
-      onContextMenuNote={onNoteContextMenu}
-      dragPayloadForItem={dragPayloadForItem}
-    />
-  );
+  ): JSX.Element => {
+    const idx = idxCounter.value++;
+    return (
+      <TreeRow
+        key={key}
+        icon={icon}
+        label={label}
+        count={count}
+        active={active}
+        expandable
+        collapsed={!expanded.has(key)}
+        depth={depth}
+        onToggle={() => onToggle(key)}
+        onSelect={onSelect}
+        onContextMenu={onContextMenu}
+        reserveLeadingSlot={chevron}
+        showExpandChevron={chevron}
+        sidebarIdx={idx}
+        vimHighlight={vimCursor === idx}
+        sidebarFocused={sidebarFocused}
+        sidebarData={{
+          type: "folder",
+          folder: "inbox",
+          subpath: sidebarSubpath,
+          key: "",
+        }}
+      />
+    );
+  };
+  const leaf = (note: NoteMeta, depth: number): JSX.Element => {
+    const idx = idxCounter.value++;
+    return (
+      <NoteLeaf
+        key={note.path}
+        note={note}
+        depth={depth}
+        showSidebarChevrons={showSidebarChevrons}
+        active={note.path === selectedPath}
+        selected={selectedKeys.has(noteSelectionKey(note.path))}
+        sidebarFocused={sidebarFocused}
+        onSelectItem={onSelectItem}
+        onSelectNote={onSelectNote}
+        onContextMenuNote={onNoteContextMenu}
+        dragPayloadForItem={dragPayloadForItem}
+        sidebarIdx={idx}
+        vimHighlight={vimCursor === idx}
+      />
+    );
+  };
 
   if (dateNav.dailyEnabled && dateNav.dailyTotal > 0) {
     rows.push(
@@ -5170,6 +5305,7 @@ function DateNotesNav({
         dailyIcon,
         isFolderActive("inbox", dateNav.dailyDir),
         false,
+        dateNav.dailyDir,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.dailyDir) : undefined,
       ),
     );
@@ -5186,6 +5322,7 @@ function DateNotesNav({
             <FolderGlyphIcon open={expanded.has(yKey)} />,
             false,
             showSidebarChevrons,
+            dateNav.dailyDir,
           ),
         );
         if (expanded.has(yKey)) {
@@ -5201,6 +5338,7 @@ function DateNotesNav({
                 <FolderGlyphIcon open={expanded.has(mKey)} />,
                 false,
                 showSidebarChevrons,
+                dateNav.dailyDir,
               ),
             );
             if (expanded.has(mKey)) for (const n of mg.notes) rows.push(leaf(n, 3));
@@ -5221,6 +5359,7 @@ function DateNotesNav({
         weeklyIcon,
         isFolderActive("inbox", dateNav.weeklyDir),
         false,
+        dateNav.weeklyDir,
         onRootContextMenu ? (e) => onRootContextMenu(e, dateNav.weeklyDir) : undefined,
       ),
     );
@@ -5237,6 +5376,7 @@ function DateNotesNav({
             <FolderGlyphIcon open={expanded.has(yKey)} />,
             false,
             showSidebarChevrons,
+            dateNav.weeklyDir,
           ),
         );
         if (expanded.has(yKey)) for (const n of yg.notes) rows.push(leaf(n, 2));
@@ -5245,7 +5385,7 @@ function DateNotesNav({
   }
 
   if (rows.length === 0) return null;
-  return <div className="mt-1 flex flex-col">{rows}</div>;
+  return <div className="flex flex-col">{rows}</div>;
 }
 
 function RowKeyHint({

@@ -194,7 +194,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
   folderIcons: {},
-  folderColors: {}
+  folderColors: {},
+  favorites: []
 }
 
 interface VaultTextSearchCandidate {
@@ -747,7 +748,8 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       templateId: settings.weeklyNotes.templateId
     },
     folderIcons: { ...settings.folderIcons },
-    folderColors: { ...settings.folderColors }
+    folderColors: { ...settings.folderColors },
+    favorites: [...settings.favorites]
   }
 }
 
@@ -857,7 +859,8 @@ function normalizeVaultSettings(
         locale: DEFAULT_WEEKLY_NOTE_LOCALE
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     }
   }
   const candidate = value as {
@@ -880,6 +883,7 @@ function normalizeVaultSettings(
     } | null
     folderIcons?: Record<string, unknown> | null
     folderColors?: Record<string, unknown> | null
+    favorites?: unknown
   }
   const folderIcons: Record<string, FolderIconId> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -915,8 +919,21 @@ function normalizeVaultSettings(
       templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
     },
     folderIcons,
-    folderColors: normalizeFolderColors(candidate.folderColors)
+    folderColors: normalizeFolderColors(candidate.folderColors),
+    favorites: normalizeFavorites(candidate.favorites)
   }
+}
+
+function normalizeFavorites(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry || seen.has(entry)) continue
+    seen.add(entry)
+    out.push(entry)
+  }
+  return out
 }
 
 function folderIconKey(folder: NoteFolder, subpath: string): string {

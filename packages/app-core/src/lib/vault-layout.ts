@@ -477,6 +477,15 @@ export function normalizeVaultSettings(
       normalizedFolderColors[key] = value
     }
   }
+  const normalizedFavorites: string[] = []
+  if (Array.isArray(settings?.favorites)) {
+    const seen = new Set<string>()
+    for (const entry of settings.favorites) {
+      if (typeof entry !== 'string' || !entry || seen.has(entry)) continue
+      seen.add(entry)
+      normalizedFavorites.push(entry)
+    }
+  }
   const primaryNotesLocation =
     settings?.primaryNotesLocation === 'root'
       ? 'root'
@@ -515,12 +524,108 @@ export function normalizeVaultSettings(
       templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
     },
     folderIcons: normalizedFolderIcons,
-    folderColors: normalizedFolderColors
+    folderColors: normalizedFolderColors,
+    favorites: normalizedFavorites
   }
 }
 
 export function folderIconKey(folder: NoteFolder, subpath: string): string {
   return `${folder}:${subpath}`
+}
+
+/**
+ * Favorites store either a note's vault-relative path (e.g. `inbox/Idea.md`) or a
+ * folder key `folder:subpath`. Folder keys always contain a `:`; note paths never
+ * do, so the colon discriminates the two.
+ */
+export function favoriteFolderKey(folder: NoteFolder, subpath: string): string {
+  return folderIconKey(folder, subpath)
+}
+
+export function isFavoriteFolderKey(key: string): boolean {
+  return key.includes(':')
+}
+
+/** Parse a folder favorite key back into its `{ folder, subpath }` parts. */
+export function parseFavoriteFolderKey(
+  key: string
+): { folder: NoteFolder; subpath: string } | null {
+  const idx = key.indexOf(':')
+  if (idx === -1) return null
+  const folder = key.slice(0, idx) as NoteFolder
+  return { folder, subpath: key.slice(idx + 1) }
+}
+
+/** Toggle a favorite key, returning the next list (added at the end, or removed). */
+export function toggleFavorite(favorites: string[], key: string): string[] {
+  return favorites.includes(key)
+    ? favorites.filter((f) => f !== key)
+    : [...favorites, key]
+}
+
+/** Rewrite a note favorite when its path changes (rename or move). */
+export function rewriteFavoriteNotePath(
+  favorites: string[],
+  oldPath: string,
+  newPath: string
+): string[] {
+  if (oldPath === newPath || !favorites.includes(oldPath)) return favorites
+  return favorites.map((f) => (f === oldPath ? newPath : f))
+}
+
+/**
+ * Rewrite favorites after a folder rename/move: the folder's own key plus every
+ * note favorite whose path lived under that folder are repointed at the new
+ * location. `oldRelPrefix`/`newRelPrefix` are the vault-relative folder paths
+ * (with trailing slash) used to rewrite note paths.
+ */
+export function rewriteFavoritesForFolderRename(
+  favorites: string[],
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string,
+  oldRelPrefix: string,
+  newRelPrefix: string
+): string[] {
+  const exactKey = favoriteFolderKey(folder, oldSubpath)
+  const keyPrefix = `${exactKey}/`
+  const newExactKey = favoriteFolderKey(folder, newSubpath)
+  return favorites.map((f) => {
+    if (f === exactKey) return newExactKey
+    if (f.startsWith(keyPrefix)) {
+      return favoriteFolderKey(folder, newSubpath + f.slice(exactKey.length))
+    }
+    if (oldRelPrefix && f.startsWith(oldRelPrefix)) {
+      return newRelPrefix + f.slice(oldRelPrefix.length)
+    }
+    return f
+  })
+}
+
+/** Remove a single favorite key (note path or folder key) if present. */
+export function removeFavorite(favorites: string[], key: string): string[] {
+  return favorites.includes(key) ? favorites.filter((f) => f !== key) : favorites
+}
+
+/**
+ * Remove favorites for a deleted folder: its own key, any descendant folder
+ * keys, and any note favorites whose path lived under it (`relPrefix` is the
+ * vault-relative folder path with trailing slash).
+ */
+export function removeFavoritesForFolder(
+  favorites: string[],
+  folder: NoteFolder,
+  subpath: string,
+  relPrefix: string
+): string[] {
+  const exactKey = favoriteFolderKey(folder, subpath)
+  const keyPrefix = `${exactKey}/`
+  return favorites.filter(
+    (f) =>
+      f !== exactKey &&
+      !f.startsWith(keyPrefix) &&
+      !(relPrefix && f.startsWith(relPrefix))
+  )
 }
 
 export function rewriteFolderIconsForRename(

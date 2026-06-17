@@ -7,8 +7,16 @@ import {
   dailyNoteLocationForDate,
   dateNoteFolderMayBelongToDatePattern,
   dateNoteDirectoryDisplayLabel,
+  favoriteFolderKey,
   folderForVaultRelativePath,
+  isFavoriteFolderKey,
   noteFolderSubpath,
+  normalizeVaultSettings,
+  parseFavoriteFolderKey,
+  removeFavoritesForFolder,
+  rewriteFavoriteNotePath,
+  rewriteFavoritesForFolderRename,
+  toggleFavorite,
   weeklyNoteLocationForDate
 } from './vault-layout'
 
@@ -34,7 +42,8 @@ function settings(dailyDirectory: string, weeklyDirectory: string): VaultSetting
     dailyNotes: { enabled: true, directory: dailyDirectory },
     weeklyNotes: { enabled: true, directory: weeklyDirectory },
     folderIcons: {},
-    folderColors: {}
+    folderColors: {},
+    favorites: []
   }
 }
 
@@ -72,7 +81,8 @@ describe('classifyDateNote', () => {
           locale: 'en-US'
         },
         folderIcons: {},
-        folderColors: {}
+        folderColors: {},
+        favorites: []
       } as VaultSettings
     )
 
@@ -93,7 +103,8 @@ describe('classifyDateNote', () => {
         },
         weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
         folderIcons: {},
-        folderColors: {}
+        folderColors: {},
+        favorites: []
       } as VaultSettings
     )
 
@@ -127,7 +138,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -147,7 +159,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     expect(dailyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -175,7 +188,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -195,7 +209,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -215,7 +230,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -235,7 +251,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -255,7 +272,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     expect(weeklyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -282,7 +300,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -305,7 +324,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     const info = classifyDateNote(note('inbox/2026/06-09.md', '06-09'), vaultSettings)
@@ -325,7 +345,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     // ISO week 24 falls entirely in June, so a July folder cannot round-trip.
@@ -351,7 +372,8 @@ describe('classifyDateNote', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -377,7 +399,8 @@ describe('classifyDateNote', () => {
         ]
       },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -419,7 +442,8 @@ describe('dateNoteFolderMayBelongToDatePattern', () => {
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
       folderIcons: {},
-      folderColors: {}
+      folderColors: {},
+      favorites: []
     } as VaultSettings
 
     expect(dateNoteFolderMayBelongToDatePattern('2026/Jun-Jun', vaultSettings)).toBe(true)
@@ -466,5 +490,68 @@ describe('folderForVaultRelativePath — case-insensitive system folders (#186)'
     // A top-level note in a capital `Inbox/` is at the root of the view, not
     // nested under a phantom `Inbox` subfolder.
     expect(noteFolderSubpath({ folder: 'inbox', path: 'Inbox/n.md' }, inboxMode)).toBe('')
+  })
+})
+
+describe('favorites', () => {
+  it('discriminates folder keys from note paths by the colon', () => {
+    expect(isFavoriteFolderKey('inbox:Projects')).toBe(true)
+    expect(isFavoriteFolderKey('inbox:')).toBe(true) // top-level folder key
+    expect(isFavoriteFolderKey('inbox/Idea.md')).toBe(false)
+    expect(favoriteFolderKey('inbox', 'Projects')).toBe('inbox:Projects')
+    expect(parseFavoriteFolderKey('inbox:Projects/Sub')).toEqual({
+      folder: 'inbox',
+      subpath: 'Projects/Sub'
+    })
+    expect(parseFavoriteFolderKey('inbox/Idea.md')).toBeNull()
+  })
+
+  it('toggles a key on and off', () => {
+    expect(toggleFavorite([], 'inbox/A.md')).toEqual(['inbox/A.md'])
+    expect(toggleFavorite(['inbox/A.md', 'x:y'], 'inbox/A.md')).toEqual(['x:y'])
+    // Added at the end, preserving order.
+    expect(toggleFavorite(['x:y'], 'inbox/A.md')).toEqual(['x:y', 'inbox/A.md'])
+  })
+
+  it('rewrites a note favorite when the note is renamed/moved', () => {
+    const favs = ['inbox/A.md', 'inbox:Projects']
+    expect(rewriteFavoriteNotePath(favs, 'inbox/A.md', 'inbox/B.md')).toEqual([
+      'inbox/B.md',
+      'inbox:Projects'
+    ])
+    // Unaffected favorites return the same reference (no needless persist).
+    expect(rewriteFavoriteNotePath(favs, 'inbox/Z.md', 'inbox/Q.md')).toBe(favs)
+  })
+
+  it('repoints favorites when a folder is renamed', () => {
+    const favs = ['inbox:Projects', 'inbox:Projects/Sub', 'inbox/Projects/note.md', 'quick:Keep']
+    const next = rewriteFavoritesForFolderRename(
+      favs,
+      'inbox',
+      'Projects',
+      'Work',
+      'inbox/Projects/',
+      'inbox/Work/'
+    )
+    expect(next).toEqual(['inbox:Work', 'inbox:Work/Sub', 'inbox/Work/note.md', 'quick:Keep'])
+  })
+
+  it('removes favorites for a deleted folder and its notes', () => {
+    const favs = ['inbox:Projects', 'inbox:Projects/Sub', 'inbox/Projects/note.md', 'inbox/Other.md']
+    expect(
+      removeFavoritesForFolder(favs, 'inbox', 'Projects', 'inbox/Projects/')
+    ).toEqual(['inbox/Other.md'])
+  })
+
+  it('normalizes favorites: drops empties/dupes, keeps order', () => {
+    const settings = normalizeVaultSettings({
+      favorites: ['inbox/A.md', '', 'inbox/A.md', 'inbox:Projects']
+    } as unknown as VaultSettings)
+    expect(settings.favorites).toEqual(['inbox/A.md', 'inbox:Projects'])
+  })
+
+  it('defaults favorites to an empty array', () => {
+    const settings = normalizeVaultSettings({} as unknown as VaultSettings)
+    expect(settings.favorites).toEqual([])
   })
 })
