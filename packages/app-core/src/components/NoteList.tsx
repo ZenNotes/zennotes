@@ -758,7 +758,7 @@ export function NoteList(): JSX.Element {
             <IconButton
               size="sm"
               title="New note"
-              onClick={() => void createAndOpen(newTarget.folder, newTarget.subpath)}
+              onClick={() => void createAndOpen(newTarget.folder, newTarget.subpath, { focusTitle: true })}
             >
               <PlusIcon />
             </IconButton>

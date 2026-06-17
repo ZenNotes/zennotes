@@ -1613,7 +1613,7 @@ export function Sidebar(): JSX.Element {
       {
         label: "New note",
         onSelect: async () => {
-          await createAndOpen(folder, subpath);
+          await createAndOpen(folder, subpath, { focusTitle: true });
         },
       },
       {
@@ -1839,7 +1839,7 @@ export function Sidebar(): JSX.Element {
       {
         label: "New note",
         onSelect: async () => {
-          await createAndOpen("inbox", "");
+          await createAndOpen("inbox", "", { focusTitle: true });
         },
       },
       {
