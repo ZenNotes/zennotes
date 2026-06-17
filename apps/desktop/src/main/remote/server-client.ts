@@ -9,6 +9,7 @@ import type {
   NoteFolder,
   NoteMeta,
   ServerCapabilities,
+  SyncManifestEntry,
   VaultChangeEvent,
   VaultDemoTourResult,
   VaultInfo,
@@ -70,6 +71,10 @@ export class RemoteServerClient {
 
   async listNotes(): Promise<NoteMeta[]> {
     return this.jsonRequest<NoteMeta[]>('/api/notes')
+  }
+
+  async getSyncManifest(): Promise<SyncManifestEntry[]> {
+    return this.jsonRequest<SyncManifestEntry[]>('/api/sync/manifest')
   }
 
   async listFolders(): Promise<FolderEntry[]> {

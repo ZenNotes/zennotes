@@ -529,6 +529,29 @@ export interface ServerCapabilities {
   supportsSyncManifest?: boolean
 }
 
+/** One file in the server sync manifest. Mirrors the Go ManifestEntry. */
+export interface SyncManifestEntry {
+  path: string
+  hash: string
+  size: number
+  mtime: number
+}
+
+export type SyncStatusKind = 'idle' | 'syncing' | 'offline' | 'error'
+
+/** Live sync status for a synced vault, pushed to the renderer. */
+export interface SyncStatus {
+  kind: SyncStatusKind
+  /** Files changed locally still to push (best-effort, from the last run). */
+  pendingPush: number
+  /** Files changed remotely still to pull (best-effort, from the last run). */
+  pendingPull: number
+  /** Conflict-copy paths created (kept-both). */
+  conflicts: string[]
+  lastSyncAt: number
+  lastError: string | null
+}
+
 export interface ServerSessionStatus {
   authenticated: boolean
   authRequired: boolean
