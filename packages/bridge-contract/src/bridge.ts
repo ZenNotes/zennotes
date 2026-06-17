@@ -106,6 +106,8 @@ export interface ZenBridge {
   getSyncStatus(): Promise<SyncStatus | null>
   /** Trigger an immediate reconcile. */
   syncNow(): Promise<void>
+  /** Remove a resolved conflict copy from the status list. */
+  dismissSyncConflict(copyPath: string): Promise<void>
   /** Attach the open local vault to a saved server and switch it to synced mode. */
   attachSyncServer(profileId: string): Promise<VaultInfo>
   /** Stop syncing and reopen the folder as a plain local vault. */

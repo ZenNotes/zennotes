@@ -1128,6 +1128,7 @@ export const httpBridge: ZenBridge = {
   // copy, so sync controls are inert here.
   getSyncStatus: () => Promise.resolve(null),
   syncNow: () => Promise.resolve(),
+  dismissSyncConflict: (_copyPath: string) => Promise.resolve(),
   attachSyncServer: (_profileId: string) =>
     Promise.reject(new Error('Syncing is a desktop feature.')),
   detachSyncServer: () => Promise.resolve(null),

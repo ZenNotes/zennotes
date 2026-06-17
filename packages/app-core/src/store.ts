@@ -2016,6 +2016,9 @@ interface Store {
   attachSyncServer: (profileId: string) => Promise<void>
   /** Stop syncing and reopen the folder as a plain local vault. */
   detachSyncServer: () => Promise<void>
+  /** Resolve a kept-both conflict copy: keep the local original, or adopt the
+   *  copy's version into the original. Either way the copy is removed. */
+  resolveSyncConflict: (copyPath: string, resolution: 'keepMine' | 'keepTheirs') => Promise<void>
   persistWorkspace: () => void
   flushDirtyNotes: () => Promise<void>
   refreshWorkspaceContext: () => Promise<RemoteWorkspaceInfo | null>
@@ -2123,6 +2126,15 @@ function findMatchingRemoteProfile(
 
 function workspaceModeFrom(info: RemoteWorkspaceInfo | null): WorkspaceMode {
   return info?.mode === 'remote' || info?.mode === 'synced' ? info.mode : 'local'
+}
+
+/** Strip the " (conflict <dev> <date> <time>)" suffix a sync conflict copy adds,
+ *  recovering the original note's path. */
+function originalFromConflictPath(copyPath: string): string {
+  return copyPath.replace(
+    / \(conflict [0-9a-f]{8} \d{4}-\d{2}-\d{2} \d{6}\)(?=(\.[^/]+)?$)/,
+    ''
+  )
 }
 
 async function ensureWebServerSession(
@@ -5633,6 +5645,21 @@ export const useStore = create<Store>((set, get) => {
     await window.zen.detachSyncServer()
     set({ syncStatus: null })
     await get().refreshWorkspaceContext()
+    await get().refreshNotes()
+  },
+  resolveSyncConflict: async (copyPath, resolution) => {
+    const original = originalFromConflictPath(copyPath)
+    try {
+      if (resolution === 'keepTheirs' && original !== copyPath) {
+        const copy = await window.zen.readNote(copyPath)
+        await window.zen.writeNote(original, copy.body)
+      }
+      await window.zen.moveToTrash(copyPath) // discard the conflict copy
+    } catch (err) {
+      console.error('resolveSyncConflict failed', err)
+    }
+    await window.zen.dismissSyncConflict(copyPath)
+    await get().refreshSyncStatus()
     await get().refreshNotes()
   },
 

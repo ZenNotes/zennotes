@@ -115,6 +115,14 @@ export class SyncEngine {
     this.schedule(true)
   }
 
+  /** Drop a conflict-copy path from the status list once the user has dealt
+   *  with it (the file ops happen through the normal vault IPC). */
+  dismissConflict(copyPath: string): void {
+    if (this.status.conflicts.includes(copyPath)) {
+      this.setStatus({ conflicts: this.status.conflicts.filter((c) => c !== copyPath) })
+    }
+  }
+
   private schedule(immediate = false): void {
     if (!this.running) return
     if (this.debounceTimer) clearTimeout(this.debounceTimer)

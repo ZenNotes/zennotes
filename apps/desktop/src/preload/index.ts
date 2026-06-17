@@ -231,6 +231,8 @@ const api: ZenBridge = {
 
   getSyncStatus: (): Promise<SyncStatus | null> => ipcRenderer.invoke(IPC.SYNC_GET_STATUS),
   syncNow: (): Promise<void> => ipcRenderer.invoke(IPC.SYNC_NOW),
+  dismissSyncConflict: (copyPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.SYNC_DISMISS_CONFLICT, copyPath),
   attachSyncServer: async (profileId: string): Promise<VaultInfo> => {
     const vault = await ipcRenderer.invoke(IPC.SYNC_ATTACH_SERVER, profileId)
     await refreshRemoteWorkspaceInfo()

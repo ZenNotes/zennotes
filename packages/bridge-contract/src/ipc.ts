@@ -15,6 +15,7 @@ export const IPC = {
   SYNC_ATTACH_SERVER: 'sync:attach-server',
   SYNC_DETACH_SERVER: 'sync:detach-server',
   SYNC_OPEN_VAULT: 'sync:open-vault',
+  SYNC_DISMISS_CONFLICT: 'sync:dismiss-conflict',
   VAULT_LIST_LOCAL: 'vault:list-local',
   VAULT_OPEN_LOCAL: 'vault:open-local',
   VAULT_CLOSE: 'vault:close',

@@ -2048,6 +2048,10 @@ function registerIpc(): void {
     activeSyncEngine?.syncNow()
   })
 
+  handle(IPC.SYNC_DISMISS_CONFLICT, async (_e, copyPath: string) => {
+    activeSyncEngine?.dismissConflict(copyPath)
+  })
+
   // Attach the currently open local vault to a saved server and switch it to
   // synced mode (bidirectional backup/sync).
   handle(IPC.SYNC_ATTACH_SERVER, async (_e, profileId: string) => {

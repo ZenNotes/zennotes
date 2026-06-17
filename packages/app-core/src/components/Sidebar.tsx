@@ -44,6 +44,7 @@ import {
   TrashIcon,
 } from "./icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { SyncConflictModal } from "./SyncConflictModal";
 import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
@@ -458,6 +459,7 @@ export function Sidebar(): JSX.Element {
   const attachSyncServer = useStore((s) => s.attachSyncServer);
   const detachSyncServer = useStore((s) => s.detachSyncServer);
   const syncNow = useStore((s) => s.syncNow);
+  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const openVaultPicker = useStore((s) => s.openVaultPicker);
   const openLocalVault = useStore((s) => s.openLocalVault);
   const closeVault = useStore((s) => s.closeVault);
@@ -2799,7 +2801,13 @@ export function Sidebar(): JSX.Element {
         )}
         <div className="flex items-center gap-0.5">
           {syncStatus && (
-            <SyncStatusButton status={syncStatus} onSyncNow={() => void syncNow()} />
+            <SyncStatusButton
+              status={syncStatus}
+              onClick={() => {
+                if (syncStatus.conflicts.length > 0) setConflictModalOpen(true);
+                else void syncNow();
+              }}
+            />
           )}
           <IconBtn
             title="Create… (note, drawing, folder, database)"
@@ -3370,6 +3378,9 @@ export function Sidebar(): JSX.Element {
           items={folderMenuItems}
           onClose={() => setFolderMenu(null)}
         />
+      )}
+      {conflictModalOpen && (
+        <SyncConflictModal onClose={() => setConflictModalOpen(false)} />
       )}
       {rootMenu && (
         <ContextMenu
@@ -5183,10 +5194,10 @@ function SidebarFooterAction({
 
 function SyncStatusButton({
   status,
-  onSyncNow,
+  onClick,
 }: {
   status: SyncStatus;
-  onSyncNow: () => void;
+  onClick: () => void;
 }): JSX.Element {
   const hasConflicts = status.conflicts.length > 0;
   const view =
@@ -5214,9 +5225,13 @@ function SyncStatusButton({
   return (
     <button
       type="button"
-      onClick={onSyncNow}
+      onClick={onClick}
       aria-label={view.title}
-      title={`${view.title} — click to sync now`}
+      title={
+        hasConflicts
+          ? `${view.title} — click to resolve`
+          : `${view.title} — click to sync now`
+      }
       className={[
         "group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-paper-200",
         view.tint,
