@@ -23,6 +23,7 @@ import type {
   WorkspaceMode
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import { isExcalidrawPath } from '@shared/excalidraw'
 import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
 import {
@@ -1762,6 +1763,7 @@ interface Store {
     subpath?: string,
     options?: { focusTitle?: boolean; title?: string }
   ) => Promise<void>
+  createDrawingAndOpen: (folder: NoteFolder, subpath?: string) => Promise<void>
   /**
    * Create a note after asking where to put it: a destination prompt that
    * defaults to `initialPath` (empty = vault root), so the user can press Enter
@@ -3715,8 +3717,11 @@ export const useStore = create<Store>((set, get) => {
       await get().refreshNotes()
       return
     }
-    const pathIsMarkdown = ev.path.toLowerCase().endsWith('.md')
-    if (ev.scope !== 'vault-settings' && !pathIsMarkdown) {
+    // Excalidraw drawings are notes (they live in the notes tree), so treat
+    // their change events as note events, not asset events.
+    const pathIsNote =
+      ev.path.toLowerCase().endsWith('.md') || isExcalidrawPath(ev.path)
+    if (ev.scope !== 'vault-settings' && !pathIsNote) {
       await get().refreshAssets()
       return
     }
@@ -4016,6 +4021,17 @@ export const useStore = create<Store>((set, get) => {
       await get().selectNote(meta.path)
     } catch (err) {
       console.error('createNote failed', err)
+    }
+  },
+
+  createDrawingAndOpen: async (folder, subpath = '') => {
+    try {
+      const meta = await window.zen.createExcalidraw(folder, subpath)
+      await get().refreshNotes()
+      set({ view: { kind: 'folder', folder, subpath } })
+      await get().selectNote(meta.path)
+    } catch (err) {
+      console.error('createExcalidraw failed', err)
     }
   },
 

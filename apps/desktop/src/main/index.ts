@@ -45,6 +45,7 @@ import {
   archiveNote,
   createFolder,
   createNote,
+  createExcalidraw,
   deleteAsset,
   DEFAULT_QUICK_CAPTURE_HOTKEY,
   deleteFolder,
@@ -2280,6 +2281,17 @@ function registerIpc(): void {
       }
       const v = requireVault()
       return await createNote(v.root, folder, title, subpath)
+    }
+  )
+
+  handle(
+    IPC.VAULT_CREATE_EXCALIDRAW,
+    async (_e, folder: NoteFolder, subpath: string = '', title?: string) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().createExcalidraw(folder, subpath, title)
+      }
+      const v = requireVault()
+      return await createExcalidraw(v.root, folder, subpath, title)
     }
   )
 

@@ -778,6 +778,29 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
+      // A focused breadcrumb folder crumb (e.g. reached via hint mode) owns the
+      // context-menu key — open *its* create menu, not the sidebar item's.
+      {
+        const activeCrumb = document.activeElement as HTMLElement | null
+        if (
+          activeCrumb?.hasAttribute('data-crumb-menu') &&
+          (matchesSequenceToken(e, overrides, 'nav.contextMenu') || wantsNativeContextMenuKey(e))
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          const rect = activeCrumb.getBoundingClientRect()
+          activeCrumb.dispatchEvent(
+            new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              clientX: Math.round(rect.left),
+              clientY: Math.round(rect.bottom + 2)
+            })
+          )
+          return
+        }
+      }
+
       // ------- Sidebar navigation (explicit) -----------------------------
       // When focusedPanel is 'sidebar', always handle here — even if the
       // editor still holds stale DOM focus from a previous interaction.

@@ -151,6 +151,8 @@ export interface ZenBridge {
   writeNote(relPath: string, body: string): Promise<NoteMeta>
   appendToNote(relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta>
   createNote(folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta>
+  /** Create a new `.excalidraw` drawing seeded with an empty scene. */
+  createExcalidraw(folder: NoteFolder, subpath?: string, title?: string): Promise<NoteMeta>
   renameNote(relPath: string, nextTitle: string): Promise<NoteMeta>
   deleteNote(relPath: string): Promise<void>
   moveToTrash(relPath: string): Promise<NoteMeta>

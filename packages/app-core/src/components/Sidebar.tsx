@@ -27,6 +27,7 @@ import {
   CloseIcon,
   DatabaseIcon,
   DocumentIcon,
+  ExcalidrawIcon,
   ExpandAllIcon,
   PaperclipIcon,
   FolderPlusIcon,
@@ -73,6 +74,7 @@ import {
   formTitleFromDir,
   isFormDirName,
 } from "@shared/databases";
+import { isExcalidrawPath } from "@shared/excalidraw";
 import {
   FolderGlyphIcon,
   resolveFolderIconId,
@@ -398,6 +400,7 @@ export function Sidebar(): JSX.Element {
   const tagsViewActive = useStore(isTagsViewActive);
   const setSearchOpen = useStore((s) => s.setSearchOpen);
   const createAndOpen = useStore((s) => s.createAndOpen);
+  const createDrawingAndOpen = useStore((s) => s.createDrawingAndOpen);
   const createDatabase = useStore((s) => s.createDatabase);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
@@ -1692,6 +1695,12 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
+        label: "New drawing",
+        onSelect: async () => {
+          await createDrawingAndOpen(folder, subpath);
+        },
+      },
+      {
         label: "New from template",
         onSelect: () => {
           openTemplatePaletteForFolder(folder, subpath);
@@ -1885,6 +1894,7 @@ export function Sidebar(): JSX.Element {
     allFolders,
     vault,
     createAndOpen,
+    createDrawingAndOpen,
     createDatabase,
     openTemplatePaletteForFolder,
     openArchiveView,
@@ -1920,6 +1930,12 @@ export function Sidebar(): JSX.Element {
         },
       },
       {
+        label: "New drawing",
+        onSelect: async () => {
+          await createDrawingAndOpen("inbox", "");
+        },
+      },
+      {
         label: "New from template",
         onSelect: () => {
           openTemplatePaletteForFolder("inbox", "");
@@ -1950,7 +1966,7 @@ export function Sidebar(): JSX.Element {
         },
       },
     ],
-    [createAndOpen, createDatabase, openTemplatePaletteForFolder, createFolderAction],
+    [createAndOpen, createDrawingAndOpen, createDatabase, openTemplatePaletteForFolder, createFolderAction],
   );
 
   const noteMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -4237,19 +4253,23 @@ const NoteLeaf = memo(function NoteLeaf({
     >
       {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={strongActive} rowActive={active || selected}>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
-          <path d="M14 3v6h6" />
-        </svg>
+        {isExcalidrawPath(note.path) ? (
+          <ExcalidrawIcon width={14} height={14} />
+        ) : (
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9Z" />
+            <path d="M14 3v6h6" />
+          </svg>
+        )}
       </SidebarGlyph>
       <span className="flex-1 truncate">{note.title}</span>
       {note.isSymlink && (

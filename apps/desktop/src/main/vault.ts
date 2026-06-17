@@ -53,6 +53,7 @@ import {
   isDatabaseInternalPath,
   isFormDirName
 } from '@shared/databases'
+import { isExcalidrawPath, emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -1891,6 +1892,21 @@ async function isMarkdownNoteEntry(full: string, entry: Dirent): Promise<boolean
   return false
 }
 
+// `.excalidraw` drawings are listed alongside notes (so they show in the sidebar
+// tree); the sidebar/editor route them by extension to the drawing view.
+async function isExcalidrawFileEntry(full: string, entry: Dirent): Promise<boolean> {
+  if (!isExcalidrawPath(entry.name)) return false
+  if (entry.isFile()) return true
+  if (entry.isSymbolicLink()) {
+    try {
+      return (await fs.stat(full)).isFile()
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
 async function realpathOrResolve(p: string): Promise<string> {
   try {
     return await fs.realpath(p)
@@ -2257,6 +2273,28 @@ async function readMeta(
     return { ...cached.meta, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
   }
 
+  // Excalidraw drawings are JSON, not Markdown — don't parse their body for
+  // tags/links/excerpt (that would be garbage) or even read it for meta.
+  if (isExcalidrawPath(relPath)) {
+    const meta: NoteMeta = {
+      path: relPath,
+      title: path.basename(abs, path.extname(abs)),
+      folder,
+      siblingOrder: resolvedSiblingOrder,
+      createdAt: stat.birthtimeMs || stat.ctimeMs,
+      updatedAt: stat.mtimeMs,
+      size: stat.size,
+      tags: [],
+      wikilinks: [],
+      assetEmbeds: [],
+      hasAttachments: false,
+      excerpt: '',
+      isSymlink: linked
+    }
+    noteMetaCache.set(cacheKey, { mtimeMs: stat.mtimeMs, size: stat.size, meta })
+    return meta
+  }
+
   let body = ''
   try {
     body = await fs.readFile(abs, 'utf8')
@@ -2397,7 +2435,10 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
         ancestors.delete(childReal)
         continue
       }
-      if (await isMarkdownNoteEntry(full, entry)) {
+      if (
+        (await isMarkdownNoteEntry(full, entry)) ||
+        (await isExcalidrawFileEntry(full, entry))
+      ) {
         noteFiles.push({ full, folder, siblingOrder: index, isSymlink: entry.isSymbolicLink() })
       }
     }
@@ -2854,6 +2895,35 @@ export async function createNote(
   return await readMeta(root, abs, folder)
 }
 
+// Create a new `.excalidraw` drawing seeded with an empty scene. Mirrors
+// createNote (unique title, same folder/subpath resolution) but writes the
+// Excalidraw JSON instead of a Markdown stub.
+export async function createExcalidraw(
+  root: string,
+  folder: NoteFolder,
+  subpath = '',
+  title?: string
+): Promise<NoteMeta> {
+  const base = sanitizeNoteTitle(title) || 'Untitled drawing'
+  const clean = subpath.replace(/^\/+|\/+$/g, '')
+  const topRoot = await folderRoot(root, folder)
+  const dir = clean ? resolveSafe(topRoot, clean) : topRoot
+  await fs.mkdir(dir, { recursive: true })
+  let finalTitle = base
+  for (let n = 2; ; n++) {
+    try {
+      await fs.access(path.join(dir, `${finalTitle}.excalidraw`))
+      finalTitle = `${base} ${n}`
+    } catch {
+      break
+    }
+  }
+  const abs = path.join(dir, `${finalTitle}.excalidraw`)
+  await fs.writeFile(abs, JSON.stringify(emptyExcalidrawDocument(), null, 2), 'utf8')
+  invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
+  return await readMeta(root, abs, folder)
+}
+
 /**
  * Move a markdown file that lives outside the vault into the vault's
  * primary notes area, de-duplicating the title on collision. The source
@@ -2885,7 +2955,10 @@ export async function renameNote(
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   const dir = path.dirname(abs)
   const trimmed = sanitizeNoteTitle(nextTitle)
-  const target = path.join(dir, `${trimmed}.md`)
+  // Preserve the file's type on rename — a `.excalidraw` drawing must stay a
+  // drawing, not get turned into a `.md` note (which would render its JSON).
+  const ext = isExcalidrawPath(abs) ? '.excalidraw' : '.md'
+  const target = path.join(dir, `${trimmed}${ext}`)
   const willRename = target !== abs
   // Snapshot the vault before the rename so inbound [[wikilinks]] still
   // resolve to this note under its current name; we rewrite them afterwards.
@@ -2985,7 +3058,9 @@ async function moveBetweenFolders(
   await fs.mkdir(destDir, { recursive: true })
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)
-  const destAbs = path.join(destDir, `${finalTitle}.md`)
+  // Preserve the file type when moving (a `.excalidraw` drawing stays a drawing).
+  const ext = isExcalidrawPath(filename) ? '.excalidraw' : '.md'
+  const destAbs = path.join(destDir, `${finalTitle}${ext}`)
   await fs.rename(abs, destAbs)
   const meta = await readMeta(root, destAbs, target)
   await moveNoteComments(root, rel, meta.path)
@@ -3383,6 +3458,9 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
+      // Excalidraw drawings are a first-class file type (listed with notes), not
+      // a generic attachment.
+      if (isExcalidrawPath(entry.name)) continue
       // Legacy co-located sidecar/.bak (pre-migration) — not a user asset.
       if (isDatabaseInternalPath(entry.name)) continue
       let stat

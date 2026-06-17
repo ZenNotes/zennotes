@@ -324,6 +324,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_APPEND_NOTE, relPath, body, position),
   createNote: (folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_NOTE, folder, title, subpath),
+  createExcalidraw: (folder: NoteFolder, subpath?: string, title?: string): Promise<NoteMeta> =>
+    ipcRenderer.invoke(IPC.VAULT_CREATE_EXCALIDRAW, folder, subpath, title),
   renameNote: (relPath: string, nextTitle: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_NOTE, relPath, nextTitle),
   deleteNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE_NOTE, relPath),

@@ -85,8 +85,11 @@ import { OutlinePanel } from './OutlinePanel'
 import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { promptApp } from '../lib/prompt-requests'
 import { TasksView } from './TasksView'
 import { DatabaseView } from './DatabaseView'
+import { LazyExcalidrawView } from './LazyExcalidrawView'
+import { isExcalidrawPath } from '@shared/excalidraw'
 import { TagView } from './TagView'
 import { HelpView } from './HelpView'
 import { ArchiveView } from './ArchiveView'
@@ -2664,47 +2667,55 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const toolbar = useMemo(() => {
     if (!content) return null
     const folder = content.folder
+    // Excalidraw drawings only get the file-level actions (archive/trash) — the
+    // Markdown-specific controls (edit/split/preview, connections, comments,
+    // outline, calendar, PDF export) don't apply to a canvas.
+    const isDrawing = isExcalidrawPath(content.path)
     return (
       <div className="flex items-center gap-1 text-ink-500">
-        <ToggleGroup mode={mode} onChange={applyPaneMode} />
-        <div className="mx-2 h-4 w-px bg-paper-300" />
-        <IconBtn
-          title={connectionsOpen ? 'Hide connections' : 'Show connections'}
-          active={connectionsOpen}
-          onClick={toggleConnectionsPanel}
-        >
-          <PanelRightIcon />
-        </IconBtn>
-        <IconBtn
-          title={
-            commentsOpen
-              ? 'Hide comments'
-              : `Show comments${openCommentCount > 0 ? ` (${openCommentCount})` : ''}`
-          }
-          active={commentsOpen}
-          onClick={toggleCommentsPanel}
-        >
-          <FeedbackIcon />
-        </IconBtn>
-        <IconBtn
-          title={outlineOpen ? 'Hide outline' : 'Show outline'}
-          active={outlineOpen}
-          onClick={toggleOutlinePanel}
-        >
-          <ListTreeIcon />
-        </IconBtn>
-        {calendarAvailable && (
-          <IconBtn
-            title={calendarOpen ? 'Hide calendar' : 'Show calendar'}
-            active={calendarOpen}
-            onClick={toggleCalendarPanel}
-          >
-            <CalendarIcon />
-          </IconBtn>
+        {!isDrawing && (
+          <>
+            <ToggleGroup mode={mode} onChange={applyPaneMode} />
+            <div className="mx-2 h-4 w-px bg-paper-300" />
+            <IconBtn
+              title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+              active={connectionsOpen}
+              onClick={toggleConnectionsPanel}
+            >
+              <PanelRightIcon />
+            </IconBtn>
+            <IconBtn
+              title={
+                commentsOpen
+                  ? 'Hide comments'
+                  : `Show comments${openCommentCount > 0 ? ` (${openCommentCount})` : ''}`
+              }
+              active={commentsOpen}
+              onClick={toggleCommentsPanel}
+            >
+              <FeedbackIcon />
+            </IconBtn>
+            <IconBtn
+              title={outlineOpen ? 'Hide outline' : 'Show outline'}
+              active={outlineOpen}
+              onClick={toggleOutlinePanel}
+            >
+              <ListTreeIcon />
+            </IconBtn>
+            {calendarAvailable && (
+              <IconBtn
+                title={calendarOpen ? 'Hide calendar' : 'Show calendar'}
+                active={calendarOpen}
+                onClick={toggleCalendarPanel}
+              >
+                <CalendarIcon />
+              </IconBtn>
+            )}
+            <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
+              <FileDownIcon />
+            </IconBtn>
+          </>
         )}
-        <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
-          <FileDownIcon />
-        </IconBtn>
         {folder === 'trash' ? (
           <IconBtn title="Restore" onClick={() => void restoreActive()}>
             <ArrowUpRightIcon />
@@ -3154,6 +3165,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <LazyDiagramTabView diagram={diagramFromTabPath(activeTab)} />
           ) : activeTab && isDatabaseTabPath(activeTab) ? (
             <DatabaseView tabPath={activeTab} isActive={isActive} />
+          ) : activeTab && isExcalidrawPath(activeTab) ? (
+            <LazyExcalidrawView path={activeTab} />
           ) : content ? (
             <div
               className={[
@@ -3637,6 +3650,12 @@ function Breadcrumb({
   const setView = useStore((s) => s.setView)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
+  const createAndOpen = useStore((s) => s.createAndOpen)
+  const createDrawingAndOpen = useStore((s) => s.createDrawingAndOpen)
+  const createFolder = useStore((s) => s.createFolder)
+  const [crumbMenu, setCrumbMenu] = useState<{ x: number; y: number; subpath: string } | null>(
+    null
+  )
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(note.title)
   const [warning, setWarning] = useState('')
@@ -3662,10 +3681,11 @@ function Breadcrumb({
   const segments = noteFolderSubpath(note, vaultSettings)
     .split('/')
     .filter(Boolean)
-  const ancestors: { label: string; onClick: () => void }[] = []
+  const ancestors: { label: string; subpath: string; onClick: () => void }[] = []
   if (!(topFolder === 'inbox' && isPrimaryNotesAtRoot(vaultSettings))) {
     ancestors.push({
       label: getSystemFolderLabel(topFolder, systemFolderLabels),
+      subpath: '',
       onClick: () => setView({ kind: 'folder', folder: topFolder, subpath: '' })
     })
   }
@@ -3675,6 +3695,7 @@ function Breadcrumb({
     const subpath = acc
     ancestors.push({
       label: seg,
+      subpath,
       onClick: () => setView({ kind: 'folder', folder: topFolder, subpath })
     })
   }
@@ -3703,15 +3724,59 @@ function Breadcrumb({
       {ancestors.map((c, i) => (
         <span key={i} className="flex shrink-0 items-center gap-1">
           <button
+            data-crumb-menu=""
             onClick={c.onClick}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setCrumbMenu({ x: e.clientX, y: e.clientY, subpath: c.subpath })
+            }}
             className="truncate rounded px-1 hover:bg-paper-200/70 hover:text-ink-800"
-            title={`Go to ${c.label}`}
+            title={`Go to ${c.label} — right-click (or m) to create here`}
           >
             {c.label}
           </button>
           <span className="text-ink-400">›</span>
         </span>
       ))}
+      {crumbMenu && (
+        <ContextMenu
+          x={crumbMenu.x}
+          y={crumbMenu.y}
+          onClose={() => setCrumbMenu(null)}
+          items={[
+            {
+              label: 'New note',
+              onSelect: () =>
+                void createAndOpen(topFolder, crumbMenu.subpath, { focusTitle: true })
+            },
+            {
+              label: 'New drawing',
+              onSelect: () => void createDrawingAndOpen(topFolder, crumbMenu.subpath)
+            },
+            {
+              label: 'New folder',
+              onSelect: async () => {
+                const name = await promptApp({
+                  title: 'New folder',
+                  placeholder: 'Folder name',
+                  okLabel: 'Create',
+                  validate: (v) => (v.includes('/') ? 'Folder name cannot contain "/"' : null)
+                })
+                if (!name) return
+                const clean = name.trim().replace(/^\/+|\/+$/g, '')
+                if (!clean) return
+                const next = crumbMenu.subpath ? `${crumbMenu.subpath}/${clean}` : clean
+                try {
+                  await createFolder(topFolder, next)
+                } catch (err) {
+                  window.alert((err as Error).message)
+                }
+              }
+            }
+          ]}
+        />
+      )}
       {editingNow ? (
         <input
           ref={inputRef}

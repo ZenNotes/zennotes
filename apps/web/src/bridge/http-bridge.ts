@@ -401,6 +401,17 @@ function createNote(
   })
 }
 
+function createExcalidraw(
+  folder: NoteFolder,
+  subpath?: string,
+  title?: string
+): Promise<NoteMeta> {
+  return jsonRequest<NoteMeta>('/excalidraw/create', {
+    method: 'POST',
+    body: { folder, subpath, title }
+  })
+}
+
 function renameNote(relPath: string, nextTitle: string): Promise<NoteMeta> {
   return jsonRequest<NoteMeta>('/notes/rename', {
     method: 'POST',
@@ -1150,6 +1161,7 @@ export const httpBridge: ZenBridge = {
   writeNote,
   appendToNote,
   createNote,
+  createExcalidraw,
   renameNote,
   deleteNote,
   moveToTrash,
