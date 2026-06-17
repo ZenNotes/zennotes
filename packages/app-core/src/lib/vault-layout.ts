@@ -9,6 +9,7 @@ import {
   type AssetMeta,
   type DateNotePatternSettings,
   type FolderIconId,
+  type FolderColorId,
   type NoteFolder,
   type NoteMeta,
   type VaultSettings
@@ -60,6 +61,23 @@ const VALID_FOLDER_ICON_IDS = new Set<FolderIconId>([
 
 function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
+}
+
+const VALID_FOLDER_COLOR_IDS = new Set<FolderColorId>([
+  'red',
+  'orange',
+  'amber',
+  'green',
+  'teal',
+  'sky',
+  'blue',
+  'indigo',
+  'violet',
+  'pink'
+])
+
+export function isFolderColorId(value: unknown): value is FolderColorId {
+  return typeof value === 'string' && VALID_FOLDER_COLOR_IDS.has(value as FolderColorId)
 }
 
 function pad(n: number): string {
@@ -451,6 +469,14 @@ export function normalizeVaultSettings(
       normalizedFolderIcons[key] = value
     }
   }
+  const folderColors = settings?.folderColors
+  const normalizedFolderColors: Record<string, FolderColorId> = {}
+  if (folderColors && typeof folderColors === 'object') {
+    for (const [key, value] of Object.entries(folderColors)) {
+      if (!key || !isFolderColorId(value)) continue
+      normalizedFolderColors[key] = value
+    }
+  }
   const primaryNotesLocation =
     settings?.primaryNotesLocation === 'root'
       ? 'root'
@@ -488,7 +514,8 @@ export function normalizeVaultSettings(
       ),
       templateId: normalizeTemplateId(settings?.weeklyNotes?.templateId)
     },
-    folderIcons: normalizedFolderIcons
+    folderIcons: normalizedFolderIcons,
+    folderColors: normalizedFolderColors
   }
 }
 
@@ -553,6 +580,94 @@ export function duplicateFolderIcons(
     }
   }
   return next
+}
+
+// Folder color maps share the exact key scheme as folder icons (`folder:subpath`),
+// so renames/deletes/duplicates rewrite them identically. Generic helpers keep
+// the two in lock-step without duplicating the traversal logic.
+function rewriteFolderKeyMap<T>(
+  map: Record<string, T>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, T> {
+  const next: Record<string, T> = {}
+  const exactKey = folderIconKey(folder, oldSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(map)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, newSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, newSubpath) + key.slice(exactKey.length)] = value
+      continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+function removeFolderKeyMap<T>(
+  map: Record<string, T>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, T> {
+  const next: Record<string, T> = {}
+  const exactKey = folderIconKey(folder, subpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(map)) {
+    if (key === exactKey || key.startsWith(prefix)) continue
+    next[key] = value
+  }
+  return next
+}
+
+function duplicateFolderKeyMap<T>(
+  map: Record<string, T>,
+  folder: NoteFolder,
+  sourceSubpath: string,
+  targetSubpath: string
+): Record<string, T> {
+  const next: Record<string, T> = { ...map }
+  const exactKey = folderIconKey(folder, sourceSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(map)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, targetSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, targetSubpath) + key.slice(exactKey.length)] = value
+    }
+  }
+  return next
+}
+
+export function rewriteFolderColorsForRename(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, FolderColorId> {
+  return rewriteFolderKeyMap(folderColors, folder, oldSubpath, newSubpath)
+}
+
+export function removeFolderColors(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, FolderColorId> {
+  return removeFolderKeyMap(folderColors, folder, subpath)
+}
+
+export function duplicateFolderColors(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  sourceSubpath: string,
+  targetSubpath: string
+): Record<string, FolderColorId> {
+  return duplicateFolderKeyMap(folderColors, folder, sourceSubpath, targetSubpath)
 }
 
 export function isPrimaryNotesAtRoot(

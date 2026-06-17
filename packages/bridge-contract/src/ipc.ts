@@ -247,6 +247,19 @@ export type FolderIconId =
   | 'chart'
   | 'home'
 
+/** Preset folder accent colors (tints the folder's sidebar icon). */
+export type FolderColorId =
+  | 'red'
+  | 'orange'
+  | 'amber'
+  | 'green'
+  | 'teal'
+  | 'sky'
+  | 'blue'
+  | 'indigo'
+  | 'violet'
+  | 'pink'
+
 export interface DateNotePatternSettings {
   /** Directory or date-based directory pattern inside the primary notes area. */
   directory: string
@@ -289,6 +302,8 @@ export interface VaultSettings {
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings
   folderIcons: Record<string, FolderIconId>
+  /** Per-folder accent color, keyed by `folder:subpath` (same key as folderIcons). */
+  folderColors: Record<string, FolderColorId>
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -312,7 +327,8 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
     locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
-  folderIcons: {}
+  folderIcons: {},
+  folderColors: {}
 }
 
 export interface NoteMeta {

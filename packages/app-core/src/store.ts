@@ -74,16 +74,19 @@ import {
   workspaceRestorePrefetchContentPaths
 } from './lib/workspace-tabs'
 import {
+  duplicateFolderColors,
   duplicateFolderIcons,
   dailyNoteLocationForDate,
   folderForVaultRelativePath,
   findDailyNoteForDate,
   findWeeklyNoteForDate,
   isPrimaryNotesAtRoot,
+  removeFolderColors,
   removeFolderIcons,
   normalizeVaultSettings,
   noteFolderSubpath,
   weeklyNoteLocationForDate,
+  rewriteFolderColorsForRename,
   rewriteFolderIconsForRename
 } from './lib/vault-layout'
 import { renderTemplate, renderTitle } from './lib/template-render'
@@ -5311,6 +5314,12 @@ export const useStore = create<Store>((set, get) => {
       oldSubpath,
       newSubpath
     )
+    const nextFolderColors = rewriteFolderColorsForRename(
+      get().vaultSettings.folderColors,
+      folder,
+      oldSubpath,
+      newSubpath
+    )
     set((s) => {
       const nextLayout = rewritePathsInTree(s.paneLayout, rewritePath)
       const ensured = ensureActivePane(nextLayout, s.activePaneId)
@@ -5336,7 +5345,8 @@ export const useStore = create<Store>((set, get) => {
         pinnedRefPath: s.pinnedRefPath ? rewritePath(s.pinnedRefPath) : null,
         vaultSettings: {
           ...s.vaultSettings,
-          folderIcons: nextFolderIcons
+          folderIcons: nextFolderIcons,
+          folderColors: nextFolderColors
         },
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
@@ -5368,6 +5378,7 @@ export const useStore = create<Store>((set, get) => {
     }
     const prefix = `${folder}/${subpath}/`
     const nextFolderIcons = removeFolderIcons(get().vaultSettings.folderIcons, folder, subpath)
+    const nextFolderColors = removeFolderColors(get().vaultSettings.folderColors, folder, subpath)
     set((s) => {
       const nextLayout = rewritePathsInTree(s.paneLayout, (p) =>
         p.startsWith(prefix) ? null : p
@@ -5391,7 +5402,8 @@ export const useStore = create<Store>((set, get) => {
           s.pinnedRefPath && s.pinnedRefPath.startsWith(prefix) ? null : s.pinnedRefPath,
         vaultSettings: {
           ...s.vaultSettings,
-          folderIcons: nextFolderIcons
+          folderIcons: nextFolderIcons,
+          folderColors: nextFolderColors
         },
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
@@ -5407,6 +5419,12 @@ export const useStore = create<Store>((set, get) => {
         ...s.vaultSettings,
         folderIcons: duplicateFolderIcons(
           s.vaultSettings.folderIcons,
+          folder,
+          subpath,
+          newSubpath
+        ),
+        folderColors: duplicateFolderColors(
+          s.vaultSettings.folderColors,
           folder,
           subpath,
           newSubpath

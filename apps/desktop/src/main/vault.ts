@@ -21,6 +21,7 @@ import {
   AssetMeta,
   DeletedAsset,
   type FolderIconId,
+  type FolderColorId,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -149,6 +150,34 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
+const VALID_FOLDER_COLOR_IDS = new Set<FolderColorId>([
+  'red',
+  'orange',
+  'amber',
+  'green',
+  'teal',
+  'sky',
+  'blue',
+  'indigo',
+  'violet',
+  'pink'
+])
+
+function isFolderColorId(value: unknown): value is FolderColorId {
+  return typeof value === 'string' && VALID_FOLDER_COLOR_IDS.has(value as FolderColorId)
+}
+
+function normalizeFolderColors(value: unknown): Record<string, FolderColorId> {
+  const out: Record<string, FolderColorId> = {}
+  if (value && typeof value === 'object') {
+    for (const [key, colorId] of Object.entries(value as Record<string, unknown>)) {
+      if (!key || !isFolderColorId(colorId)) continue
+      out[key] = colorId
+    }
+  }
+  return out
+}
+
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
@@ -163,7 +192,8 @@ const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
     locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
-  folderIcons: {}
+  folderIcons: {},
+  folderColors: {}
 }
 
 interface VaultTextSearchCandidate {
@@ -715,7 +745,8 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       legacyPatterns: settings.weeklyNotes.legacyPatterns?.map((pattern) => ({ ...pattern })),
       templateId: settings.weeklyNotes.templateId
     },
-    folderIcons: { ...settings.folderIcons }
+    folderIcons: { ...settings.folderIcons },
+    folderColors: { ...settings.folderColors }
   }
 }
 
@@ -824,7 +855,8 @@ function normalizeVaultSettings(
         titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
         locale: DEFAULT_WEEKLY_NOTE_LOCALE
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     }
   }
   const candidate = value as {
@@ -846,6 +878,7 @@ function normalizeVaultSettings(
       templateId?: unknown
     } | null
     folderIcons?: Record<string, unknown> | null
+    folderColors?: Record<string, unknown> | null
   }
   const folderIcons: Record<string, FolderIconId> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -880,7 +913,8 @@ function normalizeVaultSettings(
       legacyPatterns: normalizeWeeklyNoteLegacyPatterns(candidate.weeklyNotes?.legacyPatterns),
       templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
     },
-    folderIcons
+    folderIcons,
+    folderColors: normalizeFolderColors(candidate.folderColors)
   }
 }
 
@@ -920,6 +954,44 @@ function removeFolderIcons(
   const exactKey = folderIconKey(folder, subpath)
   const prefix = `${exactKey}/`
   for (const [key, value] of Object.entries(folderIcons)) {
+    if (key === exactKey || key.startsWith(prefix)) continue
+    next[key] = value
+  }
+  return next
+}
+
+function rewriteFolderColorsForRename(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, FolderColorId> {
+  const next: Record<string, FolderColorId> = {}
+  const exactKey = folderIconKey(folder, oldSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderColors)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, newSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, newSubpath) + key.slice(exactKey.length)] = value
+      continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+function removeFolderColors(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, FolderColorId> {
+  const next: Record<string, FolderColorId> = {}
+  const exactKey = folderIconKey(folder, subpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderColors)) {
     if (key === exactKey || key.startsWith(prefix)) continue
     next[key] = value
   }
@@ -3119,6 +3191,12 @@ export async function renameFolder(
       topFolder,
       oldClean,
       newClean
+    ),
+    folderColors: rewriteFolderColorsForRename(
+      settings.folderColors,
+      topFolder,
+      oldClean,
+      newClean
     )
   }
   await setVaultSettings(root, nextSettings)
@@ -3143,7 +3221,8 @@ export async function deleteFolder(
   const settings = await getVaultSettings(root)
   const nextSettings: VaultSettings = {
     ...settings,
-    folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean)
+    folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean),
+    folderColors: removeFolderColors(settings.folderColors, topFolder, clean)
   }
   await setVaultSettings(root, nextSettings)
   invalidateNoteMetaCache(root)

@@ -33,7 +33,8 @@ function settings(dailyDirectory: string, weeklyDirectory: string): VaultSetting
     primaryNotesLocation: 'inbox',
     dailyNotes: { enabled: true, directory: dailyDirectory },
     weeklyNotes: { enabled: true, directory: weeklyDirectory },
-    folderIcons: {}
+    folderIcons: {},
+    folderColors: {}
   }
 }
 
@@ -70,7 +71,8 @@ describe('classifyDateNote', () => {
           titlePattern: "yyyy-'W'ww-EEE",
           locale: 'en-US'
         },
-        folderIcons: {}
+        folderIcons: {},
+        folderColors: {}
       } as VaultSettings
     )
 
@@ -90,7 +92,8 @@ describe('classifyDateNote', () => {
           locale: 'en-US'
         },
         weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-        folderIcons: {}
+        folderIcons: {},
+        folderColors: {}
       } as VaultSettings
     )
 
@@ -123,7 +126,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -142,7 +146,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     expect(dailyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -169,7 +174,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -188,7 +194,8 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww-EEE",
         locale: 'en-US'
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -207,7 +214,8 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -226,7 +234,8 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings)
 
     expect(location).toEqual({
@@ -245,7 +254,8 @@ describe('classifyDateNote', () => {
         titlePattern: "yyyy-'W'ww",
         locale: 'en-US'
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     expect(weeklyNoteLocationForDate(new Date(2026, 5, 9), vaultSettings)).toEqual({
@@ -271,7 +281,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -293,7 +304,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     const info = classifyDateNote(note('inbox/2026/06-09.md', '06-09'), vaultSettings)
@@ -312,7 +324,8 @@ describe('classifyDateNote', () => {
         locale: 'en-US'
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     // ISO week 24 falls entirely in June, so a July folder cannot round-trip.
@@ -337,7 +350,8 @@ describe('classifyDateNote', () => {
         ]
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -362,7 +376,8 @@ describe('classifyDateNote', () => {
           { directory: 'Weekly Notes', titlePattern: "yyyy-'W'ww", locale: 'en-US' }
         ]
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     const info = classifyDateNote(
@@ -403,7 +418,8 @@ describe('dateNoteFolderMayBelongToDatePattern', () => {
         ]
       },
       weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {}
     } as VaultSettings
 
     expect(dateNoteFolderMayBelongToDatePattern('2026/Jun-Jun', vaultSettings)).toBe(true)

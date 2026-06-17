@@ -13,7 +13,7 @@ import { Button } from "./ui/Button";
 import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
-import type { AssetMeta, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
+import type { AssetMeta, FolderColorId, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
 import type { NoteSortOrder } from "../store";
 import { isArchiveTabPath } from "@shared/archive";
 import { isTrashTabPath } from "@shared/trash";
@@ -79,6 +79,8 @@ import {
   resolveFolderIconOption,
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
+import { resolveFolderColorId, resolveFolderColorGlyphClass } from "./FolderColors";
+import { FolderColorPickerModal } from "./FolderColorPickerModal";
 import {
   getSidebarEdgePrefetchPaths,
   getSidebarEntryLimitIncludingIndex,
@@ -154,17 +156,26 @@ function remoteWorkspaceLabel(baseUrl: string | null): string {
 function SidebarGlyph({
   active,
   rowActive,
+  colorClass,
   children,
 }: {
   active: boolean;
   rowActive: boolean;
+  /** Custom resting tint (folder color); ignored while active/selected. */
+  colorClass?: string;
   children: JSX.Element;
 }): JSX.Element {
   return (
     <span
       className={[
         "flex h-5 w-5 shrink-0 items-center justify-center transition-colors",
-        active ? "text-white" : rowActive ? "text-accent" : "text-ink-500 group-hover:text-ink-800",
+        colorClass
+          ? colorClass
+          : active
+            ? "text-white"
+            : rowActive
+              ? "text-accent"
+              : "text-ink-500 group-hover:text-ink-800",
       ].join(" ")}
     >
       {children}
@@ -857,6 +868,11 @@ export function Sidebar(): JSX.Element {
     subpath: string;
     label: string;
   } | null>(null);
+  const [folderColorPicker, setFolderColorPicker] = useState<{
+    folder: NoteFolder;
+    subpath: string;
+    label: string;
+  } | null>(null);
   const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(
     null,
   );
@@ -927,6 +943,46 @@ export function Sidebar(): JSX.Element {
       });
       await setVaultSettings(nextSettings);
       setFolderIconPicker(null);
+    },
+    [setVaultSettings, vaultSettings],
+  );
+
+  const openFolderColorPicker = useCallback(
+    (folder: NoteFolder, subpath: string, label: string) => {
+      setFolderMenu(null);
+      setFolderColorPicker({ folder, subpath, label });
+    },
+    [],
+  );
+
+  const saveFolderColor = useCallback(
+    async (folder: NoteFolder, subpath: string, colorId: FolderColorId) => {
+      const key = folderIconKey(folder, subpath);
+      const nextSettings = normalizeVaultSettings({
+        ...vaultSettings,
+        folderColors: {
+          ...vaultSettings.folderColors,
+          [key]: colorId,
+        },
+      });
+      await setVaultSettings(nextSettings);
+      setFolderColorPicker(null);
+    },
+    [setVaultSettings, vaultSettings],
+  );
+
+  const resetFolderColor = useCallback(
+    async (folder: NoteFolder, subpath: string) => {
+      const key = folderIconKey(folder, subpath);
+      if (!(key in vaultSettings.folderColors)) return;
+      const nextColors = { ...vaultSettings.folderColors };
+      delete nextColors[key];
+      const nextSettings = normalizeVaultSettings({
+        ...vaultSettings,
+        folderColors: nextColors,
+      });
+      await setVaultSettings(nextSettings);
+      setFolderColorPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
@@ -1570,6 +1626,10 @@ export function Sidebar(): JSX.Element {
       vaultSettings.folderIcons,
       iconKey,
     );
+    const hasCustomColor = Object.prototype.hasOwnProperty.call(
+      vaultSettings.folderColors,
+      iconKey,
+    );
     const iconItems: ContextMenuItem[] = [
       {
         label: "Change icon…",
@@ -1582,6 +1642,19 @@ export function Sidebar(): JSX.Element {
         disabled: !hasCustomIcon,
         onSelect: async () => {
           await resetFolderIcon(folder, subpath);
+        },
+      },
+      {
+        label: "Change color…",
+        onSelect: async () => {
+          openFolderColorPicker(folder, subpath, label);
+        },
+      },
+      {
+        label: "Reset color",
+        disabled: !hasCustomColor,
+        onSelect: async () => {
+          await resetFolderColor(folder, subpath);
         },
       },
     ];
@@ -1831,6 +1904,8 @@ export function Sidebar(): JSX.Element {
     primaryNotesAtRoot,
     openFolderIconPicker,
     resetFolderIcon,
+    openFolderColorPicker,
+    resetFolderColor,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
   ]);
@@ -3153,6 +3228,30 @@ export function Sidebar(): JSX.Element {
           onCancel={() => setFolderIconPicker(null)}
         />
       )}
+      {folderColorPicker && (
+        <FolderColorPickerModal
+          targetLabel={folderColorPicker.label}
+          currentColorId={resolveFolderColorId(
+            folderColorPicker.folder,
+            folderColorPicker.subpath,
+            vaultSettings.folderColors,
+          )}
+          onSelect={(colorId) =>
+            void saveFolderColor(
+              folderColorPicker.folder,
+              folderColorPicker.subpath,
+              colorId,
+            )
+          }
+          onReset={() =>
+            void resetFolderColor(
+              folderColorPicker.folder,
+              folderColorPicker.subpath,
+            )
+          }
+          onCancel={() => setFolderColorPicker(null)}
+        />
+      )}
       {sortMenu && (
         <ContextMenu
           x={sortMenu.x}
@@ -3839,6 +3938,9 @@ function SubTree({
     node.subpath,
     vaultSettings.folderIcons,
   );
+  const folderColorClass =
+    resolveFolderColorGlyphClass(folder, node.subpath, vaultSettings.folderColors) ??
+    undefined;
   // A `<Name>.base` folder is a database: render it with a database icon and a
   // title without the suffix; clicking the row opens the grid, while the
   // chevron still expands to reveal its record-page notes. (#185)
@@ -3908,6 +4010,7 @@ function SubTree({
             iconOption.icon
           )
         }
+        glyphColorClass={folderColorClass}
         label={isDatabase ? formTitleFromDir(node.name) : node.name}
         isSymlink={node.isSymlink}
         count={countNotesInTree(node)}
@@ -4347,6 +4450,7 @@ function TreeRow({
   isSymlink = false,
   reserveLeadingSlot = true,
   showExpandChevron = true,
+  glyphColorClass,
 }: {
   icon: JSX.Element;
   label: string;
@@ -4378,6 +4482,8 @@ function TreeRow({
   reserveLeadingSlot?: boolean;
   /** Hide the chevron affordance while keeping row-click toggle behavior. */
   showExpandChevron?: boolean;
+  /** Custom resting tint for the leading glyph (folder color). */
+  glyphColorClass?: string;
 }): JSX.Element {
   const strongActive = active && (!sidebarFocused || !!vimHighlight);
 
@@ -4401,11 +4507,16 @@ function TreeRow({
       className={[
         "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
-          ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
-            : sidebarFocused
-              ? "text-accent"
-              : "bg-accent text-white"
+          ? glyphColorClass
+            ? // Colored folder: a saturated accent fill would put same-hue text on
+              // top (orange-on-orange). Use a faint tint + ring so the folder color
+              // stays readable while still reading as the active row.
+              `bg-accent/20 ring-1 ring-inset ring-accent/60${vimHighlight ? " vim-cursor-on-active" : ""}`
+            : vimHighlight
+              ? "vim-cursor-on-active bg-accent text-white"
+              : sidebarFocused
+                ? "text-accent"
+                : "bg-accent text-white"
           : dropTarget
             ? "bg-accent/20 text-ink-900 ring-1 ring-accent/60"
             : selected
@@ -4460,10 +4571,18 @@ function TreeRow({
       ) : reserveLeadingSlot ? (
         <span className="h-5 w-5 shrink-0" />
       ) : null}
-      <SidebarGlyph active={strongActive} rowActive={active || selected}>
+      <SidebarGlyph
+        active={strongActive}
+        rowActive={active || selected}
+        colorClass={glyphColorClass}
+      >
         {icon}
       </SidebarGlyph>
-      <span className="flex-1 truncate">{label}</span>
+      <span
+        className={["flex-1 truncate", glyphColorClass].filter(Boolean).join(" ")}
+      >
+        {label}
+      </span>
       {isSymlink && (
         <span
           aria-label="Symlinked folder"
