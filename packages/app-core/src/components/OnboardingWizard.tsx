@@ -84,6 +84,12 @@ const FAMILY_DESCRIPTORS: ThemeFamilyDescriptor[] = [
     label: 'Tokyo Night',
     light: { bg: '#e1e2e7', fg: '#3760bf', accent: '#2e7de9' },
     dark: { bg: '#1a1b26', fg: '#a9b1d6', accent: '#7aa2f7' }
+  },
+  {
+    family: 'rose-pine',
+    label: 'Rose Pine',
+    light: { bg: '#f0f0f1', fg: '#575279', accent: '#31748f' },
+    dark: { bg: '#26233a', fg: '#e0def4', accent: '#9ccfd8' }
   }
 ]
 

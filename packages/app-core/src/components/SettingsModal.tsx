@@ -501,7 +501,8 @@ export function SettingsModal(): JSX.Element {
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
       { id: 'tokyo-night', label: 'Tokyo Night' },
-      { id: 'black-metal', label: 'Black Metal' }
+      { id: 'black-metal', label: 'Black Metal' },
+      { id: 'rose-pine', label: 'Rose Pine' }
     ],
     []
   )
@@ -580,6 +581,7 @@ export function SettingsModal(): JSX.Element {
       solarized: { light: 'solarized-light', dark: 'solarized-dark' },
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
+      "rose-pine": { light: 'rose-pine-dawn', dark: 'rose-pine-main' },
       'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
       'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
@@ -724,7 +726,7 @@ export function SettingsModal(): JSX.Element {
           id: 'theme-family',
           title: 'Theme family',
           description: 'Pick the visual system ZenNotes uses across the app.',
-          keywords: ['theme', 'family', 'apple', 'gruvbox', 'catppuccin', 'github', 'solarized', 'nord', 'tokyo night']
+          keywords: ['theme', 'family', 'apple', 'gruvbox', 'catppuccin', 'github', 'solarized', 'nord', 'tokyo night', 'rose pine']
         },
         {
           id: 'theme-mode',

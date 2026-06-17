@@ -336,7 +336,10 @@
 :root[data-theme="one-dark"],
 :root[data-theme="nord-dark"],
 :root[data-theme="tokyo-night-storm"],
-:root[data-theme="black-metal"] {
+:root[data-theme="black-metal"],
+:root[data-theme="rose-pine-main"],
+:root[data-theme="rose-pine-moon"],
+:root[data-theme="rose-pine-dawn"] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
   --z-glass-a3: 0.32;
@@ -1029,6 +1032,96 @@
   --z-aqua: 79 115 115;
   --z-shadow: 0 0 0;
 }
+
+/* ===========================================================================
+ * Rose Pine — https://github.com/rose-pine/neovim
+ * "Main" (warmest), "Moon" (mid-tones), "Dawn" (light) variants.
+ * =======================================================================*/
+
+/* ---- Rose Pine Main (warmest) ------------------------ */
+:root[data-theme="rose-pine-main"] {
+  color-scheme: dark;
+  --z-bg: 25 23 36;
+  --z-bg-softer: 33 32 46;
+  --z-bg-1: 31 29 46;
+  --z-bg-2: 38 35 58;
+  --z-bg-3: 64 61 82;
+  --z-bg-4: 82 79 103;
+  --z-fg: 224 222 244; /* text */
+  --z-fg-1: 144 140 170; /* */
+  --z-fg-2: 110 106 134;
+  --z-grey-2: 144 140 170;
+  --z-grey-1: 110 106 134;
+  --z-grey-0: 82 79 103;
+  --z-grey-dim: 64 61 82;
+  --z-accent: 196 167 231;
+  --z-accent-soft: 246 193 119;
+  --z-accent-muted: 156 207 216;
+  --z-red: 235 111 146;
+  --z-green: 49 116 143;
+  --z-yellow: 246 193 119;
+  --z-blue: 156 207 216;
+  --z-purple: 196 167 231;
+  --z-aqua: 49 111 143;
+  --z-shadow: 25 23 36;
+}
+
+/* ---- Rose Pine Moon (midtones) ------------------------ */
+:root[data-theme="rose-pine-moon"] {
+  color-scheme: dark;
+  --z-bg: 35 33 54;
+  --z-bg-softer: 42 40 62;
+  --z-bg-1: 42 39 63;
+  --z-bg-2: 57 53 82;
+  --z-bg-3: 68 65 90;
+  --z-bg-4: 86 82 110;
+  --z-fg: 224 222 244; /* text */
+  --z-fg-1: 144 140 170; /* */
+  --z-fg-2: 110 106 134;
+  --z-grey-2: 144 140 170;
+  --z-grey-1: 110 106 134;
+  --z-grey-0: 86 82 110;
+  --z-grey-dim: 68 65 90;
+  --z-accent: 196 167 231;
+  --z-accent-soft: 246 193 119;
+  --z-accent-muted: 156 207 216;
+  --z-red: 235 111 146;
+  --z-green: 62 143 176;
+  --z-yellow: 246 193 119;
+  --z-blue: 156 207 216;
+  --z-purple: 196 167 231;
+  --z-aqua: 62 143 176;
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Rose Pine Dawn (light) ------------------------ */
+:root[data-theme="rose-pine-dawn"] {
+  color-scheme: light;
+  --z-bg: 250 244 237;
+  --z-bg-softer: 244 237 232;
+  --z-bg-1: 255 250 243;
+  --z-bg-2: 242 233 222;
+  --z-bg-3: 223 218 217;
+  --z-bg-4: 206 202 205;
+  --z-fg: 87 82 121;
+  --z-fg-1: 121 117 147;
+  --z-fg-2: 152 147 165;
+  --z-grey-2: 121 117 147;
+  --z-grey-1: 152 147 165;
+  --z-grey-0: 206 202 205;
+  --z-grey-dim: 223 218 217;
+  --z-accent: 144 122 169;
+  --z-accent-soft: 234 157 52;
+  --z-accent-muted: 86 148 159;
+  --z-red: 180 99 122;
+  --z-green: 40 105 131;
+  --z-yellow: 234 157 52;
+  --z-blue: 86 148 159;
+  --z-purple: 144 122 169;
+  --z-aqua: 40 105 131;
+  --z-shadow: 87 82 121;
+}
+
 
 html,
 body,

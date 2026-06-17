@@ -144,7 +144,8 @@ const VALID_FAMILIES: ThemeFamily[] = [
   'solarized',
   'one',
   'nord',
-  'tokyo-night'
+  'tokyo-night',
+  'rose-pine'
 ]
 const VALID_MODES: ThemeMode[] = ['light', 'dark', 'auto']
 const VALID_SORTS: NoteSortOrder[] = [
