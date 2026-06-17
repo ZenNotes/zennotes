@@ -4,7 +4,8 @@ import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
-import { resolveWikilinkTarget } from "../lib/wikilinks";
+import { resolveWikilinkTarget, wikilinkHeadingAnchor } from "../lib/wikilinks";
+import { openWikilinkHeading } from "../lib/wikilink-navigation";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -535,7 +536,12 @@ export const Preview = memo(function Preview({
       if (anchor.classList.contains("wikilink")) {
         e.preventDefault();
         const path = anchor.dataset.resolvedPath;
-        if (path) void selectNoteRef.current(path);
+        if (path) {
+          // Scroll to the #heading when the link carries one. (#196)
+          const headingAnchor = wikilinkHeadingAnchor(anchor.dataset.wikilink ?? "");
+          if (headingAnchor) void openWikilinkHeading(path, headingAnchor);
+          else void selectNoteRef.current(path);
+        }
         return;
       }
       if (anchor.classList.contains("hashtag")) {

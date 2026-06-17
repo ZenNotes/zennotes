@@ -20,8 +20,10 @@ import type { PaneLayout, PaneSplit } from '../lib/pane-layout'
 import {
   parseCreateNotePath,
   resolveWikilinkTarget,
-  suggestCreateNotePath
+  suggestCreateNotePath,
+  wikilinkHeadingAnchor
 } from '../lib/wikilinks'
+import { openWikilinkHeading } from '../lib/wikilink-navigation'
 import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
 import {
   buildMoveNotePrompt,
@@ -528,10 +530,16 @@ function registerVimCommands(): void {
     const notes = state.notes
     const resolved = resolveWikilinkTarget(notes, target)
     if (resolved) {
-      void state.selectNote(resolved.path).then(() => {
+      const focusEditorSoon = (): void => {
         state.setFocusedPanel('editor')
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
-      })
+      }
+      const headingAnchor = wikilinkHeadingAnchor(target)
+      if (headingAnchor) {
+        void openWikilinkHeading(resolved.path, headingAnchor).then(focusEditorSoon)
+      } else {
+        void state.selectNote(resolved.path).then(focusEditorSoon)
+      }
       return
     }
 

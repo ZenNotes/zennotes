@@ -19,7 +19,8 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { useStore } from '../store'
-import { resolveWikilinkTarget } from './wikilinks'
+import { resolveWikilinkTarget, wikilinkHeadingAnchor } from './wikilinks'
+import { openWikilinkHeading } from './wikilink-navigation'
 
 // Same shape as the Preview pipeline (remarkWikilinks).
 const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g
@@ -112,15 +113,26 @@ const wikilinkRenderPlugin = ViewPlugin.fromClass(
   { decorations: (p) => p.decorations }
 )
 
-/** Open the note a wikilink points to (resolving the same way Preview does). */
+/**
+ * Open the note a wikilink points to, scrolling to its `#heading` when the
+ * target carries one (`[[Doc#Heading]]`). (#196)
+ */
 function openWikilink(target: string): void {
   const state = useStore.getState()
   const resolved = resolveWikilinkTarget(state.notes, target)
   if (!resolved) return // unresolved link — leave note creation to other flows
-  void state.selectNote(resolved.path).then(() => {
+
+  const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')
     requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
-  })
+  }
+
+  const anchor = wikilinkHeadingAnchor(target)
+  if (!anchor) {
+    void state.selectNote(resolved.path).then(focusEditorSoon)
+    return
+  }
+  void openWikilinkHeading(resolved.path, anchor).then(focusEditorSoon)
 }
 
 // Click a rendered wikilink to jump. Intercept on mousedown so CodeMirror

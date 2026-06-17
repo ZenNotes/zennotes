@@ -77,7 +77,7 @@ import { hashtagExtension } from '../lib/cm-hashtags'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
-import { wikilinkSource } from '../lib/cm-wikilinks'
+import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
@@ -1374,7 +1374,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
-            override: [slashCommandSource, dateShortcutSource, wikilinkSource],
+            override: [slashCommandSource, dateShortcutSource, wikilinkSource, wikilinkHeadingSource],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
             optionClass: (completion) =>
