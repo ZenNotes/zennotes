@@ -39,7 +39,6 @@ import {
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
 import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
 import {
-  defaultKeymap,
   history,
   historyKeymap,
   indentWithTab,
@@ -52,6 +51,7 @@ import { isImeComposing } from '../lib/ime'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { setYankToClipboardEnabled } from '../lib/cm-vim-clipboard'
 import { wireYankHighlight, yankHighlightExtension } from '../lib/cm-yank-highlight'
 import { frontmatterStyle } from '../lib/cm-frontmatter'
@@ -219,6 +219,28 @@ const MODE_OPTIONS: Array<{
 const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
+
+// The editor keymap depends on Vim mode: in Vim mode the macOS emacs-style
+// chords are stripped from `defaultKeymap` so Vim's `<C-d>` & co. work (see
+// cm-vim-default-keymap). Built behind a compartment and reconfigured on toggle.
+function buildEditorKeymap(vimMode: boolean): Extension {
+  return keymap.of([
+    {
+      key: 'Mod-f',
+      run: () => {
+        const state = useStore.getState()
+        if (state.vimMode) return false
+        state.setSearchOpen(true)
+        return true
+      }
+    },
+    indentWithTab,
+    ...vimAwareDefaultKeymap(vimMode),
+    ...historyKeymap,
+    ...searchKeymap,
+    ...completionKeymap
+  ])
+}
 
 function markdownEditingExtensions(): Extension[] {
   return [
@@ -701,6 +723,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const lastProgrammaticPreviewTopRef = useRef<number | null>(null)
   const lastRestoredPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
+  const editorKeymapCompartmentRef = useRef<Compartment | null>(null)
   const markdownCompartmentRef = useRef<Compartment | null>(null)
   const markdownSyntaxCompartmentRef = useRef<Compartment | null>(null)
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
@@ -1333,12 +1356,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       if (viewRef.current) return
       const vimCompartment = new Compartment()
+      const editorKeymapCompartment = new Compartment()
       const markdownCompartment = new Compartment()
       const markdownSyntaxCompartment = new Compartment()
       const livePreviewCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
+      editorKeymapCompartmentRef.current = editorKeymapCompartment
       markdownCompartmentRef.current = markdownCompartment
       markdownSyntaxCompartmentRef.current = markdownSyntaxCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
@@ -1383,22 +1408,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 : 'slash-cmd-option'
           }),
           completionNavKeymap,
-          keymap.of([
-            {
-              key: 'Mod-f',
-              run: () => {
-                const state = useStore.getState()
-                if (state.vimMode) return false
-                state.setSearchOpen(true)
-                return true
-              }
-            },
-            indentWithTab,
-            ...defaultKeymap,
-            ...historyKeymap,
-            ...searchKeymap,
-            ...completionKeymap
-          ]),
+          editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode)),
           EditorView.domEventHandlers({
             mousedown: (event) => {
               const target = event.target as HTMLElement | null
@@ -1678,7 +1688,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const view = viewRef.current
     const comp = vimCompartmentRef.current
     if (!view || !comp) return
-    view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
+    const effects = [comp.reconfigure(vimMode ? vim() : [])]
+    const keymapComp = editorKeymapCompartmentRef.current
+    if (keymapComp) effects.push(keymapComp.reconfigure(buildEditorKeymap(vimMode)))
+    view.dispatch({ effects })
   }, [vimMode])
   useEffect(() => {
     const view = viewRef.current

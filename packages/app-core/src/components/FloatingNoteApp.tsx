@@ -26,7 +26,8 @@ import {
   lineNumbers
 } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
@@ -305,7 +306,12 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           prefs.livePreview ? livePreviewPlugin : [],
           lineNumberExtension(prefs.lineNumberMode),
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+          keymap.of([
+            indentWithTab,
+            ...vimAwareDefaultKeymap(prefs.vimMode),
+            ...historyKeymap,
+            ...searchKeymap
+          ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return

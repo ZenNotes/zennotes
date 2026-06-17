@@ -9,7 +9,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
@@ -139,7 +140,12 @@ export function TemplateEditorModal({
           optionClass: () => 'slash-cmd-option'
         }),
         completionNavKeymap,
-        keymap.of([indentWithTab, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          indentWithTab,
+          ...completionKeymap,
+          ...vimAwareDefaultKeymap(vimModeRef.current),
+          ...historyKeymap
+        ]),
         editorTheme,
         EditorView.updateListener.of((upd) => {
           if (upd.docChanged) setRaw(upd.state.doc.toString())

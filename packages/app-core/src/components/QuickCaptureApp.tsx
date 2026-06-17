@@ -40,7 +40,8 @@ import {
   placeholder
 } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
@@ -424,7 +425,12 @@ export function QuickCaptureApp(): JSX.Element {
           syntaxHighlighting(captureHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+          keymap.of([
+            indentWithTab,
+            ...vimAwareDefaultKeymap(prefs.vimMode),
+            ...historyKeymap,
+            ...searchKeymap
+          ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             const doc = upd.state.doc.toString()

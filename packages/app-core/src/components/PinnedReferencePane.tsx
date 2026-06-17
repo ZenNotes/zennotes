@@ -26,7 +26,8 @@ import {
   tooltips
 } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
@@ -215,7 +216,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               }
             },
             indentWithTab,
-            ...defaultKeymap,
+            ...vimAwareDefaultKeymap(s0.vimMode),
             ...historyKeymap,
             ...searchKeymap,
             ...completionKeymap
