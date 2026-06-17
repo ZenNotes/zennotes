@@ -2097,6 +2097,41 @@ textarea,
   line-height: var(--z-editor-line-height, 1.7);
   color: theme("colors.ink.900");
 }
+/* Compact Markdown inside comment cards (CommentsPanel): reuse .prose-zen
+   element styling but drop the full-note container padding/width and scale
+   headings + block spacing down to fit a narrow, small-text comment. */
+.prose-zen.comment-prose {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.prose-zen.comment-prose > :first-child {
+  margin-top: 0;
+}
+.prose-zen.comment-prose > :last-child {
+  margin-bottom: 0;
+}
+.prose-zen.comment-prose h1,
+.prose-zen.comment-prose h2,
+.prose-zen.comment-prose h3,
+.prose-zen.comment-prose h4,
+.prose-zen.comment-prose h5,
+.prose-zen.comment-prose h6 {
+  font-size: 1.05em;
+  margin-top: 0.6em;
+  margin-bottom: 0.2em;
+  line-height: 1.3;
+}
+.prose-zen.comment-prose h1 {
+  font-size: 1.2em;
+}
+.prose-zen.comment-prose h2 {
+  font-size: 1.12em;
+}
 .prose-zen h1,
 .prose-zen h2,
 .prose-zen h3,
