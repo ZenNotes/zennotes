@@ -47,6 +47,7 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
+  SyncStatus,
   ServerSessionStatus,
   VaultSettings,
   TikzRenderResponse,
@@ -1122,6 +1123,17 @@ export const httpBridge: ZenBridge = {
   saveRemoteWorkspaceProfile: (_input: RemoteWorkspaceProfileInput) => saveRemoteWorkspaceProfile(),
   deleteRemoteWorkspaceProfile: (_id: string) => deleteRemoteWorkspaceProfile(),
   connectRemoteWorkspaceProfile: (_id: string) => connectRemoteWorkspaceProfile(),
+
+  // The web client is itself the server's thin client — it never syncs a local
+  // copy, so sync controls are inert here.
+  getSyncStatus: () => Promise.resolve(null),
+  syncNow: () => Promise.resolve(),
+  attachSyncServer: (_profileId: string) =>
+    Promise.reject(new Error('Syncing is a desktop feature.')),
+  detachSyncServer: () => Promise.resolve(null),
+  openSyncedVault: (_root: string) =>
+    Promise.reject(new Error('Syncing is a desktop feature.')),
+  onSyncStatus: (_cb: (status: SyncStatus) => void) => () => {},
 
   getCurrentVault,
   listLocalVaults,
