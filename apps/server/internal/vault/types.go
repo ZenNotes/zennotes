@@ -140,6 +140,16 @@ type AssetMeta struct {
 	UpdatedAt    int64  `json:"updatedAt"`
 }
 
+// ManifestEntry — one file in the sync manifest: vault-relative path, sha256
+// content hash ("sha256:<hex>"), size, and mtime (UnixMilli). Mirrors the
+// client's SyncManifestEntry.
+type ManifestEntry struct {
+	Path  string `json:"path"`
+	Hash  string `json:"hash"`
+	Size  int64  `json:"size"`
+	Mtime int64  `json:"mtime"`
+}
+
 // ImportedAsset — mirrors shared/ipc.ts ImportedAsset.
 type ImportedAsset struct {
 	Name     string `json:"name"`

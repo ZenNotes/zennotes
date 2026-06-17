@@ -525,6 +525,8 @@ export interface ServerCapabilities {
   supportsVaultSelection: boolean
   supportsDirectoryBrowsing: boolean
   supportsWatch: boolean
+  /** Server exposes GET /api/sync/manifest (content hashes) for synced vaults. */
+  supportsSyncManifest?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -533,7 +535,12 @@ export interface ServerSessionStatus {
   supportsSessionLogin: boolean
 }
 
-export type WorkspaceMode = 'local' | 'remote'
+/**
+ * `local` = files on disk, no server. `remote` = thin HTTP client, no local
+ * copy. `synced` = a local vault that bidirectionally syncs with a server hub
+ * (behaves like `local` for all file ops; a background engine replicates it).
+ */
+export type WorkspaceMode = 'local' | 'remote' | 'synced'
 
 export interface RemoteWorkspaceInfo {
   mode: WorkspaceMode

@@ -1,7 +1,13 @@
 import path from 'node:path'
 import type { VaultChangeEvent, VaultInfo } from '@shared/ipc'
 
-export type WindowWorkspaceMode = 'local' | 'remote'
+export type WindowWorkspaceMode = 'local' | 'remote' | 'synced'
+
+/** Both `local` and `synced` are backed by real files on disk and share the
+ *  per-root file watcher; `remote` is a thin client with no local files. */
+function isDiskBacked(mode: WindowWorkspaceMode | undefined): boolean {
+  return mode === 'local' || mode === 'synced'
+}
 
 export interface VaultWatcherLike {
   start(root: string, onEvent: (ev: VaultChangeEvent) => void): void
@@ -23,6 +29,8 @@ export interface WindowVaultRegistryOptions {
   makeWatcher: () => VaultWatcherLike
   invalidateVault: (root: string, ev: VaultChangeEvent) => void
   sendVaultChange: (windowId: number, ev: VaultChangeEvent) => void
+  /** Fan-out of every disk change under a watched root, for the sync engine. */
+  onLocalChange?: (root: string, ev: VaultChangeEvent) => void
 }
 
 export class WindowVaultRegistry {
@@ -32,15 +40,30 @@ export class WindowVaultRegistry {
   constructor(private readonly options: WindowVaultRegistryOptions) {}
 
   setLocalVault(windowId: number, vault: VaultInfo): void {
+    this.attachDiskVault(windowId, vault, 'local')
+  }
+
+  /** A synced vault is disk-backed exactly like a local vault (same watcher);
+   *  the only difference is the mode tag and an attached background sync engine
+   *  (wired by the caller in index.ts). */
+  setSyncedVault(windowId: number, vault: VaultInfo): void {
+    this.attachDiskVault(windowId, vault, 'synced')
+  }
+
+  private attachDiskVault(
+    windowId: number,
+    vault: VaultInfo,
+    mode: 'local' | 'synced'
+  ): void {
     const root = normalizeRoot(vault.root)
     const previous = this.sessions.get(windowId)
-    if (previous?.mode === 'local' && previous.vault) {
+    if (previous && isDiskBacked(previous.mode) && previous.vault) {
       const previousRoot = normalizeRoot(previous.vault.root)
       if (previousRoot !== root) this.detachLocalWindow(windowId, previousRoot)
     }
 
     this.sessions.set(windowId, {
-      mode: 'local',
+      mode,
       vault: { ...vault, root }
     })
 
@@ -54,6 +77,7 @@ export class WindowVaultRegistry {
       }
       watcher.start(root, (ev) => {
         this.options.invalidateVault(root, ev)
+        this.options.onLocalChange?.(root, ev)
         this.sendLocalVaultChange(root, ev)
       })
       this.localVaultWatches.set(root, registration)
@@ -63,7 +87,7 @@ export class WindowVaultRegistry {
 
   setRemoteVault(windowId: number, vault: VaultInfo | null): void {
     const previous = this.sessions.get(windowId)
-    if (previous?.mode === 'local' && previous.vault) {
+    if (previous && isDiskBacked(previous.mode) && previous.vault) {
       this.detachLocalWindow(windowId, normalizeRoot(previous.vault.root))
     }
     this.sessions.set(windowId, {
@@ -74,7 +98,7 @@ export class WindowVaultRegistry {
 
   clearWindow(windowId: number): void {
     const previous = this.sessions.get(windowId)
-    if (previous?.mode === 'local' && previous.vault) {
+    if (previous && isDiskBacked(previous.mode) && previous.vault) {
       this.detachLocalWindow(windowId, normalizeRoot(previous.vault.root))
     }
     this.sessions.delete(windowId)
@@ -104,6 +128,10 @@ export class WindowVaultRegistry {
     return this.sessions.get(windowId)?.mode === 'remote'
   }
 
+  isSyncedWindow(windowId: number): boolean {
+    return this.sessions.get(windowId)?.mode === 'synced'
+  }
+
   hasRemoteWindows(): boolean {
     for (const session of this.sessions.values()) {
       if (session.mode === 'remote') return true
@@ -121,7 +149,7 @@ export class WindowVaultRegistry {
 
   isPathInsideWindowVault(windowId: number, absPath: string): boolean {
     const session = this.sessions.get(windowId)
-    if (session?.mode !== 'local' || !session.vault) return false
+    if (!isDiskBacked(session?.mode) || !session?.vault) return false
     return isPathInsideRoot(path.resolve(absPath), normalizeRoot(session.vault.root))
   }
 

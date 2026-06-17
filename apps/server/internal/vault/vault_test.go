@@ -763,6 +763,99 @@ func hasNotePath(notes []NoteMeta, path string) bool {
 	return false
 }
 
+func TestManifestHashesStableAndChange(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "A.md"), []byte("# A"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "B.excalidraw"), []byte(`{"type":"excalidraw"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m1, err := v.Manifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m1) < 2 {
+		t.Fatalf("manifest = %d entries, want >= 2: %+v", len(m1), m1)
+	}
+	byPath := map[string]ManifestEntry{}
+	for _, e := range m1 {
+		if !strings.HasPrefix(e.Hash, "sha256:") {
+			t.Errorf("entry %s hash missing sha256 prefix: %q", e.Path, e.Hash)
+		}
+		if e.Size == 0 {
+			t.Errorf("entry %s has zero size", e.Path)
+		}
+		byPath[e.Path] = e
+	}
+	if _, ok := byPath["inbox/A.md"]; !ok {
+		t.Error("manifest missing inbox/A.md")
+	}
+	if _, ok := byPath["inbox/B.excalidraw"]; !ok {
+		t.Error("manifest missing inbox/B.excalidraw")
+	}
+
+	// Re-running yields identical hashes (cache hit, no drift).
+	m2, err := v.Manifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range m2 {
+		if byPath[e.Path].Hash != e.Hash {
+			t.Errorf("hash for %s changed across runs: %q vs %q", e.Path, byPath[e.Path].Hash, e.Hash)
+		}
+	}
+
+	// Editing a note changes only its hash.
+	if err := os.WriteFile(filepath.Join(root, "inbox", "A.md"), []byte("# A edited"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m3, err := v.Manifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range m3 {
+		if e.Path == "inbox/A.md" && e.Hash == byPath["inbox/A.md"].Hash {
+			t.Error("edited note kept the same hash")
+		}
+		if e.Path == "inbox/B.excalidraw" && e.Hash != byPath["inbox/B.excalidraw"].Hash {
+			t.Error("untouched drawing hash changed")
+		}
+	}
+}
+
+func TestManifestExcludesDatabasesAndInternal(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "Keep.md"), []byte("# Keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Join(root, "inbox", "DB.base")
+	if err := os.MkdirAll(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "Rec.md"), []byte("# Rec"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := v.Manifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range m {
+		if strings.Contains(e.Path, ".base") || strings.HasPrefix(e.Path, ".zennotes") {
+			t.Errorf("manifest leaked excluded path: %s", e.Path)
+		}
+	}
+}
+
 func TestFavoritesRoundTripAndDedupe(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})

@@ -170,6 +170,7 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Get("/fs/browse", s.browseDirectories)
 
 	r.Get("/notes", s.listNotes)
+	r.Get("/sync/manifest", s.syncManifest)
 	r.Get("/folders", s.listFolders)
 	r.Get("/assets", s.listAssets)
 	r.Get("/assets/exists", s.assetsExists)
@@ -297,6 +298,7 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"supportsVaultSelection":    true,
 		"supportsDirectoryBrowsing": true,
 		"supportsWatch":             true,
+		"supportsSyncManifest":      true,
 	})
 }
 
@@ -493,6 +495,15 @@ func (s *Server) listNotes(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, notes)
+}
+
+func (s *Server) syncManifest(w http.ResponseWriter, _ *http.Request) {
+	manifest, err := s.currentVault().Manifest()
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, manifest)
 }
 
 func (s *Server) listFolders(w http.ResponseWriter, _ *http.Request) {

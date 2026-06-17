@@ -2111,7 +2111,7 @@ function findMatchingRemoteProfile(
 }
 
 function workspaceModeFrom(info: RemoteWorkspaceInfo | null): WorkspaceMode {
-  return info?.mode === 'remote' ? 'remote' : 'local'
+  return info?.mode === 'remote' || info?.mode === 'synced' ? info.mode : 'local'
 }
 
 async function ensureWebServerSession(

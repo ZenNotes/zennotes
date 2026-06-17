@@ -40,7 +40,8 @@ import {
   VaultTextSearchBackendResolved,
   VaultTextSearchToolPaths,
   VaultTextSearchMatch,
-  VaultInfo
+  VaultInfo,
+  type WorkspaceMode
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import {
@@ -255,10 +256,24 @@ export interface PersistedRemoteWorkspaceProfile extends PersistedRemoteWorkspac
 
 export type PersistedLocalVault = LocalVaultEntry
 
+export type SyncConflictPolicy = 'keep-both' | 'last-write-wins'
+export type SyncAssetMode = 'lazy' | 'full'
+
+/** A local vault folder bound to a server profile for bidirectional sync. */
+export interface PersistedSyncedVault {
+  root: string
+  /** id into remoteWorkspaceProfiles — the server hub this folder syncs with. */
+  serverProfileId: string
+  conflictPolicy: SyncConflictPolicy
+  assetMode: SyncAssetMode
+  lastSyncAt: number | null
+}
+
 export interface PersistedConfig {
-  workspaceMode: 'local' | 'remote'
+  workspaceMode: WorkspaceMode
   vaultRoot: string | null
   localVaults: PersistedLocalVault[]
+  syncedVaults: PersistedSyncedVault[]
   remoteWorkspace: PersistedRemoteWorkspaceConfig | null
   remoteWorkspaceProfileId: string | null
   remoteWorkspaceProfiles: PersistedRemoteWorkspaceProfile[]
@@ -278,6 +293,7 @@ const DEFAULT_CONFIG: PersistedConfig = {
   workspaceMode: 'local',
   vaultRoot: null,
   localVaults: [],
+  syncedVaults: [],
   remoteWorkspace: null,
   remoteWorkspaceProfileId: null,
   remoteWorkspaceProfiles: [],
@@ -399,17 +415,50 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
       localVaultsByRoot.set(entry.root, entry)
     }
   }
+  const normalizeSyncedVault = (raw: unknown): PersistedSyncedVault | null => {
+    if (!raw || typeof raw !== 'object') return null
+    const value = raw as Record<string, unknown>
+    const rawRoot = typeof value.root === 'string' ? value.root.trim() : ''
+    const serverProfileId =
+      typeof value.serverProfileId === 'string' ? value.serverProfileId.trim() : ''
+    if (!rawRoot || !serverProfileId) return null
+    // Drop bindings whose server profile no longer exists.
+    if (!remoteWorkspaceProfiles.some((p) => p.id === serverProfileId)) return null
+    return {
+      root: path.resolve(rawRoot),
+      serverProfileId,
+      conflictPolicy: value.conflictPolicy === 'last-write-wins' ? 'last-write-wins' : 'keep-both',
+      assetMode: value.assetMode === 'full' ? 'full' : 'lazy',
+      lastSyncAt:
+        typeof value.lastSyncAt === 'number' && Number.isFinite(value.lastSyncAt)
+          ? value.lastSyncAt
+          : null
+    }
+  }
+  const syncedVaultsByRoot = new Map<string, PersistedSyncedVault>()
+  const rawSyncedVaults = Array.isArray(candidate.syncedVaults) ? candidate.syncedVaults : []
+  for (const raw of rawSyncedVaults) {
+    const entry = normalizeSyncedVault(raw)
+    if (entry) syncedVaultsByRoot.set(entry.root, entry)
+  }
   const quickCaptureHotkey =
     typeof candidate.quickCaptureHotkey === 'string'
       ? candidate.quickCaptureHotkey.trim()
       : DEFAULT_QUICK_CAPTURE_HOTKEY
   const quickCapturePinned = candidate.quickCapturePinned === true
+  const workspaceMode: WorkspaceMode =
+    candidate.workspaceMode === 'remote'
+      ? 'remote'
+      : candidate.workspaceMode === 'synced'
+        ? 'synced'
+        : 'local'
   return {
-    workspaceMode: candidate.workspaceMode === 'remote' ? 'remote' : 'local',
+    workspaceMode,
     vaultRoot: typeof candidate.vaultRoot === 'string' ? candidate.vaultRoot : null,
     localVaults: [...localVaultsByRoot.values()].sort(
       (a, b) => b.lastOpenedAt - a.lastOpenedAt || a.name.localeCompare(b.name)
     ),
+    syncedVaults: [...syncedVaultsByRoot.values()],
     remoteWorkspace: legacyRemoteWorkspace,
     remoteWorkspaceProfileId:
       typeof candidate.remoteWorkspaceProfileId === 'string' &&
