@@ -161,6 +161,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFormatNote'),
         label: 'Format note',
         detail: 'Run markdown formatting on the active note.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCopyMarkdown'),
+        label: 'Copy as Markdown',
+        detail: "Copy the whole note's Markdown to the clipboard."
       }
       ]
     }
@@ -689,6 +694,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.formatActiveNote()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderCopyMarkdown')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.copyActiveNoteAsMarkdown()
           return
         }
         resetLeader()

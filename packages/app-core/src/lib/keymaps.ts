@@ -45,6 +45,7 @@ export type KeymapId =
   | "vim.leaderSwitchVault"
   | "vim.leaderNoteActions"
   | "vim.leaderFormatNote"
+  | "vim.leaderCopyMarkdown"
   | "vim.leaderQuickCapture"
   | "vim.leaderTemplatePicker"
   | "vim.leaderInsertTemplate"
@@ -448,6 +449,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader note action: format note",
     description: "Format the active note from the editor.",
     defaultBinding: "f",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCopyMarkdown",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: copy note as Markdown",
+    description: "Copy the whole note's Markdown source to the clipboard.",
+    defaultBinding: "y",
     vimOnly: true,
     maxTokens: 1,
   },

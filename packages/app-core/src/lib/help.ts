@@ -585,6 +585,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'A quick keyboard path to format the active note from the editor.'
   },
   {
+    command: '<Space> l y',
+    summary: 'Leader-copy note as Markdown',
+    detail: "Copy the whole note's Markdown source to the clipboard from the editor (also available as the “Copy Note as Markdown” command)."
+  },
+  {
     command: '<Space> (pause)',
     summary: 'Show leader hints',
     detail: 'When Leader key hints are enabled, pressing the configured Leader key shows a which-key style overlay for the next available leader actions. Settings let you choose a timed timeout or a sticky mode that stays open until you dismiss it. Turning Vim mode off disables the leader system too.'

@@ -1783,6 +1783,7 @@ interface Store {
   archiveActive: () => Promise<void>
   unarchiveActive: () => Promise<void>
   exportActiveNotePdf: () => Promise<void>
+  copyActiveNoteAsMarkdown: () => Promise<void>
   setSearchOpen: (open: boolean) => void
   setVaultTextSearchOpen: (open: boolean) => void
   setCommandPaletteOpen: (open: boolean, mode?: CommandPaletteInitialMode) => void
@@ -4208,6 +4209,21 @@ export const useStore = create<Store>((set, get) => {
         err instanceof Error ? err.message : 'Could not export the note as a PDF.'
       )
     }
+  },
+
+  copyActiveNoteAsMarkdown: async () => {
+    const s = get()
+    const active = s.activeNote
+    if (!active) return
+    let body = s.noteContents[active.path]?.body
+    if (body == null) {
+      try {
+        body = (await window.zen.readNote(active.path)).body
+      } catch {
+        return
+      }
+    }
+    window.zen.clipboardWriteText(body)
   },
 
   setSearchOpen: (open) =>

@@ -274,6 +274,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'note.copy-markdown',
+      title: 'Copy Note as Markdown',
+      category: 'Note',
+      keywords: 'copy clipboard markdown source document whole content text yank',
+      when: () => !!getState().activeNote,
+      run: async () => {
+        await getState().copyActiveNoteAsMarkdown()
+      }
+    },
+    {
       id: 'note.export-pdf',
       title: 'Export Note as PDF…',
       category: 'Note',
