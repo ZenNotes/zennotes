@@ -1198,17 +1198,33 @@ export async function migrateLooseAssets(
   }
 
   // 1. Loose asset files sitting directly at the vault root.
-  let rootEntries: Dirent[]
+  //
+  // Skip this for a vault managed by another app — an `.obsidian/` directory
+  // marks an Obsidian vault. Those loose root files (`.canvas`, images, PDFs,
+  // anything) are the user's own, not ZenNotes' legacy attachments, and
+  // silently relocating them into `assets/` surprised users who pointed
+  // ZenNotes at an existing Obsidian vault (#202). The legacy ZenNotes
+  // attachment dirs below never exist in such a vault, so they stay safe.
+  let isExternalVault = false
   try {
-    rootEntries = await fs.readdir(root, { withFileTypes: true })
+    await fs.access(path.join(root, '.obsidian'))
+    isExternalVault = true
   } catch {
-    return { moved, skipped }
+    /* not an Obsidian vault */
   }
-  for (const entry of rootEntries) {
-    if (entry.name.startsWith('.') || !entry.isFile()) continue
-    if (entry.name.toLowerCase().endsWith('.md')) continue // a note
-    if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
-    await moveIntoAssets(entry.name)
+  if (!isExternalVault) {
+    let rootEntries: Dirent[] = []
+    try {
+      rootEntries = await fs.readdir(root, { withFileTypes: true })
+    } catch {
+      rootEntries = []
+    }
+    for (const entry of rootEntries) {
+      if (entry.name.startsWith('.') || !entry.isFile()) continue
+      if (entry.name.toLowerCase().endsWith('.md')) continue // a note
+      if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
+      await moveIntoAssets(entry.name)
+    }
   }
 
   // 2. Files in the legacy attachment dirs, then drop the dir if it empties.
