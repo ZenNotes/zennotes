@@ -2,7 +2,6 @@ package vault
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,12 +26,10 @@ const (
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
 	noteMetaCacheFile     = "note-meta-cache-v1.json"
-	// Bumped 1->2 when contentHash was added to cache entries; older caches
-	// (without hashes) are discarded by the version check on load.
-	noteMetaCacheVersion = 2
-	noteCommentsDir      = "comments"
-	noteCommentsSuffix   = ".comments.json"
-	noteMetaReadLimit    = 64
+	noteMetaCacheVersion  = 1
+	noteCommentsDir       = "comments"
+	noteCommentsSuffix    = ".comments.json"
+	noteMetaReadLimit     = 64
 	// formDirSuffix marks a database folder (`<Name>.base/`), a self-contained
 	// folder holding data.csv, schema.json, and record-page notes. Databases are
 	// a desktop-only feature; the server hides these folders (it neither serves
@@ -186,10 +183,9 @@ type textSearchCache struct {
 }
 
 type noteMetaCacheEntry struct {
-	mtimeMs     float64
-	size        int64
-	meta        NoteMeta
-	contentHash string // "sha256:<hex>" of the raw file bytes; "" if unknown
+	mtimeMs float64
+	size    int64
+	meta    NoteMeta
 }
 
 type persistedNoteMetaCache struct {
@@ -198,17 +194,10 @@ type persistedNoteMetaCache struct {
 }
 
 type persistedNoteMetaEntry struct {
-	Path        string   `json:"path"`
-	MtimeMs     float64  `json:"mtimeMs"`
-	Size        int64    `json:"size"`
-	Meta        NoteMeta `json:"meta"`
-	ContentHash string   `json:"contentHash,omitempty"`
-}
-
-// hashContent returns the sync content hash of raw file bytes.
-func hashContent(body []byte) string {
-	sum := sha256.Sum256(body)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	Path    string   `json:"path"`
+	MtimeMs float64  `json:"mtimeMs"`
+	Size    int64    `json:"size"`
+	Meta    NoteMeta `json:"meta"`
 }
 
 func mtimeMs(info fs.FileInfo) float64 {
@@ -699,10 +688,9 @@ func (v *Vault) hydratePersistedNoteMetaCache() {
 			continue
 		}
 		entries[abs] = noteMetaCacheEntry{
-			mtimeMs:     entry.MtimeMs,
-			size:        entry.Size,
-			meta:        entry.Meta,
-			contentHash: entry.ContentHash,
+			mtimeMs: entry.MtimeMs,
+			size:    entry.Size,
+			meta:    entry.Meta,
 		}
 	}
 	if len(entries) == 0 {
@@ -749,11 +737,10 @@ func (v *Vault) persistNoteMetaCacheSnapshot(metas []NoteMeta) {
 			metaCopy := cached.meta
 			metaCopy.SiblingOrder = meta.SiblingOrder
 			entries = append(entries, persistedNoteMetaEntry{
-				Path:        meta.Path,
-				MtimeMs:     cached.mtimeMs,
-				Size:        cached.size,
-				Meta:        metaCopy,
-				ContentHash: cached.contentHash,
+				Path:    meta.Path,
+				MtimeMs: cached.mtimeMs,
+				Size:    cached.size,
+				Meta:    metaCopy,
 			})
 		}
 		v.metaCacheMu.Unlock()
@@ -802,16 +789,16 @@ func isSkippableWalkErr(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
 }
 
-type noteFile struct {
-	folder NoteFolder
-	path   string
-}
+func (v *Vault) ListNotes() ([]NoteMeta, error) {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	v.hydratePersistedNoteMetaCache()
 
-// collectNoteFiles walks every note/.excalidraw file across all top-level
-// folders, applying the same skip rules as ListNotes (database folders, hidden
-// dirs, primary-root hiding). Shared by ListNotes and Manifest. Callers hold
-// v.mu (at least RLock).
-func (v *Vault) collectNoteFiles() ([]noteFile, error) {
+	type noteFile struct {
+		folder NoteFolder
+		path   string
+	}
+
 	files := []noteFile{}
 	for _, folder := range AllFolders {
 		folderRoot, err := v.folderRoot(folder)
@@ -861,18 +848,6 @@ func (v *Vault) collectNoteFiles() ([]noteFile, error) {
 			return nil, err
 		}
 	}
-	return files, nil
-}
-
-func (v *Vault) ListNotes() ([]NoteMeta, error) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	v.hydratePersistedNoteMetaCache()
-
-	files, err := v.collectNoteFiles()
-	if err != nil {
-		return nil, err
-	}
 
 	results := make([]NoteMeta, len(files))
 	ok := make([]bool, len(files))
@@ -911,154 +886,6 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 	}, func(m *NoteMeta, i int) { m.SiblingOrder = i })
 	v.persistNoteMetaCacheSnapshot(out)
 	return out, nil
-}
-
-// Manifest returns a content-addressed listing of every note/.excalidraw file:
-// path + sha256 content hash + size + mtime. The sync client diffs this against
-// its base snapshot to decide pushes/pulls without downloading bodies. Hashes
-// are cached in the note-meta-cache (keyed by mtime+size), so an unchanged vault
-// answers from stat() calls alone.
-// collectSyncFiles walks every syncable file in the vault — notes, drawings,
-// databases, assets (binary), comments, and vault settings — excluding only the
-// per-device sync-state, the meta cache, OS junk, temp files, and unrelated
-// dot-directories. `.zennotes` itself is walked (for vault.json + comments).
-// Callers hold v.mu (at least RLock).
-func (v *Vault) collectSyncFiles() ([]string, error) {
-	out := []string{}
-	err := filepath.WalkDir(v.root, func(p string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if isSkippableWalkErr(walkErr) {
-				return nil
-			}
-			return walkErr
-		}
-		if p == v.root {
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if name == internalVaultDir {
-				return nil // walk into .zennotes for vault.json + comments
-			}
-			if strings.HasPrefix(name, ".") {
-				return filepath.SkipDir // unrelated dot-dirs (.git, …)
-			}
-			return nil
-		}
-		if strings.HasPrefix(name, ".") {
-			return nil // dotfiles (.DS_Store, etc.)
-		}
-		if strings.HasSuffix(name, ".tmp") || strings.HasSuffix(name, ".synctmp") {
-			return nil
-		}
-		rel, err := filepath.Rel(v.root, p)
-		if err != nil {
-			return nil
-		}
-		relPosix := filepath.ToSlash(rel)
-		if relPosix == internalVaultDir+"/sync-state.json" ||
-			relPosix == internalVaultDir+"/"+noteMetaCacheFile {
-			return nil
-		}
-		out = append(out, p)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (v *Vault) Manifest() ([]ManifestEntry, error) {
-	v.mu.RLock()
-	defer v.mu.RUnlock()
-	v.hydratePersistedNoteMetaCache()
-
-	files, err := v.collectSyncFiles()
-	if err != nil {
-		return nil, err
-	}
-
-	hashes := make([]string, len(files))
-	sizes := make([]int64, len(files))
-	mtimes := make([]int64, len(files))
-	okFlags := make([]bool, len(files))
-
-	limit := noteMetaReadLimit
-	if len(files) < limit {
-		limit = len(files)
-	}
-	sem := make(chan struct{}, limit)
-	var wg sync.WaitGroup
-	for index, filePath := range files {
-		wg.Add(1)
-		go func(index int, filePath string) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			info, err := os.Stat(filePath)
-			if err != nil {
-				return
-			}
-			h := v.cachedContentHash(filePath, info)
-			if h == "" {
-				return
-			}
-			hashes[index] = h
-			sizes[index] = info.Size()
-			mtimes[index] = info.ModTime().UnixMilli()
-			okFlags[index] = true
-		}(index, filePath)
-	}
-	wg.Wait()
-
-	out := make([]ManifestEntry, 0, len(files))
-	for index, filePath := range files {
-		if !okFlags[index] {
-			continue
-		}
-		rel, err := filepath.Rel(v.root, filePath)
-		if err != nil {
-			continue
-		}
-		out = append(out, ManifestEntry{
-			Path:  filepath.ToSlash(rel),
-			Hash:  hashes[index],
-			Size:  sizes[index],
-			Mtime: mtimes[index],
-		})
-	}
-	return out, nil
-}
-
-// cachedContentHash returns the sha256 content hash of a file, reusing the
-// note-meta-cache when the file's mtime+size are unchanged. On a miss it reads
-// and hashes the file once and stores a hash-only cache entry (zero meta, so
-// readMeta still recomputes full metadata for a genuinely changed file).
-func (v *Vault) cachedContentHash(abs string, info fs.FileInfo) string {
-	statMtimeMs := mtimeMs(info)
-	v.metaCacheMu.Lock()
-	cached, ok := v.metaCache[abs]
-	if ok && sameMtimeMs(cached.mtimeMs, statMtimeMs) && cached.size == info.Size() && cached.contentHash != "" {
-		h := cached.contentHash
-		v.metaCacheMu.Unlock()
-		return h
-	}
-	v.metaCacheMu.Unlock()
-
-	body, err := os.ReadFile(abs)
-	if err != nil {
-		return ""
-	}
-	h := hashContent(body)
-	v.metaCacheMu.Lock()
-	v.metaCache[abs] = noteMetaCacheEntry{
-		mtimeMs:     statMtimeMs,
-		size:        info.Size(),
-		contentHash: h,
-	}
-	v.metaCacheMu.Unlock()
-	return h
 }
 
 func assignSiblingOrder[T any](list []T, key func(T) string, set func(*T, int)) {
@@ -1288,10 +1115,9 @@ func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 	meta := buildNoteMeta(relPosix, title, folder, info, bodyStr)
 	v.metaCacheMu.Lock()
 	v.metaCache[abs] = noteMetaCacheEntry{
-		mtimeMs:     statMtimeMs,
-		size:        info.Size(),
-		meta:        meta,
-		contentHash: hashContent(body),
+		mtimeMs: statMtimeMs,
+		size:    info.Size(),
+		meta:    meta,
 	}
 	v.metaCacheMu.Unlock()
 	return meta, nil
@@ -2315,46 +2141,6 @@ func (v *Vault) AssetAbsPath(rel string) (string, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return SafeJoin(v.root, rel)
-}
-
-// WriteSyncFile writes raw bytes to an exact vault-relative path (used by the
-// sync client to push binary files). Creates parent dirs, caps at the asset
-// size limit, and commits atomically via temp + rename.
-func (v *Vault) WriteSyncFile(rel string, body io.Reader) error {
-	v.mu.Lock()
-	defer v.mu.Unlock()
-	abs, err := SafeJoin(v.root, rel)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(abs), v.dirMode); err != nil {
-		return err
-	}
-	tmp := fmt.Sprintf("%s.%d.%d.synctmp", abs, os.Getpid(), time.Now().UnixNano())
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, v.fileMode)
-	if err != nil {
-		return err
-	}
-	written, copyErr := io.Copy(f, io.LimitReader(body, v.maxAssetBytes+1))
-	closeErr := f.Close()
-	if copyErr != nil {
-		_ = os.Remove(tmp)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(tmp)
-		return closeErr
-	}
-	if written > v.maxAssetBytes {
-		_ = os.Remove(tmp)
-		return ErrAssetTooLarge
-	}
-	if err := os.Rename(tmp, abs); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	v.invalidateTextSearchCache()
-	return nil
 }
 
 func makeAssetMarkdown(relPath, kind, name string) string {

@@ -23,7 +23,6 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
-  SyncStatus,
   VaultSettings,
   TikzRenderResponse,
   VaultChangeEvent,
@@ -101,21 +100,6 @@ export interface ZenBridge {
   connectRemoteWorkspaceProfile(
     id: string
   ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }>
-
-  /** Current sync status for the active synced vault, or null if not synced. */
-  getSyncStatus(): Promise<SyncStatus | null>
-  /** Trigger an immediate reconcile. */
-  syncNow(): Promise<void>
-  /** Remove a resolved conflict copy from the status list. */
-  dismissSyncConflict(copyPath: string): Promise<void>
-  /** Attach the open local vault to a saved server and switch it to synced mode. */
-  attachSyncServer(profileId: string): Promise<VaultInfo>
-  /** Stop syncing and reopen the folder as a plain local vault. */
-  detachSyncServer(): Promise<VaultInfo | null>
-  /** Open an already-configured synced vault by its root. */
-  openSyncedVault(root: string): Promise<VaultInfo>
-  /** Subscribe to sync-status pushes; returns an unsubscribe function. */
-  onSyncStatus(cb: (status: SyncStatus) => void): () => void
 
   getCurrentVault(): Promise<VaultInfo | null>
   listLocalVaults(): Promise<LocalVaultEntry[]>

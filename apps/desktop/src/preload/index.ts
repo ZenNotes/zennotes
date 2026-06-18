@@ -36,7 +36,6 @@ import type {
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
   ServerSessionStatus,
-  SyncStatus,
   VaultChangeEvent,
   VaultDemoTourResult,
   VaultInfo,
@@ -227,31 +226,6 @@ const api: ZenBridge = {
     const result = await ipcRenderer.invoke(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, id)
     await refreshRemoteWorkspaceInfo()
     return result
-  },
-
-  getSyncStatus: (): Promise<SyncStatus | null> => ipcRenderer.invoke(IPC.SYNC_GET_STATUS),
-  syncNow: (): Promise<void> => ipcRenderer.invoke(IPC.SYNC_NOW),
-  dismissSyncConflict: (copyPath: string): Promise<void> =>
-    ipcRenderer.invoke(IPC.SYNC_DISMISS_CONFLICT, copyPath),
-  attachSyncServer: async (profileId: string): Promise<VaultInfo> => {
-    const vault = await ipcRenderer.invoke(IPC.SYNC_ATTACH_SERVER, profileId)
-    await refreshRemoteWorkspaceInfo()
-    return vault
-  },
-  detachSyncServer: async (): Promise<VaultInfo | null> => {
-    const vault = await ipcRenderer.invoke(IPC.SYNC_DETACH_SERVER)
-    await refreshRemoteWorkspaceInfo()
-    return vault
-  },
-  openSyncedVault: async (root: string): Promise<VaultInfo> => {
-    const vault = await ipcRenderer.invoke(IPC.SYNC_OPEN_VAULT, root)
-    await refreshRemoteWorkspaceInfo()
-    return vault
-  },
-  onSyncStatus: (cb: (status: SyncStatus) => void): (() => void) => {
-    const listener = (_: unknown, status: SyncStatus): void => cb(status)
-    ipcRenderer.on(IPC.SYNC_ON_STATUS, listener)
-    return () => ipcRenderer.removeListener(IPC.SYNC_ON_STATUS, listener)
   },
 
   getCurrentVault: async (): Promise<VaultInfo | null> => {

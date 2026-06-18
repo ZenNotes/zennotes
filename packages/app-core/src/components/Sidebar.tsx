@@ -13,7 +13,7 @@ import { Button } from "./ui/Button";
 import { confirmMoveToTrash } from "../lib/confirm-trash";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { extractTags } from "../lib/tags";
-import type { AssetMeta, FolderColorId, FolderEntry, FolderIconId, NoteFolder, NoteMeta, SyncStatus } from "@shared/ipc";
+import type { AssetMeta, FolderColorId, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
 import type { NoteSortOrder } from "../store";
 import { isArchiveTabPath } from "@shared/archive";
 import { isTrashTabPath } from "@shared/trash";
@@ -25,9 +25,6 @@ import {
   ChevronRightIcon,
   CheckSquareIcon,
   CloseIcon,
-  CloudIcon,
-  CloudCheckIcon,
-  CloudOffIcon,
   DatabaseIcon,
   DocumentIcon,
   ExcalidrawIcon,
@@ -44,7 +41,6 @@ import {
   TrashIcon,
 } from "./icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
-import { SyncConflictModal } from "./SyncConflictModal";
 import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
@@ -455,11 +451,6 @@ export function Sidebar(): JSX.Element {
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
   const localVaults = useStore((s) => s.localVaults);
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles);
-  const syncStatus = useStore((s) => s.syncStatus);
-  const attachSyncServer = useStore((s) => s.attachSyncServer);
-  const detachSyncServer = useStore((s) => s.detachSyncServer);
-  const syncNow = useStore((s) => s.syncNow);
-  const [conflictModalOpen, setConflictModalOpen] = useState(false);
   const openVaultPicker = useStore((s) => s.openVaultPicker);
   const openLocalVault = useStore((s) => s.openLocalVault);
   const closeVault = useStore((s) => s.closeVault);
@@ -2490,34 +2481,6 @@ export function Sidebar(): JSX.Element {
       });
     }
 
-    // Sync controls: a synced vault can stop syncing; a plain local vault can be
-    // attached to any saved server for bidirectional backup/sync.
-    if (syncStatus) {
-      items.push({ kind: "separator" });
-      items.push({
-        label: "Stop syncing (keep local copy)",
-        icon: <CloudIcon className="h-4 w-4" />,
-        onSelect: async () => {
-          await detachSyncServer();
-        },
-      });
-    } else if (workspaceMode === "local" && remoteWorkspaceProfiles.length > 0) {
-      items.push({ kind: "separator" });
-      for (const profile of remoteWorkspaceProfiles) {
-        items.push({
-          label: `Back up & sync to ${profile.name}`,
-          icon: <CloudIcon className="h-4 w-4" />,
-          onSelect: async () => {
-            try {
-              await attachSyncServer(profile.id);
-            } catch (err) {
-              window.alert((err as Error).message);
-            }
-          },
-        });
-      }
-    }
-
     return items;
   }, [
     canCloseCurrentVault,
@@ -2530,11 +2493,6 @@ export function Sidebar(): JSX.Element {
     openVaultPicker,
     refreshLocalVaults,
     vaultSwitcherEntries,
-    syncStatus,
-    workspaceMode,
-    remoteWorkspaceProfiles,
-    attachSyncServer,
-    detachSyncServer,
   ]);
 
   // A folder only shows the strong "selected" accent highlight when
@@ -2800,15 +2758,6 @@ export function Sidebar(): JSX.Element {
           </div>
         )}
         <div className="flex items-center gap-0.5">
-          {syncStatus && (
-            <SyncStatusButton
-              status={syncStatus}
-              onClick={() => {
-                if (syncStatus.conflicts.length > 0) setConflictModalOpen(true);
-                else void syncNow();
-              }}
-            />
-          )}
           <IconBtn
             title="Create… (note, drawing, folder, database)"
             onClick={(e) => {
@@ -3378,9 +3327,6 @@ export function Sidebar(): JSX.Element {
           items={folderMenuItems}
           onClose={() => setFolderMenu(null)}
         />
-      )}
-      {conflictModalOpen && (
-        <SyncConflictModal onClose={() => setConflictModalOpen(false)} />
       )}
       {rootMenu && (
         <ContextMenu
@@ -5187,59 +5133,6 @@ function SidebarFooterAction({
         >
           {badgeLabel}
         </span>
-      )}
-    </button>
-  );
-}
-
-function SyncStatusButton({
-  status,
-  onClick,
-}: {
-  status: SyncStatus;
-  onClick: () => void;
-}): JSX.Element {
-  const hasConflicts = status.conflicts.length > 0;
-  const view =
-    status.kind === "syncing"
-      ? { icon: <CloudIcon className="h-4 w-4 animate-pulse" />, title: "Syncing…", tint: "text-accent" }
-      : status.kind === "offline"
-        ? {
-            icon: <CloudOffIcon className="h-4 w-4" />,
-            title: "Offline — changes will sync when reconnected",
-            tint: "text-ink-400",
-          }
-        : status.kind === "error"
-          ? {
-              icon: <CloudOffIcon className="h-4 w-4" />,
-              title: status.lastError ?? "Sync error",
-              tint: "text-red-500",
-            }
-          : {
-              icon: <CloudCheckIcon className="h-4 w-4" />,
-              title: hasConflicts
-                ? `Synced • ${status.conflicts.length} conflict cop${status.conflicts.length === 1 ? "y" : "ies"} kept`
-                : "Synced",
-              tint: hasConflicts ? "text-amber-500" : "text-emerald-500",
-            };
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={view.title}
-      title={
-        hasConflicts
-          ? `${view.title} — click to resolve`
-          : `${view.title} — click to sync now`
-      }
-      className={[
-        "group relative flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-paper-200",
-        view.tint,
-      ].join(" ")}
-    >
-      {view.icon}
-      {hasConflicts && status.kind !== "syncing" && (
-        <span className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber-500" />
       )}
     </button>
   );

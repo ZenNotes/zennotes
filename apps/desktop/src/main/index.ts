@@ -33,7 +33,6 @@ import type {
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
   ServerCapabilities,
-  SyncStatus,
   VaultSettings,
   VaultChangeEvent,
   VaultInfo,
@@ -87,7 +86,6 @@ import {
   rootContentHiddenByInboxMode,
   type PersistedRemoteWorkspaceConfig,
   type PersistedRemoteWorkspaceProfile,
-  type PersistedSyncedVault,
   type PersistedWindowState,
   rememberLocalVault,
   updateConfig,
@@ -108,7 +106,6 @@ import {
   getRemoteWorkspaceSecret,
   setRemoteWorkspaceSecret
 } from './secret-store'
-import { SyncEngine } from './sync/engine'
 import { scanAllTasks, scanTasksForPath } from './tasks'
 import {
   readDatabase,
@@ -185,17 +182,13 @@ let mainWindow: BrowserWindow | null = null
 let mainWindowReadyForAppEvents = false
 let creatingMainWindow: Promise<BrowserWindow> | null = null
 let currentVault: VaultInfo | null = null
-let currentWorkspaceMode: 'local' | 'remote' | 'synced' = 'local'
+let currentWorkspaceMode: 'local' | 'remote' = 'local'
 let remoteWorkspaceConfig: PersistedRemoteWorkspaceConfig | null = null
 let currentRemoteWorkspaceProfileId: string | null = null
 let remoteWorkspaceClient: RemoteServerClient | null = null
 let remoteServerCapabilities: ServerCapabilities | null = null
 let stopRemoteVaultWatch: (() => void) | null = null
 const ipcWindowContext = new AsyncLocalStorage<BrowserWindow>()
-// The active synced vault's background sync engine (one at a time; keyed by
-// root so the local-change fan-out only reaches the matching engine).
-let activeSyncEngine: SyncEngine | null = null
-
 const windowVaults = new WindowVaultRegistry({
   makeWatcher: () => new VaultWatcher(),
   invalidateVault: (root, ev) => {
@@ -206,45 +199,8 @@ const windowVaults = new WindowVaultRegistry({
     const win = BrowserWindow.fromId(windowId)
     if (!win || win.isDestroyed()) return
     win.webContents.send(IPC.VAULT_ON_CHANGE, ev)
-  },
-  onLocalChange: (root, ev) => {
-    if (activeSyncEngine && path.resolve(activeSyncEngine.root) === path.resolve(root)) {
-      activeSyncEngine.onLocalChange(ev)
-    }
   }
 })
-
-function broadcastSyncStatus(status: SyncStatus): void {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(IPC.SYNC_ON_STATUS, status)
-  }
-}
-
-function stopSyncEngine(): void {
-  activeSyncEngine?.stop()
-  activeSyncEngine = null
-}
-
-/** Start (or restart) the background sync engine for a synced vault. */
-async function startSyncEngine(synced: PersistedSyncedVault): Promise<void> {
-  const cfg = await loadConfig()
-  const profile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, synced.serverProfileId)
-  if (!profile) {
-    throw new Error('The server for this synced vault is no longer configured.')
-  }
-  const authToken = await getRemoteWorkspaceSecret(profile.id)
-  const client = new RemoteServerClient({ baseUrl: profile.baseUrl, authToken })
-  stopSyncEngine()
-  const engine = new SyncEngine({
-    root: path.resolve(synced.root),
-    client,
-    serverProfileId: synced.serverProfileId,
-    conflictPolicy: synced.conflictPolicy,
-    onStatus: broadcastSyncStatus
-  })
-  activeSyncEngine = engine
-  await engine.start()
-}
 const DEFAULT_WINDOW_WIDTH = 1280
 const DEFAULT_WINDOW_HEIGHT = 820
 const MIN_WINDOW_WIDTH = 900
@@ -1239,7 +1195,6 @@ async function setVaultForWindow(
   windowVaults.setLocalVault(win.id, vault)
   currentVault = vault
   currentWorkspaceMode = 'local'
-  stopSyncEngine()
   if (!windowVaults.hasRemoteWindows()) {
     remoteWorkspaceClient = null
     remoteWorkspaceConfig = null
@@ -1259,38 +1214,6 @@ async function setVaultForWindow(
   return vault
 }
 
-/** Open a vault in `synced` mode (disk-backed like local, plus the engine). */
-async function setSyncedVaultForWindow(
-  win: BrowserWindow,
-  synced: PersistedSyncedVault,
-  options: { persist?: boolean } = {}
-): Promise<VaultInfo> {
-  const root = path.resolve(synced.root)
-  await ensureVaultLayout(root)
-  const vault = vaultInfo(root)
-  windowVaults.setSyncedVault(win.id, vault)
-  currentVault = vault
-  currentWorkspaceMode = 'synced'
-  if (!windowVaults.hasRemoteWindows()) {
-    remoteWorkspaceClient = null
-    remoteWorkspaceConfig = null
-    currentRemoteWorkspaceProfileId = null
-    remoteServerCapabilities = null
-    stopRemoteWatch()
-  }
-  await startSyncEngine(synced)
-  if (options.persist !== false) {
-    await updateConfig((cfg) => ({
-      ...cfg,
-      workspaceMode: 'synced',
-      vaultRoot: root,
-      localVaults: rememberLocalVault(cfg.localVaults, vault),
-      remoteWorkspaceProfileId: null
-    }))
-  }
-  return vault
-}
-
 async function setVault(root: string): Promise<VaultInfo> {
   const win = currentIpcWindow() ?? mainWindow
   if (win && !win.isDestroyed()) return await setVaultForWindow(win, root)
@@ -1299,7 +1222,6 @@ async function setVault(root: string): Promise<VaultInfo> {
   const vault = vaultInfo(path.resolve(root))
   currentVault = vault
   currentWorkspaceMode = 'local'
-  stopSyncEngine()
   remoteWorkspaceClient = null
   remoteWorkspaceConfig = null
   currentRemoteWorkspaceProfileId = null
@@ -1400,7 +1322,6 @@ async function setRemoteWorkspace(
 
   const win = currentIpcWindow() ?? mainWindow
   currentWorkspaceMode = 'remote'
-  stopSyncEngine()
   currentVault = vault
   if (win && !win.isDestroyed()) {
     windowVaults.setRemoteVault(win.id, vault)
@@ -1770,19 +1691,6 @@ async function loadCurrentVaultFromConfig(): Promise<VaultInfo | null> {
       return null
     }
   }
-  if (cfg.workspaceMode === 'synced' && cfg.vaultRoot) {
-    const synced = cfg.syncedVaults.find(
-      (s) => path.resolve(s.root) === path.resolve(cfg.vaultRoot!)
-    )
-    if (synced && win && !win.isDestroyed()) {
-      try {
-        return await setSyncedVaultForWindow(win, synced, { persist: false })
-      } catch {
-        // Fall through to opening the folder as a plain local vault if the
-        // engine can't start (e.g. server profile gone) — never block startup.
-      }
-    }
-  }
   if (cfg.vaultRoot) {
     try {
       if (win && !win.isDestroyed()) {
@@ -2040,65 +1948,6 @@ function registerIpc(): void {
   })
   handle(IPC.WORKSPACE_CONNECT_REMOTE_PROFILE, async (_e, id: string) => {
     return await connectRemoteWorkspaceProfile(id)
-  })
-
-  handle(IPC.SYNC_GET_STATUS, async () => activeSyncEngine?.getStatus() ?? null)
-
-  handle(IPC.SYNC_NOW, async () => {
-    activeSyncEngine?.syncNow()
-  })
-
-  handle(IPC.SYNC_DISMISS_CONFLICT, async (_e, copyPath: string) => {
-    activeSyncEngine?.dismissConflict(copyPath)
-  })
-
-  // Attach the currently open local vault to a saved server and switch it to
-  // synced mode (bidirectional backup/sync).
-  handle(IPC.SYNC_ATTACH_SERVER, async (_e, profileId: string) => {
-    const win = currentIpcWindow() ?? mainWindow
-    if (!win || win.isDestroyed()) throw new Error('No window is associated with this call.')
-    const vault = windowVaults.vaultForWindow(win.id) ?? currentVault
-    if (!vault) throw new Error('No vault is open to sync.')
-    const root = path.resolve(vault.root)
-    const cfg = await loadConfig()
-    const profile = findRemoteProfileById(cfg.remoteWorkspaceProfiles, profileId)
-    if (!profile) throw new Error('Add and save a server connection first.')
-    const synced: PersistedSyncedVault = {
-      root,
-      serverProfileId: profileId,
-      conflictPolicy: 'keep-both',
-      assetMode: 'lazy',
-      lastSyncAt: null
-    }
-    await updateConfig((c) => ({
-      ...c,
-      syncedVaults: [...c.syncedVaults.filter((s) => path.resolve(s.root) !== root), synced]
-    }))
-    return await setSyncedVaultForWindow(win, synced)
-  })
-
-  // Detach: stop syncing and reopen the folder as a plain local vault.
-  handle(IPC.SYNC_DETACH_SERVER, async () => {
-    const win = currentIpcWindow() ?? mainWindow
-    const vault = win && !win.isDestroyed() ? windowVaults.vaultForWindow(win.id) : currentVault
-    if (!vault) return null
-    const root = path.resolve(vault.root)
-    await updateConfig((c) => ({
-      ...c,
-      syncedVaults: c.syncedVaults.filter((s) => path.resolve(s.root) !== root)
-    }))
-    if (win && !win.isDestroyed()) return await setVaultForWindow(win, root)
-    return await setVault(root)
-  })
-
-  // Open an already-configured synced vault by its root.
-  handle(IPC.SYNC_OPEN_VAULT, async (_e, root: string) => {
-    const win = currentIpcWindow() ?? mainWindow
-    if (!win || win.isDestroyed()) throw new Error('No window is associated with this call.')
-    const cfg = await loadConfig()
-    const synced = cfg.syncedVaults.find((s) => path.resolve(s.root) === path.resolve(root))
-    if (!synced) throw new Error('That synced vault is not configured.')
-    return await setSyncedVaultForWindow(win, synced)
   })
 
   handle(IPC.VAULT_GET_CURRENT, async () => {

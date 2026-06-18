@@ -170,8 +170,6 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Get("/fs/browse", s.browseDirectories)
 
 	r.Get("/notes", s.listNotes)
-	r.Get("/sync/manifest", s.syncManifest)
-	r.Post("/sync/write", s.syncWrite)
 	r.Get("/folders", s.listFolders)
 	r.Get("/assets", s.listAssets)
 	r.Get("/assets/exists", s.assetsExists)
@@ -299,7 +297,6 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		"supportsVaultSelection":    true,
 		"supportsDirectoryBrowsing": true,
 		"supportsWatch":             true,
-		"supportsSyncManifest":      true,
 	})
 }
 
@@ -496,46 +493,6 @@ func (s *Server) listNotes(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, notes)
-}
-
-func (s *Server) syncManifest(w http.ResponseWriter, _ *http.Request) {
-	manifest, err := s.currentVault().Manifest()
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, manifest)
-}
-
-// syncWrite writes raw bytes to an exact vault path (binary file sync). The path
-// is a form field; the bytes are the `file` part of a multipart upload.
-func (s *Server) syncWrite(w http.ResponseWriter, r *http.Request) {
-	cfg := s.currentConfig()
-	r.Body = http.MaxBytesReader(w, r.Body, cfg.MaxAssetBytes+multipartOverheadBytes)
-	if err := r.ParseMultipartForm(8 << 20); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	relPath := r.FormValue("path")
-	if strings.TrimSpace(relPath) == "" {
-		http.Error(w, "missing path", http.StatusBadRequest)
-		return
-	}
-	file, _, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-	if err := s.currentVault().WriteSyncFile(relPath, file); err != nil {
-		if errors.Is(err, vault.ErrAssetTooLarge) {
-			http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
-			return
-		}
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) listFolders(w http.ResponseWriter, _ *http.Request) {

@@ -9,13 +9,6 @@ export const IPC = {
   WORKSPACE_SAVE_REMOTE_PROFILE: 'workspace:save-remote-profile',
   WORKSPACE_DELETE_REMOTE_PROFILE: 'workspace:delete-remote-profile',
   WORKSPACE_CONNECT_REMOTE_PROFILE: 'workspace:connect-remote-profile',
-  SYNC_GET_STATUS: 'sync:get-status',
-  SYNC_NOW: 'sync:now',
-  SYNC_ON_STATUS: 'sync:on-status',
-  SYNC_ATTACH_SERVER: 'sync:attach-server',
-  SYNC_DETACH_SERVER: 'sync:detach-server',
-  SYNC_OPEN_VAULT: 'sync:open-vault',
-  SYNC_DISMISS_CONFLICT: 'sync:dismiss-conflict',
   VAULT_LIST_LOCAL: 'vault:list-local',
   VAULT_OPEN_LOCAL: 'vault:open-local',
   VAULT_CLOSE: 'vault:close',
@@ -532,31 +525,6 @@ export interface ServerCapabilities {
   supportsVaultSelection: boolean
   supportsDirectoryBrowsing: boolean
   supportsWatch: boolean
-  /** Server exposes GET /api/sync/manifest (content hashes) for synced vaults. */
-  supportsSyncManifest?: boolean
-}
-
-/** One file in the server sync manifest. Mirrors the Go ManifestEntry. */
-export interface SyncManifestEntry {
-  path: string
-  hash: string
-  size: number
-  mtime: number
-}
-
-export type SyncStatusKind = 'idle' | 'syncing' | 'offline' | 'error'
-
-/** Live sync status for a synced vault, pushed to the renderer. */
-export interface SyncStatus {
-  kind: SyncStatusKind
-  /** Files changed locally still to push (best-effort, from the last run). */
-  pendingPush: number
-  /** Files changed remotely still to pull (best-effort, from the last run). */
-  pendingPull: number
-  /** Conflict-copy paths created (kept-both). */
-  conflicts: string[]
-  lastSyncAt: number
-  lastError: string | null
 }
 
 export interface ServerSessionStatus {
@@ -565,12 +533,7 @@ export interface ServerSessionStatus {
   supportsSessionLogin: boolean
 }
 
-/**
- * `local` = files on disk, no server. `remote` = thin HTTP client, no local
- * copy. `synced` = a local vault that bidirectionally syncs with a server hub
- * (behaves like `local` for all file ops; a background engine replicates it).
- */
-export type WorkspaceMode = 'local' | 'remote' | 'synced'
+export type WorkspaceMode = 'local' | 'remote'
 
 export interface RemoteWorkspaceInfo {
   mode: WorkspaceMode

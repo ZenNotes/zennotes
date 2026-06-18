@@ -29,32 +29,6 @@ export const SearchIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
-const CLOUD_PATH = 'M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.34 9.2 4 4 0 0 0 7 17h10.5z'
-
-/** Plain cloud — the sync affordance. */
-export const CloudIcon = (p: IconProps): JSX.Element => (
-  <I {...p}>
-    <path d={CLOUD_PATH} />
-  </I>
-)
-
-/** Cloud with a check — "synced / up to date". */
-export const CloudCheckIcon = (p: IconProps): JSX.Element => (
-  <I {...p}>
-    <path d="M17.5 17a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.34 7.2 4 4 0 0 0 6.5 15" />
-    <path d="m9 16 2 2 4-4" />
-  </I>
-)
-
-/** Cloud with a slash — "offline". */
-export const CloudOffIcon = (p: IconProps): JSX.Element => (
-  <I {...p}>
-    <path d="M6.34 7.2A4 4 0 0 0 7 15h8" />
-    <path d="M18 14.5a4.5 4.5 0 0 0-2.9-7.4" />
-    <path d="m3 3 18 18" />
-  </I>
-)
-
 export const TableIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="3" width="18" height="18" rx="2" />
