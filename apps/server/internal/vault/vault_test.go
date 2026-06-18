@@ -685,15 +685,16 @@ func TestListSkipsUnreadableEntries(t *testing.T) {
 	}
 }
 
-func TestDatabaseBaseFolderIsHidden(t *testing.T) {
+func TestDatabaseBaseFolderListedButInternalsHidden(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A database folder with its internals + a record-page note.
+	// A database folder with its internals, a record-page note, and a nested dir
+	// (its internals + nested dirs must NOT surface as folders).
 	baseDir := filepath.Join(root, "inbox", "Books.base")
-	if err := os.MkdirAll(baseDir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "pages"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for name, body := range map[string]string{
@@ -731,13 +732,23 @@ func TestDatabaseBaseFolderIsHidden(t *testing.T) {
 		t.Fatal(err)
 	}
 	sawReal := false
+	sawBase := false
 	for _, f := range folders {
-		if strings.Contains(f.Subpath, ".base") {
-			t.Errorf("ListFolders leaked a database folder: %s", f.Subpath)
+		// The database folder itself lists (renderer renders it as a database)...
+		if f.Subpath == "Books.base" {
+			sawBase = true
+			continue
+		}
+		// ...but nothing INSIDE it (e.g. Books.base/pages) is exposed as a folder.
+		if strings.Contains(f.Subpath, ".base/") {
+			t.Errorf("ListFolders leaked a database-internal folder: %s", f.Subpath)
 		}
 		if f.Subpath == "RealFolder" {
 			sawReal = true
 		}
+	}
+	if !sawBase {
+		t.Error("ListFolders should list the .base database folder itself")
 	}
 	if !sawReal {
 		t.Error("ListFolders dropped a regular folder")

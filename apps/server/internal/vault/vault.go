@@ -924,9 +924,6 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 			if strings.HasPrefix(d.Name(), ".") {
 				return filepath.SkipDir
 			}
-			if isFormDirName(d.Name()) {
-				return filepath.SkipDir // database folder — not a user folder
-			}
 			if isPrimaryRoot {
 				parent := filepath.Dir(path)
 				if filepath.Clean(parent) == filepath.Clean(folderRoot) {
@@ -943,6 +940,11 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 				Folder:  folder,
 				Subpath: filepath.ToSlash(rel),
 			})
+			// A `<Name>.base` database folder is listed (the renderer shows it as
+			// a database) but its internals are not exposed as folders.
+			if isFormDirName(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		})
 		if err != nil {
