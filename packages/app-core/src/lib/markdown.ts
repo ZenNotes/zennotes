@@ -18,6 +18,7 @@ import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
 import remarkBoxes from './remark-boxes'
 import remarkScholarly from './remark-scholarly'
+import remarkDirectiveFilter from './remark-directive-filter'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -389,6 +390,7 @@ const processor = unified()
   .use(remarkBreaks)
   .use(remarkMath)
   .use(remarkDirective)
+  .use(remarkDirectiveFilter)
   .use(remarkBoxes)
   .use(remarkScholarly)
   .use(remarkWikilinks)
