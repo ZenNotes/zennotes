@@ -47,6 +47,15 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
+import {
+  autocompletion,
+  completionKeymap,
+  completionStatus,
+  closeCompletion
+} from '@codemirror/autocomplete'
+import { Prec } from '@codemirror/state'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import type { NoteMeta } from '@shared/ipc'
 import {
   DEFAULT_THEME_ID,
@@ -415,7 +424,32 @@ export function QuickCaptureApp(): JSX.Element {
           syntaxHighlighting(captureHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+          autocompletion({
+            override: [templateSlashCommandSource],
+            addToOptions: [{ render: slashCommandRender.render, position: 0 }],
+            icons: false,
+            optionClass: () => 'slash-cmd-option'
+          }),
+          completionNavKeymap,
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown: (event, view) => {
+                if (event.key !== 'Escape') return false
+                if (completionStatus(view.state) !== 'active') return false
+                closeCompletion(view)
+                event.preventDefault()
+                event.stopPropagation()
+                return true
+              }
+            })
+          ),
+          keymap.of([
+            indentWithTab,
+            ...completionKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            ...searchKeymap
+          ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             const doc = upd.state.doc.toString()
