@@ -279,12 +279,14 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	return VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes: DailyNotesSettings{
-			Enabled:        settings.DailyNotes.Enabled,
-			Directory:      settings.DailyNotes.Directory,
-			TitlePattern:   settings.DailyNotes.TitlePattern,
-			Locale:         settings.DailyNotes.Locale,
-			LegacyPatterns: dailyLegacyPatterns,
-			TemplateID:     settings.DailyNotes.TemplateID,
+			Enabled:                 settings.DailyNotes.Enabled,
+			Directory:               settings.DailyNotes.Directory,
+			TitlePattern:            settings.DailyNotes.TitlePattern,
+			Locale:                  settings.DailyNotes.Locale,
+			LegacyPatterns:          dailyLegacyPatterns,
+			TemplateID:              settings.DailyNotes.TemplateID,
+			TasksDueOnNoteDate:      settings.DailyNotes.TasksDueOnNoteDate,
+			RolloverUnfinishedTasks: settings.DailyNotes.RolloverUnfinishedTasks,
 		},
 		WeeklyNotes: WeeklyNotesSettings{
 			Enabled:        settings.WeeklyNotes.Enabled,
@@ -411,12 +413,14 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			return value.PrimaryNotesLocation
 		}()),
 		DailyNotes: DailyNotesSettings{
-			Enabled:        value.DailyNotes.Enabled,
-			Directory:      normalizeDailyNotesDirectory(value.DailyNotes.Directory),
-			TitlePattern:   normalizeDailyNoteTitlePattern(value.DailyNotes.TitlePattern),
-			Locale:         normalizeDailyNoteLocale(value.DailyNotes.Locale),
-			LegacyPatterns: normalizeDailyNoteLegacyPatterns(value.DailyNotes.LegacyPatterns),
-			TemplateID:     value.DailyNotes.TemplateID,
+			Enabled:                 value.DailyNotes.Enabled,
+			Directory:               normalizeDailyNotesDirectory(value.DailyNotes.Directory),
+			TitlePattern:            normalizeDailyNoteTitlePattern(value.DailyNotes.TitlePattern),
+			Locale:                  normalizeDailyNoteLocale(value.DailyNotes.Locale),
+			LegacyPatterns:          normalizeDailyNoteLegacyPatterns(value.DailyNotes.LegacyPatterns),
+			TemplateID:              value.DailyNotes.TemplateID,
+			TasksDueOnNoteDate:      value.DailyNotes.TasksDueOnNoteDate,
+			RolloverUnfinishedTasks: value.DailyNotes.RolloverUnfinishedTasks,
 		},
 		WeeklyNotes: WeeklyNotesSettings{
 			Enabled:        value.WeeklyNotes.Enabled,

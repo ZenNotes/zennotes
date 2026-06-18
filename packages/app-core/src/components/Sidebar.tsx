@@ -80,11 +80,11 @@ import {
 import { isExcalidrawPath } from "@shared/excalidraw";
 import {
   FolderGlyphIcon,
-  resolveFolderIconId,
+  iconOptionById,
   resolveFolderIconOption,
 } from "./FolderIcons";
 import { FolderIconPickerModal } from "./FolderIconPickerModal";
-import { resolveFolderColorId, resolveFolderColorGlyphClass } from "./FolderColors";
+import { colorGlyphClassById, resolveFolderColorGlyphClass } from "./FolderColors";
 import { FolderColorPickerModal } from "./FolderColorPickerModal";
 import {
   getSidebarEdgePrefetchPaths,
@@ -177,10 +177,10 @@ function SidebarGlyph({
         colorClass
           ? colorClass
           : active
-            ? "text-white"
+            ? "text-ink-900"
             : rowActive
               ? "text-accent"
-              : "text-ink-500 group-hover:text-ink-800",
+              : "text-ink-400 group-hover:text-ink-700",
       ].join(" ")}
     >
       {children}
@@ -875,14 +875,16 @@ export function Sidebar(): JSX.Element {
     y: number;
     path: string;
   } | null>(null);
-  const [folderIconPicker, setFolderIconPicker] = useState<{
-    folder: NoteFolder;
-    subpath: string;
+  // Icon/color customization targets — keyed by an arbitrary string so it works
+  // for folders (`folder:subpath`), notes/databases (vault-relative path), and
+  // anything else. Folder keys contain ':'; note paths never do, so they coexist
+  // in the same folderIcons/folderColors maps without colliding.
+  const [iconPicker, setIconPicker] = useState<{
+    key: string;
     label: string;
   } | null>(null);
-  const [folderColorPicker, setFolderColorPicker] = useState<{
-    folder: NoteFolder;
-    subpath: string;
+  const [colorPicker, setColorPicker] = useState<{
+    key: string;
     label: string;
   } | null>(null);
   const [sortMenu, setSortMenu] = useState<{ x: number; y: number } | null>(
@@ -919,34 +921,30 @@ export function Sidebar(): JSX.Element {
     ],
   );
 
-  const openFolderIconPicker = useCallback(
-    (folder: NoteFolder, subpath: string, label: string) => {
-      setFolderMenu(null);
-      setFolderIconPicker({ folder, subpath, label });
-    },
-    [],
-  );
+  // The context menu closes itself on select (ContextMenu calls onClose first),
+  // so these just open the picker.
+  const openIconPicker = useCallback((key: string, label: string) => {
+    setIconPicker({ key, label });
+  }, []);
 
-  const saveFolderIcon = useCallback(
-    async (folder: NoteFolder, subpath: string, iconId: FolderIconId) => {
-      const key = folderIconKey(folder, subpath);
+  const saveIcon = useCallback(
+    async (key: string, iconId: FolderIconId) => {
       const nextSettings = normalizeVaultSettings({
         ...vaultSettings,
-        folderIcons: {
-          ...vaultSettings.folderIcons,
-          [key]: iconId,
-        },
+        folderIcons: { ...vaultSettings.folderIcons, [key]: iconId },
       });
       await setVaultSettings(nextSettings);
-      setFolderIconPicker(null);
+      setIconPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
 
-  const resetFolderIcon = useCallback(
-    async (folder: NoteFolder, subpath: string) => {
-      const key = folderIconKey(folder, subpath);
-      if (!(key in vaultSettings.folderIcons)) return;
+  const resetIcon = useCallback(
+    async (key: string) => {
+      if (!(key in vaultSettings.folderIcons)) {
+        setIconPicker(null);
+        return;
+      }
       const nextIcons = { ...vaultSettings.folderIcons };
       delete nextIcons[key];
       const nextSettings = normalizeVaultSettings({
@@ -954,39 +952,33 @@ export function Sidebar(): JSX.Element {
         folderIcons: nextIcons,
       });
       await setVaultSettings(nextSettings);
-      setFolderIconPicker(null);
+      setIconPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
 
-  const openFolderColorPicker = useCallback(
-    (folder: NoteFolder, subpath: string, label: string) => {
-      setFolderMenu(null);
-      setFolderColorPicker({ folder, subpath, label });
-    },
-    [],
-  );
+  const openColorPicker = useCallback((key: string, label: string) => {
+    setColorPicker({ key, label });
+  }, []);
 
-  const saveFolderColor = useCallback(
-    async (folder: NoteFolder, subpath: string, colorId: FolderColorId) => {
-      const key = folderIconKey(folder, subpath);
+  const saveColor = useCallback(
+    async (key: string, colorId: FolderColorId) => {
       const nextSettings = normalizeVaultSettings({
         ...vaultSettings,
-        folderColors: {
-          ...vaultSettings.folderColors,
-          [key]: colorId,
-        },
+        folderColors: { ...vaultSettings.folderColors, [key]: colorId },
       });
       await setVaultSettings(nextSettings);
-      setFolderColorPicker(null);
+      setColorPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
 
-  const resetFolderColor = useCallback(
-    async (folder: NoteFolder, subpath: string) => {
-      const key = folderIconKey(folder, subpath);
-      if (!(key in vaultSettings.folderColors)) return;
+  const resetColor = useCallback(
+    async (key: string) => {
+      if (!(key in vaultSettings.folderColors)) {
+        setColorPicker(null);
+        return;
+      }
       const nextColors = { ...vaultSettings.folderColors };
       delete nextColors[key];
       const nextSettings = normalizeVaultSettings({
@@ -994,7 +986,7 @@ export function Sidebar(): JSX.Element {
         folderColors: nextColors,
       });
       await setVaultSettings(nextSettings);
-      setFolderColorPicker(null);
+      setColorPicker(null);
     },
     [setVaultSettings, vaultSettings],
   );
@@ -1669,39 +1661,18 @@ export function Sidebar(): JSX.Element {
     const label = isTop ? folderLabels[folder] : subpath.split("/").slice(-1)[0];
     const trashCount = notes.filter((note) => note.folder === "trash").length;
     const iconKey = folderIconKey(folder, subpath);
-    const hasCustomIcon = Object.prototype.hasOwnProperty.call(
-      vaultSettings.folderIcons,
-      iconKey,
-    );
-    const hasCustomColor = Object.prototype.hasOwnProperty.call(
-      vaultSettings.folderColors,
-      iconKey,
-    );
+    // Reset lives inside each picker now (shown when a custom value is set).
     const iconItems: ContextMenuItem[] = [
       {
         label: "Change icon…",
         onSelect: async () => {
-          openFolderIconPicker(folder, subpath, label);
-        },
-      },
-      {
-        label: "Reset icon",
-        disabled: !hasCustomIcon,
-        onSelect: async () => {
-          await resetFolderIcon(folder, subpath);
+          openIconPicker(iconKey, label);
         },
       },
       {
         label: "Change color…",
         onSelect: async () => {
-          openFolderColorPicker(folder, subpath, label);
-        },
-      },
-      {
-        label: "Reset color",
-        disabled: !hasCustomColor,
-        onSelect: async () => {
-          await resetFolderColor(folder, subpath);
+          openColorPicker(iconKey, label);
         },
       },
     ];
@@ -1964,10 +1935,8 @@ export function Sidebar(): JSX.Element {
     vaultSettings.folderIcons,
     vaultSettings,
     primaryNotesAtRoot,
-    openFolderIconPicker,
-    resetFolderIcon,
-    openFolderColorPicker,
-    resetFolderColor,
+    openIconPicker,
+    openColorPicker,
     toggleFavorite,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
@@ -2087,6 +2056,19 @@ export function Sidebar(): JSX.Element {
           const meta = await window.zen.duplicateNote(n.path);
           await refreshNotes();
           await selectNote(meta.path);
+        },
+      });
+      items.push({ kind: "separator" });
+      items.push({
+        label: "Change icon…",
+        onSelect: async () => {
+          openIconPicker(n.path, n.title);
+        },
+      });
+      items.push({
+        label: "Change color…",
+        onSelect: async () => {
+          openColorPicker(n.path, n.title);
         },
       });
     }
@@ -2217,6 +2199,8 @@ export function Sidebar(): JSX.Element {
     tabsEnabled,
     openNoteInTab,
     toggleFavorite,
+    openIconPicker,
+    openColorPicker,
     vaultSettings.favorites,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
@@ -3183,10 +3167,10 @@ export function Sidebar(): JSX.Element {
                           "rounded-full px-2.5 py-1 text-xs transition-colors",
                           active
                             ? isVimHighlight
-                              ? "vim-cursor-on-active bg-accent text-white"
+                              ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
                               : isSidebarFocused
                                 ? "text-accent"
-                                : "bg-accent text-white"
+                                : "bg-paper-300/70 text-ink-900 font-medium"
                             : isVimHighlight
                               ? "vim-cursor"
                               : "bg-paper-200 text-ink-800 hover:bg-paper-300",
@@ -3200,7 +3184,7 @@ export function Sidebar(): JSX.Element {
                           className={[
                             "ml-1 text-2xs",
                             active && !isSidebarFocused
-                              ? "text-white/80"
+                              ? "text-ink-700"
                               : "text-ink-500",
                           ].join(" ")}
                         >
@@ -3352,46 +3336,22 @@ export function Sidebar(): JSX.Element {
           onClose={() => setAssetMenu(null)}
         />
       )}
-      {folderIconPicker && (
+      {iconPicker && (
         <FolderIconPickerModal
-          targetLabel={folderIconPicker.label}
-          currentIconId={resolveFolderIconId(
-            folderIconPicker.folder,
-            folderIconPicker.subpath,
-            vaultSettings.folderIcons,
-          )}
-          onSelect={(iconId) =>
-            void saveFolderIcon(
-              folderIconPicker.folder,
-              folderIconPicker.subpath,
-              iconId,
-            )
-          }
-          onCancel={() => setFolderIconPicker(null)}
+          targetLabel={iconPicker.label}
+          currentIconId={vaultSettings.folderIcons[iconPicker.key] ?? null}
+          onSelect={(iconId) => void saveIcon(iconPicker.key, iconId)}
+          onReset={() => void resetIcon(iconPicker.key)}
+          onCancel={() => setIconPicker(null)}
         />
       )}
-      {folderColorPicker && (
+      {colorPicker && (
         <FolderColorPickerModal
-          targetLabel={folderColorPicker.label}
-          currentColorId={resolveFolderColorId(
-            folderColorPicker.folder,
-            folderColorPicker.subpath,
-            vaultSettings.folderColors,
-          )}
-          onSelect={(colorId) =>
-            void saveFolderColor(
-              folderColorPicker.folder,
-              folderColorPicker.subpath,
-              colorId,
-            )
-          }
-          onReset={() =>
-            void resetFolderColor(
-              folderColorPicker.folder,
-              folderColorPicker.subpath,
-            )
-          }
-          onCancel={() => setFolderColorPicker(null)}
+          targetLabel={colorPicker.label}
+          currentColorId={vaultSettings.folderColors[colorPicker.key] ?? null}
+          onSelect={(colorId) => void saveColor(colorPicker.key, colorId)}
+          onReset={() => void resetColor(colorPicker.key)}
+          onCancel={() => setColorPicker(null)}
         />
       )}
       {sortMenu && (
@@ -4144,7 +4104,9 @@ function SubTree({
     <div className="flex flex-col">
       <TreeRow
         icon={
-          isDatabase ? (
+          // A database shows its DB glyph unless a custom icon was chosen for it
+          // (iconOption.id !== "folder" means the user picked one).
+          isDatabase && iconOption.id === "folder" ? (
             <DatabaseIcon />
           ) : iconOption.id === "folder" ? (
             <FolderGlyphIcon open={!isCollapsed && hasChildren} />
@@ -4307,7 +4269,6 @@ interface NoteLeafProps {
 const NoteLeaf = memo(function NoteLeaf({
   note,
   depth,
-  showSidebarChevrons,
   active,
   selected,
   sidebarFocused,
@@ -4345,6 +4306,12 @@ const NoteLeaf = memo(function NoteLeaf({
     },
     [dragPayloadForItem, note.path],
   );
+  // Custom icon / color set via the note's right-click menu (keyed by path).
+  // Read directly from the store so the row updates when they change — the
+  // selector returns a primitive, so it only re-renders for this note.
+  const customIconId = useStore((s) => s.vaultSettings.folderIcons[note.path]);
+  const customColorId = useStore((s) => s.vaultSettings.folderColors[note.path]);
+  const colorClass = colorGlyphClassById(customColorId);
 
   return (
     <button
@@ -4354,13 +4321,15 @@ const NoteLeaf = memo(function NoteLeaf({
       draggable
       onDragStart={handleDragStart}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-9 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
-          ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
-            : sidebarFocused
-              ? "text-accent"
-              : "bg-accent text-white"
+          ? colorClass
+            ? `bg-accent/20 ring-1 ring-inset ring-accent/60${vimHighlight ? " vim-cursor-on-active" : ""}`
+            : vimHighlight
+              ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
+              : sidebarFocused
+                ? "text-accent"
+                : "bg-paper-300/70 text-ink-900 font-medium"
           : selected
             ? "bg-accent/[0.09] text-ink-900"
             : vimHighlight
@@ -4377,9 +4346,14 @@ const NoteLeaf = memo(function NoteLeaf({
           }
         : {})}
     >
-      {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
-      <SidebarGlyph active={strongActive} rowActive={active || selected}>
-        {isExcalidrawPath(note.path) ? (
+      <SidebarGlyph
+        active={strongActive}
+        rowActive={active || selected}
+        colorClass={colorClass ?? undefined}
+      >
+        {customIconId ? (
+          iconOptionById(customIconId).icon
+        ) : isExcalidrawPath(note.path) ? (
           <ExcalidrawIcon width={14} height={14} />
         ) : (
           <svg
@@ -4397,7 +4371,9 @@ const NoteLeaf = memo(function NoteLeaf({
           </svg>
         )}
       </SidebarGlyph>
-      <span className="flex-1 truncate">{note.title}</span>
+      <span className={["flex-1 truncate", colorClass].filter(Boolean).join(" ")}>
+        {note.title}
+      </span>
       {note.isSymlink && (
         <span
           aria-label="Symlinked note"
@@ -4407,7 +4383,7 @@ const NoteLeaf = memo(function NoteLeaf({
             active
               ? sidebarFocused && !vimHighlight
                 ? "text-accent/70"
-                : "text-white/70"
+                : "text-ink-600"
               : selected
                 ? "text-accent/75"
                 : "text-ink-500",
@@ -4437,7 +4413,7 @@ const NoteLeaf = memo(function NoteLeaf({
             active
               ? sidebarFocused && !vimHighlight
                 ? "text-accent/70"
-                : "text-white/70"
+                : "text-ink-600"
               : selected
                 ? "text-accent/75"
               : "text-ink-500",
@@ -4488,7 +4464,6 @@ function AssetLeaf({
   asset,
   vaultRoot,
   depth,
-  showSidebarChevrons,
   onOpen,
   onContextMenu,
   sidebarFocused,
@@ -4524,7 +4499,7 @@ function AssetLeaf({
       draggable
       onDragStart={handleDragStart}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-9 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         vimHighlight ? "vim-cursor" : "text-ink-700 hover:bg-paper-200/70",
       ].join(" ")}
       style={{ paddingLeft: 4 + depth * 14 }}
@@ -4536,7 +4511,6 @@ function AssetLeaf({
           }
         : {})}
     >
-      {showSidebarChevrons && <span className="h-5 w-5 shrink-0" />}
       <SidebarGlyph active={false} rowActive={false}>
         <svg
           width="14"
@@ -4594,7 +4568,6 @@ function TreeRow({
   selectionKey,
   trailing,
   isSymlink = false,
-  reserveLeadingSlot = true,
   showExpandChevron = true,
   glyphColorClass,
 }: {
@@ -4624,9 +4597,10 @@ function TreeRow({
   trailing?: JSX.Element;
   /** Show a symlink indicator when this row's directory entry is a link. */
   isSymlink?: boolean;
-  /** Keep a blank chevron column for non-expandable rows when alignment matters. */
+  /** Obsolete (no leading chevron gutter anymore); accepted for compatibility. */
   reserveLeadingSlot?: boolean;
-  /** Hide the chevron affordance while keeping row-click toggle behavior. */
+  /** Reveal the hover disclosure chevron on the folder icon. When false the
+   *  folder shows only its icon and toggles via row-click. */
   showExpandChevron?: boolean;
   /** Custom resting tint for the leading glyph (folder color). */
   glyphColorClass?: string;
@@ -4651,7 +4625,7 @@ function TreeRow({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={[
-        "group flex h-8 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-9 w-full items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? glyphColorClass
             ? // Colored folder: a saturated accent fill would put same-hue text on
@@ -4659,10 +4633,10 @@ function TreeRow({
               // stays readable while still reading as the active row.
               `bg-accent/20 ring-1 ring-inset ring-accent/60${vimHighlight ? " vim-cursor-on-active" : ""}`
             : vimHighlight
-              ? "vim-cursor-on-active bg-accent text-white"
+              ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
               : sidebarFocused
                 ? "text-accent"
-                : "bg-accent text-white"
+                : "bg-paper-300/70 text-ink-900 font-medium"
           : dropTarget
             ? "bg-accent/20 text-ink-900 ring-1 ring-accent/60"
             : selected
@@ -4686,44 +4660,56 @@ function TreeRow({
       style={{ paddingLeft: 4 + depth * 14 }}
     >
       {expandable && showExpandChevron ? (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
+        // Notion-style disclosure: the folder icon turns into a chevron while the
+        // row is hovered — click it to expand/collapse. No separate chevron gutter.
+        <span
+          className="relative flex h-5 w-5 shrink-0 items-center justify-center"
           data-vim-hint-ignore
-          className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors",
-            strongActive
-              ? "text-white/80 hover:bg-white/15"
-              : "text-ink-500 hover:bg-paper-300/60",
-          ].join(" ")}
-          aria-label={collapsed ? "Expand" : "Collapse"}
         >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className={`transition-transform ${collapsed ? "" : "rotate-90"}`}
+          <span className="flex h-5 w-5 items-center justify-center group-hover:hidden">
+            <SidebarGlyph
+              active={strongActive}
+              rowActive={active || selected}
+              colorClass={glyphColorClass}
+            >
+              {icon}
+            </SidebarGlyph>
+          </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            aria-label={collapsed ? "Expand" : "Collapse"}
+            className={[
+              "absolute inset-0 hidden items-center justify-center rounded transition-colors group-hover:flex",
+              strongActive ? "text-ink-900" : "text-ink-500 hover:text-ink-900",
+            ].join(" ")}
           >
-            <path d="m9 6 6 6-6 6" />
-          </svg>
-        </button>
-      ) : reserveLeadingSlot ? (
-        <span className="h-5 w-5 shrink-0" />
-      ) : null}
-      <SidebarGlyph
-        active={strongActive}
-        rowActive={active || selected}
-        colorClass={glyphColorClass}
-      >
-        {icon}
-      </SidebarGlyph>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`transition-transform ${collapsed ? "" : "rotate-90"}`}
+            >
+              <path d="m9 6 6 6-6 6" />
+            </svg>
+          </button>
+        </span>
+      ) : (
+        <SidebarGlyph
+          active={strongActive}
+          rowActive={active || selected}
+          colorClass={glyphColorClass}
+        >
+          {icon}
+        </SidebarGlyph>
+      )}
       <span
         className={["flex-1 truncate", glyphColorClass].filter(Boolean).join(" ")}
       >
@@ -4735,7 +4721,7 @@ function TreeRow({
           title="Symlinked into this vault"
           className={[
             "shrink-0",
-            strongActive ? "text-white/70" : selected ? "text-accent/75" : "text-ink-500",
+            strongActive ? "text-ink-600" : selected ? "text-accent/75" : "text-ink-500",
           ].join(" ")}
         >
           <svg
@@ -4765,7 +4751,7 @@ function TreeRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : selected ? "text-accent/75" : "text-ink-500",
+            strongActive ? "text-ink-700" : selected ? "text-accent/75" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -4803,13 +4789,13 @@ function TaskSidebarRow({
         }
       }}
       className={[
-        "group flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-9 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "bg-paper-300/70 text-ink-900 font-medium"
           : vimHighlight
             ? "vim-cursor"
             : "text-ink-800 hover:bg-paper-200/70",
@@ -4868,13 +4854,13 @@ function FavoriteRow({
       }}
       onContextMenu={onContextMenu}
       className={[
-        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group select-none flex h-9 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "bg-paper-300/70 text-ink-900 font-medium"
           : vimHighlight
             ? "vim-cursor"
             : "text-ink-800 hover:bg-paper-200/70",
@@ -4935,13 +4921,13 @@ function SystemRow({
       }}
       onContextMenu={onContextMenu}
       className={[
-        "group select-none flex h-8 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
+        "group select-none flex h-9 items-center gap-1.5 rounded-lg px-1 text-left text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "bg-paper-300/70 text-ink-900 font-medium"
           : vimHighlight
             ? "vim-cursor"
             : "text-ink-800 hover:bg-paper-200/70",
@@ -4962,7 +4948,7 @@ function SystemRow({
         <span
           className={[
             "shrink-0 pr-2 text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
+            strongActive ? "text-ink-700" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -5001,13 +4987,13 @@ function SidebarRow({
     <button
       onClick={onClick}
       className={[
-        "group flex h-8 items-center gap-2 rounded-lg px-2 text-sm outline-none transition-colors focus:outline-none",
+        "group flex h-9 items-center gap-2 rounded-lg px-2 text-sm outline-none transition-colors focus:outline-none",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "bg-paper-300/70 text-ink-900 font-medium"
           : vimHighlight
             ? "vim-cursor"
             : "text-ink-800 hover:bg-paper-200/70",
@@ -5021,7 +5007,7 @@ function SidebarRow({
     >
       <span
         className={
-          strongActive ? "text-white" : "text-ink-500 group-hover:text-ink-800"
+          strongActive ? "text-ink-900" : "text-ink-500 group-hover:text-ink-800"
         }
       >
         {icon}
@@ -5038,7 +5024,7 @@ function SidebarRow({
         <span
           className={[
             "text-xs",
-            strongActive ? "text-white/80" : "text-ink-500",
+            strongActive ? "text-ink-700" : "text-ink-500",
           ].join(" ")}
         >
           {count}
@@ -5089,10 +5075,10 @@ function SidebarFooterAction({
         "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium leading-none transition-colors whitespace-nowrap",
         active
           ? vimHighlight
-            ? "vim-cursor-on-active bg-accent text-white"
+            ? "vim-cursor-on-active bg-paper-300/70 text-ink-900 font-medium"
             : sidebarFocused
               ? "text-accent"
-              : "bg-accent text-white"
+              : "bg-paper-300/70 text-ink-900 font-medium"
           : vimHighlight
             ? "vim-cursor"
             : "text-ink-500 hover:bg-paper-200/70 hover:text-ink-900",
@@ -5105,7 +5091,7 @@ function SidebarFooterAction({
         : {})}
     >
       <span
-        className={["shrink-0", strongActive ? "text-white" : ""].join(" ")}
+        className={["shrink-0", strongActive ? "text-ink-900" : ""].join(" ")}
       >
         {icon}
       </span>
@@ -5115,7 +5101,7 @@ function SidebarFooterAction({
           className={[
             "rounded-full px-1.5 py-0.5 text-2xs",
             strongActive
-              ? "bg-white/12 text-white/80"
+              ? "bg-ink-900/10 text-ink-700"
               : "bg-paper-200/80 text-ink-500",
           ].join(" ")}
         >
@@ -5127,7 +5113,7 @@ function SidebarFooterAction({
           className={[
             "rounded-full px-1.5 py-0.5 text-2xs font-semibold",
             strongActive
-              ? "bg-white/16 text-white"
+              ? "bg-accent/20 text-accent"
               : "bg-accent/12 text-accent",
           ].join(" ")}
         >
@@ -5404,7 +5390,7 @@ function RowKeyHint({
       className={[
         "pointer-events-none shrink-0 rounded-md border px-1.5 py-0.5 text-2xs leading-none",
         active
-          ? "border-white/25 bg-white/12 text-white/80"
+          ? "border-ink-900/20 bg-ink-900/10 text-ink-700"
           : "border-paper-300/70 bg-paper-100/75 text-ink-500",
       ].join(" ")}
     >

@@ -68,6 +68,11 @@ type DailyNotesSettings struct {
 	Locale         string                    `json:"locale,omitempty"`
 	LegacyPatterns []DateNotePatternSettings `json:"legacyPatterns,omitempty"`
 	TemplateID     string                    `json:"templateId,omitempty"`
+	// Pointers so an absent field round-trips as "unset" (the TS client applies
+	// the real default — true for TasksDueOnNoteDate, false for rollover). These
+	// drive purely client-side behavior; the server only persists them.
+	TasksDueOnNoteDate      *bool `json:"tasksDueOnNoteDate,omitempty"`
+	RolloverUnfinishedTasks *bool `json:"rolloverUnfinishedTasks,omitempty"`
 }
 
 type WeeklyNotesSettings struct {

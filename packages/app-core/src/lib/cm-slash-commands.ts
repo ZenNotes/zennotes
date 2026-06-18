@@ -9,6 +9,11 @@ interface SlashCmd {
   insert: string
   /** Cursor offset from end of inserted text. Negative = move back. */
   cursorOffset?: number
+  /** Ranking nudge for the unfiltered list — higher floats to the top. */
+  boost?: number
+  /** Extra space-separated terms that should also match this command (e.g.
+   *  `/todo` finding "Task"). Folded into the match label, hidden from display. */
+  keywords?: string
 }
 
 type DecoratedCompletion = Completion & {
@@ -22,9 +27,16 @@ const COMMANDS: SlashCmd[] = [
   { label: 'Heading 2', detail: '##', icon: 'H2', insert: '## ' },
   { label: 'Heading 3', detail: '###', icon: 'H3', insert: '### ' },
   { label: 'Heading 4', detail: '####', icon: 'H4', insert: '#### ' },
+  {
+    label: 'Task',
+    detail: '[ ]',
+    icon: '☐',
+    insert: '- [ ] ',
+    boost: 99,
+    keywords: 'todo to-do checkbox check task list'
+  },
   { label: 'Bulleted list', detail: '-', icon: '•', insert: '- ' },
   { label: 'Numbered list', detail: '1.', icon: '1.', insert: '1. ' },
-  { label: 'To-do list', detail: '[ ]', icon: '☐', insert: '- [ ] ' },
   { label: 'Quote', detail: '>', icon: '❝', insert: '> ' },
   { label: 'Code block', detail: '```', icon: '</>', insert: '```\n\n```', cursorOffset: -4 },
   { label: 'Divider', detail: '---', icon: '—', insert: '---\n' },
@@ -69,7 +81,7 @@ function renderCompletion(completion: Completion): HTMLElement {
 
   const label = document.createElement('span')
   label.className = 'slash-cmd-label'
-  label.textContent = completion.label
+  label.textContent = completion.displayLabel ?? completion.label
 
   const detail = document.createElement('span')
   detail.className = 'slash-cmd-detail'
@@ -101,8 +113,12 @@ export function slashCommandSource(context: CompletionContext): CompletionResult
     from: filterFrom,
     options: COMMANDS.map(
       (cmd): Completion => ({
-        label: cmd.label,
+        // Fold alias keywords into the matched label so `/todo`, `/checkbox`,
+        // etc. surface the command; `displayLabel` keeps the menu text clean.
+        label: cmd.keywords ? `${cmd.label} ${cmd.keywords}` : cmd.label,
+        displayLabel: cmd.label,
         detail: cmd.detail,
+        boost: cmd.boost,
         _kind: 'slash',
         // Store icon for the custom renderer
         _icon: cmd.icon,

@@ -3077,7 +3077,7 @@ textarea,
   color: rgb(var(--z-ink-900));
 }
 .vim-cursor-on-active {
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.5);
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);
 }
 .vim-cursor-on-selected {
   box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);

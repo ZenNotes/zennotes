@@ -510,7 +510,11 @@ export function normalizeVaultSettings(
         settings?.dailyNotes?.legacyPatterns,
         primaryNotesLocation
       ),
-      templateId: normalizeTemplateId(settings?.dailyNotes?.templateId)
+      templateId: normalizeTemplateId(settings?.dailyNotes?.templateId),
+      // Defaults: derive due dates ON, roll tasks over OFF. Absent (undefined)
+      // means "use the default", so only an explicit `false`/`true` overrides.
+      tasksDueOnNoteDate: settings?.dailyNotes?.tasksDueOnNoteDate !== false,
+      rolloverUnfinishedTasks: settings?.dailyNotes?.rolloverUnfinishedTasks === true
     },
     weeklyNotes: {
       enabled: !!settings?.weeklyNotes?.enabled,
@@ -1097,6 +1101,27 @@ export function buildDateNoteIndexes(
   }
 
   return { dailyByDate, weeklyByWeek }
+}
+
+/**
+ * Map every daily note to its own date as `vault-relative path -> YYYY-MM-DD`
+ * (the same encoding a `due:` token uses). Returns an empty map when daily
+ * notes are disabled or `dailyNotes.tasksDueOnNoteDate` is off, so callers can
+ * feed the result straight to `inferDailyTaskDueDates` without re-checking the
+ * setting. Weekly notes are intentionally excluded — a week has no single day.
+ */
+export function buildDailyNoteDateByPath(
+  notes: readonly NoteMeta[],
+  settings: VaultSettings | null | undefined
+): Map<string, string> {
+  const out = new Map<string, string>()
+  const normalized = normalizeVaultSettings(settings)
+  if (!normalized.dailyNotes.enabled || !normalized.dailyNotes.tasksDueOnNoteDate) return out
+  for (const note of notes) {
+    const info = classifyDateNote(note, normalized)
+    if (info?.kind === 'daily') out.set(note.path, noteTitleForDate(info.date))
+  }
+  return out
 }
 
 export function dateNoteFolderMayBelongToDatePattern(

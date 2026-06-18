@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bucketTasksByDueDate,
+  inferDailyTaskDueDates,
   parseTasksFromBody,
   tasksDueOn,
   toIsoDateLocal,
@@ -65,5 +66,46 @@ describe('bucketTasksByDueDate', () => {
     )
     const buckets = bucketTasksByDueDate(all)
     expect(buckets.get('2026-04-30')?.length).toBe(1)
+  })
+})
+
+describe('inferDailyTaskDueDates', () => {
+  const dailyA = parseTasksFromBody('- [ ] a\n- [ ] b due:2026-07-01', {
+    path: 'inbox/Daily Notes/2026-06-17.md',
+    title: '2026-06-17',
+    folder: 'inbox'
+  })
+  const dueByPath = new Map([['inbox/Daily Notes/2026-06-17.md', '2026-06-17']])
+
+  it('gives undated daily-note tasks the note date, flagged inferred', () => {
+    const out = inferDailyTaskDueDates(dailyA, dueByPath)
+    expect(out[0].due).toBe('2026-06-17')
+    expect(out[0].dueInferred).toBe(true)
+  })
+
+  it('never overrides an explicit due token', () => {
+    const out = inferDailyTaskDueDates(dailyA, dueByPath)
+    expect(out[1].due).toBe('2026-07-01')
+    expect(out[1].dueInferred).toBeUndefined()
+  })
+
+  it('leaves tasks outside any daily note untouched', () => {
+    const other = parseTasksFromBody('- [ ] loose', {
+      path: 'inbox/Loose.md',
+      title: 'Loose',
+      folder: 'inbox'
+    })
+    const out = inferDailyTaskDueDates(other, dueByPath)
+    expect(out[0].due).toBeUndefined()
+  })
+
+  it('returns the same array instance when nothing changes', () => {
+    const out = inferDailyTaskDueDates(dailyA, new Map())
+    expect(out).toBe(dailyA)
+  })
+
+  it('makes inferred tasks show up in their day bucket', () => {
+    const out = inferDailyTaskDueDates(dailyA, dueByPath)
+    expect(tasksDueOn(out, '2026-06-17').length).toBe(1)
   })
 })

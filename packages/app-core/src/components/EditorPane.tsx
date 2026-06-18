@@ -687,8 +687,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   )
   const calendarAvailable = useMemo(() => {
     const s = normalizeVaultSettings(vaultSettings)
-    return s.dailyNotes.enabled || s.weeklyNotes.enabled
-  }, [vaultSettings])
+    if (!(s.dailyNotes.enabled || s.weeklyNotes.enabled)) return false
+    // The calendar navigates daily/weekly notes — it's meaningless in the Quick
+    // Notes scratchpad, and showing it there makes a quick note look like a
+    // calendar-linked daily note (a real source of confusion). Hide it there.
+    if (content?.folder === 'quick') return false
+    return true
+  }, [vaultSettings, content?.folder])
   const [commentDraft, setCommentDraft] = useState<CommentDraft | null>(null)
   const [selectionCommentAction, setSelectionCommentAction] =
     useState<SelectionCommentAction>(null)

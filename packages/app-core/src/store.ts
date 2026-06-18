@@ -24,7 +24,7 @@ import type {
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { isExcalidrawPath } from '@shared/excalidraw'
-import { TASKS_TAB_PATH, isTasksTabPath } from '@shared/tasks'
+import { TASKS_TAB_PATH, isTasksTabPath, parseTasksFromBody } from '@shared/tasks'
 import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
 import {
   databaseTabPath,
@@ -45,9 +45,13 @@ import { isAssetTabPath, assetPathFromTab, assetTabPath } from './lib/asset-tabs
 import {
   FENCE_RE,
   TASK_LINE_RE,
+  extractUncheckedTaskBlocks,
+  removeTaskAtIndex,
+  takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
   setTaskDueAtIndex,
   setTaskPriorityAtIndex,
+  setTaskTextAtIndex,
   setTaskWaitingAtIndex,
   toggleTaskAtIndex,
   type TaskPriority as TaskLinePriority
@@ -55,6 +59,7 @@ import {
 import { DEFAULT_THEME_ID, THEMES, type ThemeFamily, type ThemeMode } from './lib/themes'
 import { formatMarkdown } from './lib/format-markdown'
 import { confirmMoveToTrash } from './lib/confirm-trash'
+import { confirmApp } from './lib/confirm-requests'
 import { pickServerDirectoryApp } from './lib/server-directory-picker-requests'
 import { promptApp } from './lib/prompt-requests'
 import {
@@ -75,12 +80,14 @@ import {
   workspaceRestorePrefetchContentPaths
 } from './lib/workspace-tabs'
 import {
+  classifyDateNote,
   duplicateFolderColors,
   duplicateFolderIcons,
   dailyNoteLocationForDate,
   folderForVaultRelativePath,
   findDailyNoteForDate,
   findWeeklyNoteForDate,
+  noteTitleForDate,
   isPrimaryNotesAtRoot,
   removeFavoritesForFolder,
   removeFolderColors,
@@ -401,6 +408,7 @@ export type TaskMutation =
   | { kind: 'set-waiting'; waiting: boolean }
   | { kind: 'set-priority'; priority: TaskLinePriority | null }
   | { kind: 'set-due'; due: string | null }
+  | { kind: 'set-text'; text: string }
 
 type AssetUndoEntry = { kind: 'delete-asset'; deleted: DeletedAsset; createdAt: number }
 
@@ -932,6 +940,39 @@ function resolveTaskLineNumber(body: string, task: VaultTask): number {
   return task.lineNumber
 }
 
+/** Parse a `YYYY-MM-DD` string to a local-midnight Date, or null if malformed. */
+function parseIsoDateLocal(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+// Per-vault "we already rolled over today" marker, persisted in localStorage so
+// opening today's daily note across sessions doesn't re-scan past notes once
+// it's done for the day. Keyed by vault root so multiple vaults don't collide.
+function rolloverMarkerKey(root: string): string {
+  return `zen.tasks.rollover.${root || 'default'}`
+}
+function readRolloverMarker(root: string): string | null {
+  try {
+    return typeof localStorage !== 'undefined'
+      ? localStorage.getItem(rolloverMarkerKey(root))
+      : null
+  } catch {
+    return null
+  }
+}
+function writeRolloverMarker(root: string, iso: string): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(rolloverMarkerKey(root), iso)
+    }
+  } catch {
+    // localStorage may be unavailable (private mode); the in-session flow still works.
+  }
+}
+
 function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): VaultTask {
   let next = task
   for (const m of mutations) {
@@ -950,6 +991,11 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
       case 'set-due': {
         const due = m.due ?? undefined
         if (next.due !== due) next = { ...next, due }
+        break
+      }
+      case 'set-text': {
+        const content = m.text.trim()
+        if (next.content !== content) next = { ...next, content }
         break
       }
     }
@@ -1737,6 +1783,12 @@ interface Store {
     task: VaultTask,
     mutation: TaskMutation | TaskMutation[]
   ) => Promise<void>
+  /** Delete a task's line from its note (the right-click "Delete" action). */
+  deleteTaskFromList: (task: VaultTask) => Promise<void>
+  /** Physically move a task's line into the daily note for `dateIso`,
+   *  removing it from its current note. Falls back to setting the due date
+   *  when daily notes are disabled or it already lives in that day's note. */
+  moveTaskToDate: (task: VaultTask, dateIso: string) => Promise<void>
   setTasksFilter: (q: string) => void
   setTasksViewMode: (mode: TasksViewMode) => void
   setKanbanGroupBy: (group: KanbanGroupBy) => void
@@ -1901,6 +1953,20 @@ interface Store {
   setCalendarShowWeekNumbers: (show: boolean) => void
   openDailyNoteForDate: (date: Date) => Promise<void>
   openWeeklyNoteForDate: (date: Date) => Promise<void>
+  /** Find the daily note for `date`, creating it on disk (template-aware)
+   *  WITHOUT navigating to it. Returns its meta, or null if daily notes are
+   *  disabled or creation failed. */
+  ensureDailyNoteForDate: (date: Date) => Promise<NoteMeta | null>
+  /** Append a `- [ ] …` task to the daily note for `dateIso` (YYYY-MM-DD),
+   *  prompting to create that daily note first if it doesn't exist. */
+  addTaskForDate: (dateIso: string, text: string) => Promise<void>
+  /** Move unfinished tasks from past daily notes into today's note. Returns the
+   *  number of task lines moved. Without `force`, it is gated by the
+   *  `rolloverUnfinishedTasks` setting and a once-per-day marker. */
+  rolloverUnfinishedTasksIntoToday: (opts?: {
+    force?: boolean
+    open?: boolean
+  }) => Promise<number>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
   /** Re-open the first-run onboarding wizard. Persists. */
@@ -3450,6 +3516,9 @@ export const useStore = create<Store>((set, get) => {
         case 'set-due':
           nextBody = setTaskDueAtIndex(nextBody, task.taskIndex, m.due)
           break
+        case 'set-text':
+          nextBody = setTaskTextAtIndex(nextBody, task.taskIndex, m.text)
+          break
       }
     }
     if (nextBody === body) {
@@ -3468,6 +3537,119 @@ export const useStore = create<Store>((set, get) => {
         return
       }
     }
+  },
+
+  deleteTaskFromList: async (task) => {
+    const path = task.sourcePath
+    const openBuffer = get().noteContents[path]
+    let body: string
+    try {
+      body = openBuffer?.body ?? (await window.zen.readNote(path)).body
+    } catch (err) {
+      console.error('deleteTaskFromList readNote failed', err)
+      return
+    }
+    const nextBody = removeTaskAtIndex(body, task.taskIndex)
+    if (nextBody === body) return
+    // Optimistically drop it from the index so the row vanishes immediately.
+    set((s) => ({
+      vaultTasks: s.vaultTasks.filter(
+        (t) => !(t.sourcePath === path && t.taskIndex === task.taskIndex)
+      )
+    }))
+    if (openBuffer) {
+      get().updateNoteBody(path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(path, nextBody)
+        await get().rescanTasksForPath(path)
+      } catch (err) {
+        console.error('deleteTaskFromList writeNote failed', err)
+        void get().rescanTasksForPath(path)
+      }
+    }
+  },
+
+  moveTaskToDate: async (task, dateIso) => {
+    const parsed = parseIsoDateLocal(dateIso)
+    if (!parsed) return
+    const settings = normalizeVaultSettings(get().vaultSettings)
+    // No daily notes to move into — just set the due date instead.
+    if (!settings.dailyNotes.enabled) {
+      await get().applyTaskMutation(task, { kind: 'set-due', due: dateIso })
+      return
+    }
+    const target = await get().ensureDailyNoteForDate(parsed)
+    if (!target) return
+    const inferDue = settings.dailyNotes.tasksDueOnNoteDate
+    // Already in that day's note — nothing to relocate; just align its due.
+    if (target.path === task.sourcePath) {
+      await get().applyTaskMutation(task, { kind: 'set-due', due: inferDue ? null : dateIso })
+      return
+    }
+
+    const srcBuffer = get().noteContents[task.sourcePath]
+    const tgtBuffer = get().noteContents[target.path]
+    let srcBody: string
+    let tgtBody: string
+    try {
+      srcBody = srcBuffer?.body ?? (await window.zen.readNote(task.sourcePath)).body
+      tgtBody = tgtBuffer?.body ?? (await window.zen.readNote(target.path)).body
+    } catch (err) {
+      console.error('moveTaskToDate read failed', err)
+      return
+    }
+    const { line, body: strippedSrc } = takeTaskLineAtIndex(srcBody, task.taskIndex)
+    if (!line) return
+    // Moving INTO the target day's note: with implicit due on, a bare line
+    // already reads as that day, so strip any `due:` token; otherwise write the
+    // explicit date.
+    const movedLine = setTaskDueAtIndex(line, 0, inferDue ? null : dateIso)
+    const trimmed = tgtBody.replace(/\s+$/u, '')
+    const nextTgt = trimmed.length ? `${trimmed}\n${movedLine}\n` : `${movedLine}\n`
+
+    // Persist both notes (open buffers go through the edit pipeline).
+    if (srcBuffer) get().updateNoteBody(task.sourcePath, strippedSrc)
+    else {
+      try {
+        await window.zen.writeNote(task.sourcePath, strippedSrc)
+      } catch (err) {
+        console.error('moveTaskToDate write source failed', err)
+        return
+      }
+    }
+    if (tgtBuffer) get().updateNoteBody(target.path, nextTgt)
+    else {
+      try {
+        await window.zen.writeNote(target.path, nextTgt)
+      } catch (err) {
+        console.error('moveTaskToDate write target failed', err)
+        return
+      }
+    }
+
+    // Rebuild the index for the two affected notes with a client-side parse —
+    // authoritative (same parser the scanner uses) and independent of the
+    // single-file IPC rescanner, so the move shows immediately.
+    const srcTasks = parseTasksFromBody(strippedSrc, {
+      path: task.sourcePath,
+      title: task.noteTitle,
+      folder: task.noteFolder
+    })
+    const tgtTasks = parseTasksFromBody(nextTgt, {
+      path: target.path,
+      title: target.title,
+      folder: target.folder
+    })
+    set((s) => ({
+      vaultTasks: [
+        ...s.vaultTasks.filter(
+          (t) => t.sourcePath !== task.sourcePath && t.sourcePath !== target.path
+        ),
+        ...srcTasks,
+        ...tgtTasks
+      ]
+    }))
   },
 
   setTasksFilter: (q) => set({ tasksFilter: q, taskCursorIndex: 0 }),
@@ -4683,18 +4865,177 @@ export const useStore = create<Store>((set, get) => {
     if (existing) {
       set({ view: { kind: 'folder', folder: 'inbox', subpath } })
       await get().selectNote(existing.path)
-      return
+    } else {
+      const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
+      if (template) {
+        await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
+      } else {
+        await get().createAndOpen('inbox', subpath, { title })
+      }
     }
-    const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
-    if (template) {
-      await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
-      return
+    // Opening *today's* note rolls unfinished tasks forward from past daily
+    // notes (Obsidian-style) when enabled. Fire-and-forget so the note shows
+    // right away; the rollover appends into the now-open buffer.
+    if (noteTitleForDate(date) === noteTitleForDate(new Date())) {
+      void get().rolloverUnfinishedTasksIntoToday()
     }
-    await get().createAndOpen('inbox', subpath, { title })
   },
 
   openTodayDailyNote: async () => {
     await get().openDailyNoteForDate(new Date())
+  },
+
+  ensureDailyNoteForDate: async (date) => {
+    const state = get()
+    const settings = normalizeVaultSettings(state.vaultSettings)
+    if (!settings.dailyNotes.enabled) return null
+    const existing = findDailyNoteForDate(state.notes, settings, date)
+    if (existing) return existing
+    const { title, subpath } = dailyNoteLocationForDate(date, settings)
+    const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
+    const body = template ? renderTemplate(template.body, { title, now: date }).body : ''
+    try {
+      const meta = await window.zen.createNote('inbox', title, subpath)
+      if (body) await window.zen.writeNote(meta.path, body)
+      await get().refreshNotes()
+      return get().notes.find((n) => n.path === meta.path) ?? meta
+    } catch (err) {
+      console.error('ensureDailyNoteForDate failed', err)
+      return null
+    }
+  },
+
+  addTaskForDate: async (dateIso, text) => {
+    const content = text.trim()
+    if (!content) return
+    const parsed = parseIsoDateLocal(dateIso)
+    if (!parsed) return
+    const settings = normalizeVaultSettings(get().vaultSettings)
+    if (!settings.dailyNotes.enabled) return
+    let note = findDailyNoteForDate(get().notes, settings, parsed)
+    if (!note) {
+      const ok = await confirmApp({
+        title: 'Create daily note?',
+        description: `No daily note exists for ${dateIso} yet. Create it and add this task?`,
+        confirmLabel: 'Create & add'
+      })
+      if (!ok) return
+      note = await get().ensureDailyNoteForDate(parsed)
+      if (!note) return
+    }
+    const path = note.path
+    // Implicit due already covers daily-note tasks; only write an explicit
+    // `due:` token when inference is off, so the task still lands on this day.
+    const line = settings.dailyNotes.tasksDueOnNoteDate
+      ? `- [ ] ${content}`
+      : `- [ ] ${content} due:${dateIso}`
+    const openBuffer = get().noteContents[path]
+    const body = openBuffer?.body ?? (await window.zen.readNote(path)).body
+    const trimmed = body.replace(/\s+$/u, '')
+    const nextBody = trimmed.length ? `${trimmed}\n${line}\n` : `${line}\n`
+    if (openBuffer) {
+      // Open note: edit through the buffer so unsaved changes aren't stomped;
+      // its autosave + the watcher rescan the tasks (a disk rescan now would be
+      // stale). The common add-from-calendar case hits the writeNote branch.
+      get().updateNoteBody(path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(path, nextBody)
+        await get().rescanTasksForPath(path)
+      } catch (err) {
+        console.error('addTaskForDate writeNote failed', err)
+      }
+    }
+  },
+
+  rolloverUnfinishedTasksIntoToday: async (opts) => {
+    const force = opts?.force === true
+    const settings = normalizeVaultSettings(get().vaultSettings)
+    if (!settings.dailyNotes.enabled) return 0
+    const today = new Date()
+    const todayIso = noteTitleForDate(today)
+    const vaultRoot = get().vault?.root ?? ''
+    if (!force) {
+      if (!settings.dailyNotes.rolloverUnfinishedTasks) return 0
+      if (readRolloverMarker(vaultRoot) === todayIso) return 0
+    }
+    const todayNote = await get().ensureDailyNoteForDate(today)
+    if (!todayNote) return 0
+    if (opts?.open) {
+      const { subpath } = dailyNoteLocationForDate(today, settings)
+      set({ view: { kind: 'folder', folder: 'inbox', subpath } })
+      await get().selectNote(todayNote.path)
+    }
+
+    // Gather unfinished task blocks from every *past* daily note, oldest first.
+    const pastNotes: Array<{ note: NoteMeta; iso: string }> = []
+    for (const note of get().notes) {
+      if (note.path === todayNote.path) continue
+      const info = classifyDateNote(note, settings)
+      if (info?.kind !== 'daily') continue
+      const iso = noteTitleForDate(info.date)
+      if (iso < todayIso) pastNotes.push({ note, iso })
+    }
+    pastNotes.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0))
+
+    const movedLines: string[] = []
+    for (const { note } of pastNotes) {
+      const buffer = get().noteContents[note.path]
+      let body: string
+      try {
+        body = buffer?.body ?? (await window.zen.readNote(note.path)).body
+      } catch (err) {
+        console.error('rollover readNote failed', note.path, err)
+        continue
+      }
+      const { moved, rest } = extractUncheckedTaskBlocks(body)
+      if (moved.length === 0) continue
+      movedLines.push(...moved)
+      if (buffer) {
+        // Open buffer: route through the normal edit pipeline (marks dirty,
+        // autosaves, watcher rescans tasks) — same as toggleTaskFromList. A disk
+        // rescan here would read the not-yet-flushed file and go stale.
+        get().updateNoteBody(note.path, rest)
+      } else {
+        try {
+          await window.zen.writeNote(note.path, rest)
+          await get().rescanTasksForPath(note.path)
+        } catch (err) {
+          console.error('rollover writeNote (source) failed', note.path, err)
+          // Don't drop the lines we already pulled — they'll still land in today.
+        }
+      }
+    }
+
+    if (movedLines.length === 0) {
+      writeRolloverMarker(vaultRoot, todayIso)
+      return 0
+    }
+
+    const todayBuffer = get().noteContents[todayNote.path]
+    let todayBody: string
+    try {
+      todayBody = todayBuffer?.body ?? (await window.zen.readNote(todayNote.path)).body
+    } catch (err) {
+      console.error('rollover readNote (today) failed', err)
+      return 0
+    }
+    const trimmed = todayBody.replace(/\s+$/u, '')
+    const block = movedLines.join('\n')
+    const nextBody = trimmed.length ? `${trimmed}\n${block}\n` : `${block}\n`
+    if (todayBuffer) {
+      get().updateNoteBody(todayNote.path, nextBody)
+    } else {
+      try {
+        await window.zen.writeNote(todayNote.path, nextBody)
+        await get().rescanTasksForPath(todayNote.path)
+      } catch (err) {
+        console.error('rollover writeNote (today) failed', err)
+        return 0
+      }
+    }
+    writeRolloverMarker(vaultRoot, todayIso)
+    return movedLines.length
   },
 
   openWeeklyNoteForDate: async (date) => {

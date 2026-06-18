@@ -282,6 +282,16 @@ export interface DailyNotesSettings {
   legacyPatterns?: DateNotePatternSettings[]
   /** Template applied to new daily notes. Empty/undefined = blank note. */
   templateId?: string
+  /**
+   * Treat a task written inside a daily note as due on that note's date, so it
+   * shows up on the calendar without typing `due:`. The line is left untouched —
+   * the due date is derived. An explicit `due:` token still wins. Default `true`.
+   */
+  tasksDueOnNoteDate?: boolean
+  /**
+   * When today's daily note opens, move every unfinished task from previous
+   * daily notes into it (Obsidian-style). Off by default. */
+  rolloverUnfinishedTasks?: boolean
 }
 
 export interface WeeklyNotesSettings {
@@ -328,7 +338,9 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
     enabled: false,
     directory: DEFAULT_DAILY_NOTES_DIRECTORY,
     titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
-    locale: DEFAULT_DAILY_NOTE_LOCALE
+    locale: DEFAULT_DAILY_NOTE_LOCALE,
+    tasksDueOnNoteDate: true,
+    rolloverUnfinishedTasks: false
   },
   weeklyNotes: {
     enabled: false,

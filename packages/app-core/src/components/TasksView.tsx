@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
-import type { VaultTask } from '@shared/tasks'
+import { inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
+import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { computeTasksRender, isOverdue } from '../lib/tasks-filter'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
@@ -31,7 +32,9 @@ const VIEW_BUTTONS: Array<{
 ]
 
 export function TasksView(): JSX.Element {
-  const tasks = useStore((s) => s.vaultTasks)
+  const rawTasks = useStore((s) => s.vaultTasks)
+  const notes = useStore((s) => s.notes)
+  const vaultSettings = useStore((s) => s.vaultSettings)
   const loading = useStore((s) => s.tasksLoading)
   const filter = useStore((s) => s.tasksFilter)
   const cursorIndex = useStore((s) => s.taskCursorIndex)
@@ -40,7 +43,20 @@ export function TasksView(): JSX.Element {
   const refreshTasks = useStore((s) => s.refreshTasks)
   const openTaskAt = useStore((s) => s.openTaskAt)
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
+  const applyTaskMutation = useStore((s) => s.applyTaskMutation)
+  const moveTaskToDate = useStore((s) => s.moveTaskToDate)
+  const addTaskForDate = useStore((s) => s.addTaskForDate)
   const closeTasksView = useStore((s) => s.closeTasksView)
+
+  // Tasks written inside a daily note inherit that note's date as an implicit
+  // due date (a clean line, no `due:` token) so they appear on the calendar.
+  // Done at the display layer so it works on desktop + web identically and
+  // re-derives whenever notes/settings change. Explicit `due:` still wins.
+  const dueByPath = useMemo(
+    () => buildDailyNoteDateByPath(notes, vaultSettings),
+    [notes, vaultSettings]
+  )
+  const tasks = useMemo(() => inferDailyTaskDueDates(rawTasks, dueByPath), [rawTasks, dueByPath])
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
   const viewMode = useStore((s) => s.tasksViewMode)
@@ -468,6 +484,12 @@ export function TasksView(): JSX.Element {
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}
+          onRescheduleTask={(task, dueIso) =>
+            void applyTaskMutation(task, { kind: 'set-due', due: dueIso })
+          }
+          onMoveTask={(task, dateIso) => void moveTaskToDate(task, dateIso)}
+          onAddTask={(dateIso, text) => addTaskForDate(dateIso, text)}
+          dailyNotesEnabled={vaultSettings.dailyNotes.enabled}
         />
       )}
 
@@ -518,7 +540,7 @@ export function TasksView(): JSX.Element {
           {viewMode === 'list'
             ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · :q close'
             : viewMode === 'calendar'
-              ? 'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · :q close'
+              ? 'h/j/k/l day · [ ] month · gt today · Tab pick · < > reschedule · drag to move · Enter open · :q'
               : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · :q close'}
         </div>
       )}

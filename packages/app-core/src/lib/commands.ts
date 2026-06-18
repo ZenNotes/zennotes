@@ -119,6 +119,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openTodayDailyNote()
     },
     {
+      id: 'note.daily.rollover',
+      title: 'Roll Over Unfinished Tasks to Today',
+      category: 'Note',
+      keywords: 'daily tasks rollover roll over migrate unfinished carry forward today',
+      when: () => getState().vaultSettings.dailyNotes.enabled,
+      run: () => {
+        void getState().rolloverUnfinishedTasksIntoToday({ force: true, open: true })
+      }
+    },
+    {
       id: 'note.weekly.thisWeek',
       title: "Open This Week's Note",
       category: 'Note',

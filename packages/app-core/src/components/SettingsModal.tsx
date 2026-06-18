@@ -1821,6 +1821,30 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+            <ToggleRow
+              label="Tasks are due on the note's date"
+              description="A task written inside a daily note appears on the calendar for that day automatically — no need to type a due date. An explicit `due:YYYY-MM-DD` still wins."
+              value={vaultSettings.dailyNotes.tasksDueOnNoteDate !== false}
+              settingId="daily-notes-tasks-due-on-date"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, tasksDueOnNoteDate: on }
+                })
+              }
+            />
+            <ToggleRow
+              label="Roll over unfinished tasks to today"
+              description="When today's daily note opens, move every unchecked task from previous daily notes into it. Checked tasks stay where they are."
+              value={vaultSettings.dailyNotes.rolloverUnfinishedTasks === true}
+              settingId="daily-notes-rollover"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, rolloverUnfinishedTasks: on }
+                })
+              }
+            />
             <div
               className="flex items-center justify-between gap-4 px-5 py-4"
               {...settingsSearchTargetProps('open-todays-daily-note')}

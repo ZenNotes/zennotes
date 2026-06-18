@@ -28,6 +28,12 @@ export const FOLDER_COLOR_OPTIONS: readonly FolderColorOption[] = [
 
 const FOLDER_COLOR_LOOKUP = new Map(FOLDER_COLOR_OPTIONS.map((option) => [option.id, option]))
 
+/** The glyph text-color class for a color id (any keyed entry — folder, note,
+ *  database…), or null when there's no color. */
+export function colorGlyphClassById(id: FolderColorId | null | undefined): string | null {
+  return id ? FOLDER_COLOR_LOOKUP.get(id)?.glyphClass ?? null : null
+}
+
 /** The chosen color for a folder, or null when none is set (default tint). */
 export function resolveFolderColorId(
   folder: NoteFolder,

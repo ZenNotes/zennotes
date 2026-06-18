@@ -622,6 +622,70 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 	}
 }
 
+// The web client drives the implicit-due and task-rollover behavior off two
+// daily-notes booleans. They are pointers so "absent" round-trips as unset
+// (the TS client applies the real default); an explicit value must survive a
+// SetSettings -> GetSettings round-trip and reach vault.json, or the web
+// toggles would silently revert like #117.
+func TestVaultSettingsDailyTaskFlagsRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	yes := true
+	no := false
+	if _, err := v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: PrimaryNotesInbox,
+		DailyNotes: DailyNotesSettings{
+			Enabled:                 true,
+			Directory:               "Daily",
+			TasksDueOnNoteDate:      &no, // explicitly turn the default (true) OFF
+			RolloverUnfinishedTasks: &yes,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyNotes.TasksDueOnNoteDate == nil || *got.DailyNotes.TasksDueOnNoteDate != false {
+		t.Errorf("tasksDueOnNoteDate = %v, want explicit false", got.DailyNotes.TasksDueOnNoteDate)
+	}
+	if got.DailyNotes.RolloverUnfinishedTasks == nil || *got.DailyNotes.RolloverUnfinishedTasks != true {
+		t.Errorf("rolloverUnfinishedTasks = %v, want explicit true", got.DailyNotes.RolloverUnfinishedTasks)
+	}
+
+	raw, err := os.ReadFile(v.settingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("tasksDueOnNoteDate")) {
+		t.Errorf("vault.json missing tasksDueOnNoteDate key:\n%s", raw)
+	}
+	if !bytes.Contains(raw, []byte("rolloverUnfinishedTasks")) {
+		t.Errorf("vault.json missing rolloverUnfinishedTasks key:\n%s", raw)
+	}
+
+	// Absent pointers must stay nil (omitted) so the client default wins.
+	if _, err := v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: PrimaryNotesInbox,
+		DailyNotes:           DailyNotesSettings{Enabled: true, Directory: "Daily"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyNotes.TasksDueOnNoteDate != nil {
+		t.Errorf("absent tasksDueOnNoteDate = %v, want nil", *got.DailyNotes.TasksDueOnNoteDate)
+	}
+}
+
 // A file or directory the server can't read must be skipped, not abort the whole
 // vault scan — otherwise one root-owned entry hides the entire vault. (#159)
 func TestListSkipsUnreadableEntries(t *testing.T) {
