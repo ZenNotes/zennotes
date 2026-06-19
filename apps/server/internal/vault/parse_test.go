@@ -57,3 +57,18 @@ func TestExtractorsStillIgnoreCodeAfterFastPathGuards(t *testing.T) {
 		t.Fatalf("ExtractWikilinks() = %#v, want [Target]", wikilinks)
 	}
 }
+
+// #205: tags in non-Latin scripts (Cyrillic, CJK, …) must be recognized.
+func TestExtractTagsUnicode(t *testing.T) {
+	body := "Заметки: #тест #ошибка/баг и 笔记 #标签 plus #ascii-1 done"
+	got := ExtractTags(body)
+	want := map[string]bool{"тест": true, "ошибка/баг": true, "标签": true, "ascii-1": true}
+	if len(got) != len(want) {
+		t.Fatalf("ExtractTags() = %#v, want keys %#v", got, want)
+	}
+	for _, tag := range got {
+		if !want[tag] {
+			t.Fatalf("unexpected tag %q in %#v", tag, got)
+		}
+	}
+}

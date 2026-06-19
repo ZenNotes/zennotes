@@ -1421,7 +1421,7 @@ function localAssetTargetKind(target: string): ImportedAssetKind | null {
 function extractTags(body: string): string[] {
   if (!body.includes('#')) return []
   const stripped = stripCodeContent(body)
-  const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
+  const matches = stripped.match(/(?:^|\s)#(\p{L}[\p{L}\d_/-]*)/gu) || []
   const seen = new Set<string>()
   for (const m of matches) seen.add(m.trim().slice(1))
   return [...seen]

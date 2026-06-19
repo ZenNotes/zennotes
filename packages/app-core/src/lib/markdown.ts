@@ -202,7 +202,7 @@ function remarkHashtags() {
       if (p.type === 'link' || p.type === 'linkReference' || p.type === 'heading') return
       const value = (node as { value: string }).value
       if (!value.includes('#')) return
-      const regex = /(^|\s)#([a-zA-Z][\w\-/]*)/g
+      const regex = /(^|\s)#(\p{L}[\p{L}\d_/-]*)/gu
       const next: AnyNode[] = []
       let last = 0
       let m: RegExpExecArray | null

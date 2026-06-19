@@ -1076,8 +1076,9 @@ async function rewriteTagAcrossVault(
   const { notes, activeNote } = get()
   const escaped = oldTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   // Match `#tag` preceded by start/whitespace and followed by a non
-  // tag-character or end-of-string, keeping the leading separator.
-  const pattern = new RegExp(`(^|\\s)#${escaped}(?=[^\\w\\-/]|$)`, 'gm')
+  // tag-character or end-of-string, keeping the leading separator. The
+  // boundary excludes any Unicode letter so Cyrillic/CJK tags rename too (#205).
+  const pattern = new RegExp(`(^|\\s)#${escaped}(?=[^\\p{L}\\d_/-]|$)`, 'gmu')
 
   const rewriteBody = (src: string): string => {
     // Preserve code fences and inline code exactly. Split the body

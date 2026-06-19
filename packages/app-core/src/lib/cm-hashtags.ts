@@ -19,8 +19,9 @@ import {
 import { useStore } from '../store'
 
 // Same shape as the Preview regex: a `#`, preceded by start-of-text or
-// whitespace, then a letter and word/`-`/`/` characters.
-const HASHTAG_RE = /(^|\s)#([a-zA-Z][\w\-/]*)/g
+// whitespace, then any Unicode letter (Cyrillic/CJK/… included, #205) followed
+// by letters, digits, `_`, `-`, or `/`.
+const HASHTAG_RE = /(^|\s)#(\p{L}[\p{L}\d_/-]*)/gu
 
 /** True when `pos` sits inside a code span/block or a heading — contexts where
  *  a `#` isn't a tag (`#include`, `# Heading`, …). */

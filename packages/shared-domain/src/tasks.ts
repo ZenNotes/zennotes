@@ -140,7 +140,8 @@ const INLINE_DUE_RE = /(?:^|\s)due:(\S+)/i
 const INLINE_PRIORITY_RE = /(?:^|\s)!(high|med|medium|low|h|m|l)\b/i
 const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
 // Match #tag-like tokens but only when preceded by start-of-string/whitespace.
-const INLINE_TAG_RE = /(?:^|\s)#([a-z0-9][a-z0-9/_-]*)/gi
+// Letters in any script (Cyrillic/CJK/…) plus digits, `_`, `-`, `/` (#205).
+const INLINE_TAG_RE = /(?:^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu
 
 interface ExtractedTokens {
   due?: string

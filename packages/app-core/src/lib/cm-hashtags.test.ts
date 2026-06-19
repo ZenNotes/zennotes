@@ -30,6 +30,13 @@ describe('hashtagPlugin', () => {
     view.destroy()
   })
 
+  it('recognizes non-Latin tags — Cyrillic, CJK (#205)', () => {
+    const view = mount('Заметки: #тест #ошибка и 笔记 #标签 done')
+    const tags = Array.from(view.dom.querySelectorAll('.cm-hashtag')).map((e) => e.textContent)
+    expect(tags).toEqual(['#тест', '#ошибка', '#标签'])
+    view.destroy()
+  })
+
   it('skips `#` inside code and headings', () => {
     const view = mount('# Heading #notatag\n\nuse `#include` here\n\n#real')
     const tags = Array.from(view.dom.querySelectorAll('.cm-hashtag')).map(

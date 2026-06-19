@@ -357,7 +357,7 @@ function stripCodeContent(body: string): string {
 
 function extractTags(body: string): string[] {
   const stripped = stripCodeContent(body)
-  const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
+  const matches = stripped.match(/(?:^|\s)#(\p{L}[\p{L}\d_/-]*)/gu) || []
   const seen = new Set<string>()
   for (const m of matches) seen.add(m.trim().slice(1))
   return [...seen]
@@ -832,7 +832,7 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/
 const INLINE_DUE_RE = /(?:^|\s)due:(\S+)/i
 const INLINE_PRIORITY_RE = /(?:^|\s)!(high|med|medium|low|h|m|l)\b/i
 const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
-const INLINE_TAG_RE = /(?:^|\s)#([a-z0-9][a-z0-9/_-]*)/gi
+const INLINE_TAG_RE = /(?:^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu
 
 function normalizePriority(raw: string | undefined): 'high' | 'med' | 'low' | undefined {
   if (!raw) return undefined
