@@ -19,6 +19,16 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    env:
+      # cache.nixos.org intermittently corrupts NAR streams over HTTP/2 (seen as
+      # "Stream error in the HTTP/2 framing layer" -> zstd corruption). Disable
+      # HTTP/2 to dodge the bug and retry a few times on transient drops; every
+      # nix command below also passes --fallback so an unusable substitute builds
+      # from source instead of failing the run.
+      NIX_CONFIG: |
+        http2 = false
+        download-attempts = 5
+        connect-timeout = 20
     steps:
       - uses: actions/checkout@v4
 
@@ -34,13 +44,13 @@ jobs:
           FAKE="sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
           # 1) Source hash — the fetchFromGitHub tree for tag v$V.
-          SRC_HASH=$(nix run nixpkgs#nix-prefetch-github -- ZenNotes zennotes --rev "v$V" | jq -r '.hash // .sha256')
+          SRC_HASH=$(nix run --fallback nixpkgs#nix-prefetch-github -- ZenNotes zennotes --rev "v$V" | jq -r '.hash // .sha256')
           echo "hash (source) = $SRC_HASH"
 
           # 2) npmDepsHash — from the tag's root package-lock.json (npm workspaces
           #    use one root lockfile, which is what buildNpmPackage hashes).
           curl -fsSL "https://raw.githubusercontent.com/ZenNotes/zennotes/v$V/package-lock.json" -o /tmp/package-lock.json
-          NPM_HASH=$(nix run nixpkgs#prefetch-npm-deps -- /tmp/package-lock.json)
+          NPM_HASH=$(nix run --fallback nixpkgs#prefetch-npm-deps -- /tmp/package-lock.json)
           echo "npmDepsHash = $NPM_HASH"
 
           # Write version + source + npm now; leave vendorHash fake so the Go
@@ -52,7 +62,7 @@ jobs:
           # 3) vendorHash — build the server; the Go vendor fixed-output derivation
           #    reports the real hash as a mismatch against the fake one.
           set +e
-          nix build .#zennotes-server --no-link 2> build.log
+          nix build --fallback .#zennotes-server --no-link 2> build.log
           set -e
           VENDOR_HASH=$(grep -oE 'got:[[:space:]]+sha256-[A-Za-z0-9+/=]+' build.log \
             | grep -oE 'sha256-[A-Za-z0-9+/=]+' | head -1 || true)
@@ -69,7 +79,7 @@ jobs:
           cat "$DATA"
 
       - name: Verify the packages build with the new hashes
-        run: nix build .#zennotes-desktop .#zennotes-server --no-link --print-build-logs
+        run: nix build --fallback .#zennotes-desktop .#zennotes-server --no-link --print-build-logs
 
       - name: Open a PR with the update
         uses: peter-evans/create-pull-request@v6
