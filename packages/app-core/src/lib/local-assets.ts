@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import { externalLinkUrl } from './internal-links'
 
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -398,6 +399,10 @@ export function enhanceLocalAssetNodes(
   root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
     if (anchor.classList.contains('wikilink') || anchor.classList.contains('hashtag')) return
     const raw = anchor.getAttribute('href') || ''
+    // A `.md` link is a note link, and an external web link (`google.com`,
+    // `https://…`) isn't a vault asset — leave both for the link-navigation
+    // handlers instead of rewriting them to a zen-asset URL. (#201)
+    if (/\.md(?:[#?].*)?$/i.test(raw.trim()) || externalLinkUrl(raw)) return
     const resolved = resolveLocalAssetUrl(vaultRoot, notePath, raw)
     if (!resolved) return
 

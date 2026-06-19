@@ -25,6 +25,7 @@ import {
 } from '../lib/wikilinks'
 import { openWikilinkHeading } from '../lib/wikilink-navigation'
 import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
+import { externalLinkUrl, extractLinkAtCursor, resolveInternalNoteHref } from '../lib/internal-links'
 import {
   buildMoveNotePrompt,
   parseMoveNoteTarget,
@@ -285,38 +286,8 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
   }
 }
 
-function unwrapMdUrl(url: string): string {
-  // Markdown wraps URLs with spaces in angle brackets: `[x](<a b.pdf>)`.
-  const trimmed = url.trim()
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed.slice(1, -1)
-  return trimmed
-}
-
-function extractLinkAtCursor(doc: string, pos: number): string | null {
-  const lineStart = doc.lastIndexOf('\n', pos - 1) + 1
-  const lineEnd = doc.indexOf('\n', pos)
-  const line = doc.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
-  const col = pos - lineStart
-  const wikiRe = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
-  let m: RegExpExecArray | null
-  while ((m = wikiRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[1]
-  }
-  // Angle-bracketed URLs can contain `)` so match them specifically first.
-  const mdAngleRe = /\[([^\]]*)\]\(<([^>]+)>\)/g
-  while ((m = mdAngleRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[2]
-  }
-  const mdRe = /\[([^\]]*)\]\(([^)]+)\)/g
-  while ((m = mdRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return unwrapMdUrl(m[2])
-  }
-  const urlRe = /https?:\/\/[^\s)>\]]+/g
-  while ((m = urlRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[0]
-  }
-  return null
-}
+// `extractLinkAtCursor` lives in ../lib/internal-links so the editor, the
+// preview, and the Cmd/Ctrl-click handler can all share it.
 
 /**
  * Report an ex-command error as a non-blocking, in-editor notification — the
@@ -506,8 +477,9 @@ function registerVimCommands(): void {
     const target = extractLinkAtCursor(doc, pos)
     if (!target) return
 
-    if (/^https?:\/\//i.test(target)) {
-      window.open(target, '_blank')
+    const external = externalLinkUrl(target)
+    if (external) {
+      window.open(external, '_blank')
       return
     }
 
@@ -539,6 +511,23 @@ function registerVimCommands(): void {
         void openWikilinkHeading(resolved.path, headingAnchor).then(focusEditorSoon)
       } else {
         void state.selectNote(resolved.path).then(focusEditorSoon)
+      }
+      return
+    }
+
+    // A standard Markdown link whose href resolves relative to this note —
+    // e.g. `[text](../Projects/plan.md)` — that wikilink name matching can't
+    // reach. (#201)
+    const internal = resolveInternalNoteHref(state.selectedPath, target, notes)
+    if (internal) {
+      const focusEditorSoon = (): void => {
+        state.setFocusedPanel('editor')
+        requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
+      }
+      if (internal.heading) {
+        void openWikilinkHeading(internal.path, internal.heading).then(focusEditorSoon)
+      } else {
+        void state.selectNote(internal.path).then(focusEditorSoon)
       }
       return
     }

@@ -3878,6 +3878,11 @@ textarea,
   text-decoration: underline;
   text-decoration-color: rgb(var(--z-accent) / 0.4);
   text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .tok-link:hover,
+.cm-wysiwyg .cm-editor .tok-url:hover {
+  text-decoration-color: rgb(var(--z-accent));
 }
 
 /* Wikilinks — Obsidian internal-link style: accent underlined text, clickable

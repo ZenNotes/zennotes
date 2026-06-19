@@ -78,6 +78,14 @@ import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
+import { resolveWikilinkTarget, wikilinkHeadingAnchor } from '../lib/wikilinks'
+import { openWikilinkHeading } from '../lib/wikilink-navigation'
+import {
+  externalLinkUrl,
+  extractLinkAtCursor,
+  markdownLinkAt,
+  resolveInternalNoteHref
+} from '../lib/internal-links'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
@@ -595,6 +603,39 @@ function getEditorContextMenuPosition(view: EditorView): { x: number; y: number 
     x: clampViewport((coords?.right ?? coords?.left ?? editorRect.left + 28) + 8, 8, window.innerWidth - 12),
     y: clampViewport((coords?.bottom ?? editorRect.top + 32) + 6, 8, window.innerHeight - 12)
   }
+}
+
+/**
+ * Follow a link target extracted from the editor (Cmd/Ctrl-click): an external
+ * URL opens in the browser; a Markdown link to another note or a `[[wikilink]]`
+ * navigates, scrolling to its `#heading` when present. Returns false when the
+ * target resolves to nothing (so the click falls through to normal behavior). (#201)
+ */
+function followEditorLink(target: string): boolean {
+  const external = externalLinkUrl(target)
+  if (external) {
+    window.open(external, '_blank')
+    return true
+  }
+  const state = useStore.getState()
+  const focusSoon = (): void => {
+    state.setFocusedPanel('editor')
+    requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
+  }
+  const internal = resolveInternalNoteHref(state.selectedPath, target, state.notes)
+  if (internal) {
+    if (internal.heading) void openWikilinkHeading(internal.path, internal.heading).then(focusSoon)
+    else void state.selectNote(internal.path).then(focusSoon)
+    return true
+  }
+  const wikilink = resolveWikilinkTarget(state.notes, target)
+  if (wikilink) {
+    const heading = wikilinkHeadingAnchor(target)
+    if (heading) void openWikilinkHeading(wikilink.path, heading).then(focusSoon)
+    else void state.selectNote(wikilink.path).then(focusSoon)
+    return true
+  }
+  return false
 }
 
 export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
@@ -1418,8 +1459,37 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           completionNavKeymap,
           editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode)),
           EditorView.domEventHandlers({
-            mousedown: (event) => {
+            mousedown: (event, view) => {
               const target = event.target as HTMLElement | null
+              // Follow a Markdown link in live preview. A plain click follows a
+              // *rendered* link (the cursor is outside it, so its `(url)` syntax
+              // is hidden) — mirroring how `[[wikilinks]]` behave; clicking a
+              // link the cursor is already inside edits it instead. Cmd/Ctrl-click
+              // always follows (and reaches wikilinks too), gated to the primary
+              // button so a macOS Ctrl+click right-click doesn't trigger it. (#201)
+              if (event.button === 0 && !event.altKey && !event.shiftKey) {
+                const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+                if (pos != null) {
+                  const doc = view.state.doc.toString()
+                  if (event.metaKey || event.ctrlKey) {
+                    const linkTarget = extractLinkAtCursor(doc, pos)
+                    if (linkTarget && followEditorLink(linkTarget)) {
+                      event.preventDefault()
+                      return true
+                    }
+                  } else {
+                    const link = markdownLinkAt(doc, pos)
+                    if (link) {
+                      const sel = view.state.selection.main
+                      const rendered = sel.to < link.from || sel.from > link.to
+                      if (rendered && followEditorLink(link.href)) {
+                        event.preventDefault()
+                        return true
+                      }
+                    }
+                  }
+                }
+              }
               const marker = target?.closest<HTMLElement>('.cm-comment-marker[data-comment-id]')
               const commentId = marker?.dataset.commentId
               if (!commentId) return false
