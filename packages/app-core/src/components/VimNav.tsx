@@ -20,8 +20,10 @@ import {
   getKeymapDisplay,
   getSequenceTokens,
   matchesSequenceToken,
+  matchesShortcutBinding,
   sequenceTokenFromEvent
 } from '../lib/keymaps'
+import { toggleWrap, wrapLink } from '../lib/cm-format'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
   dispatchKeyboardContextMenu,
@@ -310,6 +312,9 @@ export function VimNav(): JSX.Element | null {
       // Never steal keys from normal text-entry fields such as the
       // inline note title, prompt inputs, or textarea-based controls.
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // The selection format toolbar handles its own keyboard navigation
+      // (arrows / Enter / Esc) once focused — yield to it entirely.
+      if (target?.closest('[data-selection-toolbar]')) return
       // The database/table view runs its own vim-style motion grid; yield to it
       // so sidebar/note-list navigation doesn't steal j/k/h/l etc. — EXCEPT the
       // pane prefix (Ctrl+W) and its pending direction key, so the grid can hand
@@ -332,6 +337,46 @@ export function VimNav(): JSX.Element | null {
       }
       const previewEl = getPreviewScrollElement()
       const hoverPreviewEl = getHoverPreviewScrollElement()
+
+      // Inline-format shortcuts (Bold/Italic/Strike/Highlight/Code/Math/Link)
+      // mirror the selection toolbar. Handled here — in the window capture
+      // handler — so they work on every platform and beat Vim's own Ctrl
+      // chords (e.g. <C-b>) in normal/visual mode on Linux/Windows. `Mod`
+      // resolves to ⌘ on macOS and Ctrl elsewhere.
+      const fmtView = state.editorViewRef
+      if (fmtView && isEditorFocused(fmtView)) {
+        // Focus the selection toolbar (when shown) for keyboard navigation.
+        if (matchesShortcutBinding(e, 'Mod+/')) {
+          const firstItem = document.querySelector<HTMLElement>(
+            '[data-selection-toolbar] [data-toolbar-item]'
+          )
+          if (firstItem) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            firstItem.focus()
+            return
+          }
+        }
+        // Bindings in canonical modifier order (Shift before Mod), matching
+        // `normalizeShortcutBinding` so `matchesShortcutBinding` compares equal.
+        const formats: Array<[string, () => void]> = [
+          ['Mod+B', () => toggleWrap(fmtView, '**')],
+          ['Mod+I', () => toggleWrap(fmtView, '*')],
+          ['Mod+E', () => toggleWrap(fmtView, '`')],
+          ['Shift+Mod+S', () => toggleWrap(fmtView, '~~')],
+          ['Shift+Mod+H', () => toggleWrap(fmtView, '==')],
+          ['Shift+Mod+M', () => toggleWrap(fmtView, '$')],
+          ['Mod+K', () => wrapLink(fmtView)]
+        ]
+        for (const [binding, run] of formats) {
+          if (matchesShortcutBinding(e, binding)) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            run()
+            return
+          }
+        }
+      }
 
       const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
       const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')

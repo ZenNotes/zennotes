@@ -86,6 +86,8 @@ import {
   markdownLinkAt,
   resolveInternalNoteHref
 } from '../lib/internal-links'
+import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
+import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
@@ -530,8 +532,10 @@ function lineNumberExtension(mode: LineNumberMode): Extension {
 
 type TabDropIndicator = { path: string; position: 'before' | 'after' } | null
 type SelectionCommentAction = { x: number; y: number } | null
-const COMMENT_ACTION_WIDTH = 34
-const COMMENT_ACTION_HEIGHT = 34
+// The selection bubble toolbar is centered over the selection (translateX -50%),
+// so we only need a rough half-width to keep it on screen.
+const SELECTION_TOOLBAR_HALF_WIDTH = 140
+const SELECTION_TOOLBAR_HEIGHT = 112
 
 function clampViewport(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
@@ -553,43 +557,32 @@ function selectionEdgeCoords(view: EditorView): {
   )
 }
 
-function selectionEndCoords(view: EditorView): {
-  right: number
-  top: number
-  bottom: number
-} | null {
-  const sel = view.state.selection.main
-  return (
-    view.coordsAtPos(sel.to, -1) ??
-    view.coordsAtPos(sel.to, 1) ??
-    selectionEdgeCoords(view)
-  )
-}
-
 function getSelectionCommentAction(view: EditorView): SelectionCommentAction {
   const sel = view.state.selection.main
   const active = document.activeElement
-  const hasFocus = view.hasFocus || (active instanceof Node && view.dom.contains(active))
+  // Keep the toolbar up while the editor holds the selection OR while the user
+  // has tabbed into the toolbar itself (keyboard navigation).
+  const inToolbar = active instanceof Element && active.closest('[data-selection-toolbar]') != null
+  const hasFocus =
+    view.hasFocus || (active instanceof Node && view.dom.contains(active)) || inToolbar
   if (sel.empty || !hasFocus) return null
-  const coords = selectionEndCoords(view)
-  if (!coords) return null
-  const editorRect = view.scrollDOM.getBoundingClientRect()
-  const desiredX = coords.right + 10
-  const maxX = Math.min(
-    editorRect.right - COMMENT_ACTION_WIDTH - 12,
-    window.innerWidth - COMMENT_ACTION_WIDTH - 8
-  )
+  const start = view.coordsAtPos(sel.from, 1)
+  const end = view.coordsAtPos(sel.to, -1)
+  if (!start || !end) return null
+  // Center the bubble horizontally over the selection; sit it just above the
+  // top of the selection, flipping below when there isn't room.
+  const centerX = (Math.min(start.left, end.left) + Math.max(start.right, end.right)) / 2
+  const gap = 8
+  const above = Math.min(start.top, end.top) - SELECTION_TOOLBAR_HEIGHT - gap
+  const below = Math.max(start.bottom, end.bottom) + gap
+  const y = above < 8 ? below : above
   return {
     x: clampViewport(
-      desiredX,
-      editorRect.left + 8,
-      Math.max(editorRect.left + 8, maxX)
+      centerX,
+      SELECTION_TOOLBAR_HALF_WIDTH + 8,
+      window.innerWidth - SELECTION_TOOLBAR_HALF_WIDTH - 8
     ),
-    y: clampViewport(
-      coords.top + (coords.bottom - coords.top) / 2 - COMMENT_ACTION_HEIGHT / 2,
-      8,
-      window.innerHeight - COMMENT_ACTION_HEIGHT - 8
-    )
+    y: clampViewport(y, 8, window.innerHeight - SELECTION_TOOLBAR_HEIGHT - 8)
   }
 }
 
@@ -3365,23 +3358,24 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         selectionCommentAction &&
         !commentDraft &&
         !zenMode && (
-          <button
-            type="button"
-            data-selection-comment-action
-            title="Add comment"
-            aria-label="Add comment to selected text"
-            onMouseDown={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
+          <EditorSelectionToolbar
+            x={selectionCommentAction.x}
+            y={selectionCommentAction.y}
+            onWrap={(marker) => {
+              const view = viewRef.current
+              if (view) toggleWrap(view, marker)
             }}
-            onClick={() => {
-              captureCommentDraft()
+            onLink={() => {
+              const view = viewRef.current
+              if (view) wrapLink(view)
             }}
-            className="fixed z-50 flex h-[34px] w-[34px] items-center justify-center rounded-lg border border-paper-300/75 bg-paper-100/92 text-ink-700 shadow-[0_10px_24px_-18px_rgb(var(--z-shadow)/0.7),0_0_0_1px_rgb(var(--z-bg)/0.55)] backdrop-blur transition-colors hover:border-accent/45 hover:bg-paper-50 hover:text-accent"
-            style={{ left: selectionCommentAction.x, top: selectionCommentAction.y }}
-          >
-            <FeedbackIcon width={16} height={16} />
-          </button>
+            onComment={() => captureCommentDraft()}
+            onBlockType={(type) => {
+              const view = viewRef.current
+              if (view) setBlockType(view, type)
+            }}
+            onDismiss={() => viewRef.current?.focus()}
+          />
         )}
       {tabMenu && (
         <ContextMenu

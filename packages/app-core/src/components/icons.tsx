@@ -361,3 +361,54 @@ export const FileDownIcon = (p: IconProps): JSX.Element => (
     <path d="m9 14 3 3 3-3" />
   </I>
 )
+
+// --- inline-format toolbar icons (selection bubble) -----------------------
+export const BoldIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M6 4h7a4 4 0 0 1 0 8H6z" />
+    <path d="M6 12h8a4 4 0 0 1 0 8H6z" />
+  </I>
+)
+
+export const ItalicIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <line x1="19" y1="4" x2="10" y2="4" />
+    <line x1="14" y1="20" x2="5" y2="20" />
+    <line x1="15" y1="4" x2="9" y2="20" />
+  </I>
+)
+
+export const StrikethroughIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M16 4H9a3 3 0 0 0-2.83 4" />
+    <path d="M14 12a4 4 0 0 1 0 8H6" />
+    <line x1="4" y1="12" x2="20" y2="12" />
+  </I>
+)
+
+export const HighlighterIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="m9 11-6 6v3h3l6-6" />
+    <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+  </I>
+)
+
+export const CodeIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <polyline points="16 18 22 12 16 6" />
+    <polyline points="8 6 2 12 8 18" />
+  </I>
+)
+
+export const SigmaIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M18 7V5a1 1 0 0 0-1-1H7l5 8-5 8h10a1 1 0 0 0 1-1v-2" />
+  </I>
+)
+
+export const LinkIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+  </I>
+)
