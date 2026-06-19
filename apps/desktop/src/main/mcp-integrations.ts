@@ -119,6 +119,9 @@ function clientConfigPath(descriptor: McpClientDescriptor): string {
     case 'codex':
       // Codex CLI reads from ~/.codex/config.toml.
       return path.join(homeDir(), '.codex', 'config.toml')
+    case 'opencode':
+      // OpenCode global config lives at ~/.config/opencode/opencode.json.
+      return path.join(xdgConfigHome(), 'opencode', 'opencode.json')
   }
 }
 
@@ -251,6 +254,39 @@ async function writeTomlFile(filePath: string, contents: string): Promise<void> 
   await fsp.writeFile(filePath, contents.endsWith('\n') ? contents : contents + '\n', 'utf8')
 }
 
+/* ---------- OpenCode (JSON with `mcp.<key>` structure) -------------- */
+
+interface OpenCodeMcpEntry {
+  type: 'local'
+  command: string[]
+  environment?: Record<string, string>
+  enabled?: boolean
+}
+
+interface OpenCodeConfig {
+  mcp?: Record<string, OpenCodeMcpEntry>
+  [key: string]: unknown
+}
+
+function readOpenCodeConfig(raw: string): OpenCodeConfig {
+  try {
+    return JSON.parse(raw) as OpenCodeConfig
+  } catch {
+    return {}
+  }
+}
+
+function buildOpenCodeEntry(
+  runtime: { command: string; args: string[]; env: Record<string, string> }
+): OpenCodeMcpEntry {
+  return {
+    type: 'local',
+    command: [runtime.command, ...runtime.args],
+    ...(Object.keys(runtime.env).length > 0 ? { environment: { ...runtime.env } } : {}),
+    enabled: true
+  }
+}
+
 /* ---------- Public API ----------------------------------------------- */
 
 export async function getMcpClientStatuses(): Promise<McpClientStatus[]> {
@@ -278,6 +314,22 @@ export async function getMcpClientStatuses(): Promise<McpClientStatus[]> {
             args: runtime.args,
             env: runtime.env
           })
+        }
+      } else if (descriptor.format === 'opencode') {
+        const raw = await readTomlFile(configPath)
+        const cfg = readOpenCodeConfig(raw)
+        const entry = cfg.mcp?.[descriptor.serverKey]
+        installed = entry !== undefined
+        if (entry) {
+          const expected = buildOpenCodeEntry({
+            command: runtime.command,
+            args: runtime.args,
+            env: runtime.env
+          })
+          upToDate =
+            entry.type === 'local' &&
+            JSON.stringify(entry.command) === JSON.stringify(expected.command) &&
+            JSON.stringify(entry.environment ?? {}) === JSON.stringify(expected.environment ?? {})
         }
       } else {
         const raw = await readTomlFile(configPath)
@@ -326,6 +378,20 @@ export async function installMcpForClient(id: McpClientId): Promise<McpClientSta
     }
     next.mcpServers = servers
     await writeJsonConfig(configPath, next)
+  } else if (descriptor.format === 'opencode') {
+    const raw = await readTomlFile(configPath)
+    const cfg = readOpenCodeConfig(raw)
+    const entry = buildOpenCodeEntry({
+      command: runtime.command,
+      args: runtime.args,
+      env: runtime.env
+    })
+    const next: OpenCodeConfig = { ...cfg }
+    const mcp = { ...(cfg.mcp ?? {}) }
+    mcp[descriptor.serverKey] = entry
+    next.mcp = mcp
+    await fsp.mkdir(path.dirname(configPath), { recursive: true })
+    await fsp.writeFile(configPath, JSON.stringify(next, null, 2) + '\n', 'utf8')
   } else {
     const raw = await readTomlFile(configPath)
     const stripped = stripManagedBlock(raw)
@@ -358,6 +424,21 @@ export async function uninstallMcpForClient(id: McpClientId): Promise<McpClientS
         next.mcpServers = nextServers
       }
       await writeJsonConfig(configPath, next)
+    }
+  } else if (descriptor.format === 'opencode') {
+    const raw = await readTomlFile(configPath)
+    const cfg = readOpenCodeConfig(raw)
+    if (cfg.mcp?.[descriptor.serverKey]) {
+      const next: OpenCodeConfig = { ...cfg }
+      const mcp = { ...cfg.mcp }
+      delete mcp[descriptor.serverKey]
+      if (Object.keys(mcp).length === 0) {
+        delete next.mcp
+      } else {
+        next.mcp = mcp
+      }
+      await fsp.mkdir(path.dirname(configPath), { recursive: true })
+      await fsp.writeFile(configPath, JSON.stringify(next, null, 2) + '\n', 'utf8')
     }
   } else {
     const raw = await readTomlFile(configPath)

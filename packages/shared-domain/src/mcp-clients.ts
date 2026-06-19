@@ -6,7 +6,7 @@
  * renderer (present the UI) rely on these constants.
  */
 
-export type McpClientId = 'claude-code' | 'claude-desktop' | 'codex'
+export type McpClientId = 'claude-code' | 'claude-desktop' | 'codex' | 'opencode'
 
 export interface McpClientDescriptor {
   id: McpClientId
@@ -21,8 +21,10 @@ export interface McpClientDescriptor {
    *   - json: a JSON file with `mcpServers.<key>` structure (Claude
    *     Desktop, Claude Code user scope).
    *   - toml: a TOML file with `[mcp_servers.<key>]` tables (Codex).
+   *   - opencode: a JSON file with `mcp.<key>` structure and array-
+   *     format command (OpenCode).
    */
-  format: 'json' | 'toml'
+  format: 'json' | 'toml' | 'opencode'
   /** Key ZenNotes uses inside the client's config — stable forever
    *  so re-runs upgrade the existing entry instead of creating a
    *  duplicate. */
@@ -55,6 +57,14 @@ export const MCP_CLIENTS: McpClientDescriptor[] = [
       'OpenAI\u2019s Codex CLI. Appends a [mcp_servers.zennotes] entry to ~/.codex/config.toml.',
     format: 'toml',
     serverKey: MCP_SERVER_KEY
+  },
+  {
+    id: 'opencode',
+    label: 'OpenCode',
+    description:
+      'An open-source AI coding agent by Anomaly. Writes a managed local MCP entry into the global ~/.config/opencode/opencode.json.',
+    format: 'opencode',
+    serverKey: 'MCP_ZENNOTES'
   }
 ]
 
