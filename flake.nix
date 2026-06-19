@@ -15,14 +15,23 @@
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-        in
-        rec {
-          zennotes-desktop = pkgs.callPackage ./packaging/nix/package-desktop.nix { };
-
           zennotes-server = pkgs.callPackage ./packaging/nix/package-server.nix { };
-
-          default = zennotes-desktop;
-        }
+        in
+        { inherit zennotes-server; }
+        # The desktop package wraps the prebuilt linux-x64 release tarball, so it
+        # only exists on x86_64-linux; elsewhere the server is the default.
+        // (
+          if system == "x86_64-linux" then
+            let
+              zennotes-desktop = pkgs.callPackage ./packaging/nix/package-desktop.nix { };
+            in
+            {
+              inherit zennotes-desktop;
+              default = zennotes-desktop;
+            }
+          else
+            { default = zennotes-server; }
+        )
       );
 
       devShell = forAllSystems (system:

@@ -2,5 +2,6 @@
   "version": "2.4.0",
   "hash": "sha256-v+0Iyxz0B5IQ6FnzD6WecIfrM1j4PUzizH63JMvkp8Y=",
   "npmDepsHash": "sha256-OgehLwGj216oBUJOuEmzxzzr/BlwoUaE5IAbT5rvgTQ=",
-  "vendorHash": "sha256-wYBF7CjM6AvoWMWql9hFmIaj6pCmli4vOef6POyGkfU="
+  "vendorHash": "sha256-wYBF7CjM6AvoWMWql9hFmIaj6pCmli4vOef6POyGkfU=",
+  "desktopHash": "sha256-Y+l/bhP/l9bUesPAP+f9wHGEmMSU8gezgmlqppYVxas="
 }

@@ -1,0 +1,32 @@
+name: Nix build
+
+# Builds the flake packages on a Nix runner whenever the Nix packaging changes,
+# so the prebuilt-desktop wrapper and the server package are verified in CI
+# (the maintainers don't have a Nix machine to test on locally).
+
+on:
+  push:
+    branches: [main]
+    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**']
+  pull_request:
+    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # cache.nixos.org occasionally corrupts NAR streams over HTTP/2; dodge it.
+      NIX_CONFIG: |
+        http2 = false
+        download-attempts = 5
+        connect-timeout = 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+      - name: Build packages
+        run: nix build --fallback --print-build-logs .#zennotes-desktop .#zennotes-server
