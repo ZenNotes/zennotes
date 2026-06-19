@@ -19,6 +19,7 @@ function makeNote(index: number): NoteMeta {
     size: 512,
     tags: ['perf', tag],
     wikilinks: [`Target ${index % 200}`],
+    assetEmbeds: [],
     hasAttachments: index % 31 === 0,
     excerpt: `Synthetic renderer benchmark note ${index} with phrase needle-${index} and desktop-runtime-benchmark-${id}.`
   }

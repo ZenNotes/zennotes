@@ -33,6 +33,7 @@ function makeNote(body: string) {
     size: body.length,
     tags: [],
     wikilinks: [],
+    assetEmbeds: [],
     hasAttachments: false,
     excerpt: body,
     body

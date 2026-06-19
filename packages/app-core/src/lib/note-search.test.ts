@@ -21,6 +21,7 @@ function note(
     size: 10,
     tags: [],
     wikilinks: [],
+    assetEmbeds: [],
     hasAttachments: false,
     excerpt: '',
     ...overrides

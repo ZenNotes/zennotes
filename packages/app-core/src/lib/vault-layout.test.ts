@@ -31,6 +31,7 @@ function note(path: string, title: string): NoteMeta {
     size: 0,
     tags: [],
     wikilinks: [],
+    assetEmbeds: [],
     hasAttachments: false,
     excerpt: ''
   }

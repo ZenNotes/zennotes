@@ -13,6 +13,7 @@ function note(folder: NoteFolder, index: number, overrides: Partial<NoteMeta> = 
     size: 10,
     tags: [],
     wikilinks: [],
+    assetEmbeds: [],
     hasAttachments: false,
     excerpt: '',
     ...overrides
