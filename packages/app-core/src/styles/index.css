@@ -1741,19 +1741,44 @@ textarea,
   color: rgb(var(--z-fg));
 }
 
-/* Leading YAML frontmatter — render as compact, muted "properties" (see
- * cm-frontmatter.ts) instead of full-size body text. */
+/* Leading YAML frontmatter — render as a compact "properties" metadata card
+ * (see cm-frontmatter.ts). For database record pages these values mirror the
+ * database fields, so it should read like a tidy property list, not body text. */
 .cm-editor .cm-frontmatter-line {
-  font-size: 0.8em;
-  line-height: 1.55;
+  font-size: 0.84em;
+  line-height: 1.85;
   color: rgb(var(--z-grey-1));
-  background: rgb(var(--z-bg-1) / 0.35);
+  background: rgb(var(--z-bg-1) / 0.5);
+  padding-left: 0.85em;
+  padding-right: 0.85em;
+  border-left: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-right: 1px solid rgb(var(--z-grey-0) / 0.13);
 }
 .cm-editor .cm-frontmatter-line :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
   color: inherit;
 }
-.cm-editor .cm-frontmatter-fence {
-  color: rgb(var(--z-grey-0) / 0.5);
+/* The key (before the `:`) is a muted label; the value keeps the normal color. */
+.cm-editor .cm-frontmatter-key,
+.cm-editor .cm-frontmatter-key :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
+  color: rgb(var(--z-grey-0) / 0.62);
+  font-weight: 500;
+}
+/* The `---` fences become the card's quiet, rounded top/bottom edges: hide the
+ * dashes (transparent) but keep a thin capped row. */
+.cm-editor .cm-frontmatter-top,
+.cm-editor .cm-frontmatter-bottom {
+  color: transparent;
+  font-size: 0.5em;
+}
+.cm-editor .cm-frontmatter-top {
+  border-top: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+.cm-editor .cm-frontmatter-bottom {
+  border-bottom: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,

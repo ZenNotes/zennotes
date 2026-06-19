@@ -2137,6 +2137,36 @@ function scheduleDatabaseWrite(
   )
 }
 
+/**
+ * The database table is the source of truth for a record's properties; the
+ * record-page note's frontmatter is a derived "metadata" mirror. Whenever the
+ * table changes (a cell value, an added/renamed/removed field), re-mirror the
+ * frontmatter of any record page that's currently open so it updates live —
+ * preserving the page's body. Pages that aren't open are re-mirrored lazily the
+ * next time they're opened (see `openRecordPage`).
+ */
+function remirrorOpenRecordPages(
+  csvPath: string,
+  get: () => {
+    databases: Record<string, DatabaseDoc>
+    noteContents: Record<string, NoteContent>
+    updateNoteBody: (path: string, body: string) => void
+  }
+): void {
+  const doc = get().databases[csvPath]
+  if (!doc?.pages) return
+  const { noteContents } = get()
+  for (const [rowId, pagePath] of Object.entries(doc.pages)) {
+    const current = noteContents[pagePath]
+    if (!current) continue // not open — re-mirrored on next open
+    const row = doc.rows.find((r) => r.id === rowId)
+    if (!row) continue
+    const { body } = parseFrontmatter(current.body)
+    const next = composePageBody(doc, row, body)
+    if (next !== current.body) get().updateNoteBody(pagePath, next)
+  }
+}
+
 function normalizeServerBaseUrl(value: string): string {
   const trimmed = value.trim()
   const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
@@ -3242,10 +3272,12 @@ export const useStore = create<Store>((set, get) => {
   updateDatabaseRows: (csvPath, next) => {
     set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
     scheduleDatabaseWrite(csvPath, 'rows', () => get().databases[csvPath])
+    remirrorOpenRecordPages(csvPath, get)
   },
   updateDatabaseSchema: (csvPath, next) => {
     set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
     scheduleDatabaseWrite(csvPath, 'schema', () => get().databases[csvPath])
+    remirrorOpenRecordPages(csvPath, get)
   },
   syncDatabaseFromDisk: async (csvPath) => {
     if (!get().databases[csvPath]) return
