@@ -19,6 +19,7 @@ import { classifyLocalAssetHref } from './local-assets'
 import remarkBoxes from './remark-boxes'
 import remarkScholarly from './remark-scholarly'
 import remarkDirectiveFilter from './remark-directive-filter'
+import remarkTableColspan from './remark-table-colspan'
 
 /**
  * Remark plugin: `[[target]]` and `[[target|label]]` → link nodes
@@ -383,28 +384,142 @@ function rehypeMathDiagrams() {
   }
 }
 
-const processor = unified()
-  .use(remarkParse)
-  .use(remarkFrontmatter, ['yaml', 'toml'])
-  .use(remarkGfm)
-  .use(remarkBreaks)
-  .use(remarkMath)
-  .use(remarkDirective)
-  .use(remarkDirectiveFilter)
-  .use(remarkBoxes)
-  .use(remarkScholarly)
-  .use(remarkWikilinks)
-  .use(remarkHashtags)
-  .use(remarkCallouts)
-  .use(remarkRehype, { allowDangerousHtml: true })
-  .use(rehypeRaw)
-  .use(rehypeMermaid)
-  .use(rehypeMathDiagrams)
-  .use(rehypeHighlight, { detect: true, ignoreMissing: true })
-  .use(rehypeKatex)
-  .use(rehypeStringify)
-
 const MARKDOWN_RENDER_CACHE_LIMIT = 24
+
+/**
+ * Pre-process markdown to normalize multimd-table `||` syntax to GFM-compatible empty cells.
+ * Also pads body rows and separator rows to match logical column count from header.
+ * Only operates on lines that appear to be table rows (start with | and end with |).
+ * Preserves code blocks and other non-table content.
+ */
+function normalizeMultimdTableSyntax(md: string): string {
+  // Split into lines to process table rows individually
+  const lines = md.split('\n')
+  let inCodeBlock = false
+  const result: string[] = []
+
+  // Track table state
+  let inTable = false
+  let headerCells = 0
+  let logicalCols = 0
+  let pendingTableLines: string[] = []
+
+  function flushTable(): void {
+    if (pendingTableLines.length === 0) return
+
+    // Process the pending table lines
+    // First pass: normalize header row and count logical columns
+    const headerLine = pendingTableLines[0]
+    const normalizedHeader = headerLine.replace(/\|\|/g, '| |')
+    // Count logical columns: after || → | | normalization, each cell is a column
+    const headerCellsArr = normalizedHeader.split('|').slice(1, -1) // remove empty first/last
+    logicalCols = headerCellsArr.length
+
+    // Now rebuild all table lines with correct column counts
+    for (let i = 0; i < pendingTableLines.length; i++) {
+      const line = pendingTableLines[i]
+      const trimmed = line.trim()
+
+      if (i === 0) {
+        // Header row: normalize ||
+        result.push(normalizedHeader)
+      } else if (/^\|[\s\-:|]*$/.test(trimmed)) {
+        // Separator row: rebuild with logicalCols cells
+        const parts = trimmed.split('|').slice(1, -1)
+        const newParts: string[] = []
+        for (let j = 0; j < logicalCols; j++) {
+          const part = parts[j] || '---'
+          newParts.push(part.trim())
+        }
+        result.push('| ' + newParts.join(' | ') + ' |')
+      } else {
+        // Body row: pad to logicalCols
+        const parts = trimmed.split('|').slice(1, -1)
+        const newParts: string[] = []
+        for (let j = 0; j < logicalCols; j++) {
+          const part = parts[j] || ''
+          newParts.push(part.trim())
+        }
+        result.push('| ' + newParts.join(' | ') + ' |')
+      }
+    }
+
+    pendingTableLines = []
+    inTable = false
+    logicalCols = 0
+  }
+
+  for (const line of lines) {
+    // Track code block fences
+    if (/^\s*```/.test(line)) {
+      flushTable()
+      inCodeBlock = !inCodeBlock
+      result.push(line)
+      continue
+    }
+
+    if (inCodeBlock) {
+      result.push(line)
+      continue
+    }
+
+    const trimmed = line.trim()
+
+    // Check if this line looks like a table row
+    const isTableRow = trimmed.startsWith('|') && trimmed.endsWith('|')
+    const isSeparatorRow = /^\|[\s\-:|]*$/.test(trimmed)
+
+    if (isTableRow) {
+      // Potential table row
+      if (!inTable) {
+        // Starting a new table
+        inTable = true
+      }
+      pendingTableLines.push(line)
+    } else {
+      // Not a table row - flush any pending table
+      flushTable()
+      result.push(line)
+    }
+  }
+
+  // Flush any remaining table at end
+  flushTable()
+
+  return result.join('\n')
+}
+
+// Export for tests
+export { normalizeMultimdTableSyntax }
+
+// Create two processors: one with extensions, one without
+function createProcessor(withExtensions: boolean) {
+  return unified()
+    .use(remarkParse)
+    .use(remarkFrontmatter, ['yaml', 'toml'])
+    .use(remarkGfm)
+    .use(withExtensions ? remarkTableColspan : () => {})
+    .use(remarkBreaks)
+    .use(remarkMath)
+    .use(remarkDirective)
+    .use(withExtensions ? remarkBoxes : () => {})
+    .use(remarkDirectiveFilter)
+    .use(withExtensions ? remarkScholarly : () => {})
+    .use(remarkWikilinks)
+    .use(remarkHashtags)
+    .use(remarkCallouts)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(rehypeRaw)
+    .use(rehypeMermaid)
+    .use(rehypeMathDiagrams)
+    .use(rehypeHighlight, { detect: true, ignoreMissing: true })
+    .use(rehypeKatex)
+    .use(rehypeStringify)
+}
+
+const processorWithExtensions = createProcessor(true)
+const processorWithoutExtensions = createProcessor(false)
+
 const markdownRenderCache = new Map<string, string>()
 
 function getCachedMarkdown(src: string): string | null {
@@ -424,24 +539,36 @@ function cacheRenderedMarkdown(src: string, html: string): void {
   }
 }
 
-export function renderMarkdown(src: string): string {
-  const cached = getCachedMarkdown(src)
+export function renderMarkdown(src: string, options?: { markdownExtensionsEnabled?: boolean }): string {
+  const markdownExtensionsEnabled = options?.markdownExtensionsEnabled ?? true
+  const processor = markdownExtensionsEnabled ? processorWithExtensions : processorWithoutExtensions
+
+  // Pre-process: normalize multimd-table || syntax to GFM-compatible empty cells
+  const normalizedSrc = normalizeMultimdTableSyntax(src)
+
+  const cacheKey = markdownExtensionsEnabled ? `ext:${normalizedSrc}` : `noext:${normalizedSrc}`
+  const cached = markdownRenderCache.get(cacheKey)
   if (cached != null) {
-    recordRendererPerf('markdown.render.cache-hit', 0, { chars: src.length })
+    recordRendererPerf('markdown.render.cache-hit', 0, { chars: normalizedSrc.length })
     return cached
   }
 
   const startedAt = performance.now()
   try {
-    const html = sanitizeRenderedHtml(String(processor.processSync(src)))
-    cacheRenderedMarkdown(src, html)
+    const html = sanitizeRenderedHtml(String(processor.processSync(normalizedSrc)))
+    markdownRenderCache.set(cacheKey, html)
+    while (markdownRenderCache.size > MARKDOWN_RENDER_CACHE_LIMIT) {
+      const oldest = markdownRenderCache.keys().next().value
+      if (!oldest) break
+      markdownRenderCache.delete(oldest)
+    }
     recordRendererPerf('markdown.render', performance.now() - startedAt, {
-      chars: src.length
+      chars: normalizedSrc.length
     })
     return html
   } catch (err) {
     recordRendererPerf('markdown.render.error', performance.now() - startedAt, {
-      chars: src.length
+      chars: normalizedSrc.length
     })
     console.error('markdown render failed', err)
     return `<pre class="text-sm text-red-600">Markdown error: ${(err as Error).message}</pre>`

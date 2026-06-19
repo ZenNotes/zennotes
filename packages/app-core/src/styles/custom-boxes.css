@@ -5,16 +5,32 @@
  * ZenNotes core UI styles.
  * ================================================================ */
 
+:root {
+  --box-grammarbox-bg: #fefce8;
+  --box-grammarbox-border: #eab308;
+  --box-grammarbox2-bg: #ffedd5;
+  --box-grammarbox2-border: #ea580c;
+  --box-important-bg: #f5f3ff;
+  --box-important-border: #8b5cf6;
+}
+
+:root[data-theme*="dark"] {
+  --box-grammarbox-bg: #241500;
+  --box-grammarbox2-bg: #361e04;
+  --box-important-bg: #1e1210;
+  --box-important-border: #a78bfa;
+}
+
 /* --- Base box container --- */
 .md-box {
   margin: 1.25rem 0;
 }
 
 .md-box__inner {
-  border: 1px solid var(--zn-border, #d0d7de);
+  border: 1px solid rgb(var(--z-bg-3));
   border-radius: 8px;
   padding: 0.9rem 1rem;
-  background: var(--zn-surface, #f6f8fa);
+  background: rgb(var(--z-bg-1));
 }
 
 .md-box__title {
@@ -30,38 +46,30 @@
   margin-bottom: 0;
 }
 
-/* --- grammar-box: yellow / gold (Sanskrit grammar) --- */
-.md-box--grammar-box .md-box__inner {
-  border-left: 5px solid #eab308;
-  background: #fefce8;
+/* --- grammarbox: yellow / gold (Sanskrit grammar) --- */
+.md-box--grammarbox .md-box__inner {
+  border-left: 5px solid var(--box-grammarbox-border);
+  background: var(--box-grammarbox-bg);
   border-radius: 0 8px 8px 0;
 }
-.dark .md-box--grammar-box .md-box__inner {
-  background: #241500;
-  border-left-color: #eab308;
-}
 
-/* Blockquotes inside grammar-box — no separate border */
-.md-box--grammar-box blockquote {
+/* Blockquotes inside grammarbox — no separate border */
+.md-box--grammarbox blockquote {
   border-left: none;
   background-color: transparent;
   padding-left: 2rem;
   margin: 0.5rem 0;
 }
 
-/* --- grammar-box2: orange (advanced grammar) --- */
-.md-box--grammar-box2 .md-box__inner {
-  border-left: 5px solid #ea580c;
-  background: #ffedd5;
+/* --- grammarbox2: orange (advanced grammar) --- */
+.md-box--grammarbox2 .md-box__inner {
+  border-left: 5px solid var(--box-grammarbox2-border);
+  background: var(--box-grammarbox2-bg);
   border-radius: 0 8px 8px 0;
   font-weight: 600;
 }
-.dark .md-box--grammar-box2 .md-box__inner {
-  background: #361e04;
-  border-left-color: #ea580c;
-}
 
-.md-box--grammar-box2 blockquote {
+.md-box--grammarbox2 blockquote {
   border-left: none;
   background-color: transparent;
   padding-left: 2rem;
@@ -69,20 +77,33 @@
 
 /* --- note-box: gray (didactic notes) --- */
 .md-box--note-box .md-box__inner {
-  border-left: 3px solid #48626e;
-  background: rgba(72, 98, 110, 0.03);
+  border-left: 3px solid rgb(var(--z-grey-1));
+  background: rgb(var(--z-grey-1) / 0.05);
   padding: 0.75rem 1.25rem;
 }
 
 /* --- important: violet (important callouts) --- */
 .md-box--important .md-box__inner {
-  border-left: 5px solid #8b5cf6;
-  background: #f5f3ff;
+  border-left: 5px solid var(--box-important-border);
+  background: var(--box-important-bg);
   border-radius: 0 8px 8px 0;
+  position: relative;
+  padding-left: 4.5rem;
 }
-.dark .md-box--important .md-box__inner {
-  background: #1e1035;
-  border-left-color: #8b5cf6;
+
+.md-box--important .md-box__inner::before {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2.8rem;
+  height: 2.8rem;
+  background-image: url('../assets/lekt1001.jpg');
+  background-color: var(--box-important-bg);
+  background-blend-mode: multiply;
+  background-size: contain;
+  background-repeat: no-repeat;
 }
 
 /* --- indent: padded left (indentation) --- */
@@ -139,14 +160,28 @@
 }
 
 /* --- no-header: hide table headings --- */
+.md-box--no-header .md-box__inner {
+  border: none;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
 .md-box--no-header table thead {
   display: none !important;
 }
 .md-box--no-header table {
-  border-top: 1px solid #94a3b8;
+  border-top: 1px solid rgb(var(--z-bg-3));
 }
 
 /* --- compact: tighter table cells --- */
+.md-box--compact .md-box__inner {
+  border: none;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
 .md-box--compact table td,
 .md-box--compact table th {
   padding: 0.2rem 0.5rem;
@@ -164,7 +199,7 @@
  * ============================================================== */
 .md-box table {
   border-collapse: collapse;
-  border: 1px solid #94a3b8;
+  border: 1px solid rgb(var(--z-bg-3));
   margin: 1rem 0;
   width: auto;
   max-width: 100%;
@@ -173,14 +208,20 @@
 .md-box td,
 .md-box th {
   padding: 0.6rem 0.8rem;
-  border: 1px solid #94a3b8;
+  border: 1px solid rgb(var(--z-bg-3));
+}
+
+/* Hide borders on cells explicitly hidden for colspan merging */
+.md-box th[hidden],
+.md-box td[hidden],
+.md-box th[style*="display: none"],
+.md-box td[style*="display: none"] {
+  border: none;
+  background: transparent;
 }
 
 .md-box tr:nth-child(even) {
-  background-color: #f1eee7;
-}
-.dark .md-box tr:nth-child(even) {
-  background-color: #0f1e35;
+  background-color: rgb(var(--z-bg-1) / 0.5);
 }
 
 .md-box th {
@@ -193,7 +234,7 @@
 
 /* Devanagari — always red per CLAUDE.md Hard Rule */
 .sanskrit-dev {
-  color: #b22222;
+  color: rgb(var(--z-red));
   font-size: 1.15em;
   font-weight: 600;
 }
@@ -206,23 +247,4 @@ table .sanskrit-dev {
 .indent-inline {
   display: inline-block;
   width: 1.5em;
-}
-
-/* =================================================================
- * Legacy customBoxes.ts support (markdown-it containers)
- * Keep for backward compatibility with the standalone plugin
- * ============================================================== */
-.md-box--grammarbox .md-box__inner {
-  border-left: 4px solid #2563eb;
-  background: #eff6ff;
-}
-
-.md-box--importantbox .md-box__inner {
-  border-left: 4px solid #dc2626;
-  background: #fef2f2;
-}
-
-.md-box--indentbox .md-box__inner {
-  margin-left: 1.25rem;
-  background: #f8fafc;
 }

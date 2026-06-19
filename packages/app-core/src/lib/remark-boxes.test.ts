@@ -15,22 +15,27 @@ import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkDirective from 'remark-directive'
-import remarkBoxes, { normalizeLegacySyntax } from './remark-boxes'
+import remarkBreaks from 'remark-breaks'
+import remarkMath from 'remark-math'
 import remarkRehype from 'remark-rehype'
 import rehypeStringify from 'rehype-stringify'
+import remarkTableColspan from '../lib/remark-table-colspan'
+import remarkBoxes from '../lib/remark-boxes'
+import remarkDirectiveFilter from '../lib/remark-directive-filter'
+import { normalizeMultimdTableSyntax } from '../lib/markdown'
 
-/** Render markdown through the full pipeline including normalizeLegacySyntax. */
+/** Render markdown through the full pipeline. */
 function render(md: string): string {
-  const normalized = normalizeLegacySyntax(md)
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkDirective)
     .use(remarkBoxes)
+    .use(remarkDirectiveFilter)
     .use(remarkRehype, { allowDangerousHtml: true })
     .use(rehypeStringify)
 
-  return String(processor.processSync(normalized))
+  return String(processor.processSync(md))
 }
 
 function hasClass(html: string, cls: string): boolean {
@@ -38,27 +43,29 @@ function hasClass(html: string, cls: string): boolean {
 }
 
 describe('container blocks', () => {
-  it('renders grammar-box with {title=} attribute', () => {
-    const html = render(':::grammar-box{title="Declension"}\nNom sg: -as\n:::')
-    expect(html).toContain('md-box--grammar-box')
-    expect(html).toContain('data-box-kind="grammar-box"')
-    expect(html).toContain('md-box__title')
-    expect(html).toContain('Declension')
-    expect(html).toContain('Nom sg: -as')
+  it('parses basic grammarbox', () => {
+    const md = ':::grammarbox\nContent\n:::'
+    const html = render(md)
+    expect(html).toContain('md-box--grammarbox')
+    expect(html).toContain('data-box-kind="grammarbox"')
+    expect(html).toContain('Content')
   })
 
-  it('renders grammar-box without title', () => {
-    const html = render(':::grammar-box\nSimple note.\n:::')
-    expect(html).toContain('md-box--grammar-box')
-    expect(html).toContain('Simple note.')
-    expect(html).not.toContain('md-box__title')
+  it('parses grammarbox with title', () => {
+    const md = ':::grammarbox{title="My Title"}\nContent\n:::'
+    const html = render(md)
+    expect(html).toContain('md-box--grammarbox')
+    expect(html).toContain('md-box__title')
+    expect(html).toContain('My Title')
+    expect(html).toContain('Content')
   })
 
-  it('renders grammar-box with legacy [title]', () => {
-    const html = render(':::grammar-box\n[Old Style]\nContent.\n:::')
+  it('removes the title paragraph if legacy title is the only content on first line', () => {
+    const md = ':::grammarbox\n[My Title]\n\nActual Content\n:::'
+    const html = render(md)
     expect(html).toContain('md-box__title')
-    expect(html).toContain('Old Style')
-    expect(html).toContain('Content.')
+    expect(html).toContain('My Title')
+    expect(html).toContain('Actual Content')
   })
 
   it('renders important as <aside>', () => {
@@ -93,7 +100,7 @@ describe('container blocks', () => {
 
   it('renders container with markdown content (GFM tables)', () => {
     const html = render(
-      ':::grammar-box{title="Cases"}\n' +
+      ':::grammarbox{title="Cases"}\n' +
       '| Case | Ending |\n' +
       '|------|--------|\n' +
       '| Nom  | -s     |\n' +
@@ -105,16 +112,16 @@ describe('container blocks', () => {
   })
 
   it('handles empty container', () => {
-    const html = render(':::grammar-box\n:::')
-    expect(html).toContain('md-box--grammar-box')
+    const html = render(':::grammarbox\n:::')
+    expect(html).toContain('md-box--grammarbox')
     // Should not crash or produce malformed HTML
   })
 })
 
 describe('Sanskrit/courseware containers', () => {
-  it('renders grammar-box2 (orange)', () => {
-    const html = render(':::grammar-box2\nAdvanced note.\n:::')
-    expect(html).toContain('md-box--grammar-box2')
+  it('renders grammarbox2 (orange)', () => {
+    const html = render(':::grammarbox2\nAdvanced note.\n:::')
+    expect(html).toContain('md-box--grammarbox2')
     expect(html).toContain('Advanced note.')
   })
 
@@ -153,12 +160,11 @@ describe('regression: unknown directives consumed by remark-directive', () => {
     expect(html).toContain('Some content.')
   })
 
-  it('colon-prefix patterns consumed by remark-directive', () => {
+  it('colon-prefix patterns are reconstructed as text', () => {
     // :name patterns are parsed as inline directives by remark-directive,
-    // producing empty <div> elements. This is unavoidable with
-    // remark-directive in the pipeline.
+    // but our filter reconstructs them.
     const html = render('This is :warning important text.')
-    expect(html).toContain('<div></div>')
+    expect(html).toContain(':warning')
   })
 
   it('passes through leaf directive (::name)', () => {
@@ -168,10 +174,11 @@ describe('regression: unknown directives consumed by remark-directive', () => {
     expect(html).not.toContain('md-box--something')
   })
 
-  it('colon-number patterns consumed by remark-directive', () => {
+  it('colon-number patterns are reconstructed as text', () => {
     // 1:n is parsed by remark-directive as inline directive "1" with value "n"
+    // but our filter reconstructs them.
     const html = render('A ratio of 1:n is common.')
-    expect(html).toContain('<div></div>')
+    expect(html).toContain('1:n')
   })
 
   it('preserves :smile: style shortcodes', () => {
@@ -180,26 +187,26 @@ describe('regression: unknown directives consumed by remark-directive', () => {
     expect(html).toContain(':smile:')
   })
 
-  it('prose ::: separator consumed as unknown directive', () => {
+  it('prose ::: separator is reconstructed as text', () => {
     // ::: separator is normalized to :::separator{} which becomes a
-    // leaf directive consumed by remark-directive
+    // leaf directive, but our filter reconstructs it.
     const html = render('Here is some text\n\n::: separator\n\nMore text.')
-    expect(html).not.toContain('::: separator')
+    expect(html).toContain('::: separator')
     expect(html).toContain('More text.')
   })
 })
 
 describe('rendered HTML structure', () => {
   it('wraps content in md-box__inner and md-box__body', () => {
-    const html = render(':::grammar-box{title="Test"}\nBody text.\n:::')
+    const html = render(':::grammarbox{title="Test"}\nBody text.\n:::')
     expect(html).toContain('md-box__inner')
     expect(html).toContain('md-box__body')
     expect(html).toContain('md-box__title')
   })
 
   it('includes data-box-kind attribute', () => {
-      const html = render(':::grammar-box\nNote.\n:::')
-      expect(html).toContain('data-box-kind="grammar-box"')
+      const html = render(':::grammarbox\nNote.\n:::')
+      expect(html).toContain('data-box-kind="grammarbox"')
     })
 
   it('important uses <aside> tag', () => {
@@ -211,8 +218,9 @@ describe('rendered HTML structure', () => {
 describe('container text reconstruction', () => {
   it('reconstructs unknown container with children as literal', () => {
     const html = render(':::custom\nHello world\nMore text\n:::')
-    // Unknown containers are rendered as plain <div> elements by remark-directive
-    expect(html).toContain('<div')
+    // Unknown containers are reconstructed into text by our filter
+    expect(html).not.toContain('<div')
+    expect(html).toContain(':::custom')
     expect(html).toContain('Hello world')
     expect(html).toContain('More text')
   })
@@ -221,23 +229,42 @@ describe('container text reconstruction', () => {
 describe('table colspan/rowspan rendering', () => {
   // Helper: render with full table pipeline (GFM + colspan expansion)
   function renderTable(md: string): string {
-    const normalized = normalizeLegacySyntax(md)
+    const normalized = normalizeMultimdTableSyntax(md)
     const processor = unified()
       .use(remarkParse)
       .use(remarkGfm)
+      .use(remarkBreaks)
+      .use(remarkMath)
+      .use(remarkDirective)
+      .use(remarkTableColspan)
+      .use(remarkBoxes)
+      .use(remarkDirectiveFilter)
+      .use(remarkRehype)
+      .use(rehypeStringify)
+    const html = String(processor.processSync(normalized))
+    return html
+  }
+
+  // Helper for basic GFM table tests (without colspan)
+  function renderBasicTable(md: string): string {
+    const processor = unified()
+      .use(remarkParse)
+      .use(remarkGfm)
+      .use(remarkBreaks)
+      .use(remarkMath)
       .use(remarkDirective)
       .use(remarkBoxes)
-      .use(remarkRehype, { allowDangerousHtml: true })
+      .use(remarkDirectiveFilter)
+      .use(remarkRehype)
       .use(rehypeStringify)
-
-    return String(processor.processSync(normalized))
+    return String(processor.processSync(md))
   }
 
   it('basic 2-column GFM table renders correctly', () => {
     const md = '| Col A | Col B |\n' +
       '|-------|-------|\n' +
       '| val1  | val2  |\n'
-    const html = renderTable(md)
+    const html = renderBasicTable(md)
     expect(html).toContain('<table')
     expect(html).toContain('Col A')
     expect(html).toContain('Col B')
@@ -249,15 +276,18 @@ describe('table colspan/rowspan rendering', () => {
 
   it('single || colspan expands header to 3 columns', () => {
     const md = '| A || B |\n' +
-      '|---|---|\n' +
+      '|---|---|---|\n' +
       '| 1 | 2 |\n'
     const html = renderTable(md)
     expect(html).toContain('<table>')
-    // Header should have 3 th elements (A spans 2 columns)
+    // After colspan expansion: Header has 2 th elements (A spans 2 columns, B is 1)
+    // First th should have colSpan="2"
     const theadMatch = html.match(/<thead[^>]*>[\s\S]*?<\/thead>/)
     expect(theadMatch).toBeTruthy()
-    const thCount = (theadMatch![0].match(/<th>/g) || []).length
+    const thCount = (theadMatch![0].match(/<th(?:\s[^>]*)?>/g) || []).length
     expect(thCount).toBe(3)
+    // First th should have colspan="2"
+    expect(theadMatch![0]).toContain('colspan="2"')
   })
 
   it('double || colspan expands header to 5 columns', () => {
@@ -268,13 +298,13 @@ describe('table colspan/rowspan rendering', () => {
     expect(html).toContain('<table>')
     const theadMatch = html.match(/<thead[^>]*>[\s\S]*?<\/thead>/)
     expect(theadMatch).toBeTruthy()
-    const thCount = (theadMatch![0].match(/<th>/g) || []).length
+    const thCount = (theadMatch![0].match(/<th(?:\s[^>]*)?>/g) || []).length
     expect(thCount).toBe(5)
   })
 
   it('body rows are padded to match expanded header', () => {
     const md = '| A || B |\n' +
-      '|---|---|\n' +
+      '|---|---|---|\n' +
       '| 1 | 2 |\n'
     const html = renderTable(md)
     // The body row should also have 3 td elements after padding
@@ -286,7 +316,7 @@ describe('table colspan/rowspan rendering', () => {
 
   it('colspan with non-breaking body still renders table', () => {
     const md = '| Header || Extra |\n' +
-      '|--------|-------|\n' +
+      '|--------|---|-------|\n' +
       '| cell 1 | cell 2 | cell 3 |\n'
     const html = renderTable(md)
     expect(html).toContain('<table>')
@@ -304,18 +334,18 @@ describe('table colspan/rowspan rendering', () => {
     const html = renderTable(md)
     expect(html).toContain('<table>')
     const theadMatch = html.match(/<thead[^>]*>[\s\S]*?<\/thead>/)
-    const thCount = theadMatch ? (theadMatch![0].match(/<th>/g) || []).length : 0
+    const thCount = theadMatch ? (theadMatch![0].match(/<th(?:\s[^>]*)?>/g) || []).length : 0
     expect(thCount).toBe(6)
   })
 
   it('colspan works inside container blocks', () => {
-    const md = ':::grammar-box{title="Cases"}\n' +
+    const md = ':::grammarbox{title="Cases"}\n' +
       '| Case || Extra |\n' +
-      '|------|-------|\n' +
+      '|------|---|-------|\n' +
       '| Nom  | -s    |\n' +
       ':::'
     const html = renderTable(md)
-    expect(html).toContain('md-box--grammar-box')
+    expect(html).toContain('md-box--grammarbox')
     expect(html).toContain('Cases')
     expect(html).toContain('<table>')
     expect(html).toContain('Nom')
@@ -328,16 +358,16 @@ describe('table colspan/rowspan rendering', () => {
     const html = renderTable(md)
     expect(html).toContain('<table>')
     const theadMatch = html.match(/<thead[^>]*>[\s\S]*?<\/thead>/)
-    const thCount = theadMatch ? (theadMatch![0].match(/<th>/g) || []).length : 0
+    const thCount = theadMatch ? (theadMatch![0].match(/<th(?:\s[^>]*)?>/g) || []).length : 0
     expect(thCount).toBe(2)
     const tbodyMatch = html.match(/<tbody[^>]*>[\s\S]*?<\/tbody>/)
-    const tdCount = tbodyMatch ? (tbodyMatch![0].match(/<td>/g) || []).length : 0
+    const tdCount = tbodyMatch ? (tbodyMatch![0].match(/<td(?:\s[^>]*)?>/g) || []).length : 0
     expect(tdCount).toBe(2)
   })
 
   it('empty colspan table renders as plain paragraphs', () => {
     const md = '| Header || Extra |\n' +
-      '|--------|-------|\n'
+      '|--------|---|-------|\n'
     const html = renderTable(md)
     expect(html).toContain('<table')
     expect(html).toContain('Header')

@@ -228,6 +228,8 @@ export function SettingsModal(): JSX.Element {
   const setQuickNoteTitlePrefix = useStore((s) => s.setQuickNoteTitlePrefix)
   const wordWrap = useStore((s) => s.wordWrap)
   const setWordWrap = useStore((s) => s.setWordWrap)
+  const markdownExtensionsEnabled = useStore((s) => s.markdownExtensionsEnabled)
+  const setMarkdownExtensionsEnabled = useStore((s) => s.setMarkdownExtensionsEnabled)
   const previewSmoothScroll = useStore((s) => s.previewSmoothScroll)
   const setPreviewSmoothScroll = useStore((s) => s.setPreviewSmoothScroll)
   const editorMaxWidth = useStore((s) => s.editorMaxWidth)
@@ -1111,6 +1113,13 @@ export function SettingsModal(): JSX.Element {
               value={wordWrap}
               settingId="word-wrap"
               onChange={setWordWrap}
+            />
+            <ToggleRow
+              label="Markdown extensions"
+              description="Enable scholarly extensions (Devanagari auto-marking, inline Sanskrit, custom containers like :::grammar-box, :::note-box) and table colspan/rowspan support. Disabling hides the syntax cheatsheet panel."
+              value={markdownExtensionsEnabled}
+              settingId="markdown-extensions"
+              onChange={setMarkdownExtensionsEnabled}
             />
             <ToggleRow
               label="Smooth preview scroll"

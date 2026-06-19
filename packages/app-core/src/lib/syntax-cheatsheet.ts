@@ -15,12 +15,12 @@ export interface SyntaxItem {
   label: string
   before: string
   after: string
-  desc: Record<string, string> // locale → description
+  desc: string
 }
 
 export interface SyntaxCategory {
   id: string
-  title: Record<string, string> // locale → title
+  title: string
   items: SyntaxItem[]
 }
 
@@ -28,72 +28,67 @@ const CHEAT_SHEET: SyntaxCategory[] = [
   // ── Standard Markdown ──────────────────────────────────────
   {
     id: 'std',
-    title: {
-      de: 'Standard Markdown',
-      en: 'Standard Markdown',
-      it: 'Markdown standard',
-      fr: 'Markdown standard',
-    },
+    title: 'Standard Markdown',
     items: [
       {
-        label: '# Titel',
+        label: '# Title',
         before: '# ',
         after: '',
-        desc: { de: 'H1–H6', en: 'H1–H6', it: 'H1–H6', fr: 'H1–H6' },
+        desc: 'H1–H6',
       },
       {
-        label: '**fett**',
+        label: '**bold**',
         before: '**',
         after: '**',
-        desc: { de: 'Fettdruck', en: 'Bold', it: 'Grassetto', fr: 'Gras' },
+        desc: 'Bold',
       },
       {
-        label: '*kursiv*',
+        label: '*italic*',
         before: '*',
         after: '*',
-        desc: { de: 'Kursiv', en: 'Italic', it: 'Corsivo', fr: 'Italique' },
+        desc: 'Italic',
       },
       {
         label: '`code`',
         before: '`',
         after: '`',
-        desc: { de: 'Inline-Code', en: 'Inline code', it: 'Codice inline', fr: 'Code inline' },
+        desc: 'Inline code',
       },
       {
         label: '> Text',
         before: '\n> ',
         after: '',
-        desc: { de: 'Blockquote', en: 'Blockquote', it: 'Blockquote', fr: 'Citation' },
+        desc: 'Blockquote',
       },
       {
         label: '- Item',
         before: '\n- ',
         after: '',
-        desc: { de: 'Liste', en: 'List', it: 'Lista', fr: 'Liste' },
+        desc: 'List',
       },
       {
         label: '[Text](url)',
         before: '[',
         after: '](url)',
-        desc: { de: 'Link', en: 'Link', it: 'Link', fr: 'Lien' },
+        desc: 'Link',
       },
       {
-        label: '![Alt](pfad)',
+        label: '![Alt](path)',
         before: '![',
-        after: '](pfad)',
-        desc: { de: 'Bild', en: 'Image', it: 'Immagine', fr: 'Image' },
+        after: '](path)',
+        desc: 'Image',
       },
       {
         label: '| A | B |',
         before: '\n| A | B |\n|---|---|\n| ',
         after: ' | |',
-        desc: { de: 'Tabelle', en: 'Table', it: 'Tabella', fr: 'Tableau' },
+        desc: 'Table',
       },
       {
         label: '---',
         before: '\n---\n',
         after: '',
-        desc: { de: 'Trennlinie', en: 'Ruler', it: 'Linea', fr: 'Ligne' },
+        desc: 'Ruler',
       },
     ],
   },
@@ -101,128 +96,118 @@ const CHEAT_SHEET: SyntaxCategory[] = [
   // ── Extensions (markdown-it / remark) ──────────────────────
   {
     id: 'ext',
-    title: {
-      de: 'Erweiterungen (Payer)',
-      en: 'Extensions (Payer)',
-      it: 'Estensioni (Payer)',
-      fr: 'Extensions (Payer)',
-    },
+    title: 'Extensions',
     items: [
       {
-        label: '[[br]]',
-        before: '[[br]]',
+        label: ':br',
+        before: ':br',
         after: '',
-        desc: { de: 'Zeilenumbruch', en: 'Line break', it: 'A capo', fr: 'Saut de ligne' },
+        desc: 'Line break',
       },
       {
-        label: '[[indent]]',
-        before: '[[indent]]',
+        label: ':indent',
+        before: ':indent',
         after: '',
-        desc: { de: 'Einzug inline', en: 'Inline indent', it: 'Rientro inline', fr: 'Retrait inline' },
+        desc: 'Inline indent',
       },
       {
-        label: '⟪text⟫',
+        label: '⟪Sanskrit⟫',
         before: '⟪',
         after: '⟫',
-        desc: { de: 'Sanskrit (rot)', en: 'Sanskrit (red)', it: 'Sanscrito (rosso)', fr: 'Sanskrit (rouge)' },
+        desc: 'Sanskrit (red)',
       },
     ],
   },
 
-  // ── Container-Blöcke ───────────────────────────────────────
+  // ── Container Blocks ───────────────────────────────────────
   {
     id: 'cnt',
-    title: {
-      de: 'Container-Blöcke',
-      en: 'Container Blocks',
-      it: 'Blocchi contenitore',
-      fr: 'Blocs conteneurs',
-    },
+    title: 'Container Blocks',
     items: [
       {
-        label: '::: grammar-box{title=...}',
-        before: '\n:::grammar-box{title=""}\n',
+        label: '::: grammarbox{title=...}',
+        before: '\n:::grammarbox{title=""}\n',
         after: '\n:::',
-        desc: { de: 'Grammatik (gelb)', en: 'Grammar (yellow)', it: 'Grammatica (giallo)', fr: 'Grammaire (jaune)' },
+        desc: 'Grammar (yellow)',
       },
       {
-        label: '::: grammar-box2',
-        before: '\n:::grammar-box2\n',
+        label: '::: grammarbox2',
+        before: '\n:::grammarbox2\n',
         after: '\n:::',
-        desc: { de: 'Grammatik (orange)', en: 'Grammar (orange)', it: 'Grammatica (arancione)', fr: 'Grammaire (orange)' },
+        desc: 'Grammar (orange)',
       },
       {
         label: '::: important',
         before: '\n:::important\n',
         after: '\n:::',
-        desc: { de: 'Wichtig (violett)', en: 'Important (violet)', it: 'Importante (viola)', fr: 'Important (violet)' },
+        desc: 'Important (violet)',
       },
       {
         label: '::: note-box',
         before: '\n:::note-box\n',
         after: '\n:::',
-        desc: { de: 'Notiz (grau)', en: 'Note (gray)', it: 'Nota (grigio)', fr: 'Note (gris)' },
+        desc: 'Note (gray)',
       },
       {
         label: '::: indent',
         before: '\n:::indent\n',
         after: '\n:::',
-        desc: { de: 'Eingerückt', en: 'Indented', it: 'Rientrato', fr: 'Indenté' },
+        desc: 'Indented',
       },
       {
         label: '::: center',
         before: '\n:::center\n',
         after: '\n:::',
-        desc: { de: 'Zentriert', en: 'Centered', it: 'Centrato', fr: 'Centré' },
+        desc: 'Centered',
       },
       {
         label: '::: media',
         before: '\n:::media\n',
         after: '\n:::',
-        desc: { de: 'Bild-Block', en: 'Image block', it: 'Blocco immagine', fr: 'Bloc image' },
+        desc: 'Image block',
       },
       {
         label: '::: deleteme-box',
         before: '\n:::deleteme-box\n',
         after: '\n:::',
-        desc: { de: 'Unsichtbar', en: 'Invisible', it: 'Invisibile', fr: 'Invisible' },
+        desc: 'Invisible',
       },
       {
         label: '::: no-header',
         before: '\n:::no-header\n',
         after: '\n:::',
-        desc: { de: 'Tabelle o. Kopf', en: 'Table no header', it: 'Tabella senza intestazione', fr: 'Tableau sans en-tête' },
+        desc: 'Table no header',
       },
       {
         label: '::: compact',
         before: '\n:::compact\n',
         after: '\n:::',
-        desc: { de: 'Enge Tabelle', en: 'Compact table', it: 'Tabella compatta', fr: 'Tableau compact' },
+        desc: 'Compact table',
       },
       {
         label: '::: laut-table',
         before: '\n:::laut-table\n',
         after: '\n:::',
-        desc: { de: 'Laut-Tabelle', en: 'Sound table', it: 'Tabella fonemi', fr: 'Tableau phonèmes' },
+        desc: 'Sound table',
       },
       {
         label: '::: metrik-schema',
         before: '\n:::metrik-schema\n',
         after: '\n:::',
-        desc: { de: 'Metrik', en: 'Metrics', it: 'Metrica', fr: 'Métrique' },
+        desc: 'Metrics',
       },
     ],
   },
 ]
 
-/** Resolve a description for the given locale, with fallback to English then German. */
-export function getItemDesc(item: SyntaxItem, locale: string): string {
-  return item.desc[locale] ?? item.desc['en'] ?? item.desc['de'] ?? ''
+/** Resolve a description. */
+export function getItemDesc(item: SyntaxItem, _locale: string): string {
+  return item.desc
 }
 
-/** Resolve a category title for the given locale. */
-export function getCategoryTitle(cat: SyntaxCategory, locale: string): string {
-  return cat.title[locale] ?? cat.title['en'] ?? cat.title['de'] ?? ''
+/** Resolve a category title. */
+export function getCategoryTitle(cat: SyntaxCategory, _locale: string): string {
+  return cat.title
 }
 
 export default CHEAT_SHEET

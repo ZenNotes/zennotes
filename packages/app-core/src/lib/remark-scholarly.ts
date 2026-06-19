@@ -2,35 +2,27 @@
  * Remark plugin: scholarly extensions for Sanskrit courseware.
  *
  * Handles:
- *   1. `[[br]]` —  → hard line break inside table cells
- *   2. `[[indent]]` → inline indent span
+ *   1. `:br` — text directive → hard line break inside table cells
+ *   2. `:indent` — text directive → inline indent span
  *   3. `⟪Devanagari⟫` — explicit Sanskrit markup (always red)
- *   4. Bare Devanagari runs (U+0900–U+097F) — auto-wrap in sanskrit-dev
  *
  * Ported from Payer's qa_viewer.html `scholarly_fixes` core.ruler.
  * Operates on inline text nodes in the remark AST.
  */
 import { visit, SKIP } from 'unist-util-visit'
 import type { Root, Content } from 'mdast'
+import type { TextDirective } from 'mdast-util-directive'
 
 type AnyParent = { type: string; children: Content[] }
 
 /**
  * Regex to split text on scholarly markers.
- * Captures: ⟪Devanagari⟫, bare Devanagari runs, [[br]], [[indent]]
+ * Captures: ⟪Devanagari⟫
  */
-const SCHOLARLY_RE = /(⟪[ऀ-ॿ]+⟫|[ऀ-ॿ]+|\[\[br\]\]|\[\[indent\]\])/g
-
-/** True if s contains any Devanagari character. */
-const DEVANAGARI_RE = /[ऀ-ॿ]/
+const SCHOLARLY_RE = /(⟪[^⟫]+⟫|(?<!:):br|(?<!:):indent)/g
 
 function processInlineText(value: string): Content[] | null {
-  if (
-    !value.includes('[[br]]') &&
-    !value.includes('[[indent]]') &&
-    !value.includes('⟪') &&
-    !DEVANAGARI_RE.test(value)
-  ) {
+  if (!value.includes('⟪') && !value.includes(':br') && !value.includes(':indent')) {
     return null // Fast path: nothing to transform
   }
 
@@ -40,27 +32,19 @@ function processInlineText(value: string): Content[] | null {
   for (const part of parts) {
     if (!part) continue
 
-    if (part === '[[br]]') {
-      // Hard break
-      result.push({ type: 'break' as Content['type'] } as Content)
-    } else if (part === '[[indent]]') {
-      // Inline indent span
-      result.push({
-        type: 'html',
-        value: '<span class="indent-inline"></span>',
-      } as Content)
-    } else if (part.startsWith('⟪') && part.endsWith('⟫')) {
+    if (part.startsWith('⟪') && part.endsWith('⟫')) {
       // Explicitly marked Devanagari
       const text = part.slice(1, -1)
       result.push({
         type: 'html',
         value: `<span class="sanskrit-dev">${text}</span>`,
       } as Content)
-    } else if (DEVANAGARI_RE.test(part)) {
-      // Bare Devanagari — auto-wrap
+    } else if (part === ':br') {
+      result.push({ type: 'break' as Content['type'] } as Content)
+    } else if (part === ':indent') {
       result.push({
         type: 'html',
-        value: `<span class="sanskrit-dev">${part}</span>`,
+        value: '<span class="indent-inline"></span>',
       } as Content)
     } else {
       // Plain text
@@ -77,6 +61,7 @@ function processInlineText(value: string): Content[] | null {
  */
 export default function remarkScholarlyExtensions(this: unknown): (tree: Root) => void {
   return (tree: Root): void => {
+    // 1. Process text nodes for ⟪...⟫
     visit(tree, 'text', (node: Content, index, parent) => {
       if (!parent || index === undefined) return
       const p = parent as unknown as AnyParent
@@ -90,6 +75,24 @@ export default function remarkScholarlyExtensions(this: unknown): (tree: Root) =
 
       p.children.splice(index, 1, ...replacement)
       return [SKIP, index + replacement.length]
+    })
+
+    // 2. Process textDirectives for :br and :indent
+    visit(tree, 'textDirective', (node: Content, index, parent) => {
+      if (!parent || index === undefined) return
+      const p = parent as unknown as AnyParent
+      const dir = node as unknown as TextDirective
+      
+      if (dir.name === 'br') {
+        p.children.splice(index, 1, { type: 'break' as Content['type'] } as Content)
+        return [SKIP, index + 1]
+      } else if (dir.name === 'indent') {
+        p.children.splice(index, 1, {
+          type: 'html',
+          value: '<span class="indent-inline"></span>',
+        } as Content)
+        return [SKIP, index + 1]
+      }
     })
   }
 }

@@ -227,34 +227,47 @@ const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'lo
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
 export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
+/** The editor-pane left-side panels whose width the user can drag-resize. */
+export type LeftPanelId = 'cheatsheet'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
   calendar: number
+  cheatsheet: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
 export const MAX_RIGHT_PANEL_WIDTH = 640
+export const MIN_LEFT_PANEL_WIDTH = 180
+export const MAX_LEFT_PANEL_WIDTH = 380
 export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
-  calendar: 280
+  calendar: 280,
+  cheatsheet: 240
 }
 
 function clampPanelWidth(px: number): number {
   return Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, Math.round(px)))
 }
 
+function clampLeftPanelWidth(px: number): number {
+  return Math.min(MAX_LEFT_PANEL_WIDTH, Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(px)))
+}
+
 function normalizePanelWidths(value: unknown): PanelWidths {
-  const v = (value ?? {}) as Partial<Record<RightPanelId, unknown>>
-  const pick = (key: RightPanelId): number =>
+  const v = (value ?? {}) as Partial<Record<RightPanelId | LeftPanelId, unknown>>
+  const pickRight = (key: RightPanelId): number =>
     typeof v[key] === 'number' ? clampPanelWidth(v[key] as number) : DEFAULT_PANEL_WIDTHS[key]
+  const pickLeft = (key: LeftPanelId): number =>
+    typeof v[key] === 'number' ? clampLeftPanelWidth(v[key] as number) : DEFAULT_PANEL_WIDTHS[key]
   return {
-    outline: pick('outline'),
-    connections: pick('connections'),
-    comments: pick('comments'),
-    calendar: pick('calendar')
+    outline: pickRight('outline'),
+    connections: pickRight('connections'),
+    comments: pickRight('comments'),
+    calendar: pickRight('calendar'),
+    cheatsheet: pickLeft('cheatsheet')
   }
 }
 
@@ -362,14 +375,18 @@ interface Prefs {
   /** Show the ISO week-number column in the calendar. Persisted. */
   calendarShowWeekNumbers: boolean
   /** Last selected view inside the Tasks tab. List is the v1 default. */
-  tasksViewMode: TasksViewMode
-  /** Column source used when the Tasks Kanban view is active. */
-  kanbanGroupBy: KanbanGroupBy
-  /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
-  kanbanColumnTitles: Record<string, string>
-  /** True once the user has dismissed the first-run onboarding wizard. */
-  hasCompletedOnboarding: boolean
-}
+    tasksViewMode: TasksViewMode;
+    /** Column source used when the Tasks Kanban view is active. */
+    kanbanGroupBy: KanbanGroupBy;
+    /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
+    kanbanColumnTitles: Record<string, string>;
+    /** True once the user has dismissed the first-run onboarding wizard. */
+    hasCompletedOnboarding: boolean;
+    /** Whether scholarly/boxes/table-colspan markdown extensions are active. */
+    markdownExtensionsEnabled: boolean;
+    /** Whether the cheatsheet panel is open. */
+    cheatsheetOpen: boolean;
+  }
 
 export type TasksViewMode = 'list' | 'calendar' | 'kanban'
 export type KanbanGroupBy = 'status' | 'priority' | 'folder'
@@ -462,10 +479,12 @@ const DEFAULT_PREFS: Prefs = {
   calendarWeekStart: 'monday',
   calendarShowWeekNumbers: true,
   tasksViewMode: 'list',
-  kanbanGroupBy: 'status',
-  kanbanColumnTitles: {},
-  hasCompletedOnboarding: false
-}
+    kanbanGroupBy: 'status',
+    kanbanColumnTitles: {},
+    hasCompletedOnboarding: false,
+    markdownExtensionsEnabled: true,
+    cheatsheetOpen: true,
+  }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
 function normalizePrefs(p: Partial<Prefs>): Prefs {
@@ -673,11 +692,19 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.kanbanGroupBy,
     kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles),
     hasCompletedOnboarding:
-      typeof p.hasCompletedOnboarding === 'boolean'
-        ? p.hasCompletedOnboarding
-        : DEFAULT_PREFS.hasCompletedOnboarding
-  }
-}
+          typeof p.hasCompletedOnboarding === 'boolean'
+            ? p.hasCompletedOnboarding
+            : DEFAULT_PREFS.hasCompletedOnboarding,
+        markdownExtensionsEnabled:
+          typeof p.markdownExtensionsEnabled === 'boolean'
+            ? p.markdownExtensionsEnabled
+            : DEFAULT_PREFS.markdownExtensionsEnabled,
+        cheatsheetOpen:
+          typeof p.cheatsheetOpen === 'boolean'
+            ? p.cheatsheetOpen
+            : DEFAULT_PREFS.cheatsheetOpen,
+      }
+    }
 function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY)
@@ -1110,6 +1137,8 @@ function collectPrefs(s: {
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
   hasCompletedOnboarding: boolean
+  markdownExtensionsEnabled: boolean
+  cheatsheetOpen: boolean
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -1166,7 +1195,9 @@ function collectPrefs(s: {
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
-    hasCompletedOnboarding: s.hasCompletedOnboarding
+    hasCompletedOnboarding: s.hasCompletedOnboarding,
+    markdownExtensionsEnabled: s.markdownExtensionsEnabled,
+    cheatsheetOpen: s.cheatsheetOpen,
   }
 }
 
@@ -1515,6 +1546,10 @@ interface Store {
 
   /** Whether long lines wrap or scroll horizontally in the editor. */
   wordWrap: boolean
+  /** Whether markdown extensions (scholarly, boxes, table colspan) are enabled. */
+  markdownExtensionsEnabled: boolean
+  /** Whether the cheatsheet panel is open. */
+  cheatsheetOpen: boolean
 
   /** Animate Ctrl+D / Ctrl+U half-page jumps in preview mode. Off
    *  gives an instant snap, which Vim muscle memory prefers. */
@@ -1787,7 +1822,7 @@ interface Store {
   unpinReferenceForNote: (notePath: string) => void
   togglePinnedRefVisible: () => void
   setPinnedRefWidth: (px: number) => void
-  setPanelWidth: (panel: RightPanelId, px: number) => void
+  setPanelWidth: (panel: RightPanelId | LeftPanelId, px: number) => void
   setPinnedRefMode: (mode: 'edit' | 'preview') => void
 
   setQuickNoteDateTitle: (on: boolean) => void
@@ -1829,6 +1864,8 @@ interface Store {
   setAutoCalendarPanel: (enabled: boolean) => void
   setCalendarWeekStart: (start: CalendarWeekStart) => void
   setCalendarShowWeekNumbers: (show: boolean) => void
+  setMarkdownExtensionsEnabled: (enabled: boolean) => void
+  setCheatsheetOpen: (open: boolean) => void
   openDailyNoteForDate: (date: Date) => Promise<void>
   openWeeklyNoteForDate: (date: Date) => Promise<void>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
@@ -2740,6 +2777,8 @@ export const useStore = create<Store>((set, get) => {
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
+  markdownExtensionsEnabled: loadPrefs().markdownExtensionsEnabled,
+  cheatsheetOpen: loadPrefs().cheatsheetOpen,
   vaultTasks: [],
   tasksLoading: false,
   tasksFilter: '',
@@ -4324,7 +4363,9 @@ export const useStore = create<Store>((set, get) => {
   },
 
   setPanelWidth: (panel, px) => {
-    set({ panelWidths: { ...get().panelWidths, [panel]: clampPanelWidth(px) } })
+    const isLeft = panel === 'cheatsheet'
+    const clamp = isLeft ? clampLeftPanelWidth : clampPanelWidth
+    set({ panelWidths: { ...get().panelWidths, [panel]: clamp(px) } })
     savePrefs(collectPrefs(get()))
   },
 
@@ -4571,6 +4612,14 @@ export const useStore = create<Store>((set, get) => {
   },
   setCalendarShowWeekNumbers: (show) => {
     set({ calendarShowWeekNumbers: show })
+    savePrefs(collectPrefs(get()))
+  },
+  setMarkdownExtensionsEnabled: (enabled) => {
+    set({ markdownExtensionsEnabled: enabled })
+    savePrefs(collectPrefs(get()))
+  },
+  setCheatsheetOpen: (open) => {
+    set({ cheatsheetOpen: open })
     savePrefs(collectPrefs(get()))
   },
   completeOnboarding: () => {

@@ -24,8 +24,10 @@ import type { Content } from 'mdast'
 type AnyParent = { type: string; children: Content[] }
 
 const CONTAINER_KINDS: Record<string, string> = {
-  'grammar-box':    'grammar-box',
-  'grammar-box2':   'grammar-box2',
+  'grammarbox':     'grammarbox',
+  'grammarbox2':    'grammarbox2',
+  'grammar-box':    'grammarbox',
+  'grammar-box2':   'grammarbox2',
   'media':          'media',
   'center':         'center',
   'metrik-schema':  'metrik-schema',
@@ -36,6 +38,7 @@ const CONTAINER_KINDS: Record<string, string> = {
   'indent':         'indent',
   'compact':        'compact',
   'no-header':      'no-header',
+  'hidden':         'hidden',
 }
 
 /** Extract title from `[brackets]` at the start of a text node. */
@@ -48,13 +51,6 @@ function extractTitle(text: string): [string | null, string] {
   return [null, text]
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
 
 /**
  * Remark plugin that converts `containerDirective` nodes (from
@@ -65,10 +61,11 @@ function escapeHtml(s: string): string {
  *
  * Must be placed **after** `remarkDirective` in the processor pipeline.
  */
+import type { ContainerDirective } from 'mdast-util-directive'
+
 export default function remarkBoxes(this: unknown): (tree: import('mdast').Root) => void {
   return (tree: import('mdast').Root): void => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    visit(tree, 'containerDirective', (node: any, index: any, parent: any) => {
+    visit(tree, 'containerDirective', (node: ContainerDirective, index: number | undefined, parent: import('mdast').Parent | undefined) => {
       if (!parent || index === undefined) return
       const kind = (node.name != null ? CONTAINER_KINDS[node.name] : undefined)
       if (!kind) return // Unknown directive — skip
@@ -167,7 +164,7 @@ export default function remarkBoxes(this: unknown): (tree: import('mdast').Root)
       } as Content
 
       p.children.splice(index, 1, containerNode)
-      return [SKIP, index + 1]
+      return index
     })
   }
 }

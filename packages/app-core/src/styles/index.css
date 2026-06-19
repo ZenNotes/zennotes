@@ -1,7 +1,7 @@
 /* KaTeX + highlight.js are pulled in by the markdown pipeline. */
 @import "katex/dist/katex.min.css";
 @import "highlight.js/styles/atom-one-light.css";
-@import "../../../src/shared/customBoxes.css";
+@import "./custom-boxes.css";
 
 @tailwind base;
 @tailwind components;
@@ -2344,6 +2344,17 @@ textarea,
   border: 1px solid theme("colors.paper.300");
   padding: 0.5em 0.75em;
   text-align: left;
+}
+
+/* Hide borders on cells explicitly hidden for colspan merging (custom `||` / `//` syntax).
+   These cells have the `hidden` attribute or `display: none` style from remark-table-colspan.
+   Regular empty cells should still show their grid lines. */
+.prose-zen th[hidden],
+.prose-zen td[hidden],
+.prose-zen th[style*="display: none"],
+.prose-zen td[style*="display: none"] {
+  border: none;
+  background: transparent;
 }
 /* GFM column alignment (`:--`, `:-:`, `--:`) is emitted as the `align`
    attribute, a low-specificity presentational hint that the rule above

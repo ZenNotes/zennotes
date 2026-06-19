@@ -23,7 +23,7 @@ The fence markers (`:::`) must have no leading spaces. The name must immediately
 Any container can have a title via the `title` attribute:
 
 ```
-:::grammar-box{title="The Dual Number"}
+:::grammarbox{title="The Dual Number"}
 Sanskrit has three numbers: singular, dual, and plural.
 :::
 ```
@@ -36,7 +36,7 @@ Containers can be nested by using more colons for the outer fence:
 
 ```
 ::::center
-:::grammar-box
+:::grammarbox
 Inner content
 :::
 ::::
@@ -46,12 +46,12 @@ Inner content
 
 ## Container types
 
-### `grammar-box`
+### `grammarbox`
 
 Yellow left border. Use for grammar rules, paradigm tables, and formal definitions.
 
 ```
-:::grammar-box{title="Present Tense Endings"}
+:::grammarbox{title="Present Tense Endings"}
 | Person | Singular | Plural |
 |--------|----------|--------|
 | 1st    | -āmi     | -āmas  |
@@ -60,12 +60,12 @@ Yellow left border. Use for grammar rules, paradigm tables, and formal definitio
 :::
 ```
 
-### `grammar-box2`
+### `grammarbox2`
 
 Orange left border, bold text. Use for summaries or second-level grammar structures.
 
 ```
-:::grammar-box2
+:::grammarbox2
 The strong stem is used before light endings.
 :::
 ```
@@ -184,42 +184,32 @@ Monospace, letter-spaced font. Use for metrical patterns using symbols like `–
 
 Inline extensions transform special markers inside regular text.
 
-### `[[br]]` — hard line break
+### `:br` — hard line break
 
-Inserts a `<br>` element. Unlike a blank line (which starts a new paragraph), `[[br]]` breaks the line within a single block — including inside table cells, where blank lines are not possible.
+Inserts a `<br>` element. Unlike a blank line (which starts a new paragraph), `:br` breaks the line within a single block — including inside table cells, where blank lines are not possible.
 
 ```
 :::laut-table
-| Velar | k[[br]]voiced: g |
+| Velar | k:br voiced: g |
 :::
 ```
 
-### `[[indent]]` — inline indent
+### `:indent` — inline indent
 
 Inserts a fixed-width invisible span (`1.5em`). Use to align text in columns that are not tables, or to add indentation within a paragraph.
 
 ```
-Rule 1:[[indent]]applies when the stem ends in a vowel.
-Rule 2:[[indent]]applies when the stem ends in a consonant.
+Rule 1::indent applies when the stem ends in a vowel.
+Rule 2::indent applies when the stem ends in a consonant.
 ```
 
 ### `⟪text⟫` — explicit Sanskrit markup
 
-Wraps text in a `.sanskrit-dev` span (red, slightly larger). Use when you want to mark Devanagari or transliterated Sanskrit explicitly, regardless of the character set used.
+Wraps text in a `.sanskrit-dev` span (red, slightly larger). Use when you want to mark Devanagari or transliterated Sanskrit explicitly.
 
 ```
 The word ⟪धर्म⟫ means duty or cosmic order.
 ```
-
-### Automatic Devanagari detection
-
-Any run of Devanagari characters (Unicode block U+0900–U+097F) is automatically wrapped in `.sanskrit-dev` without any special markers. You can type or paste Devanagari directly into a note.
-
-```
-The Sanskrit term धर्म (dharma) means cosmic order.
-```
-
-Both the explicit `⟪⟫` form and bare Devanagari produce identical output. Use `⟪⟫` when you need to mark non-Devanagari script (IAST transliteration) with the same style.
 
 ---
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, beforeAll, afterAll } from 'vitest'
 import {
   formatDate,
   getISOWeek,
@@ -7,8 +7,21 @@ import {
   renderTitle
 } from './template-render'
 
-// A fixed reference date: Friday, 2026-05-29, 14:07:09 local time.
 const REF = new Date(2026, 4, 29, 14, 7, 9)
+
+const originalLocaleDateString = Date.prototype.toLocaleDateString
+beforeAll(() => {
+  Date.prototype.toLocaleDateString = function (
+    locales?: Intl.LocalesArgument,
+    options?: Intl.DateTimeFormatOptions
+  ) {
+    return originalLocaleDateString.call(this, 'en-US', options)
+  }
+})
+
+afterAll(() => {
+  Date.prototype.toLocaleDateString = originalLocaleDateString
+})
 
 describe('renderTemplate', () => {
   it('substitutes title, date, time and week tokens', () => {

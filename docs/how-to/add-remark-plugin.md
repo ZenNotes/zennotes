@@ -33,7 +33,7 @@ See `packages/app-core/src/lib/remark-boxes.ts` as a complete example.
 
 ### Pattern 2: Inline text transform
 
-For inline markers like `[[br]]`, `⟪text⟫`, or auto-detected patterns (Devanagari). The plugin visits `text` nodes and splits them into replacement nodes.
+For inline markers like `:br`, `:indent`, or `⟪text⟫`. The plugin visits `textDirective` or `text` nodes and splits them into replacement nodes.
 
 See `packages/app-core/src/lib/remark-scholarly.ts` as a complete example.
 
@@ -106,42 +106,27 @@ npx tsc --noEmit -p packages/app-core/tsconfig.json
 
 ## Step-by-step: adding a new inline extension
 
-This example adds `[[date]]` which renders the current date.
+This example adds `:date` which renders the current date.
 
 ### 1. Edit remark-scholarly.ts
 
-Add `[[date]]` to the split regex:
+Add your directive to the handled cases in `remark-directive-filter.ts` so it isn't reverted to text:
 
 ```ts
-const SCHOLARLY_RE = /(⟪[ऀ-ॿ]+⟫|[ऀ-ॿ]+|\[\[br\]\]|\[\[indent\]\]|\[\[date\]\])/g
+const SCHOLARLY_DIRECTIVES = new Set(['br', 'indent', 'date'])
 ```
 
-Add a handler in `processInlineText`:
+Add a handler in `remark-scholarly.ts` inside `processDirectives`:
 
 ```ts
-} else if (part === '[[date]]') {
+if (node.name === 'date') {
   const today = new Date().toISOString().slice(0, 10)
-  result.push({ type: 'text', value: today } as Content)
+  parent.children.splice(index, 1, { type: 'text', value: today } as any)
+  return index + 1
 }
 ```
 
-Note: because the pipeline result is cached by source string, `[[date]]` will not update until the note source changes. If you need a live clock, that belongs in a React component that re-renders on a timer, not in the markdown pipeline.
-
-### 2. Update the fast-path guard
-
-Make sure the early return does not skip your new marker:
-
-```ts
-if (
-  !value.includes('[[br]]') &&
-  !value.includes('[[indent]]') &&
-  !value.includes('[[date]]') &&   // add this
-  !value.includes('⟪') &&
-  !DEVANAGARI_RE.test(value)
-) {
-  return null
-}
-```
+Note: because the pipeline result is cached by source string, `:date` will not update until the note source changes. If you need a live clock, that belongs in a React component that re-renders on a timer, not in the markdown pipeline.
 
 ---
 

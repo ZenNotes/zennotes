@@ -75,6 +75,7 @@ import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { CalendarPanel } from './CalendarPanel'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
+import { SyntaxCheatsheetPanel } from './SyntaxCheatsheetPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TasksView } from './TasksView'
 import { DatabaseView } from './DatabaseView'
@@ -593,6 +594,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const wrapTabs = useStore((s) => s.wrapTabs)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
+  const markdownExtensionsEnabled = useStore((s) => s.markdownExtensionsEnabled)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -605,6 +607,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [calendarOpen, setCalendarOpen] = useState(false)
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
   // The calendar panel is a date navigator. It auto-opens while the pane shows
   // a daily/weekly note, but stays available (Obsidian-style) on any note as
   // long as the daily or weekly feature is enabled.
@@ -749,6 +752,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCalendarOpen((open) => !open)
   }, [])
 
+  const toggleCheatsheetPanel = useCallback(() => {
+    setCheatsheetOpen((open) => !open)
+  }, [])
+
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
     setModesByPath((current) => paneModesWithPathMode(current, activeTab, nextMode))
@@ -792,6 +799,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:toggle-calendar', handler)
     return () => window.removeEventListener('zen:toggle-calendar', handler)
   }, [isActive, toggleCalendarPanel])
+
+  // `zen:toggle-cheatsheet` — toggle the left cheatsheet panel
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      toggleCheatsheetPanel()
+    }
+    window.addEventListener('zen:toggle-cheatsheet', handler)
+    return () => window.removeEventListener('zen:toggle-cheatsheet', handler)
+  }, [isActive, toggleCheatsheetPanel])
 
   // `zen:close-right-panel` — Esc (when a right panel is focused) or the
   // "Close right panel" command dismiss whichever right-hand panel is open in
@@ -2603,6 +2620,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <CalendarIcon />
           </IconBtn>
         )}
+        {markdownExtensionsEnabled && (
+          <IconBtn
+            title={cheatsheetOpen ? 'Hide syntax cheatsheet' : 'Show syntax cheatsheet'}
+            active={cheatsheetOpen}
+            onClick={toggleCheatsheetPanel}
+          >
+            <PanelLeftIcon />
+          </IconBtn>
+        )}
         <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
           <FileDownIcon />
         </IconBtn>
@@ -2638,6 +2664,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     calendarAvailable,
     calendarOpen,
     toggleCalendarPanel,
+    markdownExtensionsEnabled,
+    cheatsheetOpen,
+    toggleCheatsheetPanel,
     trashActive,
     archiveActive,
     restoreActive,
@@ -2980,9 +3009,39 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <div
               className={[
                 'min-h-0 min-w-0 flex-1 overflow-hidden',
-                splitMode ? 'flex flex-row' : 'flex flex-col'
+                (splitMode || cheatsheetOpen) ? 'flex flex-row' : 'flex flex-col'
               ].join(' ')}
             >
+              {cheatsheetOpen && markdownExtensionsEnabled && (
+                <SyntaxCheatsheetPanel />
+              )}
+              {markdownExtensionsEnabled && (
+                <button
+                  type="button"
+                  onClick={toggleCheatsheetPanel}
+                  aria-label={cheatsheetOpen ? 'Collapse cheatsheet' : 'Expand cheatsheet'}
+                  aria-expanded={cheatsheetOpen}
+                  className="flex h-full items-center justify-center w-6 cursor-pointer bg-paper-50/18 border-l border-paper-300/70 hover:bg-paper-50/30 transition-colors"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && toggleCheatsheetPanel()}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden="true"
+                  >
+                    {cheatsheetOpen ? (
+                      <path d="M15 18l-6-6 6-6" />
+                    ) : (
+                      <path d="M9 18l6-6-6-6" />
+                    )}
+                  </svg>
+                </button>
+              )}
               <div
                 ref={editorSurfaceRef}
                 className={[

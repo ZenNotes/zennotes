@@ -10,7 +10,6 @@
     "types": [
       "vite/client"
     ],
-    "baseUrl": ".",
     "paths": {
       "@shared/*": [
         "../shared-domain/src/*"
@@ -18,8 +17,7 @@
       "@bridge-contract/*": [
         "../bridge-contract/src/*"
       ]
-    },
-    "ignoreDeprecations": "6.0"
+    }
   },
   "include": [
     "src/**/*"
