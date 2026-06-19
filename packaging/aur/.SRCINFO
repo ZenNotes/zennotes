@@ -13,6 +13,6 @@ pkgbase = zennotes-bin
 	conflicts = zennotes
 	options = !strip
 	source = ZenNotes-2.4.0-linux-x64.tar.gz::https://github.com/ZenNotes/zennotes/releases/download/v2.4.0/ZenNotes-2.4.0-linux-x64.tar.gz
-	sha256sums = SKIP
+	sha256sums = 63e97f6e13ff97d6d47ac3c03fe7fdc0718498c494f207b382696aa69615c5ab
 
 pkgname = zennotes-bin

@@ -46,12 +46,10 @@ modules:
       - install -Dm644 com.adibhanna.zennotes.metainfo.xml
           /app/share/metainfo/com.adibhanna.zennotes.metainfo.xml
     sources:
-      # Bump `url` + `sha256` on each release (see README.md). The sha256 below
-      # is a placeholder — set it to the real hash of the v2.4.0 AppImage once
-      # the release is published: `shasum -a 256 ZenNotes-2.4.0-linux-x86_64.AppImage`.
+      # Bump `url` + `sha256` on each release (see README.md).
       - type: file
         url: https://github.com/ZenNotes/zennotes/releases/download/v2.4.0/ZenNotes-2.4.0-linux-x86_64.AppImage
-        sha256: 0000000000000000000000000000000000000000000000000000000000000000
+        sha256: 57bbbea3b3d043c765771f7230640d58dc4ace8b169bca20efb93d0fbb8215ad
         dest-filename: ZenNotes.AppImage
       - type: file
         path: zennotes.sh
