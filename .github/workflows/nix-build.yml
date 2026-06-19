@@ -1,15 +1,15 @@
 name: Nix build
 
-# Builds the flake packages on a Nix runner whenever the Nix packaging changes,
-# so the prebuilt-desktop wrapper and the server package are verified in CI
-# (the maintainers don't have a Nix machine to test on locally).
+# Builds AND validates the flake packages on a Nix runner whenever the Nix
+# packaging changes, so the prebuilt-desktop wrapper and the server package are
+# verified in CI (the maintainers don't have a Nix machine to test on locally).
 
 on:
   push:
     branches: [main]
-    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**']
+    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**', '.github/workflows/nix-build.yml']
   pull_request:
-    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**']
+    paths: ['flake.nix', 'flake.lock', 'packaging/nix/**', '.github/workflows/nix-build.yml']
   workflow_dispatch:
 
 permissions:
@@ -28,5 +28,61 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
+
       - name: Build packages
-        run: nix build --fallback --print-build-logs .#zennotes-desktop .#zennotes-server
+        run: |
+          nix build --fallback --print-build-logs .#zennotes-desktop -o result-desktop
+          nix build --fallback --print-build-logs .#zennotes-server  -o result-server
+
+      - name: Validate desktop package
+        run: |
+          set -euo pipefail
+          bin=result-desktop/bin/zennotes-desktop
+          app=result-desktop/share/zennotes/ZenNotes
+
+          echo "::group::layout"
+          test -x "$bin" && echo "ok: wrapper executable ($bin)"
+          test -x "$app" && echo "ok: app binary present"
+          test -f result-desktop/share/applications/zennotes-desktop.desktop && echo "ok: desktop entry installed"
+          ls result-desktop/share/icons/hicolor/*/apps/zennotes-desktop.png >/dev/null && echo "ok: icons installed"
+          if [ -e result-desktop/share/zennotes/chrome-sandbox ]; then
+            echo "FAIL: SUID chrome-sandbox was not removed"; exit 1
+          fi
+          echo "ok: chrome-sandbox removed"
+          echo "::endgroup::"
+
+          echo "::group::ELF interpreter (autoPatchelf)"
+          interp=$(nix run nixpkgs#patchelf -- --print-interpreter "$app")
+          echo "interpreter: $interp"
+          case "$interp" in
+            /nix/store/*) echo "ok: interpreter patched into the Nix store" ;;
+            *) echo "FAIL: interpreter not patched ($interp)"; exit 1 ;;
+          esac
+          echo "::endgroup::"
+
+          echo "::group::ldd — every shared library resolves"
+          ldd "$app" || true
+          if ldd "$app" 2>&1 | grep -E '=> not found'; then
+            echo "FAIL: unresolved shared libraries"; exit 1
+          fi
+          echo "ok: no unresolved libraries"
+          echo "::endgroup::"
+
+      - name: Headless smoke launch (best-effort)
+        continue-on-error: true
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y xvfb
+          echo "launching ZenNotes under xvfb for 25s…"
+          set +e
+          timeout 25 xvfb-run -a result-desktop/bin/zennotes-desktop --no-sandbox --disable-gpu >smoke.log 2>&1
+          rc=$?
+          echo "exit code: $rc  (124 = still running after the timeout = good)"
+          echo "--- last 40 log lines ---"; tail -40 smoke.log || true
+          if grep -qiE 'error while loading shared libraries|symbol lookup error|cannot open shared object|GLIBC_' smoke.log; then
+            echo "loader/symbol error detected — see log above"; exit 1
+          fi
+          if [ "$rc" = "124" ] || [ "$rc" = "0" ]; then
+            echo "smoke: app started without a loader crash"
+          else
+            echo "smoke: app exited early (rc=$rc); inspect the log"
+          fi
