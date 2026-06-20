@@ -3009,11 +3009,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <div
               className={[
                 'min-h-0 min-w-0 flex-1 overflow-hidden',
-                (splitMode || cheatsheetOpen) ? 'flex flex-row' : 'flex flex-col'
+                (splitMode || cheatsheetOpen || markdownExtensionsEnabled) ? 'flex flex-row' : 'flex flex-col'
               ].join(' ')}
             >
               {cheatsheetOpen && markdownExtensionsEnabled && (
-                <SyntaxCheatsheetPanel />
+                <SyntaxCheatsheetPanel
+                  onInsert={(item) => {
+                    const view = viewRef.current
+                    if (!view) return
+                    const range = view.state.selection.main
+                    const selectedText = view.state.doc.sliceString(range.from, range.to)
+                    const insertText = item.before + selectedText + item.after
+                    view.dispatch({
+                      changes: { from: range.from, to: range.to, insert: insertText },
+                      selection: { anchor: range.from + item.before.length, head: range.from + item.before.length + selectedText.length },
+                      scrollIntoView: true
+                    })
+                    view.focus()
+                  }}
+                />
               )}
               {markdownExtensionsEnabled && (
                 <button

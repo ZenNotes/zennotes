@@ -7,7 +7,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import CHEAT_SHEET from '../lib/syntax-cheatsheet'
-import { getCategoryTitle, getItemDesc, type SyntaxCategory } from '../lib/syntax-cheatsheet'
+import { getCategoryTitle, getItemDesc, type SyntaxCategory, type SyntaxItem } from '../lib/syntax-cheatsheet'
 import { useStore } from '../store'
 import { useLeftPanelResize } from '../lib/use-panel-resize'
 
@@ -39,7 +39,11 @@ function getLocale(): string {
   return 'en'
 }
 
-export function SyntaxCheatsheetPanel(): JSX.Element | null {
+export function SyntaxCheatsheetPanel({
+  onInsert
+}: {
+  onInsert: (item: SyntaxItem) => void
+}): JSX.Element | null {
   const markdownExtensionsEnabled = useStore((s) => s.markdownExtensionsEnabled)
   const locale = getLocale()
   const width = useStore((s) => s.panelWidths.cheatsheet)
@@ -66,6 +70,10 @@ export function SyntaxCheatsheetPanel(): JSX.Element | null {
     () => filteredCategories.reduce((sum, cat) => sum + cat.items.length, 0),
     [filteredCategories]
   )
+
+  const handleInsert = (item: SyntaxItem) => {
+    onInsert(item)
+  }
 
   return (
     <section
@@ -110,6 +118,8 @@ export function SyntaxCheatsheetPanel(): JSX.Element | null {
                     <li key={`${cat.id}-${idx}`}>
                       <button
                         type="button"
+                        onClick={() => handleInsert(item)}
+                        onMouseDown={(e) => e.preventDefault()}
                         title={getItemDesc(item, locale)}
                         className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] transition-colors text-ink-700 hover:bg-paper-200 hover:text-ink-900 focus:outline-none focus:ring-1 focus:ring-accent/50"
                       >
