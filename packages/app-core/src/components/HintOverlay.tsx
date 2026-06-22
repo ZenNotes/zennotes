@@ -200,7 +200,7 @@ export function HintOverlay({
   if (targets.length === 0) return null
 
   return createPortal(
-    <div className="vim-hint-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none' }}>
+    <div data-vim-hint-overlay className="vim-hint-overlay" style={{ position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none' }}>
       {targets.map((t) => {
         const isMatch = t.label.startsWith(buffer)
         const matchedPart = buffer

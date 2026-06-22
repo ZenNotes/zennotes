@@ -119,6 +119,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openTodayDailyNote()
     },
     {
+      id: 'note.daily.rollover',
+      title: 'Roll Over Unfinished Tasks to Today',
+      category: 'Note',
+      keywords: 'daily tasks rollover roll over migrate unfinished carry forward today',
+      when: () => getState().vaultSettings.dailyNotes.enabled,
+      run: () => {
+        void getState().rolloverUnfinishedTasksIntoToday({ force: true, open: true })
+      }
+    },
+    {
       id: 'note.weekly.thisWeek',
       title: "Open This Week's Note",
       category: 'Note',
@@ -271,6 +281,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (!active) return
         const title = active.title || active.path.split('/').pop()?.replace(/\.md$/i, '') || ''
         window.zen.clipboardWriteText(`[[${title}]]`)
+      }
+    },
+    {
+      id: 'note.copy-markdown',
+      title: 'Copy Note as Markdown',
+      category: 'Note',
+      keywords: 'copy clipboard markdown source document whole content text yank',
+      when: () => !!getState().activeNote,
+      run: async () => {
+        await getState().copyActiveNoteAsMarkdown()
       }
     },
     {
@@ -875,10 +895,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'view.tasks',
-      title: 'Open Tasks',
+      title: `Open ${labels().tasks}`,
       category: 'View',
       shortcut: ':tasks',
-      keywords: 'todo checklist due waiting done vault',
+      keywords: 'tasks todo checklist due waiting done vault',
       when: () => !isTasksViewActive(getState()),
       run: () => getState().openTasksView()
     },

@@ -18,6 +18,7 @@ export type ThemeFamily =
   | 'one'
   | 'nord'
   | 'tokyo-night'
+  | 'kanagawa'
   | 'black-metal'
 export type ThemeMode = 'light' | 'dark' | 'auto'
 
@@ -94,6 +95,13 @@ export const THEMES: ThemeOption[] = [
   { id: 'tokyo-night-day', label: 'Day', family: 'tokyo-night', mode: 'light' },
   { id: 'tokyo-night-storm', label: 'Storm', family: 'tokyo-night', mode: 'dark' },
 
+  // --- Kanagawa (rebelot/kanagawa.nvim) -------------------------------
+  // Inspired by Hokusai's "The Great Wave off Kanagawa". Wave is the warm
+  // default dark, Dragon a darker/cooler dark, Lotus the light variant.
+  { id: 'kanagawa-wave', label: 'Wave', family: 'kanagawa', mode: 'dark', variant: 'wave' },
+  { id: 'kanagawa-dragon', label: 'Dragon', family: 'kanagawa', mode: 'dark', variant: 'dragon' },
+  { id: 'kanagawa-lotus', label: 'Lotus', family: 'kanagawa', mode: 'light', variant: 'lotus' },
+
   // --- Black Metal (metalelf0/black-metal-theme-neovim) ---------------
   // Monochrome: true-black background, soft grey text, a single muted
   // teal accent. The dark variant follows the repo's default (bathory).
@@ -156,6 +164,9 @@ export function resolveAuto(
   }
   if (family === 'tokyo-night') {
     return targetMode === 'dark' ? 'tokyo-night-storm' : 'tokyo-night-day'
+  }
+  if (family === 'kanagawa') {
+    return targetMode === 'dark' ? 'kanagawa-wave' : 'kanagawa-lotus'
   }
   if (family === 'black-metal') {
     return targetMode === 'dark' ? 'black-metal' : 'black-metal-day'

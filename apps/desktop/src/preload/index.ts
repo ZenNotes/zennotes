@@ -262,6 +262,8 @@ const api: ZenBridge = {
   getVaultSettings: (): Promise<VaultSettings> => ipcRenderer.invoke(IPC.VAULT_GET_SETTINGS),
   setVaultSettings: (next: VaultSettings): Promise<VaultSettings> =>
     ipcRenderer.invoke(IPC.VAULT_SET_SETTINGS, next),
+  rootContentHiddenByInboxMode: (): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.VAULT_ROOT_CONTENT_HIDDEN),
 
   listNotes: (): Promise<NoteMeta[]> => listNotesStreamed(),
   listNotesPage: (request: ListNotesPageRequest): Promise<ListNotesPageResponse> =>
@@ -299,7 +301,7 @@ const api: ZenBridge = {
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
   scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
     ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),
-  openDatabase: (relPath: string): Promise<DatabaseDoc> =>
+  openDatabase: (relPath: string): Promise<DatabaseDoc | null> =>
     ipcRenderer.invoke(IPC.VAULT_OPEN_DATABASE, relPath),
   writeDatabaseRows: (relPath: string, rows: DbRow[]): Promise<DatabaseDoc> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_ROWS, relPath, rows),
@@ -311,6 +313,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_WRITE_DATABASE_SCHEMA, relPath, sidecar, rows),
   createDatabase: (folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_DATABASE, folder, subpath, title),
+  renameDatabase: (csvPath: string, newTitle: string): Promise<string> =>
+    ipcRenderer.invoke(IPC.VAULT_RENAME_DATABASE, csvPath, newTitle),
   createRecordPage: (csvPath: string, title: string, body: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_RECORD_PAGE, csvPath, title, body),
   listDatabases: (): Promise<DatabaseSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_DATABASES),
@@ -320,6 +324,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_APPEND_NOTE, relPath, body, position),
   createNote: (folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_CREATE_NOTE, folder, title, subpath),
+  createExcalidraw: (folder: NoteFolder, subpath?: string, title?: string): Promise<NoteMeta> =>
+    ipcRenderer.invoke(IPC.VAULT_CREATE_EXCALIDRAW, folder, subpath, title),
   renameNote: (relPath: string, nextTitle: string): Promise<NoteMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_NOTE, relPath, nextTitle),
   deleteNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_DELETE_NOTE, relPath),

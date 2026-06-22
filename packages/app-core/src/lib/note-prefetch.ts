@@ -6,6 +6,7 @@ import {
 
 export type NotePrefetchSortOrder =
   | 'none'
+  | 'manual'
   | 'updated-desc'
   | 'updated-asc'
   | 'created-desc'
@@ -36,6 +37,7 @@ function noteSortComparator(order: NotePrefetchSortOrder): ((a: NoteMeta, b: Not
     case 'name-desc':
       return (a, b) => b.title.localeCompare(a.title)
     case 'none':
+    case 'manual':
       return null
   }
 }

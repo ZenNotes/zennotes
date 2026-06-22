@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.adibhanna.zennotes</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>ZenNotes</name>
+  <summary>Keyboard-first Markdown notes app</summary>
+  <description>
+    <p>
+      ZenNotes is a keyboard-first Markdown notes app that keeps your notes as
+      ordinary Markdown files on disk — yours to own, sync, and version however
+      you like.
+    </p>
+    <p>On top of the files you already own, it adds:</p>
+    <ul>
+      <li>Vim-friendly editing with split and live-preview workflows</li>
+      <li>Wiki-links, tags, tasks, daily notes, and full-text search</li>
+      <li>Diagrams (Mermaid, TikZ), math (KaTeX), and syntax-highlighted code</li>
+      <li>CSV databases with Notion-style Table and Board views over plain .csv files</li>
+      <li>Archive, trash, quick capture, and a built-in command-line companion</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.adibhanna.zennotes.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://zennotes.org/images/app.png</image>
+      <caption>Editing Markdown with live preview, sidebar, and tabs</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://zennotes.org</url>
+  <url type="bugtracker">https://github.com/ZenNotes/zennotes/issues</url>
+  <url type="vcs-browser">https://github.com/ZenNotes/zennotes</url>
+  <developer id="com.adibhanna">
+    <name>Adib Hanna</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.5.0" date="2026-06-22"/>
+    <release version="2.4.0" date="2026-06-19"/>
+    <release version="2.3.0" date="2026-06-13"/>
+  </releases>
+</component>

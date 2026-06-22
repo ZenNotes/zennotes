@@ -24,6 +24,23 @@ describe('tab scroll memory', () => {
     expect(recallTabScroll('a.md')).toEqual({ editor: 11, preview: 22 })
   })
 
+  it('keeps a remembered editor selection when a later capture only updates scroll', () => {
+    rememberTabScroll('a.md', {
+      editor: 10,
+      preview: 20,
+      editorSelectionAnchor: 100,
+      editorSelectionHead: 120
+    })
+    rememberTabScroll('a.md', { editor: 11, preview: 22 })
+
+    expect(recallTabScroll('a.md')).toEqual({
+      editor: 11,
+      preview: 22,
+      editorSelectionAnchor: 100,
+      editorSelectionHead: 120
+    })
+  })
+
   it('forgets a single path', () => {
     rememberTabScroll('a.md', { editor: 1, preview: 2 })
     forgetTabScroll('a.md')

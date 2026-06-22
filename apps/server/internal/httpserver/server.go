@@ -86,10 +86,9 @@ func (s *Server) switchVaultRoot(nextPath string) (*vault.Vault, error) {
 	if err != nil {
 		return nil, err
 	}
-	nextWatcher, err := watcher.Start(nextVault.Root())
-	if err != nil {
-		return nil, err
-	}
+	// Non-fatal: a vault switch must not fail just because inotify is
+	// unavailable; fall back to a no-op watcher in that case. (#179)
+	nextWatcher := watcher.StartOrDisabled(nextVault.Root(), cfg.DisableWatcher)
 
 	s.mu.Lock()
 	prevWatcher := s.Watcher
@@ -182,6 +181,7 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Post("/comments/write", s.writeComments)
 	r.Post("/notes/write", s.writeNote)
 	r.Post("/notes/create", s.createNote)
+	r.Post("/excalidraw/create", s.createExcalidraw)
 	r.Post("/notes/rename", s.renameNote)
 	r.Post("/notes/delete", s.deleteNote)
 	r.Post("/notes/trash", s.trashNote)
@@ -586,6 +586,24 @@ func (s *Server) createNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta, err := s.currentVault().CreateNote(req.Folder, req.Title, req.Subpath)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, meta)
+}
+
+func (s *Server) createExcalidraw(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Folder  vault.NoteFolder `json:"folder"`
+		Title   string           `json:"title"`
+		Subpath string           `json:"subpath"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	meta, err := s.currentVault().CreateExcalidraw(req.Folder, req.Title, req.Subpath)
 	if err != nil {
 		writeError(w, err)
 		return

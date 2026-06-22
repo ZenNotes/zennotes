@@ -269,6 +269,7 @@ function App(): JSX.Element {
   const previewMaxWidth = useStore((s) => s.previewMaxWidth)
   const editorMaxWidth = useStore((s) => s.editorMaxWidth)
   const contentAlign = useStore((s) => s.contentAlign)
+  const lineNumberPosition = useStore((s) => s.lineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
@@ -422,6 +423,7 @@ function App(): JSX.Element {
     html.style.setProperty('--z-preview-max-width', `${previewMaxWidth}px`)
     html.style.setProperty('--z-editor-max-width', `${editorMaxWidth}px`)
     html.dataset.contentAlign = contentAlign
+    html.dataset.lineNumberPosition = lineNumberPosition
 
     const setFont = (name: string, value: string | null, fallback: string): void => {
       if (value) html.style.setProperty(name, `"${value}", ${fallback}`)
@@ -442,7 +444,7 @@ function App(): JSX.Element {
       monoFont,
       '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
     )
-  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, interfaceFont, textFont, monoFont])
+  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, lineNumberPosition, interfaceFont, textFont, monoFont])
 
   // The app now always runs fully opaque.
   useEffect(() => {
@@ -529,6 +531,17 @@ function App(): JSX.Element {
         void window.zen.resetAppZoom()
         return
       }
+      if (matchesShortcut(e, overrides, 'global.historyBack')) {
+        // Back in note navigation history (works in any mode).
+        e.preventDefault()
+        void state.jumpToPreviousNote()
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.historyForward')) {
+        e.preventDefault()
+        void state.jumpToNextNote()
+        return
+      }
       if (matchesShortcut(e, overrides, 'global.searchNotes')) {
         // ⌘P — note search
         e.preventDefault()
@@ -538,16 +551,28 @@ function App(): JSX.Element {
         return
       }
       if (matchesShortcut(e, overrides, 'global.closeActiveTab')) {
-        // On Linux/Windows `Mod+W` (close tab) resolves to Ctrl+W, which also
-        // is the vim pane-focus prefix (`<C-w>hjkl`) and insert-mode word
-        // delete. When vim mode is on, reserve that key for vim — VimNav's
-        // capture-phase handler arms the prefix; close tabs via :q / :bd / the
-        // command palette. On macOS close-tab is Cmd+W, so this never triggers.
-        if (state.vimMode && matchesSequenceToken(e, overrides, 'vim.panePrefix')) {
+        // On Linux/Windows `Mod+W` (close tab) resolves to Ctrl+W, which is also
+        // the vim pane-focus prefix (`<C-w>hjkl`) and insert-mode word delete.
+        // When vim mode is on AND a tab is open, reserve Ctrl+W for vim (close
+        // tabs via :q / :bd / the palette). With no tab open the prefix has
+        // nothing to act on, so fall through and close the window. On macOS
+        // close-tab is Cmd+W, so the vim guard never matches there.
+        const hasActiveTab = !!state.selectedPath
+        if (
+          state.vimMode &&
+          hasActiveTab &&
+          matchesSequenceToken(e, overrides, 'vim.panePrefix')
+        ) {
           return
         }
         e.preventDefault()
-        void state.closeActiveNote()
+        if (hasActiveTab) {
+          void state.closeActiveNote()
+        } else {
+          // No tab left to close — close the window, matching native Cmd+W
+          // (macOS) / Ctrl+W behavior even with vim mode on (#192).
+          window.zen.windowClose()
+        }
         return
       }
       if (e.key === 'Escape' && state.searchOpen) {
@@ -610,24 +635,9 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:add-comment'))
         return
       }
-      // ⌥h/j/k/l — focus the neighbouring pane/panel. Works regardless of vim
-      // mode (unlike <C-w>hjkl) and never needs the command palette.
-      {
-        const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
-          ? 'h'
-          : matchesShortcut(e, overrides, 'global.focusPaneDown')
-            ? 'j'
-            : matchesShortcut(e, overrides, 'global.focusPaneUp')
-              ? 'k'
-              : matchesShortcut(e, overrides, 'global.focusPaneRight')
-                ? 'l'
-                : null
-        if (paneDir) {
-          e.preventDefault()
-          focusPaneOrEdgePanel(paneDir)
-          return
-        }
-      }
+      // Pane-focus shortcuts (⌥h/j/k/l by default) are handled by a separate
+      // capture-phase listener so a remap onto an editor key still wins over
+      // CodeMirror — see focusPaneHandler below. (#124)
       if (matchesShortcut(e, overrides, 'global.modeEdit')) {
         e.preventDefault()
         requestPaneMode('edit')
@@ -656,8 +666,53 @@ function App(): JSX.Element {
         return
       }
     }
+    // Pane-focus shortcuts must win over the editor. CodeMirror binds keys such
+    // as Ctrl-h (delete character) and Ctrl-k (delete to line end), so when a
+    // user remaps a focusPane shortcut onto one of them the bubble-phase handler
+    // above would run *after* CodeMirror already executed its command — the key
+    // would both delete text and move focus (#124). Handle these in the capture
+    // phase and consume the event so the editor never sees the key.
+    const focusPaneHandler = (e: KeyboardEvent): void => {
+      const state = useStore.getState()
+      // Don't move focus (or swallow the key) while a modal, palette, or the
+      // Settings keybinding recorder is open — the recorder also captures keys
+      // in this phase, so a focusPane shortcut bound to e.g. Ctrl+H must not
+      // intercept it. (#124)
+      if (
+        state.settingsOpen ||
+        state.searchOpen ||
+        state.vaultTextSearchOpen ||
+        state.commandPaletteOpen ||
+        state.bufferPaletteOpen ||
+        state.templatePaletteOpen ||
+        state.outlinePaletteOpen ||
+        document.querySelector('[data-ctx-menu]') ||
+        document.querySelector('[data-prompt-modal]') ||
+        document.querySelector('[data-confirm-modal]')
+      ) {
+        return
+      }
+      const overrides = state.keymapOverrides
+      const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
+        ? 'h'
+        : matchesShortcut(e, overrides, 'global.focusPaneDown')
+          ? 'j'
+          : matchesShortcut(e, overrides, 'global.focusPaneUp')
+            ? 'k'
+            : matchesShortcut(e, overrides, 'global.focusPaneRight')
+              ? 'l'
+              : null
+      if (!paneDir) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      focusPaneOrEdgePanel(paneDir)
+    }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    window.addEventListener('keydown', focusPaneHandler, true)
+    return () => {
+      window.removeEventListener('keydown', handler)
+      window.removeEventListener('keydown', focusPaneHandler, true)
+    }
   }, [
     setBufferPaletteOpen,
     setCommandPaletteOpen,

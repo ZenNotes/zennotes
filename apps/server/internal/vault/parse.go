@@ -12,7 +12,7 @@ import (
 var (
 	fencedBlockRe = regexp.MustCompile("(?m)(^|\n)```[^\n]*\n[\\s\\S]*?\n```[ \t]*(?:\n|$)")
 	inlineCodeRe  = regexp.MustCompile("`[^`\n]*`")
-	tagRe         = regexp.MustCompile(`(?:^|\s)#([A-Za-z][\w\-/]*)`)
+	tagRe         = regexp.MustCompile(`(?:^|\s)#(\p{L}[\p{L}\d_/-]*)`)
 	wikilinkRe    = regexp.MustCompile(`(!?)\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]`)
 	linkRe        = regexp.MustCompile(`(!?)\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)`)
 	embedRe       = regexp.MustCompile(`!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]`)
@@ -199,7 +199,7 @@ var (
 	inlineDueRe     = regexp.MustCompile(`(?i)(?:^|\s)due:(\S+)`)
 	inlinePriority  = regexp.MustCompile(`(?i)(?:^|\s)!(high|med|medium|low|h|m|l)\b`)
 	inlineWaitingRe = regexp.MustCompile(`(?i)(?:^|\s)@waiting\b`)
-	inlineTagRe     = regexp.MustCompile(`(?i)(?:^|\s)#([a-z0-9][a-z0-9/_\-]*)`)
+	inlineTagRe     = regexp.MustCompile(`(?:^|\s)#([\p{L}\d][\p{L}\d/_\-]*)`)
 	isoDateRe       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
 

@@ -8,6 +8,7 @@ import {
   hintTargetOpensNote,
   isEditorInsertMode,
   isEditorFocused,
+  isVimAwaitingArgument,
   resolveNextPanel
 } from '../lib/vim-nav'
 import { focusPaneInDirection } from '../lib/pane-nav'
@@ -19,8 +20,10 @@ import {
   getKeymapDisplay,
   getSequenceTokens,
   matchesSequenceToken,
+  matchesShortcutBinding,
   sequenceTokenFromEvent
 } from '../lib/keymaps'
+import { toggleWrap, wrapLink } from '../lib/cm-format'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
   dispatchKeyboardContextMenu,
@@ -160,6 +163,16 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFormatNote'),
         label: 'Format note',
         detail: 'Run markdown formatting on the active note.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCopyMarkdown'),
+        label: 'Copy as Markdown',
+        detail: "Copy the whole note's Markdown to the clipboard."
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleFavorite'),
+        label: 'Toggle favorite',
+        detail: 'Add or remove the active note from Favorites.'
       }
       ]
     }
@@ -299,6 +312,9 @@ export function VimNav(): JSX.Element | null {
       // Never steal keys from normal text-entry fields such as the
       // inline note title, prompt inputs, or textarea-based controls.
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      // The selection format toolbar handles its own keyboard navigation
+      // (arrows / Enter / Esc) once focused — yield to it entirely.
+      if (target?.closest('[data-selection-toolbar]')) return
       // The database/table view runs its own vim-style motion grid; yield to it
       // so sidebar/note-list navigation doesn't steal j/k/h/l etc. — EXCEPT the
       // pane prefix (Ctrl+W) and its pending direction key, so the grid can hand
@@ -321,6 +337,46 @@ export function VimNav(): JSX.Element | null {
       }
       const previewEl = getPreviewScrollElement()
       const hoverPreviewEl = getHoverPreviewScrollElement()
+
+      // Inline-format shortcuts (Bold/Italic/Strike/Highlight/Code/Math/Link)
+      // mirror the selection toolbar. Handled here — in the window capture
+      // handler — so they work on every platform and beat Vim's own Ctrl
+      // chords (e.g. <C-b>) in normal/visual mode on Linux/Windows. `Mod`
+      // resolves to ⌘ on macOS and Ctrl elsewhere.
+      const fmtView = state.editorViewRef
+      if (fmtView && isEditorFocused(fmtView)) {
+        // Focus the selection toolbar (when shown) for keyboard navigation.
+        if (matchesShortcutBinding(e, 'Mod+/')) {
+          const firstItem = document.querySelector<HTMLElement>(
+            '[data-selection-toolbar] [data-toolbar-item]'
+          )
+          if (firstItem) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            firstItem.focus()
+            return
+          }
+        }
+        // Bindings in canonical modifier order (Shift before Mod), matching
+        // `normalizeShortcutBinding` so `matchesShortcutBinding` compares equal.
+        const formats: Array<[string, () => void]> = [
+          ['Mod+B', () => toggleWrap(fmtView, '**')],
+          ['Mod+I', () => toggleWrap(fmtView, '*')],
+          ['Mod+E', () => toggleWrap(fmtView, '`')],
+          ['Shift+Mod+S', () => toggleWrap(fmtView, '~~')],
+          ['Shift+Mod+H', () => toggleWrap(fmtView, '==')],
+          ['Shift+Mod+M', () => toggleWrap(fmtView, '$')],
+          ['Mod+K', () => wrapLink(fmtView)]
+        ]
+        for (const [binding, run] of formats) {
+          if (matchesShortcutBinding(e, binding)) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            run()
+            return
+          }
+        }
+      }
 
       const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
       const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')
@@ -536,12 +592,7 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
-      // ------- Tasks / Tag view active → defer to its own window handler
-      // Both panels install capture-phase window keydowns that handle
-      // j/k/gg/G/Enter/o/Esc/etc. themselves. We bail here so VimNav
-      // doesn't swallow those keys with stale sidebar routing. Exception:
-      // let `f` (hint mode) fall through — a global affordance that
-      // should still work anywhere, and its handler sits further down.
+      // Cancel a pending leader sequence on Escape or a second leader press.
       if (leaderPending.current && e.key === 'Escape') {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -557,8 +608,20 @@ export function VimNav(): JSX.Element | null {
         resetLeader()
         return
       }
+      // ------- Tasks / Tag view active → defer to its own window handler
+      // Both panels install capture-phase window keydowns that handle
+      // j/k/gg/G/Enter/x/Esc/etc. themselves, so we bail and let them — with
+      // one exception: leader input. The leader (Space) and any in-progress
+      // leader sequence fall through to the leader logic below so <leader>h
+      // (hint mode) and every other leader command work in these panels too.
+      // VimNav consumes the leader keypress before TasksView sees it, so the
+      // leader no longer collides with Space-to-toggle. (#151)
       const panelViewActive = isTasksViewActive(state) || isTagsViewActive(state)
-      if (panelViewActive && e.key !== 'f') {
+      if (
+        panelViewActive &&
+        !leaderPending.current &&
+        sequenceTokenFromEvent(e) !== leaderToken
+      ) {
         return
       }
 
@@ -683,6 +746,20 @@ export function VimNav(): JSX.Element | null {
           void state.formatActiveNote()
           return
         }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderCopyMarkdown')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.copyActiveNoteAsMarkdown()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderToggleFavorite')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.toggleFavoriteActiveNote()
+          return
+        }
         resetLeader()
       }
 
@@ -697,9 +774,20 @@ export function VimNav(): JSX.Element | null {
         resetLeader()
       }
 
+      // In the tasks/tags panels, only leader input is handled above; hand
+      // every other key (including a just-reset leader sequence) back to the
+      // panel's own capture handler. (#151)
+      if (panelViewActive && sequenceTokenFromEvent(e) !== leaderToken) {
+        return
+      }
+
       if (
         sequenceTokenFromEvent(e) === leaderToken &&
-        !editorInsertMode
+        !editorInsertMode &&
+        // While Vim is mid-command in the focused editor (e.g. after f/t/r or an
+        // operator), Space is the command's argument (r<Space>, f<Space>), not
+        // the leader — let it fall through to codemirror-vim. (#147)
+        !(isEditorFocused(state.editorViewRef) && isVimAwaitingArgument(state.editorViewRef))
       ) {
         const tag = (e.target as HTMLElement | null)?.tagName
         if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
@@ -745,6 +833,29 @@ export function VimNav(): JSX.Element | null {
         e.stopImmediatePropagation()
         window.dispatchEvent(new Event(ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT))
         return
+      }
+
+      // A focused breadcrumb folder crumb (e.g. reached via hint mode) owns the
+      // context-menu key — open *its* create menu, not the sidebar item's.
+      {
+        const activeCrumb = document.activeElement as HTMLElement | null
+        if (
+          activeCrumb?.hasAttribute('data-crumb-menu') &&
+          (matchesSequenceToken(e, overrides, 'nav.contextMenu') || wantsNativeContextMenuKey(e))
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          const rect = activeCrumb.getBoundingClientRect()
+          activeCrumb.dispatchEvent(
+            new MouseEvent('contextmenu', {
+              bubbles: true,
+              cancelable: true,
+              clientX: Math.round(rect.left),
+              clientY: Math.round(rect.bottom + 2)
+            })
+          )
+          return
+        }
       }
 
       // ------- Sidebar navigation (explicit) -----------------------------
@@ -800,7 +911,7 @@ export function VimNav(): JSX.Element | null {
         }
 
         // `f` (and operator+motion sequences like df/cf/yf) are Vim find-char
-        // motions here — hint mode lives on the leader (<leader>f) so it never
+        // motions here — hint mode lives on the leader (<leader>h) so it never
         // hijacks them. (#107)
         return
       }
@@ -1707,6 +1818,8 @@ export function VimNav(): JSX.Element | null {
       void state.openArchiveView()
     } else if (itemType === 'trash') {
       void state.openTrashView()
+    } else if (itemType === 'assets') {
+      void state.openAssetsView()
     }
   }
 

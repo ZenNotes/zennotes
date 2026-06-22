@@ -21,7 +21,7 @@ export function TitleBar(): JSX.Element {
     : isQuickNotesTabPath(selectedPath)
       ? labels.quick
     : isTasksTabPath(selectedPath)
-      ? 'Tasks'
+      ? labels.tasks
       : isTagsTabPath(selectedPath)
         ? 'Tags'
         : isHelpTabPath(selectedPath)

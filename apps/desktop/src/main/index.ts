@@ -45,6 +45,7 @@ import {
   archiveNote,
   createFolder,
   createNote,
+  createExcalidraw,
   deleteAsset,
   DEFAULT_QUICK_CAPTURE_HOTKEY,
   deleteFolder,
@@ -82,6 +83,7 @@ import {
   searchVaultTextCapabilities,
   searchVaultText,
   setVaultSettings,
+  rootContentHiddenByInboxMode,
   type PersistedRemoteWorkspaceConfig,
   type PersistedRemoteWorkspaceProfile,
   type PersistedWindowState,
@@ -110,6 +112,7 @@ import {
   writeDatabaseRows,
   writeDatabaseSchema,
   createDatabase,
+  renameDatabase,
   createRecordPage,
   listDatabases
 } from './databases'
@@ -151,6 +154,7 @@ import {
 import { recordMainPerf } from './perf'
 import {
   parseOpenNoteDeepLink,
+  parseQuickCaptureDeepLink,
   ZENNOTES_DEEP_LINK_SCHEME
 } from './deep-links'
 import {
@@ -323,20 +327,29 @@ async function flushPendingFloatingNoteRequests(): Promise<void> {
   }
 }
 
-function handleExternalOpenUrl(rawUrl: string): boolean {
+type ExternalOpenUrlResult = 'none' | 'note' | 'quick-capture'
+
+function handleExternalOpenUrl(rawUrl: string): ExternalOpenUrlResult {
+  if (parseQuickCaptureDeepLink(rawUrl)) {
+    void toggleQuickCaptureWindow()
+    return 'quick-capture'
+  }
   const request = parseOpenNoteDeepLink(rawUrl)
-  if (!request) return false
+  if (!request) return 'none'
   if (request.target === 'window') queueFloatingNoteRequest(request.path)
   else queueOpenNoteRequest(request.path)
-  return true
+  return 'note'
 }
 
-function handleStartupDeepLinks(argv: string[]): void {
+function handleStartupDeepLinks(argv: string[]): ExternalOpenUrlResult {
+  let result: ExternalOpenUrlResult = 'none'
   for (const arg of argv) {
     if (arg.startsWith(`${ZENNOTES_DEEP_LINK_SCHEME}:`)) {
-      handleExternalOpenUrl(arg)
+      const next = handleExternalOpenUrl(arg)
+      if (next !== 'none') result = next
     }
   }
+  return result
 }
 
 function focusWindow(win: BrowserWindow): void {
@@ -391,7 +404,12 @@ function findWindowForVaultRoot(root: string): BrowserWindow | null {
 
 function queueMarkdownFileOpen(rawPath: string, reuseMainWindow: boolean): void {
   pendingFileOpens.push({ absPath: path.resolve(rawPath), reuseMainWindow })
-  if (app.isReady()) void flushPendingFileOpens()
+  // Only flush eagerly once startup is finished. During startup `app.isReady()`
+  // is already true (we're inside whenReady), so an eager flush here would
+  // drain the queue before whenReady's own flush runs — that flush would then
+  // report "nothing opened" and open a redundant default window alongside the
+  // file's window, so `zen open` (and double-clicking a .md) opened two. (#178)
+  if (app.isReady() && appStartupComplete) void flushPendingFileOpens()
 }
 
 function handleStartupMarkdownArgs(argv: string[], reuseMainWindow: boolean): void {
@@ -2003,6 +2021,13 @@ function registerIpc(): void {
     return await setVaultSettings(v.root, next)
   })
 
+  handle(IPC.VAULT_ROOT_CONTENT_HIDDEN, async () => {
+    // Local-vault only: a remote workspace manages its own layout server-side.
+    if (isRemoteWorkspaceActive()) return false
+    const v = requireVault()
+    return await rootContentHiddenByInboxMode(v.root)
+  })
+
   handle(IPC.VAULT_LIST_NOTES, async () => {
     if (isRemoteWorkspaceActive()) return await requireRemoteWorkspaceClient().listNotes()
     const v = requireVault()
@@ -2176,7 +2201,17 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_OPEN_DATABASE, async (_e, relPath: string) => {
     ensureLocalForDatabases()
-    return await readDatabase(requireVault().root, relPath)
+    try {
+      return await readDatabase(requireVault().root, relPath)
+    } catch (err) {
+      // A missing database isn't exceptional — its tab can simply outlive the
+      // file (deleted by us or another client). Return null so the renderer
+      // forgets it, instead of rejecting and logging a noisy
+      // "Error occurred in handler for 'vault:open-database'". Real errors
+      // (parse/permission) still throw.
+      if (err instanceof Error && err.message.startsWith('Database not found')) return null
+      throw err
+    }
   })
 
   handle(IPC.VAULT_WRITE_DATABASE_ROWS, async (_e, relPath: string, rows: DbRow[]) => {
@@ -2199,6 +2234,11 @@ function registerIpc(): void {
       return await createDatabase(requireVault().root, folder, subpath, title)
     }
   )
+
+  handle(IPC.VAULT_RENAME_DATABASE, async (_e, csvPath: string, newTitle: string) => {
+    ensureLocalForDatabases()
+    return await renameDatabase(requireVault().root, csvPath, newTitle)
+  })
 
   handle(
     IPC.VAULT_CREATE_RECORD_PAGE,
@@ -2251,6 +2291,17 @@ function registerIpc(): void {
       }
       const v = requireVault()
       return await createNote(v.root, folder, title, subpath)
+    }
+  )
+
+  handle(
+    IPC.VAULT_CREATE_EXCALIDRAW,
+    async (_e, folder: NoteFolder, subpath: string = '', title?: string) => {
+      if (isRemoteWorkspaceActive()) {
+        return await requireRemoteWorkspaceClient().createExcalidraw(folder, subpath, title)
+      }
+      const v = requireVault()
+      return await createExcalidraw(v.root, folder, subpath, title)
     }
   )
 
@@ -2580,7 +2631,7 @@ function registerIpc(): void {
   })
 
   handle(IPC.WINDOW_TOGGLE_QUICK_CAPTURE, async () => {
-    toggleQuickCaptureWindow()
+    await toggleQuickCaptureWindow()
   })
 
   handle(IPC.APP_GET_QUICK_CAPTURE_HOTKEY, async () => {
@@ -2746,7 +2797,7 @@ let registeredQuickCaptureHotkey: string | null = null
  *  auto-hide on blur. Mirrors PersistedConfig.quickCapturePinned. */
 let quickCapturePinned = false
 
-function ensureQuickCaptureWindow(): BrowserWindow {
+async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed()) return quickCaptureWindow
   const mac = isMac()
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow
@@ -2755,6 +2806,7 @@ function ensureQuickCaptureWindow(): BrowserWindow {
     height: 340,
     minWidth: 460,
     minHeight: 260,
+    title: 'ZenNotes Quick Capture',
     show: false,
     frame: false,
     titleBarStyle: mac ? 'hiddenInset' : 'hidden',
@@ -2808,6 +2860,10 @@ function ensureQuickCaptureWindow(): BrowserWindow {
   applyZoomFactor(win, currentZoomFactor)
   if (sourceWindow && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win)
+  } else {
+    await ipcWindowContext.run(win, async () => {
+      await loadCurrentVaultFromConfig()
+    })
   }
 
   const params = '?quickCapture=1'
@@ -2832,8 +2888,8 @@ function applyQuickCapturePinned(): void {
   win.setAlwaysOnTop(true, quickCapturePinned ? 'screen-saver' : 'floating')
 }
 
-function showQuickCaptureWindow(): void {
-  const win = ensureQuickCaptureWindow()
+async function showQuickCaptureWindow(): Promise<void> {
+  const win = await ensureQuickCaptureWindow()
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow
   if (sourceWindow && sourceWindow.id !== win.id && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win)
@@ -2842,13 +2898,13 @@ function showQuickCaptureWindow(): void {
   win.focus()
 }
 
-function toggleQuickCaptureWindow(): void {
+async function toggleQuickCaptureWindow(): Promise<void> {
   const win = quickCaptureWindow
   if (win && !win.isDestroyed() && win.isVisible() && win.isFocused()) {
     win.hide()
     return
   }
-  showQuickCaptureWindow()
+  await showQuickCaptureWindow()
 }
 
 function unregisterQuickCaptureHotkey(): void {
@@ -2866,11 +2922,18 @@ function registerQuickCaptureHotkey(hotkey: string): { ok: boolean; error?: stri
   const trimmed = hotkey.trim()
   if (!trimmed) return { ok: true }
   try {
-    const ok = globalShortcut.register(trimmed, toggleQuickCaptureWindow)
+    const ok = globalShortcut.register(trimmed, () => {
+      console.info(`[zen:quick-capture] hotkey pressed: ${trimmed}`)
+      void toggleQuickCaptureWindow()
+    })
     if (!ok) {
       return { ok: false, error: `Failed to register quick capture hotkey: ${trimmed}` }
     }
+    if (!globalShortcut.isRegistered(trimmed)) {
+      return { ok: false, error: `Quick capture hotkey was not registered by the system: ${trimmed}` }
+    }
     registeredQuickCaptureHotkey = trimmed
+    console.info(`[zen:quick-capture] registered hotkey: ${trimmed}`)
     return { ok: true }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -2992,10 +3055,12 @@ function installAppMenu(): void {
         { role: 'minimize' },
         { role: 'zoom' },
         { type: 'separator' },
-        { role: 'toggleTabBar' },
-        { role: 'selectNextTab' },
-        { role: 'selectPreviousTab' },
-        { role: 'mergeAllWindows' },
+        // Electron 41 leaves these macOS tab roles unlabeled unless the
+        // template supplies text, which renders as blank Window menu rows.
+        { role: 'toggleTabBar', label: 'Toggle Tab Bar' },
+        { role: 'selectNextTab', label: 'Show Next Tab' },
+        { role: 'selectPreviousTab', label: 'Show Previous Tab' },
+        { role: 'mergeAllWindows', label: 'Merge All Windows' },
         { type: 'separator' },
         { role: 'front' }
       ]
@@ -3127,6 +3192,10 @@ async function runMenuUpdateCheck(): Promise<void> {
 // before `app.whenReady()`.
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder')
+  // Wayland compositors (including Hyprland/Omarchy) expose global shortcuts
+  // through xdg-desktop-portal, but Electron only wires that path when this
+  // Chromium feature is enabled before app.whenReady().
+  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
 }
 
 app.whenReady().then(async () => {
@@ -3200,14 +3269,14 @@ app.whenReady().then(async () => {
   registerIpc()
   initAppUpdater()
   registerAppDeepLinkProtocol()
-  handleStartupDeepLinks(process.argv)
+  const startupDeepLinkResult = handleStartupDeepLinks(process.argv)
   handleStartupMarkdownArgs(process.argv, true)
 
   // Honor a file ZenNotes was launched to open before falling back to a
   // default-vault window, so double-clicking a .md doesn't also pop an
   // unrelated window.
   const openedFromFile = await flushPendingFileOpens()
-  if (!openedFromFile) {
+  if (!openedFromFile && startupDeepLinkResult !== 'quick-capture') {
     await ensureMainWindow()
   }
   void flushPendingFloatingNoteRequests()
@@ -3245,7 +3314,7 @@ app.whenReady().then(async () => {
 
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  if (!handleExternalOpenUrl(url)) {
+  if (handleExternalOpenUrl(url) === 'none') {
     console.warn(`Ignoring unsupported ${ZENNOTES_DEEP_LINK_SCHEME} URL: ${url}`)
   }
 })
@@ -3263,9 +3332,14 @@ app.on('open-file', (event, filePath) => {
 // already running) forwards its argv here instead of starting a second
 // process.
 app.on('second-instance', (_event, argv) => {
-  handleStartupDeepLinks(argv)
+  const deepLinkResult = handleStartupDeepLinks(argv)
   handleStartupMarkdownArgs(argv, false)
-  if (mainWindow && !mainWindow.isDestroyed()) focusWindow(mainWindow)
+  if (deepLinkResult === 'quick-capture') return
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    focusWindow(mainWindow)
+    return
+  }
+  void ensureMainWindow()
 })
 
 app.on('window-all-closed', () => {

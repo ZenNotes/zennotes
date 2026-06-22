@@ -96,7 +96,7 @@ const MATCHERS: Matcher[] = [
 
 // `#tag` tokens are pulled out of plain-text runs only — never from inside
 // code spans or URLs. Mirrors the boundary rule the note renderer uses.
-const TAG_RE = /(^|\s)#([a-zA-Z][\w/-]*)/g
+const TAG_RE = /(^|\s)#(\p{L}[\p{L}\d_/-]*)/gu
 
 function pushText(tokens: InlineToken[], text: string): void {
   if (!text) return

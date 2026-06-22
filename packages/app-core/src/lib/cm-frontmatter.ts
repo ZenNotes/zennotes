@@ -15,7 +15,9 @@ import {
 } from '@codemirror/view'
 
 const FRONTMATTER_LINE = Decoration.line({ class: 'cm-frontmatter-line' })
-const FRONTMATTER_FENCE = Decoration.line({ class: 'cm-frontmatter-line cm-frontmatter-fence' })
+const FRONTMATTER_TOP = Decoration.line({ class: 'cm-frontmatter-line cm-frontmatter-top' })
+const FRONTMATTER_BOTTOM = Decoration.line({ class: 'cm-frontmatter-line cm-frontmatter-bottom' })
+const FRONTMATTER_KEY = Decoration.mark({ class: 'cm-frontmatter-key' })
 
 function buildFrontmatterDeco(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
@@ -32,7 +34,19 @@ function buildFrontmatterDeco(view: EditorView): DecorationSet {
   if (endLine === -1) return builder.finish()
   for (let i = 1; i <= endLine; i++) {
     const line = doc.line(i)
-    builder.add(line.from, line.from, i === 1 || i === endLine ? FRONTMATTER_FENCE : FRONTMATTER_LINE)
+    // Line decoration first (its start side sorts before any mark at the same
+    // offset), then the key mark for property lines.
+    builder.add(
+      line.from,
+      line.from,
+      i === 1 ? FRONTMATTER_TOP : i === endLine ? FRONTMATTER_BOTTOM : FRONTMATTER_LINE
+    )
+    if (i !== 1 && i !== endLine) {
+      // Mark the key (text before the first `:`) so it reads as a muted label
+      // next to its value — a metadata panel, not a wall of text.
+      const colon = line.text.indexOf(':')
+      if (colon > 0) builder.add(line.from, line.from + colon, FRONTMATTER_KEY)
+    }
   }
   return builder.finish()
 }

@@ -20,10 +20,14 @@ const (
 	FolderArchive NoteFolder = "archive"
 	FolderTrash   NoteFolder = "trash"
 
-	PrimaryNotesInbox           PrimaryNotesLocation = "inbox"
-	PrimaryNotesRoot            PrimaryNotesLocation = "root"
-	DefaultDailyNotesDirectory                       = "Daily Notes"
-	DefaultWeeklyNotesDirectory                      = "Weekly Notes"
+	PrimaryNotesInbox             PrimaryNotesLocation = "inbox"
+	PrimaryNotesRoot              PrimaryNotesLocation = "root"
+	DefaultDailyNotesDirectory                         = "Daily Notes"
+	DefaultDailyNoteTitlePattern                       = "yyyy-MM-dd"
+	DefaultDailyNoteLocale                             = "system"
+	DefaultWeeklyNotesDirectory                        = "Weekly Notes"
+	DefaultWeeklyNoteTitlePattern                      = "yyyy-'W'ww"
+	DefaultWeeklyNoteLocale                            = "system"
 )
 
 func IsValidFolder(f NoteFolder) bool {
@@ -51,16 +55,33 @@ func FolderForRelativePath(rel string) (NoteFolder, bool) {
 	return FolderInbox, true
 }
 
+type DateNotePatternSettings struct {
+	Directory    string `json:"directory"`
+	TitlePattern string `json:"titlePattern,omitempty"`
+	Locale       string `json:"locale,omitempty"`
+}
+
 type DailyNotesSettings struct {
-	Enabled    bool   `json:"enabled"`
-	Directory  string `json:"directory"`
-	TemplateID string `json:"templateId,omitempty"`
+	Enabled        bool                      `json:"enabled"`
+	Directory      string                    `json:"directory"`
+	TitlePattern   string                    `json:"titlePattern,omitempty"`
+	Locale         string                    `json:"locale,omitempty"`
+	LegacyPatterns []DateNotePatternSettings `json:"legacyPatterns,omitempty"`
+	TemplateID     string                    `json:"templateId,omitempty"`
+	// Pointers so an absent field round-trips as "unset" (the TS client applies
+	// the real default — true for TasksDueOnNoteDate, false for rollover). These
+	// drive purely client-side behavior; the server only persists them.
+	TasksDueOnNoteDate      *bool `json:"tasksDueOnNoteDate,omitempty"`
+	RolloverUnfinishedTasks *bool `json:"rolloverUnfinishedTasks,omitempty"`
 }
 
 type WeeklyNotesSettings struct {
-	Enabled    bool   `json:"enabled"`
-	Directory  string `json:"directory"`
-	TemplateID string `json:"templateId,omitempty"`
+	Enabled        bool                      `json:"enabled"`
+	Directory      string                    `json:"directory"`
+	TitlePattern   string                    `json:"titlePattern,omitempty"`
+	Locale         string                    `json:"locale,omitempty"`
+	LegacyPatterns []DateNotePatternSettings `json:"legacyPatterns,omitempty"`
+	TemplateID     string                    `json:"templateId,omitempty"`
 }
 
 type VaultSettings struct {
@@ -68,6 +89,9 @@ type VaultSettings struct {
 	DailyNotes           DailyNotesSettings      `json:"dailyNotes"`
 	WeeklyNotes          WeeklyNotesSettings     `json:"weeklyNotes"`
 	FolderIcons          map[string]FolderIconID `json:"folderIcons"`
+	// Favorites are note paths or `folder:subpath` keys pinned to the top of
+	// the sidebar. Persisted so the web client's favorites survive a round-trip.
+	Favorites []string `json:"favorites"`
 }
 
 // NoteMeta — vault-relative note metadata. Mirrors shared/ipc.ts NoteMeta.

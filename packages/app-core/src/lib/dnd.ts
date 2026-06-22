@@ -25,7 +25,18 @@ export const ZEN_DND_MIME = 'application/x-zen-item'
 export const ZEN_DND_ASSET_MIME = 'application/x-zen-asset'
 export const ZEN_DND_TEXT_MIME = 'text/x-zen-item'
 
+// The active drag's payload, readable during `dragover` (where `getData` is
+// blocked by the browser). Set on every dragstart so it's always fresh for the
+// current drag; used by manual reorder to tell same-folder drops apart.
+let currentDragPayload: DragPayload | null = null
+
+/** The payload of the in-flight drag, or null. Safe to read during dragover. */
+export function getCurrentDragPayload(): DragPayload | null {
+  return currentDragPayload
+}
+
 export function setDragPayload(e: React.DragEvent, payload: DragPayload): void {
+  currentDragPayload = payload
   const encoded = JSON.stringify(payload)
   if (payload.kind === 'asset') {
     e.dataTransfer.setData(ZEN_DND_ASSET_MIME, encoded)

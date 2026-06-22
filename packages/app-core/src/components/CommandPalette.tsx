@@ -13,6 +13,7 @@ import {
 } from '../lib/command-history'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { canReturnToCommandList } from '../lib/command-palette-mode'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
@@ -291,6 +292,8 @@ export function CommandPalette(): JSX.Element {
             placeholder={inputPlaceholder}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // While composing (IME), let the input own Enter/Arrows. (#183)
+              if (isImeComposing(e)) return
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()

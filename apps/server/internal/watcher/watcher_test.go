@@ -77,6 +77,46 @@ func TestWatcherBroadcastsFolderCreateAndRemove(t *testing.T) {
 	}
 }
 
+func TestDisabledWatcherIsNoop(t *testing.T) {
+	root := t.TempDir()
+	w := Disabled(root)
+	if w.fs != nil {
+		t.Fatal("disabled watcher should have no fsnotify handle")
+	}
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	// Creating a directory must NOT produce an event — nothing is watched.
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "Projects"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-ch:
+		t.Fatalf("disabled watcher emitted an event: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: a no-op watcher never emits.
+	}
+
+	// Close must be safe even though there is no fsnotify handle to close.
+	w.Close()
+}
+
+func TestStartOrDisabledFallsBackWhenDisabled(t *testing.T) {
+	root := t.TempDir()
+
+	disabled := StartOrDisabled(root, true)
+	if disabled.fs != nil {
+		t.Error("StartOrDisabled(_, true) should return a no-op watcher")
+	}
+	disabled.Close()
+
+	enabled := StartOrDisabled(root, false)
+	if enabled.fs == nil {
+		t.Error("StartOrDisabled(_, false) should start a real watcher")
+	}
+	enabled.Close()
+}
+
 func TestWatcherDoesNotSurfaceInternalDirAsFolder(t *testing.T) {
 	root := t.TempDir()
 	w := newTestWatcher(t, root)

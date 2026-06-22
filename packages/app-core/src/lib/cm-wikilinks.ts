@@ -3,6 +3,8 @@ import type { EditorView } from '@codemirror/view'
 import type { AssetMeta, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from './vault-layout'
+import { resolveWikilinkTarget } from './wikilinks'
+import { parseOutline } from './outline'
 
 function normalize(value: string): string {
   return value.trim().toLowerCase()
@@ -320,4 +322,96 @@ export function wikilinkSource(context: CompletionContext): CompletionResult | n
     options,
     filter: false
   }
+}
+
+/**
+ * Match `[[Note#<headingQuery>` so we can suggest the target note's headings.
+ * The note is everything before the first `#`; the heading query is whatever
+ * follows the last `#` (so nested `#a#b` still completes the deepest part).
+ */
+function wikilinkHeadingMatch(context: CompletionContext): {
+  from: number
+  notePart: string
+  query: string
+} | null {
+  const { state, pos } = context
+  const line = state.doc.lineAt(pos)
+  const before = state.doc.sliceString(line.from, pos)
+  const openIndex = before.lastIndexOf('[[')
+  if (openIndex < 0) return null
+
+  const inside = before.slice(openIndex + 2)
+  if (inside.includes(']]') || inside.includes('|')) return null
+  const firstHash = inside.indexOf('#')
+  if (firstHash < 0) return null // no heading anchor — `wikilinkSource` owns this
+  const lastHash = inside.lastIndexOf('#')
+
+  return {
+    from: line.from + openIndex + 2 + lastHash + 1,
+    notePart: inside.slice(0, firstHash).trim(),
+    query: inside.slice(lastHash + 1)
+  }
+}
+
+// Bodies fetched for heading completion are cached so typing the heading query
+// doesn't re-read the file on every keystroke (`validFor` keeps the option list
+// while the query stays anchor-shaped, so this mostly matters across notes).
+const headingBodyCache = new Map<string, string>()
+
+/**
+ * Autocomplete headings inside a wikilink: typing `[[Note#` (or `[[#` for the
+ * current note) suggests that note's headings. (#196)
+ */
+export async function wikilinkHeadingSource(
+  context: CompletionContext
+): Promise<CompletionResult | null> {
+  const match = wikilinkHeadingMatch(context)
+  if (!match) return null
+
+  const state = useStore.getState()
+  const note = match.notePart
+    ? resolveWikilinkTarget(state.notes, match.notePart)
+    : state.activeNote
+  if (!note) return null
+
+  let body =
+    state.noteContents[note.path]?.body ??
+    (note as { body?: string }).body ?? // activeNote ([[#…]]) already carries its body
+    headingBodyCache.get(note.path)
+  if (body == null) {
+    try {
+      body = (await window.zen.readNote(note.path)).body
+      headingBodyCache.set(note.path, body)
+    } catch {
+      return null
+    }
+  }
+
+  const seen = new Set<string>()
+  const options: Completion[] = []
+  for (const heading of parseOutline(body)) {
+    const text = heading.text.trim()
+    const key = normalize(text)
+    if (!text || seen.has(key)) continue
+    seen.add(key)
+    options.push({
+      label: text,
+      detail: `H${heading.level}`,
+      type: 'text',
+      apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
+        const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
+        const insert = `${text}${existingClose ? '' : ']]'}`
+        view.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + text.length + (existingClose ? 0 : 2) }
+        })
+      }
+    })
+    if (options.length >= 100) break
+  }
+  if (options.length === 0) return null
+
+  // Default filter (fuzzy) on the heading query; validFor lets CodeMirror keep
+  // and filter the list client-side while the query stays anchor-shaped.
+  return { from: match.from, options, validFor: /^[^\]|]*$/ }
 }

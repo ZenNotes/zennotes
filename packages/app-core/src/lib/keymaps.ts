@@ -33,6 +33,8 @@ export type KeymapId =
   | "global.zoomIn"
   | "global.zoomOut"
   | "global.zoomReset"
+  | "global.historyBack"
+  | "global.historyForward"
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderSearchNotes"
@@ -43,6 +45,8 @@ export type KeymapId =
   | "vim.leaderSwitchVault"
   | "vim.leaderNoteActions"
   | "vim.leaderFormatNote"
+  | "vim.leaderCopyMarkdown"
+  | "vim.leaderToggleFavorite"
   | "vim.leaderQuickCapture"
   | "vim.leaderTemplatePicker"
   | "vim.leaderInsertTemplate"
@@ -322,6 +326,24 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBinding: "Mod+0",
   },
   {
+    id: "global.historyBack",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go back in note history",
+    description: "Jump to the previous note location in history. Works in any mode.",
+    defaultBinding: "Alt+ArrowLeft",
+  },
+  {
+    id: "global.historyForward",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Go forward in note history",
+    description: "Jump forward in note history. Works in any mode.",
+    defaultBinding: "Alt+ArrowRight",
+  },
+  {
     id: "vim.leaderPrefix",
     kind: "sequence",
     scope: "leader",
@@ -428,6 +450,28 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader note action: format note",
     description: "Format the active note from the editor.",
     defaultBinding: "f",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCopyMarkdown",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: copy note as Markdown",
+    description: "Copy the whole note's Markdown source to the clipboard.",
+    defaultBinding: "y",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderToggleFavorite",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: toggle favorite",
+    description: "Add or remove the active note from Favorites.",
+    defaultBinding: "s",
     vimOnly: true,
     maxTokens: 1,
   },

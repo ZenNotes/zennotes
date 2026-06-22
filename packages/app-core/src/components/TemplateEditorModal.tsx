@@ -9,7 +9,8 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
 import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
@@ -20,6 +21,7 @@ import { parseFrontmatter, slugifyTemplateName } from '@shared/template-files'
 import { renderTemplate } from '../lib/template-render'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
@@ -59,6 +61,7 @@ const templateHighlight = HighlightStyle.define([
   { tag: t.heading6, class: 'tok-heading6' },
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
+  { tag: t.strikethrough, class: 'tok-strikethrough' },
   { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
@@ -108,6 +111,7 @@ export function TemplateEditorModal({
     const state = EditorState.create({
       doc: initialRaw ?? SKELETON,
       extensions: [
+        appMarkdownSnippetExtension(),
         new Compartment().of(vimModeRef.current ? vim() : []),
         history(),
         drawSelection(),
@@ -136,7 +140,12 @@ export function TemplateEditorModal({
           optionClass: () => 'slash-cmd-option'
         }),
         completionNavKeymap,
-        keymap.of([indentWithTab, ...completionKeymap, ...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          indentWithTab,
+          ...completionKeymap,
+          ...vimAwareDefaultKeymap(vimModeRef.current),
+          ...historyKeymap
+        ]),
         editorTheme,
         EditorView.updateListener.of((upd) => {
           if (upd.docChanged) setRaw(upd.state.doc.toString())

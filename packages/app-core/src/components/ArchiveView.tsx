@@ -10,6 +10,7 @@ import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { promptApp } from '../lib/prompt-requests'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -40,6 +41,7 @@ export function ArchiveView(): JSX.Element {
   const selectedPath = useStore((s) => s.selectedPath)
   const renameNote = useStore((s) => s.renameNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
@@ -272,9 +274,9 @@ export function ArchiveView(): JSX.Element {
   useEffect(() => {
     if (!amActive) return
     const handler = (e: KeyboardEvent): void => {
-      if (document.querySelector('[data-ctx-menu]') || document.querySelector('[data-prompt-modal]')) {
-        return
-      }
+      // A modal/menu owns the keyboard while open — don't fire list shortcuts
+      // through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -284,6 +286,10 @@ export function ArchiveView(): JSX.Element {
 
       const key = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/x/d/gg/G/o/r//…)
+      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -300,35 +306,36 @@ export function ArchiveView(): JSX.Element {
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.contextMenu') && current) {
+      if (seq('nav.contextMenu') && current) {
         consume()
         openMenuForCurrent()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      if (seq('nav.moveDown') || key === 'ArrowDown') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      if (seq('nav.moveUp') || key === 'ArrowUp') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i - 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -341,17 +348,17 @@ export function ArchiveView(): JSX.Element {
       ) {
         return
       }
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
+      if ((key === 'Enter' || seq('nav.openResult')) && current) {
         consume()
         void openNote(current.path)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.unarchive') && current) {
+      if (seq('nav.unarchive') && current) {
         consume()
         void unarchiveNote(current)
         return
       }
-      if ((matchesSequenceToken(e, overrides, 'nav.delete') || key === 'd') && current) {
+      if ((seq('nav.delete') || (vimMode && key === 'd')) && current) {
         consume()
         void moveNoteToTrash(current)
       }
@@ -369,6 +376,7 @@ export function ArchiveView(): JSX.Element {
     filter,
     filtered.length,
     keymapOverrides,
+    vimMode,
     moveNoteToTrash,
     openMenuForCurrent,
     openNote,

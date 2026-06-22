@@ -6,6 +6,7 @@ import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { confirmApp } from '../lib/confirm-requests'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -29,6 +30,7 @@ export function TrashView(): JSX.Element {
   const selectNote = useStore((s) => s.selectNote)
   const closeActiveNote = useStore((s) => s.closeActiveNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const amActive = useStore(isTrashViewActive)
@@ -125,6 +127,9 @@ export function TrashView(): JSX.Element {
   useEffect(() => {
     if (!amActive) return
     const handler = (e: KeyboardEvent): void => {
+      // A modal/menu (e.g. the delete-confirm dialog) owns the keyboard while
+      // open — don't let list shortcuts fire through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -134,6 +139,10 @@ export function TrashView(): JSX.Element {
 
       const key = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/x/d/gg/G/o/r//…)
+      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -150,29 +159,30 @@ export function TrashView(): JSX.Element {
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      if (seq('nav.moveDown') || key === 'ArrowDown') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i + 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      if (seq('nav.moveUp') || key === 'ArrowUp') {
         consume()
         setCursorIndex((i) => Math.max(0, Math.min(filtered.length - 1, i - 1)))
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -185,17 +195,17 @@ export function TrashView(): JSX.Element {
       ) {
         return
       }
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
+      if ((key === 'Enter' || seq('nav.openResult')) && current) {
         consume()
         void openCurrent()
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.restore') && current) {
+      if (seq('nav.restore') && current) {
         consume()
         void restoreNote(current)
         return
       }
-      if ((matchesSequenceToken(e, overrides, 'nav.delete') || key === 'd') && current) {
+      if ((seq('nav.delete') || (vimMode && key === 'd')) && current) {
         consume()
         void deleteNoteForever(current)
       }
@@ -213,6 +223,7 @@ export function TrashView(): JSX.Element {
     filter,
     filtered.length,
     keymapOverrides,
+    vimMode,
     openCurrent,
     restoreNote
   ])

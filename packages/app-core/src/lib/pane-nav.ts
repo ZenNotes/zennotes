@@ -176,10 +176,49 @@ export function focusPaneInDirection(direction: PaneDirection): boolean {
   return true
 }
 
+/** Focus the editor pane at the left or right edge of the editor area. Used
+ *  when crossing in from an edge panel (sidebar / note list / connections) so
+ *  we land on the pane that actually sits next to it, not wherever
+ *  `activePaneId` happened to be. */
+function focusEditorEdgePane(direction: PaneDirection): boolean {
+  const rects = getPaneRects().filter((p) => p.id !== PINNED_REF_PANE_ID)
+  if (rects.length === 0) return false
+  const sorted = rects.slice().sort((a, b) => a.rect.left - b.rect.left)
+  const target = direction === 'l' ? sorted[0] : sorted[sorted.length - 1]
+  const state = useStore.getState()
+  state.setActivePane(target.id)
+  state.setFocusedPanel('editor')
+  requestAnimationFrame(() => {
+    const cm = document.querySelector<HTMLElement>(
+      `[data-pane-id="${target.id}"] .cm-content`
+    )
+    if (cm) cm.focus()
+    else useStore.getState().editorViewRef?.focus()
+  })
+  return true
+}
+
 export function focusPaneOrEdgePanel(direction: PaneDirection): boolean {
+  const state = useStore.getState()
+  const focused = state.focusedPanel
+
+  // When focus is on a horizontal edge panel, move relative to THAT panel
+  // instead of geometrically from activePaneId — otherwise `l` from the sidebar
+  // navigates from the last active pane and skips the pane that sits right next
+  // to the sidebar. (#124)
+  if (
+    (direction === 'h' || direction === 'l') &&
+    (focused === 'sidebar' || focused === 'notelist' || focused === 'connections')
+  ) {
+    const next = resolveNeighborEdgePanel(focused, direction, getVisibleEdgePanels(state))
+    if (!next || next === focused) return false
+    if (next === 'editor') return focusEditorEdgePane(direction)
+    focusEdgePanel(next)
+    return true
+  }
+
   if (focusPaneInDirection(direction)) return true
 
-  const state = useStore.getState()
   const next = resolveNeighborEdgePanel('editor', direction, getVisibleEdgePanels(state))
   if (!next || next === 'editor') return false
   focusEdgePanel(next)

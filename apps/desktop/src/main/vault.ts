@@ -12,11 +12,16 @@ import {
   type RenameNoteRef
 } from './wikilink-rename'
 import {
+  DEFAULT_DAILY_NOTE_LOCALE,
+  DEFAULT_DAILY_NOTE_TITLE_PATTERN,
   DEFAULT_DAILY_NOTES_DIRECTORY,
+  DEFAULT_WEEKLY_NOTE_LOCALE,
+  DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
   DEFAULT_WEEKLY_NOTES_DIRECTORY,
   AssetMeta,
   DeletedAsset,
   type FolderIconId,
+  type FolderColorId,
   type PrimaryNotesLocation,
   type VaultSettings,
   FolderEntry,
@@ -38,20 +43,33 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
-import { DATABASE_SIDECAR_SUFFIX } from '@shared/databases'
+import {
+  DATABASE_SIDECAR_SUFFIX,
+  databaseCsvPathFor,
+  databaseSchemaPathFor,
+  FORM_DATA_FILE,
+  FORM_DIR_SUFFIX,
+  FORM_SCHEMA_FILE,
+  isDatabaseInternalPath,
+  isFormDirName
+} from '@shared/databases'
+import { isExcalidrawPath, emptyExcalidrawDocument } from '@shared/excalidraw'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const SYSTEM_FOLDERS = new Set<NoteFolder>(FOLDERS)
+// Assets are unified under a top-level `assets/` folder. `attachements`/`_assets`
+// are recognized legacy dirs (read + migrated, never the import target). (#185)
+const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
-const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
+const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const DELETED_ASSETS_DIR = 'deleted-assets'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
-const NOTE_META_CACHE_VERSION = 1
+const NOTE_META_CACHE_VERSION = 2
 const NOTE_COMMENTS_DIR = 'comments'
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
@@ -133,17 +151,51 @@ function isFolderIconId(value: unknown): value is FolderIconId {
   return typeof value === 'string' && VALID_FOLDER_ICON_IDS.has(value as FolderIconId)
 }
 
+const VALID_FOLDER_COLOR_IDS = new Set<FolderColorId>([
+  'red',
+  'orange',
+  'amber',
+  'green',
+  'teal',
+  'sky',
+  'blue',
+  'indigo',
+  'violet',
+  'pink'
+])
+
+function isFolderColorId(value: unknown): value is FolderColorId {
+  return typeof value === 'string' && VALID_FOLDER_COLOR_IDS.has(value as FolderColorId)
+}
+
+function normalizeFolderColors(value: unknown): Record<string, FolderColorId> {
+  const out: Record<string, FolderColorId> = {}
+  if (value && typeof value === 'object') {
+    for (const [key, colorId] of Object.entries(value as Record<string, unknown>)) {
+      if (!key || !isFolderColorId(colorId)) continue
+      out[key] = colorId
+    }
+  }
+  return out
+}
+
 const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   primaryNotesLocation: 'inbox',
   dailyNotes: {
     enabled: false,
-    directory: DEFAULT_DAILY_NOTES_DIRECTORY
+    directory: DEFAULT_DAILY_NOTES_DIRECTORY,
+    titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+    locale: DEFAULT_DAILY_NOTE_LOCALE
   },
   weeklyNotes: {
     enabled: false,
-    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
+    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY,
+    titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+    locale: DEFAULT_WEEKLY_NOTE_LOCALE
   },
-  folderIcons: {}
+  folderIcons: {},
+  folderColors: {},
+  favorites: []
 }
 
 interface VaultTextSearchCandidate {
@@ -666,9 +718,14 @@ export function databaseDataPath(root: string, rel: string): string {
   return resolveSafe(root, toPosix(rel))
 }
 
-/** Absolute path of a database's co-located `.csv.base.json` sidecar. */
+/**
+ * Absolute path of a database's schema/sidecar. New layout: `<Name>.base/
+ * schema.json`. A legacy loose `.csv` (not in a `.base` folder) falls back to
+ * the co-located `<rel>.csv.base.json` so old vaults still read.
+ */
 export function databaseSidecarPath(root: string, rel: string): string {
-  return resolveSafe(root, `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
+  const schemaRel = databaseSchemaPathFor(toPosix(rel))
+  return resolveSafe(root, schemaRel ?? `${toPosix(rel)}${DATABASE_SIDECAR_SUFFIX}`)
 }
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
@@ -677,14 +734,22 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     dailyNotes: {
       enabled: settings.dailyNotes.enabled,
       directory: settings.dailyNotes.directory,
+      titlePattern: settings.dailyNotes.titlePattern,
+      locale: settings.dailyNotes.locale,
+      legacyPatterns: settings.dailyNotes.legacyPatterns?.map((pattern) => ({ ...pattern })),
       templateId: settings.dailyNotes.templateId
     },
     weeklyNotes: {
       enabled: settings.weeklyNotes.enabled,
       directory: settings.weeklyNotes.directory,
+      titlePattern: settings.weeklyNotes.titlePattern,
+      locale: settings.weeklyNotes.locale,
+      legacyPatterns: settings.weeklyNotes.legacyPatterns?.map((pattern) => ({ ...pattern })),
       templateId: settings.weeklyNotes.templateId
     },
-    folderIcons: { ...settings.folderIcons }
+    folderIcons: { ...settings.folderIcons },
+    folderColors: { ...settings.folderColors },
+    favorites: [...settings.favorites]
   }
 }
 
@@ -692,6 +757,30 @@ function normalizeDailyNotesDirectory(value: unknown): string {
   if (typeof value !== 'string') return DEFAULT_DAILY_NOTES_DIRECTORY
   const trimmed = value.trim().replace(/^\/+|\/+$/g, '')
   return trimmed || DEFAULT_DAILY_NOTES_DIRECTORY
+}
+
+function normalizeDailyNoteTitlePattern(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_DAILY_NOTE_TITLE_PATTERN
+  const trimmed = value.trim().replace(/[\\/]+/g, '-')
+  return trimmed || DEFAULT_DAILY_NOTE_TITLE_PATTERN
+}
+
+function normalizeDailyNoteLocale(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_DAILY_NOTE_LOCALE
+  const trimmed = value.trim()
+  return trimmed || DEFAULT_DAILY_NOTE_LOCALE
+}
+
+function normalizeWeeklyNoteTitlePattern(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
+  const trimmed = value.trim().replace(/[\\/]+/g, '-')
+  return trimmed || DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
+}
+
+function normalizeWeeklyNoteLocale(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_WEEKLY_NOTE_LOCALE
+  const trimmed = value.trim()
+  return trimmed || DEFAULT_WEEKLY_NOTE_LOCALE
 }
 
 function normalizeWeeklyNotesDirectory(value: unknown): string {
@@ -704,6 +793,46 @@ function normalizeTemplateId(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed || undefined
+}
+
+function normalizeDailyNoteLegacyPatterns(value: unknown): VaultSettings['dailyNotes']['legacyPatterns'] {
+  if (!Array.isArray(value)) return []
+  const out: NonNullable<VaultSettings['dailyNotes']['legacyPatterns']> = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const pattern = item as { directory?: unknown; titlePattern?: unknown; locale?: unknown }
+    const next = {
+      directory: normalizeDailyNotesDirectory(pattern.directory),
+      titlePattern: normalizeDailyNoteTitlePattern(pattern.titlePattern),
+      locale: normalizeDailyNoteLocale(pattern.locale)
+    }
+    const key = `${next.directory}\0${next.titlePattern}\0${next.locale}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(next)
+  }
+  return out
+}
+
+function normalizeWeeklyNoteLegacyPatterns(value: unknown): VaultSettings['weeklyNotes']['legacyPatterns'] {
+  if (!Array.isArray(value)) return []
+  const out: NonNullable<VaultSettings['weeklyNotes']['legacyPatterns']> = []
+  const seen = new Set<string>()
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const pattern = item as { directory?: unknown; titlePattern?: unknown; locale?: unknown }
+    const next = {
+      directory: normalizeWeeklyNotesDirectory(pattern.directory),
+      titlePattern: normalizeWeeklyNoteTitlePattern(pattern.titlePattern),
+      locale: normalizeWeeklyNoteLocale(pattern.locale)
+    }
+    const key = `${next.directory}\0${next.titlePattern}\0${next.locale}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(next)
+  }
+  return out
 }
 
 function normalizePrimaryNotesLocation(value: unknown): PrimaryNotesLocation {
@@ -719,20 +848,42 @@ function normalizeVaultSettings(
       primaryNotesLocation: fallbackPrimary,
       dailyNotes: {
         enabled: DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
-        directory: DEFAULT_DAILY_NOTES_DIRECTORY
+        directory: DEFAULT_DAILY_NOTES_DIRECTORY,
+        titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+        locale: DEFAULT_DAILY_NOTE_LOCALE
       },
       weeklyNotes: {
         enabled: DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
-        directory: DEFAULT_WEEKLY_NOTES_DIRECTORY
+        directory: DEFAULT_WEEKLY_NOTES_DIRECTORY,
+        titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+        locale: DEFAULT_WEEKLY_NOTE_LOCALE
       },
-      folderIcons: {}
+      folderIcons: {},
+      folderColors: {},
+      favorites: []
     }
   }
   const candidate = value as {
     primaryNotesLocation?: unknown
-    dailyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
-    weeklyNotes?: { enabled?: unknown; directory?: unknown; templateId?: unknown } | null
+    dailyNotes?: {
+      enabled?: unknown
+      directory?: unknown
+      titlePattern?: unknown
+      locale?: unknown
+      legacyPatterns?: unknown
+      templateId?: unknown
+    } | null
+    weeklyNotes?: {
+      enabled?: unknown
+      directory?: unknown
+      titlePattern?: unknown
+      locale?: unknown
+      legacyPatterns?: unknown
+      templateId?: unknown
+    } | null
     folderIcons?: Record<string, unknown> | null
+    folderColors?: Record<string, unknown> | null
+    favorites?: unknown
   }
   const folderIcons: Record<string, FolderIconId> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -751,6 +902,9 @@ function normalizeVaultSettings(
           ? candidate.dailyNotes.enabled
           : DEFAULT_VAULT_SETTINGS.dailyNotes.enabled,
       directory: normalizeDailyNotesDirectory(candidate.dailyNotes?.directory),
+      titlePattern: normalizeDailyNoteTitlePattern(candidate.dailyNotes?.titlePattern),
+      locale: normalizeDailyNoteLocale(candidate.dailyNotes?.locale),
+      legacyPatterns: normalizeDailyNoteLegacyPatterns(candidate.dailyNotes?.legacyPatterns),
       templateId: normalizeTemplateId(candidate.dailyNotes?.templateId)
     },
     weeklyNotes: {
@@ -759,10 +913,27 @@ function normalizeVaultSettings(
           ? candidate.weeklyNotes.enabled
           : DEFAULT_VAULT_SETTINGS.weeklyNotes.enabled,
       directory: normalizeWeeklyNotesDirectory(candidate.weeklyNotes?.directory),
+      titlePattern: normalizeWeeklyNoteTitlePattern(candidate.weeklyNotes?.titlePattern),
+      locale: normalizeWeeklyNoteLocale(candidate.weeklyNotes?.locale),
+      legacyPatterns: normalizeWeeklyNoteLegacyPatterns(candidate.weeklyNotes?.legacyPatterns),
       templateId: normalizeTemplateId(candidate.weeklyNotes?.templateId)
     },
-    folderIcons
+    folderIcons,
+    folderColors: normalizeFolderColors(candidate.folderColors),
+    favorites: normalizeFavorites(candidate.favorites)
   }
+}
+
+function normalizeFavorites(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry || seen.has(entry)) continue
+    seen.add(entry)
+    out.push(entry)
+  }
+  return out
 }
 
 function folderIconKey(folder: NoteFolder, subpath: string): string {
@@ -807,6 +978,44 @@ function removeFolderIcons(
   return next
 }
 
+function rewriteFolderColorsForRename(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  oldSubpath: string,
+  newSubpath: string
+): Record<string, FolderColorId> {
+  const next: Record<string, FolderColorId> = {}
+  const exactKey = folderIconKey(folder, oldSubpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderColors)) {
+    if (key === exactKey) {
+      next[folderIconKey(folder, newSubpath)] = value
+      continue
+    }
+    if (key.startsWith(prefix)) {
+      next[folderIconKey(folder, newSubpath) + key.slice(exactKey.length)] = value
+      continue
+    }
+    next[key] = value
+  }
+  return next
+}
+
+function removeFolderColors(
+  folderColors: Record<string, FolderColorId>,
+  folder: NoteFolder,
+  subpath: string
+): Record<string, FolderColorId> {
+  const next: Record<string, FolderColorId> = {}
+  const exactKey = folderIconKey(folder, subpath)
+  const prefix = `${exactKey}/`
+  for (const [key, value] of Object.entries(folderColors)) {
+    if (key === exactKey || key.startsWith(prefix)) continue
+    next[key] = value
+  }
+  return next
+}
+
 function duplicateFolderIcons(
   folderIcons: Record<string, FolderIconId>,
   folder: NoteFolder,
@@ -842,6 +1051,20 @@ async function inferPrimaryNotesLocation(root: string): Promise<PrimaryNotesLoca
     if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) return 'root'
   }
   return DEFAULT_VAULT_SETTINGS.primaryNotesLocation
+}
+
+/**
+ * True when the vault is in `inbox` primary-notes mode but its root holds
+ * markdown files or non-system folders that only `root` mode would surface —
+ * i.e. an Obsidian-style flat vault that was detected as Inbox (e.g. a flaky
+ * first directory read on an iCloud/symlinked folder fell back to the default)
+ * and is now silently hiding the user's notes. Drives the "Switch to Vault
+ * root" banner so an empty-looking vault is explained instead of silent.
+ */
+export async function rootContentHiddenByInboxMode(root: string): Promise<boolean> {
+  const settings = await getVaultSettings(root)
+  if (settings.primaryNotesLocation !== 'inbox') return false
+  return (await inferPrimaryNotesLocation(root)) === 'root'
 }
 
 async function vaultLooksEmpty(root: string): Promise<boolean> {
@@ -929,6 +1152,228 @@ export async function ensureVaultLayout(root: string): Promise<void> {
       await fs.writeFile(welcomePath, WELCOME_NOTE, 'utf8')
     }
   }
+  if (!wasEmpty) {
+    try {
+      await migrateLegacyDatabases(root)
+    } catch (err) {
+      console.error('legacy database migration failed', err)
+    }
+    try {
+      await migrateLooseAssets(root)
+    } catch (err) {
+      console.error('loose asset migration failed', err)
+    }
+  }
+}
+
+/**
+ * One-time, idempotent migration: unify assets under `assets/`. Moves loose
+ * root-level attachments and any files in the legacy `attachements/` / `_assets/`
+ * dirs into `assets/`, skipping a file whose basename already exists there (so
+ * the basename-fallback resolution of `![[…]]`/`![](…)` embeds stays
+ * unambiguous). Never touches notes (`.md`) or database files. Safe on every
+ * open. Returns the moved (assets-relative) and skipped (source) paths.
+ */
+export async function migrateLooseAssets(
+  root: string
+): Promise<{ moved: string[]; skipped: string[] }> {
+  const moved: string[] = []
+  const skipped: string[] = []
+  const assetsAbs = path.join(root, ASSETS_DIR)
+
+  const moveIntoAssets = async (srcRel: string): Promise<void> => {
+    const destRel = `${ASSETS_DIR}/${path.basename(srcRel)}`
+    if (toPosix(srcRel) === destRel) return
+    const destAbs = resolveSafe(root, destRel)
+    try {
+      await fs.access(destAbs) // a same-named asset already exists — don't clobber/rename
+      skipped.push(toPosix(srcRel))
+      return
+    } catch {
+      /* destination free */
+    }
+    await fs.mkdir(assetsAbs, { recursive: true })
+    await fs.rename(resolveSafe(root, srcRel), destAbs)
+    moved.push(destRel)
+  }
+
+  // 1. Loose asset files sitting directly at the vault root.
+  //
+  // Skip this for a vault managed by another app — an `.obsidian/` directory
+  // marks an Obsidian vault. Those loose root files (`.canvas`, images, PDFs,
+  // anything) are the user's own, not ZenNotes' legacy attachments, and
+  // silently relocating them into `assets/` surprised users who pointed
+  // ZenNotes at an existing Obsidian vault (#202). The legacy ZenNotes
+  // attachment dirs below never exist in such a vault, so they stay safe.
+  let isExternalVault = false
+  try {
+    await fs.access(path.join(root, '.obsidian'))
+    isExternalVault = true
+  } catch {
+    /* not an Obsidian vault */
+  }
+  if (!isExternalVault) {
+    let rootEntries: Dirent[] = []
+    try {
+      rootEntries = await fs.readdir(root, { withFileTypes: true })
+    } catch {
+      rootEntries = []
+    }
+    for (const entry of rootEntries) {
+      if (entry.name.startsWith('.') || !entry.isFile()) continue
+      if (entry.name.toLowerCase().endsWith('.md')) continue // a note
+      if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
+      await moveIntoAssets(entry.name)
+    }
+  }
+
+  // 2. Files in the legacy attachment dirs, then drop the dir if it empties.
+  for (const dir of LEGACY_ATTACHMENTS_DIRS) {
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(path.join(root, dir), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || !entry.isFile()) continue
+      await moveIntoAssets(`${dir}/${entry.name}`)
+    }
+    try {
+      await fs.rmdir(path.join(root, dir))
+    } catch {
+      /* not empty — leave it */
+    }
+  }
+
+  if (moved.length > 0) {
+    console.log(`[zen] migrated ${moved.length} asset(s) into ${ASSETS_DIR}/`)
+  }
+  return { moved, skipped }
+}
+
+/**
+ * One-time, idempotent migration: convert legacy loose databases — a
+ * `<dir>/<Name>.csv` + co-located `<dir>/<Name>.csv.base.json` sidecar, with
+ * record-page notes under `<dir>/<Name>/` — into the self-contained
+ * `<dir>/<Name>.base/` folder (data.csv + schema.json + record `.md` pages).
+ * Safe to run on every open: anything already in `.base` form, or whose target
+ * folder exists, is skipped. Per-database failures are logged, not fatal.
+ * Returns the number of databases migrated.
+ */
+export async function migrateLegacyDatabases(root: string): Promise<number> {
+  let migrated = 0
+  const walk = async (dirRel: string): Promise<void> => {
+    const dirAbs = dirRel ? path.join(root, dirRel) : root
+    let entries: Dirent[]
+    try {
+      entries = await fs.readdir(dirAbs, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const name = entry.name
+      if (name.startsWith('.')) continue
+      const childRel = dirRel ? `${dirRel}/${name}` : name
+      if (entry.isDirectory()) {
+        if (isFormDirName(name)) continue // already a database folder
+        await walk(childRel)
+        continue
+      }
+      const lower = name.toLowerCase()
+      if (!lower.endsWith('.csv') || lower.endsWith(`.csv${DATABASE_SIDECAR_SUFFIX}`)) continue
+      // Only migrate a managed database (a `.csv` with a sibling sidecar); a
+      // plain CSV without one is left as a file.
+      const sidecarRel = `${childRel}${DATABASE_SIDECAR_SUFFIX}`
+      try {
+        await fs.access(resolveSafe(root, sidecarRel))
+      } catch {
+        continue
+      }
+      try {
+        if (await migrateOneLegacyDatabase(root, childRel, sidecarRel)) migrated++
+      } catch (err) {
+        console.error(`database migration failed for ${childRel}`, err)
+      }
+    }
+  }
+  await walk('')
+  if (migrated > 0) {
+    console.log(`[zen] migrated ${migrated} database(s) to the .base folder layout`)
+  }
+  return migrated
+}
+
+async function migrateOneLegacyDatabase(
+  root: string,
+  csvRel: string,
+  sidecarRel: string
+): Promise<boolean> {
+  const name = path.basename(csvRel).replace(/\.csv$/i, '')
+  const parentRel = csvRel.includes('/') ? csvRel.slice(0, csvRel.lastIndexOf('/')) : ''
+  const formDirRel = parentRel ? `${parentRel}/${name}${FORM_DIR_SUFFIX}` : `${name}${FORM_DIR_SUFFIX}`
+  const formDirAbs = resolveSafe(root, formDirRel)
+  // Idempotent / collision safety: never clobber an existing folder.
+  try {
+    await fs.access(formDirAbs)
+    return false
+  } catch {
+    /* target free — proceed */
+  }
+
+  let sidecar: Record<string, unknown> = {}
+  try {
+    sidecar = JSON.parse(await fs.readFile(resolveSafe(root, sidecarRel), 'utf8')) as Record<
+      string,
+      unknown
+    >
+  } catch {
+    /* unreadable sidecar — still migrate the data, infer schema on next open */
+  }
+
+  await fs.mkdir(formDirAbs, { recursive: true })
+
+  // Move record-page notes into the folder; rewrite pages → relative basenames.
+  const pages =
+    sidecar.pages && typeof sidecar.pages === 'object'
+      ? (sidecar.pages as Record<string, unknown>)
+      : {}
+  const newPages: Record<string, string> = {}
+  const oldPageDirs = new Set<string>()
+  for (const [rowId, p] of Object.entries(pages)) {
+    if (typeof p !== 'string') continue
+    const srcAbs = resolveSafe(root, p)
+    try {
+      await fs.access(srcAbs)
+    } catch {
+      continue // page note already gone — drop the mapping
+    }
+    const finalTitle = await uniqueTitle(formDirAbs, sanitizeNoteTitle(path.basename(p, '.md')))
+    await fs.rename(srcAbs, resolveSafe(root, `${formDirRel}/${finalTitle}.md`))
+    newPages[rowId] = `${finalTitle}.md`
+    if (p.includes('/')) oldPageDirs.add(p.slice(0, p.lastIndexOf('/')))
+  }
+
+  // Move the data file, write schema.json (relative pages), drop the old sidecar.
+  await fs.rename(resolveSafe(root, csvRel), resolveSafe(root, `${formDirRel}/${FORM_DATA_FILE}`))
+  const outSidecar: Record<string, unknown> = { ...sidecar }
+  if (Object.keys(newPages).length > 0) outSidecar.pages = newPages
+  else delete outSidecar.pages
+  await writeFileAtomic(
+    resolveSafe(root, `${formDirRel}/${FORM_SCHEMA_FILE}`),
+    `${JSON.stringify(outSidecar, null, 2)}\n`
+  )
+  await fs.rm(resolveSafe(root, sidecarRel), { force: true })
+
+  // Remove now-empty legacy per-database page folders (e.g. `<dir>/<Name>/`).
+  for (const d of oldPageDirs) {
+    try {
+      await fs.rmdir(resolveSafe(root, d))
+    } catch {
+      /* not empty / not ours — leave it */
+    }
+  }
+  return true
 }
 
 export function vaultInfo(root: string): VaultInfo {
@@ -976,7 +1421,7 @@ function localAssetTargetKind(target: string): ImportedAssetKind | null {
 function extractTags(body: string): string[] {
   if (!body.includes('#')) return []
   const stripped = stripCodeContent(body)
-  const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
+  const matches = stripped.match(/(?:^|\s)#(\p{L}[\p{L}\d_/-]*)/gu) || []
   const seen = new Set<string>()
   for (const m of matches) seen.add(m.trim().slice(1))
   return [...seen]
@@ -1022,6 +1467,37 @@ function extractWikilinks(body: string): string[] {
     if (!target) continue
     if (bang === '!' && localAssetTargetKind(target)) continue
     seen.add(target)
+  }
+  return [...seen]
+}
+
+/** Pull unique asset-embed targets out of markdown — both `![[asset]]` (which
+ *  extractWikilinks deliberately skips) and `![](path)` image/file embeds. The
+ *  raw targets are resolved to assets per-note by the renderer (relative path +
+ *  basename fallback), to show which notes use each asset. */
+function extractAssetEmbeds(body: string): string[] {
+  const stripped = stripCodeContent(body)
+  const seen = new Set<string>()
+  if (stripped.includes('![[')) {
+    const re = /!\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(stripped)) !== null) {
+      const t = (m[1] ?? '').trim()
+      if (t && localAssetTargetKind(t)) seen.add(t)
+    }
+  }
+  if (stripped.includes('](')) {
+    const re = /!\[[^\]]*\]\(\s*<?([^)>\s]+)>?[^)]*\)/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(stripped)) !== null) {
+      const raw = (m[1] ?? '').trim()
+      if (!raw || raw.startsWith('#') || /^[a-zA-Z][\w+.-]*:/.test(raw)) continue // skip URLs/anchors
+      try {
+        seen.add(decodeURIComponent(raw))
+      } catch {
+        seen.add(raw)
+      }
+    }
   }
   return [...seen]
 }
@@ -1160,6 +1636,8 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     !candidate.tags.every((tag) => typeof tag === 'string') ||
     !Array.isArray(candidate.wikilinks) ||
     !candidate.wikilinks.every((wikilink) => typeof wikilink === 'string') ||
+    !Array.isArray(candidate.assetEmbeds) ||
+    !candidate.assetEmbeds.every((embed) => typeof embed === 'string') ||
     typeof candidate.hasAttachments !== 'boolean' ||
     typeof candidate.excerpt !== 'string'
   ) {
@@ -1175,6 +1653,7 @@ function normalizeCachedNoteMeta(value: unknown): NoteMeta | null {
     size: candidate.size,
     tags: candidate.tags,
     wikilinks: candidate.wikilinks,
+    assetEmbeds: candidate.assetEmbeds,
     hasAttachments: candidate.hasAttachments,
     excerpt: candidate.excerpt
   }
@@ -1435,6 +1914,21 @@ function noteFolderFromRelPath(relPath: string): NoteFolder | null {
 // note symlinked into the vault is invisible.
 async function isMarkdownNoteEntry(full: string, entry: Dirent): Promise<boolean> {
   if (!entry.name.toLowerCase().endsWith('.md')) return false
+  if (entry.isFile()) return true
+  if (entry.isSymbolicLink()) {
+    try {
+      return (await fs.stat(full)).isFile()
+    } catch {
+      return false
+    }
+  }
+  return false
+}
+
+// `.excalidraw` drawings are listed alongside notes (so they show in the sidebar
+// tree); the sidebar/editor route them by extension to the drawing view.
+async function isExcalidrawFileEntry(full: string, entry: Dirent): Promise<boolean> {
+  if (!isExcalidrawPath(entry.name)) return false
   if (entry.isFile()) return true
   if (entry.isSymbolicLink()) {
     try {
@@ -1812,6 +2306,28 @@ async function readMeta(
     return { ...cached.meta, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
   }
 
+  // Excalidraw drawings are JSON, not Markdown — don't parse their body for
+  // tags/links/excerpt (that would be garbage) or even read it for meta.
+  if (isExcalidrawPath(relPath)) {
+    const meta: NoteMeta = {
+      path: relPath,
+      title: path.basename(abs, path.extname(abs)),
+      folder,
+      siblingOrder: resolvedSiblingOrder,
+      createdAt: stat.birthtimeMs || stat.ctimeMs,
+      updatedAt: stat.mtimeMs,
+      size: stat.size,
+      tags: [],
+      wikilinks: [],
+      assetEmbeds: [],
+      hasAttachments: false,
+      excerpt: '',
+      isSymlink: linked
+    }
+    noteMetaCache.set(cacheKey, { mtimeMs: stat.mtimeMs, size: stat.size, meta })
+    return meta
+  }
+
   let body = ''
   try {
     body = await fs.readFile(abs, 'utf8')
@@ -1828,6 +2344,7 @@ async function readMeta(
     size: stat.size,
     tags: extractTags(body),
     wikilinks: extractWikilinks(body),
+    assetEmbeds: extractAssetEmbeds(body),
     hasAttachments: bodyHasLocalAsset(body),
     excerpt: buildExcerpt(body),
     isSymlink: linked
@@ -1903,6 +2420,10 @@ export async function listFolders(root: string): Promise<FolderEntry[]> {
         if (isPrimaryRoot && dirAbs === topAbs && shouldHidePrimaryRootEntry(e.name)) continue
         const nextSub = subpath ? `${subpath}/${e.name}` : e.name
         out.push({ folder, subpath: nextSub, siblingOrder: index, isSymlink: e.isSymbolicLink() })
+        // A `<Name>.base` database folder is listed (the renderer shows it as a
+        // database), but we don't descend — its data.csv/schema.json internals
+        // aren't folders, and its record-page notes are surfaced via listNotes.
+        if (isFormDirName(e.name)) continue
         ancestors.add(childReal)
         await walk(full, childReal, nextSub)
         ancestors.delete(childReal)
@@ -1947,7 +2468,10 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
         ancestors.delete(childReal)
         continue
       }
-      if (await isMarkdownNoteEntry(full, entry)) {
+      if (
+        (await isMarkdownNoteEntry(full, entry)) ||
+        (await isExcalidrawFileEntry(full, entry))
+      ) {
         noteFiles.push({ full, folder, siblingOrder: index, isSymlink: entry.isSymbolicLink() })
       }
     }
@@ -2280,7 +2804,8 @@ function cleanAssetFilename(name: string): string {
 
 function cleanAssetTargetDir(root: string, targetDir: string): string {
   const normalized = normalizeVaultRelativePath(targetDir).replace(/^\/+|\/+$/g, '')
-  if (!normalized) return root
+  // No explicit target → the unified `assets/` folder (not loose at the root).
+  if (!normalized) return resolveSafe(root, ASSETS_DIR)
   if (normalized.split('/').includes(INTERNAL_VAULT_DIR)) {
     throw new Error('Cannot move assets into internal ZenNotes files.')
   }
@@ -2403,6 +2928,35 @@ export async function createNote(
   return await readMeta(root, abs, folder)
 }
 
+// Create a new `.excalidraw` drawing seeded with an empty scene. Mirrors
+// createNote (unique title, same folder/subpath resolution) but writes the
+// Excalidraw JSON instead of a Markdown stub.
+export async function createExcalidraw(
+  root: string,
+  folder: NoteFolder,
+  subpath = '',
+  title?: string
+): Promise<NoteMeta> {
+  const base = sanitizeNoteTitle(title) || 'Untitled drawing'
+  const clean = subpath.replace(/^\/+|\/+$/g, '')
+  const topRoot = await folderRoot(root, folder)
+  const dir = clean ? resolveSafe(topRoot, clean) : topRoot
+  await fs.mkdir(dir, { recursive: true })
+  let finalTitle = base
+  for (let n = 2; ; n++) {
+    try {
+      await fs.access(path.join(dir, `${finalTitle}.excalidraw`))
+      finalTitle = `${base} ${n}`
+    } catch {
+      break
+    }
+  }
+  const abs = path.join(dir, `${finalTitle}.excalidraw`)
+  await fs.writeFile(abs, JSON.stringify(emptyExcalidrawDocument(), null, 2), 'utf8')
+  invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
+  return await readMeta(root, abs, folder)
+}
+
 /**
  * Move a markdown file that lives outside the vault into the vault's
  * primary notes area, de-duplicating the title on collision. The source
@@ -2434,7 +2988,10 @@ export async function renameNote(
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   const dir = path.dirname(abs)
   const trimmed = sanitizeNoteTitle(nextTitle)
-  const target = path.join(dir, `${trimmed}.md`)
+  // Preserve the file's type on rename — a `.excalidraw` drawing must stay a
+  // drawing, not get turned into a `.md` note (which would render its JSON).
+  const ext = isExcalidrawPath(abs) ? '.excalidraw' : '.md'
+  const target = path.join(dir, `${trimmed}${ext}`)
   const willRename = target !== abs
   // Snapshot the vault before the rename so inbound [[wikilinks]] still
   // resolve to this note under its current name; we rewrite them afterwards.
@@ -2534,7 +3091,9 @@ async function moveBetweenFolders(
   await fs.mkdir(destDir, { recursive: true })
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)
-  const destAbs = path.join(destDir, `${finalTitle}.md`)
+  // Preserve the file type when moving (a `.excalidraw` drawing stays a drawing).
+  const ext = isExcalidrawPath(filename) ? '.excalidraw' : '.md'
+  const destAbs = path.join(destDir, `${finalTitle}${ext}`)
   await fs.rename(abs, destAbs)
   const meta = await readMeta(root, destAbs, target)
   await moveNoteComments(root, rel, meta.path)
@@ -2740,6 +3299,12 @@ export async function renameFolder(
       topFolder,
       oldClean,
       newClean
+    ),
+    folderColors: rewriteFolderColorsForRename(
+      settings.folderColors,
+      topFolder,
+      oldClean,
+      newClean
     )
   }
   await setVaultSettings(root, nextSettings)
@@ -2764,7 +3329,8 @@ export async function deleteFolder(
   const settings = await getVaultSettings(root)
   const nextSettings: VaultSettings = {
     ...settings,
-    folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean)
+    folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean),
+    folderColors: removeFolderColors(settings.folderColors, topFolder, clean)
   }
   await setVaultSettings(root, nextSettings)
   invalidateNoteMetaCache(root)
@@ -2826,7 +3392,7 @@ export function folderAbsolutePath(
 }
 
 export function assetsAbsolutePath(root: string): string {
-  return path.join(root, PRIMARY_ATTACHMENTS_DIR)
+  return path.join(root, ASSETS_DIR)
 }
 
 async function removeFileIfExists(abs: string): Promise<void> {
@@ -2915,6 +3481,9 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       const childReal = await resolveDirDescent(full, entry, dirReal, ancestors)
       if (childReal !== null) {
         if (dirAbs === root && entry.name === INTERNAL_VAULT_DIR) continue
+        // A `<Name>.base` database folder isn't an asset container — its
+        // data.csv/schema.json/record notes never appear in the assets list.
+        if (isFormDirName(entry.name)) continue
         ancestors.add(childReal)
         await walk(full, childReal, ancestors)
         ancestors.delete(childReal)
@@ -2922,6 +3491,11 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       }
       if (!entry.isFile()) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
+      // Excalidraw drawings are a first-class file type (listed with notes), not
+      // a generic attachment.
+      if (isExcalidrawPath(entry.name)) continue
+      // Legacy co-located sidecar/.bak (pre-migration) — not a user asset.
+      if (isDatabaseInternalPath(entry.name)) continue
       let stat
       try {
         stat = await fs.stat(full)
@@ -3045,13 +3619,14 @@ export async function importPastedImage(
   input: PastedImageInput,
   now = new Date()
 ): Promise<ImportedAsset> {
-  await fs.mkdir(root, { recursive: true })
-
   const bytes = pastedImageBuffer(input.data)
   if (bytes.byteLength === 0) throw new Error('Clipboard image is empty.')
 
-  const finalName = await uniqueFilename(root, pastedImageFilename(input, now))
-  const destAbs = path.join(root, finalName)
+  // Pasted images land in the unified `assets/` folder.
+  const assetsDir = path.join(root, ASSETS_DIR)
+  await fs.mkdir(assetsDir, { recursive: true })
+  const finalName = await uniqueFilename(assetsDir, pastedImageFilename(input, now))
+  const destAbs = path.join(assetsDir, finalName)
   await fs.writeFile(destAbs, bytes)
 
   const vaultRelPath = toPosix(path.relative(root, destAbs))

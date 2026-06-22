@@ -25,7 +25,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Build the package
+      - name: Set up build user
         run: |
           set -euxo pipefail
           # makepkg refuses to run as root — build as an unprivileged user with
@@ -35,11 +35,37 @@ jobs:
           install -d -o builder -g builder /tmp/build
           cp packaging/aur/PKGBUILD packaging/aur/.SRCINFO /tmp/build/
           chown -R builder:builder /tmp/build
+
+      # The PKGBUILD always points at the upcoming release's tarball, which does
+      # not exist until that release is published. Skip the full build (which has
+      # to download it) when the asset isn't up yet, rather than failing — the
+      # metadata + .SRCINFO are still checked, and the real build runs once the
+      # release exists.
+      - name: Check whether the release asset is published
+        id: asset
+        run: |
+          set -uo pipefail
+          # shellcheck disable=SC1091
+          source packaging/aur/PKGBUILD
+          url="${source[0]#*::}"
+          echo "url=$url"
+          if curl -fsIL -o /dev/null "$url"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=AUR build skipped::Release asset not published yet ($url). PKGBUILD metadata + .SRCINFO are still validated; the full makepkg build runs once the release exists."
+          fi
+
+      - name: Build the package
+        if: steps.asset.outputs.exists == 'true'
+        run: |
+          set -euxo pipefail
           cd /tmp/build
           sudo -u builder makepkg -s --noconfirm --noprogressbar
           ls -la ./*.pkg.tar.*
 
       - name: Lint (non-blocking)
+        if: steps.asset.outputs.exists == 'true'
         run: |
           cd /tmp/build
           namcap PKGBUILD || true
@@ -47,6 +73,7 @@ jobs:
 
       - name: Verify .SRCINFO is in sync
         run: |
+          set -euxo pipefail
           cd /tmp/build
           sudo -u builder makepkg --printsrcinfo > .SRCINFO.generated
           if ! diff -u .SRCINFO .SRCINFO.generated; then

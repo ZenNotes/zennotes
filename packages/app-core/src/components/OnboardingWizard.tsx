@@ -798,6 +798,7 @@ function LayoutStep({
       ...current,
       primaryNotesLocation: patch.primaryNotesLocation ?? current.primaryNotesLocation,
       dailyNotes: {
+        ...current.dailyNotes,
         enabled: patch.dailyEnabled ?? current.dailyNotes.enabled,
         directory:
           patch.dailyDirectory !== undefined

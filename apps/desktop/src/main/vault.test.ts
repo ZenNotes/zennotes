@@ -22,6 +22,7 @@ import {
   renameFolder,
   restoreDeletedAsset,
   restoreFromTrash,
+  rootContentHiddenByInboxMode,
   searchVaultText,
   searchVaultTextCapabilities,
   setVaultSettings,
@@ -39,6 +40,35 @@ async function makeTempDir(prefix: string): Promise<string> {
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+})
+
+describe('rootContentHiddenByInboxMode (#195)', () => {
+  it('flags an Obsidian-style vault (root notes + custom folders) stuck in inbox mode', async () => {
+    const root = await makeTempDir('zennotes-vault-hidden-')
+    await mkdir(root, { recursive: true })
+    await writeFile(path.join(root, 'index.md'), '# Index\n')
+    await mkdir(path.join(root, 'concepts'), { recursive: true })
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(true)
+  })
+
+  it('is false once the vault is switched to root mode', async () => {
+    const root = await makeTempDir('zennotes-vault-rootmode-')
+    await mkdir(root, { recursive: true })
+    await writeFile(path.join(root, 'index.md'), '# Index\n')
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'root' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
+
+  it('is false for an inbox-mode vault with no root content to hide', async () => {
+    const root = await makeTempDir('zennotes-vault-emptyroot-')
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, primaryNotesLocation: 'inbox' })
+    expect(await rootContentHiddenByInboxMode(root)).toBe(false)
+  })
 })
 
 describe('absolutePath', () => {
@@ -137,7 +167,7 @@ describe('appendToNote', () => {
 })
 
 describe('importPastedImage', () => {
-  it('writes clipboard image bytes to the vault root and returns a wiki embed', async () => {
+  it('writes clipboard image bytes into assets/ and returns a wiki embed', async () => {
     const root = await makeTempDir('zennotes-paste-image-')
     await ensureVaultLayout(root)
 
@@ -153,19 +183,20 @@ describe('importPastedImage', () => {
 
     expect(imported).toEqual({
       name: 'Screenshot 2026-05-13.png',
-      path: 'Screenshot 2026-05-13.png',
-      markdown: '![[Screenshot 2026-05-13.png]]',
+      path: 'assets/Screenshot 2026-05-13.png',
+      markdown: '![[assets/Screenshot 2026-05-13.png]]',
       kind: 'image'
     })
-    await expect(readFile(path.join(root, 'Screenshot 2026-05-13.png'))).resolves.toEqual(
+    await expect(readFile(path.join(root, 'assets/Screenshot 2026-05-13.png'))).resolves.toEqual(
       Buffer.from([137, 80, 78, 71])
     )
   })
 
-  it('generates a unique root filename when the clipboard has no useful name', async () => {
+  it('generates a unique filename in assets/ when the clipboard has no useful name', async () => {
     const root = await makeTempDir('zennotes-paste-image-name-')
     await ensureVaultLayout(root)
-    await writeFile(path.join(root, 'Pasted Image 2026-05-13 150405.webp'), 'existing', 'utf8')
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await writeFile(path.join(root, 'assets/Pasted Image 2026-05-13 150405.webp'), 'existing', 'utf8')
 
     const imported = await importPastedImage(
       root,
@@ -177,9 +208,9 @@ describe('importPastedImage', () => {
     )
 
     expect(imported.name).toBe('Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.path).toBe('Pasted Image 2026-05-13 150405 2.webp')
-    expect(imported.markdown).toBe('![[Pasted Image 2026-05-13 150405 2.webp]]')
-    await expect(readFile(path.join(root, imported.name))).resolves.toEqual(Buffer.from([1, 2, 3]))
+    expect(imported.path).toBe('assets/Pasted Image 2026-05-13 150405 2.webp')
+    expect(imported.markdown).toBe('![[assets/Pasted Image 2026-05-13 150405 2.webp]]')
+    await expect(readFile(path.join(root, imported.path))).resolves.toEqual(Buffer.from([1, 2, 3]))
   })
 })
 
@@ -535,7 +566,7 @@ describe('listNotes metadata cache', () => {
     await writeFile(
       path.join(root, '.zennotes', 'note-meta-cache-v1.json'),
       `${JSON.stringify({
-        version: 1,
+        version: 2,
         entries: [
           {
             path: rel,
@@ -551,6 +582,7 @@ describe('listNotes metadata cache', () => {
               size: info.size,
               tags: ['cached'],
               wikilinks: ['Cached Target'],
+              assetEmbeds: [],
               hasAttachments: false,
               excerpt: 'cached excerpt'
             }
@@ -613,6 +645,23 @@ describe('listNotes metadata cache', () => {
     expect(note?.title).toBe('stale')
     expect(note?.tags).toEqual(['fresh'])
     expect(note?.excerpt).toContain('Fresh Title')
+  })
+})
+
+describe('listNotes asset embeds (#185 usage)', () => {
+  it('captures ![[asset]] and ![](asset) targets, not note wikilinks or URLs', async () => {
+    const root = await makeTempDir('zennotes-asset-embeds-')
+    await ensureVaultLayout(root)
+    await writeFile(
+      path.join(root, 'inbox', 'n.md'),
+      // Includes the angle-bracket + alt-text form the editor writes: ![alt](<path>).
+      '![[photo.png]]\n![](assets/doc.pdf)\n![GreenGrass](<GreenGrass.jpg>)\n[[Some Note]]\n![](https://x.com/a.png)\n',
+      'utf8'
+    )
+    const notes = await listNotes(root)
+    const note = notes.find((n) => n.path === 'inbox/n.md')
+    expect(note?.assetEmbeds.sort()).toEqual(['GreenGrass.jpg', 'assets/doc.pdf', 'photo.png'])
+    expect(note?.wikilinks).toEqual(['Some Note']) // note links stay separate
   })
 })
 

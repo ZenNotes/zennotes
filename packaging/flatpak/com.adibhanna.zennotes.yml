@@ -1,0 +1,59 @@
+app-id: com.adibhanna.zennotes
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+base: org.electronjs.Electron2.BaseApp
+base-version: '25.08'
+command: zennotes
+separate-locales: false
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --socket=pulseaudio
+  # Notes are plain Markdown files on disk — allow access to the home dir.
+  - --filesystem=home
+  - --talk-name=org.freedesktop.Notifications
+
+modules:
+  - name: zennotes
+    buildsystem: simple
+    build-commands:
+      # Unpack the official AppImage. `--appimage-extract` uses the embedded
+      # squashfs extractor and needs no FUSE, so it runs inside the build sandbox.
+      - chmod +x ZenNotes.AppImage
+      - ./ZenNotes.AppImage --appimage-extract
+      # Install icons from the AppImage's hicolor tree, renamed to the app-id.
+      - |
+        for s in 16 24 32 48 64 128 256 512; do
+          install -Dm644 "squashfs-root/usr/share/icons/hicolor/${s}x${s}/apps/ZenNotes.png" \
+            "/app/share/icons/hicolor/${s}x${s}/apps/com.adibhanna.zennotes.png"
+        done
+      # Copy the unpacked Electron app into /app, dropping AppImage-only bits.
+      - mkdir -p /app/zennotes
+      - cp -a squashfs-root/. /app/zennotes/
+      - rm -rf /app/zennotes/usr /app/zennotes/AppRun /app/zennotes/.DirIcon
+          /app/zennotes/ZenNotes.png /app/zennotes/ZenNotes.desktop
+      # The SUID chrome-sandbox is unusable in Flatpak; zypak handles sandboxing.
+      - rm -f /app/zennotes/chrome-sandbox
+      - chmod -R a+rX /app/zennotes
+      - install -Dm755 zennotes.sh /app/bin/zennotes
+      - install -Dm644 com.adibhanna.zennotes.desktop
+          /app/share/applications/com.adibhanna.zennotes.desktop
+      - install -Dm644 com.adibhanna.zennotes.metainfo.xml
+          /app/share/metainfo/com.adibhanna.zennotes.metainfo.xml
+    sources:
+      # Bump `url` + `sha256` on each release (see README.md).
+      - type: file
+        url: https://github.com/ZenNotes/zennotes/releases/download/v2.5.0/ZenNotes-2.5.0-linux-x86_64.AppImage
+        sha256: 8a45df0b12edcf6ce272625e89edc9a7a5fa855b04d9bf4f1dcdd18efde8fb49
+        dest-filename: ZenNotes.AppImage
+      - type: file
+        path: zennotes.sh
+      - type: file
+        path: com.adibhanna.zennotes.desktop
+      - type: file
+        path: com.adibhanna.zennotes.metainfo.xml

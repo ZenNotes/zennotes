@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
-import type { VaultTask } from '@shared/tasks'
+import { inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
+import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { computeTasksRender, isOverdue } from '../lib/tasks-filter'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban } from './TasksKanban'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { isImeComposing } from '../lib/ime'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'done'
 
@@ -29,7 +32,9 @@ const VIEW_BUTTONS: Array<{
 ]
 
 export function TasksView(): JSX.Element {
-  const tasks = useStore((s) => s.vaultTasks)
+  const rawTasks = useStore((s) => s.vaultTasks)
+  const notes = useStore((s) => s.notes)
+  const vaultSettings = useStore((s) => s.vaultSettings)
   const loading = useStore((s) => s.tasksLoading)
   const filter = useStore((s) => s.tasksFilter)
   const cursorIndex = useStore((s) => s.taskCursorIndex)
@@ -38,8 +43,22 @@ export function TasksView(): JSX.Element {
   const refreshTasks = useStore((s) => s.refreshTasks)
   const openTaskAt = useStore((s) => s.openTaskAt)
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
+  const applyTaskMutation = useStore((s) => s.applyTaskMutation)
+  const moveTaskToDate = useStore((s) => s.moveTaskToDate)
+  const addTaskForDate = useStore((s) => s.addTaskForDate)
   const closeTasksView = useStore((s) => s.closeTasksView)
+
+  // Tasks written inside a daily note inherit that note's date as an implicit
+  // due date (a clean line, no `due:` token) so they appear on the calendar.
+  // Done at the display layer so it works on desktop + web identically and
+  // re-derives whenever notes/settings change. Explicit `due:` still wins.
+  const dueByPath = useMemo(
+    () => buildDailyNoteDateByPath(notes, vaultSettings),
+    [notes, vaultSettings]
+  )
+  const tasks = useMemo(() => inferDailyTaskDueDates(rawTasks, dueByPath), [rawTasks, dueByPath])
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const viewMode = useStore((s) => s.tasksViewMode)
   const setViewMode = useStore((s) => s.setTasksViewMode)
   // Only the Tasks panel in the *active* pane should listen for j/k/etc.
@@ -202,6 +221,12 @@ export function TasksView(): JSX.Element {
   useEffect(() => {
     if (!isActivePanel) return
     const handler = (e: KeyboardEvent): void => {
+      // A modal/menu owns the keyboard while open — don't fire list shortcuts
+      // through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
+      // While the Vim hint overlay is open it owns the keyboard; don't let
+      // task navigation (or Esc closing the view) steal its keys. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null
       if (active) {
         const tag = active.tagName
@@ -211,47 +236,49 @@ export function TasksView(): JSX.Element {
 
       const key = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o/Space/1-3/…)
+      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
       }
 
       if (key === 'Escape') {
-        if (filter) {
-          consume()
-          setFilter('')
-          return
-        }
+        // Tasks is a tab like a note tab — Esc clears an active filter but must
+        // never close the tab (other tabs don't close on Esc). Close with :q,
+        // the header ✕, or ⌘W. (#151)
         consume()
-        closeTasksView()
+        if (filter) setFilter('')
         return
       }
 
-      // View switcher works regardless of sub-view.
-      if (key === '1') {
+      // View switcher works regardless of sub-view (Vim mode only).
+      if (vimMode && key === '1') {
         consume()
         setViewMode('list')
         return
       }
-      if (key === '2') {
+      if (vimMode && key === '2') {
         consume()
         setViewMode('calendar')
         return
       }
-      if (key === '3') {
+      if (vimMode && key === '3') {
         consume()
         setViewMode('kanban')
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
 
-      if (matchesSequenceToken(e, overrides, 'nav.localEx')) {
+      if (seq('nav.localEx')) {
         consume()
         setExValue('')
         setExOpen(true)
@@ -263,22 +290,23 @@ export function TasksView(): JSX.Element {
       // List-mode-only navigation. Calendar and Kanban have their own.
       if (viewMode !== 'list') return
 
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      if (seq('nav.moveDown') || key === 'ArrowDown') {
         consume()
         moveCursor(1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      if (seq('nav.moveUp') || key === 'ArrowUp') {
         consume()
         moveCursor(-1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(taskRowIndices.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -292,12 +320,12 @@ export function TasksView(): JSX.Element {
         return
       }
 
-      if ((key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && currentTask) {
+      if ((key === 'Enter' || seq('nav.openResult')) && currentTask) {
         consume()
         void openTaskAt(currentTask)
         return
       }
-      if ((key === ' ' || matchesSequenceToken(e, overrides, 'nav.toggleTask')) && currentTask) {
+      if (((vimMode && key === ' ') || seq('nav.toggleTask')) && currentTask) {
         consume()
         void toggleTaskFromList(currentTask)
         return
@@ -313,6 +341,7 @@ export function TasksView(): JSX.Element {
     taskRowIndices.length,
     currentTask,
     keymapOverrides,
+    vimMode,
     openTaskAt,
     toggleTaskFromList,
     closeTasksView,
@@ -366,6 +395,8 @@ export function TasksView(): JSX.Element {
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               onKeyDown={(e) => {
+                // While composing (IME), let the input own Enter/Arrows. (#183)
+                if (isImeComposing(e)) return
                 if (e.key === 'Escape') {
                   e.stopPropagation()
                   if (filter) setFilter('')
@@ -453,6 +484,12 @@ export function TasksView(): JSX.Element {
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}
+          onRescheduleTask={(task, dueIso) =>
+            void applyTaskMutation(task, { kind: 'set-due', due: dueIso })
+          }
+          onMoveTask={(task, dateIso) => void moveTaskToDate(task, dateIso)}
+          onAddTask={(dateIso, text) => addTaskForDate(dateIso, text)}
+          dailyNotesEnabled={vaultSettings.dailyNotes.enabled}
         />
       )}
 
@@ -501,10 +538,10 @@ export function TasksView(): JSX.Element {
       ) : (
         <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
           {viewMode === 'list'
-            ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · Esc close'
+            ? 'j/k move · Enter/o open · Space/x toggle · / filter · 1/2/3 view · : command · :q close'
             : viewMode === 'calendar'
-              ? 'h/j/k/l day · [ ] month · gt today · Enter open · 1/2/3 view · : command · Esc close'
-              : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · Esc close'}
+              ? 'h/j/k/l day · [ ] month · gt today · Tab pick · < > reschedule · drag to move · Enter open · :q'
+              : 'h/l column · j/k card · Space toggle · Enter open · 1/2/3 view · : command · :q close'}
         </div>
       )}
     </div>

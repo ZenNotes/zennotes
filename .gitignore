@@ -18,3 +18,8 @@ apps/server/bin
 data/
 /vault/
 /remotevault/
+# Nix build outputs
+result
+result-*
+# Release notes / launch copy are kept local only, never committed.
+docs/releases/

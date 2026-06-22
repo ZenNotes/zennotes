@@ -110,6 +110,9 @@ export interface ZenBridge {
   browseServerDirectories(path?: string): Promise<DirectoryBrowseResult>
   getVaultSettings(): Promise<VaultSettings>
   setVaultSettings(next: VaultSettings): Promise<VaultSettings>
+  /** True when the vault is in `inbox` mode but its root holds notes that only
+   *  `root` mode would surface (drives the "Switch to Vault root" banner). */
+  rootContentHiddenByInboxMode(): Promise<boolean>
 
   listNotes(): Promise<NoteMeta[]>
   listNotesPage?(request: ListNotesPageRequest): Promise<ListNotesPageResponse>
@@ -135,16 +138,21 @@ export interface ZenBridge {
   writeNoteComments(relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]>
   scanTasks(): Promise<VaultTask[]>
   scanTasksForPath(relPath: string): Promise<VaultTask[]>
-  openDatabase(relPath: string): Promise<DatabaseDoc>
+  /** Resolves to null when the `.csv` no longer exists (e.g. a stale tab). */
+  openDatabase(relPath: string): Promise<DatabaseDoc | null>
   writeDatabaseRows(relPath: string, rows: DbRow[]): Promise<DatabaseDoc>
   writeDatabaseSchema(relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
   createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>
+  /** Rename a database's `.base` folder; resolves to the new `data.csv` path. */
+  renameDatabase(csvPath: string, newTitle: string): Promise<string>
   /** Create a record's "page" note (returns its vault-relative path). */
   createRecordPage(csvPath: string, title: string, body: string): Promise<string>
   listDatabases(): Promise<DatabaseSummary[]>
   writeNote(relPath: string, body: string): Promise<NoteMeta>
   appendToNote(relPath: string, body: string, position: 'start' | 'end'): Promise<NoteMeta>
   createNote(folder: NoteFolder, title?: string, subpath?: string): Promise<NoteMeta>
+  /** Create a new `.excalidraw` drawing seeded with an empty scene. */
+  createExcalidraw(folder: NoteFolder, subpath?: string, title?: string): Promise<NoteMeta>
   renameNote(relPath: string, nextTitle: string): Promise<NoteMeta>
   deleteNote(relPath: string): Promise<void>
   moveToTrash(relPath: string): Promise<NoteMeta>

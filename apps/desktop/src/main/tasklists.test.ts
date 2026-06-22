@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  extractUncheckedTaskBlocks,
+  removeTaskAtIndex,
+  takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
   setTaskDueAtIndex,
   setTaskPriorityAtIndex,
+  setTaskTextAtIndex,
   setTaskWaitingAtIndex,
   toggleTaskAtIndex
 } from '@shared/tasklists'
@@ -117,5 +121,93 @@ describe('setTaskDueAtIndex', () => {
     expect(setTaskDueAtIndex('- [ ] a due:2026-04-30 !high', 0, null)).toBe(
       '- [ ] a !high'
     )
+  })
+})
+
+describe('extractUncheckedTaskBlocks', () => {
+  it('pulls out only unchecked tasks, leaving checked + prose behind', () => {
+    const md = ['# 2026-06-16', '', '- [x] shipped', '- [ ] follow up', 'a note line'].join('\n')
+    const { moved, rest } = extractUncheckedTaskBlocks(md)
+    expect(moved).toEqual(['- [ ] follow up'])
+    expect(rest).toBe(['# 2026-06-16', '', '- [x] shipped', 'a note line'].join('\n'))
+  })
+
+  it('moves tokens verbatim (future due dates are preserved)', () => {
+    const md = ['- [ ] plan Q3 due:2026-09-01 !high', '- [x] done'].join('\n')
+    const { moved } = extractUncheckedTaskBlocks(md)
+    expect(moved).toEqual(['- [ ] plan Q3 due:2026-09-01 !high'])
+  })
+
+  it('carries indented child lines along with their task', () => {
+    const md = ['- [ ] parent', '  - [ ] child', '  notes', '- [ ] sibling'].join('\n')
+    const { moved, rest } = extractUncheckedTaskBlocks(md)
+    expect(moved).toEqual(['- [ ] parent', '  - [ ] child', '  notes', '- [ ] sibling'])
+    expect(rest).toBe('')
+  })
+
+  it('ignores checkboxes inside fenced code blocks', () => {
+    const md = ['- [ ] real', '```', '- [ ] fenced', '```'].join('\n')
+    const { moved, rest } = extractUncheckedTaskBlocks(md)
+    expect(moved).toEqual(['- [ ] real'])
+    expect(rest).toBe(['```', '- [ ] fenced', '```'].join('\n'))
+  })
+
+  it('returns nothing to move when all tasks are checked', () => {
+    const md = ['- [x] a', '- [x] b'].join('\n')
+    const { moved, rest } = extractUncheckedTaskBlocks(md)
+    expect(moved).toEqual([])
+    expect(rest).toBe(md)
+  })
+})
+
+describe('setTaskTextAtIndex', () => {
+  it('replaces the text after the checkbox, preserving the marker + check state', () => {
+    expect(setTaskTextAtIndex('- [x] old text', 0, 'new text')).toBe('- [x] new text')
+    expect(setTaskTextAtIndex('  - [ ] a\n  - [ ] b', 1, 'edited')).toBe('  - [ ] a\n  - [ ] edited')
+  })
+
+  it('writes tokens verbatim when included in the new text', () => {
+    expect(setTaskTextAtIndex('- [ ] a', 0, 'do thing due:2026-07-01 !high')).toBe(
+      '- [ ] do thing due:2026-07-01 !high'
+    )
+  })
+
+  it('leaves an empty checkbox when text is blank', () => {
+    expect(setTaskTextAtIndex('- [ ] something', 0, '   ')).toBe('- [ ]')
+  })
+})
+
+describe('removeTaskAtIndex', () => {
+  it('deletes the task line at the given index', () => {
+    expect(removeTaskAtIndex('- [ ] a\n- [ ] b\n- [ ] c', 1)).toBe('- [ ] a\n- [ ] c')
+  })
+
+  it('keeps surrounding prose intact', () => {
+    const md = ['# Day', '', '- [ ] keep', '- [ ] drop', 'a line'].join('\n')
+    expect(removeTaskAtIndex(md, 1)).toBe(['# Day', '', '- [ ] keep', 'a line'].join('\n'))
+  })
+
+  it('does not count checkboxes inside fenced code', () => {
+    const md = ['```', '- [ ] fenced', '```', '- [ ] real'].join('\n')
+    expect(removeTaskAtIndex(md, 0)).toBe(['```', '- [ ] fenced', '```'].join('\n'))
+  })
+
+  it('returns markdown unchanged for an out-of-range index', () => {
+    expect(removeTaskAtIndex('- [ ] only', 5)).toBe('- [ ] only')
+  })
+})
+
+describe('takeTaskLineAtIndex', () => {
+  it('returns the removed line plus the remaining body (for moving a task)', () => {
+    const md = ['- [ ] a', '- [ ] b due:2026-07-01 !high', '- [ ] c'].join('\n')
+    const { line, body } = takeTaskLineAtIndex(md, 1)
+    expect(line).toBe('- [ ] b due:2026-07-01 !high')
+    expect(body).toBe('- [ ] a\n- [ ] c')
+  })
+
+  it('returns a null line and the unchanged body when out of range', () => {
+    const { line, body } = takeTaskLineAtIndex('- [ ] only', 9)
+    expect(line).toBeNull()
+    expect(body).toBe('- [ ] only')
   })
 })

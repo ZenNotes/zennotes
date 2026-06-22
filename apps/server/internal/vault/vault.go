@@ -19,6 +19,9 @@ import (
 )
 
 const (
+	// AssetsDir is the canonical top-level folder for assets; attachements/_assets
+	// are recognized legacy dirs. Asset migration runs on the desktop (#185).
+	AssetsDir             = "assets"
 	PrimaryAttachmentsDir = "attachements"
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
@@ -27,18 +30,60 @@ const (
 	noteCommentsDir       = "comments"
 	noteCommentsSuffix    = ".comments.json"
 	noteMetaReadLimit     = 64
+	// formDirSuffix marks a database folder (`<Name>.base/`), a self-contained
+	// folder holding data.csv, schema.json, and record-page notes. Databases are
+	// a desktop-only feature; the server hides these folders (it neither serves
+	// the grid nor exposes the internals as loose notes/assets).
+	formDirSuffix = ".base"
 )
+
+// isFormDirName reports whether a folder name marks a database folder.
+func isFormDirName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(name), formDirSuffix)
+}
+
+// excalidrawExt marks a standalone Excalidraw drawing — the native Excalidraw
+// JSON scene format. Drawings are a first-class file type alongside Markdown
+// notes: listed in the sidebar (not as assets) and opened in a dedicated editor.
+const excalidrawExt = ".excalidraw"
+
+// isExcalidrawName reports whether a filename is an Excalidraw drawing.
+func isExcalidrawName(name string) bool {
+	return strings.EqualFold(filepath.Ext(name), excalidrawExt)
+}
+
+// noteExt returns the on-disk extension for a note-like file, preserving
+// `.excalidraw` for drawings and defaulting to `.md` otherwise. Rename/move/
+// duplicate use it so a drawing never silently becomes a Markdown note.
+func noteExt(name string) string {
+	if isExcalidrawName(name) {
+		return excalidrawExt
+	}
+	return ".md"
+}
+
+// emptyExcalidrawJSON mirrors emptyExcalidrawDocument() in
+// packages/shared-domain/src/excalidraw.ts (JSON.stringify, 2-space indent).
+const emptyExcalidrawJSON = `{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "zennotes",
+  "elements": [],
+  "appState": {},
+  "files": {}
+}`
 
 // ErrAssetTooLarge is returned when an asset upload exceeds the
 // vault's MaxAssetBytes limit.
 var ErrAssetTooLarge = errors.New("asset exceeds maximum size")
 
-var legacyAttachmentsDirs = []string{"_assets"}
+var legacyAttachmentsDirs = []string{PrimaryAttachmentsDir, "_assets"}
 var reservedRootNames = map[string]struct{}{
 	string(FolderInbox):   {},
 	string(FolderQuick):   {},
 	string(FolderArchive): {},
 	string(FolderTrash):   {},
+	AssetsDir:             {},
 	PrimaryAttachmentsDir: {},
 	internalVaultDir:      {},
 }
@@ -47,6 +92,7 @@ var hiddenPrimaryRootNames = map[string]struct{}{
 	string(FolderQuick):   {},
 	string(FolderArchive): {},
 	string(FolderTrash):   {},
+	AssetsDir:             {},
 	PrimaryAttachmentsDir: {},
 	internalVaultDir:      {},
 }
@@ -224,19 +270,34 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	for key, value := range settings.FolderIcons {
 		folderIcons[key] = value
 	}
+	favorites := make([]string, len(settings.Favorites))
+	copy(favorites, settings.Favorites)
+	dailyLegacyPatterns := make([]DateNotePatternSettings, len(settings.DailyNotes.LegacyPatterns))
+	copy(dailyLegacyPatterns, settings.DailyNotes.LegacyPatterns)
+	weeklyLegacyPatterns := make([]DateNotePatternSettings, len(settings.WeeklyNotes.LegacyPatterns))
+	copy(weeklyLegacyPatterns, settings.WeeklyNotes.LegacyPatterns)
 	return VaultSettings{
 		PrimaryNotesLocation: settings.PrimaryNotesLocation,
 		DailyNotes: DailyNotesSettings{
-			Enabled:    settings.DailyNotes.Enabled,
-			Directory:  settings.DailyNotes.Directory,
-			TemplateID: settings.DailyNotes.TemplateID,
+			Enabled:                 settings.DailyNotes.Enabled,
+			Directory:               settings.DailyNotes.Directory,
+			TitlePattern:            settings.DailyNotes.TitlePattern,
+			Locale:                  settings.DailyNotes.Locale,
+			LegacyPatterns:          dailyLegacyPatterns,
+			TemplateID:              settings.DailyNotes.TemplateID,
+			TasksDueOnNoteDate:      settings.DailyNotes.TasksDueOnNoteDate,
+			RolloverUnfinishedTasks: settings.DailyNotes.RolloverUnfinishedTasks,
 		},
 		WeeklyNotes: WeeklyNotesSettings{
-			Enabled:    settings.WeeklyNotes.Enabled,
-			Directory:  settings.WeeklyNotes.Directory,
-			TemplateID: settings.WeeklyNotes.TemplateID,
+			Enabled:        settings.WeeklyNotes.Enabled,
+			Directory:      settings.WeeklyNotes.Directory,
+			TitlePattern:   settings.WeeklyNotes.TitlePattern,
+			Locale:         settings.WeeklyNotes.Locale,
+			LegacyPatterns: weeklyLegacyPatterns,
+			TemplateID:     settings.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
+		Favorites:   favorites,
 	}
 }
 
@@ -248,12 +309,82 @@ func normalizeDailyNotesDirectory(value string) string {
 	return trimmed
 }
 
+func normalizeDailyNoteTitlePattern(value string) string {
+	trimmed := strings.TrimSpace(strings.NewReplacer("/", "-", "\\", "-").Replace(value))
+	if trimmed == "" {
+		return DefaultDailyNoteTitlePattern
+	}
+	return trimmed
+}
+
+func normalizeDailyNoteLocale(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultDailyNoteLocale
+	}
+	return trimmed
+}
+
 func normalizeWeeklyNotesDirectory(value string) string {
 	trimmed := strings.Trim(value, "/")
 	if trimmed == "" {
 		return DefaultWeeklyNotesDirectory
 	}
 	return trimmed
+}
+
+func normalizeWeeklyNoteTitlePattern(value string) string {
+	trimmed := strings.TrimSpace(strings.NewReplacer("/", "-", "\\", "-").Replace(value))
+	if trimmed == "" {
+		return DefaultWeeklyNoteTitlePattern
+	}
+	return trimmed
+}
+
+func normalizeWeeklyNoteLocale(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultWeeklyNoteLocale
+	}
+	return trimmed
+}
+
+func normalizeDailyNoteLegacyPatterns(value []DateNotePatternSettings) []DateNotePatternSettings {
+	out := []DateNotePatternSettings{}
+	seen := map[string]bool{}
+	for _, pattern := range value {
+		next := DateNotePatternSettings{
+			Directory:    normalizeDailyNotesDirectory(pattern.Directory),
+			TitlePattern: normalizeDailyNoteTitlePattern(pattern.TitlePattern),
+			Locale:       normalizeDailyNoteLocale(pattern.Locale),
+		}
+		key := next.Directory + "\x00" + next.TitlePattern + "\x00" + next.Locale
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, next)
+	}
+	return out
+}
+
+func normalizeWeeklyNoteLegacyPatterns(value []DateNotePatternSettings) []DateNotePatternSettings {
+	out := []DateNotePatternSettings{}
+	seen := map[string]bool{}
+	for _, pattern := range value {
+		next := DateNotePatternSettings{
+			Directory:    normalizeWeeklyNotesDirectory(pattern.Directory),
+			TitlePattern: normalizeWeeklyNoteTitlePattern(pattern.TitlePattern),
+			Locale:       normalizeWeeklyNoteLocale(pattern.Locale),
+		}
+		key := next.Directory + "\x00" + next.TitlePattern + "\x00" + next.Locale
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, next)
+	}
+	return out
 }
 
 func normalizePrimaryNotesLocation(value PrimaryNotesLocation) PrimaryNotesLocation {
@@ -282,17 +413,42 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			return value.PrimaryNotesLocation
 		}()),
 		DailyNotes: DailyNotesSettings{
-			Enabled:    value.DailyNotes.Enabled,
-			Directory:  normalizeDailyNotesDirectory(value.DailyNotes.Directory),
-			TemplateID: value.DailyNotes.TemplateID,
+			Enabled:                 value.DailyNotes.Enabled,
+			Directory:               normalizeDailyNotesDirectory(value.DailyNotes.Directory),
+			TitlePattern:            normalizeDailyNoteTitlePattern(value.DailyNotes.TitlePattern),
+			Locale:                  normalizeDailyNoteLocale(value.DailyNotes.Locale),
+			LegacyPatterns:          normalizeDailyNoteLegacyPatterns(value.DailyNotes.LegacyPatterns),
+			TemplateID:              value.DailyNotes.TemplateID,
+			TasksDueOnNoteDate:      value.DailyNotes.TasksDueOnNoteDate,
+			RolloverUnfinishedTasks: value.DailyNotes.RolloverUnfinishedTasks,
 		},
 		WeeklyNotes: WeeklyNotesSettings{
-			Enabled:    value.WeeklyNotes.Enabled,
-			Directory:  normalizeWeeklyNotesDirectory(value.WeeklyNotes.Directory),
-			TemplateID: value.WeeklyNotes.TemplateID,
+			Enabled:        value.WeeklyNotes.Enabled,
+			Directory:      normalizeWeeklyNotesDirectory(value.WeeklyNotes.Directory),
+			TitlePattern:   normalizeWeeklyNoteTitlePattern(value.WeeklyNotes.TitlePattern),
+			Locale:         normalizeWeeklyNoteLocale(value.WeeklyNotes.Locale),
+			LegacyPatterns: normalizeWeeklyNoteLegacyPatterns(value.WeeklyNotes.LegacyPatterns),
+			TemplateID:     value.WeeklyNotes.TemplateID,
 		},
 		FolderIcons: folderIcons,
+		Favorites:   normalizeFavorites(value.Favorites),
 	}
+}
+
+func normalizeFavorites(value []string) []string {
+	out := []string{}
+	seen := map[string]struct{}{}
+	for _, entry := range value {
+		if entry == "" {
+			continue
+		}
+		if _, ok := seen[entry]; ok {
+			continue
+		}
+		seen[entry] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
 }
 
 func folderIconKey(folder NoteFolder, subpath string) string {
@@ -386,7 +542,7 @@ func (v *Vault) inferPrimaryNotesLocation() PrimaryNotesLocation {
 		if _, reserved := reservedRootNames[name]; reserved {
 			continue
 		}
-		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") {
+		if entry.IsDir() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
 			return PrimaryNotesRoot
 		}
 	}
@@ -628,6 +784,15 @@ func (v *Vault) persistNoteMetaCacheSnapshot(metas []NoteMeta) {
 // ListNotes walks every top-level folder and returns metadata for each
 // note. Sibling order is the directory-listing order per folder, which
 // matches the TS version's behaviour for non-sorted filesystems.
+// isSkippableWalkErr reports whether a directory-walk error should skip the
+// offending entry and keep scanning, rather than aborting the whole vault scan.
+// Covers entries that vanished mid-scan and, importantly for self-hosted
+// servers, entries the process lacks permission to read (e.g. a vault copied in
+// with root-owned files while the container runs as a non-root user). (#159)
+func isSkippableWalkErr(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
+}
+
 func (v *Vault) ListNotes() ([]NoteMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
@@ -647,7 +812,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 		isPrimaryRoot := folder == FolderInbox && filepath.Clean(folderRoot) == filepath.Clean(v.root)
 		err = filepath.WalkDir(folderRoot, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
+				if isSkippableWalkErr(err) {
 					return nil
 				}
 				return err
@@ -655,6 +820,9 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 			if d.IsDir() {
 				if strings.HasPrefix(d.Name(), ".") && path != folderRoot {
 					return filepath.SkipDir
+				}
+				if isFormDirName(d.Name()) {
+					return filepath.SkipDir // database folder — not loose notes
 				}
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)
@@ -674,7 +842,7 @@ func (v *Vault) ListNotes() ([]NoteMeta, error) {
 					}
 				}
 			}
-			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") {
+			if !strings.EqualFold(filepath.Ext(d.Name()), ".md") && !isExcalidrawName(d.Name()) {
 				return nil
 			}
 			files = append(files, noteFile{folder: folder, path: path})
@@ -746,7 +914,7 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 		isPrimaryRoot := folder == FolderInbox && filepath.Clean(folderRoot) == filepath.Clean(v.root)
 		err = filepath.WalkDir(folderRoot, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
-				if errors.Is(err, os.ErrNotExist) {
+				if isSkippableWalkErr(err) {
 					return nil
 				}
 				return err
@@ -776,6 +944,11 @@ func (v *Vault) ListFolders() ([]FolderEntry, error) {
 				Folder:  folder,
 				Subpath: filepath.ToSlash(rel),
 			})
+			// A `<Name>.base` database folder is listed (the renderer shows it as
+			// a database) but its internals are not exposed as folders.
+			if isFormDirName(d.Name()) {
+				return filepath.SkipDir
+			}
 			return nil
 		})
 		if err != nil {
@@ -800,9 +973,6 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	out := []AssetMeta{}
-	isSkippableWalkErr := func(err error) bool {
-		return errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission)
-	}
 	var walk func(dir string) error
 	walk = func(dir string) error {
 		entries, err := os.ReadDir(dir)
@@ -822,6 +992,9 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 				if filepath.Clean(dir) == filepath.Clean(v.root) && name == internalVaultDir {
 					continue
 				}
+				if isFormDirName(name) {
+					continue // database folder — its data.csv/schema.json aren't assets
+				}
 				if err := walk(full); err != nil {
 					if isSkippableWalkErr(err) {
 						continue
@@ -830,7 +1003,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 				}
 				continue
 			}
-			if !entry.Type().IsRegular() || strings.EqualFold(filepath.Ext(name), ".md") {
+			if !entry.Type().IsRegular() || strings.EqualFold(filepath.Ext(name), ".md") || isExcalidrawName(name) {
 				continue
 			}
 			info, err := entry.Info()
@@ -864,7 +1037,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 func (v *Vault) HasAssetsDir() bool {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	for _, dir := range append([]string{PrimaryAttachmentsDir}, legacyAttachmentsDirs...) {
+	for _, dir := range append([]string{AssetsDir}, legacyAttachmentsDirs...) {
 		info, err := os.Stat(filepath.Join(v.root, dir))
 		if err == nil && info.IsDir() {
 			return true
@@ -888,6 +1061,30 @@ func kindForExt(ext string) string {
 }
 
 // --- Read / Write ---
+
+// buildNoteMeta assembles NoteMeta for a note-like file. Excalidraw drawings
+// store JSON, not Markdown, so their tags/wikilinks/excerpt are skipped — a hex
+// color like "#1971c2" in the scene must not register as a #tag.
+func buildNoteMeta(relPosix, title string, folder NoteFolder, info os.FileInfo, bodyStr string) NoteMeta {
+	meta := NoteMeta{
+		Path:      relPosix,
+		Title:     title,
+		Folder:    folder,
+		CreatedAt: info.ModTime().UnixMilli(),
+		UpdatedAt: info.ModTime().UnixMilli(),
+		Size:      info.Size(),
+		Tags:      []string{},
+		Wikilinks: []string{},
+	}
+	if isExcalidrawName(relPosix) {
+		return meta
+	}
+	meta.Tags = ExtractTags(bodyStr)
+	meta.Wikilinks = ExtractWikilinks(bodyStr)
+	meta.HasAttachments = BodyHasLocalAsset(bodyStr)
+	meta.Excerpt = BuildExcerpt(bodyStr)
+	return meta
+}
 
 func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 	info, err := os.Stat(abs)
@@ -921,18 +1118,7 @@ func (v *Vault) readMeta(folder NoteFolder, abs string) (NoteMeta, error) {
 
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
 
-	meta := NoteMeta{
-		Path:           relPosix,
-		Title:          title,
-		Folder:         folder,
-		CreatedAt:      info.ModTime().UnixMilli(),
-		UpdatedAt:      info.ModTime().UnixMilli(),
-		Size:           info.Size(),
-		Tags:           ExtractTags(bodyStr),
-		Wikilinks:      ExtractWikilinks(bodyStr),
-		HasAttachments: BodyHasLocalAsset(bodyStr),
-		Excerpt:        BuildExcerpt(bodyStr),
-	}
+	meta := buildNoteMeta(relPosix, title, folder, info, bodyStr)
 	v.metaCacheMu.Lock()
 	v.metaCache[abs] = noteMetaCacheEntry{
 		mtimeMs: statMtimeMs,
@@ -962,18 +1148,7 @@ func (v *Vault) ReadNote(rel string) (NoteContent, error) {
 	bodyStr := string(body)
 	rel = filepath.ToSlash(rel)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	meta := NoteMeta{
-		Path:           rel,
-		Title:          title,
-		Folder:         folder,
-		CreatedAt:      info.ModTime().UnixMilli(),
-		UpdatedAt:      info.ModTime().UnixMilli(),
-		Size:           info.Size(),
-		Tags:           ExtractTags(bodyStr),
-		Wikilinks:      ExtractWikilinks(bodyStr),
-		HasAttachments: BodyHasLocalAsset(bodyStr),
-		Excerpt:        BuildExcerpt(bodyStr),
-	}
+	meta := buildNoteMeta(rel, title, folder, info, bodyStr)
 	return NoteContent{NoteMeta: meta, Body: bodyStr}, nil
 }
 
@@ -1253,6 +1428,40 @@ func (v *Vault) CreateNote(folder NoteFolder, title, subpath string) (NoteMeta, 
 	return v.readMeta(folder, abs)
 }
 
+// CreateExcalidraw writes a new empty `.excalidraw` drawing under folder/subpath
+// and returns its meta. Mirrors CreateNote but seeds an empty Excalidraw scene.
+func (v *Vault) CreateExcalidraw(folder NoteFolder, title, subpath string) (NoteMeta, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if !IsValidFolder(folder) {
+		return NoteMeta{}, fmt.Errorf("invalid folder: %s", folder)
+	}
+	if title == "" {
+		title = defaultTitle()
+	}
+	title = sanitizeFileStem(title)
+	dir, err := v.folderRoot(folder)
+	if err != nil {
+		return NoteMeta{}, err
+	}
+	if subpath != "" {
+		sub, err := SafeJoin(dir, subpath)
+		if err != nil {
+			return NoteMeta{}, err
+		}
+		dir = sub
+	}
+	if err := os.MkdirAll(dir, v.dirMode); err != nil {
+		return NoteMeta{}, err
+	}
+	abs := uniquePath(dir, title, excalidrawExt)
+	if err := os.WriteFile(abs, []byte(emptyExcalidrawJSON), v.fileMode); err != nil {
+		return NoteMeta{}, err
+	}
+	v.invalidateTextSearchCache()
+	return v.readMeta(folder, abs)
+}
+
 func (v *Vault) RenameNote(rel, nextTitle string) (NoteMeta, error) {
 	// Snapshot the vault before the rename (ListNotes takes its own read lock)
 	// so inbound [[wikilinks]] still resolve to this note under its current name.
@@ -1281,7 +1490,7 @@ func (v *Vault) renameNoteFile(rel, nextTitle string) (NoteMeta, error) {
 		return NoteMeta{}, errors.New("empty title")
 	}
 	dir := filepath.Dir(abs)
-	newAbs := uniquePath(dir, nextTitle, ".md")
+	newAbs := uniquePath(dir, nextTitle, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1401,7 +1610,7 @@ func (v *Vault) moveBetweenFolders(rel string, target NoteFolder) (NoteMeta, err
 	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
-	newAbs := uniquePath(destDir, title, ".md")
+	newAbs := uniquePath(destDir, title, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1441,7 +1650,7 @@ func (v *Vault) DuplicateNote(rel string) (NoteMeta, error) {
 	}
 	folder, _ := v.folderOf(abs)
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs)) + " copy"
-	newAbs := uniquePath(filepath.Dir(abs), sanitizeFileStem(title), ".md")
+	newAbs := uniquePath(filepath.Dir(abs), sanitizeFileStem(title), noteExt(abs))
 	if err := copyFile(abs, newAbs, v.fileMode); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1481,7 +1690,7 @@ func (v *Vault) MoveNote(rel string, target NoteFolder, targetSubpath string) (N
 		return NoteMeta{}, err
 	}
 	title := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
-	newAbs := uniquePath(destDir, title, ".md")
+	newAbs := uniquePath(destDir, title, noteExt(abs))
 	if err := os.Rename(abs, newAbs); err != nil {
 		return NoteMeta{}, err
 	}
@@ -1546,6 +1755,9 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
+		// Favorites are carried through verbatim; the client rewrites stale
+		// favorite keys after the rename and re-persists them.
+		Favorites: settings.Favorites,
 	})
 	if err != nil {
 		return "", err
@@ -1581,6 +1793,9 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
+		// Favorites are carried through verbatim; the client prunes the deleted
+		// folder's favorites and re-persists them.
+		Favorites: settings.Favorites,
 	})
 	return err
 }
@@ -1614,6 +1829,8 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 		DailyNotes:           settings.DailyNotes,
 		WeeklyNotes:          settings.WeeklyNotes,
 		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
+		// A duplicated folder isn't auto-favorited; carry existing favorites through.
+		Favorites: settings.Favorites,
 	})
 	if err != nil {
 		return "", err
@@ -1640,6 +1857,9 @@ func (v *Vault) ScanTasks() ([]Task, error) {
 			if d.IsDir() {
 				if strings.HasPrefix(d.Name(), ".") && path != folderRoot {
 					return filepath.SkipDir
+				}
+				if isFormDirName(d.Name()) {
+					return filepath.SkipDir // database folder — not loose notes
 				}
 				if isPrimaryRoot && path != folderRoot {
 					parent := filepath.Dir(path)

@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/app-core",
   "private": true,
-  "version": "2.3.0",
+  "version": "2.5.0",
   "type": "module",
   "exports": {
     "./main": "./src/main.tsx"
@@ -28,6 +28,7 @@
     "@codemirror/search": "^6.5.8",
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.35.3",
+    "@excalidraw/excalidraw": "^0.18.1",
     "@lezer/highlight": "^1.2.1",
     "@replit/codemirror-vim": "^6.3.0",
     "dompurify": "^3.3.4",
