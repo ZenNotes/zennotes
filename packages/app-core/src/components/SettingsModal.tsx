@@ -80,13 +80,110 @@ type SettingsCategoryId =
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
+type SettingsSectionId = 'look' | 'editing' | 'vault' | 'system'
+
+/** A focused sub-screen within a dense category (e.g. Vault → Location/Folders/Remote). */
+interface SettingsSubTab {
+  id: string
+  title: string
+  /** Search-item ids that live on this sub-tab, so search-jump can open the right one. */
+  searchIds?: string[]
+  content: JSX.Element
+}
+
 interface SettingsCategory extends SettingsSearchCategory<SettingsCategoryId> {
   id: SettingsCategoryId
   title: string
   description: string
   keywords: string[]
-  content: JSX.Element
+  /** A category renders either a single `content` pane or a set of `subTabs`. */
+  content?: JSX.Element
+  subTabs?: SettingsSubTab[]
 }
+
+/** Compact stroke icon used in the grouped settings rail. */
+function NavIcon({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+const SETTINGS_CATEGORY_ICONS: Record<SettingsCategoryId, JSX.Element> = {
+  appearance: (
+    <NavIcon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 0 0 18z" />
+    </NavIcon>
+  ),
+  typography: (
+    <NavIcon>
+      <path d="M4 7V5h16v2" />
+      <path d="M12 5v14" />
+      <path d="M9 19h6" />
+    </NavIcon>
+  ),
+  editor: (
+    <NavIcon>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </NavIcon>
+  ),
+  keymaps: (
+    <NavIcon>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
+    </NavIcon>
+  ),
+  vault: (
+    <NavIcon>
+      <path d="M12 3 3 7v10l9 4 9-4V7Z" />
+      <path d="M3 7l9 4 9-4M12 11v10" />
+    </NavIcon>
+  ),
+  templates: (
+    <NavIcon>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 9h16M9 9v11" />
+    </NavIcon>
+  ),
+  mcp: (
+    <NavIcon>
+      <path d="M9 7V4M15 7V4M8 7h8v3a4 4 0 0 1-8 0Z" />
+      <path d="M12 14v6" />
+    </NavIcon>
+  ),
+  cli: (
+    <NavIcon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3M13 15h4" />
+    </NavIcon>
+  ),
+  about: (
+    <NavIcon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-4M12 8h.01" />
+    </NavIcon>
+  )
+}
+
+const SETTINGS_SECTIONS: { id: SettingsSectionId; title: string; categoryIds: SettingsCategoryId[] }[] = [
+  { id: 'look', title: 'Look & feel', categoryIds: ['appearance', 'typography'] },
+  { id: 'editing', title: 'Editing', categoryIds: ['editor', 'keymaps'] },
+  { id: 'vault', title: 'Vault', categoryIds: ['vault', 'templates'] },
+  { id: 'system', title: 'System', categoryIds: ['mcp', 'cli', 'about'] }
+]
 
 function settingsSearchTargetProps(
   settingId: string | undefined
@@ -645,6 +742,10 @@ export function SettingsModal(): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const settingsSearchHighlightTimerRef = useRef<number | null>(null)
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
+  // Per-category active sub-tab (dense categories split their content into sub-tabs).
+  const [activeSubTabByCategory, setActiveSubTabByCategory] = useState<
+    Partial<Record<SettingsCategoryId, string>>
+  >({})
   const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null)
   const [navQuery, setNavQuery] = useState('')
   const availableVaultTextSearchTools = [
@@ -1003,7 +1104,18 @@ export function SettingsModal(): JSX.Element {
           keywords: ['quick capture', 'hotkey', 'shortcut']
         }
       ],
-      content: (
+      subTabs: [
+        {
+          id: 'vim',
+          title: 'Vim',
+          searchIds: [
+            'vim-mode',
+            'vim-insert-escape',
+            'leader-key-hints',
+            'leader-hint-behavior',
+            'leader-hint-duration'
+          ],
+          content: (
         <div className="space-y-6">
           <Section
             title="Vim"
@@ -1075,7 +1187,15 @@ export function SettingsModal(): JSX.Element {
               </InlineNote>
             )}
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'search',
+          title: 'Search',
+          searchIds: ['vault-text-search-backend', 'ripgrep-binary-path', 'fzf-binary-path'],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Search"
             description="Choose how vault-wide text search is powered."
@@ -1123,7 +1243,24 @@ export function SettingsModal(): JSX.Element {
                   : 'No usable ripgrep or fzf binary was detected from the configured paths or PATH. ZenNotes will use the built-in search backend.'}
             </InlineNote>
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'writing',
+          title: 'Writing',
+          searchIds: [
+            'live-preview',
+            'render-tables',
+            'markdown-snippets',
+            'note-tabs',
+            'wrap-note-tabs',
+            'word-wrap',
+            'smooth-preview-scroll',
+            'pdfs-in-edit-mode'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Writing"
             description="Controls that change how notes render while you work."
@@ -1206,7 +1343,15 @@ export function SettingsModal(): JSX.Element {
               onChange={setQuickNoteTitlePrefix}
             />
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'quick-capture',
+          title: 'Quick capture',
+          searchIds: ['date-titled-quick-notes', 'quick-note-prefix', 'quick-capture-hotkey'],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Quick capture"
             description="Floating capture window for thoughts you want in the vault without leaving whatever you're doing."
@@ -1214,7 +1359,9 @@ export function SettingsModal(): JSX.Element {
             <QuickCaptureHotkeyRow settingId="quick-capture-hotkey" />
           </Section>
         </div>
-      )
+          )
+        }
+      ]
     },
     {
       id: 'keymaps',
@@ -1597,7 +1744,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ['system folders', 'tasks', 'todos', 'goals', 'rename']
         }
       ],
-      content: (
+      subTabs: [
+        {
+          id: 'location',
+          title: 'Location',
+          searchIds: ['vault-location', 'saved-remote-workspaces'],
+          content: (
         <div className="space-y-6">
           <Section
             title="Location"
@@ -1738,7 +1890,36 @@ export function SettingsModal(): JSX.Element {
               </div>
             </Section>
           )}
-
+        </div>
+          )
+        },
+        {
+          id: 'notes',
+          title: 'Notes',
+          searchIds: [
+            'primary-notes-location',
+            'enable-daily-notes',
+            'daily-notes-directory',
+            'daily-note-title-pattern',
+            'daily-note-locale',
+            'daily-note-pattern-support',
+            'daily-note-pattern-reset',
+            'open-todays-daily-note',
+            'daily-notes-template',
+            'enable-weekly-notes',
+            'weekly-notes-directory',
+            'weekly-note-title-pattern',
+            'weekly-note-locale',
+            'weekly-note-pattern-support',
+            'weekly-note-pattern-reset',
+            'weekly-notes-template',
+            'open-this-week-note',
+            'auto-calendar-panel',
+            'calendar-week-start',
+            'calendar-week-numbers'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Primary Notes"
             description="Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly for Obsidian-style flat vaults."
@@ -2074,7 +2255,21 @@ export function SettingsModal(): JSX.Element {
               onChange={setCalendarShowWeekNumbers}
             />
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'system',
+          title: 'System',
+          searchIds: [
+            'inbox-label',
+            'quick-notes-label',
+            'archive-label',
+            'trash-label',
+            'tasks-label'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="System Folders"
             description="Customize how the built-in folders and the Tasks view are named in the UI. This changes labels only — the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
@@ -2124,7 +2319,9 @@ export function SettingsModal(): JSX.Element {
             </InlineNote>
           </Section>
         </div>
-      )
+          )
+        }
+      ]
     },
     {
       id: 'templates',
@@ -2602,7 +2799,46 @@ export function SettingsModal(): JSX.Element {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <nav className="space-y-1">
+            {query === '' ? (
+              <div className="space-y-5">
+                {SETTINGS_SECTIONS.map((section) => (
+                  <div key={section.id}>
+                    <div className="px-3 pb-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-400">
+                      {section.title}
+                    </div>
+                    <div className="space-y-0.5">
+                      {section.categoryIds.map((id) => {
+                        const cat = categories.find((c) => c.id === id)
+                        if (!cat) return null
+                        const selected = activeCategory === id
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                              setActiveCategory(id)
+                              setActiveSearchResultId(`${id}:category`)
+                            }}
+                            className={[
+                              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                              selected
+                                ? 'bg-paper-200/85 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                                : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900'
+                            ].join(' ')}
+                          >
+                            <span className={selected ? 'text-accent' : 'text-ink-400'}>
+                              {SETTINGS_CATEGORY_ICONS[id]}
+                            </span>
+                            <span className="truncate font-medium">{cat.title}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <nav className="space-y-1">
               {searchResults.map((result) => {
                 const selected = visibleSearchResult?.id === result.id
                 return (
@@ -2613,6 +2849,17 @@ export function SettingsModal(): JSX.Element {
                       setActiveCategory(result.category.id)
                       setActiveSearchResultId(result.id)
                       if (result.type === 'setting') {
+                        // If the target lives on a sub-tab, open that sub-tab first
+                        // so the element is mounted before we scroll to it.
+                        const subTabId = result.category.subTabs?.find((tab) =>
+                          tab.searchIds?.includes(result.targetId)
+                        )?.id
+                        if (subTabId) {
+                          setActiveSubTabByCategory((prev) => ({
+                            ...prev,
+                            [result.category.id]: subTabId
+                          }))
+                        }
                         jumpToSettingsSearchTarget(result.targetId)
                       }
                     }}
@@ -2642,7 +2889,8 @@ export function SettingsModal(): JSX.Element {
                   No settings match your search.
                 </div>
               )}
-            </nav>
+              </nav>
+            )}
           </div>
 
           <div className="border-t border-paper-300/55 px-4 py-3 text-xs leading-5 text-ink-500">
@@ -2676,7 +2924,22 @@ export function SettingsModal(): JSX.Element {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
             {visibleCategory ? (
-              visibleCategory.content
+              visibleCategory.subTabs ? (
+                <CategorySubTabs
+                  tabs={visibleCategory.subTabs}
+                  activeId={
+                    activeSubTabByCategory[visibleCategory.id] ?? visibleCategory.subTabs[0].id
+                  }
+                  onSelect={(tabId) =>
+                    setActiveSubTabByCategory((prev) => ({
+                      ...prev,
+                      [visibleCategory.id]: tabId
+                    }))
+                  }
+                />
+              ) : (
+                visibleCategory.content
+              )
             ) : (
               <div className="flex h-full min-h-[280px] items-center justify-center rounded-3xl border border-dashed border-paper-300/70 bg-paper-50/35 px-6 text-center text-sm leading-6 text-ink-500">
                 Try a broader search term, or clear the search field to browse every settings section.
@@ -3027,6 +3290,49 @@ function Section({
         <div className="divide-y divide-paper-300/45">{children}</div>
       </div>
     </section>
+  )
+}
+
+/** Renders a dense category as focused sub-tabs (Vault → Location/Folders/Remote, …). */
+function CategorySubTabs({
+  tabs,
+  activeId,
+  onSelect
+}: {
+  tabs: SettingsSubTab[]
+  activeId: string
+  onSelect: (id: string) => void
+}): JSX.Element {
+  const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
+  return (
+    <div className="space-y-6">
+      <div
+        role="tablist"
+        className="flex flex-wrap items-center gap-1 rounded-2xl border border-paper-300/60 bg-paper-50/45 p-1"
+      >
+        {tabs.map((tab) => {
+          const selected = tab.id === active.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => onSelect(tab.id)}
+              className={[
+                'rounded-xl px-3.5 py-1.5 text-sm font-medium transition-colors',
+                selected
+                  ? 'bg-paper-200/90 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                  : 'text-ink-500 hover:bg-paper-200/50 hover:text-ink-800'
+              ].join(' ')}
+            >
+              {tab.title}
+            </button>
+          )
+        })}
+      </div>
+      <div>{active.content}</div>
+    </div>
   )
 }
 
