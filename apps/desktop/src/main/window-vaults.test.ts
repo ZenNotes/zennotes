@@ -112,10 +112,10 @@ describe('WindowVaultRegistry', () => {
     registry.setLocalVault(1, { root: rootA, name: 'A' })
     registry.setLocalVault(2, { root: rootB, name: 'B' })
 
-    expect(registry.isPathInsideOpenLocalVault(path.join(rootA, 'attachements', 'a.png'))).toBe(
+    expect(registry.isPathInsideOpenLocalVault(path.join(rootA, 'attachments', 'a.png'))).toBe(
       true
     )
-    expect(registry.isPathInsideOpenLocalVault(path.join(rootB, 'attachements', 'b.png'))).toBe(
+    expect(registry.isPathInsideOpenLocalVault(path.join(rootB, 'attachments', 'b.png'))).toBe(
       true
     )
     expect(registry.isPathInsideOpenLocalVault(`${rootA}-evil/secret.png`)).toBe(false)

@@ -464,7 +464,7 @@ describe('listNotes metadata parsing', () => {
     const imageRel = 'inbox/image.md'
     const embedRel = 'inbox/embed.md'
     await writeFile(path.join(root, plainRel), '# Plain\n\n[[Project Note]]\n', 'utf8')
-    await writeFile(path.join(root, imageRel), '# Image\n\n![diagram](../attachements/diagram.png)\n', 'utf8')
+    await writeFile(path.join(root, imageRel), '# Image\n\n![diagram](../attachments/diagram.png)\n', 'utf8')
     await writeFile(path.join(root, embedRel), '# Embed\n\n![[brief.pdf]]\n', 'utf8')
 
     const notes = await listNotes(root)

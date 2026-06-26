@@ -20,7 +20,7 @@ const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
  *  note/folder surface, so the walks skip these folders. */
 const isFormDirName = (name: string): boolean => name.toLowerCase().endsWith('.base')
 const ASSETS_DIR = 'assets'
-const PRIMARY_ATTACHMENTS_DIR = 'attachements'
+const PRIMARY_ATTACHMENTS_DIR = 'attachments'
 const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
 const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'

@@ -135,7 +135,7 @@ self-host.
                                      │  │    quick/          │  │
                                      │  │    archive/        │  │
                                      │  │    trash/          │  │
-                                     │  │    attachements/   │  │
+                                     │  │    attachments/    │  │
                                      │  └─────────▲──────────┘  │
                                      │            │             │
                                      │  ┌─────────┴──────────┐  │
@@ -512,7 +512,7 @@ Unchanged from the desktop build. The server cares about:
   quick/
   archive/
   trash/
-  attachements/
+  attachments/
   .zennotes/
     server.json      ← config: auth token, ports, feature flags
     index.db         ← SQLite FTS (optional)

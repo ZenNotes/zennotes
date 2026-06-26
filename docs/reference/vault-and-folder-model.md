@@ -109,7 +109,7 @@ ZenNotes now behaves more like an Obsidian-compatible file-based vault:
 
 New referenced files default to the vault root rather than forcing a special attachments folder.
 
-Legacy attachment locations such as `attachements/` and `_assets/` are still recognized for compatibility.
+Legacy attachment locations such as `attachments/` and `_assets/` are still recognized for compatibility.
 
 ## Selection and bulk actions
 

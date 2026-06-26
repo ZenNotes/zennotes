@@ -27,8 +27,8 @@ describe('migrateLooseAssets (#185 assets/ unification)', () => {
     await writeFile(path.join(root, 'photo.png'), 'x', 'utf8')
     await writeFile(path.join(root, 'note.md'), '# hi', 'utf8') // a note — must stay
     await writeFile(path.join(root, 'books.csv'), 'id\n', 'utf8') // legacy db — must stay
-    await mkdir(path.join(root, 'attachements'), { recursive: true })
-    await writeFile(path.join(root, 'attachements', 'doc.pdf'), 'x', 'utf8')
+    await mkdir(path.join(root, 'attachments'), { recursive: true })
+    await writeFile(path.join(root, 'attachments', 'doc.pdf'), 'x', 'utf8')
 
     const { moved, skipped } = await migrateLooseAssets(root)
     expect(moved.sort()).toEqual(['assets/doc.pdf', 'assets/photo.png'])
@@ -37,7 +37,7 @@ describe('migrateLooseAssets (#185 assets/ unification)', () => {
     expect(await exists(root, 'assets/photo.png')).toBe(true)
     expect(await exists(root, 'assets/doc.pdf')).toBe(true)
     expect(await exists(root, 'photo.png')).toBe(false)
-    expect(await exists(root, 'attachements')).toBe(false) // emptied + removed
+    expect(await exists(root, 'attachments')).toBe(false) // emptied + removed
     // Notes and database files are untouched.
     expect(await exists(root, 'note.md')).toBe(true)
     expect(await exists(root, 'books.csv')).toBe(true)

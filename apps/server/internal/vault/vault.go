@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	// AssetsDir is the canonical top-level folder for assets; attachements/_assets
+	// AssetsDir is the canonical top-level folder for assets; attachments/_assets
 	// are recognized legacy dirs. Asset migration runs on the desktop (#185).
 	AssetsDir             = "assets"
-	PrimaryAttachmentsDir = "attachements"
+	PrimaryAttachmentsDir = "attachments"
 	internalVaultDir      = ".zennotes"
 	vaultSettingsFile     = "vault.json"
 	noteMetaCacheFile     = "note-meta-cache-v1.json"

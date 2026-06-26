@@ -4,7 +4,7 @@ import type { NoteFolder, VaultChangeEvent, VaultChangeKind } from '@shared/ipc'
 import { databaseCsvPathFor } from '@shared/databases'
 import { folderForRelativePath } from './vault'
 
-const ATTACHMENTS_DIRS = new Set(['assets', 'attachements', '_assets'])
+const ATTACHMENTS_DIRS = new Set(['assets', 'attachments', '_assets'])
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`

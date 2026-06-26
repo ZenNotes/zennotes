@@ -65,10 +65,10 @@ import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from './demo-tour-data'
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const SYSTEM_FOLDERS = new Set<NoteFolder>(FOLDERS)
-// Assets are unified under a top-level `assets/` folder. `attachements`/`_assets`
+// Assets are unified under a top-level `assets/` folder. `attachments`/`_assets`
 // are recognized legacy dirs (read + migrated, never the import target). (#185)
 const ASSETS_DIR = 'assets'
-const PRIMARY_ATTACHMENTS_DIR = 'attachements'
+const PRIMARY_ATTACHMENTS_DIR = 'attachments'
 const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
 const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
@@ -1174,7 +1174,7 @@ export async function ensureVaultLayout(root: string): Promise<void> {
 
 /**
  * One-time, idempotent migration: unify assets under `assets/`. Moves loose
- * root-level attachments and any files in the legacy `attachements/` / `_assets/`
+ * root-level attachments and any files in the legacy `attachments/` / `_assets/`
  * dirs into `assets/`, skipping a file whose basename already exists there (so
  * the basename-fallback resolution of `![[…]]`/`![](…)` embeds stays
  * unambiguous). Never touches notes (`.md`) or database files. Safe on every

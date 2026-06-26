@@ -15,7 +15,7 @@ func TestBodyHasLocalAssetDetectsOnlyLocalAssets(t *testing.T) {
 		},
 		{
 			name: "relative image",
-			body: "# Image\n\n![diagram](../attachements/diagram.png)\n",
+			body: "# Image\n\n![diagram](../attachments/diagram.png)\n",
 			want: true,
 		},
 		{

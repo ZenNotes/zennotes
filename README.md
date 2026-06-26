@@ -223,7 +223,7 @@ ZenNotes now works better with existing Obsidian-style vaults.
 - loose files anywhere in the vault are surfaced as files/assets
 - embedded files like `![[image.png]]` resolve more like Obsidian
 - new referenced files default to the vault root instead of a required attachments folder
-- legacy `attachements/` and `_assets/` folders are still recognized
+- legacy `attachments/` and `_assets/` folders are still recognized
 
 This means imported vaults with top-level notes, folders, and loose images/files behave much more naturally.
 
