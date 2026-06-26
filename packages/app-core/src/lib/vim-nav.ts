@@ -17,6 +17,26 @@ export function hintTargetOpensNote(element: HTMLElement | null | undefined): bo
   return !!tabPath && !isWorkspaceVirtualTabPath(tabPath)
 }
 
+/**
+ * True when a keydown inside the home view (`data-home-nav`) should yield to the
+ * home view's own roving-focus handler instead of VimNav's global bindings.
+ *
+ * The home view owns ↑/↓/j/k/Enter, but it does NOT handle the leader key — so
+ * the leader (and any in-progress leader sequence) must fall through to VimNav,
+ * otherwise Space-as-leader is silently swallowed while the home view is focused
+ * (no note open). (#273)
+ */
+export function shouldYieldToHomeNav(
+  target: HTMLElement | null | undefined,
+  isLeaderKey: boolean,
+  leaderPending: boolean
+): boolean {
+  if (!target?.closest('[data-home-nav]')) return false
+  // Keep leader input flowing through to VimNav's leader handling.
+  if (isLeaderKey || leaderPending) return false
+  return true
+}
+
 // ---------------------------------------------------------------------------
 // Panel types & navigation
 // ---------------------------------------------------------------------------

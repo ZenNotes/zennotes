@@ -10,7 +10,7 @@ vi.mock('@replit/codemirror-vim', () => ({
   getCM: () => ({ state: { vim: cmMock.vim } })
 }))
 
-import { hintTargetOpensNote, isVimAwaitingArgument } from './vim-nav'
+import { hintTargetOpensNote, isVimAwaitingArgument, shouldYieldToHomeNav } from './vim-nav'
 
 function el(html: string): HTMLElement {
   const container = document.createElement('div')
@@ -51,6 +51,30 @@ describe('hintTargetOpensNote (#100 — hint into a note lands in the editor)', 
   it('is false for a plain button and for null', () => {
     expect(hintTargetOpensNote(el('<button>Settings</button>'))).toBe(false)
     expect(hintTargetOpensNote(null)).toBe(false)
+  })
+})
+
+describe('shouldYieldToHomeNav (#273 — Space leader must work on the home view)', () => {
+  const homeTarget = (): HTMLElement => {
+    const home = el('<div data-home-nav><button data-home-item>Recent</button></div>')
+    return home.querySelector('button') as HTMLElement
+  }
+
+  it('yields for a non-leader key (home view owns j/k/arrows/Enter)', () => {
+    expect(shouldYieldToHomeNav(homeTarget(), false, false)).toBe(true)
+  })
+
+  it('does NOT yield for the leader key — it falls through to VimNav', () => {
+    expect(shouldYieldToHomeNav(homeTarget(), true, false)).toBe(false)
+  })
+
+  it('does NOT yield while a leader sequence is pending', () => {
+    expect(shouldYieldToHomeNav(homeTarget(), false, true)).toBe(false)
+  })
+
+  it('is false outside the home view, so VimNav handles keys normally', () => {
+    expect(shouldYieldToHomeNav(el('<button>Settings</button>'), false, false)).toBe(false)
+    expect(shouldYieldToHomeNav(null, false, false)).toBe(false)
   })
 })
 

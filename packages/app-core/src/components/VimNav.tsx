@@ -9,7 +9,8 @@ import {
   isEditorInsertMode,
   isEditorFocused,
   isVimAwaitingArgument,
-  resolveNextPanel
+  resolveNextPanel,
+  shouldYieldToHomeNav
 } from '../lib/vim-nav'
 import { focusPaneInDirection } from '../lib/pane-nav'
 import { findLeaf } from '../lib/pane-layout'
@@ -319,8 +320,19 @@ export function VimNav(): JSX.Element | null {
       // The selection format toolbar handles its own keyboard navigation
       // (arrows / Enter / Esc) once focused — yield to it entirely.
       if (target?.closest('[data-selection-toolbar]')) return
-      // The home view owns its own roving-focus navigation (↑/↓/j/k/Enter).
-      if (target?.closest('[data-home-nav]')) return
+      // The home view owns its own roving-focus navigation (↑/↓/j/k/Enter), but
+      // it does not handle the leader key — so the leader (and any pending leader
+      // sequence) must fall through to VimNav, or Space-as-leader is swallowed
+      // while the home view is focused (no note open). (#273)
+      if (
+        shouldYieldToHomeNav(
+          target,
+          sequenceTokenFromEvent(e) === leaderToken,
+          !!leaderPending.current
+        )
+      ) {
+        return
+      }
       // The database/table view runs its own vim-style motion grid; yield to it
       // so sidebar/note-list navigation doesn't steal j/k/h/l etc. — EXCEPT the
       // pane prefix (Ctrl+W) and its pending direction key, so the grid can hand
