@@ -22,10 +22,13 @@ function makeTask(content: string, taskIndex = 0): VaultTask {
   }
 }
 
-function makeNote(body: string) {
+// Some store flows validate tabs against `state.notes` by path, so tests that
+// open multiple tabs need note fixtures whose metadata matches each tab path.
+function makeNote(body: string, path = 'inbox/Note.md') {
+  const title = path.split('/').pop()?.replace(/\.md$/i, '') || 'Note'
   return {
-    path: 'inbox/Note.md',
-    title: 'Note',
+    path,
+    title,
     folder: 'inbox' as const,
     siblingOrder: 0,
     createdAt: 0,
@@ -136,6 +139,34 @@ describe('tasks cache freshness', () => {
 
     expect(scanTasksForPath).toHaveBeenCalledWith('inbox/Note.md')
     expect(useStore.getState().vaultTasks).toEqual(freshTasks)
+  })
+})
+
+describe('closed tab history', () => {
+  it('reopens closed tabs in reverse close order', async () => {
+    installZen({
+      readNote: vi.fn((path: string) => Promise.resolve(makeNote(`# ${path}`, path)))
+    })
+
+    const { useStore } = await loadStore()
+    const paneId = useStore.getState().activePaneId
+    useStore.setState({
+      notes: [makeNote('A', 'inbox/A.md'), makeNote('B', 'inbox/B.md')]
+    })
+
+    await useStore.getState().openNoteInPane(paneId, 'inbox/A.md')
+    await useStore.getState().openNoteInPane(paneId, 'inbox/B.md')
+    await useStore.getState().closeTabInPane(paneId, 'inbox/A.md')
+    await useStore.getState().closeTabInPane(paneId, 'inbox/B.md')
+
+    await useStore.getState().reopenLastClosedTab()
+    const reopenedPaneId = useStore.getState().activePaneId
+    expect(findLeaf(useStore.getState().paneLayout, reopenedPaneId)?.activeTab).toBe('inbox/B.md')
+
+    await useStore.getState().reopenLastClosedTab()
+    const leaf = findLeaf(useStore.getState().paneLayout, reopenedPaneId)
+    expect(leaf?.tabs).toEqual(['inbox/A.md', 'inbox/B.md'])
+    expect(leaf?.activeTab).toBe('inbox/A.md')
   })
 })
 

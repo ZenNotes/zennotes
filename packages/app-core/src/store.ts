@@ -468,11 +468,18 @@ export type TaskMutation =
   | { kind: 'set-text'; text: string }
 
 type AssetUndoEntry = { kind: 'delete-asset'; deleted: DeletedAsset; createdAt: number }
+type ClosedTabEntry = {
+  paneId: string
+  path: string
+  index: number
+  pinned: boolean
+}
 
 const VALID_TASKS_VIEW_MODES: TasksViewMode[] = ['list', 'calendar', 'kanban']
 const VALID_KANBAN_GROUP_BYS: KanbanGroupBy[] = ['status', 'priority', 'folder']
 const MAX_KANBAN_COLUMN_TITLE_LENGTH = 48
 const MAX_ASSET_UNDO_STACK = 20
+const MAX_CLOSED_TAB_STACK = 50
 
 function normalizeKanbanColumnTitle(title: string): string | null {
   const normalized = title.trim().replace(/\s+/g, ' ').slice(0, MAX_KANBAN_COLUMN_TITLE_LENGTH)
@@ -1923,6 +1930,7 @@ interface Store {
   /** Comment sidecars keyed by note path. Loaded lazily per open note. */
   noteComments: Record<string, NoteComment[]>
   activeCommentId: string | null
+  closedTabStack: ClosedTabEntry[]
 
   setVault: (v: VaultInfo | null) => void
   setVaultSettings: (next: VaultSettings) => Promise<void>
@@ -2067,6 +2075,7 @@ interface Store {
    */
   importDroppedMarkdownFiles: (files: File[]) => Promise<void>
   closeActiveNote: () => Promise<void>
+  reopenLastClosedTab: () => Promise<void>
   trashActive: () => Promise<void>
   restoreActive: () => Promise<void>
   archiveActive: () => Promise<void>
@@ -3255,6 +3264,7 @@ export const useStore = create<Store>((set, get) => {
   noteDirty: {},
   noteComments: {},
   activeCommentId: null,
+  closedTabStack: [],
 
   setVault: (v) =>
     set((s) => {
@@ -3262,7 +3272,7 @@ export const useStore = create<Store>((set, get) => {
       if (vaultChanged) {
         clearNoteContentReadCaches()
       }
-      return vaultChanged ? { vault: v, assetUndoStack: [] } : { vault: v }
+      return vaultChanged ? { vault: v, assetUndoStack: [], closedTabStack: [] } : { vault: v }
     }),
   setVaultSettings: async (next) => {
     try {
@@ -4590,6 +4600,28 @@ export const useStore = create<Store>((set, get) => {
     await get().closeTabInPane(state.activePaneId, path)
   },
 
+  reopenLastClosedTab: async () => {
+    while (get().closedTabStack.length > 0) {
+      const entry = get().closedTabStack.at(-1)
+      if (!entry) return
+      set((s) => ({ closedTabStack: s.closedTabStack.slice(0, -1) }))
+
+      const state = get()
+      const targetPaneId = findLeaf(state.paneLayout, entry.paneId)
+        ? entry.paneId
+        : state.activePaneId
+
+      if (!isWorkspaceVirtualTabPath(entry.path)) {
+        const noteExists = state.notes.some((note) => note.path === entry.path)
+        if (!noteExists) continue
+      }
+
+      await get().openNoteInPane(targetPaneId, entry.path, entry.index)
+      if (entry.pinned) get().pinTabInPane(targetPaneId, entry.path)
+      return
+    }
+  },
+
   trashActive: async () => {
     const state = get()
     const path = state.selectedPath
@@ -5832,6 +5864,20 @@ export const useStore = create<Store>((set, get) => {
   },
 
   closeTabInPane: async (paneId, path) => {
+    // Capture the tab's pane-local position before removal so Cmd/Ctrl+Shift+T
+    // can reopen multiple closed tabs in the same order and restore pinned state.
+    const closingLeaf = findLeaf(get().paneLayout, paneId)
+    const closingIndex = closingLeaf?.tabs.indexOf(path) ?? -1
+    const closedTabEntry: ClosedTabEntry | null =
+      closingLeaf && closingIndex !== -1
+        ? {
+            paneId,
+            path,
+            index: closingIndex,
+            pinned: closingLeaf.pinnedTabs.includes(path)
+          }
+        : null
+
     // Flush pending save for the tab we're about to drop. Other panes
     // (and the pinned-reference pane) may still reference the note via
     // its content cache — we only evict content when nothing else has
@@ -5852,11 +5898,15 @@ export const useStore = create<Store>((set, get) => {
         delete contents[path]
         delete dirty[path]
       }
+      const closedTabStack = closedTabEntry
+        ? [...s.closedTabStack, closedTabEntry].slice(-MAX_CLOSED_TAB_STACK)
+        : s.closedTabStack
       return {
         paneLayout: ensured.layout,
         activePaneId: ensured.activePaneId,
         noteContents: contents,
         noteDirty: dirty,
+        closedTabStack,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
       }
     })
@@ -6475,6 +6525,7 @@ export const useStore = create<Store>((set, get) => {
       hasAssetsDir: false,
       assetFiles: [],
       assetUndoStack: [],
+      closedTabStack: [],
       vaultTasks: [],
       selectedTags: [],
       view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6526,6 +6577,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6586,6 +6638,7 @@ export const useStore = create<Store>((set, get) => {
           hasAssetsDir: false,
           assetFiles: [],
           assetUndoStack: [],
+          closedTabStack: [],
           vaultTasks: [],
           selectedTags: [],
           view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6621,6 +6674,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6758,6 +6812,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6840,6 +6895,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6920,6 +6976,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6964,6 +7021,7 @@ export const useStore = create<Store>((set, get) => {
           hasAssetsDir: false,
           assetFiles: [],
           assetUndoStack: [],
+          closedTabStack: [],
           vaultTasks: [],
           selectedTags: [],
           view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -6997,6 +7055,7 @@ export const useStore = create<Store>((set, get) => {
         hasAssetsDir: false,
         assetFiles: [],
         assetUndoStack: [],
+        closedTabStack: [],
         vaultTasks: [],
         selectedTags: [],
         view: { kind: 'folder', folder: 'inbox', subpath: '' },

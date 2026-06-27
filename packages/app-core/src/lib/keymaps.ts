@@ -28,6 +28,7 @@ export type KeymapId =
   | "global.modePreview"
   | "global.toggleZenMode"
   | "global.closeActiveTab"
+  | "global.reopenClosedTab"
   | "global.toggleWordWrap"
   | "global.exportNotePdf"
   | "global.zoomIn"
@@ -285,6 +286,15 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Close active tab",
     description: "Close the current note or virtual tab.",
     defaultBinding: "Mod+W",
+  },
+  {
+    id: "global.reopenClosedTab",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Reopen closed tab",
+    description: "Reopen the most recently closed tab.",
+    defaultBinding: "Shift+Mod+T",
   },
   {
     id: "global.toggleWordWrap",

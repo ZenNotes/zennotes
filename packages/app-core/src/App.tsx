@@ -581,6 +581,11 @@ function App(): JSX.Element {
         }
         return
       }
+      if (matchesShortcut(e, overrides, 'global.reopenClosedTab')) {
+        e.preventDefault()
+        void state.reopenLastClosedTab()
+        return
+      }
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
         focusEditorNormalMode()
