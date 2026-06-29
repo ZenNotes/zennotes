@@ -26,6 +26,36 @@ export interface RemoteVaultSwitcherEntry {
 
 export type VaultSwitcherEntry = LocalVaultSwitcherEntry | RemoteVaultSwitcherEntry
 
+/** Synthetic entry appended to the new-window vault picker (CommandPalette) —
+ *  picking it opens the OS folder picker instead of a known vault. Kept out of
+ *  `VaultSwitcherEntry` so existing consumers' local/remote narrowing is unaffected. */
+export interface BrowseVaultSwitcherEntry {
+  kind: 'browse'
+  name: string
+  location: string
+  current: false
+}
+
+/** Rows for the "open vault in new window" picker (#244): the known local
+ *  vaults (most-recent first, as produced by buildVaultSwitcherEntries) plus a
+ *  trailing "Browse…" row. Remote workspaces don't apply to new windows. */
+export function newWindowVaultRows(
+  entries: VaultSwitcherEntry[]
+): Array<LocalVaultSwitcherEntry | BrowseVaultSwitcherEntry> {
+  const locals = entries.filter(
+    (entry): entry is LocalVaultSwitcherEntry => entry.kind === 'local'
+  )
+  return [
+    ...locals,
+    {
+      kind: 'browse',
+      name: 'Browse for a folder…',
+      location: 'Open the system folder picker',
+      current: false
+    }
+  ]
+}
+
 interface BuildVaultSwitcherEntriesOptions {
   localVaults: LocalVaultEntry[]
   remoteProfiles: RemoteWorkspaceProfile[]

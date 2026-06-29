@@ -36,6 +36,10 @@ type Config struct {
 	AllowUnscopedBrowse bool     `json:"-"`
 	AllowInsecureNoAuth bool     `json:"-"`
 	DevMode             bool     `json:"-"`
+	// DisableWatcher turns off the inotify file watcher (ZENNOTES_DISABLE_WATCHER).
+	// Live updates stop; the vault is still fully served. Useful where inotify is
+	// restricted and can hang the process (e.g. unprivileged LXC). (#179)
+	DisableWatcher bool `json:"-"`
 
 	// Limits and security knobs.
 	MaxAssetBytes  int64       `json:"-"`
@@ -111,6 +115,7 @@ func Load() Config {
 	cfg.AllowUnscopedBrowse = envEnabled("ZENNOTES_ALLOW_UNSCOPED_BROWSE")
 	cfg.AllowInsecureNoAuth = envEnabled("ZENNOTES_ALLOW_INSECURE_NOAUTH")
 	cfg.DevMode = envEnabled("ZENNOTES_DEV")
+	cfg.DisableWatcher = envEnabled("ZENNOTES_DISABLE_WATCHER")
 	cfg.BehindTLS = envEnabled("ZENNOTES_BEHIND_TLS")
 	cfg.TrustedProxies = parseCIDRListEnv("ZENNOTES_TRUSTED_PROXIES")
 	if v := parseInt64Env("ZENNOTES_MAX_ASSET_BYTES"); v > 0 {

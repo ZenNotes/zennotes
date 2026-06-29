@@ -119,6 +119,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openTodayDailyNote()
     },
     {
+      id: 'note.daily.rollover',
+      title: 'Roll Over Unfinished Tasks to Today',
+      category: 'Note',
+      keywords: 'daily tasks rollover roll over migrate unfinished carry forward today',
+      when: () => getState().vaultSettings.dailyNotes.enabled,
+      run: () => {
+        void getState().rolloverUnfinishedTasksIntoToday({ force: true, open: true })
+      }
+    },
+    {
       id: 'note.weekly.thisWeek',
       title: "Open This Week's Note",
       category: 'Note',
@@ -271,6 +281,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (!active) return
         const title = active.title || active.path.split('/').pop()?.replace(/\.md$/i, '') || ''
         window.zen.clipboardWriteText(`[[${title}]]`)
+      }
+    },
+    {
+      id: 'note.copy-markdown',
+      title: 'Copy Note as Markdown',
+      category: 'Note',
+      keywords: 'copy clipboard markdown source document whole content text yank',
+      when: () => !!getState().activeNote,
+      run: async () => {
+        await getState().copyActiveNoteAsMarkdown()
       }
     },
     {
@@ -428,7 +448,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'tab.close',
       title: 'Close Tab',
       category: 'Tabs',
-      shortcut: shortcut('global.closeActiveTab'),
+      // In Vim mode the Mod+W binding resolves to Ctrl+W on Linux/Windows, which
+      // is the pane-command prefix — not close-tab — so showing it is misleading
+      // (#242). Vim closes the tab with `:q` (→ closeActiveNote), matching how
+      // save shows `:w`. Outside Vim, the real Mod+W binding is correct.
+      shortcut: getState().vimMode ? ':q' : shortcut('global.closeActiveTab'),
       when: () => !!getState().selectedPath,
       run: () => getState().closeActiveNote()
     },
@@ -875,10 +899,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'view.tasks',
-      title: 'Open Tasks',
+      title: `Open ${labels().tasks}`,
       category: 'View',
       shortcut: ':tasks',
-      keywords: 'todo checklist due waiting done vault',
+      keywords: 'tasks todo checklist due waiting done vault',
       when: () => !isTasksViewActive(getState()),
       run: () => getState().openTasksView()
     },

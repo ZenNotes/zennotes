@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTagsViewActive, useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
-import { extractTags } from '../lib/tags'
+import { extractTags, matchesSelectedTags } from '../lib/tags'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
+import { isImeComposing } from '../lib/ime'
+import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -30,10 +32,13 @@ export function TagView(): JSX.Element {
   const notes = useStore((s) => s.notes)
   const activeNote = useStore((s) => s.activeNote)
   const selectedTags = useStore((s) => s.selectedTags)
+  const tagMatchMode = useStore((s) => s.tagMatchMode)
+  const setTagMatchMode = useStore((s) => s.setTagMatchMode)
   const toggleTagSelection = useStore((s) => s.toggleTagSelection)
   const closeTagView = useStore((s) => s.closeTagView)
   const selectNote = useStore((s) => s.selectNote)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
   const amActive = useStore(isTagsViewActive)
 
   const [filter, setFilter] = useState('')
@@ -64,25 +69,22 @@ export function TagView(): JSX.Element {
     return [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [notes, activeNote])
 
-  // Notes matching ANY selected tag (union). More tags selected → wider
-  // result set; matches the user's mental model of "show me everything in
-  // these areas at once." Live-extract tags from the active buffer so a
-  // freshly-typed `#tag` appears without waiting for the watcher.
+  // Notes matching the selected tags. Default `all` = intersection (AND), so
+  // adding a tag narrows the result set (matches the "narrowing" wording and
+  // #221); `any` = union (OR) for the "everything in these areas" case. Live-
+  // extract tags from the active buffer so a freshly-typed `#tag` appears
+  // without waiting for the watcher.
   const matching = useMemo(() => {
     if (selectedTags.length === 0) return [] as NoteMeta[]
-    const lowered = selectedTags.map((t) => t.toLowerCase())
     return notes
       .filter((n) => {
         if (n.folder === 'trash') return false
-        const tags = (
-          activeNote && activeNote.path === n.path
-            ? extractTags(activeNote.body)
-            : n.tags
-        ).map((t) => t.toLowerCase())
-        return lowered.some((sel) => tags.includes(sel))
+        const tags =
+          activeNote && activeNote.path === n.path ? extractTags(activeNote.body) : n.tags
+        return matchesSelectedTags(tags, selectedTags, tagMatchMode)
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [notes, activeNote, selectedTags])
+  }, [notes, activeNote, selectedTags, tagMatchMode])
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -190,6 +192,12 @@ export function TagView(): JSX.Element {
   useEffect(() => {
     if (!amActive) return
     const handler = (e: KeyboardEvent): void => {
+      // A modal/menu owns the keyboard while open — don't fire list shortcuts
+      // through it. (songgenqing report)
+      if (isAppOverlayOpen()) return
+      // While the Vim hint overlay is open it owns the keyboard; don't let
+      // tag navigation (or Esc closing the view) steal its keys. (#151)
+      if (document.querySelector('[data-vim-hint-overlay]')) return
       const focused = document.activeElement as HTMLElement | null
       if (focused) {
         const t = focused.tagName
@@ -199,50 +207,53 @@ export function TagView(): JSX.Element {
 
       const k = e.key
       const overrides = keymapOverrides
+      // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o//…) are
+      // disabled — only arrows/Enter/Escape navigate. (songgenqing report)
+      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
+        vimMode && matchesSequenceToken(e, overrides, id)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
       }
 
       if (k === 'Escape') {
-        if (filter) {
-          consume()
-          setFilter('')
-          return
-        }
+        // Tags is a tab like a note tab — Esc clears an active filter but must
+        // never close the tab (other tabs don't close on Esc). Close with :q,
+        // the header ✕, or ⌘W. (#151)
         consume()
-        closeTagView()
+        if (filter) setFilter('')
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+      if (seq('nav.filter')) {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.localEx')) {
+      if (seq('nav.localEx')) {
         consume()
         setExValue('')
         setExOpen(true)
         requestAnimationFrame(() => exRef.current?.focus())
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveDown') || k === 'ArrowDown') {
+      if (seq('nav.moveDown') || k === 'ArrowDown') {
         consume()
         moveCursor(1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.moveUp') || k === 'ArrowUp') {
+      if (seq('nav.moveUp') || k === 'ArrowUp') {
         consume()
         moveCursor(-1)
         return
       }
-      if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      if (seq('nav.jumpBottom')) {
         consume()
         setCursorIndex(filtered.length - 1)
         return
       }
       if (
+        vimMode &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -255,7 +266,14 @@ export function TagView(): JSX.Element {
       ) {
         return
       }
-      if ((k === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openResult')) && current) {
+      // `m` toggles AND/OR matching when 2+ tags are selected (vim-gated).
+      if (vimMode && k === 'm' && useStore.getState().selectedTags.length >= 2) {
+        consume()
+        const s = useStore.getState()
+        s.setTagMatchMode(s.tagMatchMode === 'all' ? 'any' : 'all')
+        return
+      }
+      if ((k === 'Enter' || seq('nav.openResult')) && current) {
         consume()
         void openCurrent()
       }
@@ -269,6 +287,7 @@ export function TagView(): JSX.Element {
     filtered.length,
     current,
     keymapOverrides,
+    vimMode,
     openCurrent,
     closeTagView
   ])
@@ -285,6 +304,35 @@ export function TagView(): JSX.Element {
           {matching.length} {matching.length === 1 ? 'note' : 'notes'}
         </span>
         <div className="ml-auto flex items-center gap-2">
+          {selectedTags.length >= 2 && (
+            <div className="flex items-center gap-1" title="How multiple tags combine">
+              <span className="text-2xs font-semibold uppercase tracking-wider text-current/40">
+                Match
+              </span>
+              <div className="flex overflow-hidden rounded-md ring-1 ring-current/15">
+                {(['all', 'any'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setTagMatchMode(m)}
+                    title={
+                      m === 'all'
+                        ? 'All — notes with every selected tag (AND)'
+                        : 'Any — notes with at least one selected tag (OR)'
+                    }
+                    className={[
+                      'px-2 py-1 text-xs transition-colors',
+                      tagMatchMode === m
+                        ? 'bg-accent/20 font-medium text-accent'
+                        : 'text-current/60 hover:bg-current/10'
+                    ].join(' ')}
+                  >
+                    {m === 'all' ? 'All' : 'Any'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <input
             ref={filterRef}
             type="text"
@@ -297,7 +345,7 @@ export function TagView(): JSX.Element {
                 if (filter) setFilter('')
                 else e.currentTarget.blur()
               }
-              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
             }}
             className="w-56 rounded-md border border-current/15 bg-current/5 px-2 py-1 text-xs outline-none focus:border-current/30"
           />
@@ -367,7 +415,9 @@ export function TagView(): JSX.Element {
         ) : filtered.length === 0 ? (
           <div className="px-6 py-10 text-center text-sm text-current/50">
             {matching.length === 0
-              ? 'No notes carry any of the selected tags.'
+              ? tagMatchMode === 'all' && selectedTags.length >= 2
+                ? 'No notes carry all of the selected tags. Try Match: Any.'
+                : 'No notes carry any of the selected tags.'
               : `No notes match "${filter}".`}
           </div>
         ) : (
@@ -453,7 +503,7 @@ export function TagView(): JSX.Element {
         </form>
       ) : (
         <div className="border-t border-current/10 px-4 py-1.5 text-xs text-current/40">
-          j/k move · Enter/o open · click chips to toggle · / filter · : command · Esc close
+          j/k move · Enter/o open · click chips to toggle · / filter · : command · :q close
         </div>
       )}
     </div>

@@ -26,7 +26,8 @@ import {
   tooltips
 } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
@@ -40,7 +41,7 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
-import { wikilinkSource } from '../lib/cm-wikilinks'
+import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
@@ -60,6 +61,7 @@ const paperHighlight = HighlightStyle.define([
   { tag: t.heading6, class: 'tok-heading6' },
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
+  { tag: t.strikethrough, class: 'tok-strikethrough' },
   { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
@@ -194,7 +196,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
-            override: [slashCommandSource, dateShortcutSource, wikilinkSource],
+            override: [slashCommandSource, dateShortcutSource, wikilinkSource, wikilinkHeadingSource],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
             optionClass: (completion) =>
@@ -214,7 +216,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               }
             },
             indentWithTab,
-            ...defaultKeymap,
+            ...vimAwareDefaultKeymap(s0.vimMode),
             ...historyKeymap,
             ...searchKeymap,
             ...completionKeymap

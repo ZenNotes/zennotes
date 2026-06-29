@@ -124,3 +124,18 @@ describe('built-in template commands (#112)', () => {
     expect(useStore.getState().hideBuiltinTemplates).toBe(false)
   })
 })
+
+describe('close-tab command shortcut', () => {
+  // #242: in Vim mode Ctrl+W is the pane prefix, so the Mod+W label was wrong.
+  it('shows :q in Vim mode and the Mod+W binding otherwise', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+
+    useStore.setState({ vimMode: true, selectedPath: 'inbox/n.md' })
+    expect(buildCommands().find((c) => c.id === 'tab.close')?.shortcut).toBe(':q')
+
+    useStore.setState({ vimMode: false })
+    const shortcut = buildCommands().find((c) => c.id === 'tab.close')?.shortcut
+    expect(shortcut).not.toBe(':q')
+    expect(shortcut).toMatch(/W/)
+  })
+})

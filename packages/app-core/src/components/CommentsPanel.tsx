@@ -10,6 +10,7 @@ import {
 import type { NoteComment, NoteContent } from '@shared/ipc'
 import { useStore } from '../store'
 import { commentQuote } from '../lib/comments'
+import { renderMarkdown } from '../lib/markdown'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 import {
@@ -384,6 +385,9 @@ function CommentCard({
   onDelete: () => void
 }): JSX.Element {
   const resolved = comment.resolvedAt != null
+  // Render the comment body as Markdown (sanitized). Cached by renderMarkdown,
+  // memoized per-body so card re-renders (hover/selection) don't re-parse.
+  const bodyHtml = useMemo(() => renderMarkdown(comment.body), [comment.body])
   const showActionShortcuts = active && commentsFocused && !editing
   const handleCardClick = (event: MouseEvent<HTMLElement>): void => {
     const target = event.target as HTMLElement | null
@@ -495,7 +499,10 @@ function CommentCard({
               </div>
             </div>
           ) : (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-5 text-ink-900">{comment.body}</p>
+            <div
+              className="comment-prose prose-zen mt-3 text-sm leading-5 text-ink-900"
+              dangerouslySetInnerHTML={{ __html: bodyHtml }}
+            />
           )}
         </div>
       </div>

@@ -50,6 +50,9 @@ const PREFIX_HIDE_WITH_SPACE = new Set(['HeaderMark', 'QuoteMark'])
 
 const hide = Decoration.replace({})
 const imageSourceHide = Decoration.replace({})
+// Stamped on an image line only while its raw source is hidden, so the host
+// line stops reserving a blank text row above/below the block figure (#261).
+const imageEmbedLine = Decoration.line({ class: 'cm-image-embed-line' })
 const STANDALONE_IMAGE_RE = /^\s*!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+))\)\s*$/
 const STANDALONE_OBSIDIAN_EMBED_RE = /^\s*!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]\s*$/
 // Anchor-style standalone PDF link: `[Label](file.pdf)` or `[Label](<file with spaces.pdf>)`.
@@ -659,6 +662,12 @@ function computeDecorations(view: EditorView): DecorationSet {
             to: line.to,
             deco: imageSourceHide
           })
+          // Collapse the now text-less line's strut (see imageEmbedLine).
+          pending.push({
+            from: line.from,
+            to: line.from,
+            deco: imageEmbedLine
+          })
         }
         continue
       }
@@ -724,11 +733,11 @@ function computeDecorations(view: EditorView): DecorationSet {
         if (name === TASK_MARKER_NODE) {
           const line = state.doc.lineAt(node.from).number
           if (replacedLines.has(line)) return
-          // Reveal the raw `[ ]` / `[x]` so the user can edit it directly
-          // when the cursor lands inside the marker. Cursor elsewhere on
-          // the line still shows the checkbox — same model headings use
-          // for `#` markers.
-          if (selectionTouchesRange(state, node.from, node.to)) return
+          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
+          // line reads as source — matching Obsidian, and consistent with the
+          // list/quote/heading markers, which also reveal on the active line.
+          // Off the line, render the checkbox.
+          if (activeLines.has(line)) return
           const markerText = state.doc.sliceString(node.from, node.to)
           // `markerText` is `[ ]` / `[x]` / `[X]`; default to unchecked if the
           // parser ever hands us something unexpected.
@@ -756,6 +765,11 @@ function computeDecorations(view: EditorView): DecorationSet {
         // the entire code block.
         if ((name === 'CodeMark' || name === 'CodeInfo') &&
             node.node.parent?.name === 'FencedCode') return
+
+        // The `:` in a reference-link definition (`[label]: url`) parses as a
+        // LinkMark whose parent is LinkReference. Keep it visible — hiding it
+        // makes the definition read as a broken `[label] url`. (#188)
+        if (name === 'LinkMark' && node.node.parent?.name === 'LinkReference') return
 
         const line = state.doc.lineAt(node.from).number
         if (replacedLines.has(line)) return

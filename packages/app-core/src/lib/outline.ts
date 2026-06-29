@@ -22,14 +22,24 @@ export interface OutlineItem {
 
 const ATX_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
 const SETEXT_UNDERLINE_RE = /^(=+|-+)\s*$/
-const FENCE_RE = /^(?:```|~~~)/
+// A fenced code block opens with a run of >=3 backticks or tildes; the second
+// group is the rest of the line (the info string).
+const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)$/
+// A closing fence is a run of fence characters alone on its line, save for
+// trailing whitespace (no info string).
+const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})[ \t]*$/
 
 export function parseOutline(body: string): OutlineItem[] {
   const items: OutlineItem[] = []
   if (!body) return items
 
   const lines = body.split('\n')
-  let inFence = false
+  // The marker run (``` / ~~~) that opened the current fence, or null when not
+  // inside one. Tracking the exact marker — instead of toggling a boolean on
+  // any fence-looking line — means a `~~~` line can't close a ``` block, a
+  // longer closer is required for a longer opener, and an inline `​```…``` `
+  // code span isn't mistaken for a block fence (#249).
+  let fence: string | null = null
   let offset = 0
 
   for (let i = 0; i < lines.length; i++) {
@@ -37,13 +47,25 @@ export function parseOutline(body: string): OutlineItem[] {
     const lineStart = offset
     offset += raw.length + 1 // +1 for the stripped newline
 
-    const stripped = raw.trimStart()
-
-    if (FENCE_RE.test(stripped)) {
-      inFence = !inFence
+    if (fence) {
+      const close = raw.match(FENCE_CLOSE_RE)
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
+        fence = null
+      }
       continue
     }
-    if (inFence) continue
+
+    const open = raw.match(FENCE_OPEN_RE)
+    if (open) {
+      const [, marker, info] = open
+      // A backtick fence's info string may not contain backticks; when it does,
+      // the line is an inline code span (e.g. ```[[link]]```), not a block
+      // fence — so don't enter a fence, and let heading parsing fall through.
+      if (marker[0] !== '`' || !info.includes('`')) {
+        fence = marker
+        continue
+      }
+    }
 
     const atx = raw.match(ATX_RE)
     if (atx) {

@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.3.0",
+  "version": "2.8.0",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -76,6 +76,7 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.1",
+    "smol-toml": "^1.7.0",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.0.0",
     "ws": "^8.20.0",
@@ -104,6 +105,7 @@
     "executableName": "ZenNotes",
     "productName": "ZenNotes",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "afterPack": "build/after-pack.js",
     "asar": true,
     "compression": "maximum",
     "npmRebuild": false,
@@ -191,6 +193,7 @@
     "electronVersion": "41.2.1",
     "electronUpdaterCompatibility": ">=2.16",
     "mac": {
+      "icon": "build/icon.icns",
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -227,11 +230,28 @@
       "target": [
         "AppImage",
         "deb",
-        "pacman"
+        "pacman",
+        "tar.gz"
       ],
       "icon": "build/icons",
       "maintainer": "Adib Hanna <adibhanna@gmail.com>",
-      "category": "Office"
+      "category": "Office",
+      "extraResources": [
+        {
+          "from": "../../packaging/aur/arch-extras/zennotes.desktop",
+          "to": "arch-extras/zennotes.desktop"
+        },
+        {
+          "from": "build/icons",
+          "to": "arch-extras/icons"
+        }
+      ],
+      "extraFiles": [
+        {
+          "from": "../../LICENSE",
+          "to": "LICENSE"
+        }
+      ]
     },
     "deb": {
       "afterInstall": "build/after-install.sh"

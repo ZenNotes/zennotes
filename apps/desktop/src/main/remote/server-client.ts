@@ -147,6 +147,13 @@ export class RemoteServerClient {
     })
   }
 
+  async createExcalidraw(folder: NoteFolder, subpath = '', title?: string): Promise<NoteMeta> {
+    return this.jsonRequest<NoteMeta>('/api/excalidraw/create', {
+      method: 'POST',
+      body: { folder, subpath, title }
+    })
+  }
+
   async renameNote(relPath: string, nextTitle: string): Promise<NoteMeta> {
     return this.jsonRequest<NoteMeta>('/api/notes/rename', {
       method: 'POST',

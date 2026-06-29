@@ -15,9 +15,14 @@ import os from 'node:os'
 export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
 const LIVE_FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive']
+/** A database is a self-contained folder whose name ends with `.base`; its
+ *  internals (data.csv, schema.json, record-page notes) aren't part of the MCP
+ *  note/folder surface, so the walks skip these folders. */
+const isFormDirName = (name: string): boolean => name.toLowerCase().endsWith('.base')
+const ASSETS_DIR = 'assets'
 const PRIMARY_ATTACHMENTS_DIR = 'attachements'
-const LEGACY_ATTACHMENTS_DIRS = ['_assets']
-const ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
+const LEGACY_ATTACHMENTS_DIRS = [PRIMARY_ATTACHMENTS_DIR, '_assets']
+const ATTACHMENTS_DIRS = [ASSETS_DIR, ...LEGACY_ATTACHMENTS_DIRS]
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_FILE = 'vault.json'
 
@@ -352,7 +357,7 @@ function stripCodeContent(body: string): string {
 
 function extractTags(body: string): string[] {
   const stripped = stripCodeContent(body)
-  const matches = stripped.match(/(?:^|\s)#([a-zA-Z][\w\-/]*)/g) || []
+  const matches = stripped.match(/(?:^|\s)#(\p{L}[\p{L}\d_/-]*)/gu) || []
   const seen = new Set<string>()
   for (const m of matches) seen.add(m.trim().slice(1))
   return [...seen]
@@ -421,6 +426,7 @@ export async function listNotes(root: string): Promise<NoteMeta[]> {
       const full = path.join(dirAbs, entry.name)
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue
+        if (isFormDirName(entry.name)) continue // database folder — not loose notes
         // When walking the vault root in primary='root' mode, system
         // subdirectories (quick/, archive/, trash/, attachments) are
         // not part of inbox — they're walked separately as their own
@@ -458,6 +464,7 @@ export async function listFolders(root: string): Promise<{ folder: NoteFolder; s
       }
       for (const e of entries) {
         if (!e.isDirectory() || e.name.startsWith('.')) continue
+        if (isFormDirName(e.name)) continue // database folder — not a user folder
         if (isPrimaryRoot && dirAbs === topAbs && HIDDEN_PRIMARY_ROOT_NAMES.has(e.name)) {
           continue
         }
@@ -825,7 +832,7 @@ const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/
 const INLINE_DUE_RE = /(?:^|\s)due:(\S+)/i
 const INLINE_PRIORITY_RE = /(?:^|\s)!(high|med|medium|low|h|m|l)\b/i
 const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
-const INLINE_TAG_RE = /(?:^|\s)#([a-z0-9][a-z0-9/_-]*)/gi
+const INLINE_TAG_RE = /(?:^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu
 
 function normalizePriority(raw: string | undefined): 'high' | 'med' | 'low' | undefined {
   if (!raw) return undefined

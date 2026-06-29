@@ -336,6 +336,8 @@
 :root[data-theme="one-dark"],
 :root[data-theme="nord-dark"],
 :root[data-theme="tokyo-night-storm"],
+:root[data-theme="kanagawa-wave"],
+:root[data-theme="kanagawa-dragon"],
 :root[data-theme="black-metal"] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
@@ -966,6 +968,96 @@
   --z-purple: 187 154 247; /* magenta    #bb9af7 */
   --z-aqua: 125 207 255; /* cyan       #7dcfff */
   --z-shadow: 0 0 0;
+}
+
+/* ===========================================================================
+ * Kanagawa — https://github.com/rebelot/kanagawa.nvim
+ * Inspired by Hokusai's "The Great Wave off Kanagawa". Wave (warm default
+ * dark), Dragon (darker, cooler dark), Lotus (light). Official palettes.
+ * ======================================================================== */
+
+/* ---- Wave (dark — the default) ------------------------------------- */
+:root[data-theme="kanagawa-wave"] {
+  color-scheme: dark;
+  --z-bg: 31 31 40; /* sumiInk3   #1f1f28 */
+  --z-bg-softer: 24 24 32; /* sumiInk1   #181820 */
+  --z-bg-1: 22 22 29; /* sumiInk0   #16161d */
+  --z-bg-2: 42 42 55; /* sumiInk4   #2a2a37 */
+  --z-bg-3: 54 54 70; /* sumiInk5   #363646 */
+  --z-bg-4: 84 84 109; /* sumiInk6   #54546d */
+  --z-fg: 220 215 186; /* fujiWhite  #dcd7ba */
+  --z-fg-1: 200 192 147; /* oldWhite   #c8c093 */
+  --z-fg-2: 166 160 138; /* dim parchment */
+  --z-grey-2: 142 138 120;
+  --z-grey-1: 114 113 105; /* fujiGray   #727169 */
+  --z-grey-0: 84 84 109; /* sumiInk6   #54546d */
+  --z-grey-dim: 54 54 70;
+  --z-accent: 126 156 216; /* crystalBlue #7e9cd8 — iconic */
+  --z-accent-soft: 230 195 132; /* carpYellow  #e6c384 */
+  --z-accent-muted: 152 187 108; /* springGreen #98bb6c */
+  --z-red: 228 104 118; /* waveRed     #e46876 */
+  --z-green: 152 187 108;
+  --z-yellow: 230 195 132;
+  --z-blue: 126 156 216;
+  --z-purple: 149 127 184; /* oniViolet   #957fb8 */
+  --z-aqua: 122 168 159; /* waveAqua2   #7aa89f */
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Dragon (dark — darker, cooler) -------------------------------- */
+:root[data-theme="kanagawa-dragon"] {
+  color-scheme: dark;
+  --z-bg: 24 22 22; /* dragonBlack3 #181616 */
+  --z-bg-softer: 18 18 15; /* dragonBlack1 #12120f */
+  --z-bg-1: 13 12 12; /* dragonBlack0 #0d0c0c */
+  --z-bg-2: 40 39 39; /* dragonBlack4 #282727 */
+  --z-bg-3: 57 56 54; /* dragonBlack5 #393836 */
+  --z-bg-4: 98 94 90; /* dragonBlack6 #625e5a */
+  --z-fg: 197 201 197; /* dragonWhite  #c5c9c5 */
+  --z-fg-1: 166 166 156; /* dragonGray   #a6a69c */
+  --z-fg-2: 158 155 147; /* dragonGray2  #9e9b93 */
+  --z-grey-2: 122 131 130; /* dragonGray3  #7a8382 */
+  --z-grey-1: 115 124 115; /* dragonAsh    #737c73 */
+  --z-grey-0: 98 94 90;
+  --z-grey-dim: 57 56 54;
+  --z-accent: 139 164 176; /* dragonBlue2  #8ba4b0 */
+  --z-accent-soft: 196 178 138; /* dragonYellow #c4b28a */
+  --z-accent-muted: 135 169 135; /* dragonGreen  #87a987 */
+  --z-red: 196 116 110; /* dragonRed    #c4746e */
+  --z-green: 135 169 135;
+  --z-yellow: 196 178 138;
+  --z-blue: 139 164 176;
+  --z-purple: 162 146 163; /* dragonPink   #a292a3 */
+  --z-aqua: 142 164 162; /* dragonAqua   #8ea4a2 */
+  --z-shadow: 0 0 0;
+}
+
+/* ---- Lotus (light) ------------------------------------------------- */
+:root[data-theme="kanagawa-lotus"] {
+  color-scheme: light;
+  --z-bg: 242 236 188; /* lotusWhite3  #f2ecbc */
+  --z-bg-softer: 229 221 176; /* lotusWhite2  #e5ddb0 */
+  --z-bg-1: 220 213 172; /* lotusWhite1  #dcd5ac */
+  --z-bg-2: 213 206 163; /* lotusWhite0  #d5cea3 */
+  --z-bg-3: 201 193 148; /* darker parchment */
+  --z-bg-4: 185 177 135; /* darker parchment */
+  --z-fg: 84 84 100; /* lotusInk1    #545464 */
+  --z-fg-1: 67 67 108; /* lotusInk2    #43436c */
+  --z-fg-2: 110 106 94; /* dim warm */
+  --z-grey-2: 113 110 97; /* lotusGray2   #716e61 */
+  --z-grey-1: 138 137 128; /* lotusGray3   #8a8980 */
+  --z-grey-0: 160 156 172; /* lotusViolet1 #a09cac */
+  --z-grey-dim: 201 193 148;
+  --z-accent: 77 105 155; /* lotusBlue4   #4d699b */
+  --z-accent-soft: 204 109 0; /* lotusOrange  #cc6d00 */
+  --z-accent-muted: 110 145 95; /* lotusGreen2  #6e915f */
+  --z-red: 200 64 83; /* lotusRed     #c84053 */
+  --z-green: 110 145 95;
+  --z-yellow: 222 154 0; /* lotusYellow3 #de9a00 */
+  --z-blue: 77 105 155;
+  --z-purple: 98 76 131; /* lotusViolet4 #624c83 */
+  --z-aqua: 94 133 122; /* lotusAqua2   #5e857a */
+  --z-shadow: 87 82 64;
 }
 
 /* ===========================================================================
@@ -1701,6 +1793,34 @@ textarea,
   color: rgb(var(--z-fg-2) / 0.72);
   padding-left: 12px;
   padding-right: 6px;
+  /* Line-number gutter position (Settings → Editor → Line number position, #228).
+     With centered content the column is capped and centered (`margin: 0 auto`);
+     by default ("text") the gutter is given a left auto-margin so the whole
+     [gutter + content] group centers together — the gutter absorbs the left
+     free space, the content the right, so no gap opens between numbers and
+     text. "edge" pins the gutter to the far-left instead (text stays centered).
+     On a narrow editor (or with long, non-wrapped lines) free space is zero and
+     all of this is a no-op. */
+  margin-left: auto;
+}
+.cm-editor .cm-gutters ~ .cm-content {
+  margin-left: 0;
+}
+/* "Editor edge": pin numbers to the far-left; the text column stays centered. */
+:root[data-line-number-position="edge"] .cm-editor .cm-gutters {
+  margin-left: 0;
+}
+:root[data-line-number-position="edge"] .cm-editor .cm-gutters ~ .cm-content {
+  margin-left: auto;
+}
+/* Left-aligned content always packs the gutter + text against the left edge,
+   regardless of the line-number position setting. Listed last so it wins the
+   specificity tie with the "edge" rules above. */
+:root[data-content-align="left"] .cm-editor .cm-gutters {
+  margin-left: 0;
+}
+:root[data-content-align="left"] .cm-editor .cm-gutters ~ .cm-content {
+  margin-left: 0;
 }
 .cm-editor .cm-gutter {
   background: transparent;
@@ -1741,19 +1861,44 @@ textarea,
   color: rgb(var(--z-fg));
 }
 
-/* Leading YAML frontmatter — render as compact, muted "properties" (see
- * cm-frontmatter.ts) instead of full-size body text. */
+/* Leading YAML frontmatter — render as a compact "properties" metadata card
+ * (see cm-frontmatter.ts). For database record pages these values mirror the
+ * database fields, so it should read like a tidy property list, not body text. */
 .cm-editor .cm-frontmatter-line {
-  font-size: 0.8em;
-  line-height: 1.55;
+  font-size: 0.84em;
+  line-height: 1.85;
   color: rgb(var(--z-grey-1));
-  background: rgb(var(--z-bg-1) / 0.35);
+  background: rgb(var(--z-bg-1) / 0.5);
+  padding-left: 0.85em;
+  padding-right: 0.85em;
+  border-left: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-right: 1px solid rgb(var(--z-grey-0) / 0.13);
 }
 .cm-editor .cm-frontmatter-line :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
   color: inherit;
 }
-.cm-editor .cm-frontmatter-fence {
-  color: rgb(var(--z-grey-0) / 0.5);
+/* The key (before the `:`) is a muted label; the value keeps the normal color. */
+.cm-editor .cm-frontmatter-key,
+.cm-editor .cm-frontmatter-key :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
+  color: rgb(var(--z-grey-0) / 0.62);
+  font-weight: 500;
+}
+/* The `---` fences become the card's quiet, rounded top/bottom edges: hide the
+ * dashes (transparent) but keep a thin capped row. */
+.cm-editor .cm-frontmatter-top,
+.cm-editor .cm-frontmatter-bottom {
+  color: transparent;
+  font-size: 0.5em;
+}
+.cm-editor .cm-frontmatter-top {
+  border-top: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+.cm-editor .cm-frontmatter-bottom {
+  border-bottom: 1px solid rgb(var(--z-grey-0) / 0.13);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
 }
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,
@@ -1796,6 +1941,9 @@ textarea,
 }
 .cm-editor .tok-strong {
   font-weight: 700;
+}
+.cm-editor .tok-strikethrough {
+  text-decoration: line-through;
 }
 .cm-editor .tok-quote {
   font-style: italic;
@@ -2093,6 +2241,41 @@ textarea,
   font-size: var(--z-editor-font-size, 16px);
   line-height: var(--z-editor-line-height, 1.7);
   color: theme("colors.ink.900");
+}
+/* Compact Markdown inside comment cards (CommentsPanel): reuse .prose-zen
+   element styling but drop the full-note container padding/width and scale
+   headings + block spacing down to fit a narrow, small-text comment. */
+.prose-zen.comment-prose {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.prose-zen.comment-prose > :first-child {
+  margin-top: 0;
+}
+.prose-zen.comment-prose > :last-child {
+  margin-bottom: 0;
+}
+.prose-zen.comment-prose h1,
+.prose-zen.comment-prose h2,
+.prose-zen.comment-prose h3,
+.prose-zen.comment-prose h4,
+.prose-zen.comment-prose h5,
+.prose-zen.comment-prose h6 {
+  font-size: 1.05em;
+  margin-top: 0.6em;
+  margin-bottom: 0.2em;
+  line-height: 1.3;
+}
+.prose-zen.comment-prose h1 {
+  font-size: 1.2em;
+}
+.prose-zen.comment-prose h2 {
+  font-size: 1.12em;
 }
 .prose-zen h1,
 .prose-zen h2,
@@ -2528,7 +2711,22 @@ textarea,
   display: block;
   width: 100%;
   max-width: min(100%, 980px);
-  margin: 0.75rem 0 1rem;
+  margin: 0.5rem 0 0.6rem;
+}
+
+/* The image widget is an inline (side:1) decoration, so its host line still
+ * reserves a full text line-box above and below the block figure — roughly one
+ * line-height of phantom vertical space on each side (issue #261). When the raw
+ * source is hidden (cursor off the line) the live-preview plugin stamps the line
+ * with `cm-image-embed-line`; collapse that line's strut to 0. The class is
+ * absent whenever the source markdown is revealed, so the editable text keeps
+ * its normal line-height. The caption restores its own line-height just below. */
+.cm-editor .cm-image-embed-line {
+  line-height: 0;
+}
+
+.cm-editor .local-image-embed-caption {
+  line-height: 1.4;
 }
 
 /* --- PDF embed widget (CodeMirror live preview) ---------------------- */
@@ -2771,6 +2969,63 @@ textarea,
 }
 
 /* Callouts (Obsidian style) */
+/* --- Markdown highlight: `==text==` and `<mark class="hl-*">` ---------- */
+/* One shared palette (R G B triplets) drives the rendered preview/PDF
+   (`.prose-zen mark`), the editor live-preview decoration (`.cm-hl-*`), and the
+   right-click swatches. Translucent so the text keeps the theme foreground and
+   the color reads on both light and dark pages. */
+:root {
+  --hl-yellow: 245 208 70;
+  --hl-orange: 246 153 63;
+  --hl-red: 240 110 110;
+  --hl-pink: 240 120 180;
+  --hl-purple: 176 132 235;
+  --hl-blue: 96 170 240;
+  --hl-green: 120 200 130;
+  --hl-gray: 165 172 184;
+}
+.prose-zen mark,
+.cm-editor .cm-hl {
+  background-color: rgb(var(--hl-yellow) / 0.34);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0.05em 0.15em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.prose-zen mark.hl-yellow,
+.cm-editor .cm-hl-yellow {
+  background-color: rgb(var(--hl-yellow) / 0.34);
+}
+.prose-zen mark.hl-orange,
+.cm-editor .cm-hl-orange {
+  background-color: rgb(var(--hl-orange) / 0.34);
+}
+.prose-zen mark.hl-red,
+.cm-editor .cm-hl-red {
+  background-color: rgb(var(--hl-red) / 0.32);
+}
+.prose-zen mark.hl-pink,
+.cm-editor .cm-hl-pink {
+  background-color: rgb(var(--hl-pink) / 0.32);
+}
+.prose-zen mark.hl-purple,
+.cm-editor .cm-hl-purple {
+  background-color: rgb(var(--hl-purple) / 0.34);
+}
+.prose-zen mark.hl-blue,
+.cm-editor .cm-hl-blue {
+  background-color: rgb(var(--hl-blue) / 0.32);
+}
+.prose-zen mark.hl-green,
+.cm-editor .cm-hl-green {
+  background-color: rgb(var(--hl-green) / 0.32);
+}
+.prose-zen mark.hl-gray,
+.cm-editor .cm-hl-gray {
+  background-color: rgb(var(--hl-gray) / 0.34);
+}
+
 .prose-zen .callout {
   margin: var(--z-prose-block-gap) 0;
   padding: 0.8em 1em;
@@ -3039,7 +3294,7 @@ textarea,
   color: rgb(var(--z-ink-900));
 }
 .vim-cursor-on-active {
-  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.5);
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);
 }
 .vim-cursor-on-selected {
   box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);
@@ -3382,4 +3637,510 @@ textarea,
 }
 .prose-zen .prose-heading-fold-arrow.is-folded {
   color: rgb(var(--z-accent));
+}
+
+/* =====================================================================
+   WYSIWYG live-preview rendering — ported from PR #185 (author: songgnqing).
+   Rendered tables, blockquote bars, list bullets, horizontal rules,
+   fenced-code cards + language flair, hashtag chips, and wikilinks.
+   Block-card styling is gated by the .cm-wysiwyg wrapper, added to the
+   editor container when livePreview is on (see EditorPane).
+   ===================================================================== */
+/* The inline-code chip (background/padding/radius from `.tok-monospace`) is for
+   true inline code only. Inside fenced/indented blocks the Lezer markdown
+   grammar tags every token with the same `monospace` highlight tag, so each
+   token would otherwise get its own chip — peppering the block with ragged,
+   per-line gray boxes. Neutralize it here; the block card (WYSIWYG) or raw view
+   provides the background. Mirrors the preview's `.prose-zen pre code`. */
+.cm-editor .cm-code-block-line .tok-monospace {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* --- WYSIWYG code-block card + language flair (Edit mode only) -------- */
+/* Give fenced code blocks a continuous "card": a shared background with side
+   borders, the first/last line rounding the top/bottom. Mirrors Obsidian's
+   HyperMD-codeblock-bg, scoped to Edit (WYSIWYG) — Split stays raw. */
+.cm-wysiwyg .cm-code-block-line {
+  position: relative;
+  background: rgb(var(--z-bg-2) / 0.55);
+  border-left: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-right: 1px solid rgb(var(--z-bg-3) / 0.7);
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.cm-wysiwyg .cm-code-block-begin {
+  border-top: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+.cm-wysiwyg .cm-code-block-end {
+  border-bottom: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+/* Language label pinned top-right of the block; clicking it copies the code,
+   so there is no separate copy or fold control. */
+.cm-wysiwyg .cm-code-flair {
+  position: absolute;
+  top: 3px;
+  right: 8px;
+  z-index: 2;
+  padding: 1px 7px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgb(var(--z-grey-1));
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.cm-wysiwyg .cm-code-flair:hover {
+  background: rgb(var(--z-bg-3) / 0.85);
+  color: rgb(var(--z-fg));
+}
+.cm-wysiwyg .cm-code-flair.is-copied {
+  color: rgb(var(--z-accent));
+}
+
+/* --- WYSIWYG live table widget (Edit mode) --------------------------- */
+/* A GFM pipe table rendered as a real, editable <table>. Mirrors Obsidian's
+   cm-table-widget: rounded bordered grid, header tint, hover add-buttons, and
+   in-cell editing. Source stays authoritative; see cm-table.ts. */
+.cm-table-widget {
+  /* Use PADDING, not vertical margin, for the block gap: CodeMirror measures a
+     block widget's height via offsetHeight, which excludes margins — a vertical
+     margin here desyncs the height map and makes clicks below the table land a
+     line high. The padding also leaves room for the hover grips (top/left) and
+     add-buttons (right/bottom).
+     The negative LEFT margin cancels the left padding so the table content
+     still lines up with the body text (and matches Preview) instead of sitting
+     ~2 chars indented. Horizontal margin is safe — only vertical margin breaks
+     the height measurement. */
+  margin: 0 0 0 -16px;
+  padding: 16px;
+  overflow-x: auto;
+  white-space: normal;
+  font-family: var(
+    --z-text-font,
+    -apple-system,
+    BlinkMacSystemFont,
+    "SF Pro Text",
+    Inter,
+    "PingFang SC",
+    "Microsoft YaHei",
+    system-ui,
+    sans-serif
+  );
+  font-size: 0.94em;
+}
+.cm-table-wrapper {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+.cm-table-widget table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+.cm-table-widget th,
+.cm-table-widget td {
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  padding: 0;
+  vertical-align: top;
+  min-width: 64px;
+  position: relative;
+}
+.cm-table-widget th {
+  background: rgb(var(--z-bg-2) / 0.7);
+  font-weight: 600;
+}
+.cm-table-widget .cm-table-cell {
+  padding: 5px 10px;
+  outline: none;
+  min-height: 1.5em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+  /* No native text selection in view/normal mode — it renders as the OS color
+     and CodeMirror mirrors it across cells. Vim visual mode draws its own
+     themed overlay instead. Editing (contenteditable) re-enables selection. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.cm-table-widget .cm-table-cell[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.cm-table-widget .cm-table-cell:focus {
+  background: rgb(var(--z-accent) / 0.1);
+  box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.45);
+}
+/* Vim NORMAL mode: the cell is selected for navigation, not being typed into.
+   `caret-shape: block` isn't supported in our Chromium yet, so hide the native
+   (insert-style) caret and draw a Vim-style block cursor ourselves via ::before.
+   Editing (i/a) removes this class, restoring the normal thin caret. */
+.cm-table-widget .cm-table-cell.is-vim-normal {
+  position: relative;
+  background: rgb(var(--z-accent) / 0.07);
+}
+/* Vim block cursor — a real cursor positioned over the current character by
+   cm-table.ts (renderCellCursor), so h/l move it glyph-by-glyph like Vim. */
+.cm-table-widget .cm-table-cell-cursor {
+  position: absolute;
+  background: rgb(var(--z-accent) / 0.5);
+  border-radius: 1px;
+  pointer-events: none;
+}
+/* Vim visual-mode selection inside a cell uses the native selection; match the
+   editor's own selection tint (theme accent at the same strength) so it reads
+   consistently instead of the washed-out OS default. */
+.cm-table-widget .cm-table-cell::selection,
+.cm-table-widget .cm-table-cell ::selection {
+  background: rgb(var(--z-accent) / 0.22);
+}
+/* Vim visual-mode selection overlay (cm-table.ts renderCellSelection) — themed
+   so it matches the editor selection across every theme. */
+.cm-table-widget .cm-table-cell-sel {
+  position: absolute;
+  background: rgb(var(--z-accent) / 0.28);
+  border-radius: 2px;
+  pointer-events: none;
+}
+/* While a table cell is focused, the "real" cursor lives in the cell, so hide
+   the editor's own cursor layer — otherwise its Vim block cursor lingers at the
+   last document position (e.g. above the table) as a second block cursor. */
+.cm-editor:has(.cm-table-cell:focus) .cm-cursorLayer,
+.cm-editor:has(.cm-table-cell:focus) .cm-selectionLayer {
+  display: none;
+}
+/* Rendered inline markdown inside idle cells (the source pipeline emits real
+   <code>/<strong>/<em>/<a> tags, so style them to match the editor chrome). */
+.cm-table-widget .cm-table-cell code {
+  font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
+  font-size: 0.92em;
+  background: rgb(var(--z-bg-2));
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.cm-table-widget .cm-table-cell strong {
+  font-weight: 700;
+}
+.cm-table-widget .cm-table-cell em {
+  font-style: italic;
+}
+.cm-table-widget .cm-table-cell a {
+  color: rgb(var(--z-accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+}
+.cm-table-widget td[align="center"] .cm-table-cell,
+.cm-table-widget th[align="center"] .cm-table-cell {
+  text-align: center;
+}
+.cm-table-widget td[align="right"] .cm-table-cell,
+.cm-table-widget th[align="right"] .cm-table-cell {
+  text-align: right;
+}
+/* Hover add-buttons: a thin "+" rail along the right edge (column) and the
+   bottom edge (row) of the grid. */
+.cm-table-widget .cm-table-add {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  background: rgb(var(--z-bg-1) / 0.9);
+  color: rgb(var(--z-grey-1));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, background 0.1s ease, color 0.1s ease;
+  border-radius: 5px;
+}
+.cm-table-widget:hover .cm-table-add {
+  opacity: 1;
+}
+.cm-table-widget .cm-table-add:hover {
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+  border-color: transparent;
+}
+.cm-table-widget .cm-table-add-col {
+  top: 0;
+  right: 0;
+  width: 13px;
+  height: 100%;
+}
+.cm-table-widget .cm-table-add-row {
+  left: 0;
+  bottom: 0;
+  height: 13px;
+  /* Span the grid, not the button rail on the right. */
+  width: calc(100% - 14px);
+}
+
+/* Drag-to-reorder grips: row grip left of each body row, column grip above
+   each header cell. Hidden until you hover the row/column. */
+.cm-table-widget .cm-table-row-handle,
+.cm-table-widget .cm-table-col-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(var(--z-bg-2));
+  border: 1px solid rgb(var(--z-bg-3) / 0.9);
+  color: rgb(var(--z-grey-1));
+  cursor: grab;
+  opacity: 0;
+  z-index: 3;
+  border-radius: 4px;
+  font-size: 9px;
+  line-height: 1;
+  user-select: none;
+}
+.cm-table-widget .cm-table-row-handle::before {
+  content: "⠿";
+}
+.cm-table-widget .cm-table-col-handle::before {
+  content: "⠿";
+  transform: rotate(90deg);
+}
+.cm-table-widget .cm-table-row-handle {
+  right: 100%;
+  top: 0;
+  height: 100%;
+  width: 12px;
+  border-start-start-radius: 4px;
+  border-end-start-radius: 4px;
+}
+.cm-table-widget .cm-table-col-handle {
+  bottom: 100%;
+  left: 0;
+  width: 100%;
+  height: 12px;
+}
+.cm-table-widget tbody tr:hover .cm-table-row-handle,
+.cm-table-widget thead th:hover .cm-table-col-handle,
+.cm-table-widget .cm-table-row-handle:hover,
+.cm-table-widget .cm-table-col-handle:hover {
+  opacity: 1;
+}
+.cm-table-widget.is-dragging .cm-table-row-handle,
+.cm-table-widget.is-dragging .cm-table-col-handle {
+  opacity: 0;
+}
+.cm-table-widget .cm-table-row-handle:active,
+.cm-table-widget .cm-table-col-handle:active {
+  cursor: grabbing;
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+  border-color: transparent;
+}
+/* Accent drop indicator shown while dragging. */
+.cm-table-widget .cm-table-drop-indicator {
+  position: absolute;
+  background: rgb(var(--z-accent));
+  z-index: 4;
+  pointer-events: none;
+  border-radius: 2px;
+}
+.cm-table-widget .cm-table-drop-row {
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-1px);
+}
+.cm-table-widget .cm-table-drop-col {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+}
+
+/* Table context menu (right-click) — self-contained, theme-aware. */
+.cm-table-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 190px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgb(var(--z-bg-softer));
+  border: 1px solid rgb(var(--z-bg-3) / 0.7);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+  font-size: 13px;
+  color: rgb(var(--z-fg));
+}
+.cm-table-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-table-menu-item:hover:not(:disabled) {
+  background: rgb(var(--z-accent) / 0.85);
+  color: #fff;
+}
+.cm-table-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cm-table-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgb(var(--z-bg-3) / 0.7);
+}
+
+.cm-wysiwyg .cm-editor .cm-wq-quote {
+  border-left: 3px solid rgb(var(--z-accent) / 0.45);
+  padding-left: 16px;
+  color: rgb(var(--z-fg-2));
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote .tok-quote {
+  font-style: normal;
+  color: inherit;
+}
+
+/* Callout cards in Edit mode — mirrors the Preview `.callout` colors. Every
+   line of the callout carries `cm-callout` (+ `-head`/`-foot` to round the
+   ends); the per-group class sets `--callout-color`, used for the box border,
+   tint, and the bold typed title. */
+.cm-wysiwyg .cm-editor .cm-callout {
+  --callout-color: var(--z-grey-0);
+  background: rgb(var(--callout-color) / 0.08);
+  border-left: 1px solid rgb(var(--callout-color) / 0.35);
+  border-right: 1px solid rgb(var(--callout-color) / 0.35);
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.cm-wysiwyg .cm-editor .cm-callout-note {
+  --callout-color: var(--z-blue);
+}
+.cm-wysiwyg .cm-editor .cm-callout-tip {
+  --callout-color: var(--z-green);
+}
+.cm-wysiwyg .cm-editor .cm-callout-warning {
+  --callout-color: var(--z-yellow);
+}
+.cm-wysiwyg .cm-editor .cm-callout-danger {
+  --callout-color: var(--z-red);
+}
+.cm-wysiwyg .cm-editor .cm-callout-quote {
+  --callout-color: var(--z-grey-0);
+}
+.cm-wysiwyg .cm-editor .cm-callout-head {
+  border-top: 1px solid rgb(var(--callout-color) / 0.35);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  padding-top: 4px;
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+.cm-wysiwyg .cm-editor .cm-callout-foot {
+  border-bottom: 1px solid rgb(var(--callout-color) / 0.35);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  padding-bottom: 4px;
+}
+.cm-wysiwyg .cm-editor .cm-callout-title {
+  font-weight: 600;
+  color: rgb(var(--callout-color));
+}
+/* A list line inside a callout/blockquote keeps its hanging indent, but it has
+   to sit on TOP of the box's own left padding. Otherwise the list's negative
+   text-indent (see .cm-markdown-list-line) drags the bullet out past the box's
+   left edge. Re-add the box padding to the hanging indent. */
+.cm-wysiwyg .cm-editor .cm-callout .tok-quote {
+  font-style: normal;
+  color: inherit;
+}
+.cm-wysiwyg .cm-editor .cm-callout.cm-markdown-list-line {
+  padding-left: calc(14px + var(--z-list-hanging-indent, 0));
+}
+.cm-wysiwyg .cm-editor .cm-wq-quote.cm-markdown-list-line {
+  padding-left: calc(16px + var(--z-list-hanging-indent, 0));
+}
+
+/* Unordered-list bullet rendered in place of `-` / `*` / `+`. */
+.cm-wysiwyg .cm-editor .cm-wq-bullet {
+  color: rgb(var(--z-grey-1));
+  font-weight: 700;
+}
+
+/* Horizontal rule rendered in place of `---` / `***` / `___`. */
+.cm-wysiwyg .cm-editor .cm-wq-hr {
+  display: inline-block;
+  width: 100%;
+  height: 0;
+  vertical-align: middle;
+  border-top: 2px solid rgb(var(--z-bg-3));
+}
+
+/* Links — subtle underline like Obsidian (accent color is set above). */
+.cm-wysiwyg .cm-editor .tok-link,
+.cm-wysiwyg .cm-editor .tok-url {
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .tok-link:hover,
+.cm-wysiwyg .cm-editor .tok-url:hover {
+  text-decoration-color: rgb(var(--z-accent));
+}
+
+/* Wikilinks — Obsidian internal-link style: accent underlined text, clickable
+   (brackets hidden via decorations in cm-wikilink-render.ts). */
+.cm-wysiwyg .cm-editor .cm-wikilink {
+  color: rgb(var(--z-accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .cm-wikilink:hover {
+  text-decoration-color: rgb(var(--z-accent));
+}
+/* Revealed `[[ ]]` / `|` markers when editing a wikilink — quiet grey, upright,
+   no underline (the inner brackets otherwise inherit the italic/underline link
+   highlight, which left one bracket slanted). */
+/* Target the bracket span AND any nested highlight span inside it — the inner
+   `[`/`]` is a LinkMark whose own highlight span sets italic + link color, and
+   an !important on the parent can't override a child's own declaration. The
+   `*` reaches that inner span so all four brackets render the same. */
+.cm-wysiwyg .cm-editor .cm-wikilink-bracket,
+.cm-wysiwyg .cm-editor .cm-wikilink-bracket * {
+  color: rgb(var(--z-grey-1)) !important;
+  font-style: normal !important;
+  text-decoration: none !important;
+  opacity: 0.7;
+}
+
+/* Inline hashtags rendered as clickable pills — Obsidian's `.tag` style:
+   accent text on a faint accent tint, pill radius. */
+.cm-wysiwyg .cm-editor .cm-hashtag {
+  color: rgb(var(--z-accent));
+  background-color: rgb(var(--z-accent) / 0.1);
+  padding: 0.25em 0.65em;
+  border-radius: 2em;
+  font-size: 0.8em;
+  font-weight: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-wysiwyg .cm-editor .cm-hashtag:hover {
+  background-color: rgb(var(--z-accent) / 0.2);
 }

@@ -217,6 +217,41 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
         .export-note-shell .prose-zen {
           padding: 32px 40px 48px;
         }
+        /* Keep tall (portrait) images within the printable page height so they
+           scale down proportionally instead of overflowing the page and being
+           clipped at the page boundary — a single <img> can't paginate (#231).
+           Letter page height is 11in - 2 * 0.7in margins = 9.6in; cap a touch
+           under that so an image still fits below a heading/caption. */
+        .export-note-shell img {
+          max-width: 100%;
+          height: auto;
+          max-height: 9.3in;
+          object-fit: contain;
+        }
+        /* A standalone local image is rendered as a .local-image-embed figure
+           whose <img> carries width:100% (great on screen, fills the frame).
+           In export that stretches even a tiny image to the full content width,
+           and the max-height above then blows it up to a full page (#256, a
+           regression surfaced by #231). Here, size embeds to the image's
+           intrinsic dimensions instead — only ever scaling DOWN to fit the
+           content width or the page height — and shrink the frame/caption to
+           hug it. The .prose-zen prefix beats the shared (.prose-zen img-embed)
+           rule on specificity regardless of stylesheet order. */
+        .export-note-shell .prose-zen .local-image-embed {
+          width: fit-content;
+          max-width: 100%;
+          margin-inline: auto;
+        }
+        .export-note-shell .prose-zen .local-image-embed-frame {
+          width: fit-content;
+          max-width: 100%;
+        }
+        .export-note-shell .prose-zen .local-image-embed-image {
+          width: auto;
+          height: auto;
+          max-width: 100%;
+          max-height: 9.3in;
+        }
         @media print {
           html,
           body,
@@ -235,6 +270,10 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
             width: 100%;
             padding: 0;
             margin: 0;
+          }
+          .export-note-shell img {
+            max-height: 9.3in;
+            break-inside: avoid;
           }
         }
       `}</style>

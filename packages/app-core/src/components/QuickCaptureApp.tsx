@@ -31,7 +31,7 @@
  *   :find        — open the note picker (alias for ⌘P).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Compartment, EditorState } from '@codemirror/state'
+import { Compartment, EditorState, Prec } from '@codemirror/state'
 import {
   EditorView,
   drawSelection,
@@ -40,13 +40,23 @@ import {
   placeholder
 } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { vimAwareDefaultKeymap } from '../lib/cm-vim-default-keymap'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
+import {
+  autocompletion,
+  closeCompletion,
+  completionKeymap,
+  completionStatus
+} from '@codemirror/autocomplete'
+import { completionNavKeymap } from '../lib/cm-completion-nav'
+import { slashCommandRender, templateSlashCommandSource } from '../lib/cm-slash-commands'
 import type { NoteMeta } from '@shared/ipc'
 import {
   DEFAULT_THEME_ID,
@@ -62,6 +72,7 @@ import {
 import { deriveTitleFromBody, planQuickCaptureSave } from '../lib/quick-capture-save'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { PinIcon } from './icons'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -113,6 +124,7 @@ const captureHighlight = HighlightStyle.define([
   { tag: t.heading3, class: 'tok-heading3' },
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
+  { tag: t.strikethrough, class: 'tok-strikethrough' },
   { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
@@ -227,6 +239,11 @@ export function QuickCaptureApp(): JSX.Element {
   const [notes, setNotes] = useState<NoteMeta[]>([])
   const [overlay, setOverlay] = useState<'none' | 'search' | 'command'>('none')
   const editorRef = useRef<EditorView | null>(null)
+
+  // Set a different title for the quick capture window.
+  useEffect(() => {
+    document.title = 'ZenNotes Quick Capture'
+  }, [])
 
   // Apply theme + font CSS vars before paint.
   useEffect(() => {
@@ -405,6 +422,7 @@ export function QuickCaptureApp(): JSX.Element {
       const state = EditorState.create({
         doc: '',
         extensions: [
+          appMarkdownSnippetExtension(),
           new Compartment().of(prefs.vimMode ? vim() : []),
           history(),
           drawSelection(),
@@ -415,7 +433,37 @@ export function QuickCaptureApp(): JSX.Element {
           syntaxHighlighting(captureHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),
-          keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap, ...searchKeymap]),
+          // Notion-style `/` slash commands — same block inserters as the main
+          // editor, minus the store-dependent "Page" (no active note here). (#182)
+          autocompletion({
+            override: [templateSlashCommandSource],
+            addToOptions: [{ render: slashCommandRender.render, position: 0 }],
+            icons: false,
+            optionClass: () => 'slash-cmd-option'
+          }),
+          completionNavKeymap,
+          // Esc closes an open slash menu instead of bubbling to the window-level
+          // Esc that saves + hides the capture window. Runs before everything,
+          // and only when a completion is actually open.
+          Prec.highest(
+            EditorView.domEventHandlers({
+              keydown: (event, view) => {
+                if (event.key !== 'Escape') return false
+                if (completionStatus(view.state) !== 'active') return false
+                closeCompletion(view)
+                event.preventDefault()
+                event.stopPropagation()
+                return true
+              }
+            })
+          ),
+          keymap.of([
+            indentWithTab,
+            ...completionKeymap,
+            ...vimAwareDefaultKeymap(prefs.vimMode),
+            ...historyKeymap,
+            ...searchKeymap
+          ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             const doc = upd.state.doc.toString()
@@ -695,6 +743,8 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))
@@ -820,6 +870,8 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
   useEffect(() => setActive(0), [query])
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (isPaletteNextKey(e)) {
       e.preventDefault()
       setActive((i) => Math.min(results.length - 1, i + 1))

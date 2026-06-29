@@ -37,7 +37,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version-file: apps/server/go.mod
+          # Pin a modern Go instead of go.mod's `go 1.22`: the 1.22 macOS
+          # linker omits the LC_UUID load command, which the updated
+          # macos-latest dyld now rejects ("missing LC_UUID", abort trap) when
+          # launching `go test` binaries. go.mod stays at 1.22 (its real
+          # minimum), so Nix/release builds are unaffected.
+          go-version: stable
           cache-dependency-path: apps/server/go.sum
 
       - name: Install dependencies

@@ -4,7 +4,7 @@ import type { NoteFolder, VaultChangeEvent, VaultChangeKind } from '@shared/ipc'
 import { databaseCsvPathFor } from '@shared/databases'
 import { folderForRelativePath } from './vault'
 
-const ATTACHMENTS_DIRS = new Set(['attachements', '_assets'])
+const ATTACHMENTS_DIRS = new Set(['assets', 'attachements', '_assets'])
 const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`
@@ -80,8 +80,10 @@ export class VaultWatcher {
         })
         return
       }
-      // A `.csv` data file or its `.csv.base.json` sidecar — normalize both to
-      // the canonical `.csv` path so the renderer re-hydrates the right database.
+      // Any database file — `<Name>.base/data.csv` or `schema.json` (or a legacy
+      // loose `.csv`/sidecar) — normalizes to the canonical `data.csv` path so
+      // the renderer re-hydrates the right database. (Record-page `.md` notes in
+      // a `.base` folder return null here and ride the normal note path below.)
       const dbCsvPath = databaseCsvPathFor(toPosix(path.relative(this.root, absPath)))
       if (dbCsvPath) {
         onEvent({

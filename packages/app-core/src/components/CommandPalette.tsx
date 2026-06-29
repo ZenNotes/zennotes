@@ -13,16 +13,22 @@ import {
 } from '../lib/command-history'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { canReturnToCommandList } from '../lib/command-palette-mode'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
+  newWindowVaultRows,
+  type BrowseVaultSwitcherEntry,
   type VaultSwitcherEntry
 } from '../lib/vault-switcher'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
 type Mode = 'main' | 'theme' | 'vault'
+
+/** Picker rows: known vaults, plus the synthetic "Browse…" row (new-window mode). */
+type VaultRow = VaultSwitcherEntry | BrowseVaultSwitcherEntry
 
 interface ThemeSnapshot {
   id: string
@@ -48,6 +54,8 @@ export function CommandPalette(): JSX.Element {
     window.zen.getCapabilities().supportsRemoteWorkspace
 
   const [mode, setMode] = useState<Mode>(initialMode)
+  // Whether the vault picker switches the current window or opens a new one (#244).
+  const [vaultAction, setVaultAction] = useState<'switch' | 'new-window'>('switch')
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const [recentIds, setRecentIds] = useState<string[]>(() => loadRecentCommandIds())
@@ -98,19 +106,28 @@ export function CommandPalette(): JSX.Element {
     [query]
   )
 
-  const vaultOptions = useMemo<VaultSwitcherEntry[]>(
-    () =>
-      buildVaultSwitcherEntries({
-        localVaults,
-        remoteProfiles: remoteWorkspaceProfiles,
-        currentVault,
-        workspaceMode,
-        remoteWorkspaceInfo
-      }),
-    [currentVault, localVaults, remoteWorkspaceInfo, remoteWorkspaceProfiles, workspaceMode]
-  )
+  const vaultOptions = useMemo<VaultRow[]>(() => {
+    const entries = buildVaultSwitcherEntries({
+      localVaults,
+      remoteProfiles: remoteWorkspaceProfiles,
+      currentVault,
+      workspaceMode,
+      remoteWorkspaceInfo
+    })
+    // The new-window picker lists known local vaults (most-recent first) plus a
+    // "Browse…" fallback to the folder picker. Remote workspaces don't apply.
+    if (vaultAction === 'new-window') return newWindowVaultRows(entries)
+    return entries
+  }, [
+    vaultAction,
+    currentVault,
+    localVaults,
+    remoteWorkspaceInfo,
+    remoteWorkspaceProfiles,
+    workspaceMode
+  ])
 
-  const vaultResults = useMemo<VaultSwitcherEntry[]>(
+  const vaultResults = useMemo<VaultRow[]>(
     () =>
       rankItems(vaultOptions, query, [
         { get: (v) => v.name, weight: 1 },
@@ -188,12 +205,13 @@ export function CommandPalette(): JSX.Element {
     // the currently-applied theme, so no setActive needed here.
   }
 
-  const enterVaultMode = (): void => {
+  const enterVaultMode = (action: 'switch' | 'new-window' = 'switch'): void => {
+    setVaultAction(action)
     setMode('vault')
     setQuery('')
     setActive(0)
     void refreshLocalVaults()
-    if (supportsRemoteWorkspace) void refreshRemoteWorkspaceProfiles()
+    if (action === 'switch' && supportsRemoteWorkspace) void refreshRemoteWorkspaceProfiles()
     inputRef.current?.focus()
   }
 
@@ -229,7 +247,11 @@ export function CommandPalette(): JSX.Element {
       return
     }
     if (cmd.id === 'app.vault.switch') {
-      enterVaultMode()
+      enterVaultMode('switch')
+      return
+    }
+    if (cmd.id === 'app.vault.openWindow') {
+      enterVaultMode('new-window')
       return
     }
     setOpen(false)
@@ -247,14 +269,20 @@ export function CommandPalette(): JSX.Element {
     focusEditorNormalMode()
   }
 
-  const switchVault = async (entry: VaultSwitcherEntry): Promise<void> => {
+  const switchVault = async (entry: VaultRow): Promise<void> => {
     setOpen(false)
+    if (vaultAction === 'new-window') {
+      // Open a known vault directly, or fall back to the folder picker.
+      if (entry.kind === 'browse') await window.zen.openVaultWindow()
+      else if (entry.kind === 'local') await window.zen.openVaultWindow(entry.root)
+      return
+    }
     if (entry.current) return
     if (entry.kind === 'local') {
       await openLocalVault(entry.root)
       return
     }
-    if (entry.id) await connectRemoteWorkspaceProfile(entry.id)
+    if (entry.kind === 'remote' && entry.id) await connectRemoteWorkspaceProfile(entry.id)
   }
 
   const inputPlaceholder =
@@ -262,7 +290,9 @@ export function CommandPalette(): JSX.Element {
       ? 'Type a command…'
       : mode === 'theme'
         ? 'Pick a color theme'
-        : 'Pick a vault'
+        : vaultAction === 'new-window'
+          ? 'Open a vault in a new window…'
+          : 'Pick a vault'
 
   return (
     <Modal size="md" layer="palette" onClose={() => closePalette()} closeOnEsc={false}>
@@ -280,7 +310,9 @@ export function CommandPalette(): JSX.Element {
             <span className="uppercase tracking-wide">
               {mode === 'theme'
                 ? 'Theme preview — ↵ to keep, esc to revert'
-                : 'Switch vault — ↵ to open, esc to return'}
+                : vaultAction === 'new-window'
+                  ? 'Open vault in new window — ↵ to open, esc to return'
+                  : 'Switch vault — ↵ to open, esc to return'}
             </span>
           </div>
         )}
@@ -291,6 +323,8 @@ export function CommandPalette(): JSX.Element {
             placeholder={inputPlaceholder}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // While composing (IME), let the input own Enter/Arrows. (#183)
+              if (isImeComposing(e)) return
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()
@@ -411,7 +445,13 @@ export function CommandPalette(): JSX.Element {
           ) : (
             vaultResults.map((entry, i) => (
               <button
-                key={`${entry.kind}-${entry.kind === 'local' ? entry.root : entry.id ?? entry.location}`}
+                key={`${entry.kind}-${
+                  entry.kind === 'local'
+                    ? entry.root
+                    : entry.kind === 'remote'
+                      ? entry.id ?? entry.location
+                      : 'browse'
+                }`}
                 data-cmd-idx={i}
                 onClick={() => void switchVault(entry)}
                 onMouseMove={() => setActive(i)}
@@ -421,7 +461,7 @@ export function CommandPalette(): JSX.Element {
                 ].join(' ')}
               >
                 <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
-                  {entry.kind === 'local' ? 'Local' : 'Remote'}
+                  {entry.kind === 'local' ? 'Local' : entry.kind === 'remote' ? 'Remote' : 'Browse'}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-sm text-ink-900">
                   {entry.name}

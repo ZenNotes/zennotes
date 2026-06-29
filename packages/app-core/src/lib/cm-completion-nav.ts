@@ -1,4 +1,9 @@
-import { completionStatus, moveCompletionSelection } from '@codemirror/autocomplete'
+import {
+  acceptCompletion,
+  completionStatus,
+  moveCompletionSelection,
+  selectedCompletion
+} from '@codemirror/autocomplete'
 import { Prec } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
@@ -48,13 +53,53 @@ export const completionNavKeymap = Prec.highest(
   EditorView.domEventHandlers({
     keydown: (event, view) => {
       const direction = completionNavDirection(event)
-      if (!direction) return false
-      if (completionStatus(view.state) !== 'active') return false
-      const moved = moveCompletionSelection(direction === 'next')(view)
-      if (!moved) return false
-      event.preventDefault()
-      event.stopPropagation()
-      return true
+      if (direction) {
+        if (completionStatus(view.state) !== 'active') return false
+        if (!moveCompletionSelection(direction === 'next')(view)) return false
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+
+      const noMods = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
+
+      // Ctrl+Y — accept the highlighted completion (Vim-style).
+      if (
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.key.toLowerCase() === 'y'
+      ) {
+        if (completionStatus(view.state) !== 'active') return false
+        if (!acceptCompletion(view)) return false
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+
+      // Tab — accept, but for a note/asset wikilink keep the caret *inside* the
+      // `[[…]]` so you can keep typing (e.g. a `#heading` anchor). Headings,
+      // slash commands, etc. accept normally; with no completion Tab indents.
+      if (event.key === 'Tab' && noMods) {
+        if (completionStatus(view.state) !== 'active') return false
+        const completion = selectedCompletion(view.state) as
+          | { _kind?: string; _target?: string }
+          | null
+        if (!acceptCompletion(view)) return false
+        const keepsLinkOpen = completion?._kind === 'wikilink' && completion._target != null
+        if (keepsLinkOpen) {
+          const pos = view.state.selection.main.head
+          if (view.state.doc.sliceString(pos - 2, pos) === ']]') {
+            view.dispatch({ selection: { anchor: pos - 2 } })
+          }
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+
+      return false
     }
   })
 )

@@ -48,6 +48,8 @@ func Start(root string) (*Watcher, error) {
 		dirs:   map[string]struct{}{},
 	}
 	// Recursively add all existing directories under the vault.
+	var addErrs int
+	var firstAddErr error
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -57,13 +59,58 @@ func Start(root string) (*Watcher, error) {
 			if path != root && strings.HasPrefix(name, ".") && name != internalVaultDir {
 				return filepath.SkipDir
 			}
-			_ = fsw.Add(path)
+			// Don't discard the error: inotify can be exhausted or restricted
+			// (notably in unprivileged LXC containers), and a silent failure
+			// leaves clients without live updates for no apparent reason. (#179)
+			if addErr := fsw.Add(path); addErr != nil {
+				addErrs++
+				if firstAddErr == nil {
+					firstAddErr = addErr
+				}
+			}
 			w.dirs[path] = struct{}{}
 		}
 		return nil
 	})
+	if addErrs > 0 {
+		log.Printf("watcher: could not watch %d director(ies) (first error: %v); live updates may be incomplete — set ZENNOTES_DISABLE_WATCHER=1 if this environment restricts inotify (e.g. unprivileged LXC)", addErrs, firstAddErr)
+	}
 	go w.loop()
 	return w, nil
+}
+
+// Disabled returns a watcher that does no filesystem watching. It still
+// supports Subscribe/Close so the rest of the server can treat it like a real
+// watcher; it simply never emits change events. Used where inotify is
+// unavailable or explicitly turned off — notably unprivileged LXC containers,
+// where inotify operations can wedge the process (unkillable, bind-mount
+// locked) instead of returning an error. (#179)
+func Disabled(root string) *Watcher {
+	w := &Watcher{
+		root:   root,
+		fs:     nil,
+		subs:   map[chan vault.ChangeEvent]struct{}{},
+		stopCh: make(chan struct{}),
+		dirs:   map[string]struct{}{},
+	}
+	go w.loop()
+	return w
+}
+
+// StartOrDisabled starts a real watcher, or falls back to a no-op watcher when
+// watching is turned off (disable) or unavailable. It never returns an error,
+// so the server can always serve the vault even where inotify is restricted. (#179)
+func StartOrDisabled(root string, disable bool) *Watcher {
+	if disable {
+		log.Printf("watcher: disabled via ZENNOTES_DISABLE_WATCHER; live updates are off")
+		return Disabled(root)
+	}
+	w, err := Start(root)
+	if err != nil {
+		log.Printf("watcher: unavailable (%v); continuing without live updates — set ZENNOTES_DISABLE_WATCHER=1 to disable watching explicitly", err)
+		return Disabled(root)
+	}
+	return w
 }
 
 func (w *Watcher) Subscribe() (<-chan vault.ChangeEvent, func()) {
@@ -94,10 +141,17 @@ func (w *Watcher) Close() {
 		close(ch)
 	}
 	w.mu.Unlock()
-	_ = w.fs.Close()
+	if w.fs != nil {
+		_ = w.fs.Close()
+	}
 }
 
 func (w *Watcher) loop() {
+	// A disabled (no-op) watcher has no fsnotify handle — just block until close.
+	if w.fs == nil {
+		<-w.stopCh
+		return
+	}
 	for {
 		select {
 		case <-w.stopCh:
@@ -144,7 +198,9 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	info, statErr := os.Stat(ev.Name)
 	if statErr == nil && info.IsDir() {
 		if ev.Op&fsnotify.Create != 0 {
-			_ = w.fs.Add(ev.Name)
+			if err := w.fs.Add(ev.Name); err != nil {
+				log.Printf("watcher: cannot watch new directory %s: %v", ev.Name, err)
+			}
 			w.dirs[ev.Name] = struct{}{}
 			// An empty folder produces no note event, so clients would never
 			// learn about it until a manual refresh. Surface it explicitly.
@@ -200,7 +256,9 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	}
 	folder, ok := vault.FolderForRelativePath(relPosix)
 	if !ok {
-		if relPosix == vault.PrimaryAttachmentsDir ||
+		if relPosix == vault.AssetsDir ||
+			strings.HasPrefix(relPosix, vault.AssetsDir+"/") ||
+			relPosix == vault.PrimaryAttachmentsDir ||
 			strings.HasPrefix(relPosix, vault.PrimaryAttachmentsDir+"/") ||
 			relPosix == "_assets" ||
 			strings.HasPrefix(relPosix, "_assets/") {

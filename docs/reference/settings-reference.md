@@ -175,9 +175,55 @@ Daily notes are optional.
 Related settings include:
 
 - enable/disable daily notes
-- daily notes directory
+- daily notes directory pattern
+- daily note naming pattern
+- daily note locale
 
-When enabled, ZenNotes can open or create today's note using an ISO-style date title.
+The directory pattern is stored inside the primary notes area. The default is `Daily Notes`.
+
+The naming pattern is used as the daily note title and filename. The default is `yyyy-MM-dd`.
+
+Supported pattern tokens:
+
+| Token | Example | Meaning |
+| --- | --- | --- |
+| `yyyy` | `2026` | 4-digit year; ISO week-year for weekly notes |
+| `yy` | `26` | 2-digit year |
+| `M` | `6` | month |
+| `MM` | `06` | padded month |
+| `MMM` | `Jun` | short month name |
+| `MMMM` | `June` | full month name |
+| `d` | `9` | day of month |
+| `dd` | `09` | padded day of month |
+| `EEE` | `Tue` | short weekday name |
+| `EEEE` | `Tuesday` | full weekday name |
+| `w` | `24` | ISO week number |
+| `ww` | `24` | padded ISO week number |
+
+Wrap literal text in single quotes, for example `'Daily Notes'/yyyy/MM-MMM`.
+
+The locale controls localized month and weekday names. Use `system`, `en-US`, `pt-BR`, or another BCP 47 locale.
+
+For example, directory `yyyy/MM-MMM`, naming `yyyy-MM-dd-EEE`, and locale `en-US` creates a note like `2026/06-Jun/2026-06-09-Tue.md`.
+
+### Weekly notes
+
+Weekly notes are optional.
+
+Related settings include:
+
+- enable/disable weekly notes
+- weekly notes directory pattern
+- weekly note naming pattern
+- weekly note locale
+
+The directory pattern is stored inside the primary notes area. The default is `Weekly Notes`.
+
+The naming pattern is used as the weekly note title and filename. The default is `yyyy-'W'ww`.
+
+Weekly notes use the same pattern tokens as daily notes, plus `w` and `ww` for ISO week numbers. Weekly date tokens render from the ISO week's Monday, and `yyyy` is the ISO week-year.
+
+For example, directory `yyyy/MM-MMM`, naming `yyyy-'W'ww-EEE`, and locale `en-US` creates a note like `2026/06-Jun/2026-W24-Mon.md`.
 
 ### Quick Notes label
 

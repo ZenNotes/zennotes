@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.zennotes.ZenNotes</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>ZenNotes</name>
+  <summary>Keyboard-first Markdown notes app</summary>
+  <description>
+    <p>
+      ZenNotes is a keyboard-first Markdown notes app that keeps your notes as
+      ordinary Markdown files on disk — yours to own, sync, and version however
+      you like.
+    </p>
+    <p>On top of the files you already own, it adds:</p>
+    <ul>
+      <li>Vim-friendly editing with split and live-preview workflows</li>
+      <li>Wiki-links, tags, tasks, daily notes, and full-text search</li>
+      <li>Diagrams (Mermaid, TikZ), math (KaTeX), and syntax-highlighted code</li>
+      <li>CSV databases with Notion-style Table and Board views over plain .csv files</li>
+      <li>Archive, trash, quick capture, and a built-in command-line companion</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.zennotes.ZenNotes.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://zennotes.org/images/app.png</image>
+      <caption>Editing Markdown with live preview, sidebar, and tabs</caption>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://zennotes.org</url>
+  <url type="bugtracker">https://github.com/ZenNotes/zennotes/issues</url>
+  <url type="vcs-browser">https://github.com/ZenNotes/zennotes</url>
+  <developer id="org.zennotes">
+    <name>Adib Hanna</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.8.0" date="2026-06-25">
+      <description>
+        <p>A windowed sidebar that stays fast on huge vaults, a calmer redesigned Settings page, a new home view with your recent notes and today's tasks, Obsidian Excalidraw import, and image-rendering fixes in PDF export and Live Preview.</p>
+      </description>
+    </release>
+    <release version="2.7.0" date="2026-06-24">
+      <description>
+        <p>Link straight to your CSV databases with wikilinks, Notion-style slash commands in Quick Capture, and editor fixes (per-note undo, wikilinks in code, document outline).</p>
+      </description>
+    </release>
+    <release version="2.6.0" date="2026-06-23">
+      <description>
+        <p>A portable plain-text config file you can sync across machines, manual task reordering in notes and on the Tasks page, faster vault reopening, and remappable table navigation.</p>
+      </description>
+    </release>
+    <release version="2.5.0" date="2026-06-22">
+      <description>
+        <p>Real Markdown highlighting, system-wide quick capture on Wayland, manual note ordering, and the Kanagawa theme.</p>
+      </description>
+    </release>
+    <release version="2.4.0" date="2026-06-19">
+      <description>
+        <p>Maintenance release with editor and vault improvements.</p>
+      </description>
+    </release>
+    <release version="2.3.0" date="2026-06-13">
+      <description>
+        <p>Maintenance release with editor and vault improvements.</p>
+      </description>
+    </release>
+  </releases>
+</component>

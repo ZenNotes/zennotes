@@ -14,6 +14,24 @@ const OPEN_NOTE_ACTION_TARGETS: Record<string, OpenNoteDeepLinkTarget> = {
   'open-window': 'window'
 }
 
+function deepLinkAction(parsed: URL): string {
+  return parsed.hostname || parsed.pathname.replace(/^\/+/, '')
+}
+
+export function parseQuickCaptureDeepLink(rawUrl: string): boolean {
+  const trimmed = rawUrl.trim()
+  if (!trimmed) return false
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return false
+  }
+
+  return parsed.protocol === `${ZENNOTES_DEEP_LINK_SCHEME}:` && deepLinkAction(parsed) === 'quick-capture'
+}
+
 export function parseOpenNoteDeepLink(rawUrl: string): OpenNoteDeepLinkRequest | null {
   const trimmed = rawUrl.trim()
   if (!trimmed) return null
@@ -27,7 +45,7 @@ export function parseOpenNoteDeepLink(rawUrl: string): OpenNoteDeepLinkRequest |
 
   if (parsed.protocol !== `${ZENNOTES_DEEP_LINK_SCHEME}:`) return null
 
-  const action = parsed.hostname || parsed.pathname.replace(/^\/+/, '')
+  const action = deepLinkAction(parsed)
   const target = OPEN_NOTE_ACTION_TARGETS[action]
   if (!target) return null
 

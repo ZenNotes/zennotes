@@ -30,6 +30,30 @@ export function isPathLikeWikilinkTarget(target: string): boolean {
   return trimmed.startsWith('/') || trimmed.includes('/') || /\.md$/i.test(trimmed)
 }
 
+/**
+ * Strip a `#heading` / `^block` anchor off a wikilink target — it points within
+ * the note, not at the note name. `[[Doc#Heading]]` resolves to `Doc`. Note
+ * names can't contain `#` or `^` (see INVALID_NOTE_PATH_CHARS), so the first one
+ * always starts the anchor. (#196)
+ */
+export function stripWikilinkAnchor(target: string): string {
+  const anchor = target.search(/[#^]/)
+  return anchor === -1 ? target : target.slice(0, anchor)
+}
+
+/**
+ * The `#heading` text from a wikilink target, or null when there's no heading
+ * anchor. `[[Doc#My Heading]]` → `My Heading`; `[[Doc^block]]` / `[[Doc]]` →
+ * null (block refs aren't headings). Used to scroll to the heading on click. (#196)
+ */
+export function wikilinkHeadingAnchor(target: string): string | null {
+  const hash = target.indexOf('#')
+  if (hash < 0) return null
+  const caret = target.indexOf('^')
+  if (caret >= 0 && caret < hash) return null // a ^block anchor comes first
+  return target.slice(hash + 1).trim() || null
+}
+
 function resolveExplicitPath(notes: NoteRef[], target: string): NoteRef | null {
   const normalized = normalizeSlashes(target.trim())
   if (!normalized) return null
@@ -65,13 +89,17 @@ function resolvePathSuffix(notes: NoteRef[], target: string): NoteRef | null {
 }
 
 export function resolveWikilinkTarget<T extends NoteRef>(notes: T[], target: string): T | null {
+  // `[[Doc#Heading]]` / `[[Doc^block]]` point at a spot inside Doc — resolve the
+  // document, ignoring the anchor. (#196)
+  const doc = stripWikilinkAnchor(target)
   const visible = notes.filter((note) => note.folder !== 'trash')
-  if (isPathLikeWikilinkTarget(target)) {
-    return (resolveExplicitPath(visible, target) ??
-      resolvePathSuffix(visible, target)) as T | null
+  if (isPathLikeWikilinkTarget(doc)) {
+    return (resolveExplicitPath(visible, doc) ??
+      resolvePathSuffix(visible, doc)) as T | null
   }
 
-  const needle = normalizeForCompare(stripMdExtension(target))
+  const needle = normalizeForCompare(stripMdExtension(doc))
+  if (!needle) return null
   return visible.find((note) => normalizeForCompare(note.title) === needle) ?? null
 }
 
@@ -102,7 +130,8 @@ export function extractWikilinkTargets(body: string): string[] {
 }
 
 export function suggestCreateNotePath(target: string): string {
-  const trimmed = normalizeSlashes(target.trim()).replace(/\/+$/, '')
+  // Creating from `[[Doc#Heading]]` makes `Doc`, not the invalid `Doc#Heading`. (#196)
+  const trimmed = normalizeSlashes(stripWikilinkAnchor(target).trim()).replace(/\/+$/, '')
   if (!trimmed) return '/Untitled.md'
 
   if (trimmed.startsWith('/')) {

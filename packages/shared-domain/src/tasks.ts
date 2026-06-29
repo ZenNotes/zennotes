@@ -41,6 +41,10 @@ export interface VaultTask {
   checked: boolean
   /** ISO YYYY-MM-DD, validated via Date round-trip. */
   due?: string
+  /** True when `due` was *derived* from the containing daily note's date
+   *  rather than written on the line. Lets UIs tell an implicit due apart
+   *  from an explicit `due:` token. See `inferDailyTaskDueDates`. */
+  dueInferred?: boolean
   priority?: TaskPriority
   /** True if `@waiting` appears anywhere on the line. */
   waiting: boolean
@@ -136,7 +140,8 @@ const INLINE_DUE_RE = /(?:^|\s)due:(\S+)/i
 const INLINE_PRIORITY_RE = /(?:^|\s)!(high|med|medium|low|h|m|l)\b/i
 const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
 // Match #tag-like tokens but only when preceded by start-of-string/whitespace.
-const INLINE_TAG_RE = /(?:^|\s)#([a-z0-9][a-z0-9/_-]*)/gi
+// Letters in any script (Cyrillic/CJK/…) plus digits, `_`, `-`, `/` (#205).
+const INLINE_TAG_RE = /(?:^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu
 
 interface ExtractedTokens {
   due?: string
@@ -356,14 +361,40 @@ export function tasksDueOn(tasks: VaultTask[], iso: string): VaultTask[] {
   )
 }
 
-/** Bucket tasks by `due` ISO date. Done and waiting tasks are skipped.
- *  Tasks without a due date land in the special `'unscheduled'` key. */
+/**
+ * Give undated tasks that live in a daily note an *implicit* due date equal to
+ * that note's own date, using a precomputed `sourcePath -> ISO date` map (built
+ * in app-core from the daily-note pattern). An explicit `due:` token always
+ * wins, so only tasks with no `due` are touched; the result is flagged
+ * `dueInferred` so UIs can distinguish it. Returns the same array instance when
+ * nothing changed (cheap to call from a memo).
+ */
+export function inferDailyTaskDueDates(
+  tasks: VaultTask[],
+  dueByPath: ReadonlyMap<string, string>
+): VaultTask[] {
+  if (dueByPath.size === 0) return tasks
+  let changed = false
+  const out = tasks.map((task) => {
+    if (task.due) return task
+    const iso = dueByPath.get(task.sourcePath)
+    if (!iso) return task
+    changed = true
+    return { ...task, due: iso, dueInferred: true }
+  })
+  return changed ? out : tasks
+}
+
+/** Bucket tasks by `due` ISO date. Done (checked) tasks are skipped; waiting
+ *  tasks are kept so a `@waiting` task with a due date still appears on the
+ *  calendar on its date (#236). Tasks without a due date land in the special
+ *  `'unscheduled'` key. */
 export function bucketTasksByDueDate(
   tasks: VaultTask[]
 ): Map<string, VaultTask[]> {
   const map = new Map<string, VaultTask[]>()
   for (const task of tasks) {
-    if (task.checked || task.waiting) continue
+    if (task.checked) continue
     const key = task.due ?? 'unscheduled'
     const list = map.get(key)
     if (list) list.push(task)

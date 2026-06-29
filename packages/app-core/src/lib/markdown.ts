@@ -202,7 +202,7 @@ function remarkHashtags() {
       if (p.type === 'link' || p.type === 'linkReference' || p.type === 'heading') return
       const value = (node as { value: string }).value
       if (!value.includes('#')) return
-      const regex = /(^|\s)#([a-zA-Z][\w\-/]*)/g
+      const regex = /(^|\s)#(\p{L}[\p{L}\d_/-]*)/gu
       const next: AnyNode[] = []
       let last = 0
       let m: RegExpExecArray | null
@@ -231,6 +231,46 @@ function remarkHashtags() {
       if (last < value.length) {
         next.push({ type: 'text', value: value.slice(last) })
       }
+      p.children.splice(index, 1, ...next)
+      return [SKIP, index + next.length]
+    })
+  }
+}
+
+/**
+ * Remark plugin: `==text==` → `<mark>` (Obsidian-style highlight). Colored
+ * highlights are authored as raw `<mark class="hl-green">…</mark>` HTML and ride
+ * through `rehypeRaw`; this plugin only handles the bare `==…==` shorthand,
+ * which maps to the default highlight color. Inline code is a separate mdast
+ * node (not a `text` child), so code spans are skipped automatically.
+ */
+function remarkHighlight() {
+  return (tree: MdRoot): void => {
+    visit(tree, 'text', (node, index, parent) => {
+      if (!parent || index === undefined) return
+      const p = parent as unknown as AnyParent
+      if (p.type === 'link' || p.type === 'linkReference') return
+      const value = (node as { value: string }).value
+      if (!value.includes('==')) return
+      // `==text==`: non-space just inside each `==`, shortest content, so
+      // `==a== ==b==` is two marks and `x == y` (spaced) never matches.
+      const regex = /==(?=\S)([\s\S]*?\S)==/g
+      const next: AnyNode[] = []
+      let last = 0
+      let m: RegExpExecArray | null
+      let changed = false
+      while ((m = regex.exec(value)) !== null) {
+        if (m.index > last) next.push({ type: 'text', value: value.slice(last, m.index) })
+        next.push({
+          type: 'emphasis',
+          data: { hName: 'mark' },
+          children: [{ type: 'text', value: m[1] }]
+        })
+        last = regex.lastIndex
+        changed = true
+      }
+      if (!changed) return
+      if (last < value.length) next.push({ type: 'text', value: value.slice(last) })
       p.children.splice(index, 1, ...next)
       return [SKIP, index + next.length]
     })
@@ -387,6 +427,7 @@ const processor = unified()
   .use(remarkMath)
   .use(remarkWikilinks)
   .use(remarkHashtags)
+  .use(remarkHighlight)
   .use(remarkCallouts)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)

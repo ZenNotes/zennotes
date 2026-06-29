@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { Vim, getCM } from '@replit/codemirror-vim'
+import { moveLineDown, moveLineUp } from '@codemirror/commands'
 import { foldAll, unfoldAll, foldCode, unfoldCode } from '@codemirror/language'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
@@ -20,9 +21,12 @@ import type { PaneLayout, PaneSplit } from '../lib/pane-layout'
 import {
   parseCreateNotePath,
   resolveWikilinkTarget,
-  suggestCreateNotePath
+  suggestCreateNotePath,
+  wikilinkHeadingAnchor
 } from '../lib/wikilinks'
+import { openDatabaseFromWikilink, openWikilinkHeading } from '../lib/wikilink-navigation'
 import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
+import { externalLinkUrl, extractLinkAtCursor, resolveInternalNoteHref } from '../lib/internal-links'
 import {
   buildMoveNotePrompt,
   parseMoveNoteTarget,
@@ -41,6 +45,7 @@ import {
 } from '../lib/keymaps'
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 
 let vimCommandsRegistered = false
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {}
@@ -282,37 +287,36 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
   }
 }
 
-function unwrapMdUrl(url: string): string {
-  // Markdown wraps URLs with spaces in angle brackets: `[x](<a b.pdf>)`.
-  const trimmed = url.trim()
-  if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed.slice(1, -1)
-  return trimmed
-}
+// `extractLinkAtCursor` lives in ../lib/internal-links so the editor, the
+// preview, and the Cmd/Ctrl-click handler can all share it.
 
-function extractLinkAtCursor(doc: string, pos: number): string | null {
-  const lineStart = doc.lastIndexOf('\n', pos - 1) + 1
-  const lineEnd = doc.indexOf('\n', pos)
-  const line = doc.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
-  const col = pos - lineStart
-  const wikiRe = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
-  let m: RegExpExecArray | null
-  while ((m = wikiRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[1]
+/**
+ * Report an ex-command error as a non-blocking, in-editor notification — the
+ * same red bottom-of-editor message codemirror-vim uses for its own errors
+ * (e.g. an unknown `:command`). The previous native `window.alert` blurred
+ * CodeMirror, leaving Vim users unable to type until the editor was refocused.
+ * Falls back to an alert (then refocuses) if the editor notification is
+ * unavailable. (#173)
+ */
+function alertEditorError(message: string): void {
+  const view = useStore.getState().editorViewRef
+  const cm = view ? getCM(view) : null
+  const openNotification = (
+    cm as unknown as {
+      openNotification?: (node: Node, opts: { bottom?: boolean; duration?: number }) => void
+    } | null
+  )?.openNotification
+  if (cm && typeof openNotification === 'function') {
+    const el = document.createElement('div')
+    el.className = 'cm-vim-message'
+    el.style.color = 'red'
+    el.style.whiteSpace = 'pre'
+    el.textContent = message
+    openNotification.call(cm, el, { bottom: true, duration: 4000 })
+    return
   }
-  // Angle-bracketed URLs can contain `)` so match them specifically first.
-  const mdAngleRe = /\[([^\]]*)\]\(<([^>]+)>\)/g
-  while ((m = mdAngleRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[2]
-  }
-  const mdRe = /\[([^\]]*)\]\(([^)]+)\)/g
-  while ((m = mdRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return unwrapMdUrl(m[2])
-  }
-  const urlRe = /https?:\/\/[^\s)>\]]+/g
-  while ((m = urlRe.exec(line)) !== null) {
-    if (col >= m.index && col < m.index + m[0].length) return m[0]
-  }
-  return null
+  window.alert(message)
+  focusEditorNormalMode()
 }
 
 function registerVimCommands(): void {
@@ -328,6 +332,22 @@ function registerVimCommands(): void {
     /* ignore */
   }
   clearKnownVimMappings()
+
+  // Visual-line reorder: select line(s) with Shift+V, then Shift+J / Shift+K
+  // move the selection down / up — the well-known Vim "move selected lines"
+  // mapping. Overrides J/K in *visual* mode only; normal-mode join (J) and
+  // keyword-lookup (K) are left untouched. moveLineDown/Up act on every line
+  // the selection spans and keep it selected.
+  Vim.defineAction('zenMoveSelectionDown', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (view) moveLineDown(view)
+  })
+  Vim.defineAction('zenMoveSelectionUp', (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6
+    if (view) moveLineUp(view)
+  })
+  Vim.mapCommand('J', 'action', 'zenMoveSelectionDown', {}, { context: 'visual' })
+  Vim.mapCommand('K', 'action', 'zenMoveSelectionUp', {}, { context: 'visual' })
 
   Vim.defineEx('write', 'w', () => {
     void useStore.getState().persistActive()
@@ -474,8 +494,9 @@ function registerVimCommands(): void {
     const target = extractLinkAtCursor(doc, pos)
     if (!target) return
 
-    if (/^https?:\/\//i.test(target)) {
-      window.open(target, '_blank')
+    const external = externalLinkUrl(target)
+    if (external) {
+      window.open(external, '_blank')
       return
     }
 
@@ -498,10 +519,40 @@ function registerVimCommands(): void {
     const notes = state.notes
     const resolved = resolveWikilinkTarget(notes, target)
     if (resolved) {
-      void state.selectNote(resolved.path).then(() => {
+      const focusEditorSoon = (): void => {
         state.setFocusedPanel('editor')
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
-      })
+      }
+      const headingAnchor = wikilinkHeadingAnchor(target)
+      if (headingAnchor) {
+        void openWikilinkHeading(resolved.path, headingAnchor).then(focusEditorSoon)
+      } else {
+        void state.selectNote(resolved.path).then(focusEditorSoon)
+      }
+      return
+    }
+
+    // A standard Markdown link whose href resolves relative to this note —
+    // e.g. `[text](../Projects/plan.md)` — that wikilink name matching can't
+    // reach. (#201)
+    const internal = resolveInternalNoteHref(state.selectedPath, target, notes)
+    if (internal) {
+      const focusEditorSoon = (): void => {
+        state.setFocusedPanel('editor')
+        requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
+      }
+      if (internal.heading) {
+        void openWikilinkHeading(internal.path, internal.heading).then(focusEditorSoon)
+      } else {
+        void state.selectNote(internal.path).then(focusEditorSoon)
+      }
+      return
+    }
+
+    // Not a note — maybe a `.base` database link.
+    if (openDatabaseFromWikilink(target)) {
+      state.setFocusedPanel('editor')
+      requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
       return
     }
 
@@ -537,7 +588,7 @@ function registerVimCommands(): void {
         state.setFocusedPanel('editor')
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
       } catch (err) {
-        window.alert((err as Error).message)
+        alertEditorError((err as Error).message)
       }
     })
   })
@@ -602,7 +653,7 @@ function registerVimNoteCommands(): void {
     try {
       parsed = parseCreateNotePath(value)
     } catch (err) {
-      window.alert((err as Error).message)
+      alertEditorError((err as Error).message)
       return
     }
     const state = useStore.getState()
@@ -663,7 +714,7 @@ function registerVimNoteCommands(): void {
 
     const error = validateMoveNoteTarget(target)
     if (error) {
-      window.alert(error)
+      alertEditorError(error)
       return
     }
     const dest = parseMoveNoteTarget(target)

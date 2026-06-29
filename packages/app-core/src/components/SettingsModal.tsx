@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { DEFAULT_DAILY_NOTES_DIRECTORY, DEFAULT_WEEKLY_NOTES_DIRECTORY } from '@shared/ipc'
+import {
+  DEFAULT_DAILY_NOTE_LOCALE,
+  DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+  DEFAULT_DAILY_NOTES_DIRECTORY,
+  DEFAULT_WEEKLY_NOTE_LOCALE,
+  DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+  DEFAULT_WEEKLY_NOTES_DIRECTORY
+} from '@shared/ipc'
 import type {
   AppUpdateState,
   CliInstallStatus,
@@ -36,7 +43,14 @@ import {
   DEFAULT_SYSTEM_FOLDER_LABELS,
   getSystemFolderLabel
 } from '../lib/system-folder-labels'
-import { normalizeDailyNotesDirectory, normalizeWeeklyNotesDirectory } from '../lib/vault-layout'
+import {
+  normalizeDailyNoteLocale,
+  normalizeDailyNotesDirectory,
+  normalizeDailyNoteTitlePattern,
+  normalizeWeeklyNoteLocale,
+  normalizeWeeklyNoteTitlePattern,
+  normalizeWeeklyNotesDirectory
+} from '../lib/vault-layout'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { composeTemplateFile, mergeTemplates } from '@shared/template-files'
 import { TemplateEditorModal } from './TemplateEditorModal'
@@ -49,6 +63,7 @@ import { useAppUpdateState } from '../lib/app-update-state'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import companyLogo from '../assets/lumary-labs-logo.svg'
 import { confirmApp } from '../lib/confirm-requests'
+import { isImeComposing } from '../lib/ime'
 import { RemoteWorkspaceProfileModal } from './RemoteWorkspaceProfileModal'
 import { Button } from './ui/Button'
 
@@ -65,13 +80,110 @@ type SettingsCategoryId =
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
 
+type SettingsSectionId = 'look' | 'editing' | 'vault' | 'system'
+
+/** A focused sub-screen within a dense category (e.g. Vault → Location/Folders/Remote). */
+interface SettingsSubTab {
+  id: string
+  title: string
+  /** Search-item ids that live on this sub-tab, so search-jump can open the right one. */
+  searchIds?: string[]
+  content: JSX.Element
+}
+
 interface SettingsCategory extends SettingsSearchCategory<SettingsCategoryId> {
   id: SettingsCategoryId
   title: string
   description: string
   keywords: string[]
-  content: JSX.Element
+  /** A category renders either a single `content` pane or a set of `subTabs`. */
+  content?: JSX.Element
+  subTabs?: SettingsSubTab[]
 }
+
+/** Compact stroke icon used in the grouped settings rail. */
+function NavIcon({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  )
+}
+
+const SETTINGS_CATEGORY_ICONS: Record<SettingsCategoryId, JSX.Element> = {
+  appearance: (
+    <NavIcon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 0 0 18z" />
+    </NavIcon>
+  ),
+  typography: (
+    <NavIcon>
+      <path d="M4 7V5h16v2" />
+      <path d="M12 5v14" />
+      <path d="M9 19h6" />
+    </NavIcon>
+  ),
+  editor: (
+    <NavIcon>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </NavIcon>
+  ),
+  keymaps: (
+    <NavIcon>
+      <rect x="3" y="6" width="18" height="12" rx="2" />
+      <path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10" />
+    </NavIcon>
+  ),
+  vault: (
+    <NavIcon>
+      <path d="M12 3 3 7v10l9 4 9-4V7Z" />
+      <path d="M3 7l9 4 9-4M12 11v10" />
+    </NavIcon>
+  ),
+  templates: (
+    <NavIcon>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <path d="M4 9h16M9 9v11" />
+    </NavIcon>
+  ),
+  mcp: (
+    <NavIcon>
+      <path d="M9 7V4M15 7V4M8 7h8v3a4 4 0 0 1-8 0Z" />
+      <path d="M12 14v6" />
+    </NavIcon>
+  ),
+  cli: (
+    <NavIcon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3M13 15h4" />
+    </NavIcon>
+  ),
+  about: (
+    <NavIcon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 16v-4M12 8h.01" />
+    </NavIcon>
+  )
+}
+
+const SETTINGS_SECTIONS: { id: SettingsSectionId; title: string; categoryIds: SettingsCategoryId[] }[] = [
+  { id: 'look', title: 'Look & feel', categoryIds: ['appearance', 'typography'] },
+  { id: 'editing', title: 'Editing', categoryIds: ['editor', 'keymaps'] },
+  { id: 'vault', title: 'Vault', categoryIds: ['vault', 'templates'] },
+  { id: 'system', title: 'System', categoryIds: ['mcp', 'cli', 'about'] }
+]
 
 function settingsSearchTargetProps(
   settingId: string | undefined
@@ -202,6 +314,8 @@ export function SettingsModal(): JSX.Element {
   const setVimMode = useStore((s) => s.setVimMode)
   const vimInsertEscape = useStore((s) => s.vimInsertEscape)
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape)
+  const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
+  const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const setKeymapBinding = useStore((s) => s.setKeymapBinding)
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps)
@@ -219,6 +333,10 @@ export function SettingsModal(): JSX.Element {
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath)
   const livePreview = useStore((s) => s.livePreview)
   const setLivePreview = useStore((s) => s.setLivePreview)
+  const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
+  const setRenderTablesInLivePreview = useStore((s) => s.setRenderTablesInLivePreview)
+  const markdownSnippets = useStore((s) => s.markdownSnippets)
+  const setMarkdownSnippets = useStore((s) => s.setMarkdownSnippets)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const setTabsEnabled = useStore((s) => s.setTabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
@@ -340,6 +458,8 @@ export function SettingsModal(): JSX.Element {
   const setPreviewMaxWidth = useStore((s) => s.setPreviewMaxWidth)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const setLineNumberMode = useStore((s) => s.setLineNumberMode)
+  const lineNumberPosition = useStore((s) => s.lineNumberPosition)
+  const setLineNumberPosition = useStore((s) => s.setLineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const setInterfaceFont = useStore((s) => s.setInterfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -517,6 +637,7 @@ export function SettingsModal(): JSX.Element {
       { id: 'one', label: 'One' },
       { id: 'nord', label: 'Nord' },
       { id: 'tokyo-night', label: 'Tokyo Night' },
+      { id: 'kanagawa', label: 'Kanagawa' },
       { id: 'black-metal', label: 'Black Metal' }
     ],
     []
@@ -597,6 +718,7 @@ export function SettingsModal(): JSX.Element {
       one: { light: 'one-light', dark: 'one-dark' },
       nord: { light: 'nord-light', dark: 'nord-dark' },
       'tokyo-night': { light: 'tokyo-night-day', dark: 'tokyo-night-storm' },
+      kanagawa: { light: 'kanagawa-lotus', dark: 'kanagawa-wave' },
       'black-metal': { light: 'black-metal-day', dark: 'black-metal' }
     }
     const targetId = preferred[family][effectiveMode]
@@ -636,6 +758,10 @@ export function SettingsModal(): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const settingsSearchHighlightTimerRef = useRef<number | null>(null)
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>('appearance')
+  // Per-category active sub-tab (dense categories split their content into sub-tabs).
+  const [activeSubTabByCategory, setActiveSubTabByCategory] = useState<
+    Partial<Record<SettingsCategoryId, string>>
+  >({})
   const [activeSearchResultId, setActiveSearchResultId] = useState<string | null>(null)
   const [navQuery, setNavQuery] = useState('')
   const availableVaultTextSearchTools = [
@@ -950,6 +1076,18 @@ export function SettingsModal(): JSX.Element {
           keywords: ['preview', 'markdown']
         },
         {
+          id: 'render-tables',
+          title: 'Render tables in live preview',
+          description: 'Show Markdown tables as interactive widgets, or keep them as plain editable text.',
+          keywords: ['table', 'tables', 'wysiwyg', 'grid', 'vim', 'plain text', 'source']
+        },
+        {
+          id: 'markdown-snippets',
+          title: 'Markdown snippets',
+          description: 'Auto-close markdown delimiters as you type (** then Space, ``` then Enter).',
+          keywords: ['snippets', 'auto close', 'autoclose', 'auto-pair', 'brackets', 'markdown', 'completion']
+        },
+        {
           id: 'note-tabs',
           title: 'Note tabs',
           description: 'Open notes in tabs and allow split-friendly tab workflows.',
@@ -998,7 +1136,18 @@ export function SettingsModal(): JSX.Element {
           keywords: ['quick capture', 'hotkey', 'shortcut']
         }
       ],
-      content: (
+      subTabs: [
+        {
+          id: 'vim',
+          title: 'Vim',
+          searchIds: [
+            'vim-mode',
+            'vim-insert-escape',
+            'leader-key-hints',
+            'leader-hint-behavior',
+            'leader-hint-duration'
+          ],
+          content: (
         <div className="space-y-6">
           <Section
             title="Vim"
@@ -1020,6 +1169,13 @@ export function SettingsModal(): JSX.Element {
                   placeholder="jk"
                   settingId="vim-insert-escape"
                   onChange={(next) => setVimInsertEscape(next ?? '')}
+                />
+                <ToggleRow
+                  label="Yank to system clipboard"
+                  description="Copy yanked, deleted, and changed text to the system clipboard (like Vim's clipboard=unnamed), so y/d/c/x are available to paste in other apps."
+                  value={vimYankToClipboard}
+                  settingId="vim-yank-to-clipboard"
+                  onChange={setVimYankToClipboard}
                 />
                 <ToggleRow
                   label="Leader key hints"
@@ -1063,7 +1219,15 @@ export function SettingsModal(): JSX.Element {
               </InlineNote>
             )}
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'search',
+          title: 'Search',
+          searchIds: ['vault-text-search-backend', 'ripgrep-binary-path', 'fzf-binary-path'],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Search"
             description="Choose how vault-wide text search is powered."
@@ -1111,7 +1275,24 @@ export function SettingsModal(): JSX.Element {
                   : 'No usable ripgrep or fzf binary was detected from the configured paths or PATH. ZenNotes will use the built-in search backend.'}
             </InlineNote>
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'writing',
+          title: 'Writing',
+          searchIds: [
+            'live-preview',
+            'render-tables',
+            'markdown-snippets',
+            'note-tabs',
+            'wrap-note-tabs',
+            'word-wrap',
+            'smooth-preview-scroll',
+            'pdfs-in-edit-mode'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Writing"
             description="Controls that change how notes render while you work."
@@ -1122,6 +1303,22 @@ export function SettingsModal(): JSX.Element {
               value={livePreview}
               settingId="live-preview"
               onChange={setLivePreview}
+            />
+            {livePreview && (
+              <ToggleRow
+                label="Render tables in live preview"
+                description="Show Markdown tables as interactive widgets. Turn off to keep tables as plain markdown text, so you can edit them with the keyboard (and Vim motions) like any other line."
+                value={renderTablesInLivePreview}
+                settingId="render-tables"
+                onChange={setRenderTablesInLivePreview}
+              />
+            )}
+            <ToggleRow
+              label="Markdown snippets"
+              description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. In Vim mode this only applies in insert mode."
+              value={markdownSnippets}
+              settingId="markdown-snippets"
+              onChange={setMarkdownSnippets}
             />
             <ToggleRow
               label="Note tabs"
@@ -1178,7 +1375,15 @@ export function SettingsModal(): JSX.Element {
               onChange={setQuickNoteTitlePrefix}
             />
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'quick-capture',
+          title: 'Quick capture',
+          searchIds: ['date-titled-quick-notes', 'quick-note-prefix', 'quick-capture-hotkey'],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Quick capture"
             description="Floating capture window for thoughts you want in the vault without leaving whatever you're doing."
@@ -1186,7 +1391,9 @@ export function SettingsModal(): JSX.Element {
             <QuickCaptureHotkeyRow settingId="quick-capture-hotkey" />
           </Section>
         </div>
-      )
+          )
+        }
+      ]
     },
     {
       id: 'keymaps',
@@ -1271,6 +1478,12 @@ export function SettingsModal(): JSX.Element {
           title: 'Line numbers',
           description: 'Show editor gutter numbers.',
           keywords: ['numbers', 'gutter', 'relative', 'absolute']
+        },
+        {
+          id: 'line-number-position',
+          title: 'Line number position',
+          description: 'Place the line-number gutter next to the text or at the editor edge.',
+          keywords: ['numbers', 'gutter', 'position', 'edge', 'text', 'align']
         }
       ],
       content: (
@@ -1376,6 +1589,19 @@ export function SettingsModal(): JSX.Element {
               ]}
               onChange={(next) => setLineNumberMode(next)}
             />
+            {lineNumberMode !== 'off' && (
+              <SegmentedRow
+                label="Line number position"
+                description="With centered content, keep the numbers next to the text column or pin them to the editor's left edge."
+                value={lineNumberPosition}
+                settingId="line-number-position"
+                options={[
+                  { value: 'text', label: 'Next to text' },
+                  { value: 'edge', label: 'Editor edge' }
+                ]}
+                onChange={(next) => setLineNumberPosition(next)}
+              />
+            )}
           </Section>
         </div>
       )
@@ -1413,9 +1639,33 @@ export function SettingsModal(): JSX.Element {
         },
         {
           id: 'daily-notes-directory',
-          title: 'Daily notes directory',
+          title: 'Daily notes directory pattern',
           description: 'Stored inside your primary notes area.',
-          keywords: ['daily notes', 'directory', 'folder']
+          keywords: ['daily notes', 'directory', 'folder', 'pattern', 'date']
+        },
+        {
+          id: 'daily-note-title-pattern',
+          title: 'Daily note naming pattern',
+          description: 'Used as the daily note title and filename.',
+          keywords: ['daily notes', 'title', 'filename', 'pattern', 'date']
+        },
+        {
+          id: 'daily-note-locale',
+          title: 'Daily note locale',
+          description: 'Used for localized month and weekday names in daily note patterns.',
+          keywords: ['daily notes', 'locale', 'month', 'weekday', 'pattern']
+        },
+        {
+          id: 'daily-note-pattern-support',
+          title: 'Supported date note pattern tokens',
+          description: 'Reference for supported date tokens, quoted literals, and example outputs.',
+          keywords: ['daily notes', 'weekly notes', 'pattern', 'tokens', 'format', 'yyyy', 'mmm', 'weekday', 'week']
+        },
+        {
+          id: 'daily-note-pattern-reset',
+          title: 'Reset daily note patterns to defaults',
+          description: 'Restore the daily directory, naming, and locale patterns to their defaults.',
+          keywords: ['daily notes', 'reset', 'default', 'defaults', 'restore', 'pattern']
         },
         {
           id: 'open-todays-daily-note',
@@ -1437,9 +1687,33 @@ export function SettingsModal(): JSX.Element {
         },
         {
           id: 'weekly-notes-directory',
-          title: 'Weekly notes directory',
+          title: 'Weekly notes directory pattern',
           description: 'Stored inside your primary notes area.',
-          keywords: ['weekly notes', 'directory', 'folder']
+          keywords: ['weekly notes', 'directory', 'folder', 'pattern', 'date', 'week']
+        },
+        {
+          id: 'weekly-note-title-pattern',
+          title: 'Weekly note naming pattern',
+          description: 'Used as the weekly note title and filename.',
+          keywords: ['weekly notes', 'title', 'filename', 'pattern', 'date', 'week']
+        },
+        {
+          id: 'weekly-note-locale',
+          title: 'Weekly note locale',
+          description: 'Used for localized month and weekday names in weekly note patterns.',
+          keywords: ['weekly notes', 'locale', 'month', 'weekday', 'pattern']
+        },
+        {
+          id: 'weekly-note-pattern-support',
+          title: 'Supported date note pattern tokens',
+          description: 'Reference for supported date tokens, ISO week tokens, quoted literals, and example outputs.',
+          keywords: ['weekly notes', 'pattern', 'tokens', 'format', 'yyyy', 'ww', 'iso week']
+        },
+        {
+          id: 'weekly-note-pattern-reset',
+          title: 'Reset weekly note patterns to defaults',
+          description: 'Restore the weekly directory, naming, and locale patterns to their defaults.',
+          keywords: ['weekly notes', 'reset', 'default', 'defaults', 'restore', 'pattern']
         },
         {
           id: 'weekly-notes-template',
@@ -1494,9 +1768,20 @@ export function SettingsModal(): JSX.Element {
           title: 'Trash label',
           description: 'Display name for deleted-note recovery.',
           keywords: ['system folders', 'folder label']
+        },
+        {
+          id: 'tasks-label',
+          title: 'Tasks label',
+          description: 'Display name for the vault-wide Tasks view.',
+          keywords: ['system folders', 'tasks', 'todos', 'goals', 'rename']
         }
       ],
-      content: (
+      subTabs: [
+        {
+          id: 'location',
+          title: 'Location',
+          searchIds: ['vault-location', 'saved-remote-workspaces'],
+          content: (
         <div className="space-y-6">
           <Section
             title="Location"
@@ -1637,7 +1922,36 @@ export function SettingsModal(): JSX.Element {
               </div>
             </Section>
           )}
-
+        </div>
+          )
+        },
+        {
+          id: 'notes',
+          title: 'Notes',
+          searchIds: [
+            'primary-notes-location',
+            'enable-daily-notes',
+            'daily-notes-directory',
+            'daily-note-title-pattern',
+            'daily-note-locale',
+            'daily-note-pattern-support',
+            'daily-note-pattern-reset',
+            'open-todays-daily-note',
+            'daily-notes-template',
+            'enable-weekly-notes',
+            'weekly-notes-directory',
+            'weekly-note-title-pattern',
+            'weekly-note-locale',
+            'weekly-note-pattern-support',
+            'weekly-note-pattern-reset',
+            'weekly-notes-template',
+            'open-this-week-note',
+            'auto-calendar-panel',
+            'calendar-week-start',
+            'calendar-week-numbers'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="Primary Notes"
             description="Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly for Obsidian-style flat vaults."
@@ -1680,11 +1994,12 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Daily notes directory"
+              label="Daily notes directory pattern"
               description="Stored inside your primary notes area. The default is `Daily Notes`."
               value={vaultSettings.dailyNotes.directory}
               placeholder={DEFAULT_DAILY_NOTES_DIRECTORY}
               settingId="daily-notes-directory"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -1695,6 +2010,63 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+            <TextInputRow
+              label="Daily note naming pattern"
+              description="Used as the daily note title and filename. The default is `yyyy-MM-dd`."
+              value={vaultSettings.dailyNotes.titlePattern ?? DEFAULT_DAILY_NOTE_TITLE_PATTERN}
+              placeholder={DEFAULT_DAILY_NOTE_TITLE_PATTERN}
+              settingId="daily-note-title-pattern"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    titlePattern: normalizeDailyNoteTitlePattern(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Daily note locale"
+              description="Used for localized month and weekday names. Use `system`, `en-US`, or `pt-BR`."
+              value={vaultSettings.dailyNotes.locale ?? DEFAULT_DAILY_NOTE_LOCALE}
+              placeholder={DEFAULT_DAILY_NOTE_LOCALE}
+              settingId="daily-note-locale"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    locale: normalizeDailyNoteLocale(next)
+                  }
+                })
+              }
+            />
+            <DateNotePatternResetRow
+              kind="daily"
+              settingId="daily-note-pattern-reset"
+              isDefault={
+                vaultSettings.dailyNotes.directory === DEFAULT_DAILY_NOTES_DIRECTORY &&
+                (vaultSettings.dailyNotes.titlePattern ?? DEFAULT_DAILY_NOTE_TITLE_PATTERN) ===
+                  DEFAULT_DAILY_NOTE_TITLE_PATTERN &&
+                (vaultSettings.dailyNotes.locale ?? DEFAULT_DAILY_NOTE_LOCALE) ===
+                  DEFAULT_DAILY_NOTE_LOCALE
+              }
+              onReset={() =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: {
+                    ...vaultSettings.dailyNotes,
+                    directory: DEFAULT_DAILY_NOTES_DIRECTORY,
+                    titlePattern: DEFAULT_DAILY_NOTE_TITLE_PATTERN,
+                    locale: DEFAULT_DAILY_NOTE_LOCALE
+                  }
+                })
+              }
+            />
+            <DateNotePatternSupportRow kind="daily" settingId="daily-note-pattern-support" />
             <TemplateSelectRow
               label="Daily note template"
               description="Applied when a daily note is created. None creates a blank note."
@@ -1705,6 +2077,30 @@ export function SettingsModal(): JSX.Element {
                 void persistVaultSettings({
                   ...vaultSettings,
                   dailyNotes: { ...vaultSettings.dailyNotes, templateId }
+                })
+              }
+            />
+            <ToggleRow
+              label="Tasks are due on the note's date"
+              description="A task written inside a daily note appears on the calendar for that day automatically — no need to type a due date. An explicit `due:YYYY-MM-DD` still wins."
+              value={vaultSettings.dailyNotes.tasksDueOnNoteDate !== false}
+              settingId="daily-notes-tasks-due-on-date"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, tasksDueOnNoteDate: on }
+                })
+              }
+            />
+            <ToggleRow
+              label="Roll over unfinished tasks to today"
+              description="When today's daily note opens, move every unchecked task from previous daily notes into it. Checked tasks stay where they are."
+              value={vaultSettings.dailyNotes.rolloverUnfinishedTasks === true}
+              settingId="daily-notes-rollover"
+              onChange={(on) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  dailyNotes: { ...vaultSettings.dailyNotes, rolloverUnfinishedTasks: on }
                 })
               }
             />
@@ -1736,7 +2132,7 @@ export function SettingsModal(): JSX.Element {
 
           <Section
             title="Weekly Notes"
-            description="Create one note per ISO week with a YYYY-Www title and keep them in a dedicated directory."
+            description="Create one note per ISO week with a configurable title and keep it in a dedicated directory."
           >
             <ToggleRow
               label="Enable weekly notes"
@@ -1754,11 +2150,12 @@ export function SettingsModal(): JSX.Element {
               }
             />
             <TextInputRow
-              label="Weekly notes directory"
+              label="Weekly notes directory pattern"
               description="Stored inside your primary notes area. The default is `Weekly Notes`."
               value={vaultSettings.weeklyNotes.directory}
               placeholder={DEFAULT_WEEKLY_NOTES_DIRECTORY}
               settingId="weekly-notes-directory"
+              commitOnBlur
               onChange={(next) =>
                 void persistVaultSettings({
                   ...vaultSettings,
@@ -1769,6 +2166,63 @@ export function SettingsModal(): JSX.Element {
                 })
               }
             />
+            <TextInputRow
+              label="Weekly note naming pattern"
+              description="Used as the weekly note title and filename. The default is `yyyy-'W'ww`."
+              value={vaultSettings.weeklyNotes.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN}
+              placeholder={DEFAULT_WEEKLY_NOTE_TITLE_PATTERN}
+              settingId="weekly-note-title-pattern"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    titlePattern: normalizeWeeklyNoteTitlePattern(next)
+                  }
+                })
+              }
+            />
+            <TextInputRow
+              label="Weekly note locale"
+              description="Used for localized month and weekday names. Use `system`, `en-US`, or `pt-BR`."
+              value={vaultSettings.weeklyNotes.locale ?? DEFAULT_WEEKLY_NOTE_LOCALE}
+              placeholder={DEFAULT_WEEKLY_NOTE_LOCALE}
+              settingId="weekly-note-locale"
+              commitOnBlur
+              onChange={(next) =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    locale: normalizeWeeklyNoteLocale(next)
+                  }
+                })
+              }
+            />
+            <DateNotePatternResetRow
+              kind="weekly"
+              settingId="weekly-note-pattern-reset"
+              isDefault={
+                vaultSettings.weeklyNotes.directory === DEFAULT_WEEKLY_NOTES_DIRECTORY &&
+                (vaultSettings.weeklyNotes.titlePattern ?? DEFAULT_WEEKLY_NOTE_TITLE_PATTERN) ===
+                  DEFAULT_WEEKLY_NOTE_TITLE_PATTERN &&
+                (vaultSettings.weeklyNotes.locale ?? DEFAULT_WEEKLY_NOTE_LOCALE) ===
+                  DEFAULT_WEEKLY_NOTE_LOCALE
+              }
+              onReset={() =>
+                void persistVaultSettings({
+                  ...vaultSettings,
+                  weeklyNotes: {
+                    ...vaultSettings.weeklyNotes,
+                    directory: DEFAULT_WEEKLY_NOTES_DIRECTORY,
+                    titlePattern: DEFAULT_WEEKLY_NOTE_TITLE_PATTERN,
+                    locale: DEFAULT_WEEKLY_NOTE_LOCALE
+                  }
+                })
+              }
+            />
+            <DateNotePatternSupportRow kind="weekly" settingId="weekly-note-pattern-support" />
             <TemplateSelectRow
               label="Weekly note template"
               description="Applied when a weekly note is created. None creates a blank note."
@@ -1789,7 +2243,7 @@ export function SettingsModal(): JSX.Element {
               <div className="min-w-0">
                 <div className="text-sm font-medium text-ink-900">Open this week's note</div>
                 <div className="mt-1 text-xs leading-5 text-ink-500">
-                  Opens this week's note if it exists, otherwise creates it with a YYYY-Www title.
+                  Opens this week's note if it exists, otherwise creates it with the configured weekly title pattern.
                 </div>
               </div>
               <button
@@ -1833,10 +2287,24 @@ export function SettingsModal(): JSX.Element {
               onChange={setCalendarShowWeekNumbers}
             />
           </Section>
-
+        </div>
+          )
+        },
+        {
+          id: 'system',
+          title: 'System',
+          searchIds: [
+            'inbox-label',
+            'quick-notes-label',
+            'archive-label',
+            'trash-label',
+            'tasks-label'
+          ],
+          content: (
+        <div className="space-y-6">
           <Section
             title="System Folders"
-            description="Customize how the built-in folders are named in the UI. This changes labels only; the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
+            description="Customize how the built-in folders and the Tasks view are named in the UI. This changes labels only — the internal folder ids stay `inbox`, `quick`, `archive`, and `trash`, even when primary notes live at the vault root."
           >
             <TextInputRow
               label="Inbox label"
@@ -1870,12 +2338,22 @@ export function SettingsModal(): JSX.Element {
               settingId="trash-label"
               onChange={(next) => setSystemFolderLabel('trash', next)}
             />
+            <TextInputRow
+              label="Tasks label"
+              description="Display name for the vault-wide Tasks view — sidebar, tab, title bar, and command palette."
+              value={systemFolderLabels.tasks ?? ''}
+              placeholder={DEFAULT_SYSTEM_FOLDER_LABELS.tasks}
+              settingId="tasks-label"
+              onChange={(next) => setSystemFolderLabel('tasks', next)}
+            />
             <InlineNote>
-              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, and {getSystemFolderLabel('trash', systemFolderLabels)}.
+              Current labels: {getSystemFolderLabel('quick', systemFolderLabels)}, {getSystemFolderLabel('inbox', systemFolderLabels)}, {getSystemFolderLabel('archive', systemFolderLabels)}, {getSystemFolderLabel('trash', systemFolderLabels)}, and {getSystemFolderLabel('tasks', systemFolderLabels)}.
             </InlineNote>
           </Section>
         </div>
-      )
+          )
+        }
+      ]
     },
     {
       id: 'templates',
@@ -2123,9 +2601,17 @@ export function SettingsModal(): JSX.Element {
           title: 'Lumary Labs',
           description: 'Company and product details.',
           keywords: ['company', 'lumary', 'logo']
+        },
+        {
+          id: 'config-file',
+          title: 'Configuration file',
+          description: 'Locate, copy, or open the plain-text config file you sync across machines.',
+          keywords: ['config', 'toml', 'dotfiles', 'sync', 'stow', 'chezmoi', 'reveal', 'settings file'],
+          available: appInfo.runtime === 'desktop'
         }
       ],
       content: (
+        <div className="space-y-6">
         <Section title="ZenNotes" settingId="zen-notes-version">
           <div className="px-5 py-5">
             <div className="min-w-0 text-sm leading-6 text-ink-600">
@@ -2283,6 +2769,8 @@ export function SettingsModal(): JSX.Element {
             </div>
           </div>
         </Section>
+        {appInfo.runtime === 'desktop' && <ConfigFileSection />}
+        </div>
       )
     }
   ]
@@ -2297,6 +2785,25 @@ export function SettingsModal(): JSX.Element {
   const visibleCategory =
     visibleSearchResult?.category ??
     null
+
+  // When the visible search result is a setting that lives on a sub-tab, open
+  // that sub-tab so the matched control is actually shown — not only when the
+  // result is clicked, but also when search auto-selects it. Mirrors the
+  // on-click search jump and keeps every setting reachable via search.
+  const visibleSettingResultId =
+    visibleSearchResult?.type === 'setting' ? visibleSearchResult.id : null
+  useEffect(() => {
+    if (visibleSearchResult?.type !== 'setting' || !visibleCategory?.subTabs) return
+    const subTabId = visibleCategory.subTabs.find((tab) =>
+      tab.searchIds?.includes(visibleSearchResult.targetId)
+    )?.id
+    if (!subTabId) return
+    const categoryId = visibleCategory.id
+    setActiveSubTabByCategory((prev) =>
+      prev[categoryId] === subTabId ? prev : { ...prev, [categoryId]: subTabId }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleSettingResultId])
 
   return (
     <>
@@ -2343,7 +2850,46 @@ export function SettingsModal(): JSX.Element {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <nav className="space-y-1">
+            {query === '' ? (
+              <div className="space-y-5">
+                {SETTINGS_SECTIONS.map((section) => (
+                  <div key={section.id}>
+                    <div className="px-3 pb-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-400">
+                      {section.title}
+                    </div>
+                    <div className="space-y-0.5">
+                      {section.categoryIds.map((id) => {
+                        const cat = categories.find((c) => c.id === id)
+                        if (!cat) return null
+                        const selected = activeCategory === id
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                              setActiveCategory(id)
+                              setActiveSearchResultId(`${id}:category`)
+                            }}
+                            className={[
+                              'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                              selected
+                                ? 'bg-paper-200/85 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                                : 'text-ink-600 hover:bg-paper-200/45 hover:text-ink-900'
+                            ].join(' ')}
+                          >
+                            <span className={selected ? 'text-accent' : 'text-ink-400'}>
+                              {SETTINGS_CATEGORY_ICONS[id]}
+                            </span>
+                            <span className="truncate font-medium">{cat.title}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <nav className="space-y-1">
               {searchResults.map((result) => {
                 const selected = visibleSearchResult?.id === result.id
                 return (
@@ -2354,6 +2900,17 @@ export function SettingsModal(): JSX.Element {
                       setActiveCategory(result.category.id)
                       setActiveSearchResultId(result.id)
                       if (result.type === 'setting') {
+                        // If the target lives on a sub-tab, open that sub-tab first
+                        // so the element is mounted before we scroll to it.
+                        const subTabId = result.category.subTabs?.find((tab) =>
+                          tab.searchIds?.includes(result.targetId)
+                        )?.id
+                        if (subTabId) {
+                          setActiveSubTabByCategory((prev) => ({
+                            ...prev,
+                            [result.category.id]: subTabId
+                          }))
+                        }
                         jumpToSettingsSearchTarget(result.targetId)
                       }
                     }}
@@ -2383,7 +2940,8 @@ export function SettingsModal(): JSX.Element {
                   No settings match your search.
                 </div>
               )}
-            </nav>
+              </nav>
+            )}
           </div>
 
           <div className="border-t border-paper-300/55 px-4 py-3 text-xs leading-5 text-ink-500">
@@ -2417,7 +2975,22 @@ export function SettingsModal(): JSX.Element {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-7 py-6">
             {visibleCategory ? (
-              visibleCategory.content
+              visibleCategory.subTabs ? (
+                <CategorySubTabs
+                  tabs={visibleCategory.subTabs}
+                  activeId={
+                    activeSubTabByCategory[visibleCategory.id] ?? visibleCategory.subTabs[0].id
+                  }
+                  onSelect={(tabId) =>
+                    setActiveSubTabByCategory((prev) => ({
+                      ...prev,
+                      [visibleCategory.id]: tabId
+                    }))
+                  }
+                />
+              ) : (
+                visibleCategory.content
+              )
             ) : (
               <div className="flex h-full min-h-[280px] items-center justify-center rounded-3xl border border-dashed border-paper-300/70 bg-paper-50/35 px-6 text-center text-sm leading-6 text-ink-500">
                 Try a broader search term, or clear the search field to browse every settings section.
@@ -2771,8 +3344,212 @@ function Section({
   )
 }
 
+/** Renders a dense category as focused sub-tabs (Vault → Location/Folders/Remote, …). */
+function CategorySubTabs({
+  tabs,
+  activeId,
+  onSelect
+}: {
+  tabs: SettingsSubTab[]
+  activeId: string
+  onSelect: (id: string) => void
+}): JSX.Element {
+  const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0]
+  return (
+    <div className="space-y-6">
+      <div
+        role="tablist"
+        className="flex flex-wrap items-center gap-1 rounded-2xl border border-paper-300/60 bg-paper-50/45 p-1"
+      >
+        {tabs.map((tab) => {
+          const selected = tab.id === active.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => onSelect(tab.id)}
+              className={[
+                'rounded-xl px-3.5 py-1.5 text-sm font-medium transition-colors',
+                selected
+                  ? 'bg-paper-200/90 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]'
+                  : 'text-ink-500 hover:bg-paper-200/50 hover:text-ink-800'
+              ].join(' ')}
+            >
+              {tab.title}
+            </button>
+          )
+        })}
+      </div>
+      <div>{active.content}</div>
+    </div>
+  )
+}
+
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+}
+
+/** Desktop-only: surfaces the on-disk config file so users can find, copy, or
+ *  open the plain-text TOML they sync across machines (issue #203). */
+function ConfigFileSection(): JSX.Element {
+  const [configPath, setConfigPath] = useState<string | null>(null)
+  useEffect(() => {
+    let active = true
+    void window.zen.getConfigPath().then((p) => {
+      if (active) setConfigPath(p)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const platform = window.zen.platformSync()
+  const revealLabel =
+    platform === 'darwin' ? 'Finder' : platform === 'win32' ? 'File Explorer' : 'file manager'
+
+  return (
+    <Section
+      title="Configuration file"
+      description="Your preferences — theme, editor, vim, keymaps, and more — are mirrored to a plain-text TOML file. Sync it across machines with git, stow, or chezmoi; edit it by hand and changes apply live."
+      settingId="config-file"
+    >
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => void window.zen.revealConfigFile()}>
+            Reveal in {revealLabel}
+          </Button>
+          {configPath && (
+            <Button variant="ghost" onClick={() => window.zen.clipboardWriteText(configPath)}>
+              Copy path
+            </Button>
+          )}
+        </div>
+        {configPath && (
+          <code
+            className="block truncate rounded-lg border border-paper-300/70 bg-paper-100/70 px-3 py-2 font-mono text-xs text-ink-600"
+            title={configPath}
+          >
+            {configPath}
+          </code>
+        )}
+      </div>
+    </Section>
+  )
+}
+
+const DATE_NOTE_PATTERN_TOKENS = [
+  { token: 'yyyy', output: '2026', meaning: 'year; ISO week-year for weekly notes' },
+  { token: 'yy', output: '26', meaning: '2-digit year' },
+  { token: 'M', output: '6', meaning: 'month' },
+  { token: 'MM', output: '06', meaning: 'padded month' },
+  { token: 'MMM', output: 'Jun', meaning: 'short month name' },
+  { token: 'MMMM', output: 'June', meaning: 'full month name' },
+  { token: 'd', output: '9', meaning: 'day of month' },
+  { token: 'dd', output: '09', meaning: 'padded day of month' },
+  { token: 'EEE', output: 'Tue', meaning: 'short weekday name' },
+  { token: 'EEEE', output: 'Tuesday', meaning: 'full weekday name' },
+  { token: 'w', output: '24', meaning: 'ISO week number' },
+  { token: 'ww', output: '24', meaning: 'padded ISO week number' }
+]
+
+function DateNotePatternSupportRow({
+  kind,
+  settingId
+}: {
+  kind: 'daily' | 'weekly'
+  settingId?: string
+}): JSX.Element {
+  const example =
+    kind === 'daily' ? (
+      <>
+        <code className="font-mono text-ink-700">yyyy/MM-MMM</code> +{' '}
+        <code className="font-mono text-ink-700">yyyy-MM-dd-EEE</code> creates{' '}
+        <code className="font-mono text-ink-700">2026/06-Jun/2026-06-09-Tue.md</code>.
+      </>
+    ) : (
+      <>
+        <code className="font-mono text-ink-700">yyyy/MM-MMM</code> +{' '}
+        <code className="font-mono text-ink-700">yyyy-'W'ww-EEE</code> creates{' '}
+        <code className="font-mono text-ink-700">2026/06-Jun/2026-W24-Mon.md</code>.
+      </>
+    )
+
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Supported pattern tokens</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        Directory and naming patterns support these tokens. Weekly notes render date tokens from
+        the ISO week’s Monday. Wrap literal words in single quotes, for example{' '}
+        <code className="font-mono text-ink-700">'Daily Notes'/yyyy/MM-MMM</code>.
+      </div>
+      <dl className="mt-4 grid grid-cols-1 gap-x-5 gap-y-2 text-xs sm:grid-cols-2">
+        {DATE_NOTE_PATTERN_TOKENS.map((item) => (
+          <div key={item.token} className="grid grid-cols-[5rem_4.5rem_1fr] items-baseline gap-3">
+            <dt className="font-mono text-ink-900">{item.token}</dt>
+            <dd className="font-mono text-ink-600">{item.output}</dd>
+            <dd className="text-ink-500">{item.meaning}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="mt-4 space-y-1 text-xs leading-5 text-ink-500">
+        <div>
+          <span className="font-medium text-ink-700">Example:</span> {example}
+        </div>
+        <div>
+          Localized names use the note locale:{' '}
+          <code className="font-mono text-ink-700">system</code>,{' '}
+          <code className="font-mono text-ink-700">en-US</code>,{' '}
+          <code className="font-mono text-ink-700">pt-BR</code>, or another BCP 47 locale.
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DateNotePatternResetRow({
+  kind,
+  isDefault,
+  onReset,
+  settingId
+}: {
+  kind: 'daily' | 'weekly'
+  isDefault: boolean
+  onReset: () => void
+  settingId?: string
+}): JSX.Element {
+  const directory =
+    kind === 'daily' ? DEFAULT_DAILY_NOTES_DIRECTORY : DEFAULT_WEEKLY_NOTES_DIRECTORY
+  const naming =
+    kind === 'daily' ? DEFAULT_DAILY_NOTE_TITLE_PATTERN : DEFAULT_WEEKLY_NOTE_TITLE_PATTERN
+  const locale = kind === 'daily' ? DEFAULT_DAILY_NOTE_LOCALE : DEFAULT_WEEKLY_NOTE_LOCALE
+  return (
+    <div
+      className="flex items-center justify-between gap-4 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">Reset to defaults</div>
+        <div className="mt-1 text-xs leading-5 text-ink-500">
+          Restore the directory, naming, and locale to{' '}
+          <code className="font-mono text-ink-700">{directory}</code>,{' '}
+          <code className="font-mono text-ink-700">{naming}</code>, and{' '}
+          <code className="font-mono text-ink-700">{locale}</code>. Notes created with the
+          current pattern stay recognized.
+        </div>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={isDefault}
+        onClick={onReset}
+        className="shrink-0"
+      >
+        Reset to defaults
+      </Button>
+    </div>
+  )
 }
 
 const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'
@@ -2949,6 +3726,7 @@ function TextInputRow({
   value,
   placeholder,
   settingId,
+  commitOnBlur = false,
   onChange
 }: {
   label: string
@@ -2956,25 +3734,56 @@ function TextInputRow({
   value: string
   placeholder?: string
   settingId?: string
+  commitOnBlur?: boolean
   onChange: (next: string | null) => void
 }): JSX.Element {
+  const [draft, setDraft] = useState(value)
+  const [focused, setFocused] = useState(false)
+
+  useEffect(() => {
+    if (!commitOnBlur || !focused) setDraft(value)
+  }, [commitOnBlur, focused, value])
+
+  const commit = (raw: string): void => {
+    const next = raw.trim()
+    if (commitOnBlur && next === value) return
+    onChange(next ? next : null)
+  }
+
   return (
     <div
       className="flex items-center justify-between gap-5 px-5 py-4"
       {...settingsSearchTargetProps(settingId)}
     >
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-ink-900">{label}</div>
         {description && <div className="mt-1 text-xs leading-5 text-ink-500">{description}</div>}
       </div>
       <input
-        value={value}
+        value={commitOnBlur ? draft : value}
+        onFocus={() => setFocused(true)}
         onChange={(e) => {
-          const next = e.target.value.trim()
-          onChange(next ? next : null)
+          if (commitOnBlur) {
+            setDraft(e.target.value)
+            return
+          }
+          commit(e.target.value)
+        }}
+        onBlur={(e) => {
+          if (!commitOnBlur) return
+          setFocused(false)
+          commit(e.target.value)
+        }}
+        onKeyDown={(e) => {
+          if (!commitOnBlur) return
+          if (e.key === 'Enter' && !isImeComposing(e)) e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setDraft(value)
+            e.currentTarget.blur()
+          }
         }}
         placeholder={placeholder}
-        className="w-[23rem] max-w-[50vw] rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
+        className="w-[23rem] max-w-[50vw] shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
       />
     </div>
   )
@@ -3134,6 +3943,8 @@ function FontRow({
   }
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // While composing (IME), let the input own Enter/Arrows. (#183)
+    if (isImeComposing(e)) return
     if (e.key === 'ArrowDown') {
       e.preventDefault()
       setActiveIdx((i) => (i + 1 >= items.length ? items.length - 1 : i + 1))

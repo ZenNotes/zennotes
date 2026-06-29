@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseOpenNoteDeepLink } from './deep-links'
+import { parseOpenNoteDeepLink, parseQuickCaptureDeepLink } from './deep-links'
 
 describe('parseOpenNoteDeepLink', () => {
   it('parses encoded vault-relative paths', () => {
@@ -39,5 +39,17 @@ describe('parseOpenNoteDeepLink', () => {
     expect(parseOpenNoteDeepLink('zennotes://open?path=..%2Fsecret.md')).toBeNull()
     expect(parseOpenNoteDeepLink('zennotes://open?path=notes%2F..%2Fsecret.md')).toBeNull()
     expect(parseOpenNoteDeepLink('zennotes://open?path=C%3A%2FUsers%2Fnote.md')).toBeNull()
+  })
+})
+
+describe('parseQuickCaptureDeepLink', () => {
+  it('parses quick capture links', () => {
+    expect(parseQuickCaptureDeepLink('zennotes://quick-capture')).toBe(true)
+    expect(parseQuickCaptureDeepLink('zennotes:/quick-capture')).toBe(true)
+  })
+
+  it('rejects other links', () => {
+    expect(parseQuickCaptureDeepLink('zennotes://open?path=note.md')).toBe(false)
+    expect(parseQuickCaptureDeepLink('https://quick-capture')).toBe(false)
   })
 })

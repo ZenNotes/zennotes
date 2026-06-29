@@ -4,7 +4,10 @@ import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { useStore } from "../store";
 import { resolveAuto, THEMES } from "../lib/themes";
-import { resolveWikilinkTarget } from "../lib/wikilinks";
+import { resolveWikilinkTarget, wikilinkHeadingAnchor } from "../lib/wikilinks";
+import { openWikilinkHeading } from "../lib/wikilink-navigation";
+import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
+import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -370,6 +373,12 @@ export const Preview = memo(function Preview({
   const ref = useRef<HTMLDivElement | null>(null);
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
+  const folders = useStore((s) => s.folders);
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  const databaseTargets = useMemo(
+    () => listDatabaseLinkTargets(folders, vaultSettings),
+    [folders, vaultSettings],
+  );
   const assetFiles = useStore((s) => s.assetFiles);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
@@ -535,13 +544,48 @@ export const Preview = memo(function Preview({
       if (anchor.classList.contains("wikilink")) {
         e.preventDefault();
         const path = anchor.dataset.resolvedPath;
-        if (path) void selectNoteRef.current(path);
+        if (path) {
+          // Scroll to the #heading when the link carries one. (#196)
+          const headingAnchor = wikilinkHeadingAnchor(anchor.dataset.wikilink ?? "");
+          if (headingAnchor) void openWikilinkHeading(path, headingAnchor);
+          else void selectNoteRef.current(path);
+        } else if (anchor.dataset.databaseCsv) {
+          void useStore.getState().openDatabase(anchor.dataset.databaseCsv);
+        }
         return;
       }
       if (anchor.classList.contains("hashtag")) {
         e.preventDefault();
         const tag = anchor.getAttribute("data-tag");
         if (tag) void useStore.getState().openTagView(tag);
+        return;
+      }
+      // A standard Markdown link to another note — `[text](path/to/Note.md)` —
+      // navigates like a wikilink, resolved relative to this note. Checked
+      // before the asset branch: `enhanceLocalAssetNodes` may have tagged a
+      // relative link and rewritten its href, keeping the original in
+      // `data-local-asset-href`. (#201)
+      const linkHref =
+        anchor.dataset.localAssetHref || anchor.getAttribute("href") || "";
+      const internalNote = resolveInternalNoteHref(
+        notePathRef.current,
+        linkHref,
+        notesRef.current,
+      );
+      if (internalNote) {
+        e.preventDefault();
+        if (internalNote.heading)
+          void openWikilinkHeading(internalNote.path, internalNote.heading);
+        else void selectNoteRef.current(internalNote.path);
+        return;
+      }
+      // An external web link — `[site](https://…)` or a bare `[site](google.com)`
+      // a user typed without a scheme — opens in the browser. Checked before the
+      // asset branch since a scheme-less domain looks like a relative path. (#201)
+      const external = externalLinkUrl(linkHref);
+      if (external) {
+        e.preventDefault();
+        window.open(external, "_blank");
         return;
       }
       const localAssetUrl = anchor.dataset.localAssetUrl;
@@ -686,9 +730,18 @@ export const Preview = memo(function Preview({
       if (resolved) {
         a.classList.remove("broken");
         a.dataset.resolvedPath = resolved.path;
+        delete a.dataset.databaseCsv;
+        return;
+      }
+      delete a.dataset.resolvedPath;
+      // Not a note — a `.base` database link is still valid (#238).
+      const db = resolveDatabaseWikilink(databaseTargets, target);
+      if (db) {
+        a.classList.remove("broken");
+        a.dataset.databaseCsv = db.csvPath;
       } else {
         a.classList.add("broken");
-        delete a.dataset.resolvedPath;
+        delete a.dataset.databaseCsv;
       }
     });
 
@@ -745,6 +798,7 @@ export const Preview = memo(function Preview({
   }, [
     assetFilesKey,
     effectiveMode,
+    databaseTargets,
     html,
     notePath,
     notes,

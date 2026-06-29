@@ -4,8 +4,9 @@
  * The pane reuses a single editor + preview surface and renders only the
  * active tab's content, so switching tabs (or opening a diagram in a tab and
  * coming back) otherwise snaps a note to the top. This is a small imperative
- * cache — keyed by note path — that remembers each tab's editor and preview
- * scroll offsets so re-activating the tab can restore its position.
+ * cache — keyed by note path — that remembers each tab's editor selection
+ * and preview/editor scroll offsets so re-activating the tab can restore its
+ * position.
  *
  * It's intentionally a module-level cache, not store state: nothing renders
  * from it, it's read/written imperatively during tab switches and scrolls,
@@ -15,6 +16,8 @@
 export interface TabScrollPosition {
   editor: number
   preview: number
+  editorSelectionAnchor?: number
+  editorSelectionHead?: number
 }
 
 const TAB_SCROLL_MEMORY_LIMIT = 60
@@ -22,9 +25,18 @@ const memory = new Map<string, TabScrollPosition>()
 
 export function rememberTabScroll(path: string, position: TabScrollPosition): void {
   if (!path) return
+  const previous = memory.get(path)
+  const next: TabScrollPosition = {
+    editor: position.editor,
+    preview: position.preview
+  }
+  const anchor = position.editorSelectionAnchor ?? previous?.editorSelectionAnchor
+  const head = position.editorSelectionHead ?? previous?.editorSelectionHead
+  if (anchor != null) next.editorSelectionAnchor = anchor
+  if (head != null) next.editorSelectionHead = head
   // Re-insert so the most recently touched entry is last (LRU ordering).
   memory.delete(path)
-  memory.set(path, position)
+  memory.set(path, next)
   while (memory.size > TAB_SCROLL_MEMORY_LIMIT) {
     const oldest = memory.keys().next().value
     if (oldest === undefined) break

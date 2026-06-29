@@ -81,15 +81,22 @@ Trash:
 - allows restore
 - can be emptied
 
-## Daily notes
+## Daily and weekly notes
 
-Daily notes are optional.
+Daily and weekly notes are optional.
 
 When enabled:
 
 - ZenNotes creates one note per day
-- title format is an ISO date
-- notes live in a dedicated daily notes directory under the primary notes area
+- ZenNotes creates one note per ISO week
+- the default daily title format is an ISO date
+- the default weekly title format is an ISO week title
+- notes live in dedicated date-note directories under the primary notes area
+- the directory and title can use date patterns such as `yyyy/MM-MMM` and `yyyy-MM-dd-EEE`
+- weekly title patterns can use ISO week tokens such as `yyyy-'W'ww`
+- localized month and weekday names can use `system`, `en-US`, `pt-BR`, or another BCP 47 locale
+
+Supported pattern tokens are `yyyy`, `yy`, `M`, `MM`, `MMM`, `MMMM`, `d`, `dd`, `EEE`, `EEEE`, `w`, and `ww`. Weekly notes render date tokens from the ISO week's Monday, and `yyyy` is the ISO week-year for weekly patterns. Literal words can be wrapped in single quotes, for example `'Daily Notes'/yyyy/MM-MMM`.
 
 ## Assets and local files
 

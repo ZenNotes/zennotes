@@ -7,11 +7,13 @@ export function FolderIconPickerModal({
   targetLabel,
   currentIconId,
   onSelect,
+  onReset,
   onCancel
 }: {
   targetLabel: string
-  currentIconId: FolderIconId
+  currentIconId: FolderIconId | null
   onSelect: (iconId: FolderIconId) => void
+  onReset: () => void
   onCancel: () => void
 }): JSX.Element {
   return (
@@ -50,6 +52,11 @@ export function FolderIconPickerModal({
         <Button variant="secondary" onClick={onCancel}>
           Cancel
         </Button>
+        {currentIconId && (
+          <Button variant="ghost" onClick={onReset}>
+            Reset icon
+          </Button>
+        )}
       </Modal.Footer>
     </Modal>
   )

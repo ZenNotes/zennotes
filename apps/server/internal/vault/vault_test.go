@@ -549,8 +549,20 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 	// the toggle always reverted after a reload. (#117)
 	if _, err := v.SetSettings(VaultSettings{
 		PrimaryNotesLocation: PrimaryNotesInbox,
-		DailyNotes:           DailyNotesSettings{Enabled: true, Directory: "Daily", TemplateID: "daily-tmpl"},
-		WeeklyNotes:          WeeklyNotesSettings{Enabled: true, Directory: "My Weeks", TemplateID: "weekly-tmpl"},
+		DailyNotes: DailyNotesSettings{
+			Enabled:      true,
+			Directory:    "Daily",
+			TitlePattern: "yyyy-MM-dd-EEE",
+			Locale:       "pt-BR",
+			TemplateID:   "daily-tmpl",
+		},
+		WeeklyNotes: WeeklyNotesSettings{
+			Enabled:      true,
+			Directory:    "My Weeks",
+			TitlePattern: "yyyy-'W'ww-EEE",
+			Locale:       "en-US",
+			TemplateID:   "weekly-tmpl",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -568,8 +580,20 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 	if got.WeeklyNotes.TemplateID != "weekly-tmpl" {
 		t.Errorf("weekly templateId = %q, want %q", got.WeeklyNotes.TemplateID, "weekly-tmpl")
 	}
+	if got.WeeklyNotes.TitlePattern != "yyyy-'W'ww-EEE" {
+		t.Errorf("weekly titlePattern = %q, want %q", got.WeeklyNotes.TitlePattern, "yyyy-'W'ww-EEE")
+	}
+	if got.WeeklyNotes.Locale != "en-US" {
+		t.Errorf("weekly locale = %q, want %q", got.WeeklyNotes.Locale, "en-US")
+	}
 	if got.DailyNotes.TemplateID != "daily-tmpl" {
 		t.Errorf("daily templateId = %q, want %q", got.DailyNotes.TemplateID, "daily-tmpl")
+	}
+	if got.DailyNotes.TitlePattern != "yyyy-MM-dd-EEE" {
+		t.Errorf("daily titlePattern = %q, want %q", got.DailyNotes.TitlePattern, "yyyy-MM-dd-EEE")
+	}
+	if got.DailyNotes.Locale != "pt-BR" {
+		t.Errorf("daily locale = %q, want %q", got.DailyNotes.Locale, "pt-BR")
 	}
 
 	// The key must actually reach vault.json — the original bug was that it
@@ -595,5 +619,383 @@ func TestVaultSettingsWeeklyNotesRoundTrip(t *testing.T) {
 	}
 	if got.WeeklyNotes.Directory != DefaultWeeklyNotesDirectory {
 		t.Errorf("empty weekly directory = %q, want default %q", got.WeeklyNotes.Directory, DefaultWeeklyNotesDirectory)
+	}
+}
+
+// The web client drives the implicit-due and task-rollover behavior off two
+// daily-notes booleans. They are pointers so "absent" round-trips as unset
+// (the TS client applies the real default); an explicit value must survive a
+// SetSettings -> GetSettings round-trip and reach vault.json, or the web
+// toggles would silently revert like #117.
+func TestVaultSettingsDailyTaskFlagsRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	yes := true
+	no := false
+	if _, err := v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: PrimaryNotesInbox,
+		DailyNotes: DailyNotesSettings{
+			Enabled:                 true,
+			Directory:               "Daily",
+			TasksDueOnNoteDate:      &no, // explicitly turn the default (true) OFF
+			RolloverUnfinishedTasks: &yes,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyNotes.TasksDueOnNoteDate == nil || *got.DailyNotes.TasksDueOnNoteDate != false {
+		t.Errorf("tasksDueOnNoteDate = %v, want explicit false", got.DailyNotes.TasksDueOnNoteDate)
+	}
+	if got.DailyNotes.RolloverUnfinishedTasks == nil || *got.DailyNotes.RolloverUnfinishedTasks != true {
+		t.Errorf("rolloverUnfinishedTasks = %v, want explicit true", got.DailyNotes.RolloverUnfinishedTasks)
+	}
+
+	raw, err := os.ReadFile(v.settingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte("tasksDueOnNoteDate")) {
+		t.Errorf("vault.json missing tasksDueOnNoteDate key:\n%s", raw)
+	}
+	if !bytes.Contains(raw, []byte("rolloverUnfinishedTasks")) {
+		t.Errorf("vault.json missing rolloverUnfinishedTasks key:\n%s", raw)
+	}
+
+	// Absent pointers must stay nil (omitted) so the client default wins.
+	if _, err := v.SetSettings(VaultSettings{
+		PrimaryNotesLocation: PrimaryNotesInbox,
+		DailyNotes:           DailyNotesSettings{Enabled: true, Directory: "Daily"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyNotes.TasksDueOnNoteDate != nil {
+		t.Errorf("absent tasksDueOnNoteDate = %v, want nil", *got.DailyNotes.TasksDueOnNoteDate)
+	}
+}
+
+// A file or directory the server can't read must be skipped, not abort the whole
+// vault scan — otherwise one root-owned entry hides the entire vault. (#159)
+func TestListSkipsUnreadableEntries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits don't apply on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("permission errors are bypassed when running as root")
+	}
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := v.WriteNote("inbox/Readable.md", "ok"); err != nil {
+		t.Fatalf("WriteNote readable: %v", err)
+	}
+	if _, err := v.WriteNote("inbox/Locked/Secret.md", "secret"); err != nil {
+		t.Fatalf("WriteNote locked: %v", err)
+	}
+
+	// Make the subfolder unreadable, simulating a root-owned dir the non-root
+	// server process can't read. Locate it by name so this is mode-independent.
+	var locked string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() && d.Name() == "Locked" {
+			locked = p
+		}
+		return nil
+	})
+	if locked == "" {
+		t.Fatal("could not locate the Locked subfolder on disk")
+	}
+	if err := os.Chmod(locked, 0o000); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatalf("ListNotes aborted instead of skipping the unreadable dir: %v", err)
+	}
+	var sawReadable, sawSecret bool
+	for _, n := range notes {
+		if strings.Contains(n.Path, "Readable.md") {
+			sawReadable = true
+		}
+		if strings.Contains(n.Path, "Secret.md") {
+			sawSecret = true
+		}
+	}
+	if !sawReadable {
+		t.Errorf("readable note missing from %d listed notes", len(notes))
+	}
+	if sawSecret {
+		t.Error("note inside the unreadable dir should have been skipped")
+	}
+
+	if _, err := v.ListFolders(); err != nil {
+		t.Fatalf("ListFolders aborted instead of skipping the unreadable dir: %v", err)
+	}
+}
+
+func TestDatabaseBaseFolderListedButInternalsHidden(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A database folder with its internals, a record-page note, and a nested dir
+	// (its internals + nested dirs must NOT surface as folders).
+	baseDir := filepath.Join(root, "inbox", "Books.base")
+	if err := os.MkdirAll(filepath.Join(baseDir, "pages"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"data.csv":    "id,Title\nr1,Dune\n",
+		"schema.json": `{"version":1}`,
+		"Dune.md":     "# Dune",
+	} {
+		if err := os.WriteFile(filepath.Join(baseDir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A regular note + folder that MUST still surface.
+	if err := os.WriteFile(filepath.Join(root, "inbox", "Regular.md"), []byte("# Hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "RealFolder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range notes {
+		if strings.Contains(n.Path, ".base") {
+			t.Errorf("ListNotes leaked a database-internal note: %s", n.Path)
+		}
+	}
+	if !hasNotePath(notes, "inbox/Regular.md") {
+		t.Error("ListNotes dropped a regular note")
+	}
+
+	folders, err := v.ListFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawReal := false
+	sawBase := false
+	for _, f := range folders {
+		// The database folder itself lists (renderer renders it as a database)...
+		if f.Subpath == "Books.base" {
+			sawBase = true
+			continue
+		}
+		// ...but nothing INSIDE it (e.g. Books.base/pages) is exposed as a folder.
+		if strings.Contains(f.Subpath, ".base/") {
+			t.Errorf("ListFolders leaked a database-internal folder: %s", f.Subpath)
+		}
+		if f.Subpath == "RealFolder" {
+			sawReal = true
+		}
+	}
+	if !sawBase {
+		t.Error("ListFolders should list the .base database folder itself")
+	}
+	if !sawReal {
+		t.Error("ListFolders dropped a regular folder")
+	}
+
+	assets, err := v.ListAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range assets {
+		if strings.Contains(a.Path, ".base") {
+			t.Errorf("ListAssets leaked a database-internal file: %s", a.Path)
+		}
+	}
+}
+
+func hasNotePath(notes []NoteMeta, path string) bool {
+	for _, n := range notes {
+		if n.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFavoritesRoundTripAndDedupe(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := v.SetSettings(VaultSettings{
+		// Mix of a note path and a folder key, with a duplicate and an empty entry.
+		Favorites: []string{"inbox/Idea.md", "inbox:Projects", "inbox/Idea.md", ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"inbox/Idea.md", "inbox:Projects"}
+	if len(saved.Favorites) != len(want) {
+		t.Fatalf("favorites = %v, want %v", saved.Favorites, want)
+	}
+	for i, f := range want {
+		if saved.Favorites[i] != f {
+			t.Errorf("favorites[%d] = %q, want %q", i, saved.Favorites[i], f)
+		}
+	}
+	// Persisted to disk and reloaded.
+	reloaded, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Favorites) != len(want) {
+		t.Errorf("reloaded favorites = %v, want %v", reloaded.Favorites, want)
+	}
+}
+
+func TestFavoritesSurviveFolderRename(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox", "Projects"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.SetSettings(VaultSettings{Favorites: []string{"inbox:Projects", "inbox/Idea.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := v.RenameFolder("inbox", "Projects", "Work"); err != nil {
+		t.Fatal(err)
+	}
+	// The server carries favorites through verbatim (the client rewrites keys).
+	settings, err := v.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.Favorites) != 2 {
+		t.Fatalf("folder rename dropped favorites: %v", settings.Favorites)
+	}
+}
+
+func TestExcalidrawListedAsNoteNotAsset(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A drawing whose JSON body contains a hex color (#1971c2) that must NOT
+	// be mistaken for a #tag, plus an image that should stay an asset.
+	scene := `{"type":"excalidraw","version":2,"elements":[{"strokeColor":"#1971c2"}],"appState":{},"files":{}}`
+	if err := os.WriteFile(filepath.Join(root, "inbox", "Sketch.excalidraw"), []byte(scene), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "assets", "pic.png"), []byte("PNG"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := v.ListNotes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasNotePath(notes, "inbox/Sketch.excalidraw") {
+		t.Error("ListNotes dropped the .excalidraw drawing")
+	}
+	for _, n := range notes {
+		if n.Path == "inbox/Sketch.excalidraw" {
+			if n.Title != "Sketch" {
+				t.Errorf("drawing title = %q, want Sketch", n.Title)
+			}
+			if len(n.Tags) != 0 {
+				t.Errorf("drawing leaked tags from JSON hex colors: %v", n.Tags)
+			}
+		}
+	}
+
+	assets, err := v.ListAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawImage := false
+	for _, a := range assets {
+		if strings.HasSuffix(a.Path, ".excalidraw") {
+			t.Errorf("ListAssets leaked a drawing: %s", a.Path)
+		}
+		if a.Path == "assets/pic.png" {
+			sawImage = true
+		}
+	}
+	if !sawImage {
+		t.Error("ListAssets dropped a real asset")
+	}
+}
+
+func TestCreateExcalidrawSeedsEmptyScene(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := v.CreateExcalidraw(FolderInbox, "My Drawing", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(meta.Path, ".excalidraw") {
+		t.Errorf("created path = %q, want a .excalidraw file", meta.Path)
+	}
+	content, err := v.ReadNote(meta.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content.Body, `"type": "excalidraw"`) {
+		t.Errorf("seeded scene missing excalidraw type: %s", content.Body)
+	}
+}
+
+func TestRenameAndMovePreserveExcalidrawExt(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := v.CreateExcalidraw(FolderInbox, "Diagram", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	renamed, err := v.RenameNote(created.Path, "Flowchart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(renamed.Path, ".excalidraw") {
+		t.Errorf("rename dropped the extension: %q", renamed.Path)
+	}
+
+	moved, err := v.MoveNote(renamed.Path, FolderArchive, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(moved.Path, ".excalidraw") {
+		t.Errorf("move dropped the extension: %q", moved.Path)
 	}
 }

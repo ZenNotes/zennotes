@@ -8,8 +8,12 @@
  * descriptions don't sprawl across ultra-wide windows.
  */
 
+import appPackage from '../../package.json'
+
 const RESET = '\x1b[0m'
-const HELP_VERSION = '0.1.0'
+// Track the app version so `zen --version` matches the About page (#243),
+// instead of a hand-maintained string that drifts every release.
+const HELP_VERSION = appPackage.version
 const TERMINAL_COLUMNS_FALLBACK = 80
 const TERMINAL_COLUMNS_CAP = 100
 const COMMAND_COLUMN_WIDTH = 26

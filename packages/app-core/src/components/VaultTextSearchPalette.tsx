@@ -7,6 +7,7 @@ import type {
 import { useStore } from '../store'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isImeComposing } from '../lib/ime'
 import { recordRendererPerf } from '../lib/perf'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
@@ -381,6 +382,8 @@ export function VaultTextSearchPalette(): JSX.Element {
             placeholder="Search text across the vault…"
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
+              // While composing (IME), let the input own Enter/Arrows. (#183)
+              if (isImeComposing(e)) return
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()

@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/dnd'
 
 interface Props {
   task: VaultTask
@@ -9,6 +11,8 @@ interface Props {
   onToggle: () => void
   onOpen: () => void
   onFocusRow: () => void
+  /** Drag-to-reorder within the same group. Omit to disable dragging. */
+  onReorder?: (draggedId: string, targetId: string, position: 'before' | 'after') => void
 }
 
 function priorityLabel(p: VaultTask['priority']): string {
@@ -38,18 +42,61 @@ export function TasksRow({
   isCursor,
   onToggle,
   onOpen,
-  onFocusRow
+  onFocusRow,
+  onReorder
 }: Props): JSX.Element {
+  const [dropPos, setDropPos] = useState<'before' | 'after' | null>(null)
+  const draggable = !!onReorder
   return (
     <div
       data-task-row={task.id}
+      draggable={draggable}
+      onDragStart={
+        draggable
+          ? (e) => {
+              e.stopPropagation()
+              setDragPayload(e, { kind: 'task', id: task.id })
+            }
+          : undefined
+      }
+      onDragOver={
+        draggable
+          ? (e) => {
+              const drag = getCurrentDragPayload()
+              if (!drag || drag.kind !== 'task' || drag.id === task.id) {
+                if (dropPos) setDropPos(null)
+                return
+              }
+              e.preventDefault()
+              e.stopPropagation()
+              e.dataTransfer.dropEffect = 'move'
+              const rect = e.currentTarget.getBoundingClientRect()
+              const pos = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
+              if (pos !== dropPos) setDropPos(pos)
+            }
+          : undefined
+      }
+      onDragLeave={draggable ? () => dropPos && setDropPos(null) : undefined}
+      onDrop={
+        draggable
+          ? (e) => {
+              if (!dropPos) return
+              e.preventDefault()
+              e.stopPropagation()
+              const drag = readDragPayload(e) ?? getCurrentDragPayload()
+              const pos = dropPos
+              setDropPos(null)
+              if (drag?.kind === 'task') onReorder?.(drag.id, task.id, pos)
+            }
+          : undefined
+      }
       onMouseEnter={onFocusRow}
       onClick={() => {
         onFocusRow()
         onOpen()
       }}
       className={[
-        'group flex items-start gap-2 rounded-md px-3 py-1.5',
+        'group relative flex items-start gap-2 rounded-md px-3 py-1.5',
         'border-l-2 transition-colors',
         isOverdue ? 'border-rose-500/70' : 'border-transparent',
         // `vim-cursor` uses the theme accent at 15% — same convention as
@@ -58,6 +105,12 @@ export function TasksRow({
         isCursor ? 'vim-cursor' : 'hover:bg-current/5'
       ].join(' ')}
     >
+      {dropPos === 'before' && (
+        <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded-full bg-accent" />
+      )}
+      {dropPos === 'after' && (
+        <span className="pointer-events-none absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-accent" />
+      )}
       <button
         type="button"
         role="checkbox"

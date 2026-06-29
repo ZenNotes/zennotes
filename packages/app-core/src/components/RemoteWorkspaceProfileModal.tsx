@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { isImeComposing } from '../lib/ime'
 import type { RemoteWorkspaceProfileInput } from '@shared/ipc'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -78,6 +79,8 @@ export function RemoteWorkspaceProfileModal({
   // Esc handled by Modal; we keep Enter (→ submit) here. closeOnEsc stays true.
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      // While composing (IME), let the input own Enter/Arrows. (#183)
+      if (isImeComposing(e)) return
       if (e.key === 'Enter') {
         e.preventDefault()
         e.stopPropagation()

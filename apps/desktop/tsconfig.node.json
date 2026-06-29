@@ -5,6 +5,7 @@
     "types": ["node", "electron-vite/node"],
     "baseUrl": ".",
     "paths": {
+      "@renderer/*": ["../../packages/app-core/src/*"],
       "@shared/*": ["../../packages/shared-domain/src/*"],
       "@bridge-contract/*": ["../../packages/bridge-contract/src/*"]
     }
