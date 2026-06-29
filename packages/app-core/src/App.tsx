@@ -25,6 +25,7 @@ const EDITOR_MODULE_WARMUP_GRACE_MS = 40
 let searchPaletteModulePromise: Promise<typeof import('./components/SearchPalette')> | null = null
 const SEARCH_PALETTE_MODULE_WARMUP_DELAY_MS = 40
 const ASSET_UNDO_SHORTCUT_GRACE_MS = 30_000
+const USE_NATIVE_TITLE_BAR = new URLSearchParams(window.location.search).get('nativeTitleBar') === '1'
 
 function loadEditorModule(): Promise<typeof import('./components/Editor')> {
   editorModulePromise ??= import('./components/Editor')
@@ -731,7 +732,7 @@ function App(): JSX.Element {
   if (!hasCompletedOnboarding) {
     return (
       <div className="zn-app-shell w-screen bg-paper-100 text-ink-900">
-        {!zenMode && <TitleBar />}
+        {!zenMode && !USE_NATIVE_TITLE_BAR && <TitleBar />}
         <Suspense fallback={<div className="flex-1" />}>
           <OnboardingWizard />
         </Suspense>
@@ -746,7 +747,7 @@ function App(): JSX.Element {
   if (!vault) {
     return (
       <div className="zn-app-shell w-screen bg-paper-100 text-ink-900">
-        {!zenMode && <TitleBar />}
+        {!zenMode && !USE_NATIVE_TITLE_BAR && <TitleBar />}
         <Suspense fallback={<div className="flex-1" />}>
           <EmptyVault />
         </Suspense>
@@ -760,7 +761,7 @@ function App(): JSX.Element {
 
   return (
     <div className="zn-app-shell flex w-screen flex-col bg-paper-100 text-ink-900">
-      {!zenMode && <TitleBar />}
+      {!zenMode && !USE_NATIVE_TITLE_BAR && <TitleBar />}
       <div className="flex min-h-0 flex-1">
         {!zenMode && sidebarOpen && <Sidebar />}
         {!zenMode && noteListOpen && !unifiedSidebar && <NoteList />}

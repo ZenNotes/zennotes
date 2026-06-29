@@ -270,6 +270,8 @@ export interface PersistedConfig {
   remoteWorkspaceProfiles: PersistedRemoteWorkspaceProfile[]
   windowState: PersistedWindowState | null
   zoomFactor: number
+  /** Hide the native Linux/GTK title bar and use ZenNotes' custom renderer chrome. */
+  hideNativeTitleBar?: boolean
   /** Electron accelerator string for the system-wide quick capture hotkey.
    *  Empty string disables the global shortcut. */
   quickCaptureHotkey: string
@@ -289,6 +291,7 @@ const DEFAULT_CONFIG: PersistedConfig = {
   remoteWorkspaceProfiles: [],
   windowState: null,
   zoomFactor: 1,
+  hideNativeTitleBar: true,
   quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY,
   quickCapturePinned: false
 }
@@ -425,6 +428,7 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     remoteWorkspaceProfiles,
     windowState: normalizeWindowState(candidate.windowState),
     zoomFactor,
+    hideNativeTitleBar: candidate.hideNativeTitleBar !== false,
     quickCaptureHotkey,
     quickCapturePinned
   }

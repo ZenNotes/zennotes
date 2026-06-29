@@ -222,6 +222,7 @@ const MAX_ZOOM_FACTOR = 3
 const ZOOM_STEP = 0.1
 const MAC_WINDOW_BACKGROUND_COLOR = '#1f1f1f'
 const MAIN_WINDOW_TABBING_IDENTIFIER = 'zennotes-vault-window'
+
 const APP_WEBSITE_URL = 'https://zennotes.org'
 const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
 const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
@@ -882,6 +883,7 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   const createWindowStartedAt = performance.now()
   const mac = isMac()
   const cfg = await loadConfig()
+  const useNativeTitleBar = process.platform === 'linux' && cfg.hideNativeTitleBar === false
   const restoredState = sanitizeWindowState(cfg.windowState)
   currentZoomFactor = normalizeZoomFactor(cfg.zoomFactor)
   const win = new BrowserWindow({
@@ -891,9 +893,11 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
+    title: 'ZenNotes',
     autoHideMenuBar: true,
-    titleBarStyle: mac ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: { x: 16, y: 16 },
+    ...(useNativeTitleBar
+      ? {}
+      : ({ titleBarStyle: mac ? 'hiddenInset' : 'hidden', trafficLightPosition: { x: 16, y: 16 } } as const)),
     ...(mac
       ? {
           // The renderer now runs fully opaque, so keeping the
@@ -1001,9 +1005,11 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
 
   const devServerUrl = process.env['ELECTRON_RENDERER_URL']
   if (devServerUrl) {
-    void win.loadURL(devServerUrl)
+    const url = new URL(devServerUrl)
+    if (useNativeTitleBar) url.searchParams.set('nativeTitleBar', '1')
+    void win.loadURL(url.toString())
   } else {
-    void win.loadFile(path.join(__dirname, '../renderer/index.html'))
+    void win.loadFile(path.join(__dirname, '../renderer/index.html'), useNativeTitleBar ? { query: { nativeTitleBar: '1' } } : undefined)
   }
 
   return win
@@ -2658,6 +2664,20 @@ function registerIpc(): void {
     }
     return await openMarkdownFileFromOS(path.resolve(rawPath), false)
   })
+
+  handle(IPC.APP_GET_WINDOW_CHROME_SETTINGS, async (): Promise<boolean> => {
+    const cfg = await loadConfig()
+    return process.platform === 'linux' ? cfg.hideNativeTitleBar !== false : true
+  })
+
+  handle(
+    IPC.APP_SET_WINDOW_CHROME_SETTINGS,
+    async (_e, hide: boolean): Promise<boolean> => {
+      const hideNativeTitleBar = hide !== false
+      await updateConfig((cfg) => ({ ...cfg, hideNativeTitleBar }))
+      return process.platform === 'linux' ? hideNativeTitleBar : true
+    }
+  )
 
   handle(IPC.WINDOW_TOGGLE_QUICK_CAPTURE, async () => {
     await toggleQuickCaptureWindow()
