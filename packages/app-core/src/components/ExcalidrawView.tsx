@@ -22,6 +22,7 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
 
   // Match the app's light/dark theme.
   const themeId = useStore((s) => s.themeId)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const excalidrawTheme = THEMES.find((t) => t.id === themeId)?.mode === 'dark' ? 'dark' : 'light'
 
   useEffect(() => {
@@ -63,7 +64,13 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
   }
 
   return (
-    <div className="min-h-0 w-full flex-1" style={{ height: '100%' }}>
+    <div
+      className="min-h-0 w-full flex-1"
+      data-excalidraw-view
+      style={{ height: '100%' }}
+      onFocusCapture={() => setFocusedPanel('editor')}
+      onMouseDownCapture={() => setFocusedPanel('editor')}
+    >
       <Excalidraw
         initialData={initialData}
         theme={excalidrawTheme}

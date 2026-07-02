@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isExcalidrawPath } from '@shared/excalidraw'
 import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
@@ -33,6 +34,8 @@ import {
 import { navigateActiveBuffer } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 
+const EXCALIDRAW_SPACE_PAN_DELAY_MS = 300
+
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
   return value.replace(/["\\]/g, '\\$&')
@@ -61,6 +64,9 @@ export function VimNav(): JSX.Element | null {
   const previousBufferTimer = useRef<ReturnType<typeof setTimeout>>()
   const nextBufferTimer = useRef<ReturnType<typeof setTimeout>>()
   const leaderTimer = useRef<ReturnType<typeof setTimeout>>()
+  const excalidrawSpacePanTimer = useRef<ReturnType<typeof setTimeout>>()
+  const excalidrawSpacePanTarget = useRef<EventTarget | null>(null)
+  const excalidrawSpacePanActive = useRef(false)
 
   // Hint mode needs a render (to mount HintOverlay), so it's state.
   const [hintActive, setHintActive] = useState(false)
@@ -285,11 +291,21 @@ export function VimNav(): JSX.Element | null {
 
   useEffect(() => {
     if (!vimMode) return
+    const clearExcalidrawSpacePan = (): void => {
+      if (excalidrawSpacePanTimer.current) {
+        clearTimeout(excalidrawSpacePanTimer.current)
+        excalidrawSpacePanTimer.current = undefined
+      }
+      excalidrawSpacePanTarget.current = null
+      excalidrawSpacePanActive.current = false
+    }
+
     const handler = (e: KeyboardEvent): void => {
       const state = useStore.getState()
       const overrides = state.keymapOverrides
       const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? 'Space'
       const panePrefixToken = getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? 'Ctrl+W'
+      const token = sequenceTokenFromEvent(e)
 
       // Skip when modals / overlays are open
       if (
@@ -307,6 +323,8 @@ export function VimNav(): JSX.Element | null {
 
       // Hint mode — handled entirely by HintOverlay's own listener
       if (hintRef.current) return
+
+      if (excalidrawSpacePanActive.current && token === leaderToken) return
 
       // `e.target` is only an HTMLElement for real DOM-dispatched events.
       // Synthetic events fired at `window`/`document` (e.g. programmatic
@@ -327,7 +345,7 @@ export function VimNav(): JSX.Element | null {
       if (
         shouldYieldToHomeNav(
           target,
-          sequenceTokenFromEvent(e) === leaderToken,
+          token === leaderToken,
           !!leaderPending.current
         )
       ) {
@@ -340,7 +358,7 @@ export function VimNav(): JSX.Element | null {
       if (
         target?.closest('[data-zen-db-grid]') &&
         !ctrlWPending.current &&
-        sequenceTokenFromEvent(e) !== panePrefixToken
+        token !== panePrefixToken
       ) {
         return
       }
@@ -612,7 +630,7 @@ export function VimNav(): JSX.Element | null {
       }
 
       // ------- Ctrl+w initiation ----------------------------------------
-      if (sequenceTokenFromEvent(e) === panePrefixToken) {
+      if (token === panePrefixToken) {
         if (isEditorFocused(state.editorViewRef) && isEditorInsertMode(state.editorViewRef, state.vimMode)) return
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -636,7 +654,7 @@ export function VimNav(): JSX.Element | null {
       }
       if (
         leaderPending.current &&
-        sequenceTokenFromEvent(e) === leaderToken
+        token === leaderToken
       ) {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -655,7 +673,7 @@ export function VimNav(): JSX.Element | null {
       if (
         panelViewActive &&
         !leaderPending.current &&
-        sequenceTokenFromEvent(e) !== leaderToken
+        token !== leaderToken
       ) {
         return
       }
@@ -671,6 +689,11 @@ export function VimNav(): JSX.Element | null {
       const editorInsertMode =
         isEditorFocused(state.editorViewRef) &&
         isEditorInsertMode(state.editorViewRef, state.vimMode)
+
+      if (excalidrawSpacePanTimer.current && token && token !== leaderToken) {
+        clearExcalidrawSpacePan()
+        armLeader('leader', editorNormalMode)
+      }
 
       if (leaderPending.current === 'leader') {
         if (matchesSequenceToken(e, overrides, 'vim.leaderSearchGroup')) {
@@ -817,12 +840,12 @@ export function VimNav(): JSX.Element | null {
       // In the tasks/tags panels, only leader input is handled above; hand
       // every other key (including a just-reset leader sequence) back to the
       // panel's own capture handler. (#151)
-      if (panelViewActive && sequenceTokenFromEvent(e) !== leaderToken) {
+      if (panelViewActive && token !== leaderToken) {
         return
       }
 
       if (
-        sequenceTokenFromEvent(e) === leaderToken &&
+        token === leaderToken &&
         !editorInsertMode &&
         // While Vim is mid-command in the focused editor (e.g. after f/t/r or an
         // operator), Space is the command's argument (r<Space>, f<Space>), not
@@ -831,6 +854,31 @@ export function VimNav(): JSX.Element | null {
       ) {
         const tag = (e.target as HTMLElement | null)?.tagName
         if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          if (
+            leaderToken === 'Space' &&
+            isExcalidrawPath(state.selectedPath) &&
+            (state.focusedPanel === 'editor' || !!target?.closest('[data-excalidraw-view]'))
+          ) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            if (excalidrawSpacePanTimer.current || e.repeat) return
+            excalidrawSpacePanTarget.current = e.target ?? null
+            excalidrawSpacePanActive.current = false
+            excalidrawSpacePanTimer.current = setTimeout(() => {
+              excalidrawSpacePanTimer.current = undefined
+              excalidrawSpacePanActive.current = true
+              const panEvent = new KeyboardEvent('keydown', {
+                key: ' ',
+                code: 'Space',
+                bubbles: true,
+                cancelable: true
+              })
+              const dispatchTarget = excalidrawSpacePanTarget.current
+              if (dispatchTarget) dispatchTarget.dispatchEvent(panEvent)
+              else window.dispatchEvent(panEvent)
+            }, EXCALIDRAW_SPACE_PAN_DELAY_MS)
+            return
+          }
           e.preventDefault()
           e.stopImmediatePropagation()
           armLeader('leader', editorNormalMode)
@@ -990,13 +1038,36 @@ export function VimNav(): JSX.Element | null {
 
     }
 
+    const keyupHandler = (e: KeyboardEvent): void => {
+      const state = useStore.getState()
+      const leaderToken = getSequenceTokens(state.keymapOverrides, 'vim.leaderPrefix')[0] ?? 'Space'
+      if (leaderToken !== 'Space' || sequenceTokenFromEvent(e) !== leaderToken) return
+      if (!excalidrawSpacePanTimer.current && !excalidrawSpacePanActive.current) return
+
+      if (excalidrawSpacePanTimer.current) {
+        clearExcalidrawSpacePan()
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const editorNormalMode =
+          isEditorFocused(state.editorViewRef) &&
+          !isEditorInsertMode(state.editorViewRef, state.vimMode)
+        armLeader('leader', editorNormalMode)
+        return
+      }
+
+      clearExcalidrawSpacePan()
+    }
+
     window.addEventListener('keydown', handler, true)
+    window.addEventListener('keyup', keyupHandler, true)
     return () => {
       window.removeEventListener('keydown', handler, true)
+      window.removeEventListener('keyup', keyupHandler, true)
       previousBufferPending.current = 0
       nextBufferPending.current = 0
       if (previousBufferTimer.current) clearTimeout(previousBufferTimer.current)
       if (nextBufferTimer.current) clearTimeout(nextBufferTimer.current)
+      clearExcalidrawSpacePan()
       resetLeader()
     }
   }, [
