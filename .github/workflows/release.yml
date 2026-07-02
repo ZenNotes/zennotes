@@ -94,7 +94,21 @@ jobs:
         # `bsdtar` (libarchive-tools) is required by electron-builder's pacman
         # target to generate the package .MTREE; it isn't on the GitHub Ubuntu
         # runners (x64 or arm64).
-        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+        #
+        # electron-builder only bundles an x86 `fpm`, so the deb/pacman targets
+        # fail with "Exec format error" on the native arm64 runner. Install a
+        # native fpm there and switch electron-builder to it via USE_SYSTEM_FPM.
+        # Scope the flag to arm64 by exporting it to $GITHUB_ENV only here:
+        # defining USE_SYSTEM_FPM at all (even empty) makes electron-builder use
+        # a system fpm, which the x64 runner doesn't have.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools
+          if [ "${{ matrix.name }}" = "Linux arm64" ]; then
+            sudo apt-get install -y ruby ruby-dev build-essential
+            sudo gem install fpm --no-document
+            echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Build release artifacts
         run: ${{ matrix.command }}
