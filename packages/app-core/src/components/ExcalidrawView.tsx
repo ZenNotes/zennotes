@@ -4,7 +4,6 @@ import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import { parseExcalidrawDocument } from '@shared/excalidraw'
 import { useStore } from '../store'
-import { THEMES } from '../lib/themes'
 
 type InitialData = ComponentProps<typeof Excalidraw>['initialData']
 
@@ -20,9 +19,14 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
   const pathRef = useRef(path)
   pathRef.current = path
 
-  // Match the app's light/dark theme.
-  const themeId = useStore((s) => s.themeId)
-  const excalidrawTheme = THEMES.find((t) => t.id === themeId)?.mode === 'dark' ? 'dark' : 'light'
+  // Read the resolved mode from the same DOM attribute used by the app shell.
+  // This also handles custom themes, which are not present in the built-in THEMES registry.
+  useStore((s) => s.themeId)
+  useStore((s) => s.themeMode)
+  const excalidrawTheme =
+    typeof document !== 'undefined' && document.documentElement.dataset.themeMode === 'dark'
+      ? 'dark'
+      : 'light'
 
   useEffect(() => {
     let cancelled = false
