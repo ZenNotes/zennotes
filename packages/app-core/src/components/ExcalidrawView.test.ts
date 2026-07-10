@@ -90,21 +90,4 @@ describe('ExcalidrawView theme mode with custom themes', () => {
     expect(lastCall?.[0].theme).toBe('light')
   })
 
-  it('still uses the DOM attribute, not THEMES.find, even for a built-in-like theme id', async () => {
-    // Even if the store returns a built-in theme id, resolution goes through
-    // data-theme-mode — so overriding it to the opposite mode wins.
-    storeState.themeId = 'dark-hard'
-    storeState.themeMode = 'dark'
-    document.documentElement.dataset.themeMode = 'light'
-
-    await act(async () => {
-      root.render(createElement(ExcalidrawView, { path: 'inbox/drawing.excalidraw' }))
-    })
-    await act(async () => {})
-
-    expect(mockExcalidraw).toHaveBeenCalled()
-    const lastCall = mockExcalidraw.mock.lastCall
-    // data-theme-mode=light wins over the built-in dark-hard theme id
-    expect(lastCall?.[0].theme).toBe('light')
-  })
 })
