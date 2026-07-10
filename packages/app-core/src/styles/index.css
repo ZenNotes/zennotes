@@ -360,11 +360,12 @@
 :root[data-theme="one-dark"],
 :root[data-theme="nord-dark"],
 :root[data-theme="tokyo-night-storm"],
-:root[data-theme="kanagawa-wave"],
-:root[data-theme="kanagawa-dragon"],
-:root[data-theme="rose-pine-main"],
-:root[data-theme="rose-pine-moon"],
-:root[data-theme="black-metal"] {
+::root[data-theme="kanagawa-wave"],
+::root[data-theme="kanagawa-dragon"],
+::root[data-theme="kanagawa-paper-ink"],
+::root[data-theme="rose-pine-main"],
+::root[data-theme="rose-pine-moon"],
+::root[data-theme="black-metal"] {
   --z-glass-a1: 0.58;
   --z-glass-a2: 0.46;
   --z-glass-a3: 0.32;
@@ -1138,6 +1139,34 @@
   --z-purple: 162 146 163; /* dragonPink   #a292a3 */
   --z-aqua: 142 164 162; /* dragonAqua   #8ea4a2 */
   --z-shadow: 0 0 0;
+}
+
+/* ---- Paper Ink (dark — muted Kanagawa Paper) ----------------------- */
+:root[data-theme="kanagawa-paper-ink"] {
+  color-scheme: dark;
+  --z-bg: 20 19 27; /* custom ink canvas #14131b */
+  --z-bg-softer: 31 31 40; /* sumiInk3 #1f1f28 */
+  --z-bg-1: 42 42 55; /* sumiInk4 #2a2a37 */
+  --z-bg-2: 54 54 70; /* sumiInk5 #363646 */
+  --z-bg-3: 57 56 54; /* dragonBlack5 #393836 */
+  --z-bg-4: 84 84 109; /* sumiInk6 #54546d */
+  --z-fg: 220 215 186; /* fujiWhite #dcd7ba */
+  --z-fg-1: 200 192 147; /* oldWhite #c8c093 */
+  --z-fg-2: 158 155 147; /* dragonGray2 #9e9b93 */
+  --z-grey-2: 166 166 156; /* dragonGray #a6a69c */
+  --z-grey-1: 122 131 130; /* dragonGray3 #7a8382 */
+  --z-grey-0: 115 124 115; /* dragonAsh #737c73 */
+  --z-grey-dim: 57 56 54;
+  --z-accent: 142 164 158; /* dragonAqua #8ea49e */
+  --z-accent-soft: 112 142 158; /* dragonBlue3 #708e9e */
+  --z-accent-muted: 93 122 136; /* dragonBlue4 #5d7a88 */
+  --z-red: 196 116 110; /* dragonRed #c4746e */
+  --z-green: 105 148 105; /* dragonGreen #699469 */
+  --z-yellow: 196 178 138; /* dragonYellow #c4b28a */
+  --z-blue: 67 89 101; /* dragonBlue5 #435965 */
+  --z-purple: 162 146 163; /* dragonPink #a292a3 */
+  --z-aqua: 142 164 158;
+  --z-shadow: 13 12 12;
 }
 
 /* ---- Lotus (light) ------------------------------------------------- */

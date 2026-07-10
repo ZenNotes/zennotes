@@ -103,6 +103,7 @@ export const THEMES: ThemeOption[] = [
   // default dark, Dragon a darker/cooler dark, Lotus the light variant.
   { id: 'kanagawa-wave', label: 'Wave', family: 'kanagawa', mode: 'dark', variant: 'wave' },
   { id: 'kanagawa-dragon', label: 'Dragon', family: 'kanagawa', mode: 'dark', variant: 'dragon' },
+  { id: 'kanagawa-paper-ink', label: 'Paper Ink', family: 'kanagawa', mode: 'dark', variant: 'paper-ink' },
   { id: 'kanagawa-lotus', label: 'Lotus', family: 'kanagawa', mode: 'light', variant: 'lotus' },
 
   // --- Black Metal (metalelf0/black-metal-theme-neovim) ---------------
