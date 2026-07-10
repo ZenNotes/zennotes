@@ -354,6 +354,8 @@ const api: ZenBridge = {
   revealNote: (relPath: string): Promise<void> => ipcRenderer.invoke(IPC.VAULT_REVEAL_NOTE, relPath),
   revealNoteTarget: (relPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_REVEAL_NOTE_TARGET, relPath),
+  revealFilePath: (absPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_REVEAL_FILE_PATH, absPath),
   moveNote: (
     relPath: string,
     targetFolder: NoteFolder,

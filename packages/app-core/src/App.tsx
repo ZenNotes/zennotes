@@ -15,6 +15,7 @@ import { TitleBar } from './components/TitleBar'
 import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
+import { ToastHost } from './components/ui'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { isMacPlatform, matchesShortcut, matchesSequenceToken } from './lib/keymaps'
 import { focusPaneOrEdgePanel } from './lib/pane-nav'
@@ -859,6 +860,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <ToastHost />
         <ServerDirectoryPickerHost />
         <AppUpdateNotice hidden={zenMode} />
       </div>
@@ -874,6 +876,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <ToastHost />
         <ServerDirectoryPickerHost />
         <AppUpdateNotice hidden={zenMode} />
       </div>
@@ -932,6 +935,7 @@ function App(): JSX.Element {
       )}
       <PromptHost />
       <ConfirmHost />
+      <ToastHost />
       <ServerDirectoryPickerHost />
       <AppUpdateNotice hidden={zenMode || settingsOpen} />
       <Suspense fallback={null}>

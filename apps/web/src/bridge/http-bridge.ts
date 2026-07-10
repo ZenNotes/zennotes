@@ -529,6 +529,10 @@ async function revealNoteTarget(_relPath: string): Promise<void> {
   // No OS file manager on the web.
 }
 
+async function revealFilePath(_absPath: string): Promise<void> {
+  // No OS file manager on the web.
+}
+
 async function revealFolder(_folder: NoteFolder, _subpath: string): Promise<void> {
   // No OS file manager on the web.
 }
@@ -1495,6 +1499,7 @@ export const httpBridge: ZenBridge = {
   exportNotePdf,
   revealNote,
   revealNoteTarget,
+  revealFilePath,
   moveNote,
   importFilesToNote,
   importPastedImage,

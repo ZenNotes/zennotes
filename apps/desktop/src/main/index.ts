@@ -2498,6 +2498,10 @@ function registerIpc(): void {
     shell.showItemInFolder(target)
   })
 
+  handle(IPC.VAULT_REVEAL_FILE_PATH, async (_e, absPath: string) => {
+    shell.showItemInFolder(absPath)
+  })
+
   handle(
     IPC.VAULT_MOVE_NOTE,
     async (_e, relPath: string, targetFolder: NoteFolder, targetSubpath: string) => {

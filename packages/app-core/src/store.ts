@@ -5201,10 +5201,24 @@ export const useStore = create<Store>((set, get) => {
       if (get().noteDirty[path]) {
         throw new Error('Could not save the note before exporting the PDF.')
       }
-      await window.zen.exportNotePdf(path)
+      const pdfPath = await window.zen.exportNotePdf(path)
+      preparedExportWindow?.close()
+      const { useToastStore } = await import('./lib/toast')
+      useToastStore.getState().addToast(
+        'PDF exported successfully',
+        'success',
+        pdfPath
+          ? { label: 'Show in folder', onClick: () => window.zen.revealFilePath(pdfPath) }
+          : undefined
+      )
     } catch (err) {
       preparedExportWindow?.close()
       console.error('exportNotePdf failed', err)
+      const { useToastStore } = await import('./lib/toast')
+      useToastStore.getState().addToast(
+        err instanceof Error ? err.message : 'PDF export failed',
+        'error'
+      )
       window.alert(
         err instanceof Error ? err.message : 'Could not export the note as a PDF.'
       )
