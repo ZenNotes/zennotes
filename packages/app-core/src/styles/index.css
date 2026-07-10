@@ -1141,7 +1141,7 @@
   --z-shadow: 0 0 0;
 }
 
-/* ---- Paper Ink (dark — muted Kanagawa Paper) ----------------------- */
+/* ---- Paper Ink (custom dark variant — muted Kanagawa Paper) -------- */
 :root[data-theme="kanagawa-paper-ink"] {
   color-scheme: dark;
   --z-bg: 20 19 27; /* custom ink canvas #14131b */

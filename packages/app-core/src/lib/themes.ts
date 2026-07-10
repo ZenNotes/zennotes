@@ -100,10 +100,11 @@ export const THEMES: ThemeOption[] = [
 
   // --- Kanagawa (rebelot/kanagawa.nvim) -------------------------------
   // Inspired by Hokusai's "The Great Wave off Kanagawa". Wave is the warm
-  // default dark, Dragon a darker/cooler dark, Lotus the light variant.
+  // default dark, Dragon a darker/cooler dark, and Paper Ink is a custom
+  // muted variant with a very dark purple background.
   { id: 'kanagawa-wave', label: 'Wave', family: 'kanagawa', mode: 'dark', variant: 'wave' },
   { id: 'kanagawa-dragon', label: 'Dragon', family: 'kanagawa', mode: 'dark', variant: 'dragon' },
-  { id: 'kanagawa-paper-ink', label: 'Paper Ink', family: 'kanagawa', mode: 'dark', variant: 'paper-ink' },
+  { id: 'kanagawa-paper-ink', label: 'Paper Ink (Custom)', family: 'kanagawa', mode: 'dark', variant: 'paper-ink' },
   { id: 'kanagawa-lotus', label: 'Lotus', family: 'kanagawa', mode: 'light', variant: 'lotus' },
 
   // --- Black Metal (metalelf0/black-metal-theme-neovim) ---------------
