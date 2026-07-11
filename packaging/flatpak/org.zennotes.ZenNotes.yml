@@ -50,10 +50,13 @@ modules:
       - install -Dm644 org.zennotes.ZenNotes.metainfo.xml
           /app/share/metainfo/org.zennotes.ZenNotes.metainfo.xml
     sources:
-      # `url` + `sha256` are auto-bumped on each release by Flathub's
-      # flatpak-external-data-checker (see x-checker-data below); the manual
-      # steps in README.md are the fallback.
+      # Flathub builds both x86_64 and aarch64, so each arch needs its own
+      # AppImage — a single-arch source fails the other arch with an
+      # "Exec format error". `url` + `sha256` are auto-bumped on each release by
+      # Flathub's flatpak-external-data-checker (per-arch x-checker-data below);
+      # the manual steps in README.md are the fallback.
       - type: file
+        only-arches: [x86_64]
         url: https://github.com/ZenNotes/zennotes/releases/download/v2.13.1/ZenNotes-2.13.1-linux-x86_64.AppImage
         sha256: bbf3015fbc5fc775ce229e53f7f4977ce20a29fcd82e9737d7b10d5d8f8a4bdb
         dest-filename: ZenNotes.AppImage
@@ -63,6 +66,18 @@ modules:
           version-query: .tag_name | sub("^v"; "")
           url-query: >-
             .assets[] | select(.name | test("linux-x86_64\\.AppImage$"))
+            | .browser_download_url
+      - type: file
+        only-arches: [aarch64]
+        url: https://github.com/ZenNotes/zennotes/releases/download/v2.13.1/ZenNotes-2.13.1-linux-arm64.AppImage
+        sha256: dd3e8c9a39331b70c65390e3f44a6b8c349f1ce71fbd388aaa7b9b9afeb00a42
+        dest-filename: ZenNotes.AppImage
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/ZenNotes/zennotes/releases/latest
+          version-query: .tag_name | sub("^v"; "")
+          url-query: >-
+            .assets[] | select(.name | test("linux-arm64\\.AppImage$"))
             | .browser_download_url
       - type: file
         path: zennotes.sh
