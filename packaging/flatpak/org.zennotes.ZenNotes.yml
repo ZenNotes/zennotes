@@ -46,11 +46,20 @@ modules:
       - install -Dm644 org.zennotes.ZenNotes.metainfo.xml
           /app/share/metainfo/org.zennotes.ZenNotes.metainfo.xml
     sources:
-      # Bump `url` + `sha256` on each release (see README.md).
+      # `url` + `sha256` are auto-bumped on each release by Flathub's
+      # flatpak-external-data-checker (see x-checker-data below); the manual
+      # steps in README.md are the fallback.
       - type: file
         url: https://github.com/ZenNotes/zennotes/releases/download/v2.13.1/ZenNotes-2.13.1-linux-x86_64.AppImage
         sha256: bbf3015fbc5fc775ce229e53f7f4977ce20a29fcd82e9737d7b10d5d8f8a4bdb
         dest-filename: ZenNotes.AppImage
+        x-checker-data:
+          type: json
+          url: https://api.github.com/repos/ZenNotes/zennotes/releases/latest
+          version-query: .tag_name | sub("^v"; "")
+          url-query: >-
+            .assets[] | select(.name | test("linux-x86_64\\.AppImage$"))
+            | .browser_download_url
       - type: file
         path: zennotes.sh
       - type: file

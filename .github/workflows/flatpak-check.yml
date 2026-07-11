@@ -1,0 +1,72 @@
+name: Flatpak package check
+
+# Verifies packaging/flatpak actually builds and its AppStream/desktop metadata
+# is valid, in a real Flatpak runtime container — so the Flathub submission can
+# be validated without owning a Linux machine.
+on:
+  push:
+    paths:
+      - "packaging/flatpak/**"
+      - ".github/workflows/flatpak-check.yml"
+  pull_request:
+    paths:
+      - "packaging/flatpak/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast feedback: validate the metadata Flathub reviewers (and appstream-compose)
+  # care about. Runs on every change, no container or build required.
+  validate:
+    name: Validate metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install validators
+        run: sudo apt-get update && sudo apt-get install -y appstream desktop-file-utils
+
+      - name: Validate AppStream metainfo
+        run: appstreamcli validate --explain packaging/flatpak/org.zennotes.ZenNotes.metainfo.xml
+
+      - name: Validate desktop entry
+        run: desktop-file-validate packaging/flatpak/org.zennotes.ZenNotes.desktop
+
+  # Full flatpak-builder run against the same runtime Flathub uses. The manifest
+  # always points at the upcoming release's AppImage, which does not exist until
+  # that release is published, so mirror aur-check.yml: skip the build (but keep
+  # validating metadata above) when the asset isn't up yet.
+  build:
+    name: flatpak-builder
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check whether the release AppImage is published
+        id: asset
+        run: |
+          set -uo pipefail
+          url=$(grep -oE 'https://github.com/[^[:space:]]+\.AppImage' \
+            packaging/flatpak/org.zennotes.ZenNotes.yml | head -1)
+          echo "url=$url"
+          if curl -fsIL -o /dev/null "$url"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Flatpak build skipped::Release AppImage not published yet ($url). Metadata is still validated; the full flatpak-builder run happens once the release exists."
+          fi
+
+      - name: Build the Flatpak
+        if: steps.asset.outputs.exists == 'true'
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: zennotes.flatpak
+          manifest-path: packaging/flatpak/org.zennotes.ZenNotes.yml
+          cache-key: flatpak-builder-${{ github.sha }}

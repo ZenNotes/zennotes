@@ -61,6 +61,51 @@ sha256sum /tmp/ZenNotes.AppImage
 # 4. rebuild and smoke-test (see above)
 ```
 
+## Continuous validation
+
+`.github/workflows/flatpak-check.yml` validates this directory on every change:
+it runs `appstreamcli validate` on the metainfo and `desktop-file-validate` on
+the desktop entry, and (once the release AppImage is published) runs a full
+`flatpak-builder` against the same freedesktop runtime Flathub uses. This is how
+the package is verified without a Linux machine.
+
+## Publishing to Flathub
+
+The app-id `org.zennotes.ZenNotes` reverse-maps to `zennotes.org`, which we own,
+so authorship can be verified on flathub.org after the app is live. Submission is
+a one-time process:
+
+1. Make sure `flatpak-check.yml` is green on `main` (the full build passes).
+2. Fork <https://github.com/flathub/flathub> and create a branch **off the
+   `new-pr` branch** (not `master`).
+3. Copy the four files from this directory to the fork's root, keeping names:
+   `org.zennotes.ZenNotes.yml`, `zennotes.sh`, `org.zennotes.ZenNotes.desktop`,
+   `org.zennotes.ZenNotes.metainfo.xml`.
+4. Open a PR titled `Add org.zennotes.ZenNotes` against `flathub/flathub`'s
+   `new-pr` branch. A bot test-builds it; a reviewer then approves.
+5. On merge, Flathub creates `flathub/org.zennotes.ZenNotes`, grants maintainer
+   access, and the build bot publishes. Then claim the verified badge on
+   flathub.org via the `zennotes.org` domain.
+
+Likely reviewer feedback to expect: a request to justify or narrow
+`--filesystem=home`, and possibly to extract the `.deb` instead of the AppImage.
+
+## Ongoing updates
+
+Once on Flathub, the `x-checker-data` block in the manifest lets Flathub's
+`flatpak-external-data-checker` bot auto-open a PR that bumps `url` + `sha256`
+whenever a new GitHub release appears. The `<release>` entry in the metainfo
+still needs a manual note per version. Manual fallback:
+
+```sh
+# 1. bump the `url` in org.zennotes.ZenNotes.yml to the new release tag
+# 2. update the `sha256`:
+curl -L -o /tmp/ZenNotes.AppImage \
+  https://github.com/ZenNotes/zennotes/releases/download/v<version>/ZenNotes-<version>-linux-x86_64.AppImage
+sha256sum /tmp/ZenNotes.AppImage
+# 3. bump the <release> entry in org.zennotes.ZenNotes.metainfo.xml
+```
+
 ## Notes & limitations
 
 - **Sandbox permissions:** `--filesystem=home` is granted so notes (plain
@@ -69,5 +114,3 @@ sha256sum /tmp/ZenNotes.AppImage
 - **Auto-update is disabled** inside Flatpak (`electron-updater` cannot replace a
   read-only `/app`). Update via `flatpak update` once published, or rebuild with
   a new `url`/`sha256` for a local install.
-- **Publishing to Flathub** would be a follow-up: it needs the `com.adibhanna.*`
-  app-id owner's sign-off plus screenshots in the AppStream metadata.
