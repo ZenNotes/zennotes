@@ -14,8 +14,12 @@ finish-args:
   - --socket=wayland
   - --device=dri
   - --socket=pulseaudio
-  # Notes are plain Markdown files on disk — allow access to the home dir.
-  - --filesystem=home
+  # Notes are plain Markdown files on disk. Flathub's linter blocks broad
+  # --filesystem=home, so grant the common user document dirs; users whose
+  # vaults live elsewhere can widen access with Flatseal / `flatpak override`.
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-download
+  - --filesystem=xdg-desktop
   - --talk-name=org.freedesktop.Notifications
 
 modules:

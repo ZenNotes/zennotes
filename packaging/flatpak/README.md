@@ -108,9 +108,12 @@ sha256sum /tmp/ZenNotes.AppImage
 
 ## Notes & limitations
 
-- **Sandbox permissions:** `--filesystem=home` is granted so notes (plain
-  Markdown files) are reachable. Tighten it to a specific path (e.g.
-  `--filesystem=~/Notes`) if you prefer.
+- **Sandbox permissions:** access is granted to `xdg-documents`,
+  `xdg-download`, and `xdg-desktop` so notes (plain Markdown files) in the usual
+  places are reachable. Flathub's linter rejects broad `--filesystem=home`
+  (`finish-args-home-filesystem-access`), so vaults kept elsewhere (e.g.
+  `~/Notes`, Dropbox) need the user to widen access with Flatseal or
+  `flatpak override --user --filesystem=home org.zennotes.ZenNotes`.
 - **Auto-update is disabled** inside Flatpak (`electron-updater` cannot replace a
   read-only `/app`). Update via `flatpak update` once published, or rebuild with
   a new `url`/`sha256` for a local install.
