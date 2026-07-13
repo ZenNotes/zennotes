@@ -2703,6 +2703,48 @@ textarea,
 .prose-zen .zen-code-block[data-code-folded="true"] .zen-code-block-summary {
   display: block;
 }
+/* --- Preview-mode code block syntax tokens (theme-aware) --- */
+/* Override the hardcoded highlight.js palette with the same CSS variables
+   the editor uses so preview code blocks adapt to the active theme. */
+.prose-zen .hljs-keyword,
+.prose-zen .hljs-doctag {
+  color: rgb(var(--z-accent));
+}
+.prose-zen .hljs-string,
+.prose-zen .hljs-regexp,
+.prose-zen .hljs-addition,
+.prose-zen .hljs-attribute {
+  color: rgb(var(--z-green));
+}
+.prose-zen .hljs-comment,
+.prose-zen .hljs-quote {
+  color: rgb(var(--z-fg-2));
+  font-style: italic;
+}
+.prose-zen .hljs-number,
+.prose-zen .hljs-literal {
+  color: rgb(var(--z-yellow));
+}
+.prose-zen .hljs-type,
+.prose-zen .hljs-built_in {
+  color: rgb(var(--z-purple));
+}
+.prose-zen .hljs-function,
+.prose-zen .hljs-title,
+.prose-zen .hljs-symbol,
+.prose-zen .hljs-meta {
+  color: rgb(var(--z-blue));
+}
+.prose-zen .hljs-section,
+.prose-zen .hljs-name,
+.prose-zen .hljs-tag {
+  color: rgb(var(--z-red));
+}
+.prose-zen .hljs-variable,
+.prose-zen .hljs-attr,
+.prose-zen .hljs-selector-class {
+  color: rgb(var(--z-fg));
+}
 .prose-zen table {
   border-collapse: collapse;
   width: 100%;
