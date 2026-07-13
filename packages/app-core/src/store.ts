@@ -2106,6 +2106,9 @@ interface Store {
   /** Pinned reference pane — an always-visible side panel that shows a
    *  single companion note while the user works in the main editor. */
   pinnedRefPath: string | null
+  /** URL hash fragment for the pinned asset (e.g. "#page=12") — passed
+   *  through to the iframe so the PDF viewer opens at the right page. */
+  pinnedRefFragment: string | null
   pinnedRefVisible: boolean
   pinnedRefWidth: number
   panelWidths: PanelWidths
@@ -2144,7 +2147,7 @@ interface Store {
 
   /** Per-note reference pins. Active note's entry overrides the
    *  global pinnedRefPath while that note is open. */
-  noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
+  noteRefs: Record<string, { path: string; kind: 'note' | 'asset'; fragment?: string | null }>
 
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
@@ -2477,11 +2480,11 @@ interface Store {
   pinReference: (path: string) => Promise<void>
   /** Pin a non-text asset (PDF, etc.) — rendered in the side pane via
    *  iframe, with no text-content cache. */
-  pinAssetReference: (path: string) => void
+  pinAssetReference: (path: string, fragment?: string | null) => void
   unpinReference: () => void
   /** Per-note variant: the pin only shows while `notePath` is the
    *  active note. Switching notes hides it; coming back shows it. */
-  pinAssetReferenceForNote: (notePath: string, assetPath: string) => void
+  pinAssetReferenceForNote: (notePath: string, assetPath: string, fragment?: string | null) => void
   unpinReferenceForNote: (notePath: string) => void
   togglePinnedRefVisible: () => void
   setPinnedRefWidth: (px: number) => void
@@ -3601,6 +3604,7 @@ export const useStore = create<Store>((set, get) => {
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
+  pinnedRefFragment: null,
   pinnedRefVisible: loadPrefs().pinnedRefVisible,
   pinnedRefWidth: loadPrefs().pinnedRefWidth,
   panelWidths: loadPrefs().panelWidths,
@@ -5746,7 +5750,7 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  pinAssetReference: (path) => {
+  pinAssetReference: (path, fragment) => {
     if (!path) return
     const s = get()
     // If we were previously pinning a note, evict its content unless
@@ -5766,6 +5770,7 @@ export const useStore = create<Store>((set, get) => {
     }
     set({
       pinnedRefPath: path,
+      pinnedRefFragment: fragment ?? null,
       pinnedRefKind: 'asset',
       pinnedRefVisible: true,
       noteContents: contents,
@@ -5774,10 +5779,10 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  pinAssetReferenceForNote: (notePath, assetPath) => {
+  pinAssetReferenceForNote: (notePath, assetPath, fragment) => {
     if (!notePath || !assetPath) return
     set((s) => ({
-      noteRefs: { ...s.noteRefs, [notePath]: { path: assetPath, kind: 'asset' } },
+      noteRefs: { ...s.noteRefs, [notePath]: { path: assetPath, kind: 'asset', fragment: fragment ?? null } },
       pinnedRefVisible: true
     }))
     savePrefs(collectPrefs(get()))
@@ -5813,6 +5818,7 @@ export const useStore = create<Store>((set, get) => {
     }
     set({
       pinnedRefPath: null,
+      pinnedRefFragment: null,
       pinnedRefKind: 'note',
       noteContents: contents,
       noteDirty: dirty

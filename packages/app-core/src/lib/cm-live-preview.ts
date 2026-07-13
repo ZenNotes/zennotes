@@ -11,6 +11,7 @@ import {
 import { useStore } from '../store'
 import {
   classifyLocalAssetHref,
+  hrefFragment,
   resolveAssetVaultRelativePath,
   resolveLocalAssetUrl
 } from './local-assets'
@@ -431,7 +432,7 @@ class LocalPdfWidget extends WidgetType {
         const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
         // Default to a per-note pin — the PDF stays attached to this
         // note and quietly disappears when the user navigates away.
-        if (abs) state.pinAssetReferenceForNote(notePath, abs)
+        if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
       })
 
       const icon = document.createElement('span')
@@ -493,7 +494,7 @@ class LocalPdfWidget extends WidgetType {
       const notePath = state.activeNote?.path
       if (!root || !notePath) return
       const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
-      if (abs) state.pinAssetReferenceForNote(notePath, abs)
+      if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
     })
 
     const openButton = document.createElement('button')
@@ -535,7 +536,7 @@ class LocalPdfWidget extends WidgetType {
 
     const frame = document.createElement('iframe')
     frame.className = 'local-pdf-embed-frame'
-    frame.src = this.resolvedUrl
+    frame.src = this.resolvedUrl + hrefFragment(this.href)
     frame.title = this.label || 'PDF'
 
     figure.append(header, frame)

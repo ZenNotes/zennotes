@@ -25,7 +25,7 @@ import {
   wikilinkHeadingAnchor
 } from '../lib/wikilinks'
 import { openDatabaseFromWikilink, openWikilinkHeading } from '../lib/wikilink-navigation'
-import { classifyLocalAssetHref, resolveAssetVaultRelativePath } from '../lib/local-assets'
+import { classifyLocalAssetHref, hrefFragment, resolveAssetVaultRelativePath } from '../lib/local-assets'
 import { externalLinkUrl, extractLinkAtCursor, resolveInternalNoteHref } from '../lib/internal-links'
 import {
   buildMoveNotePrompt,
@@ -587,7 +587,8 @@ function registerVimCommands(): void {
       if (activePath && vaultRoot) {
         const abs = resolveAssetVaultRelativePath(vaultRoot, activePath, target)
         if (abs) {
-          state.pinAssetReferenceForNote(activePath, abs)
+          const fragment = hrefFragment(target)
+          state.pinAssetReferenceForNote(activePath, abs, fragment || null)
           return
         }
       }
