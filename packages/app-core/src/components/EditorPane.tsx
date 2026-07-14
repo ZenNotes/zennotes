@@ -55,6 +55,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { offerCreateNoteFromLink } from '../lib/create-note-from-link'
 import {
@@ -255,16 +256,6 @@ const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
 
-/** Convert a ZenNotes binding string ("Alt+ArrowUp", "Mod+K") to a CodeMirror
- *  key string ("Alt-ArrowUp", "Mod-k"). */
-function toCmKey(binding: string): string {
-  const parts = binding.split('+')
-  const base = parts.pop() ?? ''
-  const mods = parts.join('-')
-  const baseOut = base.length === 1 ? base.toLowerCase() : base
-  return mods ? `${mods}-${baseOut}` : baseOut
-}
-
 // The editor keymap depends on Vim mode: in Vim mode the macOS emacs-style
 // chords are stripped from `defaultKeymap` so Vim's `<C-d>` & co. work (see
 // cm-vim-default-keymap). Built behind a compartment and reconfigured on Vim
@@ -283,8 +274,15 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // Move the current line (or selection) up/down — reorders the markdown so
     // it persists in the file. Listed before defaultKeymap so the configured
     // binding wins; works in Vim normal/insert and non-Vim alike.
-    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineUp')), run: moveLineUp },
-    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineDown')), run: moveLineDown },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineUp')),
+      run: moveLineUp
+    },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
+      run: moveLineDown
+    },
+    ...vimHalfPageKeymap(vimMode, overrides),
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
