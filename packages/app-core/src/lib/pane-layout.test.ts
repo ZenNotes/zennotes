@@ -7,6 +7,7 @@ import {
   leafWithReorderedTab,
   leafWithoutTab,
   makeLeaf,
+  preserveLayoutIfPruneEmptiesNoteTabs,
   rewritePathsInTree,
   type PaneLeaf
 } from './pane-layout'
@@ -149,5 +150,34 @@ describe('preview tabs (VS Code-style)', () => {
     const next = leafWithReorderedTab(base, 'p.md', 'pin.md', 'before')
     expect(next.pinnedTabs).toContain('p.md')
     expect(next.previewTab).toBeNull()
+  })
+})
+
+describe('preserveLayoutIfPruneEmptiesNoteTabs (#384)', () => {
+  const isVirtual = (p: string): boolean => p.startsWith('workspace:')
+
+  it('keeps the previous layout when a prune would remove every note tab', () => {
+    // e.g. a transient/incomplete note list pruned all tabs (the reported bug).
+    const prev = leaf({ tabs: ['a.md', 'b.md', 'c.md'], activeTab: 'a.md' })
+    const pruned = makeLeaf()
+    expect(preserveLayoutIfPruneEmptiesNoteTabs(prev, pruned, isVirtual)).toBe(prev)
+  })
+
+  it('accepts the prune when at least one note tab survives', () => {
+    const prev = leaf({ tabs: ['a.md', 'b.md', 'c.md'], activeTab: 'a.md' })
+    const pruned = leaf({ tabs: ['a.md', 'b.md'], activeTab: 'a.md' })
+    expect(preserveLayoutIfPruneEmptiesNoteTabs(prev, pruned, isVirtual)).toBe(pruned)
+  })
+
+  it('treats a lone surviving workspace tab as still-empty (keeps previous)', () => {
+    const prev = leaf({ tabs: ['workspace:tasks', 'a.md', 'b.md'], activeTab: 'a.md' })
+    const pruned = leaf({ tabs: ['workspace:tasks'], activeTab: 'workspace:tasks' })
+    expect(preserveLayoutIfPruneEmptiesNoteTabs(prev, pruned, isVirtual)).toBe(prev)
+  })
+
+  it('does not over-guard when there were no note tabs to begin with', () => {
+    const prev = leaf({ tabs: ['workspace:tasks'], activeTab: 'workspace:tasks' })
+    const pruned = makeLeaf()
+    expect(preserveLayoutIfPruneEmptiesNoteTabs(prev, pruned, isVirtual)).toBe(pruned)
   })
 })

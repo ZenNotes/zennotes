@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.13.1",
+  "version": "2.13.4",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -205,7 +205,29 @@
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
       "extendInfo": {
         "CFBundleName": "ZenNotes",
-        "CFBundleDisplayName": "ZenNotes"
+        "CFBundleDisplayName": "ZenNotes",
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Markdown Document",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "CFBundleTypeExtensions": [
+              "md",
+              "markdown"
+            ],
+            "LSItemContentTypes": [
+              "net.daringfireball.markdown"
+            ]
+          },
+          {
+            "CFBundleTypeName": "Folder",
+            "CFBundleTypeRole": "Editor",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.folder"
+            ]
+          }
+        ]
       },
       "target": [
         {

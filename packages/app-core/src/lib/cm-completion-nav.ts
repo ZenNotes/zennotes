@@ -63,6 +63,21 @@ export const completionNavKeymap = Prec.highest(
 
       const noMods = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
 
+      // Enter — accept the highlighted completion whenever the popup is open,
+      // the universal "menu open → Enter selects" behavior. This must run at
+      // `Prec.highest` because the markdown Enter binding
+      // (`insertNewlineContinueMarkup`) outranks the built-in completion accept
+      // inside a blockquote — so without this, Enter in a callout header
+      // (`> [!warn`) continues the quote instead of picking the type. When no
+      // completion is open we bail and Enter keeps its normal meaning.
+      if (event.key === 'Enter' && noMods) {
+        if (completionStatus(view.state) !== 'active') return false
+        if (!acceptCompletion(view)) return false
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+
       // Ctrl+Y — accept the highlighted completion (Vim-style).
       if (
         event.ctrlKey &&

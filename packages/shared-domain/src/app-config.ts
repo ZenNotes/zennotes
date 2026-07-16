@@ -18,6 +18,12 @@ export const CONFIG_VERSION = 1
 export type TimeFormat = '12h' | '24h'
 
 /**
+ * How the text of a completed task (`- [x]`) is styled in the editor and
+ * preview. `none` keeps the original appearance (just the checked box).
+ */
+export type CompletedTaskStyle = 'none' | 'strikethrough' | 'gray' | 'gray-strikethrough'
+
+/**
  * The host locale's 12/24-hour convention, used as the `timeFormat` default so a
  * fresh install matches the operating system out of the box. Reads only the
  * resolved format options (no `Date`), so it is safe to evaluate at module load.
@@ -58,6 +64,8 @@ export const PORTABLE_PREF_KEYS = [
   // editor
   'livePreview',
   'renderTablesInLivePreview',
+  'completedTaskStyle',
+  'keepViewModeAcrossNotes',
   'markdownSnippets',
   'hideBuiltinTemplates',
   'tabsEnabled',
@@ -152,6 +160,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   fzfBinaryPath: null,
   livePreview: true,
   renderTablesInLivePreview: true,
+  completedTaskStyle: 'none',
+  keepViewModeAcrossNotes: false,
   markdownSnippets: true,
   hideBuiltinTemplates: false,
   tabsEnabled: true,

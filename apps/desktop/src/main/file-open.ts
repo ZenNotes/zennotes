@@ -73,3 +73,21 @@ export function markdownPathsFromArgv(argv: readonly string[]): string[] {
   }
   return out
 }
+
+/**
+ * Like {@link markdownPathsFromArgv} but keeps non-markdown path args too, so a
+ * directory can be opened as a temporary folder session (drag a folder onto the
+ * app / `zn open <dir>`). The caller stats each path to decide what to do: a
+ * markdown file opens a note, a directory opens a temporary session, and
+ * anything else (e.g. the launcher's own script path) is ignored.
+ */
+export function candidatePathsFromArgv(argv: readonly string[]): string[] {
+  const out: string[] = []
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i]
+    if (!arg || arg.startsWith('-')) continue
+    if (arg.includes('://')) continue
+    out.push(arg)
+  }
+  return out
+}

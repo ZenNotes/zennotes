@@ -22,6 +22,11 @@ function stripQueryAndHash(href: string): string {
   return href.split('#')[0]?.split('?')[0] ?? href
 }
 
+export function hrefFragment(href: string): string {
+  const hashIdx = href.indexOf('#')
+  return hashIdx >= 0 ? href.slice(hashIdx) : ''
+}
+
 function decodeHrefPath(value: string): string {
   const cleaned = stripQueryAndHash(value)
   try {
@@ -282,7 +287,7 @@ function buildEmbed(
   if (kind === 'pdf') {
     const frame = document.createElement('iframe')
     frame.className = 'local-asset-embed-frame'
-    frame.src = url
+    frame.src = url + hrefFragment(href)
     frame.title = label
     figure.append(frame)
     return figure
@@ -410,7 +415,7 @@ export function enhanceLocalAssetNodes(
 
     const assetVaultRel = resolveAssetVaultRelativePath(vaultRoot, notePath, raw)
     const kind = classifyLocalAssetHref(raw) ?? 'file'
-    anchor.href = resolved
+    anchor.href = resolved + hrefFragment(raw)
     anchor.dataset.localAssetUrl = resolved
     anchor.dataset.localAssetKind = kind
     anchor.dataset.localAssetHref = raw

@@ -65,12 +65,12 @@ describe('livePreviewPlugin', () => {
     view.destroy()
   })
 
-  it('keeps heading markers hidden when editing the heading text', () => {
+  it('reveals heading markers with the cursor anywhere in the heading', () => {
+    // Consistent with list/quote/task markers: the active line reads as source.
     const doc = '# Code blocks\n\nBody'
-    const view = mountEditor(doc, doc.indexOf('Code'))
+    const view = mountEditor(doc, doc.indexOf('blocks'))
 
-    expect(view.dom.textContent).toContain('Code blocks')
-    expect(view.dom.textContent).not.toContain('# Code blocks')
+    expect(view.dom.textContent).toContain('# Code blocks')
 
     view.destroy()
   })
@@ -80,6 +80,16 @@ describe('livePreviewPlugin', () => {
     const view = mountEditor(doc, 0)
 
     expect(view.dom.textContent).toContain('# Code blocks')
+
+    view.destroy()
+  })
+
+  it('hides heading markers when the cursor is on another line', () => {
+    const doc = '# Code blocks\n\nBody'
+    const view = mountEditor(doc, doc.indexOf('Body'))
+
+    expect(view.dom.textContent).toContain('Code blocks')
+    expect(view.dom.textContent).not.toContain('# Code blocks')
 
     view.destroy()
   })
@@ -208,6 +218,21 @@ describe('livePreviewPlugin', () => {
     expect(inputs[0]?.checked).toBe(false)
     expect(inputs[1]?.checked).toBe(true)
     expect(inputs[2]?.checked).toBe(false)
+
+    view.destroy()
+  })
+
+  it('marks a completed task’s text with cm-task-done and leaves incomplete tasks alone', () => {
+    // Cursor on the intro line so both task lines are inactive (rendered). The
+    // CSS (gated by the completedTaskStyle setting) then strikes/grays the mark.
+    const doc = ['intro', '- [x] finished item', '- [ ] pending item'].join('\n')
+    const view = mountEditor(doc, 0)
+
+    const marked = Array.from(view.dom.querySelectorAll('.cm-task-done'))
+      .map((el) => el.textContent)
+      .join(' ')
+    expect(marked).toContain('finished item')
+    expect(marked).not.toContain('pending item')
 
     view.destroy()
   })

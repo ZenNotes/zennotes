@@ -128,6 +128,21 @@ var validFolderIconIDs = map[FolderIconID]struct{}{
 	"home":       {},
 }
 
+// validFolderColorIDs mirrors the FolderColorId presets in
+// packages/bridge-contract/src/ipc.ts. (#379)
+var validFolderColorIDs = map[FolderColorID]struct{}{
+	"red":    {},
+	"orange": {},
+	"amber":  {},
+	"green":  {},
+	"teal":   {},
+	"sky":    {},
+	"blue":   {},
+	"indigo": {},
+	"violet": {},
+	"pink":   {},
+}
+
 func init() {
 	for _, dir := range legacyAttachmentsDirs {
 		reservedRootNames[dir] = struct{}{}
@@ -270,6 +285,10 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 	for key, value := range settings.FolderIcons {
 		folderIcons[key] = value
 	}
+	folderColors := make(map[string]FolderColorID, len(settings.FolderColors))
+	for key, value := range settings.FolderColors {
+		folderColors[key] = value
+	}
 	favorites := make([]string, len(settings.Favorites))
 	copy(favorites, settings.Favorites)
 	dailyLegacyPatterns := make([]DateNotePatternSettings, len(settings.DailyNotes.LegacyPatterns))
@@ -306,8 +325,9 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 			LegacyPatterns: monthlyLegacyPatterns,
 			TemplateID:     settings.MonthlyNotes.TemplateID,
 		},
-		FolderIcons: folderIcons,
-		Favorites:   favorites,
+		FolderIcons:  folderIcons,
+		FolderColors: folderColors,
+		Favorites:    favorites,
 	}
 }
 
@@ -458,6 +478,16 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 		}
 		folderIcons[key] = value
 	}
+	folderColors := map[string]FolderColorID{}
+	for key, value := range value.FolderColors {
+		if key == "" {
+			continue
+		}
+		if _, ok := validFolderColorIDs[value]; !ok {
+			continue
+		}
+		folderColors[key] = value
+	}
 	return VaultSettings{
 		PrimaryNotesLocation: normalizePrimaryNotesLocation(func() PrimaryNotesLocation {
 			if value.PrimaryNotesLocation == "" {
@@ -491,8 +521,9 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 			LegacyPatterns: normalizeMonthlyNoteLegacyPatterns(value.MonthlyNotes.LegacyPatterns),
 			TemplateID:     value.MonthlyNotes.TemplateID,
 		},
-		FolderIcons: folderIcons,
-		Favorites:   normalizeFavorites(value.Favorites),
+		FolderIcons:  folderIcons,
+		FolderColors: folderColors,
+		Favorites:    normalizeFavorites(value.Favorites),
 	}
 }
 
@@ -538,6 +569,30 @@ func rewriteFolderIconsForRename(
 	return next
 }
 
+// rewriteFolderColorsForRename keeps a folder's accent color attached to it (and
+// its descendants) when the folder is renamed, mirroring the icon rewrite. (#379)
+func rewriteFolderColorsForRename(
+	folderColors map[string]FolderColorID,
+	folder NoteFolder,
+	oldSubpath string,
+	newSubpath string,
+) map[string]FolderColorID {
+	next := map[string]FolderColorID{}
+	exactKey := folderIconKey(folder, oldSubpath)
+	prefix := exactKey + "/"
+	for key, value := range folderColors {
+		switch {
+		case key == exactKey:
+			next[folderIconKey(folder, newSubpath)] = value
+		case strings.HasPrefix(key, prefix):
+			next[folderIconKey(folder, newSubpath)+key[len(exactKey):]] = value
+		default:
+			next[key] = value
+		}
+	}
+	return next
+}
+
 func removeFolderIcons(
 	folderIcons map[string]FolderIconID,
 	folder NoteFolder,
@@ -547,6 +602,25 @@ func removeFolderIcons(
 	exactKey := folderIconKey(folder, subpath)
 	prefix := exactKey + "/"
 	for key, value := range folderIcons {
+		if key == exactKey || strings.HasPrefix(key, prefix) {
+			continue
+		}
+		next[key] = value
+	}
+	return next
+}
+
+// removeFolderColors drops the deleted folder's (and its descendants') accent
+// colors, mirroring removeFolderIcons. (#379)
+func removeFolderColors(
+	folderColors map[string]FolderColorID,
+	folder NoteFolder,
+	subpath string,
+) map[string]FolderColorID {
+	next := map[string]FolderColorID{}
+	exactKey := folderIconKey(folder, subpath)
+	prefix := exactKey + "/"
+	for key, value := range folderColors {
 		if key == exactKey || strings.HasPrefix(key, prefix) {
 			continue
 		}
@@ -568,6 +642,31 @@ func duplicateFolderIcons(
 	exactKey := folderIconKey(folder, sourceSubpath)
 	prefix := exactKey + "/"
 	for key, value := range folderIcons {
+		switch {
+		case key == exactKey:
+			next[folderIconKey(folder, targetSubpath)] = value
+		case strings.HasPrefix(key, prefix):
+			next[folderIconKey(folder, targetSubpath)+key[len(exactKey):]] = value
+		}
+	}
+	return next
+}
+
+// duplicateFolderColors copies the source folder's (and descendants') accent
+// colors onto the duplicated folder, mirroring duplicateFolderIcons. (#379)
+func duplicateFolderColors(
+	folderColors map[string]FolderColorID,
+	folder NoteFolder,
+	sourceSubpath string,
+	targetSubpath string,
+) map[string]FolderColorID {
+	next := map[string]FolderColorID{}
+	for key, value := range folderColors {
+		next[key] = value
+	}
+	exactKey := folderIconKey(folder, sourceSubpath)
+	prefix := exactKey + "/"
+	for key, value := range folderColors {
 		switch {
 		case key == exactKey:
 			next[folderIconKey(folder, targetSubpath)] = value
@@ -1817,6 +1916,7 @@ func (v *Vault) RenameFolder(folder NoteFolder, oldSub, newSub string) (string, 
 		WeeklyNotes:          settings.WeeklyNotes,
 		MonthlyNotes:         settings.MonthlyNotes,
 		FolderIcons:          rewriteFolderIconsForRename(settings.FolderIcons, folder, oldSub, newSub),
+		FolderColors:         rewriteFolderColorsForRename(settings.FolderColors, folder, oldSub, newSub),
 		// Favorites are carried through verbatim; the client rewrites stale
 		// favorite keys after the rename and re-persists them.
 		Favorites: settings.Favorites,
@@ -1856,6 +1956,7 @@ func (v *Vault) DeleteFolder(folder NoteFolder, subpath string) error {
 		WeeklyNotes:          settings.WeeklyNotes,
 		MonthlyNotes:         settings.MonthlyNotes,
 		FolderIcons:          removeFolderIcons(settings.FolderIcons, folder, subpath),
+		FolderColors:         removeFolderColors(settings.FolderColors, folder, subpath),
 		// Favorites are carried through verbatim; the client prunes the deleted
 		// folder's favorites and re-persists them.
 		Favorites: settings.Favorites,
@@ -1893,6 +1994,7 @@ func (v *Vault) DuplicateFolder(folder NoteFolder, subpath string) (string, erro
 		WeeklyNotes:          settings.WeeklyNotes,
 		MonthlyNotes:         settings.MonthlyNotes,
 		FolderIcons:          duplicateFolderIcons(settings.FolderIcons, folder, subpath, relPath),
+		FolderColors:         duplicateFolderColors(settings.FolderColors, folder, subpath, relPath),
 		// A duplicated folder isn't auto-favorited; carry existing favorites through.
 		Favorites: settings.Favorites,
 	})
@@ -2211,6 +2313,158 @@ func (v *Vault) AssetAbsPath(rel string) (string, error) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	return SafeJoin(v.root, rel)
+}
+
+// RenameAsset renames an asset file in place (same directory), mirroring the
+// desktop renameAsset. It refuses internal files and markdown notes, and
+// handles a case-only rename on case-insensitive filesystems. (#379)
+func (v *Vault) RenameAsset(rel, nextName string) (AssetMeta, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	srcAbs, err := v.assertAssetFile(rel)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	cleanName, err := cleanAssetFilename(nextName)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	destAbs := filepath.Join(filepath.Dir(srcAbs), cleanName)
+	if destAbs != srcAbs {
+		if dstInfo, statErr := os.Stat(destAbs); statErr == nil {
+			// Something is already at the destination. Allow it only when it is
+			// literally the same file (case-only rename on a case-insensitive
+			// filesystem), routing through a temp name; otherwise it collides.
+			srcInfo, srcErr := os.Stat(srcAbs)
+			if srcErr != nil {
+				return AssetMeta{}, srcErr
+			}
+			if !os.SameFile(dstInfo, srcInfo) {
+				return AssetMeta{}, fmt.Errorf("an asset named %q already exists in this folder", cleanName)
+			}
+			tmp := srcAbs + ".zenrename.tmp"
+			if err := os.Rename(srcAbs, tmp); err != nil {
+				return AssetMeta{}, err
+			}
+			if err := os.Rename(tmp, destAbs); err != nil {
+				return AssetMeta{}, err
+			}
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return AssetMeta{}, statErr
+		} else if err := os.Rename(srcAbs, destAbs); err != nil {
+			return AssetMeta{}, err
+		}
+	}
+	return v.assetMetaForAbs(destAbs)
+}
+
+// MoveAsset moves an asset file into targetDir (vault-relative; empty means the
+// unified assets/ folder), mirroring the desktop moveAsset. The filename is made
+// unique in the destination. (#379)
+func (v *Vault) MoveAsset(rel, targetDir string) (AssetMeta, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	srcAbs, err := v.assertAssetFile(rel)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	destDir, err := v.cleanAssetTargetDir(targetDir)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	if err := os.MkdirAll(destDir, v.dirMode); err != nil {
+		return AssetMeta{}, err
+	}
+	if filepath.Clean(destDir) == filepath.Clean(filepath.Dir(srcAbs)) {
+		return v.assetMetaForAbs(srcAbs)
+	}
+	name := filepath.Base(srcAbs)
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	destAbs := uniquePath(destDir, stem, ext)
+	if err := os.Rename(srcAbs, destAbs); err != nil {
+		return AssetMeta{}, err
+	}
+	return v.assetMetaForAbs(destAbs)
+}
+
+// assertAssetFile validates rel points at an existing, editable asset file and
+// returns its safe absolute path. Assumes the caller holds v.mu.
+func (v *Vault) assertAssetFile(rel string) (string, error) {
+	trimmed := strings.Trim(strings.TrimSpace(filepath.ToSlash(rel)), "/")
+	if trimmed == "" {
+		return "", errors.New("asset path is required")
+	}
+	for _, part := range strings.Split(trimmed, "/") {
+		if part == internalVaultDir {
+			return "", errors.New("cannot modify internal ZenNotes files")
+		}
+	}
+	if strings.EqualFold(filepath.Ext(trimmed), ".md") {
+		return "", errors.New("use note actions to modify markdown notes")
+	}
+	abs, err := SafeJoin(v.root, trimmed)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", errors.New("asset path is not a file")
+	}
+	return abs, nil
+}
+
+// cleanAssetTargetDir resolves a vault-relative destination directory for a
+// move. Empty resolves to the unified assets/ folder. Assumes caller holds v.mu.
+func (v *Vault) cleanAssetTargetDir(targetDir string) (string, error) {
+	normalized := strings.Trim(strings.TrimSpace(filepath.ToSlash(targetDir)), "/")
+	if normalized == "" {
+		return SafeJoin(v.root, AssetsDir)
+	}
+	for _, part := range strings.Split(normalized, "/") {
+		if part == internalVaultDir {
+			return "", errors.New("cannot move assets into internal ZenNotes files")
+		}
+	}
+	return SafeJoin(v.root, normalized)
+}
+
+func (v *Vault) assetMetaForAbs(abs string) (AssetMeta, error) {
+	info, err := os.Stat(abs)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	rel, err := filepath.Rel(v.root, abs)
+	if err != nil {
+		return AssetMeta{}, err
+	}
+	name := filepath.Base(abs)
+	return AssetMeta{
+		Path:         filepath.ToSlash(rel),
+		Name:         name,
+		Kind:         kindForExt(strings.ToLower(filepath.Ext(name))),
+		SiblingOrder: 0,
+		Size:         info.Size(),
+		UpdatedAt:    info.ModTime().UnixMilli(),
+	}, nil
+}
+
+func cleanAssetFilename(name string) (string, error) {
+	raw := strings.TrimSpace(name)
+	if strings.ContainsAny(raw, "/\\") {
+		return "", errors.New("use only a file name")
+	}
+	trimmed := filepath.Base(raw)
+	if trimmed == "" || trimmed == "." || trimmed == ".." {
+		return "", errors.New("asset name is required")
+	}
+	if strings.EqualFold(filepath.Ext(trimmed), ".md") {
+		return "", errors.New("use note actions for markdown notes")
+	}
+	return trimmed, nil
 }
 
 func makeAssetMarkdown(relPath, kind, name string) string {

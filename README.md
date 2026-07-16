@@ -4,6 +4,9 @@
   <img src="apps/desktop/build/icon.png" alt="ZenNotes app icon" width="160">
 </p>
 
+> [!NOTE]
+> I build ZenNotes with a lot of help from AI tools like Claude and Codex. They let me move much faster, but I still go through some of the code before I ship it. The architecture, the technical decisions, and the trade-offs are things I still spend a lot of time thinking about. AI helps me write code faster, but it doesn't replace understanding how the system works.
+
 ZenNotes is a keyboard-first Markdown notes app with a shared product core and multiple runtimes:
 
 - a desktop app built with Electron

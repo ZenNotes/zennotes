@@ -1,4 +1,6 @@
 import { CodeMirror, Vim } from '@replit/codemirror-vim'
+import type { EditorView } from '@codemirror/view'
+import { mathBlockLineRanges } from './cm-math-render'
 
 // Minimal shape of the CodeMirror-Vim adapter + state the display-line motion
 // touches (the package's own types don't surface these helpers).
@@ -12,6 +14,8 @@ type VimMotionCm = {
     goalColumn?: number
   ) => { line: number; ch: number }
   charCoords: (pos: { line: number; ch: number }, mode: string) => { left: number }
+  /** The underlying CodeMirror 6 view (set by the codemirror-vim adapter). */
+  cm6?: EditorView
 }
 type VimMotionState = {
   visualLine?: boolean
@@ -36,7 +40,15 @@ type VimMotionState = {
  *    lands on the line the relativenumber gutter shows — those numbers count
  *    logical lines, so `{count}j` must too, not display rows (#314). This is the
  *    classic `v:count == 0 ? gj : j` idiom; a bare `j`/`k` still moves by display
- *    line.
+ *    line;
+ *  - a bare `j`/`k` whose next logical line sits inside a *rendered* block-math
+ *    widget also falls back to logical movement, stepping the cursor into the
+ *    block's source (which cm-math-render then reveals in the same transaction).
+ *    The display-line path is pixel-based, and a `block: true` replace widget
+ *    has no cursor coordinates, so it would skip clean over the block — and the
+ *    reveal-induced height changes made consecutive blocks compound into
+ *    multi-line jumps. Inside an already-revealed block (plain source text),
+ *    normal display-line movement applies.
  * `gj`/`gk` are untouched. Mirrors codemirror-vim's own `moveByDisplayLines`,
  * including maintaining the horizontal goal column across consecutive presses.
  */
@@ -60,11 +72,42 @@ export function zenMoveByDisplayLine(
     )
     return new CodeMirror.Pos(target, head.ch)
   }
+  // Rendered `$$…$$` blocks break the pixel-based display path: a block-replace
+  // widget has no cursor coordinates, so `findPosV` skips clean over it, and the
+  // reveal-induced height changes compound into multi-line jumps. Move by
+  // logical line around them instead (cm-math-render reveals the block the
+  // cursor steps into within the same transaction).
+  const mathRanges = cm.cm6 ? mathBlockLineRanges(cm.cm6.state) : []
+  const logicalTarget = Math.max(
+    cm.firstLine(),
+    Math.min(cm.lastLine(), forward ? head.line + repeat : head.line - repeat)
+  )
+  if (mathRanges.length) {
+    // codemirror-vim lines are 0-based; the math ranges are 1-based.
+    const block = mathRanges.find(
+      (r) => logicalTarget + 1 >= r.fromLine && logicalTarget + 1 <= r.toLine
+    )
+    const headInside = block && head.line + 1 >= block.fromLine && head.line + 1 <= block.toLine
+    if (block && !headInside) {
+      return new CodeMirror.Pos(logicalTarget, head.ch)
+    }
+  }
   // Keep the horizontal goal column stable across consecutive j/k, like gj/gk.
   if (vim.lastMotion !== zenMoveByDisplayLine) {
     vim.lastHSPos = cm.charCoords(head, 'div').left
   }
   const res = cm.findPosV(head, forward ? repeat : -repeat, 'line', vim.lastHSPos)
+  if (mathRanges.length && Math.abs(res.line - head.line) > repeat) {
+    // The pixel motion overshot (e.g. launched from a line with large CSS
+    // margins straight over a block widget). If a math block sits in the
+    // skipped span, snap back to the plain logical step so the cursor
+    // approaches the block one line at a time instead of leaping past it.
+    const lo = Math.min(head.line, res.line) + 1
+    const hi = Math.max(head.line, res.line) + 1
+    if (mathRanges.some((r) => r.fromLine < hi && r.toLine > lo)) {
+      return new CodeMirror.Pos(logicalTarget, head.ch)
+    }
+  }
   vim.lastHPos = res.ch
   return res
 }

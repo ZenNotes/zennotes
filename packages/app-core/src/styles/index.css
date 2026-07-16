@@ -1,6 +1,8 @@
-/* KaTeX + highlight.js are pulled in by the markdown pipeline. */
+/* KaTeX is pulled in by the markdown pipeline. highlight.js (rehype-highlight)
+   token colors are NOT imported from a fixed hljs theme — they're mapped onto
+   the editor's theme-adaptive `.tok-*` palette further down, so a fenced block
+   looks the same in the editor and the preview on every theme. (#390-adjacent) */
 @import "katex/dist/katex.min.css";
-@import "highlight.js/styles/atom-one-light.css";
 
 @tailwind base;
 @tailwind components;
@@ -1574,6 +1576,20 @@ textarea,
 .cm-editor .cm-fat-cursor ~ .cm-cursor {
   display: none;
 }
+/*
+ * During a Vim *pending* state (operator-pending, `f`/`t` waiting for a char,
+ * the `:` / `/` command line) @replit/codemirror-vim draws a half-height block
+ * and sets the glyph's inline `color: transparent` so the shrunk block reads
+ * clean. Our block-color override above (`color: … !important`) was forcing that
+ * glyph back to visible, squished into the half box — the "shrunken character"
+ * artifact. Re-hide the glyph so the pending cursor is a clean half-block; the
+ * transparent inline color is the only marker the package leaves on it. The
+ * block is still width-sized by the (now invisible) letter. (#390)
+ */
+.cm-editor .cm-fat-cursor[style*='transparent'],
+.cm-editor.cm-focused .cm-fat-cursor[style*='transparent'] {
+  color: transparent !important;
+}
 
 /* --- Vim ex command panel (`:` / `/` / `?` input at the bottom) ----- */
 /*
@@ -1819,6 +1835,21 @@ textarea,
 .cm-editor .cm-task-checkbox-input:focus-visible {
   outline: 2px solid rgb(var(--z-accent) / 0.45);
   outline-offset: 2px;
+}
+
+/* --- Completed task text (live preview) ------------------------------- */
+/* `.cm-task-done` marks the text of a checked `- [x]` item; the setting is
+   mirrored onto `html[data-completed-task-style]`, so `none` (the default)
+   adds no rule and the task keeps its original look. The checkbox widget is a
+   separate element, so it is never struck or dimmed. */
+html[data-completed-task-style="strikethrough"] .cm-editor .cm-task-done,
+html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done {
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--z-grey-0));
+}
+html[data-completed-task-style="gray"] .cm-editor .cm-task-done,
+html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done {
+  color: rgb(var(--z-grey-0)) !important;
 }
 
 /* --- Search match highlights (`/` in vim, `Cmd+F`) -------------------- */
@@ -2197,6 +2228,80 @@ textarea,
   color: rgb(var(--z-accent-soft));
   font-style: italic;
 }
+
+/* Preview code highlighting (rehype-highlight / highlight.js) mapped onto the
+   same theme-adaptive palette the editor uses above, so a fenced block reads the
+   same in the editor and the preview (and adapts to every theme) instead of a
+   fixed light hljs theme clashing with dark ones. */
+.prose-zen code.hljs {
+  color: rgb(var(--z-fg));
+  background: transparent;
+}
+.prose-zen .hljs-keyword,
+.prose-zen .hljs-selector-tag,
+.prose-zen .hljs-literal,
+.prose-zen .hljs-doctag,
+.prose-zen .hljs-name {
+  color: rgb(var(--z-accent));
+  font-weight: 600;
+}
+.prose-zen .hljs-string,
+.prose-zen .hljs-regexp,
+.prose-zen .hljs-char,
+.prose-zen .hljs-symbol,
+.prose-zen .hljs-bullet,
+.prose-zen .hljs-addition,
+.prose-zen .hljs-meta .hljs-string {
+  color: rgb(var(--z-green));
+}
+.prose-zen .hljs-comment,
+.prose-zen .hljs-quote,
+.prose-zen .hljs-deletion {
+  color: rgb(var(--z-fg-2));
+  font-style: italic;
+  opacity: 0.85;
+}
+.prose-zen .hljs-number {
+  color: rgb(var(--z-yellow));
+}
+.prose-zen .hljs-type,
+.prose-zen .hljs-class .hljs-title,
+.prose-zen .hljs-title.class_ {
+  color: rgb(var(--z-purple));
+}
+.prose-zen .hljs-built_in,
+.prose-zen .hljs-title,
+.prose-zen .hljs-title.function_,
+.prose-zen .hljs-function .hljs-title {
+  color: rgb(var(--z-blue));
+}
+.prose-zen .hljs-attr,
+.prose-zen .hljs-attribute,
+.prose-zen .hljs-variable,
+.prose-zen .hljs-template-variable,
+.prose-zen .hljs-property,
+.prose-zen .hljs-params {
+  color: rgb(var(--z-fg));
+}
+.prose-zen .hljs-tag,
+.prose-zen .hljs-selector-id,
+.prose-zen .hljs-selector-class {
+  color: rgb(var(--z-red));
+}
+.prose-zen .hljs-operator,
+.prose-zen .hljs-punctuation {
+  color: rgb(var(--z-fg-2));
+}
+.prose-zen .hljs-meta {
+  color: rgb(var(--z-accent-soft));
+}
+.prose-zen .hljs-emphasis {
+  font-style: italic;
+}
+.prose-zen .hljs-strong {
+  font-weight: 700;
+}
+
 /*
  * Markdown list markers (`-`, `*`, `1.`, `2.`) share `tok-meta-code`
  * with code-block decorators, but inside a list line italic markers
@@ -2561,6 +2666,25 @@ textarea,
 .prose-zen li.task-list-item > ol {
   margin-top: 0;
   margin-bottom: 0;
+}
+/* Completed task text (reading view). Gated by html[data-completed-task-style]
+   (default `none` → no rule). `task-self-done` marks an item whose OWN checkbox
+   is checked, and the styling targets only that item's own text (`.task-item-body`
+   for tight items, `> p` for loose ones) — never the nested sub-list — so a
+   completed parent never strikes its unchecked sub-tasks. The checkbox keeps its
+   accent color. Both set in Preview.tsx after render. */
+html[data-completed-task-style="strikethrough"] .prose-zen li.task-list-item.task-self-done > .task-item-body,
+html[data-completed-task-style="strikethrough"] .prose-zen li.task-list-item.task-self-done > p,
+html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-item.task-self-done > .task-item-body,
+html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-item.task-self-done > p {
+  text-decoration: line-through;
+  text-decoration-color: rgb(var(--z-grey-0));
+}
+html[data-completed-task-style="gray"] .prose-zen li.task-list-item.task-self-done > .task-item-body,
+html[data-completed-task-style="gray"] .prose-zen li.task-list-item.task-self-done > p,
+html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-item.task-self-done > .task-item-body,
+html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-item.task-self-done > p {
+  color: rgb(var(--z-grey-0));
 }
 .prose-zen blockquote {
   margin: var(--z-prose-block-gap) 0;
@@ -3205,20 +3329,25 @@ textarea,
   margin: 0.85rem;
 }
 
-/* Wiki links */
+/* Wiki links — Obsidian-style internal links: accent text with a soft underline,
+   matching the editor's live-preview wikilink so they read as links rather than
+   filled inline-code chips. (Julie: the old boxed style looked like inline code.) */
 .prose-zen a.wikilink {
-  background: theme("colors.paper.200");
-  padding: 1px 6px;
-  border-radius: 4px;
-  border-bottom: none;
+  color: rgb(var(--z-accent));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--z-accent) / 0.4);
+  text-underline-offset: 2px;
   font-weight: 500;
 }
+/* Unresolved target: muted, with a dashed underline (not a boxed border) as a
+   quiet "this note doesn't exist yet" hint. */
 .prose-zen a.wikilink.broken {
   color: theme("colors.ink.500");
-  border: 1px dashed theme("colors.paper.400");
+  text-decoration-style: dashed;
+  text-decoration-color: theme("colors.ink.400");
 }
 .prose-zen a.wikilink:hover {
-  background: theme("colors.paper.300");
+  text-decoration-color: rgb(var(--z-accent));
 }
 
 .prose-hover-preview {
@@ -3324,40 +3453,81 @@ textarea,
   font-weight: 600;
   margin-bottom: 0.35em;
 }
+/* Callout color groups — the `data-callout` lists mirror the alias→group table
+   in `lib/callout-types.ts` (kept in sync by hand; CSS can't import it). */
 .prose-zen .callout[data-callout="note"],
-.prose-zen .callout[data-callout="info"] {
+.prose-zen .callout[data-callout="info"],
+.prose-zen .callout[data-callout="abstract"],
+.prose-zen .callout[data-callout="summary"],
+.prose-zen .callout[data-callout="tldr"] {
   border-color: rgb(var(--z-blue) / 0.35);
   background: rgb(var(--z-blue) / 0.08);
 }
 .prose-zen .callout[data-callout="note"] .callout-title,
-.prose-zen .callout[data-callout="info"] .callout-title {
+.prose-zen .callout[data-callout="info"] .callout-title,
+.prose-zen .callout[data-callout="abstract"] .callout-title,
+.prose-zen .callout[data-callout="summary"] .callout-title,
+.prose-zen .callout[data-callout="tldr"] .callout-title {
   color: rgb(var(--z-blue));
 }
 .prose-zen .callout[data-callout="tip"],
-.prose-zen .callout[data-callout="hint"] {
+.prose-zen .callout[data-callout="hint"],
+.prose-zen .callout[data-callout="important"],
+.prose-zen .callout[data-callout="success"],
+.prose-zen .callout[data-callout="check"],
+.prose-zen .callout[data-callout="done"] {
   border-color: rgb(var(--z-green) / 0.35);
   background: rgb(var(--z-green) / 0.08);
 }
 .prose-zen .callout[data-callout="tip"] .callout-title,
-.prose-zen .callout[data-callout="hint"] .callout-title {
+.prose-zen .callout[data-callout="hint"] .callout-title,
+.prose-zen .callout[data-callout="important"] .callout-title,
+.prose-zen .callout[data-callout="success"] .callout-title,
+.prose-zen .callout[data-callout="check"] .callout-title,
+.prose-zen .callout[data-callout="done"] .callout-title {
   color: rgb(var(--z-green));
 }
+.prose-zen .callout[data-callout="question"],
+.prose-zen .callout[data-callout="help"],
+.prose-zen .callout[data-callout="faq"],
+.prose-zen .callout[data-callout="example"] {
+  border-color: rgb(var(--z-purple) / 0.35);
+  background: rgb(var(--z-purple) / 0.08);
+}
+.prose-zen .callout[data-callout="question"] .callout-title,
+.prose-zen .callout[data-callout="help"] .callout-title,
+.prose-zen .callout[data-callout="faq"] .callout-title,
+.prose-zen .callout[data-callout="example"] .callout-title {
+  color: rgb(var(--z-purple));
+}
 .prose-zen .callout[data-callout="warning"],
-.prose-zen .callout[data-callout="warn"] {
+.prose-zen .callout[data-callout="warn"],
+.prose-zen .callout[data-callout="caution"],
+.prose-zen .callout[data-callout="attention"] {
   border-color: rgb(var(--z-yellow) / 0.4);
   background: rgb(var(--z-yellow) / 0.08);
 }
 .prose-zen .callout[data-callout="warning"] .callout-title,
-.prose-zen .callout[data-callout="warn"] .callout-title {
+.prose-zen .callout[data-callout="warn"] .callout-title,
+.prose-zen .callout[data-callout="caution"] .callout-title,
+.prose-zen .callout[data-callout="attention"] .callout-title {
   color: rgb(var(--z-yellow));
 }
 .prose-zen .callout[data-callout="danger"],
-.prose-zen .callout[data-callout="error"] {
+.prose-zen .callout[data-callout="error"],
+.prose-zen .callout[data-callout="bug"],
+.prose-zen .callout[data-callout="failure"],
+.prose-zen .callout[data-callout="fail"],
+.prose-zen .callout[data-callout="missing"] {
   border-color: rgb(var(--z-red) / 0.35);
   background: rgb(var(--z-red) / 0.08);
 }
 .prose-zen .callout[data-callout="danger"] .callout-title,
-.prose-zen .callout[data-callout="error"] .callout-title {
+.prose-zen .callout[data-callout="error"] .callout-title,
+.prose-zen .callout[data-callout="bug"] .callout-title,
+.prose-zen .callout[data-callout="failure"] .callout-title,
+.prose-zen .callout[data-callout="fail"] .callout-title,
+.prose-zen .callout[data-callout="missing"] .callout-title {
   color: rgb(var(--z-red));
 }
 
@@ -3575,7 +3745,7 @@ textarea,
 }
 .vim-cursor {
   background: rgb(var(--z-accent) / 0.15);
-  color: rgb(var(--z-ink-900));
+  color: theme("colors.ink.900");
 }
 .vim-cursor-on-active {
   box-shadow: inset 0 0 0 2px rgb(var(--z-accent) / 0.65);
@@ -3684,8 +3854,8 @@ textarea,
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: rgb(var(--z-paper-200));
-  color: rgb(var(--z-ink-700));
+  background: theme("colors.paper.200");
+  color: theme("colors.ink.700");
   font-size: 12px;
   font-weight: 700;
   font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
@@ -3696,12 +3866,12 @@ textarea,
   flex: 1;
   font-size: 14px;
   font-weight: 500;
-  color: rgb(var(--z-ink-900));
+  color: theme("colors.ink.900");
 }
 
 .slash-cmd-detail {
   font-size: 12px;
-  color: rgb(var(--z-ink-400));
+  color: theme("colors.ink.400");
   font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
 }
 
@@ -3727,7 +3897,7 @@ textarea,
   white-space: nowrap;
   font-size: 14px;
   font-weight: 600;
-  color: rgb(var(--z-ink-900));
+  color: theme("colors.ink.900");
 }
 
 .wikilink-cmd-subtitle {
@@ -3735,8 +3905,75 @@ textarea,
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  color: rgb(var(--z-ink-400));
+  color: theme("colors.ink.400");
   font-family: var(--z-mono-font, "SF Mono", ui-monospace, monospace);
+}
+
+/* Callout type insert menu (`[!` → pick a callout). Icon tile tinted per color
+ * group, with the type label above a short description. */
+.callout-cmd-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 260px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.callout-cmd-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+  flex-shrink: 0;
+  background: theme("colors.paper.200");
+}
+.callout-cmd-note {
+  background: rgb(var(--z-blue) / 0.16);
+}
+.callout-cmd-tip {
+  background: rgb(var(--z-green) / 0.16);
+}
+.callout-cmd-question {
+  background: rgb(var(--z-purple) / 0.16);
+}
+.callout-cmd-warning {
+  background: rgb(var(--z-yellow) / 0.18);
+}
+.callout-cmd-danger {
+  background: rgb(var(--z-red) / 0.16);
+}
+.callout-cmd-quote {
+  background: theme("colors.paper.200");
+}
+
+.callout-cmd-main {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.callout-cmd-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: theme("colors.ink.900");
+}
+
+.callout-cmd-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: theme("colors.ink.400");
 }
 
 /* --- Heading fold placeholder (CodeMirror) ------------------------- */
@@ -3852,7 +4089,7 @@ textarea,
   height: var(--z-heading-fold-arrow-size);
   font-size: var(--z-heading-fold-arrow-glyph-size);
   line-height: 1;
-  color: rgb(var(--z-ink-400));
+  color: theme("colors.ink.400");
   opacity: 0;
   cursor: pointer;
   user-select: none;
@@ -3869,7 +4106,7 @@ textarea,
   opacity: 1;
 }
 .cm-heading-fold-arrow:hover {
-  color: rgb(var(--z-ink-900));
+  color: theme("colors.ink.900");
   background: rgb(var(--z-bg-2));
 }
 .cm-heading-fold-arrow.is-folded {
@@ -3900,7 +4137,7 @@ textarea,
   height: var(--z-heading-fold-arrow-size);
   font-size: 16px;
   line-height: 1;
-  color: rgb(var(--z-ink-400));
+  color: theme("colors.ink.400");
   opacity: 0;
   cursor: pointer;
   user-select: none;
@@ -3916,7 +4153,7 @@ textarea,
   opacity: 1;
 }
 .prose-zen .prose-heading-fold-arrow:hover {
-  color: rgb(var(--z-ink-900));
+  color: theme("colors.ink.900");
   background: rgb(var(--z-bg-2));
 }
 .prose-zen .prose-heading-fold-arrow.is-folded {
@@ -4010,6 +4247,12 @@ textarea,
   margin: 0 0 0 -16px;
   padding: 14px 9px 9px 16px;
   overflow-x: auto;
+  /* Only scroll horizontally (wide tables); never show a vertical scrollbar.
+     `overflow-x: auto` alone makes CSS compute `overflow-y` to `auto`, and the
+     hover add-row rail sitting in the bottom padding gutter tips the widget a
+     few sub-pixels into vertical overflow, drawing a stray vertical scrollbar
+     down the right edge. (#382) */
+  overflow-y: hidden;
   white-space: normal;
   font-family: var(
     --z-text-font,
@@ -4175,8 +4418,10 @@ textarea,
 .cm-table-widget th[align="right"] .cm-table-cell {
   text-align: right;
 }
-/* Hover add-buttons: a thin "+" rail along the right edge (column) and the
-   bottom edge (row) of the grid. */
+/* Hover add-buttons: a thin "+" rail just outside the right edge (column) and
+   the bottom edge (row) of the grid. They live in the widget's right/bottom
+   padding gutter rather than on top of the last column/row, which would obscure
+   those cells (#382). */
 .cm-table-widget .cm-table-add {
   position: absolute;
   display: flex;
@@ -4202,16 +4447,19 @@ textarea,
 }
 .cm-table-widget .cm-table-add-col {
   top: 0;
-  right: 0;
+  /* Sit flush against the table's right border, in the gutter, not over the
+     last column. */
+  left: 100%;
   width: 9px;
   height: 100%;
 }
 .cm-table-widget .cm-table-add-row {
   left: 0;
-  bottom: 0;
+  /* Sit just below the table's bottom border, in the gutter, not over the
+     last row. */
+  top: 100%;
   height: 9px;
-  /* Span the grid, not the button rail on the right. */
-  width: calc(100% - 10px);
+  width: 100%;
 }
 
 /* Drag-to-reorder grips: row grip left of each body row, column grip above
@@ -4360,6 +4608,9 @@ textarea,
 .cm-wysiwyg .cm-editor .cm-callout-tip {
   --callout-color: var(--z-green);
 }
+.cm-wysiwyg .cm-editor .cm-callout-question {
+  --callout-color: var(--z-purple);
+}
 .cm-wysiwyg .cm-editor .cm-callout-warning {
   --callout-color: var(--z-yellow);
 }
@@ -4455,6 +4706,31 @@ textarea,
   font-style: normal !important;
   text-decoration: none !important;
   opacity: 0.7;
+}
+
+/* Live-preview math — KaTeX rendered inline in the editor, matching the Preview
+   pipeline. The raw `$…$` / `$$…$$` source is revealed when the cursor enters it
+   (see cm-math-render.ts). */
+.cm-wysiwyg .cm-editor .cm-math-inline {
+  cursor: text;
+}
+.cm-wysiwyg .cm-editor .cm-math-block {
+  display: block;
+  text-align: center;
+  /* Padding, never margin: CodeMirror measures block widgets with
+     getBoundingClientRect, which excludes margins, so any vertical margin here
+     (or KaTeX's own .katex-display margin collapsing through) makes the height
+     map drift and mouse clicks land further off the deeper you scroll. */
+  margin: 0;
+  padding: 0.5em 0;
+  cursor: text;
+}
+.cm-wysiwyg .cm-editor .cm-math-block .katex-display {
+  margin: 0;
+}
+.cm-wysiwyg .cm-editor .cm-math-error {
+  font-family: var(--z-font-mono, ui-monospace, monospace);
+  opacity: 0.75;
 }
 
 /* Inline hashtags rendered as clickable pills — Obsidian's `.tag` style:

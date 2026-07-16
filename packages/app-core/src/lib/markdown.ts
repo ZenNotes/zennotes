@@ -13,6 +13,7 @@ import rehypeStringify from 'rehype-stringify'
 import { visit, SKIP } from 'unist-util-visit'
 import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
+import type { VFile } from 'vfile'
 import { recordRendererPerf } from './perf'
 import { classifyLocalAssetHref } from './local-assets'
 import { parseEmbedSizeHint } from './excalidraw-preview'
@@ -476,16 +477,70 @@ function rehypeTableColWidths() {
   }
 }
 
+/**
+ * Stamp each top-level block with `data-source-line` (its 1-based start line in
+ * the markdown source), so the split-view preview can be scroll-synced to the
+ * editor by mapping the editor's top line to the matching rendered element
+ * instead of by a raw scroll ratio (which drifts when the two heights differ).
+ * Applied via `data.hProperties` so `remarkRehype` carries it onto the element.
+ */
+function remarkSourceLines() {
+  return (tree: MdRoot): void => {
+    for (const node of tree.children) {
+      const line = node.position?.start?.line
+      if (line == null) continue
+      const data = (node.data ??= {})
+      const hProperties = ((data.hProperties ??= {}) as Record<string, unknown>)
+      hProperties['data-source-line'] = line
+    }
+  }
+}
+
+/**
+ * Genuine inline math (mirrors the live editor's `INLINE_MATH_RE`): a single `$`
+ * on each side with no whitespace immediately inside either delimiter. The
+ * anchored form is tested against the raw `$…$` source token.
+ */
+const STRICT_INLINE_MATH_RE = /^\$(?!\s)(?:\\.|[^$\\])*(?<!\s)\$$/
+
+/**
+ * remark-math is more permissive than the editor: it renders `$5 and got $10` as
+ * a formula (the content only has to avoid *both-sided* padding), so a currency
+ * line shows up as math in the reading view while the editor keeps it literal.
+ * Re-check every inline-math node against the editor's stricter rule using the
+ * original source, and turn currency-like matches back into plain text so the two
+ * views agree. Runs right after remark-math, before the node becomes a KaTeX span.
+ */
+function remarkCurrencyGuard() {
+  return (tree: MdRoot, file: VFile): void => {
+    const raw = file?.value
+    const source = typeof raw === 'string' ? raw : raw != null ? String(raw) : ''
+    if (!source.includes('$')) return
+    visit(tree, 'inlineMath', (node, index, parent) => {
+      if (!parent || index === undefined) return
+      const start = node.position?.start?.offset
+      const end = node.position?.end?.offset
+      if (start == null || end == null) return
+      const token = source.slice(start, end)
+      if (STRICT_INLINE_MATH_RE.test(token)) return
+      ;(parent as unknown as AnyParent).children.splice(index, 1, { type: 'text', value: token })
+      return [SKIP, index + 1]
+    })
+  }
+}
+
 const processor = unified()
   .use(remarkParse)
   .use(remarkFrontmatter, ['yaml', 'toml'])
   .use(remarkGfm)
   .use(remarkBreaks)
   .use(remarkMath)
+  .use(remarkCurrencyGuard)
   .use(remarkWikilinks)
   .use(remarkHashtags)
   .use(remarkHighlight)
   .use(remarkCallouts)
+  .use(remarkSourceLines)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
   .use(rehypeTableColWidths)
@@ -558,6 +613,104 @@ function escapeTableMathPipes(src: string): string {
   return changed ? out.join('\n') : src
 }
 
+/**
+ * remark-math only closes a `$$` block on a line containing nothing but the
+ * closing fence, while the editor's live preview (cm-math-render) also accepts
+ * content hugging a fence: a closing `$$` at the end of the last content line,
+ * or a whole `$$x^2$$` block on one line (#399). Rewrite those editor-legal
+ * shapes into the canonical fence-on-its-own-line form so the reading view
+ * parses exactly what the editor renders. Fenced code is left untouched, and
+ * anything the editor itself rejects (mid-line `$$`, empty or unclosed blocks)
+ * passes through unchanged — canonical notes come back byte-identical.
+ */
+function normalizeBlockMathFences(src: string): string {
+  if (!src.includes('$$')) return src
+  const lines = src.split('\n')
+  const out: string[] = []
+  let changed = false
+  let codeFence: string | null = null
+  let i = 0
+  while (i < lines.length) {
+    const raw = lines[i]
+    const trimmed = raw.trim()
+    if (codeFence) {
+      out.push(raw)
+      if (trimmed.startsWith(codeFence)) codeFence = null
+      i++
+      continue
+    }
+    const fence = trimmed.match(/^(`{3,}|~{3,})/)
+    if (fence) {
+      out.push(raw)
+      codeFence = fence[1]
+      i++
+      continue
+    }
+    const open = raw.match(/^( {0,3})\$\$(?!\$)(.*)$/)
+    if (!open) {
+      out.push(raw)
+      i++
+      continue
+    }
+    const indent = open[1]
+    const rest = open[2]
+    const restTrimmed = rest.trim()
+    if (restTrimmed.includes('$$')) {
+      // `$$x^2$$` on one line: expand it. Anything else with a `$$` mid-line
+      // (`$$a$$b`, `$$ $$`) is rejected by the editor too — pass through.
+      if (restTrimmed.endsWith('$$') && restTrimmed.indexOf('$$') === restTrimmed.length - 2) {
+        const inner = restTrimmed.slice(0, -2)
+        if (inner.trim() !== '') {
+          out.push(`${indent}$$`, inner, `${indent}$$`)
+          changed = true
+          i++
+          continue
+        }
+      }
+      out.push(raw)
+      i++
+      continue
+    }
+    // Multi-line block: find the closing fence, giving up at the first `$$`
+    // the editor's whole-line rule would reject.
+    let close = -1
+    let closeHasContent = false
+    for (let k = i + 1; k < lines.length; k++) {
+      const t = lines[k].trim()
+      if (!t.includes('$$')) continue
+      if (t === '$$') {
+        close = k
+      } else if (t.endsWith('$$') && t.indexOf('$$') === t.length - 2) {
+        close = k
+        closeHasContent = true
+      }
+      break
+    }
+    if (close === -1 || (restTrimmed === '' && !closeHasContent)) {
+      // Unclosed, editor-rejected, or already canonical: leave untouched.
+      out.push(raw)
+      i++
+      continue
+    }
+    out.push(`${indent}$$`)
+    if (restTrimmed !== '') {
+      out.push(rest)
+      changed = true
+    }
+    for (let k = i + 1; k < close; k++) out.push(lines[k])
+    if (closeHasContent) {
+      const rawClose = lines[close]
+      const idx = rawClose.lastIndexOf('$$')
+      out.push(rawClose.slice(0, idx), `${indent}$$`)
+      changed = true
+    } else {
+      out.push(lines[close])
+    }
+    i = close + 1
+  }
+  return changed ? out.join('\n') : src
+}
+
 export function renderMarkdown(src: string): string {
   const cached = getCachedMarkdown(src)
   if (cached != null) {
@@ -567,7 +720,9 @@ export function renderMarkdown(src: string): string {
 
   const startedAt = performance.now()
   try {
-    const html = sanitizeRenderedHtml(String(processor.processSync(escapeTableMathPipes(src))))
+    const html = sanitizeRenderedHtml(
+      String(processor.processSync(escapeTableMathPipes(normalizeBlockMathFences(src))))
+    )
     cacheRenderedMarkdown(src, html)
     recordRendererPerf('markdown.render', performance.now() - startedAt, {
       chars: src.length

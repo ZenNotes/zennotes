@@ -5,6 +5,36 @@ import '@excalidraw/excalidraw/index.css'
 import { parseExcalidrawDocument } from '@shared/excalidraw'
 
 type InitialData = ComponentProps<typeof Excalidraw>['initialData']
+type ExcalidrawProps = ComponentProps<typeof Excalidraw>
+type OnChange = NonNullable<ExcalidrawProps['onChange']>
+type SceneElements = Parameters<OnChange>[0]
+type AppState = Parameters<OnChange>[1]
+type BinaryFiles = Parameters<OnChange>[2]
+
+interface LatestScene {
+  elements: SceneElements
+  appState: AppState
+  files: BinaryFiles
+}
+
+type ViewportState = Pick<AppState, 'scrollX' | 'scrollY' | 'zoom'>
+
+const VIEWPORT_MEMORY_LIMIT = 60
+const viewportMemory = new Map<string, ViewportState>()
+
+function rememberViewport(path: string, appState: AppState): void {
+  viewportMemory.delete(path)
+  viewportMemory.set(path, {
+    scrollX: appState.scrollX,
+    scrollY: appState.scrollY,
+    zoom: appState.zoom
+  })
+  while (viewportMemory.size > VIEWPORT_MEMORY_LIMIT) {
+    const oldest = viewportMemory.keys().next().value
+    if (oldest === undefined) break
+    viewportMemory.delete(oldest)
+  }
+}
 
 function readThemeMode(): 'light' | 'dark' {
   return typeof document !== 'undefined' &&
@@ -22,8 +52,31 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
   const [initialData, setInitialData] = useState<InitialData | undefined>(undefined)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSaved = useRef<string>('')
+  const latestScene = useRef<LatestScene | null>(null)
   const pathRef = useRef(path)
   pathRef.current = path
+
+  const writeLatestScene = (savePath: string): void => {
+    const scene = latestScene.current
+    if (!scene) return
+    let json: string
+    try {
+      json = serializeAsJSON(scene.elements, scene.appState, scene.files, 'local')
+    } catch {
+      return
+    }
+    if (json === lastSaved.current) return
+    lastSaved.current = json
+    void window.zen.writeNote(savePath, json)
+  }
+
+  const flushPendingSave = (savePath = pathRef.current): void => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    writeLatestScene(savePath)
+  }
 
   // Follow the app's resolved light/dark mode. That mode lives on
   // `<html data-theme-mode>`, maintained in App.tsx (it already accounts for
@@ -50,10 +103,14 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
       .then((res) => {
         if (cancelled) return
         lastSaved.current = res?.body ?? ''
+        latestScene.current = null
         const doc = parseExcalidrawDocument(res?.body ?? '')
+        const rememberedViewport = viewportMemory.get(path)
         setInitialData({
           elements: doc.elements,
-          appState: doc.appState,
+          appState: rememberedViewport
+            ? { ...doc.appState, ...rememberedViewport }
+            : doc.appState,
           files: doc.files
         } as InitialData)
       })
@@ -61,13 +118,14 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
         if (!cancelled) setInitialData({} as InitialData)
       })
     return () => {
+      flushPendingSave(path)
       cancelled = true
     }
   }, [path])
 
   useEffect(
     () => () => {
-      if (saveTimer.current) clearTimeout(saveTimer.current)
+      flushPendingSave()
     },
     []
   )
@@ -86,18 +144,13 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
         initialData={initialData}
         theme={excalidrawTheme}
         onChange={(elements, appState, files) => {
+          latestScene.current = { elements, appState, files }
+          rememberViewport(pathRef.current, appState)
           if (saveTimer.current) clearTimeout(saveTimer.current)
           saveTimer.current = setTimeout(() => {
-            let json: string
-            try {
-              json = serializeAsJSON(elements, appState, files, 'local')
-            } catch {
-              return
-            }
+            saveTimer.current = null
             // Skip no-op writes (Excalidraw fires onChange on load and on hover).
-            if (json === lastSaved.current) return
-            lastSaved.current = json
-            void window.zen.writeNote(pathRef.current, json)
+            writeLatestScene(pathRef.current)
           }, 700)
         }}
       />

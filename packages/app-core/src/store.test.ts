@@ -2,9 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TASKS_TAB_PATH, type VaultTask } from '@shared/tasks'
-import { databaseTabPath } from '@shared/databases'
+import { databaseTabPath, type DatabaseDoc } from '@shared/databases'
 import { assetTabPath } from './lib/asset-tabs'
 import { findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
+import { NO_VALUE_COLUMN_ID } from './components/TasksKanban'
 
 function makeTask(content: string, taskIndex = 0): VaultTask {
   return {
@@ -906,6 +907,51 @@ describe('viewPrefsFromVault (#292 — per-vault view overlay)', () => {
     expect(viewPrefsFromVault({} as unknown as ViewArg)).toEqual({})
     expect(viewPrefsFromVault(null)).toEqual({})
   })
+
+  it('overlays and normalizes kanbanColumnOrder (#389)', async () => {
+    installZen()
+    const { viewPrefsFromVault } = await loadStore()
+    const patch = viewPrefsFromVault({
+      view: {
+        kanbanColumnOrder: {
+          'field:status': ['review', 'backlog', 'review', 42, 'done'],
+          'not-a-groupby': ['x'],
+          priority: []
+        }
+      }
+    } as unknown as ViewArg)
+    // Dedupes, drops non-strings, drops unknown group-bys, drops empty arrays.
+    expect(patch.kanbanColumnOrder).toEqual({ 'field:status': ['review', 'backlog', 'done'] })
+  })
+
+  it('keeps a renamed No-value bucket title through normalization (#389)', async () => {
+    installZen()
+    const { viewPrefsFromVault } = await loadStore()
+    // The "No <field>" bucket's title key ends in the __none__ sentinel; its
+    // underscore prefix must not be rejected, or the rename would silently vanish.
+    const key = `field:status:${NO_VALUE_COLUMN_ID}`
+    const patch = viewPrefsFromVault({
+      view: { kanbanColumnTitles: { [key]: 'Unassigned', 'field:status:review': 'In review' } }
+    } as unknown as ViewArg)
+    expect(patch.kanbanColumnTitles).toEqual({ [key]: 'Unassigned', 'field:status:review': 'In review' })
+  })
+})
+
+describe('setKanbanColumnOrder (#389 — manual Kanban column order)', () => {
+  it('stores a trimmed, deduped order per board and clears it on empty', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    useStore
+      .getState()
+      .setKanbanColumnOrder('field:status', ['review', 'backlog', 'review', ' done '])
+    expect(useStore.getState().kanbanColumnOrder['field:status']).toEqual([
+      'review',
+      'backlog',
+      'done'
+    ])
+    useStore.getState().setKanbanColumnOrder('field:status', [])
+    expect(useStore.getState().kanbanColumnOrder['field:status']).toBeUndefined()
+  })
 })
 
 describe('viewSettingsScope (#292 — global vs per-vault)', () => {
@@ -998,5 +1044,87 @@ describe('date-nav expand state (#301)', () => {
     expect(s().dateNavExpanded).toContain('w:2026')
     s().toggleDateNav('w:2026')
     expect(s().dateNavExpanded).not.toContain('w:2026')
+  })
+})
+
+describe('deleteDatabaseRows (#391 — purge record-page schema mappings)', () => {
+  const CSV = 'db.base/data.csv'
+  function makeDbDoc(): DatabaseDoc {
+    return {
+      version: 1,
+      idFieldId: 'f_id',
+      fields: [],
+      views: [],
+      activeViewId: 'v1',
+      path: CSV,
+      title: 'db',
+      rows: [
+        { id: 'r1', cells: { f_id: 'r1' } },
+        { id: 'r2', cells: { f_id: 'r2' } }
+      ],
+      pages: { r1: 'db.base/pages/r1.md' },
+      pageHasContent: { r1: true }
+    } as unknown as DatabaseDoc
+  }
+
+  it('purges the deleted row page mapping and trashes the note on confirm', async () => {
+    const moveToTrash = vi.fn().mockResolvedValue({})
+    installZen({
+      moveToTrash,
+      writeDatabaseSchema: vi.fn().mockResolvedValue(undefined),
+      writeDatabaseRows: vi.fn().mockResolvedValue(undefined)
+    })
+    const { useStore } = await loadStore()
+    const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
+    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+
+    const p = useStore.getState().deleteDatabaseRows(CSV, ['r1'])
+    const req = getConfirmRequest()
+    expect(req).toBeTruthy() // prompted because r1 has a linked page
+    settleConfirmRequest(req!, true) // "Delete row + note"
+    await p
+
+    const doc = useStore.getState().databases[CSV]!
+    expect(doc.rows.map((r) => r.id)).toEqual(['r2'])
+    expect(doc.pages).toEqual({})
+    expect(doc.pageHasContent).toEqual({})
+    expect(moveToTrash).toHaveBeenCalledWith('db.base/pages/r1.md')
+  })
+
+  it('keeps the note on cancel but still purges the stale mapping', async () => {
+    const moveToTrash = vi.fn().mockResolvedValue({})
+    installZen({
+      moveToTrash,
+      writeDatabaseSchema: vi.fn().mockResolvedValue(undefined),
+      writeDatabaseRows: vi.fn().mockResolvedValue(undefined)
+    })
+    const { useStore } = await loadStore()
+    const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
+    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+
+    const p = useStore.getState().deleteDatabaseRows(CSV, ['r1'])
+    settleConfirmRequest(getConfirmRequest()!, false) // "Keep note"
+    await p
+
+    const doc = useStore.getState().databases[CSV]!
+    expect(doc.rows.map((r) => r.id)).toEqual(['r2'])
+    expect(doc.pages).toEqual({}) // stale mapping purged even when the note is kept
+    expect(moveToTrash).not.toHaveBeenCalled()
+  })
+
+  it('deletes a page-less row without prompting', async () => {
+    installZen({
+      writeDatabaseRows: vi.fn().mockResolvedValue(undefined),
+      writeDatabaseSchema: vi.fn().mockResolvedValue(undefined)
+    })
+    const { useStore } = await loadStore()
+    const { getConfirmRequest } = await import('./lib/confirm-requests')
+    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+
+    await useStore.getState().deleteDatabaseRows(CSV, ['r2']) // r2 has no linked page
+    expect(getConfirmRequest()).toBeNull() // no prompt
+    const doc = useStore.getState().databases[CSV]!
+    expect(doc.rows.map((r) => r.id)).toEqual(['r1'])
+    expect(doc.pages).toEqual({ r1: 'db.base/pages/r1.md' })
   })
 })

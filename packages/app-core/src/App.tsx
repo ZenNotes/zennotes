@@ -291,6 +291,7 @@ function App(): JSX.Element {
   const previewMaxWidth = useStore((s) => s.previewMaxWidth)
   const editorMaxWidth = useStore((s) => s.editorMaxWidth)
   const contentAlign = useStore((s) => s.contentAlign)
+  const completedTaskStyle = useStore((s) => s.completedTaskStyle)
   const lineNumberPosition = useStore((s) => s.lineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -390,7 +391,19 @@ function App(): JSX.Element {
           const path = window.zen.getPathForFile(file)
           if (path) void window.zen.openMarkdownFile(path)
         }
-      }
+      },
+      // Dragging a folder onto the window opens it as a temporary session.
+      // Desktop-only (the web build has no OS paths).
+      ...(runtime === 'web'
+        ? {}
+        : {
+            onFolders: (folders: File[]) => {
+              for (const folder of folders) {
+                const path = window.zen.getPathForFile(folder)
+                if (path) void window.zen.openFolderTemporary(path)
+              }
+            }
+          })
     })
   }, [])
 
@@ -510,6 +523,7 @@ function App(): JSX.Element {
     html.style.setProperty('--z-preview-max-width', `${previewMaxWidth}px`)
     html.style.setProperty('--z-editor-max-width', `${editorMaxWidth}px`)
     html.dataset.contentAlign = contentAlign
+    html.dataset.completedTaskStyle = completedTaskStyle
     html.dataset.lineNumberPosition = lineNumberPosition
 
     const setFont = (name: string, value: string | null, fallback: string): void => {
@@ -531,7 +545,7 @@ function App(): JSX.Element {
       monoFont,
       '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
     )
-  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, lineNumberPosition, interfaceFont, textFont, monoFont])
+  }, [editorFontSize, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, completedTaskStyle, lineNumberPosition, interfaceFont, textFont, monoFont])
 
   // The app now always runs fully opaque.
   useEffect(() => {
@@ -797,7 +811,13 @@ function App(): JSX.Element {
         state.outlinePaletteOpen ||
         document.querySelector('[data-ctx-menu]') ||
         document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]')
+        document.querySelector('[data-confirm-modal]') ||
+        // An open autocomplete popup (slash menu, [[ links, the callout [! type
+        // picker) owns the keyboard: its Ctrl+J/Ctrl+K/Ctrl+N/Ctrl+P navigation
+        // must win over a focusPane shortcut a user remapped onto those chords,
+        // rather than switching panes mid-completion. Mirrors the completion
+        // deferral for inline-format shortcuts (#337). Reported by Tornado300.
+        document.querySelector('.cm-tooltip-autocomplete')
       ) {
         return
       }

@@ -18,7 +18,7 @@ import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
-import { normalizeVaultSettings } from './vault-layout'
+import { noteFolderSubpath, normalizeVaultSettings } from './vault-layout'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -227,14 +227,28 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       keywords: 'create add write',
       when: () => {
-        const v = getState().view
-        return v.kind === 'folder' && v.folder !== 'trash' && !isTrashViewActive(getState())
+        const s = getState()
+        if (isTrashViewActive(s)) return false
+        if (s.activeNote && s.activeNote.folder !== 'trash') return true
+        return s.view.kind === 'folder' && s.view.folder !== 'trash'
       },
       run: () => {
-        if (isTrashViewActive(getState())) return
-        const v = getState().view
-        if (v.kind !== 'folder') return
-        return getState().createAndOpen(v.folder, v.subpath, { focusTitle: true })
+        const s = getState()
+        if (isTrashViewActive(s)) return
+        // "Current folder" is the folder of the active note (the one you're
+        // editing), not the sidebar's browse view. Those drift apart when notes
+        // from different folders are open, since switching tabs doesn't move the
+        // view, so reading the view created the note in the wrong directory.
+        // (#403) Fall back to the browsed folder only when no note is open.
+        const active = s.activeNote
+        if (active && active.folder !== 'trash') {
+          return s.createAndOpen(active.folder, noteFolderSubpath(active, s.vaultSettings), {
+            focusTitle: true
+          })
+        }
+        const v = s.view
+        if (v.kind !== 'folder' || v.folder === 'trash') return
+        return s.createAndOpen(v.folder, v.subpath, { focusTitle: true })
       }
     },
     {
@@ -1137,6 +1151,34 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: getState().vimMode ? 'Disable Vim Mode' : 'Enable Vim Mode',
       category: 'Editor',
       run: () => getState().setVimMode(!getState().vimMode)
+    },
+    {
+      id: 'editor.completed-task.none',
+      title: 'Completed Tasks: No Style',
+      category: 'Editor',
+      when: () => getState().completedTaskStyle !== 'none',
+      run: () => getState().setCompletedTaskStyle('none')
+    },
+    {
+      id: 'editor.completed-task.strikethrough',
+      title: 'Completed Tasks: Strikethrough',
+      category: 'Editor',
+      when: () => getState().completedTaskStyle !== 'strikethrough',
+      run: () => getState().setCompletedTaskStyle('strikethrough')
+    },
+    {
+      id: 'editor.completed-task.gray',
+      title: 'Completed Tasks: Gray',
+      category: 'Editor',
+      when: () => getState().completedTaskStyle !== 'gray',
+      run: () => getState().setCompletedTaskStyle('gray')
+    },
+    {
+      id: 'editor.completed-task.gray-strikethrough',
+      title: 'Completed Tasks: Strikethrough + Gray',
+      category: 'Editor',
+      when: () => getState().completedTaskStyle !== 'gray-strikethrough',
+      run: () => getState().setCompletedTaskStyle('gray-strikethrough')
     },
     {
       id: 'editor.which-key.toggle',

@@ -34,9 +34,32 @@ export function markdownFilesFromDrop(dataTransfer: DataTransfer | null): File[]
   return Array.from(dataTransfer.files).filter((file) => MARKDOWN_NAME_RE.test(file.name))
 }
 
+/**
+ * Dropped items that are directories (dragging a folder onto the window). A
+ * plain `File` can't be told apart from a folder, so we probe the drag items
+ * with `webkitGetAsEntry().isDirectory` and hand back the matching `File`
+ * objects (the desktop layer resolves each to a path via `getPathForFile`).
+ */
+export function folderFilesFromDrop(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer?.items) return []
+  const out: File[] = []
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind !== 'file') continue
+    const entry = item.webkitGetAsEntry?.()
+    if (entry?.isDirectory) {
+      const file = item.getAsFile()
+      if (file) out.push(file)
+    }
+  }
+  return out
+}
+
 export interface MarkdownFileDropDeps {
   /** Handle the markdown files dropped onto the window. */
   onMarkdownFiles: (files: File[]) => void
+  /** Handle folders dropped onto the window (open as a temporary session).
+   *  Desktop-only; omit on web. */
+  onFolders?: (folders: File[]) => void
 }
 
 /**
@@ -59,11 +82,18 @@ export function installMarkdownFileDropHandler(
   const onDrop = (event: Event): void => {
     const e = event as DragEvent
     if (!isOsFileDrag(e.dataTransfer)) return
-    const files = markdownFilesFromDrop(e.dataTransfer)
-    // Stop the browser from navigating to the dropped file regardless. Only
-    // claim the event (stopPropagation) for markdown; other files still reach
-    // the editor's importer downstream.
+    // Stop the browser from navigating to the dropped item regardless. Only
+    // claim the event (stopPropagation) for things we handle; other files
+    // (images, PDFs) still reach the editor's importer downstream.
     e.preventDefault()
+    // A dropped folder opens as a temporary session (takes priority).
+    const folders = deps.onFolders ? folderFilesFromDrop(e.dataTransfer) : []
+    if (folders.length > 0) {
+      e.stopPropagation()
+      deps.onFolders?.(folders)
+      return
+    }
+    const files = markdownFilesFromDrop(e.dataTransfer)
     if (files.length === 0) return
     e.stopPropagation()
     deps.onMarkdownFiles(files)
