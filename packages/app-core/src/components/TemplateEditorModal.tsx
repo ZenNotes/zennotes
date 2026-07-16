@@ -24,6 +24,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
+import { calloutTypeSource } from '../lib/cm-callouts'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
@@ -134,11 +135,14 @@ export function TemplateEditorModal({
         // doesn't clip the slash / variable dropdowns.
         tooltips({ parent: document.body }),
         autocompletion({
-          override: [templateSlashCommandSource, templateVariableSource],
+          override: [templateSlashCommandSource, calloutTypeSource, templateVariableSource],
           activateOnTyping: true,
           icons: false,
           addToOptions: [{ render: slashCommandRender.render, position: 0 }],
-          optionClass: () => 'slash-cmd-option'
+          optionClass: (completion) =>
+            (completion as { _kind?: string })._kind === 'callout'
+              ? 'callout-cmd-option'
+              : 'slash-cmd-option'
         }),
         completionNavKeymap,
         keymap.of([

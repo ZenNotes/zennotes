@@ -31,8 +31,14 @@ import {
   dispatchKeyboardContextMenu,
   findTabContextMenuTarget
 } from '../lib/keyboard-context-menu'
-import { navigateActiveBuffer } from '../lib/buffer-navigation'
+import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
+import {
+  isExcalidrawPath,
+  isObsidianExcalidrawMarkdown,
+  isObsidianExcalidrawPath
+} from '@shared/excalidraw'
 
 function escapeForAttr(value: string): string {
   if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
@@ -136,6 +142,39 @@ export function VimNav(): JSX.Element | null {
         useStore.getState().editorViewRef?.focus()
       })
     })
+  }, [])
+  const navigateBuffer = useCallback((delta: 1 | -1): void => {
+    const focusIfCurrentNoteTab = (paneId: string, path: string): void => {
+      const latest = useStore.getState()
+      const leaf = findLeaf(latest.paneLayout, paneId)
+      if (latest.activePaneId !== paneId || leaf?.activeTab !== path) return
+      if (isWorkspaceVirtualTabPath(path)) return
+      if (isExcalidrawPath(path) || isObsidianExcalidrawPath(path)) return
+      if (isObsidianExcalidrawMarkdown(latest.noteContents[path]?.body)) return
+      focusEditorNormalMode()
+    }
+    const state = useStore.getState()
+    const target = getBufferNavigationTarget(
+      state.paneLayout,
+      state.activePaneId,
+      state.notes,
+      delta
+    )
+    if (target.kind === 'focus') {
+      void state.focusTabInPane(target.paneId, target.path).then(() => {
+        focusIfCurrentNoteTab(target.paneId, target.path)
+      })
+      return
+    }
+    if (target.kind === 'open') {
+      void state.openNoteInPane(target.paneId, target.path).then(() => {
+        focusIfCurrentNoteTab(target.paneId, target.path)
+      })
+      return
+    }
+    if (target.kind === 'create-quick') {
+      void state.createAndOpen('quick', '', { focusTitle: true })
+    }
   }, [])
   const cancelHints = useCallback(() => {
     setHint(false)
@@ -379,13 +418,23 @@ export function VimNav(): JSX.Element | null {
       ) {
         return
       }
-      // #285: when focus is inside the calendar panel, stand down entirely — it
-      // owns its keys (h/j/k/l + arrows for day navigation, Escape to leave) via
-      // its own focus-gated capture handler. Without this the pane-nav/leader
-      // routing below would hijack the arrows. We don't consume the event, so
-      // the panel's handler (and any global app shortcut) still sees it.
+      // #285: when focus is inside the calendar panel, stand down so it owns its
+      // keys (h/j/k/l + arrows for day navigation, Escape to leave) via its own
+      // focus-gated capture handler. We don't consume the event, so the panel's
+      // handler (and any global app shortcut) still sees it.
+      // #374: EXCEPT the pane prefix (Ctrl+W) and its pending direction — mirror
+      // the database-grid hand-off above — so Vim pane navigation still works
+      // from the calendar (Ctrl+W h/j/k/l) instead of forcing a mouse click.
       const calendarPanelEl = document.querySelector('[data-calendar-panel]')
-      if (calendarPanelEl && target && calendarPanelEl.contains(target)) return
+      if (
+        calendarPanelEl &&
+        target &&
+        calendarPanelEl.contains(target) &&
+        !ctrlWPending.current &&
+        sequenceTokenFromEvent(e) !== panePrefixToken
+      ) {
+        return
+      }
       // #309: In an Excalidraw canvas, hold-Space pans (the Hand tool). Don't
       // swallow the Space keydown as the leader — let it reach Excalidraw so
       // panning works, and arm the leader only on a quick TAP (see the keyup
@@ -402,6 +451,24 @@ export function VimNav(): JSX.Element | null {
       }
       const previewEl = getPreviewScrollElement()
       const hoverPreviewEl = getHoverPreviewScrollElement()
+
+      // Vim jumplist navigation (Ctrl+O back / Ctrl+I forward) is checked BEFORE
+      // the inline-format shortcuts below: on Linux/Windows `Mod` is Ctrl, so
+      // Vim's forward binding (Ctrl+I) collides with the italic shortcut (Mod+I).
+      // In Vim normal/visual mode the jumplist must win; only in insert mode (or
+      // with Vim off) does Ctrl+I fall through to italic. (#373)
+      const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
+      const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')
+      if (
+        (wantsJumpBack || wantsJumpForward) &&
+        state.vimMode &&
+        !isEditorInsertMode(state.editorViewRef, state.vimMode)
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        jumpNoteHistory(wantsJumpBack ? 'back' : 'forward')
+        return
+      }
 
       // Inline-format shortcuts (Bold/Italic/Strike/Highlight/Code/Math/Link)
       // mirror the selection toolbar. Handled here — in the window capture
@@ -448,18 +515,6 @@ export function VimNav(): JSX.Element | null {
         }
       }
 
-      const wantsJumpBack = matchesSequenceToken(e, overrides, 'vim.historyBack')
-      const wantsJumpForward = matchesSequenceToken(e, overrides, 'vim.historyForward')
-      if (
-        (wantsJumpBack || wantsJumpForward) &&
-        !isEditorInsertMode(state.editorViewRef, state.vimMode)
-      ) {
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        jumpNoteHistory(wantsJumpBack ? 'back' : 'forward')
-        return
-      }
-
       if (
         !leaderPending.current &&
         !(
@@ -477,7 +532,7 @@ export function VimNav(): JSX.Element | null {
             getKeymapBinding(overrides, 'vim.bufferPrevious'),
             previousBufferPending,
             previousBufferTimer,
-            () => navigateActiveBuffer(useStore.getState(), -1),
+            () => navigateBuffer(-1),
             consumeBufferKey
           )
         ) {
@@ -489,7 +544,7 @@ export function VimNav(): JSX.Element | null {
             getKeymapBinding(overrides, 'vim.bufferNext'),
             nextBufferPending,
             nextBufferTimer,
-            () => navigateActiveBuffer(useStore.getState(), 1),
+            () => navigateBuffer(1),
             consumeBufferKey
           )
         ) {
@@ -503,29 +558,42 @@ export function VimNav(): JSX.Element | null {
         const gTabTokens = getSequenceTokens(overrides, 'vim.tabNext')
         const gPrevTokens = getSequenceTokens(overrides, 'vim.tabPrevious')
         const gTok = sequenceTokenFromEvent(e)
+        const inExcalidrawView = !!target?.closest('[data-excalidraw-view]')
         if (gTabPending.current) {
+          // Shift is delivered as its own keydown before `T`; keep the pending
+          // `g` prefix alive so Excalidraw can complete Vim-style `gT`.
+          if (!gTok) return
           gTabPending.current = false
           if (gTabTimer.current) clearTimeout(gTabTimer.current)
           if (gTabTokens.length === 2 && gTok === gTabTokens[1]) {
             e.preventDefault()
             e.stopImmediatePropagation()
-            navigateActiveBuffer(useStore.getState(), 1)
+            navigateBuffer(1)
             return
           }
           if (gPrevTokens.length === 2 && gTok === gPrevTokens[1]) {
             e.preventDefault()
             e.stopImmediatePropagation()
-            navigateActiveBuffer(useStore.getState(), -1)
+            navigateBuffer(-1)
             return
           }
           // Not a tab completion (e.g. gg, gd): fall through without consuming.
         }
-        if (gTok && gTabTokens.length === 2 && gTok === gTabTokens[0]) {
+        const startsTabSequence =
+          !!gTok &&
+          ((gTabTokens.length === 2 && gTok === gTabTokens[0]) ||
+            (gPrevTokens.length === 2 && gTok === gPrevTokens[0]))
+        if (startsTabSequence) {
           gTabPending.current = true
           if (gTabTimer.current) clearTimeout(gTabTimer.current)
           gTabTimer.current = setTimeout(() => {
             gTabPending.current = false
           }, 500)
+          if (inExcalidrawView) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            return
+          }
         }
       }
 

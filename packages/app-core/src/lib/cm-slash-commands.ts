@@ -17,9 +17,10 @@ interface SlashCmd {
 }
 
 type DecoratedCompletion = Completion & {
-  _kind?: 'slash' | 'wikilink' | 'date'
+  _kind?: 'slash' | 'wikilink' | 'date' | 'callout'
   _icon?: string
   _subtitle?: string
+  _group?: string
 }
 
 const COMMANDS: SlashCmd[] = [
@@ -51,6 +52,31 @@ const COMMANDS: SlashCmd[] = [
 /** Render a custom completion item matching the app theme. */
 function renderCompletion(completion: Completion): HTMLElement {
   const decorated = completion as DecoratedCompletion
+  if (decorated._kind === 'callout') {
+    const el = document.createElement('div')
+    el.className = 'callout-cmd-item'
+
+    const icon = document.createElement('span')
+    icon.className = `callout-cmd-icon callout-cmd-${decorated._group ?? 'note'}`
+    icon.textContent = decorated._icon ?? ''
+
+    const main = document.createElement('div')
+    main.className = 'callout-cmd-main'
+
+    const label = document.createElement('span')
+    label.className = 'callout-cmd-label'
+    label.textContent = completion.displayLabel ?? completion.label
+
+    const desc = document.createElement('span')
+    desc.className = 'callout-cmd-desc'
+    desc.textContent = decorated._subtitle ?? ''
+
+    main.appendChild(label)
+    main.appendChild(desc)
+    el.appendChild(icon)
+    el.appendChild(main)
+    return el
+  }
   if (decorated._kind === 'wikilink') {
     const el = document.createElement('div')
     el.className = 'wikilink-cmd-item'

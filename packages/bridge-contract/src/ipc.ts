@@ -109,6 +109,7 @@ export const IPC = {
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',
   APP_OPEN_MARKDOWN_FILE: 'app:open-markdown-file',
+  APP_OPEN_FOLDER_TEMPORARY: 'app:open-folder-temporary',
   TIKZ_RENDER: 'tikz:render',
   MCP_STATUS: 'mcp:status',
   MCP_INSTALL: 'mcp:install',
@@ -373,6 +374,7 @@ export interface VaultViewSettings {
   tasksViewMode?: string
   kanbanGroupBy?: string
   kanbanColumnTitles?: Record<string, string>
+  kanbanColumnOrder?: Record<string, string[]>
   kanbanStatuses?: string[]
   autoReveal?: boolean
   systemFolderLabels?: Record<string, unknown>
@@ -597,6 +599,11 @@ export interface PastedImageInput {
 export interface VaultInfo {
   root: string
   name: string
+  /** True when this is a temporary folder session (a folder dropped on the app
+   *  to read, not opened as a vault): edits save to the files in place, but no
+   *  ZenNotes state is written into the folder and it isn't remembered. The
+   *  renderer shows a banner and the next launch reopens the saved vault. */
+  temporary?: boolean
 }
 
 /** A markdown file opened from outside any vault (standalone editor window). */

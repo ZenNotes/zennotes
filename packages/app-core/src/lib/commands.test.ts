@@ -139,3 +139,48 @@ describe('close-tab command shortcut', () => {
     expect(shortcut).toMatch(/W/)
   })
 })
+
+describe('New Note in Current Folder (#403)', () => {
+  it('creates in the active note folder, not the sidebar browse view', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const createAndOpen = vi.fn()
+    useStore.setState({
+      activeNote: { folder: 'inbox', path: 'inbox/ProjA/Alpha.md', title: 'Alpha', body: '' } as never,
+      // The sidebar is browsing a different folder; the pre-#403 bug used this.
+      view: { kind: 'folder', folder: 'archive', subpath: 'Old' },
+      createAndOpen
+    })
+    const cmd = buildCommands().find((c) => c.id === 'note.new.here')
+    expect(cmd?.when?.()).toBe(true)
+    cmd?.run()
+    expect(createAndOpen).toHaveBeenCalledWith('inbox', 'ProjA', { focusTitle: true })
+  })
+
+  it('falls back to the browsed folder when no note is open', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const createAndOpen = vi.fn()
+    useStore.setState({
+      activeNote: null,
+      view: { kind: 'folder', folder: 'inbox', subpath: 'Projects' },
+      createAndOpen
+    })
+    const cmd = buildCommands().find((c) => c.id === 'note.new.here')
+    expect(cmd?.when?.()).toBe(true)
+    cmd?.run()
+    expect(createAndOpen).toHaveBeenCalledWith('inbox', 'Projects', { focusTitle: true })
+  })
+
+  it('does not target Trash even if the active note is in Trash', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const createAndOpen = vi.fn()
+    useStore.setState({
+      activeNote: { folder: 'trash', path: 'trash/Gone.md', title: 'Gone', body: '' } as never,
+      view: { kind: 'folder', folder: 'inbox', subpath: '' },
+      createAndOpen
+    })
+    const cmd = buildCommands().find((c) => c.id === 'note.new.here')
+    cmd?.run()
+    // Falls through to the (non-trash) browse view, never creates in trash.
+    expect(createAndOpen).toHaveBeenCalledWith('inbox', '', { focusTitle: true })
+  })
+})

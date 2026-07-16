@@ -13,6 +13,7 @@ import (
 type NoteFolder string
 type PrimaryNotesLocation string
 type FolderIconID string
+type FolderColorID string
 
 const (
 	FolderInbox   NoteFolder = "inbox"
@@ -102,6 +103,10 @@ type VaultSettings struct {
 	WeeklyNotes          WeeklyNotesSettings     `json:"weeklyNotes"`
 	MonthlyNotes         MonthlyNotesSettings    `json:"monthlyNotes"`
 	FolderIcons          map[string]FolderIconID `json:"folderIcons"`
+	// FolderColors are per-folder accent colors, keyed by `folder:subpath` (the
+	// same key as FolderIcons). Persisted so the web client's recolors survive a
+	// round-trip instead of being silently dropped. (#379)
+	FolderColors map[string]FolderColorID `json:"folderColors"`
 	// Favorites are note paths or `folder:subpath` keys pinned to the top of
 	// the sidebar. Persisted so the web client's favorites survive a round-trip.
 	Favorites []string `json:"favorites"`

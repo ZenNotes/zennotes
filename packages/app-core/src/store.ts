@@ -83,6 +83,7 @@ import {
   pickPortablePrefs,
   defaultTimeFormat,
   type AppConfigPortable,
+  type CompletedTaskStyle,
   type TimeFormat
 } from '@shared/app-config'
 import {
@@ -150,6 +151,7 @@ import {
   mapLeaves,
   replaceLeaf,
   rewritePathsInTree,
+  preserveLayoutIfPruneEmptiesNoteTabs,
   splitLeaf,
   updateLeaf,
   updateSplitSizes,
@@ -386,6 +388,12 @@ interface Prefs {
   /** Render Markdown tables as interactive WYSIWYG widgets in live preview.
    *  Off keeps tables as plain editable markdown — full keyboard/Vim editing. */
   renderTablesInLivePreview: boolean
+  /** How a completed task's text is styled (strike / gray / both / none) in the
+   *  editor and preview. Applied via `html[data-completed-task-style]`. */
+  completedTaskStyle: CompletedTaskStyle
+  /** Keep the current view mode (Edit / Split / Preview) when switching notes
+   *  instead of resolving each note's own last mode. Off = per-note (default). */
+  keepViewModeAcrossNotes: boolean
   /** Auto-close markdown delimiters while typing: `**`+Space → `**|**`,
    *  ```` ``` ````+Enter expands a fenced block. Off restores plain typing. */
   markdownSnippets: boolean
@@ -491,6 +499,9 @@ interface Prefs {
   kanbanGroupBy: KanbanGroupBy
   /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
   kanbanColumnTitles: Record<string, string>
+  /** Manual Kanban column arrangement per board. Keyed by groupBy → ordered
+   *  column ids; unlisted columns fall to the end in their built order. */
+  kanbanColumnOrder: Record<string, string[]>
   /** Ordered status ids for the custom-status Kanban board (group-by "custom").
    *  Each id matches an inline `@status:<id>` task token. Config-driven. (#354) */
   kanbanStatuses: string[]
@@ -555,9 +566,12 @@ function normalizeKanbanColumnTitle(title: string): string | null {
 
 // A static-board column-title key is `<status|priority|folder>:<columnId>`; a
 // field-board one is `field:<key>:<value>` (two colons). Accept both so inline
-// column renames survive a config round-trip on every board.
+// column renames survive a config round-trip on every board. The field-value
+// part also accepts the `__none__` sentinel (NO_VALUE_COLUMN_ID in
+// TasksKanban) so renaming the "No <field>" bucket persists too — its underscore
+// prefix would otherwise fail the value grammar and get silently dropped. (#389)
 const STATIC_COLUMN_TITLE_KEY_RE = /^[a-z-]+:[A-Za-z0-9_-]+$/
-const FIELD_COLUMN_TITLE_KEY_RE = /^field:[a-z][a-z0-9_-]*:[\p{L}\d][\p{L}\d/_-]*$/u
+const FIELD_COLUMN_TITLE_KEY_RE = /^field:[a-z][a-z0-9_-]*:(?:__none__|[\p{L}\d][\p{L}\d/_-]*)$/u
 
 function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object') return {}
@@ -572,6 +586,31 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
     if (!isStatic && !isField) continue
     const normalized = normalizeKanbanColumnTitle(value)
     if (normalized) out[key] = normalized
+  }
+  return out
+}
+
+const MAX_KANBAN_ORDERED_COLUMNS = 64
+
+// Manual column arrangement per board: `{ "<groupBy>": ["<columnId>", ...] }`.
+// Column ids are validated loosely (the same tag-like slugs the boards use);
+// unknown ids are dropped so a stale order can't resurrect vanished columns.
+function normalizeKanbanColumnOrder(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, string[]> = {}
+  for (const [group, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isKanbanGroupBy(group) || !Array.isArray(value)) continue
+    const ids: string[] = []
+    const seen = new Set<string>()
+    for (const entry of value) {
+      if (typeof entry !== 'string') continue
+      const id = entry.trim().slice(0, MAX_KANBAN_STATUS_ID_LENGTH)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      ids.push(id)
+      if (ids.length >= MAX_KANBAN_ORDERED_COLUMNS) break
+    }
+    if (ids.length) out[group] = ids
   }
   return out
 }
@@ -623,6 +662,9 @@ export function viewPrefsFromVault(settings: VaultSettings | null | undefined): 
   if (v.kanbanColumnTitles && typeof v.kanbanColumnTitles === 'object') {
     patch.kanbanColumnTitles = normalizeKanbanColumnTitles(v.kanbanColumnTitles)
   }
+  if (v.kanbanColumnOrder && typeof v.kanbanColumnOrder === 'object') {
+    patch.kanbanColumnOrder = normalizeKanbanColumnOrder(v.kanbanColumnOrder)
+  }
   if (Array.isArray(v.kanbanStatuses)) {
     patch.kanbanStatuses = normalizeKanbanStatuses(v.kanbanStatuses)
   }
@@ -671,6 +713,8 @@ export const DEFAULT_PREFS: Prefs = {
   fzfBinaryPath: null,
   livePreview: true,
   renderTablesInLivePreview: true,
+  completedTaskStyle: 'none',
+  keepViewModeAcrossNotes: false,
   markdownSnippets: true,
   hideBuiltinTemplates: false,
   tabsEnabled: true,
@@ -727,6 +771,7 @@ export const DEFAULT_PREFS: Prefs = {
   tasksViewMode: 'list',
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
+  kanbanColumnOrder: {},
   kanbanStatuses: [],
   hasCompletedOnboarding: false
 }
@@ -789,6 +834,17 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.renderTablesInLivePreview === 'boolean'
         ? p.renderTablesInLivePreview
         : DEFAULT_PREFS.renderTablesInLivePreview,
+    completedTaskStyle:
+      p.completedTaskStyle === 'strikethrough' ||
+      p.completedTaskStyle === 'gray' ||
+      p.completedTaskStyle === 'gray-strikethrough' ||
+      p.completedTaskStyle === 'none'
+        ? p.completedTaskStyle
+        : DEFAULT_PREFS.completedTaskStyle,
+    keepViewModeAcrossNotes:
+      typeof p.keepViewModeAcrossNotes === 'boolean'
+        ? p.keepViewModeAcrossNotes
+        : DEFAULT_PREFS.keepViewModeAcrossNotes,
     markdownSnippets:
       typeof p.markdownSnippets === 'boolean'
         ? p.markdownSnippets
@@ -968,6 +1024,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.tasksViewMode,
     kanbanGroupBy: normalizeKanbanGroupBy(p.kanbanGroupBy),
     kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles),
+    kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanStatuses: normalizeKanbanStatuses(p.kanbanStatuses),
     hasCompletedOnboarding:
       typeof p.hasCompletedOnboarding === 'boolean'
@@ -1550,6 +1607,8 @@ function collectPrefs(s: {
   fzfBinaryPath: string | null
   livePreview: boolean
   renderTablesInLivePreview: boolean
+  completedTaskStyle: CompletedTaskStyle
+  keepViewModeAcrossNotes: boolean
   markdownSnippets: boolean
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
@@ -1601,6 +1660,7 @@ function collectPrefs(s: {
   tasksViewMode: TasksViewMode
   kanbanGroupBy: KanbanGroupBy
   kanbanColumnTitles: Record<string, string>
+  kanbanColumnOrder: Record<string, string[]>
   kanbanStatuses: string[]
   hasCompletedOnboarding: boolean
 }): Prefs {
@@ -1619,6 +1679,8 @@ function collectPrefs(s: {
     fzfBinaryPath: s.fzfBinaryPath,
     livePreview: s.livePreview,
     renderTablesInLivePreview: s.renderTablesInLivePreview,
+    completedTaskStyle: s.completedTaskStyle,
+    keepViewModeAcrossNotes: s.keepViewModeAcrossNotes,
     markdownSnippets: s.markdownSnippets,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
@@ -1670,6 +1732,7 @@ function collectPrefs(s: {
     tasksViewMode: s.tasksViewMode,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanColumnTitles: s.kanbanColumnTitles,
+    kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanStatuses: s.kanbanStatuses,
     hasCompletedOnboarding: s.hasCompletedOnboarding
   }
@@ -2066,6 +2129,8 @@ interface Store {
   fzfBinaryPath: string | null
   livePreview: boolean
   renderTablesInLivePreview: boolean
+  completedTaskStyle: CompletedTaskStyle
+  keepViewModeAcrossNotes: boolean
   /** Auto-close markdown delimiters while typing. Persisted. */
   markdownSnippets: boolean
   hideBuiltinTemplates: boolean
@@ -2106,6 +2171,9 @@ interface Store {
   /** Pinned reference pane — an always-visible side panel that shows a
    *  single companion note while the user works in the main editor. */
   pinnedRefPath: string | null
+  /** URL hash fragment for the pinned asset (e.g. "#page=12") — passed
+   *  through to the iframe so the PDF viewer opens at the right page. */
+  pinnedRefFragment: string | null
   pinnedRefVisible: boolean
   pinnedRefWidth: number
   panelWidths: PanelWidths
@@ -2144,7 +2212,7 @@ interface Store {
 
   /** Per-note reference pins. Active note's entry overrides the
    *  global pinnedRefPath while that note is open. */
-  noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
+  noteRefs: Record<string, { path: string; kind: 'note' | 'asset'; fragment?: string | null }>
 
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
@@ -2187,6 +2255,8 @@ interface Store {
   kanbanGroupBy: KanbanGroupBy
   /** Display-only column title overrides for the Tasks Kanban view. */
   kanbanColumnTitles: Record<string, string>
+  /** Manual column arrangement per board (groupBy → ordered column ids). */
+  kanbanColumnOrder: Record<string, string[]>
   /** Ordered status ids for the custom-status Kanban board (config-driven). */
   kanbanStatuses: string[]
   /** True once the user has finished or skipped the first-run onboarding. */
@@ -2220,6 +2290,10 @@ interface Store {
    *  (not persisted): kept in the store so it survives EditorPane remounts and a
    *  split can inherit the source pane's mode instead of resetting to edit. (#321) */
   paneModes: Record<string, PaneModesByPath>
+  /** Last view mode explicitly set in each pane, by pane id. Used only when
+   *  `keepViewModeAcrossNotes` is on, so every note in the pane follows the
+   *  pane's current mode instead of its own. Ephemeral, like `paneModes`. */
+  paneStickyModes: Record<string, PaneMode>
   noteListCursorIndex: number
   connectionsCursorIndex: number
   connectionPreview: ConnectionPreviewState | null
@@ -2289,6 +2363,11 @@ interface Store {
   renameDatabase: (csvPath: string, newTitle: string) => Promise<void>
   /** Optimistically replace a database's rows and debounce-persist the CSV. */
   updateDatabaseRows: (csvPath: string, next: DatabaseDoc) => void
+  /** Delete rows AND purge their record-page mappings from the sidecar (a plain
+   *  row write only touches the CSV, so a stale UUID would otherwise linger in
+   *  schema.json). When a deleted row has a linked page note, prompt whether to
+   *  trash the note too or keep it as a standalone note. (#391) */
+  deleteDatabaseRows: (csvPath: string, rowIds: string[]) => Promise<void>
   /** Optimistically replace a database's schema/views and debounce-persist sidecar + CSV. */
   updateDatabaseSchema: (csvPath: string, next: DatabaseDoc) => void
   /** Re-read a database from disk after an external change (skips our own write echoes). */
@@ -2343,6 +2422,9 @@ interface Store {
     columnId: string,
     title: string | null
   ) => void
+  /** Persist the manual column arrangement for a board. Pass the full ordered
+   *  list of column ids; empties clear the override for that board. */
+  setKanbanColumnOrder: (group: KanbanGroupBy, orderedIds: string[]) => void
   /** Replace the ordered custom-status list (from Settings). Normalized and
    *  written back to config.toml + the per-vault view override. (#354) */
   setKanbanStatuses: (statuses: string[]) => void
@@ -2425,6 +2507,8 @@ interface Store {
   setFzfBinaryPath: (path: string | null) => void
   setLivePreview: (on: boolean) => void
   setRenderTablesInLivePreview: (on: boolean) => void
+  setCompletedTaskStyle: (style: CompletedTaskStyle) => void
+  setKeepViewModeAcrossNotes: (on: boolean) => void
   setMarkdownSnippets: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
   setTabsEnabled: (on: boolean) => void
@@ -2477,11 +2561,11 @@ interface Store {
   pinReference: (path: string) => Promise<void>
   /** Pin a non-text asset (PDF, etc.) — rendered in the side pane via
    *  iframe, with no text-content cache. */
-  pinAssetReference: (path: string) => void
+  pinAssetReference: (path: string, fragment?: string | null) => void
   unpinReference: () => void
   /** Per-note variant: the pin only shows while `notePath` is the
    *  active note. Switching notes hides it; coming back shows it. */
-  pinAssetReferenceForNote: (notePath: string, assetPath: string) => void
+  pinAssetReferenceForNote: (notePath: string, assetPath: string, fragment?: string | null) => void
   unpinReferenceForNote: (notePath: string) => void
   togglePinnedRefVisible: () => void
   setPinnedRefWidth: (px: number) => void
@@ -3570,6 +3654,8 @@ export const useStore = create<Store>((set, get) => {
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
   livePreview: loadPrefs().livePreview,
   renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
+  completedTaskStyle: loadPrefs().completedTaskStyle,
+  keepViewModeAcrossNotes: loadPrefs().keepViewModeAcrossNotes,
   markdownSnippets: loadPrefs().markdownSnippets,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
@@ -3601,6 +3687,7 @@ export const useStore = create<Store>((set, get) => {
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
+  pinnedRefFragment: null,
   pinnedRefVisible: loadPrefs().pinnedRefVisible,
   pinnedRefWidth: loadPrefs().pinnedRefWidth,
   panelWidths: loadPrefs().panelWidths,
@@ -3622,6 +3709,7 @@ export const useStore = create<Store>((set, get) => {
   tasksViewMode: loadPrefs().tasksViewMode,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
+  kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanStatuses: loadPrefs().kanbanStatuses,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
   vaultTasks: [],
@@ -3640,6 +3728,7 @@ export const useStore = create<Store>((set, get) => {
   sidebarCursorIndex: 0,
   dateNavExpanded: [],
   paneModes: {},
+  paneStickyModes: {},
   noteListCursorIndex: 0,
   connectionsCursorIndex: 0,
   connectionPreview: null,
@@ -3937,6 +4026,68 @@ export const useStore = create<Store>((set, get) => {
     set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
     scheduleDatabaseWrite(csvPath, 'rows', () => get().databases[csvPath])
     remirrorOpenRecordPages(csvPath, get)
+  },
+  deleteDatabaseRows: async (csvPath, rowIds) => {
+    const doc = get().databases[csvPath]
+    if (!doc) return
+    const ids = [...new Set(rowIds)].filter((id) => doc.rows.some((r) => r.id === id))
+    if (ids.length === 0) return
+
+    // Deleted rows that carry a linked record page — the ones worth asking about.
+    const attached = ids
+      .map((id) => doc.pages?.[id])
+      .filter((p): p is string => typeof p === 'string' && p.length > 0)
+
+    let trashNotes = false
+    if (attached.length > 0) {
+      const many = attached.length > 1
+      trashNotes = await confirmApp({
+        title: many ? `Delete ${ids.length} rows and their notes?` : 'Delete row and its linked note?',
+        description: many
+          ? `${attached.length} of these rows have a linked page note. Move those notes to Trash too, or keep them as standalone notes? The rows are deleted either way.`
+          : 'This row has a linked page note. Move it to Trash too, or keep it as a standalone note? The row is deleted either way.',
+        confirmLabel: many ? 'Delete rows + notes' : 'Delete row + note',
+        cancelLabel: many ? 'Keep notes' : 'Keep note',
+        danger: true
+      })
+    }
+
+    // Re-read after the (async) prompt so a concurrent edit isn't clobbered.
+    const latest = get().databases[csvPath]
+    if (!latest) return
+    const removeSet = new Set(ids)
+    const nextPages = { ...(latest.pages ?? {}) }
+    const nextFlags = { ...(latest.pageHasContent ?? {}) }
+    const prunedPaths: string[] = []
+    for (const id of ids) {
+      const pagePath = nextPages[id]
+      if (pagePath) {
+        prunedPaths.push(pagePath)
+        delete nextPages[id]
+        delete nextFlags[id]
+      }
+    }
+    const pagesChanged = prunedPaths.length > 0
+    const next: DatabaseDoc = {
+      ...latest,
+      rows: latest.rows.filter((r) => !removeSet.has(r.id)),
+      ...(pagesChanged ? { pages: nextPages, pageHasContent: nextFlags } : {})
+    }
+    set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
+    // A pruned page mapping lives in the sidecar, so force a schema write; a
+    // plain 'rows' write only rewrites the CSV and would leave the stale entry.
+    scheduleDatabaseWrite(csvPath, pagesChanged ? 'schema' : 'rows', () => get().databases[csvPath])
+    remirrorOpenRecordPages(csvPath, get)
+
+    if (trashNotes) {
+      for (const pagePath of prunedPaths) {
+        try {
+          await window.zen.moveToTrash(pagePath)
+        } catch (err) {
+          console.error('trash record page failed', err)
+        }
+      }
+    }
   },
   updateDatabaseSchema: (csvPath, next) => {
     set((s) => ({ databases: { ...s.databases, [csvPath]: next } }))
@@ -4444,6 +4595,22 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
     persistVaultViewOverride({ kanbanColumnTitles: nextTitles })
   },
+  setKanbanColumnOrder: (group, orderedIds) => {
+    const ids: string[] = []
+    const seen = new Set<string>()
+    for (const raw of orderedIds) {
+      const id = typeof raw === 'string' ? raw.trim() : ''
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      ids.push(id)
+    }
+    const nextOrder = { ...get().kanbanColumnOrder }
+    if (ids.length) nextOrder[group] = ids
+    else delete nextOrder[group]
+    set({ kanbanColumnOrder: nextOrder })
+    savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ kanbanColumnOrder: nextOrder })
+  },
   setKanbanStatuses: (statuses) => {
     const next = normalizeKanbanStatuses(statuses)
     set({ kanbanStatuses: next })
@@ -4583,8 +4750,18 @@ export const useStore = create<Store>((set, get) => {
           existingPaths.has(path) ||
           isWorkspaceVirtualTabPath(path) ||
           path === s.selectedPath
-        const nextLayout = rewritePathsInTree(s.paneLayout, (path) =>
+        const prunedLayout = rewritePathsInTree(s.paneLayout, (path) =>
           keep(path) ? path : null
+        )
+        // #384: never let a background note-list refresh close *every* open
+        // note tab at once (a transient/incomplete list — reported on Linux
+        // when moving a note to Trash — would otherwise wipe all tabs and drop
+        // the user on the home screen). Real deletions are handled precisely by
+        // the trash/delete actions and applyChange('unlink').
+        const nextLayout = preserveLayoutIfPruneEmptiesNoteTabs(
+          s.paneLayout,
+          prunedLayout,
+          isWorkspaceVirtualTabPath
         )
         const ensured = ensureActivePane(nextLayout, s.activePaneId)
         // Auto-unpin the reference pane if its note has been deleted on
@@ -5486,6 +5663,14 @@ export const useStore = create<Store>((set, get) => {
     set({ renderTablesInLivePreview: on })
     savePrefs(collectPrefs(get()))
   },
+  setCompletedTaskStyle: (style) => {
+    set({ completedTaskStyle: style })
+    savePrefs(collectPrefs(get()))
+  },
+  setKeepViewModeAcrossNotes: (on) => {
+    set({ keepViewModeAcrossNotes: on })
+    savePrefs(collectPrefs(get()))
+  },
   setMarkdownSnippets: (on) => {
     set({ markdownSnippets: on })
     savePrefs(collectPrefs(get()))
@@ -5746,7 +5931,7 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  pinAssetReference: (path) => {
+  pinAssetReference: (path, fragment) => {
     if (!path) return
     const s = get()
     // If we were previously pinning a note, evict its content unless
@@ -5766,6 +5951,7 @@ export const useStore = create<Store>((set, get) => {
     }
     set({
       pinnedRefPath: path,
+      pinnedRefFragment: fragment ?? null,
       pinnedRefKind: 'asset',
       pinnedRefVisible: true,
       noteContents: contents,
@@ -5774,10 +5960,10 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  pinAssetReferenceForNote: (notePath, assetPath) => {
+  pinAssetReferenceForNote: (notePath, assetPath, fragment) => {
     if (!notePath || !assetPath) return
     set((s) => ({
-      noteRefs: { ...s.noteRefs, [notePath]: { path: assetPath, kind: 'asset' } },
+      noteRefs: { ...s.noteRefs, [notePath]: { path: assetPath, kind: 'asset', fragment: fragment ?? null } },
       pinnedRefVisible: true
     }))
     savePrefs(collectPrefs(get()))
@@ -5813,6 +5999,7 @@ export const useStore = create<Store>((set, get) => {
     }
     set({
       pinnedRefPath: null,
+      pinnedRefFragment: null,
       pinnedRefKind: 'note',
       noteContents: contents,
       noteDirty: dirty
@@ -6741,7 +6928,10 @@ export const useStore = create<Store>((set, get) => {
       paneModes: {
         ...s.paneModes,
         [paneId]: paneModesWithPathMode(s.paneModes[paneId] ?? {}, path, mode)
-      }
+      },
+      // Remember the pane's latest mode so `keepViewModeAcrossNotes` can make
+      // every note in this pane follow it.
+      paneStickyModes: { ...s.paneStickyModes, [paneId]: mode }
     })),
 
   resizeSplit: (splitId, sizes) => {

@@ -18,6 +18,15 @@ describe('renderMarkdown', () => {
     expect(html).not.toContain('javascript:alert(1)')
   })
 
+  it('stamps top-level blocks with data-source-line for split-view scroll sync', () => {
+    // Lines: 1 `# Heading`, 3 `First para.`, 5 `- a`, 8 `Last para.`
+    const html = renderMarkdown('# Heading\n\nFirst para.\n\n- a\n- b\n\nLast para.')
+    expect(html).toContain('data-source-line="1"')
+    expect(html).toContain('data-source-line="3"')
+    expect(html).toContain('data-source-line="5"')
+    expect(html).toContain('data-source-line="8"')
+  })
+
   it('preserves GFM table column alignment through render + sanitize', () => {
     const html = renderMarkdown(
       ['| L | C | R |', '|:--|:-:|--:|', '| 1 | 2 | 3 |'].join('\n')
@@ -144,5 +153,92 @@ describe('math with raw pipes inside tables (#319)', () => {
     const html = renderMarkdown('Norm is $|x|$ inline.')
     expect(html).toContain('katex')
     expect(html).not.toContain('\\|')
+  })
+})
+
+describe('currency vs inline math (reading view matches the editor)', () => {
+  it('leaves a currency line literal instead of rendering it as math', () => {
+    const html = renderMarkdown('I paid $5 and got $10 back.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$5 and got $10 back.')
+  })
+
+  it('handles several currency amounts on one line', () => {
+    const html = renderMarkdown('Prices: $5, $10, and $20 total.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$5,')
+    expect(html).toContain('$20 total.')
+  })
+
+  it('reverts a padded span the editor would reject ($ x $)', () => {
+    // Leading/trailing space just inside the `$` means it is not math to the
+    // editor; remark-math strips the padding and would render it, so guard it.
+    const html = renderMarkdown('Range $ 5 $ here.')
+    expect(html).not.toContain('katex')
+    expect(html).toContain('$ 5 $')
+  })
+
+  it('still renders genuine inline math', () => {
+    expect(renderMarkdown('Euler: $e^{i\\pi}+1=0$ is elegant.')).toContain('katex')
+    expect(renderMarkdown('Norm $|x|$ and sum $\\sum_{i=1}^n i$.')).toContain('katex')
+  })
+
+  it('keeps inline math sitting next to a lone currency amount', () => {
+    // `$x$` is math; the trailing `$5.` has no closing `$`, so it stays text.
+    const html = renderMarkdown('The value $x$ costs $5.')
+    expect(html).toContain('katex')
+    expect(html).toContain('$5.')
+  })
+
+  it('still renders block math', () => {
+    expect(renderMarkdown('$$\n\\int_0^1 x\\,dx\n$$')).toContain('katex')
+  })
+})
+
+describe('block math fence normalization (#399, reading view matches the editor)', () => {
+  const text = (html: string): string =>
+    html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+
+  it('closes a block whose $$ trails the last content line', () => {
+    const html = renderMarkdown('$$\n\\frac{a}{b} = c\nx + y = z$$\n\nAfter paragraph.')
+    expect(html).toContain('katex-display')
+    expect(text(html)).toContain('After paragraph.')
+    expect(text(html)).not.toContain('$$')
+  })
+
+  it('accepts content right after the opening $$', () => {
+    const html = renderMarkdown('$$\\frac{a}{b} = c\nx = y\n$$\n\nAfter paragraph.')
+    expect(html).toContain('katex-display')
+    expect(text(html)).toContain('After paragraph.')
+    expect(text(html)).not.toContain('$$')
+  })
+
+  it('renders a single-line $$x^2$$ as a display block, like the editor', () => {
+    const html = renderMarkdown('$$x^2$$\n\nAfter paragraph.')
+    expect(html).toContain('katex-display')
+    expect(text(html)).toContain('After paragraph.')
+  })
+
+  it('leaves canonical fenced blocks byte-identical', () => {
+    const canonical = '$$\n\\int_0^1 x\\,dx\n$$\n\nAfter paragraph.'
+    const html = renderMarkdown(canonical)
+    expect(html).toContain('katex-display')
+    expect(text(html)).toContain('After paragraph.')
+  })
+
+  it('does not touch $$ inside fenced code', () => {
+    const html = renderMarkdown('```\n$$\nx + y = z$$\n```\n\nAfter paragraph.')
+    expect(html).not.toContain('katex')
+    // rehype-highlight may tokenize the code content; compare tag-stripped text.
+    expect(text(html)).toContain('z$$')
+    expect(text(html)).toContain('After paragraph.')
+  })
+
+  it('passes editor-rejected shapes through unchanged', () => {
+    // Mid-line `$$` and empty blocks are not editor-legal blocks; the
+    // normalizer must not invent fences for them.
+    expect(renderMarkdown('$$a$$b$$')).not.toContain('katex-display')
+    expect(renderMarkdown('$$ $$')).not.toContain('katex-display')
+    expect(() => renderMarkdown('$$\nunclosed to the end')).not.toThrow()
   })
 })

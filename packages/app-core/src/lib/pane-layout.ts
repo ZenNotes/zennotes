@@ -277,6 +277,32 @@ export function rewritePathsInTree(
 }
 
 /**
+ * Guard against a note-list refresh closing *every* open note tab at once.
+ *
+ * `refreshNotes` prunes tabs whose note isn't in the freshly-listed notes. If
+ * that list ever comes back empty or incomplete — e.g. a transient read during
+ * a rapid vault operation like moving a note to Trash (reported on Linux, #384)
+ * — pruning against it would wipe all tabs and dump the user on the home
+ * screen. Real deletions are handled precisely elsewhere (the trash/delete
+ * actions remove their own tab, and `applyChange('unlink')` closes a removed
+ * note's tab), so when the prune would leave zero note tabs we keep the
+ * previous layout instead. `isVirtualTab` excludes workspace surfaces (Tasks,
+ * Tags, …) that are never pruned, so an open Tasks tab doesn't mask the wipe.
+ */
+export function preserveLayoutIfPruneEmptiesNoteTabs(
+  prev: PaneLayout,
+  pruned: PaneLayout,
+  isVirtualTab: (path: string) => boolean
+): PaneLayout {
+  const countNoteTabs = (layout: PaneLayout): number =>
+    allLeaves(layout)
+      .flatMap((l) => l.tabs)
+      .filter((p) => !isVirtualTab(p)).length
+  if (countNoteTabs(prev) > 0 && countNoteTabs(pruned) === 0) return prev
+  return pruned
+}
+
+/**
  * Classify where within a pane's bounding rect the cursor falls when
  * dragging a tab over it. Edge bands (outer 25% on each side) trigger
  * splits; the interior triggers an in-pane drop (append tab / move).

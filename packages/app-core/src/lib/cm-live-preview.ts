@@ -11,6 +11,7 @@ import {
 import { useStore } from '../store'
 import {
   classifyLocalAssetHref,
+  hrefFragment,
   resolveAssetVaultRelativePath,
   resolveLocalAssetUrl
 } from './local-assets'
@@ -55,6 +56,9 @@ const PREFIX_HIDE_WITH_SPACE = new Set(['HeaderMark', 'QuoteMark'])
 
 const hide = Decoration.replace({})
 const imageSourceHide = Decoration.replace({})
+// Marks the text of a completed task (`- [x] …`) so CSS can strike/gray it,
+// gated by the `data-completed-task-style` setting on the document root.
+const taskDoneMark = Decoration.mark({ class: 'cm-task-done' })
 // Stamped on an image line only while its raw source is hidden, so the host
 // line stops reserving a blank text row above/below the block figure (#261).
 const imageEmbedLine = Decoration.line({ class: 'cm-image-embed-line' })
@@ -431,7 +435,7 @@ class LocalPdfWidget extends WidgetType {
         const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
         // Default to a per-note pin — the PDF stays attached to this
         // note and quietly disappears when the user navigates away.
-        if (abs) state.pinAssetReferenceForNote(notePath, abs)
+        if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
       })
 
       const icon = document.createElement('span')
@@ -493,7 +497,7 @@ class LocalPdfWidget extends WidgetType {
       const notePath = state.activeNote?.path
       if (!root || !notePath) return
       const abs = resolveAssetVaultRelativePath(root, notePath, this.href)
-      if (abs) state.pinAssetReferenceForNote(notePath, abs)
+      if (abs) state.pinAssetReferenceForNote(notePath, abs, hrefFragment(this.href) || null)
     })
 
     const openButton = document.createElement('button')
@@ -535,7 +539,7 @@ class LocalPdfWidget extends WidgetType {
 
     const frame = document.createElement('iframe')
     frame.className = 'local-pdf-embed-frame'
-    frame.src = this.resolvedUrl
+    frame.src = this.resolvedUrl + hrefFragment(this.href)
     frame.title = this.label || 'PDF'
 
     figure.append(header, frame)
@@ -939,19 +943,26 @@ function computeDecorations(view: EditorView): DecorationSet {
         const isLinkSyntax = name === 'LinkMark' || isUrl
 
         if (name === TASK_MARKER_NODE) {
-          const line = state.doc.lineAt(node.from).number
+          const lineObj = state.doc.lineAt(node.from)
+          const line = lineObj.number
           if (replacedLines.has(line)) return
-          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
-          // line reads as source — matching Obsidian, and consistent with the
-          // list/quote/heading markers, which also reveal on the active line.
-          // Off the line, render the checkbox.
-          if (activeLines.has(line)) return
           const markerText = state.doc.sliceString(node.from, node.to)
           // `markerText` is `[ ]` / `[x]` / `[X]` / `[>]`; default to unchecked if
           // the parser ever hands us something unexpected.
           const stateChar = markerText[1] ?? ''
           const checked = markerText.length >= 2 && /[xX]/.test(stateChar)
           const forwarded = stateChar === '>'
+          // Mark a completed task's text so CSS can strike/gray it (gated by the
+          // `completedTaskStyle` setting). Applied on the active line too, so it
+          // doesn't flip as the cursor moves; the checkbox itself is untouched.
+          if (checked && lineObj.to > node.to) {
+            pending.push({ from: node.to, to: lineObj.to, deco: taskDoneMark })
+          }
+          // Reveal the raw `[ ]` / `[x]` on the active line so the whole task
+          // line reads as source — matching Obsidian, and consistent with the
+          // list/quote/heading markers, which also reveal on the active line.
+          // Off the line, render the checkbox.
+          if (activeLines.has(line)) return
           pending.push({
             from: node.from,
             to: node.to,
@@ -987,9 +998,12 @@ function computeDecorations(view: EditorView): DecorationSet {
           const linkRange = enclosingLinkRange(node)
           if (linkRange && selectionTouchesRange(state, linkRange.from, linkRange.to)) return
         } else if (activeLines.has(line)) {
-          const keepHeadingMarkerHidden =
-            name === 'HeaderMark' && !selectionTouchesRange(state, node.from, node.to)
-          if (!keepHeadingMarkerHidden) return
+          // Reveal every marker on the active line, headings included: the
+          // cursor anywhere in a heading shows its `##` prefix, matching the
+          // list/quote/task markers and the other markdown elements (a heading
+          // used to reveal only when the selection touched the marker itself,
+          // which read as "works differently from everything else").
+          return
         }
 
         let start = node.from

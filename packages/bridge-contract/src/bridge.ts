@@ -197,6 +197,9 @@ export interface ZenBridge {
   revealFolderTarget(folder: NoteFolder, subpath: string): Promise<void>
   revealAssetsDir(): Promise<void>
   getPathForFile(file: File): string | null
+  /** Open a folder as a temporary session (drag a folder onto the app to read
+   *  it without turning it into a vault). Desktop-only. */
+  openFolderTemporary(absPath: string): Promise<void>
   resolveLocalAssetUrl(vaultRoot: string, notePath: string, href: string): string | null
   resolveVaultAssetUrl(vaultRoot: string, assetPath: string): string | null
 

@@ -14,7 +14,6 @@ import { useStore } from '../store'
 import {
   addRow,
   setCell,
-  deleteRow,
   renameField,
   retypeField,
   deleteField,
@@ -54,6 +53,7 @@ interface Props {
 export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
+  const deleteDatabaseRows = useStore((s) => s.deleteDatabaseRows)
   const openRecordPage = useStore((s) => s.openRecordPage)
   const renameRecordPage = useStore((s) => s.renameRecordPage)
   const focusedPanel = useStore((s) => s.focusedPanel)
@@ -105,9 +105,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     })
   const toggleAll = (): void => setSelected(allSelected ? new Set() : new Set(rows.map((r) => r.id)))
   const deleteSelected = (): void => {
-    let next = doc
-    for (const id of selected) next = deleteRow(next, id)
-    updateDatabaseRows(csvPath, next)
+    void deleteDatabaseRows(csvPath, [...selected])
     setSelected(new Set())
   }
 
@@ -269,7 +267,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         }
         dPending.current = false
         const c = cell()
-        if (c) updateDatabaseRows(csvPath, deleteRow(doc, c.row.id))
+        if (c) void deleteDatabaseRows(csvPath, [c.row.id])
         return
       }
       case 'Enter':
@@ -358,7 +356,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         label: multi ? `Delete ${selected.size} rows` : 'Delete row',
         danger: true,
         onSelect: () =>
-          multi ? deleteSelected() : updateDatabaseRows(csvPath, deleteRow(doc, rowId))
+          multi ? deleteSelected() : void deleteDatabaseRows(csvPath, [rowId])
       }
     ]
   }

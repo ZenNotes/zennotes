@@ -7,6 +7,8 @@ import { resolveAuto, findTheme } from '@renderer/lib/themes'
 import type { ThemeFamily } from '@renderer/lib/themes'
 import {
   injectActiveTheme,
+  injectOverrides,
+  injectTweaks,
   isCustomThemeId,
   customThemeSlugFromId,
   resolveCustomThemeMode
@@ -27,11 +29,17 @@ type ExportPrefs = {
   textFont: string | null
   monoFont: string | null
   /** When true, export in the user's current theme instead of the clean
-   *  light-for-print theme. Mirrors the `pdfExportUseTheme` app pref. */
+   *  light-for-print theme. Mirrors the `pdfExportUseTheme` app pref. Also
+   *  carries the user's CSS snippets and color tweaks into the export so the
+   *  PDF matches the preview (#401). */
   pdfExportUseTheme: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ExportThemeMode
+  /** Enabled CSS snippet ("override") toggles, keyed by filename. */
+  enabledOverrides: Record<string, string>
+  /** Visual color tweaks from the theme picker. */
+  themeTweaks: Record<string, string>
 }
 
 const DEFAULT_EXPORT_PREFS: ExportPrefs = {
@@ -46,7 +54,20 @@ const DEFAULT_EXPORT_PREFS: ExportPrefs = {
   pdfExportUseTheme: false,
   themeId: 'github-light',
   themeFamily: 'github',
-  themeMode: 'light'
+  themeMode: 'light',
+  enabledOverrides: {},
+  themeTweaks: {}
+}
+
+/** Read a persisted `Record<string, string>` pref defensively (the prefs blob
+ *  is user-writable JSON), dropping any non-string values. */
+function safeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {}
+  const out: Record<string, string> = {}
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof val === 'string') out[key] = val
+  }
+  return out
 }
 
 function setExportState(state: 'loading' | 'ready' | 'error', message?: string): void {
@@ -89,7 +110,9 @@ function loadExportPrefs(): ExportPrefs {
           : DEFAULT_EXPORT_PREFS.pdfExportUseTheme,
       themeId: safeString(parsed.themeId) ?? DEFAULT_EXPORT_PREFS.themeId,
       themeFamily: (safeString(parsed.themeFamily) ?? DEFAULT_EXPORT_PREFS.themeFamily) as ThemeFamily,
-      themeMode
+      themeMode,
+      enabledOverrides: safeStringRecord(parsed.enabledOverrides),
+      themeTweaks: safeStringRecord(parsed.themeTweaks)
     }
   } catch {
     return DEFAULT_EXPORT_PREFS
@@ -174,6 +197,10 @@ function applyExportPrefs(prefs: ExportPrefs): void {
   html.dataset.contentAlign = prefs.contentAlign
   html.setAttribute('data-opaque', '')
   applyExportTheme(prefs)
+  // Carry the user's color tweaks into a themed export so the PDF matches the
+  // preview (#401). Synchronous; the CSS snippet overrides load in the effect.
+  // The clean light-for-print export deliberately ignores both.
+  if (prefs.pdfExportUseTheme) injectTweaks(prefs.themeTweaks)
   html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
   html.style.setProperty(
@@ -247,6 +274,21 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
         if (prefs.pdfExportUseTheme && isCustomThemeId(prefs.themeId)) {
           await applyCustomExportTheme(prefs)
           if (cancelled) return
+        }
+
+        // Carry the user's enabled CSS snippets ("overrides") into a themed
+        // export so their preview tweaks (e.g. hiding the callout <br>, or a
+        // `.callout { break-inside: avoid }` page-break rule) apply to the PDF
+        // too (#401). The overrides CSS lives on disk; the enabled set is a
+        // persisted pref. Best-effort: a load failure must not block the export.
+        if (prefs.pdfExportUseTheme) {
+          try {
+            const overrides = await window.zen.listOverrides()
+            if (cancelled) return
+            injectOverrides(overrides, prefs.enabledOverrides)
+          } catch {
+            // Leave the export unstyled by snippets rather than fail it.
+          }
         }
 
         useStore.setState({

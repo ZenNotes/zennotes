@@ -55,6 +55,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { offerCreateNoteFromLink } from '../lib/create-note-from-link'
 import {
@@ -85,7 +86,10 @@ import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { applyHighlight, HIGHLIGHT_COLORS, highlightExtension } from '../lib/cm-highlight'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
+import { mathRenderExtension } from '../lib/cm-math-render'
+import { mathBlockArrowKeymap } from '../lib/cm-math-nav'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
+import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
 import { resolveWikilinkTarget, wikilinkHeadingAnchor } from '../lib/wikilinks'
@@ -161,6 +165,7 @@ import {
   nextOutlinePreviewSyncLockUntil,
   outlineHeadingTextOffset,
   previewScrollTopForHeading,
+  scrollTopForElementRelativeTop,
   scrollTopForScrollRatio,
   shouldSyncPreviewFromEditorViewport
 } from '../lib/preview-outline-jump'
@@ -255,16 +260,6 @@ const LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS = 120_000
 const LARGE_DOC_LIVE_PREVIEW_DEFER_MS = 3_000
 const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
 
-/** Convert a ZenNotes binding string ("Alt+ArrowUp", "Mod+K") to a CodeMirror
- *  key string ("Alt-ArrowUp", "Mod-k"). */
-function toCmKey(binding: string): string {
-  const parts = binding.split('+')
-  const base = parts.pop() ?? ''
-  const mods = parts.join('-')
-  const baseOut = base.length === 1 ? base.toLowerCase() : base
-  return mods ? `${mods}-${baseOut}` : baseOut
-}
-
 // The editor keymap depends on Vim mode: in Vim mode the macOS emacs-style
 // chords are stripped from `defaultKeymap` so Vim's `<C-d>` & co. work (see
 // cm-vim-default-keymap). Built behind a compartment and reconfigured on Vim
@@ -283,8 +278,18 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // Move the current line (or selection) up/down — reorders the markdown so
     // it persists in the file. Listed before defaultKeymap so the configured
     // binding wins; works in Vim normal/insert and non-Vim alike.
-    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineUp')), run: moveLineUp },
-    { key: toCmKey(getKeymapBinding(overrides, 'editor.moveLineDown')), run: moveLineDown },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineUp')),
+      run: moveLineUp
+    },
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
+      run: moveLineDown
+    },
+    ...vimHalfPageKeymap(vimMode, overrides),
+    // Step arrows into rendered $$…$$ blocks (insert mode + non-Vim); Vim's
+    // j/k get the same treatment inside the display-line motion.
+    ...mathBlockArrowKeymap,
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
@@ -334,7 +339,8 @@ function wysiwygExtensions(renderTables: boolean): Extension[] {
     wysiwygBlocksPlugin,
     ...hashtagExtension,
     ...highlightExtension,
-    ...wikilinkRenderExtension
+    ...wikilinkRenderExtension,
+    mathRenderExtension
   ]
 }
 
@@ -761,7 +767,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   const modesByPath = useStore((s) => s.paneModes[paneId]) ?? EMPTY_PANE_MODES
   const setPaneModeForPath = useStore((s) => s.setPaneModeForPath)
-  const mode = paneModeForPath(modesByPath, activeTab)
+  const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes)
+  const paneStickyMode = useStore((s) => s.paneStickyModes[paneId])
+  // With "keep view mode across notes" on, every note in this pane follows the
+  // pane's current mode instead of its own remembered one (falls back to the
+  // per-note mode until a mode has been picked in this pane).
+  const mode =
+    keepViewModeAcrossNotes && paneStickyMode
+      ? paneStickyMode
+      : paneModeForPath(modesByPath, activeTab)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [outlineOpen, setOutlineOpen] = useState(false)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
@@ -885,6 +899,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     view.focus()
     return true
   }, [paneId, setActivePane, setFocusedPanel])
+
+  const rememberCurrentTabScroll = useCallback((path = viewPathRef.current): void => {
+    if (!path) return
+    const prev = recallTabScroll(path)
+    const view = viewRef.current
+    const previewEl = previewScrollRef.current
+    const next: TabScrollPosition = {
+      editor: view?.scrollDOM.scrollTop ?? prev?.editor ?? 0,
+      preview: previewEl?.scrollTop ?? prev?.preview ?? 0
+    }
+    const selection = view && viewPathRef.current === path ? view.state.selection.main : null
+    if (selection) {
+      next.editorSelectionAnchor = selection.anchor
+      next.editorSelectionHead = selection.head
+    }
+    rememberTabScroll(path, next)
+  }, [])
 
   const toggleConnectionsPanel = useCallback(() => {
     setConnectionsOpen((open) => {
@@ -1064,13 +1095,46 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const previewEl = previewScrollRef.current
     if (!view || !editorEl || !previewEl) return false
 
-    const nextTop = scrollTopForScrollRatio(
-      editorEl.scrollTop,
-      editorEl.scrollHeight,
-      editorEl.clientHeight,
-      previewEl.scrollHeight,
-      previewEl.clientHeight
-    )
+    // Line-based sync: map the source line at the top of the editor viewport to
+    // the rendered preview block stamped with that line (data-source-line), so
+    // the same content sits at the top of both panes even when their heights
+    // differ. Falls back to a scroll ratio when no line data is available.
+    const ratioTop = (): number =>
+      scrollTopForScrollRatio(
+        editorEl.scrollTop,
+        editorEl.scrollHeight,
+        editorEl.clientHeight,
+        previewEl.scrollHeight,
+        previewEl.clientHeight
+      )
+
+    const blocks = previewEl.querySelectorAll<HTMLElement>('[data-source-line]')
+    let nextTop: number
+    if (blocks.length === 0) {
+      nextTop = ratioTop()
+    } else {
+      const topLine = view.state.doc.lineAt(view.lineBlockAtHeight(editorEl.scrollTop).from).number
+      let anchor: HTMLElement | null = null
+      let anchorLine = 0
+      for (const el of blocks) {
+        const ln = Number(el.dataset.sourceLine)
+        if (Number.isFinite(ln) && ln <= topLine) {
+          anchor = el
+          anchorLine = ln
+        } else if (ln > topLine) {
+          break
+        }
+      }
+      if (!anchor) {
+        nextTop = 0
+      } else {
+        // Shift the anchor by how far the editor has scrolled past its start
+        // line, so a mid-block scroll position carries over too.
+        const anchorEditorTop = view.lineBlockAt(view.state.doc.line(anchorLine).from).top
+        nextTop = scrollTopForElementRelativeTop(previewEl, anchor, anchorEditorTop - editorEl.scrollTop)
+      }
+    }
+
     if (Math.abs(previewEl.scrollTop - nextTop) < 1) return true
     ignorePreviewScrollRef.current = true
     previewEl.scrollTop = nextTop
@@ -1448,6 +1512,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         richMarkdownDeferredRef.current = false
         setSelectionCommentAction(null)
         const existingView = viewRef.current
+        rememberCurrentTabScroll()
         if (
           existingView &&
           useStore.getState().editorViewRef === existingView
@@ -1517,6 +1582,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           autocompletion({
             override: [
               slashCommandSource,
+              calloutTypeSource,
               dateShortcutSource,
               atNoteSource,
               wikilinkSource,
@@ -1524,10 +1590,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
-            optionClass: (completion) =>
-              (completion as { _kind?: string })._kind === 'wikilink'
-                ? 'wikilink-cmd-option'
-                : 'slash-cmd-option'
+            optionClass: (completion) => {
+              const kind = (completion as { _kind?: string })._kind
+              if (kind === 'wikilink') return 'wikilink-cmd-option'
+              if (kind === 'callout') return 'callout-cmd-option'
+              return 'slash-cmd-option'
+            }
           }),
           completionNavKeymap,
           editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode, s0.keymapOverrides)),
@@ -1679,6 +1747,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     [
       openEditorContextMenu,
       paneId,
+      rememberCurrentTabScroll,
       schedulePreviewSyncFromEditorViewport,
       scheduleSelectionCommentAction,
       setActiveCommentId,
@@ -3170,6 +3239,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const applyEditor = (): void => {
       const view = viewRef.current
       if (!view) return
+      let restoredHead: number | null = null
       if (
         remembered.editorSelectionAnchor != null &&
         remembered.editorSelectionHead != null
@@ -3183,12 +3253,20 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           0,
           Math.min(docLength, remembered.editorSelectionHead)
         )
+        restoredHead = head
         const current = view.state.selection.main
         if (current.anchor !== anchor || current.head !== head) {
           view.dispatch({ selection: { anchor, head } })
         }
       }
       view.scrollDOM.scrollTop = remembered.editor
+      if (remembered.editor <= 0 && restoredHead != null) {
+        const cursor = view.coordsAtPos(restoredHead)
+        const scroller = view.scrollDOM.getBoundingClientRect()
+        if (!cursor || cursor.bottom < scroller.top || cursor.top > scroller.bottom) {
+          view.dispatch({ effects: EditorView.scrollIntoView(restoredHead, { y: 'center' }) })
+        }
+      }
     }
     applyEditor()
     const raf = requestAnimationFrame(applyEditor)

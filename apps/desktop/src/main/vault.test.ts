@@ -12,6 +12,7 @@ import {
   ensureVaultLayout,
   forgetLocalVault,
   getVaultSettings,
+  importFiles,
   importPastedImage,
   invalidateNoteMetaCache,
   listDeletedAssets,
@@ -239,6 +240,61 @@ describe('importPastedImage', () => {
     expect(imported.path).toBe('assets/Pasted Image 2026-05-13 150405 2.webp')
     expect(imported.markdown).toBe('![[assets/Pasted Image 2026-05-13 150405 2.webp]]')
     await expect(readFile(path.join(root, imported.path))).resolves.toEqual(Buffer.from([1, 2, 3]))
+  })
+})
+
+describe('importFiles', () => {
+  it('copies dropped files into assets/ (not the vault root) for a root-mode note', async () => {
+    const root = await makeTempDir('zennotes-import-files-')
+    await ensureVaultLayout(root)
+    // Source file living outside the vault, as an OS drag would provide.
+    const srcDir = await makeTempDir('zennotes-import-src-')
+    const src = path.join(srcDir, 'Diagram.png')
+    await writeFile(src, Buffer.from([137, 80, 78, 71]))
+
+    const imported = await importFiles(root, 'Note.md', [src])
+
+    expect(imported).toHaveLength(1)
+    expect(imported[0]?.path).toBe('assets/Diagram.png')
+    expect(imported[0]?.kind).toBe('image')
+    expect(imported[0]?.markdown).toContain('assets/Diagram.png')
+    await expect(readFile(path.join(root, 'assets/Diagram.png'))).resolves.toEqual(
+      Buffer.from([137, 80, 78, 71])
+    )
+    // Must NOT be dumped in the vault root (the #377 regression).
+    await expect(readFile(path.join(root, 'Diagram.png'))).rejects.toThrow()
+  })
+
+  it('stores in assets/ for an inbox-mode note too, linked relative to the note', async () => {
+    const root = await makeTempDir('zennotes-import-files-inbox-')
+    await ensureVaultLayout(root)
+    const srcDir = await makeTempDir('zennotes-import-src-inbox-')
+    const src = path.join(srcDir, 'Photo.png')
+    await writeFile(src, Buffer.from([1, 2, 3]))
+
+    const imported = await importFiles(root, 'inbox/Note.md', [src])
+
+    expect(imported[0]?.path).toBe('assets/Photo.png')
+    // Note in inbox/, asset in assets/, so the link steps up a level.
+    expect(imported[0]?.markdown).toContain('../assets/Photo.png')
+    await expect(readFile(path.join(root, 'assets/Photo.png'))).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    )
+  })
+
+  it('uniquifies names against existing files already in assets/', async () => {
+    const root = await makeTempDir('zennotes-import-files-unique-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await writeFile(path.join(root, 'assets/Photo.png'), 'existing', 'utf8')
+    const srcDir = await makeTempDir('zennotes-import-src-unique-')
+    const src = path.join(srcDir, 'Photo.png')
+    await writeFile(src, Buffer.from([9, 9, 9]))
+
+    const imported = await importFiles(root, 'Note.md', [src])
+
+    expect(imported[0]?.path).toBe('assets/Photo 2.png')
+    await expect(readFile(path.join(root, 'assets/Photo.png'), 'utf8')).resolves.toBe('existing')
   })
 })
 

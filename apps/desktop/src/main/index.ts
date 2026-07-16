@@ -151,6 +151,7 @@ import {
 import type { DatabaseSidecar, DbRow } from '@shared/databases'
 import { VaultWatcher } from './watcher'
 import { WindowVaultRegistry } from './window-vaults'
+import { registerEphemeralRoot, isEphemeralRoot } from './ephemeral-vaults'
 import { renderTikz } from './tikz'
 import { RemoteServerClient } from './remote/server-client'
 import {
@@ -183,7 +184,7 @@ import {
   writeCustomInstructions,
   MCP_SERVER_INSTRUCTIONS
 } from '../mcp/instructions-store'
-import { recordMainPerf } from './perf'
+import { recordBootMark, recordMainPerf } from './perf'
 import {
   parseOpenNoteDeepLink,
   parseQuickCaptureDeepLink,
@@ -191,12 +192,16 @@ import {
 } from './deep-links'
 import {
   isMarkdownFilePath,
-  markdownPathsFromArgv,
+  candidatePathsFromArgv,
   resolveMarkdownOpenTarget
 } from './file-open'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const nodeRequire = createRequire(import.meta.url)
+
+// First point our code runs: everything before this is Electron/Node binary
+// startup (and, on Linux AppImages, the runtime's FUSE mount).
+recordBootMark('main.boot.module-loaded')
 const LOCAL_ASSET_SCHEME = 'zen-asset'
 const THEME_ASSET_SCHEME = 'zen-theme'
 const EXCALIDRAW_ASSET_SCHEME = 'zen-excalidraw'
@@ -449,7 +454,9 @@ function queueMarkdownFileOpen(rawPath: string, reuseMainWindow: boolean): void 
 }
 
 function handleStartupMarkdownArgs(argv: string[], reuseMainWindow: boolean): void {
-  for (const candidate of markdownPathsFromArgv(argv)) {
+  // Candidates include directories (temporary folder session); the opener stats
+  // each path and ignores anything that isn't a markdown file or a folder.
+  for (const candidate of candidatePathsFromArgv(argv)) {
     queueMarkdownFileOpen(candidate, reuseMainWindow)
   }
 }
@@ -478,6 +485,10 @@ async function openMarkdownFileFromOS(absPath: string, reuseMainWindow: boolean)
     stat = await fsp.stat(absPath)
   } catch {
     return false
+  }
+  // A dropped folder opens as a temporary, non-persisted session.
+  if (stat.isDirectory()) {
+    return await openTemporaryFolder(absPath, reuseMainWindow)
   }
   if (!stat.isFile() || !isMarkdownFilePath(absPath)) return false
 
@@ -511,6 +522,57 @@ async function openMarkdownFileFromOS(absPath: string, reuseMainWindow: boolean)
 
   openExternalFileWindow(target.absPath)
   return true
+}
+
+// A folder dropped on the app icon (or `zn open <dir>`) opens as a temporary
+// session: its markdown is browsable and editable in place, but nothing is
+// written into the folder except the user's own note edits, it is never
+// remembered as a vault, and closing the window (or the next launch) returns to
+// the saved vault. `ephemeralVault` + `persistInitialVault: false` do the work.
+async function openTemporaryFolder(dir: string, reuseMainWindow: boolean): Promise<boolean> {
+  const resolved = path.resolve(dir)
+  const existing = findWindowForVaultRoot(resolved)
+  if (existing) {
+    focusWindow(existing)
+    return true
+  }
+  if (!(await folderHasMarkdown(resolved))) return false
+  const win = await createWindow({
+    initialVaultRoot: resolved,
+    persistInitialVault: false,
+    ephemeralVault: true
+  })
+  if (!reuseMainWindow) focusWindow(win)
+  return true
+}
+
+// Cheap bounded scan for at least one markdown file, so dropping a folder with
+// no docs in it doesn't spin up an empty session. Skips dotfiles/node_modules.
+async function folderHasMarkdown(dir: string): Promise<boolean> {
+  const queue: string[] = [dir]
+  let scanned = 0
+  while (queue.length > 0 && scanned < 4000) {
+    const current = queue.shift()
+    if (!current) break
+    let entries
+    try {
+      entries = await fsp.readdir(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      scanned++
+      const name = entry.name
+      if (name.startsWith('.')) continue
+      if (entry.isDirectory()) {
+        if (name === 'node_modules') continue
+        queue.push(path.join(current, name))
+      } else if (isMarkdownFilePath(name)) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 // Pick a local vault to move an external file into: any open local
@@ -918,6 +980,9 @@ interface CreateWindowOptions {
   initialVaultRoot?: string | null
   inheritWorkspaceFrom?: BrowserWindow | null
   persistInitialVault?: boolean
+  /** Open initialVaultRoot as a temporary folder session (read a folder without
+   *  turning it into a vault). Implies no persistence and no writes into it. */
+  ephemeralVault?: boolean
 }
 
 async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserWindow> {
@@ -993,7 +1058,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
 
   win.on('ready-to-show', () => {
     recordMainPerf('main.window.ready-to-show', performance.now() - createWindowStartedAt, {
-      restored: !!restoredState
+      restored: !!restoredState,
+      uptimeMs: Math.round(process.uptime() * 1000)
     })
     if (restoredState?.isMaximized) win.maximize()
     win.show()
@@ -1004,7 +1070,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   })
   win.webContents.once('did-finish-load', () => {
     recordMainPerf('main.window.did-finish-load', performance.now() - createWindowStartedAt, {
-      restored: !!restoredState
+      restored: !!restoredState,
+      uptimeMs: Math.round(process.uptime() * 1000)
     })
   })
 
@@ -1041,7 +1108,8 @@ async function createWindow(options: CreateWindowOptions = {}): Promise<BrowserW
   } else if (options.initialVaultRoot) {
     try {
       await setVaultForWindow(win, options.initialVaultRoot, {
-        persist: options.persistInitialVault !== false
+        persist: options.persistInitialVault !== false,
+        ephemeral: options.ephemeralVault === true
       })
     } catch (err) {
       if (!win.isDestroyed()) win.destroy()
@@ -1266,10 +1334,18 @@ function startRemoteWatch(client: RemoteServerClient, capabilities: ServerCapabi
 async function setVaultForWindow(
   win: BrowserWindow,
   root: string,
-  options: { persist?: boolean } = {}
+  options: { persist?: boolean; ephemeral?: boolean } = {}
 ): Promise<VaultInfo> {
-  await ensureVaultLayout(root)
-  const vault = vaultInfo(path.resolve(root))
+  // A temporary folder session (drag a folder onto the app to read it) must not
+  // write anything into the folder: skip the vault layout, and register the
+  // root so the settings/tab/cache writers stay hands-off. persist:false keeps
+  // it out of the saved config and the remembered-vaults list.
+  if (options.ephemeral) {
+    registerEphemeralRoot(root)
+  } else {
+    await ensureVaultLayout(root)
+  }
+  const vault = { ...vaultInfo(path.resolve(root)), temporary: options.ephemeral === true }
   windowVaults.setLocalVault(win.id, vault)
   currentVault = vault
   currentWorkspaceMode = 'local'
@@ -2095,6 +2171,8 @@ function registerIpc(): void {
   handle(IPC.WORKSPACE_STATE_READ, async (): Promise<string | null> => {
     if (isRemoteWorkspaceActive()) return null
     const v = requireVault()
+    // Temporary folder session: start fresh, don't read/write .zennotes.
+    if (isEphemeralRoot(v.root)) return null
     try {
       return await fsp.readFile(path.join(v.root, '.zennotes', 'workspace.json'), 'utf8')
     } catch (err) {
@@ -2107,6 +2185,8 @@ function registerIpc(): void {
     if (isRemoteWorkspaceActive()) return
     if (typeof json !== 'string') return
     const v = requireVault()
+    // Temporary folder session: don't write .zennotes/workspace.json into it.
+    if (isEphemeralRoot(v.root)) return
     const dir = path.join(v.root, '.zennotes')
     await fsp.mkdir(dir, { recursive: true })
     await fsp.writeFile(path.join(dir, 'workspace.json'), json, 'utf8')
@@ -2266,6 +2346,9 @@ function registerIpc(): void {
       return await requireRemoteWorkspaceClient().writeNoteComments(relPath, comments)
     }
     const v = requireVault()
+    // Comments live under .zennotes/; skip in a temporary session so the folder
+    // stays pristine (they aren't persisted for a temporary browse).
+    if (isEphemeralRoot(v.root)) return
     return await writeNoteComments(v.root, relPath, comments)
   })
 
@@ -2426,6 +2509,11 @@ function registerIpc(): void {
       return await requireRemoteWorkspaceClient().moveToTrash(relPath)
     }
     const v = requireVault()
+    // Trash would create a `trash/` folder inside a temporary session's folder.
+    // Keep it pristine: refuse rather than litter (edits still save in place).
+    if (isEphemeralRoot(v.root)) {
+      throw new Error('Move to Trash is not available in a temporary folder session.')
+    }
     return await moveToTrash(v.root, relPath)
   })
 
@@ -2756,6 +2844,18 @@ function registerIpc(): void {
       return false
     }
     return await openMarkdownFileFromOS(path.resolve(rawPath), false)
+  })
+
+  handle(IPC.APP_OPEN_FOLDER_TEMPORARY, async (_event, rawPath: string): Promise<void> => {
+    if (typeof rawPath !== 'string' || !rawPath.trim()) return
+    let stat
+    try {
+      stat = await fsp.stat(rawPath)
+    } catch {
+      return
+    }
+    if (!stat.isDirectory()) return
+    await openTemporaryFolder(path.resolve(rawPath), false)
   })
 
   handle(IPC.WINDOW_TOGGLE_QUICK_CAPTURE, async () => {
@@ -3420,6 +3520,10 @@ if (process.platform === 'linux') {
 }
 
 app.whenReady().then(async () => {
+  // The gap from `main.boot.module-loaded` to here is Chromium/GTK
+  // initialization — on Linux this is where fontconfig cache rebuilds and
+  // desktop-portal waits land, none of it our code.
+  recordBootMark('main.boot.app-ready')
   // A second launch (e.g. double-clicking a .md on Windows/Linux) hands
   // its argv to the primary instance via 'second-instance' below, then
   // quits here so there's only ever one ZenNotes process.

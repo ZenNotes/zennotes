@@ -44,7 +44,7 @@ interface Props {
 // Sentinel column id for the "No status" bucket on the custom-status board.
 // Starts with `_`, which the status-id grammar (`[\p{L}\d]…`) forbids, so it can
 // never collide with a real `@status:<id>`. (#354)
-const NO_VALUE_COLUMN_ID = '__none__'
+export const NO_VALUE_COLUMN_ID = '__none__'
 
 // Stable auto-assigned accent per field-value column, so a discovery-first board
 // still reads as distinct columns with zero color config. The No-value column is
@@ -119,7 +119,7 @@ function dropMutationsFor(
   return null
 }
 
-interface Column {
+export interface Column {
   id: string
   label: string
   /** Optional secondary label (e.g. count, overdue badge). */
@@ -376,6 +376,40 @@ function applyColumnOrder(
   })
 }
 
+/** Reorder built columns by the user's saved arrangement (`kanbanColumnOrder`).
+ *  Columns not in the saved order keep their built position after the saved
+ *  ones (stable), so newly-discovered values still appear. The No-value bucket
+ *  is always pinned last and is never user-movable. */
+export function arrangeColumns(columns: Column[], order: string[]): Column[] {
+  if (order.length === 0) return columns
+  const rank = new Map(order.map((id, index) => [id, index] as const))
+  const noValue = columns.filter((c) => c.id === NO_VALUE_COLUMN_ID)
+  const rest = columns.filter((c) => c.id !== NO_VALUE_COLUMN_ID)
+  const sorted = rest
+    .map((column, index) => ({ column, index }))
+    .sort((a, b) => {
+      const ar = rank.get(a.column.id)
+      const br = rank.get(b.column.id)
+      if (ar != null && br != null) return ar - br
+      if (ar != null) return -1
+      if (br != null) return 1
+      return a.index - b.index
+    })
+    .map((entry) => entry.column)
+  return [...sorted, ...noValue]
+}
+
+interface ActiveColumnDrag {
+  columnId: string
+  pointerId: number
+  startX: number
+  startY: number
+  dragging: boolean
+  /** Column the pointer is currently over, and which side to insert on. */
+  targetId: string | null
+  insertAfter: boolean
+}
+
 interface ActivePointerDrag {
   task: VaultTask
   pointerId: number
@@ -407,6 +441,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
   const setKanbanColumnTitle = useStore((s) => s.setKanbanColumnTitle)
+  const kanbanColumnOrder = useStore((s) => s.kanbanColumnOrder)
+  const setKanbanColumnOrder = useStore((s) => s.setKanbanColumnOrder)
   const kanbanStatuses = useStore((s) => s.kanbanStatuses)
   const applyTaskMutation = useStore((s) => s.applyTaskMutation)
   const [colIdx, setColIdx] = useState(0)
@@ -417,6 +453,10 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const [columnOrderVersion, setColumnOrderVersion] = useState(0)
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null)
+  const [columnDropTarget, setColumnDropTarget] = useState<{ id: string; after: boolean } | null>(
+    null
+  )
   const latestTasksRef = useRef(tasks)
   const displayTasksRef = useRef(tasks)
   const pendingTaskMovesRef = useRef(new Map<string, VaultTask>())
@@ -425,6 +465,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   const columnTitleInputRef = useRef<HTMLInputElement | null>(null)
   const boardRef = useRef<HTMLDivElement | null>(null)
   const pointerDragRef = useRef<ActivePointerDrag | null>(null)
+  const columnDragRef = useRef<ActiveColumnDrag | null>(null)
+  const suppressColumnClickUntilRef = useRef(0)
   const dragPreviewRef = useRef<HTMLDivElement | null>(null)
   const dragPreviewFrameRef = useRef<number | null>(null)
   const dragPreviewPointRef = useRef<{ x: number; y: number } | null>(null)
@@ -462,7 +504,10 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     () => {
       const orderedColumns = applyColumnOrder(
         groupBy,
-        buildColumns(groupBy, displayTasks, today, kanbanStatuses),
+        arrangeColumns(
+          buildColumns(groupBy, displayTasks, today, kanbanStatuses),
+          kanbanColumnOrder[groupBy] ?? []
+        ),
         columnOrderRef.current
       )
       return orderedColumns.map((column) => ({
@@ -470,7 +515,15 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
         label: kanbanColumnTitles[columnOrderKey(groupBy, column.id)] ?? column.label
       }))
     },
-    [columnOrderVersion, groupBy, displayTasks, kanbanColumnTitles, kanbanStatuses, today]
+    [
+      columnOrderVersion,
+      groupBy,
+      displayTasks,
+      kanbanColumnOrder,
+      kanbanColumnTitles,
+      kanbanStatuses,
+      today
+    ]
   )
   columnsRef.current = columns
 
@@ -521,6 +574,125 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     setEditingColumnId(null)
     setEditingTitle('')
   }, [])
+
+  // ---- Column reordering: drag a header, or Shift+`<` / Shift+`>` ----------
+  // A click that started a header drag must not also fire the rename button.
+  const shouldSuppressColumnRename = useCallback(
+    () => Date.now() < suppressColumnClickUntilRef.current,
+    []
+  )
+
+  const moveFocusedColumn = useCallback(
+    (dir: -1 | 1): void => {
+      const cols = columnsRef.current
+      const movable = cols.filter((c) => c.id !== NO_VALUE_COLUMN_ID).map((c) => c.id)
+      if (movable.length < 2) return
+      const from = Math.min(colIdx, cols.length - 1)
+      if (from < 0 || from >= movable.length) return // pinned No-value column can't move
+      const to = from + dir
+      if (to < 0 || to >= movable.length) return
+      const [moved] = movable.splice(from, 1)
+      movable.splice(to, 0, moved)
+      setKanbanColumnOrder(groupBy, movable)
+      setColIdx(to)
+      setCardIdx(0)
+    },
+    [colIdx, groupBy, setKanbanColumnOrder]
+  )
+
+  const beginColumnDrag = useCallback(
+    (columnId: string, e: React.PointerEvent<HTMLElement>): void => {
+      if (e.button !== 0 || columnId === NO_VALUE_COLUMN_ID || editingColumnId) return
+      columnDragRef.current = {
+        columnId,
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        dragging: false,
+        targetId: null,
+        insertAfter: false
+      }
+    },
+    [editingColumnId]
+  )
+
+  const finishColumnDrag = useCallback(
+    (drag: ActiveColumnDrag): void => {
+      if (!drag.targetId || drag.targetId === drag.columnId) return
+      const ids = columnsRef.current.map((c) => c.id).filter((id) => id !== NO_VALUE_COLUMN_ID)
+      const fromIdx = ids.indexOf(drag.columnId)
+      if (fromIdx < 0) return
+      ids.splice(fromIdx, 1)
+      const targetIdx = ids.indexOf(drag.targetId)
+      if (targetIdx < 0) return
+      ids.splice(drag.insertAfter ? targetIdx + 1 : targetIdx, 0, drag.columnId)
+      setKanbanColumnOrder(groupBy, ids)
+    },
+    [groupBy, setKanbanColumnOrder]
+  )
+
+  useEffect(() => {
+    const handleMove = (e: PointerEvent): void => {
+      const drag = columnDragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      if (
+        !drag.dragging &&
+        Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < POINTER_DRAG_THRESHOLD
+      ) {
+        return
+      }
+      if (!drag.dragging) {
+        drag.dragging = true
+        suppressColumnClickUntilRef.current = Number.POSITIVE_INFINITY
+        setDraggingColumnId(drag.columnId)
+        document.body.style.userSelect = 'none'
+      }
+      e.preventDefault()
+      const columnEl = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>(
+        '[data-kanban-column-id]'
+      )
+      const targetId = columnEl?.dataset.kanbanColumnId ?? null
+      if (!targetId || targetId === NO_VALUE_COLUMN_ID || targetId === drag.columnId) {
+        drag.targetId = null
+        setColumnDropTarget(null)
+        return
+      }
+      const rect = columnEl!.getBoundingClientRect()
+      const after = e.clientX > rect.left + rect.width / 2
+      drag.targetId = targetId
+      drag.insertAfter = after
+      setColumnDropTarget({ id: targetId, after })
+    }
+    const handleUp = (e: PointerEvent): void => {
+      const drag = columnDragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      columnDragRef.current = null
+      if (drag.dragging) {
+        e.preventDefault()
+        finishColumnDrag(drag)
+        suppressColumnClickUntilRef.current = Date.now() + 140
+      }
+      setDraggingColumnId(null)
+      setColumnDropTarget(null)
+      document.body.style.userSelect = ''
+    }
+    const handleCancel = (e: PointerEvent): void => {
+      const drag = columnDragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      columnDragRef.current = null
+      setDraggingColumnId(null)
+      setColumnDropTarget(null)
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('pointermove', handleMove, { passive: false })
+    window.addEventListener('pointerup', handleUp, { passive: false })
+    window.addEventListener('pointercancel', handleCancel)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleCancel)
+    }
+  }, [finishColumnDrag])
 
   useEffect(() => {
     if (!editingColumnId) return
@@ -1009,6 +1181,14 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
             moveFocusedCard(1)
           }
           return
+        case '<':
+          consume()
+          moveFocusedColumn(-1)
+          return
+        case '>':
+          consume()
+          moveFocusedColumn(1)
+          return
         case 'j':
         case 'ArrowDown':
           consume()
@@ -1047,6 +1227,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     focusedColumn,
     focusedTask,
     moveFocusedCard,
+    moveFocusedColumn,
     onOpenTask,
     onToggleTask
   ])
@@ -1070,8 +1251,8 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
         </div>
         <div className="text-xs text-current/40">
           {dndEnabled
-            ? 'Drag or Shift+H·L move card · h/l column · j/k card · g group-by · Space toggle · Enter open'
-            : 'h/l column · j/k card · g group-by · Space toggle · Enter open'}
+            ? 'Drag or Shift+H·L move card · drag header or </> reorder columns · h/l · j/k · g group-by · Space · Enter'
+            : 'Drag header or </> reorder columns · h/l column · j/k card · g group-by · Space · Enter'}
         </div>
       </div>
 
@@ -1092,17 +1273,37 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
       <div ref={boardRef} className="flex min-h-0 flex-1 gap-2 overflow-x-auto px-3 py-3">
         {columns.map((column, ci) => {
           const isColumnFocused = ci === safeColIdx
-          const accent = fieldKeyOf(groupBy) ? columnAccent(column.id) : null
+          const fieldKey = fieldKeyOf(groupBy)
+          const accent = fieldKey ? columnAccent(column.id) : null
+          const isMovableColumn = column.id !== NO_VALUE_COLUMN_ID
+          const isColumnDragging = draggingColumnId === column.id
+          const isColumnDropTarget = columnDropTarget?.id === column.id
+          // Reveal the underlying field value when a custom title would otherwise
+          // hide it, so a renamed column can't masquerade as the stored value. (#389)
+          const rawValueHint =
+            fieldKey && isMovableColumn && kanbanColumnTitles[columnOrderKey(groupBy, column.id)]
+              ? column.id
+              : null
           return (
             <div
               key={column.id}
               data-kanban-column-id={column.id}
               className={[
-                'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border bg-paper-100/60',
-                isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60'
+                'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border bg-paper-100/60 transition-opacity',
+                isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60',
+                isColumnDragging ? 'opacity-40' : '',
+                isColumnDropTarget ? 'ring-2 ring-accent/70' : ''
               ].join(' ')}
             >
-              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
+              <div
+                onPointerDown={(e) => beginColumnDrag(column.id, e)}
+                className={[
+                  'flex shrink-0 select-none items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2',
+                  isMovableColumn && editingColumnId !== column.id
+                    ? 'cursor-grab active:cursor-grabbing'
+                    : ''
+                ].join(' ')}
+              >
                 <div className="min-w-0 flex-1">
                   {editingColumnId === column.id ? (
                     <input
@@ -1133,9 +1334,9 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                       title="Rename column"
                       onClick={(e) => {
                         e.stopPropagation()
+                        if (shouldSuppressColumnRename()) return
                         beginColumnRename(column)
                       }}
-                      onPointerDown={(e) => e.stopPropagation()}
                       className="group/title flex max-w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
                     >
                       {accent && (
@@ -1154,6 +1355,14 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
                         className="shrink-0 text-current/45 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100"
                       />
                     </button>
+                  )}
+                  {rawValueHint && editingColumnId !== column.id && (
+                    <span
+                      className="mt-0.5 block truncate font-mono text-2xs lowercase text-current/40"
+                      title={`Tasks in this column are tagged @${fieldKey}:${rawValueHint}`}
+                    >
+                      @{fieldKey}:{rawValueHint}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-current/50">
