@@ -6,6 +6,7 @@ import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { shouldShowWindowControls } from '../lib/titlebar'
 
 export function TitleBar(): JSX.Element {
   const vault = useStore((s) => s.vault)
@@ -14,6 +15,7 @@ export function TitleBar(): JSX.Element {
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const isMac = window.zen.platformSync() === 'darwin'
+  const runtime = window.zen.getAppInfo().runtime
   const labels = resolveSystemFolderLabels(systemFolderLabels)
 
   const title = activeNote
@@ -47,7 +49,7 @@ export function TitleBar(): JSX.Element {
           </span>
         )}
       </div>
-      {!isMac && (
+      {shouldShowWindowControls(isMac ? 'darwin' : 'other', runtime) && (
         <div className="flex items-center gap-1">
           <WinButton onClick={() => window.zen.windowMinimize()} label="–" />
           <WinButton onClick={() => window.zen.windowToggleMaximize()} label="▢" />
