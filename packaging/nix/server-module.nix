@@ -67,12 +67,6 @@ in {
     let
       configFile = (pkgs.formats.toml {}).generate "config.toml" cfg.settings;
     in {
-      # Ensure state directories exist with proper permissions
-      systemd.tmpfiles.rules = [
-        "d '${cfg.dataDir}' 0750 zennotes zennotes -"
-        "d '${cfg.vaultPath}' 0770 zennotes zennotes -"
-      ];
-
       users.users.zennotes = {
         isSystemUser = true;
         group = "zennotes";
@@ -94,8 +88,8 @@ in {
           ExecStart = "${cfg.package}/bin/zennotes-server";
           Restart = "on-failure";
 
-          # Systemd automatically creates these directories as root,
-          # assigns them to user/group zennotes, and sets permissions BEFORE dropping privileges.
+          # Automatically manages /var/lib/zennotes and its subdirectories
+          # creating them with correct permissions before applying systemd isolation.
           StateDirectory = [
             "zennotes"
             "zennotes/vault"
@@ -105,14 +99,19 @@ in {
           ProtectSystem = "strict";
           ProtectHome = true;
           NoNewPrivileges = true;
-          ReadWritePaths = [cfg.dataDir cfg.vaultPath];
+
+          # Allow full read/write access to both the data directory and vault path
+          ReadWritePaths = [
+            cfg.dataDir
+            cfg.vaultPath
+          ];
         };
 
-        # Safe preStart: No root actions (chown/mkdir) required!
+        # Use cp --no-preserve=mode to make sure the copied file isn't read-only like the store original
         preStart = ''
-          if [ ! -f ${cfg.dataDir}/config.toml ]; then
-            cp ${configFile} ${cfg.dataDir}/config.toml
-            chmod 0640 ${cfg.dataDir}/config.toml
+          if [ ! -f "${cfg.dataDir}/config.toml" ]; then
+            cp --no-preserve=mode ${configFile} "${cfg.dataDir}/config.toml"
+            chmod 0640 "${cfg.dataDir}/config.toml"
           fi
         '';
 
