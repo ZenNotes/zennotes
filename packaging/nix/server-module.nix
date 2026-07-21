@@ -96,7 +96,10 @@ in {
 
           # Systemd automatically creates these directories as root,
           # assigns them to user/group zennotes, and sets permissions BEFORE dropping privileges.
-          StateDirectory = "zennotes"; # Creates /var/lib/zennotes (0750)
+          StateDirectory = [
+            "zennotes"
+            "zennotes/vault"
+          ];
 
           # Security hardening options
           ProtectSystem = "strict";
