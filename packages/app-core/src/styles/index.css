@@ -2204,7 +2204,6 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
 }
 .cm-editor .tok-heading5 {
   font-size: 1em;
-  text-transform: uppercase;
   letter-spacing: 0;
 }
 .cm-editor .tok-heading6 {
@@ -2698,7 +2697,6 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   font-size: 1em;
   margin-top: var(--z-prose-section-gap);
   margin-bottom: var(--z-prose-heading-gap);
-  text-transform: uppercase;
   letter-spacing: 0;
 }
 .prose-zen h6 {
