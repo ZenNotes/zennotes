@@ -99,7 +99,7 @@ import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
-import { tablePlugin, tableVimEntry } from '../lib/cm-table'
+import { tablePlugin, tableVimEntry, tableSelectionHighlight } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { taskMetadataExtension } from '../lib/cm-task-metadata'
@@ -440,7 +440,7 @@ function wysiwygExtensions(
     codeBlockFlairPlugin,
     // Table widgets are gated on a setting — off keeps tables as plain editable
     // markdown for full keyboard/Vim editing (#232).
-    ...(renderTables ? [tablePlugin, tableVimEntry] : []),
+    ...(renderTables ? [tablePlugin, tableVimEntry, tableSelectionHighlight] : []),
     wysiwygBlocksPlugin,
     ...hashtagExtension,
     ...taskMetadataExtension,

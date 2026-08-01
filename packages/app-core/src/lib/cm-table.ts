@@ -25,6 +25,8 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  ViewPlugin,
+  type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
 import {
@@ -1976,8 +1978,16 @@ export function focusFirstTableCell(view: EditorView, tableFrom: number): void {
  * Vim integration: in NORMAL mode, `j` / `k` on a line directly adjacent to a
  * rendered table steps the caret into the table (first header cell from above,
  * last row from below) instead of jumping over the atomic block. Inside, the
- * widget's own key handler takes over. Highest precedence so it runs before Vim
- * consumes the key; a no-op (returns false) whenever there's no adjacent table.
+ * widget's own key handler takes over.
+ *
+ * In VISUAL mode, a down/up motion adjacent to a table extends the selection
+ * across the WHOLE table in one step — the head snaps to the table's far edge
+ * instead of landing inside the atomic interior (where it would corrupt a
+ * partial delete). CodeMirror draws no selection highlight over a block widget,
+ * so `tableSelectionHighlight` lights the table up to make the snap visible.
+ *
+ * Highest precedence so it runs before Vim consumes the key; a no-op (returns
+ * false) whenever there's no adjacent table.
  */
 export const tableVimEntry = Prec.highest(
   EditorView.domEventHandlers({
@@ -1990,16 +2000,30 @@ export const tableVimEntry = Prec.highest(
       if (!down && !up) return false
       if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
       // Keys from inside a table widget are the widget's own cell navigation —
-      // this handler only enters a table from the surrounding document.
+      // this handler only enters/extends across a table from the document.
       if ((event.target as HTMLElement | null)?.closest?.('.cm-table-widget')) return false
-      const vimState = getCM(view)?.state?.vim as { insertMode?: boolean } | undefined
+      const vimState = getCM(view)?.state?.vim as
+        | { insertMode?: boolean; visualMode?: boolean }
+        | undefined
       if (vimState?.insertMode) return false
       const sel = view.state.selection.main
-      if (!sel.empty) return false
+      const visual = !!vimState?.visualMode
+      if (!visual && !sel.empty) return false
       const line = view.state.doc.lineAt(sel.head).number
       const dir = down ? 'down' : 'up'
       const table = adjacentTableRange(view.state, line, dir)
       if (!table) return false
+      if (visual) {
+        // Extend the moving end (head) to the table's far edge. codemirror-vim
+        // adopts the change: its `handleExternalSelection` reads the CM
+        // selection into `vim.sel` whenever it changes in visual mode, so a
+        // dispatched selection becomes the live visual selection. `d` then
+        // deletes the whole table cleanly.
+        const targetHead = dir === 'down' ? table.to : table.from
+        view.dispatch({ selection: { anchor: sel.anchor, head: targetHead } })
+        event.preventDefault()
+        return true
+      }
       if (focusTableEntryCell(view, table.from, dir === 'down' ? 'first' : 'last')) {
         event.preventDefault()
         return true
@@ -2007,4 +2031,45 @@ export const tableVimEntry = Prec.highest(
       return false
     }
   })
+)
+
+/**
+ * Light up a table widget while the editor selection covers it. CodeMirror
+ * draws the selection background only on text lines — a block widget sits
+ * outside that flow, so a Vim visual selection over a table is otherwise
+ * invisible. This toggles `.is-selected` on each widget whose range intersects
+ * `selection.main`, so the snap from `tableVimEntry` (and any mouse selection)
+ * is actually visible. Cheap: the decoration set is iterated only on selection
+ * / doc / viewport changes, and tables are sparse.
+ */
+export const tableSelectionHighlight = ViewPlugin.fromClass(
+  class {
+    update(update: ViewUpdate): void {
+      if (!update.selectionSet && !update.docChanged && !update.viewportChanged) return
+      const view = update.view
+      const sel = view.state.selection.main
+      const field = view.state.field(tablePlugin, false)
+      if (!field) return
+      // Empty (normal-mode) selection → no table is highlighted. Toggle the
+      // class directly on the live widget DOM; tables are sparse, so a query
+      // per change beats bookkeeping widget instances.
+      const widgets = view.contentDOM.querySelectorAll<HTMLElement>('.cm-table-widget')
+      for (const widget of widgets) {
+        let from: number
+        try {
+          from = view.posAtDOM(widget)
+        } catch {
+          continue
+        }
+        let covered = false
+        if (!sel.empty) {
+          // The widget's decoration range includes `from`; inspect it there.
+          field.between(from, from + 1, (f, t) => {
+            if (sel.from <= t && sel.to >= f) covered = true
+          })
+        }
+        widget.classList.toggle('is-selected', covered)
+      }
+    }
+  }
 )

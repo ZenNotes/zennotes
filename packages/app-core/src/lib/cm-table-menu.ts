@@ -322,13 +322,16 @@ export function openTableContextMenu(req: TableMenuRequest): void {
     }
   }
   // Defer so the originating contextmenu/right-click doesn't immediately close it.
+  let tornDown = false
   setTimeout(() => {
+    if (tornDown) return
     window.addEventListener('mousedown', onDown, true)
     window.addEventListener('keydown', onKey, true)
     applyFilter()
   }, 0)
 
   teardown = () => {
+    tornDown = true
     window.removeEventListener('mousedown', onDown, true)
     window.removeEventListener('keydown', onKey, true)
     menu.remove()

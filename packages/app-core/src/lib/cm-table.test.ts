@@ -5,12 +5,15 @@ import { forceParsing } from "@codemirror/language";
 import { history } from "@codemirror/commands";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { vim, getCM, Vim } from '@replit/codemirror-vim'
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Text } from "@codemirror/state";
 import {
   renderInlineCell,
   tableBlockAt,
   tablePlugin,
+  tableVimEntry,
+  tableSelectionHighlight,
   focusFirstTableCell,
   nextWordStart,
   prevWordStart,
@@ -829,7 +832,6 @@ describe("table cell inline-mark shortcuts (Mod-b / Mod-i / Mod-e / Mod-Shift-x)
       bubbles: true,
       cancelable: true,
       metaKey: true,
-<<<<<<< HEAD
       altKey: true,
     });
     cell.dispatchEvent(ev);
@@ -838,13 +840,7 @@ describe("table cell inline-mark shortcuts (Mod-b / Mod-i / Mod-e / Mod-Shift-x)
     view.destroy();
   });
 });
-=======
-      altKey: true
     })
-    cell.dispatchEvent(ev)
-    expect(ev.defaultPrevented).toBe(false)
-    expect(cell.dataset.raw).toBe('hello')
-    view.destroy()
   })
 })
 
@@ -874,4 +870,150 @@ describe('focusFirstTableCell — /table lands in the first header cell', () => 
     view.destroy()
   })
 })
->>>>>>> 52c8d79 (fix: focus first cell after /table insertion)
+
+describe('visual-mode table selection — snap + highlight', () => {
+  // Vim's own vertical motion needs layout (getClientRects), which jsdom lacks,
+  // so this drives the snap through real key events: `tableVimEntry` intercepts
+  // the down motion and dispatches the selection directly (no coordinates),
+  // which is exactly what happens in a browser.
+  const saved = { vimMode: useStore.getState().vimMode }
+  afterEach(() => {
+    useStore.setState({ vimMode: saved.vimMode })
+    vi.restoreAllMocks()
+  })
+
+  const DOC = `line above
+
+| A | B |
+| --- | --- |
+| 1 | 2 |
+
+line below`
+
+  // Markdown always separates a table from surrounding text by a blank line,
+  // so the line "directly adjacent" to the table is that blank line. These are
+  // the positions on the blank lines above and below the table block.
+  const TABLE_FROM = DOC.indexOf('| A |')
+  const TABLE_TO = TABLE_FROM + '| A | B |\n| --- | --- |\n| 1 | 2 |'.length
+  const ABOVE_BLANK = DOC.indexOf('\n\n| A |') + 1
+  const BELOW_BLANK = DOC.indexOf('\n\nline below') + 1
+
+  function mountVim(): EditorView {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: DOC,
+        extensions: [
+          vim(),
+          markdown({ base: markdownLanguage }),
+          tablePlugin,
+          tableVimEntry,
+          tableSelectionHighlight
+        ]
+      })
+    })
+    forceParsing(view, DOC.length, 5000)
+    return view
+  }
+
+  const press = (view: EditorView, key: string, keyCode: number): void => {
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key, keyCode, bubbles: true, cancelable: true })
+    )
+  }
+
+  // Enter visual mode via the Vim API rather than a DOM keydown: the DOM path
+  // is fragile under jsdom once earlier describes in the file have mutated the
+  // global store / left stale listeners.  Vim.handleKey drives vim's key
+  // processing directly.
+  function enterVisual(view: EditorView): void {
+    Vim.handleKey(getCM(view)!, 'v', 'user')
+  }
+
+  it('snaps a visual selection across the whole table on a down motion', () => {
+    useStore.setState({ vimMode: true })
+    const view = mountVim()
+    view.focus()
+    // Caret on the blank line directly above the table, then visual mode.
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    enterVisual(view)
+    // One down motion → head snaps to the table's end, covering the whole table.
+    press(view, 'ArrowDown', 40)
+    const sel = view.state.selection.main
+    expect(sel.from).toBe(ABOVE_BLANK)
+    expect(sel.to).toBe(TABLE_TO)
+    view.destroy()
+  })
+
+  it('deletes the whole table cleanly with `d` after the snap', () => {
+    useStore.setState({ vimMode: true })
+    const view = mountVim()
+    view.focus()
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    enterVisual(view)
+    press(view, 'ArrowDown', 40)
+    Vim.handleKey(getCM(view)!, 'd', 'user')
+    const after = view.state.doc.toString()
+    expect(after).not.toContain('| A |')
+    expect(after).not.toContain('---')
+    // The text after the table survives.
+    expect(after).toContain('line below')
+    view.destroy()
+  })
+
+  it('snaps upward from below the table too', () => {
+    useStore.setState({ vimMode: true })
+    const view = mountVim()
+    view.focus()
+    view.dispatch({ selection: { anchor: BELOW_BLANK } })
+    enterVisual(view)
+    press(view, 'ArrowUp', 38)
+    const sel = view.state.selection.main
+    // Head moved up to the table's start; anchor stayed on the blank line below.
+    expect(sel.head).toBe(TABLE_FROM)
+    expect(sel.anchor).toBe(BELOW_BLANK)
+    view.destroy()
+  })
+
+  it('lights the widget with .is-selected while the selection covers it', () => {
+    useStore.setState({ vimMode: true })
+    const view = mountVim()
+    view.focus()
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    enterVisual(view)
+    press(view, 'ArrowDown', 40)
+    const widget = view.dom.querySelector('.cm-table-widget')
+    expect(widget?.classList.contains('is-selected')).toBe(true)
+    view.destroy()
+  })
+
+  it('clears .is-selected when the selection no longer covers the table', () => {
+    useStore.setState({ vimMode: true })
+    const view = mountVim()
+    view.focus()
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    enterVisual(view)
+    press(view, 'ArrowDown', 40)
+    const widget = view.dom.querySelector('.cm-table-widget')!
+    expect(widget.classList.contains('is-selected')).toBe(true)
+    // Collapse the selection back to a point — the highlight must drop.
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    expect(widget.classList.contains('is-selected')).toBe(false)
+    view.destroy()
+  })
+
+  it('does not snap in non-vim mode (the handler is a no-op without vim)', () => {
+    useStore.setState({ vimMode: false })
+    const view = mountVim()
+    view.focus()
+    view.dispatch({ selection: { anchor: ABOVE_BLANK } })
+    enterVisual(view)
+    press(view, 'ArrowDown', 40)
+    // No table-snap dispatch occurred: head did not jump to the table end.
+    const sel = view.state.selection.main
+    expect(sel.to).toBeLessThan(TABLE_FROM)
+    view.destroy()
+  })
+})

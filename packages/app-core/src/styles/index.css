@@ -4921,6 +4921,15 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 .cm-editor:has(.cm-table-cell:focus) .cm-selectionLayer {
   display: none;
 }
+/* A Vim visual selection (or mouse selection) covering the table block. CM
+   draws selection background only on text lines, so a block widget shows none;
+   `.is-selected` is toggled by `tableSelectionHighlight` to make it visible.
+   Uses the same accent tint as `.cm-selectionBackground`. */
+.cm-table-widget.is-selected .cm-table-cell,
+.cm-table-widget.is-selected th,
+.cm-table-widget.is-selected td {
+  background: rgb(var(--z-accent) / 0.18);
+}
 /* Rendered inline markdown inside idle cells (the source pipeline emits real
    <code>/<strong>/<em>/<a> tags, so style them to match the editor chrome). */
 .cm-table-widget .cm-table-cell code {
