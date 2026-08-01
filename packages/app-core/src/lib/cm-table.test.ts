@@ -11,6 +11,7 @@ import {
   renderInlineCell,
   tableBlockAt,
   tablePlugin,
+  focusFirstTableCell,
   nextWordStart,
   prevWordStart,
   nextWordEnd,
@@ -828,6 +829,7 @@ describe("table cell inline-mark shortcuts (Mod-b / Mod-i / Mod-e / Mod-Shift-x)
       bubbles: true,
       cancelable: true,
       metaKey: true,
+<<<<<<< HEAD
       altKey: true,
     });
     cell.dispatchEvent(ev);
@@ -836,3 +838,40 @@ describe("table cell inline-mark shortcuts (Mod-b / Mod-i / Mod-e / Mod-Shift-x)
     view.destroy();
   });
 });
+=======
+      altKey: true
+    })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(false)
+    expect(cell.dataset.raw).toBe('hello')
+    view.destroy()
+  })
+})
+
+describe('focusFirstTableCell — /table lands in the first header cell', () => {
+  // The table in TABLE_DOC starts at offset 13 (after "Intro text.\n\n").
+  const TABLE_FROM = 13
+
+  it('focuses the first header cell once the widget is rendered', async () => {
+    const view = mount(TABLE_DOC)
+    focusFirstTableCell(view, TABLE_FROM)
+    // `mount` has already forced the parse, so the widget exists and the first
+    // rAF tick lands focus in the cell.
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
+    const first = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="-1"][data-col="0"]'
+    )
+    expect(first).toBeTruthy()
+    expect(document.activeElement).toBe(first)
+    view.destroy()
+  })
+
+  it('is a harmless no-op when no table widget sits at the position', async () => {
+    const view = mount('Just a paragraph, no table here.')
+    expect(() => focusFirstTableCell(view, 0)).not.toThrow()
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
+    expect(view.dom.querySelector('.cm-table-cell')).toBeNull()
+    view.destroy()
+  })
+})
+>>>>>>> 52c8d79 (fix: focus first cell after /table insertion)

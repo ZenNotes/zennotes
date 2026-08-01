@@ -1952,6 +1952,27 @@ function focusTableEntryCell(
 }
 
 /**
+ * After a `/table` insertion, move keyboard focus into the first header cell of
+ * the table starting at `tableFrom`, so the user lands in the table instead of
+ * on the trailing line. `#340` deliberately keeps the CM caret on that trailing
+ * line (a caret inside the atomic range smears into a tall bar); focusing the
+ * cell DOM is a separate concern and leaves the caret untouched.
+ *
+ * The widget is built from the parsed syntax tree, which can lag a frame or two
+ * behind the insert dispatch, so this retries (bounded) until the decoration
+ * appears. No-op if the table never renders — the extension isn't loaded in
+ * Split mode or the template editor, so `/table` there just falls back to the
+ * trailing-line caret. */
+export function focusFirstTableCell(view: EditorView, tableFrom: number): void {
+  let tries = 0
+  const tick = (): void => {
+    if (focusTableEntryCell(view, tableFrom, 'first')) return
+    if (++tries < 12) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+/**
  * Vim integration: in NORMAL mode, `j` / `k` on a line directly adjacent to a
  * rendered table steps the caret into the table (first header cell from above,
  * last row from below) instead of jumping over the atomic block. Inside, the

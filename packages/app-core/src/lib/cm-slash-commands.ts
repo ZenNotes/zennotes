@@ -1,6 +1,7 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
+import { focusFirstTableCell } from './cm-table'
 
 interface SlashCmd {
   label: string
@@ -232,6 +233,14 @@ export function slashCommandSource(context: CompletionContext): CompletionResult
             changes: { from: slashStart, to, insert },
             selection: { anchor: cursorPos }
           })
+          // `/table`: once the widget renders, drop into the first header cell
+          // so the user can rename the columns right away instead of landing on
+          // the trailing line. The CM caret stays put (#340); this only moves
+          // DOM focus into the cell. Retries internally until the parse catches
+          // up and the decoration exists.
+          if (tableCaretAfter) {
+            focusFirstTableCell(view, slashStart + leadPad.length)
+          }
         }
       } as Completion & { _icon: string })
     ),
