@@ -744,6 +744,22 @@ class TableWidget extends WidgetType {
     const cols = this.model.headers.length
     const rowsCount = this.model.rows.length
 
+    // Inline markdown formatting (Mod-b / Mod-i / Mod-e / Mod-Shift-x) wraps
+    // the cell's own selection. The editor's `markdownKeymap` can't reach
+    // inside the atomic table widget — its commands act on the CM document
+    // selection, which is the atomic range, never the cell's caret — so the
+    // chords are honored here while the cell is editable (Vim INSERT, or
+    // always with Vim off). NORMAL mode lets them pass through unchanged.
+    if (!vimEnabled() || this.cellMode === 'insert') {
+      const marker = inlineMarkerFor(event)
+      if (marker) {
+        event.preventDefault()
+        event.stopPropagation()
+        this.toggleInline(editable, marker)
+        return
+      }
+    }
+
     if (vimEnabled()) {
       if (this.cellMode === 'insert') {
         // INSERT: Escape (or the configurable insert-escape sequence, e.g. jk)
@@ -1289,6 +1305,65 @@ class TableWidget extends WidgetType {
     this.renderCellCursor(cell)
   }
 
+  /** Toggle a markdown inline marker (`**` / `*` / `` ` `` / `~~`) around the
+   *  cell's current text selection. Mirrors the editor's `markdownKeymap`
+   *  (`toggleStrong`/`toggleEmphasis`/`toggleCode`/`toggleStrikethrough`),
+   *  which can't operate here because the table widget is atomic — see
+   *  `onCellKeydown`. A collapsed caret wraps the word under it; if it sits on
+   *  whitespace/empty cell, empty markers are inserted with the caret between
+   *  them. Selecting already-wrapped text unwraps it (a true toggle). */
+  private toggleInline(editable: HTMLElement, marker: string): void {
+    const text = editable.textContent ?? ''
+    const sel = selectionOffsets(editable)
+    let from = sel?.from ?? 0
+    let to = sel?.to ?? 0
+    from = Math.max(0, Math.min(from, text.length))
+    to = Math.max(from, Math.min(to, text.length))
+    const collapsed = from === to
+    if (collapsed) {
+      // Expand to the word under the caret (a single char-class run, so
+      // markers are boundaries — see `wordRunAt`); on whitespace/empty, drop
+      // empty markers and park the caret between them.
+      const word = wordRunAt(text, from)
+      if (word) {
+        from = word.from
+        to = word.to
+      }
+    }
+    const L = marker.length
+    const inner = text.slice(from, to)
+    // Detect an existing wrap to toggle off. The markers may sit just outside
+    // the selection (…**[sel]**…) or be the selection's own edges ([**sel**]),
+    // so a select-all of `**hello**` unwraps rather than double-wrapping.
+    const outerBefore = text.slice(Math.max(0, from - L), from)
+    const outerAfter = text.slice(to, to + L)
+    const markedOutside = outerBefore === marker && outerAfter === marker
+    const markedInside =
+      inner.length >= 2 * L && inner.startsWith(marker) && inner.endsWith(marker)
+    let next: string
+    let caretFrom: number
+    let caretTo: number
+    if (markedOutside) {
+      next = text.slice(0, from - L) + inner + text.slice(to + L)
+      caretFrom = from - L
+      caretTo = caretFrom + inner.length
+    } else if (markedInside) {
+      const stripped = inner.slice(L, inner.length - L)
+      next = text.slice(0, from) + stripped + text.slice(to)
+      caretFrom = from
+      caretTo = caretFrom + stripped.length
+    } else {
+      next = text.slice(0, from) + marker + inner + marker + text.slice(to)
+      caretFrom = from + L
+      caretTo = caretFrom + inner.length
+    }
+    editable.textContent = next
+    editable.dataset.raw = next
+    editable.dataset.rendered = 'false'
+    this.dirty = true
+    setSelection(editable, caretFrom, caretTo)
+  }
+
   /** Apply a pending operator (`d`/`c`) over the motion in `key`: dd/cc clear
    *  the cell; dw/cw, d$/c$, d0/c0, dl, db act over that range. `c` then edits. */
   private applyOperator(
@@ -1686,18 +1761,80 @@ export function textObjectRange(
 
 /** Collapse the caret at a character offset within the element's text node. */
 function placeCaretAt(el: HTMLElement, offset: number): void {
+  setSelection(el, offset, offset)
+}
+
+/** Select the text between char offsets `from` and `to` in `el`'s single text
+ *  node (the cell source is one text node while editing). Clamped to bounds. */
+function setSelection(el: HTMLElement, from: number, to: number): void {
   const node = el.firstChild
+  const sel = window.getSelection()
+  if (!sel) return
   const range = document.createRange()
   if (node && node.nodeType === Node.TEXT_NODE) {
     const max = node.textContent?.length ?? 0
-    range.setStart(node, Math.max(0, Math.min(offset, max)))
+    const a = Math.max(0, Math.min(from, max))
+    const b = Math.max(0, Math.min(to, max))
+    range.setStart(node, a)
+    range.setEnd(node, Math.max(a, b))
   } else {
     range.selectNodeContents(el)
   }
-  range.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(range)
+}
+
+/** Read the [from, to) char offsets of the live Selection within `el`, measured
+ *  over the rendered text (so it tracks the real caret even if the browser
+ *  split the text node while editing). Collapsed selection → from == to.
+ *  Returns null when the selection is outside `el`. */
+function selectionOffsets(el: HTMLElement): { from: number; to: number } | null {
   const sel = window.getSelection()
-  sel?.removeAllRanges()
-  sel?.addRange(range)
+  if (!sel || sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0)
+  if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) return null
+  const measure = (container: Node, offset: number): number => {
+    const pre = document.createRange()
+    pre.selectNodeContents(el)
+    pre.setEnd(container, offset)
+    return pre.toString().length
+  }
+  return {
+    from: measure(range.startContainer, range.startOffset),
+    to: measure(range.endContainer, range.endOffset)
+  }
+}
+
+/** The run of characters sharing the char class of `text[at]` around `at`, or
+ *  null if `at` is on whitespace / out of range. Stopping at class changes (not
+ *  just whitespace) means markdown markers (`*` `` ` `` `~`, all punctuation)
+ *  are boundaries — so a caret inside `**hello**` wraps `hello`, and the
+ *  surrounding markers make the next press toggle it off instead of re-wrapping.
+ *  Matches the file's other word helpers (`nextWordStart`/…), which all use
+ *  `charClass`. */
+function wordRunAt(text: string, at: number): { from: number; to: number } | null {
+  if (at < 0 || at >= text.length) return null
+  const cls = charClass(text[at])
+  if (cls === 0) return null
+  let from = at
+  while (from > 0 && charClass(text[from - 1]) === cls) from--
+  let to = at
+  while (to < text.length && charClass(text[to]) === cls) to++
+  return { from, to }
+}
+
+/** Map a Mod-b / Mod-i / Mod-e / Mod-Shift-x chord to its markdown inline
+ *  marker, mirroring `markdownKeymap`'s inline-mark bindings. Returns null for
+ *  any other key (or when a superfluous Alt is held, to avoid clobbering
+ *  unrelated chords). */
+function inlineMarkerFor(event: KeyboardEvent): string | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null
+  const key = event.key.toLowerCase()
+  if (event.shiftKey) return key === 'x' ? '~~' : null
+  if (key === 'b') return '**'
+  if (key === 'i') return '*'
+  if (key === 'e') return '`'
+  return null
 }
 
 function buildDecorations(state: EditorState): DecorationSet {
