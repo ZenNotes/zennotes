@@ -54,7 +54,7 @@ export function WhichKeyOverlay({
                   .map((token, tokenIndex) => (
                     <span
                       key={`${prefix}-${item.keyLabel}-${tokenIndex}`}
-                      className="rounded-md border border-paper-300 bg-paper-200/85 px-2 py-0.5 text-center text-2xs font-semibold uppercase tracking-wide text-ink-700"
+                      className="rounded-md border border-paper-300 bg-paper-200/85 px-2 py-0.5 text-center text-2xs font-semibold tracking-wide text-ink-700"
                     >
                       {token}
                     </span>
