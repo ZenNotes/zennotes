@@ -2421,7 +2421,10 @@ function normalizeWorkspaceSizes(raw: unknown, length: number): number[] {
   return sizes.map((value) => value / total)
 }
 
-function sanitizeWorkspaceLayout(raw: unknown, existingPaths: Set<string>): PaneLayout {
+function sanitizeWorkspaceLayout(
+  raw: unknown,
+  existingPaths: Set<string> | null
+): PaneLayout {
   const usedIds = new Set<string>()
 
   const nextId = (rawId: unknown): string => {
@@ -2437,6 +2440,7 @@ function sanitizeWorkspaceLayout(raw: unknown, existingPaths: Set<string>): Pane
 
   const sanitizePath = (value: unknown): string | null => {
     if (typeof value !== 'string') return null
+    if (existingPaths === null) return value
     return existingPaths.has(value) || isWorkspaceVirtualTabPath(value) ? value : null
   }
 
@@ -4232,6 +4236,26 @@ export const useStore = create<Store>((set, get) => {
     }, 2000)
   }
 
+  const finalizeRestoredWorkspace = (vault: VaultInfo): void => {
+    const state = get()
+    if (!state.vault || state.vault.root !== vault.root || !state.workspaceRestored) return
+
+    const activeLeaf = findLeaf(state.paneLayout, state.activePaneId)
+    const activePath = activeLeaf?.activeTab ?? null
+    set({
+      collapsedFolders: computeStartupCollapsedFolders(
+        state.folders,
+        state.vaultSettings,
+        activePath
+      )
+    })
+  }
+
+  async function restoreWorkspaceWithIndexes(vault: VaultInfo): Promise<void> {
+    await Promise.all([refreshVaultIndexes(), restoreWorkspaceForVault(vault)])
+    finalizeRestoredWorkspace(vault)
+  }
+
   const restoreWorkspaceForVault = async (vault: VaultInfo): Promise<void> => {
     const startedAt = performance.now()
     // Overlay this vault's per-vault view overrides onto the live prefs — only
@@ -4245,11 +4269,9 @@ export const useStore = create<Store>((set, get) => {
     const rawSnapshot = await loadBestWorkspaceSnapshot(vault.root)
     if (!rawSnapshot || typeof rawSnapshot !== 'object') {
       set({
-        collapsedFolders: computeStartupCollapsedFolders(
-          get().folders,
-          get().vaultSettings,
-          null
-        ),
+        // Collapsed folders are computed once the folder index is available;
+        // default to everything expanded so the workspace can paint immediately.
+        collapsedFolders: [],
         workspaceRestored: true
       })
       scheduleAssetsRefreshForVault(vault)
@@ -4258,8 +4280,7 @@ export const useStore = create<Store>((set, get) => {
     }
 
     const snapshot = rawSnapshot as Partial<WorkspaceSnapshot>
-    const existingPaths = new Set(get().notes.map((note) => note.path))
-    let layout = sanitizeWorkspaceLayout(snapshot.paneLayout, existingPaths)
+    let layout = sanitizeWorkspaceLayout(snapshot.paneLayout, null)
     // A workspace saved while Workflows was on (or synced from a machine where
     // it still is) must not resurrect the canvas for someone who turned the
     // feature off.
@@ -4269,7 +4290,10 @@ export const useStore = create<Store>((set, get) => {
     const unreadable = new Set<string>()
     const contents: Record<string, NoteContent> = {}
     const dirty: Record<string, boolean> = {}
-    const pathsToLoad = initialWorkspaceRestoreContentPaths(layout, existingPaths)
+    // Don't block tabs on the full notes index. The snapshot paths are shown
+    // immediately; refreshNotes will prune any that no longer exist once the
+    // index arrives.
+    const pathsToLoad = initialWorkspaceRestoreContentPaths(layout, null)
     const initiallyLoadedPaths = new Set(pathsToLoad)
 
     await Promise.all(
@@ -4289,7 +4313,7 @@ export const useStore = create<Store>((set, get) => {
     }
     const restorePrefetchPaths = workspaceRestorePrefetchContentPaths(
       layout,
-      existingPaths,
+      null,
       initiallyLoadedPaths
     )
 
@@ -4302,11 +4326,6 @@ export const useStore = create<Store>((set, get) => {
     const nextView: View = active.selectedPath
       ? restoredView
       : { kind: 'folder', folder: 'inbox', subpath: '' }
-    const collapsedFolders = computeStartupCollapsedFolders(
-      get().folders,
-      get().vaultSettings,
-      active.selectedPath
-    )
 
     set({
       paneLayout: ensured.layout,
@@ -4323,7 +4342,8 @@ export const useStore = create<Store>((set, get) => {
           ? snapshot.noteListOpen
           : get().noteListOpen,
       selectedTags: normalizeWorkspaceTags(snapshot.selectedTags),
-      collapsedFolders,
+      // Finalized once the folder index arrives in parallel.
+      collapsedFolders: [],
       workspaceRestored: true,
       ...active
     })
@@ -8734,9 +8754,8 @@ export const useStore = create<Store>((set, get) => {
           vaultSettings,
           workspaceRestored: false
         })
-        await refreshVaultIndexes()
+        await restoreWorkspaceWithIndexes(vault)
         await prefetchInitialVisibleNotes(get())
-        await restoreWorkspaceForVault(vault)
         initializedVault = true
       } else {
         set({
@@ -8888,8 +8907,7 @@ export const useStore = create<Store>((set, get) => {
       workspaceRestored: false
     })
     savePrefs(collectPrefs(get()))
-    await refreshVaultIndexes()
-    await restoreWorkspaceForVault(vault)
+    await restoreWorkspaceWithIndexes(vault)
   },
 
   openLocalVault: async (root: string) => {
@@ -8942,8 +8960,7 @@ export const useStore = create<Store>((set, get) => {
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
-      await refreshVaultIndexes()
-      await restoreWorkspaceForVault(vault)
+      await restoreWorkspaceWithIndexes(vault)
     } catch (err) {
       console.error('openLocalVault failed', err)
       window.alert(err instanceof Error ? err.message : String(err))
@@ -9005,8 +9022,7 @@ export const useStore = create<Store>((set, get) => {
           workspaceRestored: false
         })
         savePrefs(collectPrefs(get()))
-        await refreshVaultIndexes()
-        await restoreWorkspaceForVault(vaultToOpen)
+        await restoreWorkspaceWithIndexes(vaultToOpen)
         return
       }
 
@@ -9178,8 +9194,7 @@ export const useStore = create<Store>((set, get) => {
             : remoteWorkspaceInfo
       })
       savePrefs(collectPrefs(get()))
-      await refreshVaultIndexes()
-      await restoreWorkspaceForVault(vault)
+      await restoreWorkspaceWithIndexes(vault)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
     }
@@ -9259,8 +9274,7 @@ export const useStore = create<Store>((set, get) => {
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
-      await refreshVaultIndexes()
-      await restoreWorkspaceForVault(vault)
+      await restoreWorkspaceWithIndexes(vault)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
     }
@@ -9342,8 +9356,7 @@ export const useStore = create<Store>((set, get) => {
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
-      await refreshVaultIndexes()
-      await restoreWorkspaceForVault(selectedVault)
+      await restoreWorkspaceWithIndexes(selectedVault)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
     }
@@ -9425,8 +9438,7 @@ export const useStore = create<Store>((set, get) => {
         workspaceRestored: false
       })
       savePrefs(collectPrefs(get()))
-      await refreshVaultIndexes()
-      await restoreWorkspaceForVault(vault)
+      await restoreWorkspaceWithIndexes(vault)
     } catch (error) {
       window.alert(error instanceof Error ? error.message : String(error))
     }

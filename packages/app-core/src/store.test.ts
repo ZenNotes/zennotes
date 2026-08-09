@@ -1852,3 +1852,52 @@ describe('flushDirtyNotes drains queued task writes (#503)', () => {
     expect(disk).toBe('- [x] alpha')
   })
 })
+
+describe('startup workspace restore', () => {
+  it('restores the saved layout before the full notes index finishes', async () => {
+    const note = makeNote('body', 'inbox/Note.md')
+    const { promise: notesPromise, resolve: resolveNotes } = deferred<ReturnType<typeof makeNote>[]>()
+    const snapshot = {
+      savedAt: Date.now(),
+      paneLayout: {
+        kind: 'leaf' as const,
+        id: 'main',
+        tabs: ['inbox/Note.md'],
+        pinnedTabs: [],
+        activeTab: 'inbox/Note.md'
+      },
+      activePaneId: 'main',
+      view: { kind: 'folder' as const, folder: 'inbox' as const, subpath: '' }
+    }
+    installZen({
+      getAppInfo: vi.fn().mockReturnValue({ runtime: 'desktop' }),
+      getServerCapabilities: vi.fn().mockResolvedValue({}),
+      getCurrentVault: vi.fn().mockResolvedValue({ root: '/Users/test/Notes', name: 'Notes' }),
+      getVaultSettings: vi.fn().mockResolvedValue({}),
+      readWorkspaceState: vi.fn().mockResolvedValue(JSON.stringify(snapshot)),
+      listNotes: vi.fn().mockReturnValue(notesPromise),
+      listFolders: vi.fn().mockResolvedValue([]),
+      listAssets: vi.fn().mockResolvedValue([]),
+      hasAssetsDir: vi.fn().mockResolvedValue(false),
+      listTemplates: vi.fn().mockResolvedValue([]),
+      listWorkflows: vi.fn().mockResolvedValue([]),
+      rootContentHiddenByInboxMode: vi.fn().mockResolvedValue(false),
+      onVaultChange: vi.fn().mockReturnValue(vi.fn())
+    })
+
+    const { useStore } = await loadStore()
+    const initPromise = useStore.getState().init()
+    await flushAsyncWork()
+
+    expect(useStore.getState().workspaceRestored).toBe(true)
+    const leaf = findLeaf(useStore.getState().paneLayout, useStore.getState().activePaneId)
+    expect(leaf?.activeTab).toBe('inbox/Note.md')
+
+    resolveNotes([note])
+    await initPromise
+
+    expect(useStore.getState().notes).toEqual([note])
+    expect(useStore.getState().activeNote?.path).toBe('inbox/Note.md')
+  })
+})
+

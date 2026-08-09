@@ -29,14 +29,17 @@ export function isWorkspaceVirtualTabPath(path: string): boolean {
 
 export function initialWorkspaceRestoreContentPaths(
   layout: PaneLayout,
-  existingPaths: Set<string>
+  existingPaths: Set<string> | null
 ): string[] {
   const seen = new Set<string>()
   const paths: string[] = []
 
   for (const leaf of allLeaves(layout)) {
     const path = leaf.activeTab
-    if (!path || isWorkspaceVirtualTabPath(path) || !existingPaths.has(path) || seen.has(path)) {
+    if (!path || isWorkspaceVirtualTabPath(path) || seen.has(path)) {
+      continue
+    }
+    if (existingPaths !== null && !existingPaths.has(path)) {
       continue
     }
     seen.add(path)
@@ -48,7 +51,7 @@ export function initialWorkspaceRestoreContentPaths(
 
 export function workspaceRestorePrefetchContentPaths(
   layout: PaneLayout,
-  existingPaths: Set<string>,
+  existingPaths: Set<string> | null,
   initiallyLoadedPaths: Set<string>
 ): string[] {
   const seen = new Set(initiallyLoadedPaths)
@@ -56,7 +59,10 @@ export function workspaceRestorePrefetchContentPaths(
 
   for (const leaf of allLeaves(layout)) {
     for (const path of leaf.tabs) {
-      if (isWorkspaceVirtualTabPath(path) || !existingPaths.has(path) || seen.has(path)) {
+      if (isWorkspaceVirtualTabPath(path) || seen.has(path)) {
+        continue
+      }
+      if (existingPaths !== null && !existingPaths.has(path)) {
         continue
       }
       seen.add(path)
