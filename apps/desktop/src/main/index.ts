@@ -4103,6 +4103,19 @@ app.whenReady().then(async () => {
     return
   }
 
+  // Force Chromium's renderer accessibility tree on. By default Chromium builds
+  // it lazily, only once it detects an assistive client through the macOS
+  // accessibility activation handshake. Tools that read the tree without
+  // performing that handshake are otherwise left blind: they find the native
+  // window but never see the CodeMirror contentEditable text. Enabling it
+  // unconditionally exposes editor content to that whole class of accessibility
+  // clients (e.g. the Grammarly desktop app and similar proofreaders, which
+  // would otherwise show their UI but report nothing). macOS-only to avoid the
+  // small always-on cost where it isn't needed.
+  if (process.platform === 'darwin') {
+    app.setAccessibilitySupportEnabled(true)
+  }
+
   await migrateLegacyRemoteWorkspaceSecrets()
 
   // Fire-and-forget: heals the pre-2.10 `zen` symlink into `zn` for users who

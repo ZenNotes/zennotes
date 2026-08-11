@@ -41,6 +41,10 @@ class BulletWidget extends WidgetType {
     const span = document.createElement('span')
     span.className = 'cm-wq-bullet'
     span.textContent = '•'
+    // Decorative marker only — keep it out of the accessibility tree so it
+    // doesn't pollute the field's text value for clients that read it (screen
+    // readers, proofreaders). The underlying `- ` is still the source text.
+    span.setAttribute('aria-hidden', 'true')
     return span
   }
   ignoreEvent(): boolean {

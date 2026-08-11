@@ -1705,6 +1705,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         doc: initialBody,
         extensions: [
           appMarkdownSnippetExtension(),
+          // Give the editable surface an accessible name so accessibility
+          // clients (screen readers, proofreaders such as Grammarly) identify
+          // it as a text field.
+          EditorView.contentAttributes.of({
+            'aria-label': 'Note editor'
+          }),
           vimCompartment.of(s0.vimMode ? vim() : []),
           historyCompartment.of(history()),
           drawSelectionCompartment.of(

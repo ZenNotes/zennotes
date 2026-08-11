@@ -205,6 +205,14 @@ class HeadingFoldArrow extends WidgetType {
     el.setAttribute('role', 'button')
     el.setAttribute('aria-label', this.folded ? 'Expand heading' : 'Collapse heading')
     el.setAttribute('aria-expanded', String(!this.folded))
+    // Keep this decorative affordance out of the accessibility tree. It sits
+    // (via side:-1) at the very start of the heading line, so as an AX-visible
+    // `role="button"` it becomes the editable field's leading element. Some
+    // accessibility clients (e.g. Grammarly) inspect a field's leading content
+    // and, finding a button, treat the whole field as a non-prose control and
+    // disengage. Folding stays reachable by mouse, keyboard, and vim, so hiding
+    // it from the accessibility tree costs nothing.
+    el.setAttribute('aria-hidden', 'true')
     el.textContent = this.folded ? '▸' : '▾'
     // Eat mousedown so CodeMirror's own handler doesn't interpret the
     // click as a caret position and steal focus before we dispatch
