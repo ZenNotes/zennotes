@@ -121,6 +121,7 @@ import { mathBlockArrowKeymap } from '../lib/cm-math-nav'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
+import { latexCommandSource } from '../lib/cm-latex-completions'
 import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
@@ -1785,6 +1786,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               slashCommandSource,
               calloutTypeSource,
               dateShortcutSource,
+              latexCommandSource,
               atNoteSource,
               hashtagSource,
               wikilinkSource,

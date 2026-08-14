@@ -1,6 +1,7 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
+import { renderLatexCompletion } from './cm-latex-completions'
 
 interface SlashCmd {
   label: string
@@ -67,6 +68,8 @@ const COMMANDS: SlashCmd[] = [
 
 /** Render a custom completion item matching the app theme. */
 function renderCompletion(completion: Completion): HTMLElement {
+  const latex = renderLatexCompletion(completion)
+  if (latex) return latex
   const decorated = completion as DecoratedCompletion
   if (decorated._kind === 'callout') {
     const el = document.createElement('div')
