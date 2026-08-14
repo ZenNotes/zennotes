@@ -81,6 +81,20 @@ export const frontmatterStyle = ViewPlugin.fromClass(
 
 const TAG_TOKEN_RE = /[^,\s\[\]"'#]+/g
 
+/** A frontmatter `key: value` line, split into its key and value.
+ *  `parseFrontmatterFields` (shared-domain) lowercases keys, so `Tags:` is the
+ *  tags field as far as the vault index is concerned; anything reading the
+ *  same field in the editor has to agree, or a note written with a capital T
+ *  gets tags the Tags view lists and the editor refuses to show. */
+const FRONTMATTER_KEY_RE = /^(\s*)([A-Za-z0-9_][\w-]*)\s*:\s*(.*)$/
+
+export function frontmatterTagsValue(lineText: string): { value: string; offset: number } | null {
+  const match = lineText.match(FRONTMATTER_KEY_RE)
+  if (!match || match[2].toLowerCase() !== 'tags') return null
+  const value = match[3] ?? ''
+  return { value, offset: match[0].length - value.length }
+}
+
 /** Which frontmatter lines are `- item` entries under a bare `tags:` key. */
 function tagsBlockLineNumbers(state: EditorState): Set<number> {
   const range = frontmatterRange(state)
@@ -138,11 +152,9 @@ function buildFrontmatterTagDeco(view: EditorView): DecorationSet {
     const text = line.text
     const trimmed = text.trim()
     if (!trimmed || trimmed.startsWith('#')) continue
-    const inline = text.match(/^(\s*)tags\s*:\s*(.*)$/)
+    const inline = frontmatterTagsValue(text)
     if (inline) {
-      const value = inline[2] as string
-      const valueStart = line.from + inline[0].length - value.length
-      addTagTokens(value, valueStart, builder)
+      addTagTokens(inline.value, line.from + inline.offset, builder)
       continue
     }
     if (blockLines.has(n)) {

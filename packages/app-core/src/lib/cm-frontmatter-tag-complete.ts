@@ -6,7 +6,7 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import type { EditorState } from '@codemirror/state'
 import { collectTagCounts, rankTagCompletions } from './cm-hashtag-complete'
-import { isInsideFrontmatter } from './cm-frontmatter'
+import { frontmatterTagsValue, isInsideFrontmatter } from './cm-frontmatter'
 
 /** Characters that terminate a tag token when scanning forward or backward
  *  for the *body* of the token. A leading `#` is intentionally not a start
@@ -64,11 +64,10 @@ function frontmatterTagMatch(context: CompletionContext): { from: number; query:
   const text = line.text
   const col = pos - line.from
 
-  const inline = text.match(/^(\s*)tags\s*:\s*(.*)$/)
+  const inline = frontmatterTagsValue(text)
   if (inline) {
-    const valueStart = inline[0].length - (inline[2] as string).length
-    if (col < valueStart) return null
-    return tagTokenAt(state, line.from, valueStart, pos)
+    if (col < inline.offset) return null
+    return tagTokenAt(state, line.from, inline.offset, pos)
   }
 
   const item = text.match(/^(\s*)-\s+(.*)$/)

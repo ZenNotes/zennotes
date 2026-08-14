@@ -3,6 +3,7 @@
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { frontmatterTags } from '@shared/frontmatter'
 import { frontmatterTagExtension } from './cm-frontmatter'
 
 const openTagView = vi.fn()
@@ -75,4 +76,37 @@ describe('frontmatterTagExtension', () => {
     el!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
     expect(openTagView).toHaveBeenCalledWith('idea')
   })
+})
+
+// Review follow-up to #595. Two places now decide what a frontmatter tag is:
+// `frontmatterTags` in shared-domain, which is what the vault indexes and what
+// the Tags view lists, and the editor's own scan, which needs positions the
+// shared parser does not return. They must not drift: a chip the index has
+// never heard of goes nowhere, and a tag with no chip looks broken next to its
+// neighbours.
+describe('chips agree with the tags the vault indexes', () => {
+  const cases = [
+    '---\ntags: [draft, research]\n---\n',
+    '---\ntags: draft research\n---\n',
+    '---\ntags: draft, research\n---\n',
+    '---\ntags:\n  - draft\n  - research\n---\n',
+    '---\ntags: "#draft"\n---\n',
+    // parseFrontmatterFields lowercases keys, so a capital T is still the
+    // tags field: the index counts it and the editor has to as well.
+    '---\nTags: draft\n---\n',
+    '---\nTAGS:\n  - draft\n---\n',
+    // Fields that merely look adjacent must stay plain text.
+    '---\nkeywords: draft\n---\n',
+    '---\ntitle: tags: not a list\n---\n'
+  ]
+
+  for (const doc of cases) {
+    it(`matches frontmatterTags for ${JSON.stringify(doc.split('\n')[1])}`, () => {
+      const view = mount(doc)
+      const chips = Array.from(view.dom.querySelectorAll('.cm-frontmatter-tag')).map(
+        (el) => el.textContent
+      )
+      expect(chips).toEqual(frontmatterTags(doc))
+    })
+  }
 })
