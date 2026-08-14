@@ -69,7 +69,10 @@ function encodeSecret(secret: string): string | null {
     if (!warnedAboutMissingSecureStorage) {
       warnedAboutMissingSecureStorage = true
       console.warn(
-        'ZenNotes could not persist a remote workspace token securely because no OS secret store is available.'
+        'ZenNotes could not persist a remote workspace token securely because no OS secret store is available.' +
+          (process.platform === 'linux'
+            ? ' If a Secret Service keyring is running, launch ZenNotes with --password-store=gnome-libsecret.'
+            : '')
       )
     }
     return null

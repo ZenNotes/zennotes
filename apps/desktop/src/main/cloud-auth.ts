@@ -170,8 +170,15 @@ export class CloudAuthManager {
       throw new Error("ZenNotes Cloud returned an invalid sign-in response.");
     }
     if (!(await this.dependencies.setSecret(pending.base_url, payload.token))) {
+      // On Linux this almost always means Chromium settled on its plaintext
+      // key store because it did not recognize the desktop environment, so
+      // point at the override instead of leaving a dead end.
       throw new Error(
-        "ZenNotes could not store the cloud credential securely on this device.",
+        process.platform === "linux"
+          ? "ZenNotes could not store the cloud credential securely on this device. " +
+            "If a Secret Service keyring (such as gnome-keyring) is running, " +
+            "launch ZenNotes with --password-store=gnome-libsecret and sign in again."
+          : "ZenNotes could not store the cloud credential securely on this device.",
       );
     }
 
