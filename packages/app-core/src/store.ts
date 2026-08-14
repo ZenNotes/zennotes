@@ -3450,6 +3450,10 @@ interface Store {
 
 /** Debounced per-path save timers. Module-scoped so they survive re-renders. */
 const pathSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+/** Per-path write tails. Filesystems and remote workspaces do not promise that
+ *  two concurrent writes finish in call order, so a newer body must not race an
+ *  older one to the final rename. */
+const pathSaveQueues = new Map<string, Promise<void>>()
 const PATH_SAVE_DEBOUNCE_MS = 350
 
 /**
@@ -6318,47 +6322,57 @@ export const useStore = create<Store>((set, get) => {
   },
 
   persistNote: async (path) => {
-    const s = get()
-    const content = s.noteContents[path]
-    if (!content || !s.noteDirty[path]) return
     const pending = pathSaveTimers.get(path)
     if (pending) {
       clearTimeout(pending)
       pathSaveTimers.delete(path)
     }
-    try {
-      // Snapshot the body BEFORE the await so we know what hit disk
-      // even if the user keeps typing while the write resolves.
-      const writtenBody = content.body
-      lastWrittenByPath.set(path, writtenBody)
-      const meta = await window.zen.writeNote(path, writtenBody)
-      // Saving a Typst preamble note changes the definitions every note tagged
-      // for it compiles against — reload so open panes repaint. (#486)
-      if (
-        get().typstTagPreambles &&
-        isTypstPreamblePath(
-          path,
-          resolveTypstPreambleFolder(get().vaultSettings?.typstPreambles?.folder)
-        )
-      ) {
-        void get().refreshTypstPreambles()
-      }
-      set((cur) => {
-        // Keystrokes that landed while the write was in flight leave the
-        // buffer ahead of disk. Clearing the flag then made the already
-        // scheduled follow-up save bail on its dirty check and stranded
-        // those edits unsaved (#585) — the flag only clears when the buffer
-        // still holds exactly what hit disk.
-        const stillCurrent = cur.noteContents[path]?.body === writtenBody
-        const dirty = stillCurrent ? { ...cur.noteDirty, [path]: false } : cur.noteDirty
-        return {
-          noteDirty: dirty,
-          notes: cur.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n)),
-          ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
+    const performWrite = async (): Promise<void> => {
+      const s = get()
+      const content = s.noteContents[path]
+      if (!content || !s.noteDirty[path]) return
+      try {
+        // Snapshot only after earlier writes finish. A second caller sees the
+        // newest buffer here, then becomes the last writer by construction.
+        const writtenBody = content.body
+        lastWrittenByPath.set(path, writtenBody)
+        const meta = await window.zen.writeNote(path, writtenBody)
+        // Saving a Typst preamble note changes the definitions every note tagged
+        // for it compiles against, so reload and repaint open panes. (#486)
+        if (
+          get().typstTagPreambles &&
+          isTypstPreamblePath(
+            path,
+            resolveTypstPreambleFolder(get().vaultSettings?.typstPreambles?.folder)
+          )
+        ) {
+          void get().refreshTypstPreambles()
         }
-      })
-    } catch (err) {
-      console.error('writeNote failed', err)
+        set((cur) => {
+          // Keystrokes that landed while the write was in flight leave the
+          // buffer ahead of disk. The queued caller will persist them next.
+          const stillCurrent = cur.noteContents[path]?.body === writtenBody
+          const dirty = stillCurrent ? { ...cur.noteDirty, [path]: false } : cur.noteDirty
+          return {
+            noteDirty: dirty,
+            notes: cur.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n)),
+            ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
+          }
+        })
+      } catch (err) {
+        console.error('writeNote failed', err)
+      }
+    }
+    const previous = pathSaveQueues.get(path)
+    // Start the first write synchronously through its first await, preserving
+    // the body visible to this call. Later callers wait for that promise and
+    // snapshot the newest buffer only when their turn begins.
+    const run = previous ? previous.catch(() => {}).then(performWrite) : performWrite()
+    pathSaveQueues.set(path, run)
+    try {
+      await run
+    } finally {
+      if (pathSaveQueues.get(path) === run) pathSaveQueues.delete(path)
     }
   },
 

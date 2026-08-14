@@ -256,6 +256,43 @@ describe('#585 — dirty buffers survive watcher change events', () => {
     expect(vault.get(target)).toBe('FIRST AND SECOND')
   })
 
+  it('never lets an older overlapping save finish after the newest body', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const paneId = useStore.getState().activePaneId
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(paneId, target)
+    await flush()
+
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const zen = window.zen as unknown as {
+      writeNote: (path: string, body: string) => Promise<ReturnType<typeof meta>>
+    }
+    zen.writeNote = async (path, body) => {
+      if (body === 'FIRST') await firstGate
+      vault.set(path, body)
+      return meta(path, body)
+    }
+
+    useStore.getState().updateNoteBody(target, 'FIRST')
+    const firstSave = useStore.getState().persistNote(target)
+    useStore.getState().updateNoteBody(target, 'SECOND')
+    const secondSave = useStore.getState().persistNote(target)
+
+    // Without per-note serialization, SECOND reaches disk now and the older
+    // blocked write replaces it as soon as this gate opens.
+    await flush()
+    releaseFirst()
+    await Promise.all([firstSave, secondSave])
+
+    expect(vault.get(target)).toBe('SECOND')
+    expect(useStore.getState().noteContents[target]?.body).toBe('SECOND')
+    expect(useStore.getState().noteDirty[target]).toBe(false)
+  })
+
   // Saves are atomic now (temp file renamed into place), and on Linux a rename
   // arrives as IN_MOVED_TO, which the server's watcher reports as 'add'. Any
   // other tool that writes by renaming (git, rsync, Syncthing, vim) looks the
