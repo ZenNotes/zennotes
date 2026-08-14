@@ -36,6 +36,15 @@ describe('isInMathContext', () => {
     expect(isInMathContext(state(open), open.length)).toBe(true)
   })
 
+  it('keeps delimiter parity across very long display blocks', () => {
+    const longBody = 'x'.repeat(20_100)
+    const outside = `$$\n${longBody}\n$$\nplain \\su`
+    expect(isInMathContext(state(outside), outside.length)).toBe(false)
+
+    const inside = `$$\n${longBody}\n\\su`
+    expect(isInMathContext(state(inside), inside.length)).toBe(true)
+  })
+
   it('treats ```math fences as math, other fences as code', () => {
     const mathFence = 'a\n```math\n\\su\n```\nb'
     expect(isInMathContext(state(mathFence), after(mathFence, '\\su'))).toBe(true)

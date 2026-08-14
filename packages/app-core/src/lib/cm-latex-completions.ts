@@ -184,11 +184,6 @@ function codeContext(state: EditorState, pos: number): CodeContext {
 /** Inside `$…$`, `$$…$$`, or a ```math fence at `pos`? Counts unmatched
  *  dollar delimiters so a formula still being typed (no closing `$` yet)
  *  already counts as math. */
-/** How far back an unclosed `$$` is looked for. A display block open further
- *  above than this is not a formula anyone is still typing, and the bound keeps
- *  the scan off the whole document on every `\` in a long note. */
-const BLOCK_SCAN_WINDOW = 20_000
-
 /** Dollars inside code are not delimiters: `echo $$` in a shell block would
  *  otherwise flip the parity and make the rest of the note read as math. */
 function countDelimiters(state: EditorState, from: number, text: string, re: RegExp): number {
@@ -206,11 +201,10 @@ export function isInMathContext(state: EditorState, pos: number): boolean {
   // A ```math fence is a math region in its own right (remark-math renders
   // it as display math); every other code region shuts completion off.
   if (code) return code.kind === 'fenced' && code.lang === 'math'
-  const blockFrom = Math.max(0, pos - BLOCK_SCAN_WINDOW)
   const blockFences = countDelimiters(
     state,
-    blockFrom,
-    state.doc.sliceString(blockFrom, pos),
+    0,
+    state.doc.sliceString(0, pos),
     /(?<!\\)\$\$/g
   )
   if (blockFences % 2 === 1) return true
