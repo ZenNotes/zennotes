@@ -289,7 +289,7 @@ describe('CloudSyncHostService', () => {
           current_path: 'Note.md'
         }
       ],
-      bootstrap_conflicts: []
+      bootstrap_conflicts: [], local_conflicts: []
     })
 
     await expect(service.createBackup(hostVault)).rejects.toThrow('Resolve sync conflicts')

@@ -171,33 +171,62 @@ describe('PortableCloudSyncRepository', () => {
     expect(fs.text('archive/New.md')).toBeNull()
   })
 
-  it('stops before overwriting unsynced local edits', async () => {
+  // Neither version is thrown away: the local file stays put and the incoming
+  // one lands beside it. Throwing here used to stop the run before the cursor
+  // was saved, so every later run replayed the same change and stopped too.
+  it('keeps both versions instead of overwriting unsynced local edits', async () => {
     const fs = new MemoryFileSystem({ 'inbox/Plan.md': 'local edit' })
     const repository = new PortableCloudSyncRepository(fs)
 
-    await expect(
-      repository.apply(
-        {
-          sequence: 2,
-          item_id: 'item-1',
-          type: 'upsert',
-          path: 'inbox/Plan.md',
-          previous_path: 'inbox/Plan.md',
-          revision: 2,
-          content: await textContent('remote edit')
-        },
-        {
-          item_id: 'item-1',
-          path: 'inbox/Plan.md',
-          kind: 'text',
-          revision: 1,
-          sha256: (await textContent('old synced value')).sha256,
-          byte_length: 16,
-          media_type: 'text/markdown'
-        }
-      )
-    ).rejects.toBeInstanceOf(CloudSyncLocalEditConflictError)
+    const conflict = await repository.apply(
+      {
+        sequence: 2,
+        item_id: 'item-1',
+        type: 'upsert',
+        path: 'inbox/Plan.md',
+        previous_path: 'inbox/Plan.md',
+        revision: 2,
+        content: await textContent('remote edit')
+      },
+      {
+        item_id: 'item-1',
+        path: 'inbox/Plan.md',
+        kind: 'text',
+        revision: 1,
+        sha256: (await textContent('old synced value')).sha256,
+        byte_length: 16,
+        media_type: 'text/markdown'
+      }
+    )
+
+    expect(conflict).toEqual({
+      code: 'LOCAL_EDIT_CONFLICT',
+      path: 'inbox/Plan.md',
+      conflict_copy_path: 'inbox/Plan (cloud conflict).md'
+    })
     expect(fs.text('inbox/Plan.md')).toBe('local edit')
+    expect(fs.text('inbox/Plan (cloud conflict).md')).toBe('remote edit')
+  })
+
+  it('adopts a file that already matches the incoming change', async () => {
+    const fs = new MemoryFileSystem({ '.zennotes/vault.json': '{"favorites":[]}' })
+    const repository = new PortableCloudSyncRepository(fs)
+
+    const conflict = await repository.apply(
+      {
+        sequence: 8,
+        item_id: 'item-untracked',
+        type: 'upsert',
+        path: '.zennotes/vault.json',
+        previous_path: null,
+        revision: 3,
+        content: await textContent('{"favorites":[]}')
+      },
+      undefined
+    )
+
+    expect(conflict).toBeUndefined()
+    expect(fs.text('.zennotes/vault.json')).toBe('{"favorites":[]}')
   })
 
   it('keeps device-local workspace state out of scans and ignores remote workspace mutations', async () => {

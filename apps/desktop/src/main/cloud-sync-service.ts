@@ -13,10 +13,17 @@ import type {
   CloudPublishNoteInput,
   CloudServiceAccount,
   CloudSyncRunSummary,
+  CloudSyncSettingsChoice,
+  CloudSyncSettingsConflict,
   CloudSyncVault,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
 import { restoreCloudBackup } from '@zennotes/shared-domain/cloud-backup'
+import {
+  CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+  CLOUD_SYNC_VAULT_SETTINGS_PATH
+} from '@zennotes/shared-domain/cloud-sync'
+import { setVaultSettings } from './vault'
 import type { CloudSyncApiClient } from '@zennotes/shared-domain/cloud-sync-api'
 import { createDesktopCloudSyncCoordinator } from './cloud-sync-filesystem'
 
@@ -296,8 +303,50 @@ export class DesktopCloudSyncService {
       pulled: result.pulled,
       pushed: result.pushed,
       conflicts: result.conflicts,
-      bootstrap_conflicts: result.bootstrapConflicts
+      bootstrap_conflicts: result.bootstrapConflicts,
+      local_conflicts: result.localConflicts
     }
+  }
+
+  /** The pending settings question, if sync parked a cloud version. It lives
+   *  in the vault rather than in memory, so closing the app does not answer
+   *  it by accident. */
+  async settingsConflict(localRoot: string): Promise<CloudSyncSettingsConflict | null> {
+    const parked = path.join(localRoot, ...CLOUD_SYNC_SETTINGS_CONFLICT_PATH.split('/'))
+    try {
+      await fs.access(parked)
+    } catch {
+      return null
+    }
+    return {
+      path: CLOUD_SYNC_VAULT_SETTINGS_PATH,
+      cloud_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH
+    }
+  }
+
+  /** Answer it. Keeping this device's settings just drops the parked copy;
+   *  the next sync pushes the local ones up. Taking the cloud's writes them
+   *  through the vault's own normalizer, so a hand-edited or older-format
+   *  file cannot land as broken settings. */
+  async resolveSettingsConflict(
+    localRoot: string,
+    choice: CloudSyncSettingsChoice
+  ): Promise<void> {
+    const parked = path.join(localRoot, ...CLOUD_SYNC_SETTINGS_CONFLICT_PATH.split('/'))
+    if (choice === 'cloud') {
+      const raw = await fs.readFile(parked, 'utf8')
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(raw)
+      } catch {
+        throw new Error('The settings from the cloud could not be read, so nothing was changed.')
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('The settings from the cloud could not be read, so nothing was changed.')
+      }
+      await setVaultSettings(localRoot, parsed as Parameters<typeof setVaultSettings>[1])
+    }
+    await fs.rm(parked, { force: true })
   }
 
   private async connection(): Promise<{

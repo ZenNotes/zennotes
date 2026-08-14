@@ -1,8 +1,12 @@
 import type {
   CloudSyncChange,
-  CloudSyncContent
+  CloudSyncContent,
+  CloudSyncLocalConflict
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
+  CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+  cloudSyncConflictCopyPath,
+  isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
   shouldSyncVaultPath,
   shouldTraverseCloudSyncDirectory
@@ -81,6 +85,18 @@ export class CloudSyncLocalEditConflictError extends Error {
   }
 }
 
+/** Whether a local file is the exact bytes sync last agreed on with the server. */
+function vouchedFor(
+  current: CloudSyncLocalItem,
+  previous: CloudSyncTrackedItem | undefined
+): boolean {
+  return Boolean(previous) && current.content.sha256 === previous?.sha256
+}
+
+function localConflict(path: string, conflictCopyPath: string | null): CloudSyncLocalConflict {
+  return { code: 'LOCAL_EDIT_CONFLICT', path, conflict_copy_path: conflictCopyPath }
+}
+
 /** Web-API implementation shared by iOS and Android Capacitor filesystems. */
 export class PortableCloudSyncRepository implements CloudSyncRepository {
   constructor(private readonly fs: PortableCloudSyncFileSystem) {}
@@ -91,7 +107,10 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     return items.sort((left, right) => left.path.localeCompare(right.path))
   }
 
-  async apply(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined): Promise<void> {
+  async apply(
+    change: CloudSyncChange,
+    previous: CloudSyncTrackedItem | undefined
+  ): Promise<CloudSyncLocalConflict | void> {
     const affectedPaths = [change.path, change.previous_path, previous?.path].filter(
       (path): path is string => typeof path === 'string'
     )
@@ -101,7 +120,9 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       const previousPath = this.path(previous?.path ?? change.previous_path ?? change.path)
       const current = await this.readItemOrNull(previousPath)
       if (!current) return
-      this.assertTracked(previousPath, current, previous)
+      // Nothing arrives with a delete to keep beside it, so the local file
+      // itself is the version being preserved. The next push re-uploads it.
+      if (!vouchedFor(current, previous)) return localConflict(previousPath, null)
       await this.fs.deleteFile(previousPath)
       return
     }
@@ -117,10 +138,11 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       ])
       if (!source) {
         if (destination && previous && destination.content.sha256 === previous.sha256) return
-        throw new CloudSyncLocalEditConflictError(previousPath)
+        // Nothing here to move; the next scan reconciles it.
+        return
       }
-      this.assertTracked(previousPath, source, previous)
-      if (destination) throw new CloudSyncLocalEditConflictError(nextPath)
+      if (!vouchedFor(source, previous)) return localConflict(previousPath, null)
+      if (destination) return localConflict(nextPath, null)
       await this.fs.rename(previousPath, nextPath)
       return
     }
@@ -140,16 +162,42 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
 
     if (currentAtTarget?.content.sha256 === change.content.sha256) {
       if (previousPath !== nextPath && source) {
-        this.assertTracked(previousPath, source, previous)
+        if (!vouchedFor(source, previous)) return localConflict(previousPath, null)
         await this.fs.deleteFile(previousPath)
       }
       return
     }
 
-    this.assertTracked(previousPath, source, previous)
-    if (destination) throw new CloudSyncLocalEditConflictError(nextPath)
+    if (source && !vouchedFor(source, previous)) return await this.keepBoth(nextPath, change.content)
+    if (destination) return await this.keepBoth(nextPath, change.content)
     await this.write(nextPath, change.content)
     if (previousPath !== nextPath && source) await this.fs.deleteFile(previousPath)
+  }
+
+  /** Park the incoming version beside the local file rather than over it. */
+  private async keepBoth(
+    relPath: string,
+    content: CloudSyncContent
+  ): Promise<CloudSyncLocalConflict> {
+    // Settings are answered, not merged: the newest cloud version replaces any
+    // older pending one at a fixed path, and the app asks which side to keep.
+    if (isCloudSyncVaultSettingsPath(relPath)) {
+      await this.write(CLOUD_SYNC_SETTINGS_CONFLICT_PATH, content)
+      return {
+        code: 'SETTINGS_CONFLICT',
+        path: relPath,
+        conflict_copy_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH
+      }
+    }
+    for (let attempt = 1; attempt <= 100; attempt++) {
+      const candidate = cloudSyncConflictCopyPath(relPath, attempt)
+      if ((await this.fs.stat(candidate)) !== null) continue
+      await this.write(candidate, content)
+      return localConflict(relPath, candidate)
+    }
+    // A hundred conflict copies of one file means something is looping. Keep
+    // the local file and report it rather than filling the vault.
+    return localConflict(relPath, null)
   }
 
   private async walk(directory: string, items: CloudSyncLocalItem[]): Promise<void> {
@@ -184,17 +232,6 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
         byte_length: bytes.byteLength,
         media_type: mediaType(path, text !== null)
       }
-    }
-  }
-
-  private assertTracked(
-    path: string,
-    current: CloudSyncLocalItem | null,
-    previous: CloudSyncTrackedItem | undefined
-  ): void {
-    if (!previous && !current) return
-    if (!previous || !current || current.content.sha256 !== previous.sha256) {
-      throw new CloudSyncLocalEditConflictError(path)
     }
   }
 

@@ -363,10 +363,35 @@ export interface CloudSyncBootstrapConflict {
   remote_sha256: string;
 }
 
+/**
+ * A remote change that could not be applied because the local file was not
+ * what sync last agreed on. The local file is always kept; `conflict_copy_path`
+ * is where the incoming version was parked, or null when the change was a
+ * delete or a move and there was no incoming content to keep.
+ */
+export interface CloudSyncLocalConflict {
+  code: "LOCAL_EDIT_CONFLICT" | "SETTINGS_CONFLICT";
+  path: string;
+  conflict_copy_path: string | null;
+}
+
+/**
+ * Vault settings that differ between this device and the cloud. The local
+ * settings stay in use; this is the pending question, and it survives
+ * restarts because the cloud's copy is parked in the vault until answered.
+ */
+export interface CloudSyncSettingsConflict {
+  path: string;
+  cloud_path: string;
+}
+
+export type CloudSyncSettingsChoice = "local" | "cloud";
+
 export interface CloudSyncRunSummary {
   cursor: number;
   pulled: number;
   pushed: number;
   conflicts: CloudSyncConflict[];
   bootstrap_conflicts: CloudSyncBootstrapConflict[];
+  local_conflicts: CloudSyncLocalConflict[];
 }

@@ -123,6 +123,8 @@ export const IPC = {
   CLOUD_VAULT_LINK_CREATE: 'cloud-vault-link:create',
   CLOUD_VAULT_LINK_DELETE: 'cloud-vault-link:delete',
   CLOUD_VAULT_SYNC: 'cloud-vault:sync',
+  CLOUD_VAULT_SETTINGS_CONFLICT_GET: 'cloud-vault-settings-conflict:get',
+  CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE: 'cloud-vault-settings-conflict:resolve',
   CLOUD_BACKUPS_LIST: 'cloud-backups:list',
   CLOUD_BACKUP_SCHEDULE_GET: 'cloud-backup-schedule:get',
   CLOUD_BACKUP_SCHEDULE_UPDATE: 'cloud-backup-schedule:update',

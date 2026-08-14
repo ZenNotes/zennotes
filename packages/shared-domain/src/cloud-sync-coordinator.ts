@@ -2,6 +2,7 @@ import type {
   CloudSyncChange,
   CloudSyncBootstrapConflict,
   CloudSyncConflict,
+  CloudSyncLocalConflict,
   CloudSyncManifestItem,
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
@@ -39,7 +40,13 @@ export interface CloudSyncRemote {
 
 export interface CloudSyncRepository {
   scan(): Promise<CloudSyncLocalItem[]>
-  apply(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined): Promise<void>
+  /** Returns a conflict when the local file was kept instead of being
+   *  replaced, so one unapplied change reports itself rather than stopping
+   *  the run. Sync must always be able to move past a single file. */
+  apply(
+    change: CloudSyncChange,
+    previous: CloudSyncTrackedItem | undefined
+  ): Promise<CloudSyncLocalConflict | void>
 }
 
 export interface CloudSyncStateStore {
@@ -53,6 +60,7 @@ export interface CloudSyncRunResult {
   pushed: number
   conflicts: CloudSyncConflict[]
   bootstrapConflicts: CloudSyncBootstrapConflict[]
+  localConflicts: CloudSyncLocalConflict[]
 }
 
 /**
@@ -88,15 +96,18 @@ export class CloudSyncCoordinator {
         pulled: bootstrap.pulled,
         pushed: 0,
         conflicts: [],
-        bootstrapConflicts: bootstrap.conflicts
+        bootstrapConflicts: bootstrap.conflicts,
+        localConflicts: bootstrap.localConflicts
       }
     }
 
     let state = bootstrap.state
     let pulled = bootstrap.pulled
+    const localConflicts = [...bootstrap.localConflicts]
     const initialPull = await this.pullChanges(state)
     state = initialPull.state
     pulled += initialPull.pulled
+    localConflicts.push(...initialPull.localConflicts)
 
     const plan = planCloudSyncMutations(state, await this.repository.scan(), this.ids)
     const conflicts: CloudSyncConflict[] = []
@@ -122,17 +133,19 @@ export class CloudSyncCoordinator {
       const finalPull = await this.pullChanges(state, acknowledgedSequences)
       state = finalPull.state
       pulled += finalPull.pulled
+      localConflicts.push(...finalPull.localConflicts)
     }
 
-    return { state, pulled, pushed, conflicts, bootstrapConflicts: [] }
+    return { state, pulled, pushed, conflicts, bootstrapConflicts: [], localConflicts }
   }
 
   private async pullChanges(
     initialState: CloudSyncState,
     acknowledgedSequences: ReadonlySet<number> = new Set()
-  ): Promise<{ state: CloudSyncState; pulled: number }> {
+  ): Promise<{ state: CloudSyncState; pulled: number; localConflicts: CloudSyncLocalConflict[] }> {
     let state = initialState
     let pulled = 0
+    const localConflicts: CloudSyncLocalConflict[] = []
 
     for (;;) {
       const response = await this.remote.changes(this.vaultId, state.cursor, CHANGE_PAGE_SIZE)
@@ -140,7 +153,8 @@ export class CloudSyncCoordinator {
       for (const change of response.data) {
         if (!acknowledgedSequences.has(change.sequence)) {
           const previous = state.items[change.item_id]
-          await this.repository.apply(change, previous)
+          const conflict = await this.repository.apply(change, previous)
+          if (conflict) localConflicts.push(conflict)
           pulled++
         }
         state = reduceCloudSyncChange(state, change)
@@ -153,21 +167,23 @@ export class CloudSyncCoordinator {
       }
     }
 
-    return { state, pulled }
+    return { state, pulled, localConflicts }
   }
 
   private async loadOrBootstrap(): Promise<{
     state: CloudSyncState
     pulled: number
     conflicts: CloudSyncBootstrapConflict[]
+    localConflicts: CloudSyncLocalConflict[]
   }> {
     const existing = await this.states.load(this.vaultId)
-    if (existing) return { state: existing, pulled: 0, conflicts: [] }
+    if (existing) return { state: existing, pulled: 0, conflicts: [], localConflicts: [] }
 
     const manifest = await this.stableManifest()
     const localItems = await this.repository.scan()
     const localByPath = new Map(localItems.map((item) => [cloudSyncPathKey(item.path), item]))
     const conflicts: CloudSyncBootstrapConflict[] = []
+    const localConflicts: CloudSyncLocalConflict[] = []
     let pulled = 0
 
     for (const item of manifest.items) {
@@ -185,7 +201,8 @@ export class CloudSyncCoordinator {
 
       if (!local) {
         if (!item.content) throw new Error(`Manifest item ${item.item_id} did not include content`)
-        await this.repository.apply(manifestUpsert(item), undefined)
+        const conflict = await this.repository.apply(manifestUpsert(item), undefined)
+        if (conflict) localConflicts.push(conflict)
         pulled++
       }
     }
@@ -193,7 +210,7 @@ export class CloudSyncCoordinator {
     const state = manifestState(this.vaultId, manifest.cursor, manifest.items)
     if (conflicts.length === 0) await this.states.save(state)
 
-    return { state, pulled, conflicts }
+    return { state, pulled, conflicts, localConflicts }
   }
 
   private async stableManifest(): Promise<{

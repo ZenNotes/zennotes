@@ -23,6 +23,8 @@ import type {
   CloudPublishNoteInput,
   CloudServiceAccount,
   CloudSyncRunSummary,
+  CloudSyncSettingsChoice,
+  CloudSyncSettingsConflict,
   CloudSyncVault,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -245,6 +247,10 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_CREATE, name),
   unlinkCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_DELETE),
   syncCloudVault: (): Promise<CloudSyncRunSummary> => ipcRenderer.invoke(IPC.CLOUD_VAULT_SYNC),
+  getCloudSettingsConflict: (): Promise<CloudSyncSettingsConflict | null> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET),
+  resolveCloudSettingsConflict: (choice: CloudSyncSettingsChoice): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE, choice),
   listCloudBackups: (): Promise<CloudBackupSnapshot[]> =>
     ipcRenderer.invoke(IPC.CLOUD_BACKUPS_LIST),
   getCloudBackupSchedule: (): Promise<CloudBackupSchedule> =>

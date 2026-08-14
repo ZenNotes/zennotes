@@ -23,7 +23,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
-import type { CloudPublishNoteInput } from "@zennotes/bridge-contract/cloud-sync";
+import type {
+  CloudPublishNoteInput,
+  CloudSyncSettingsChoice,
+} from "@zennotes/bridge-contract/cloud-sync";
 import type {
   NoteMeta,
   NoteCommentInput,
@@ -2629,6 +2632,17 @@ function registerIpc(): void {
   );
   handle(IPC.CLOUD_VAULT_SYNC, () =>
     getCloudSyncService().sync(requireLocalCloudVaultRoot()),
+  );
+  handle(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET, () =>
+    getCloudSyncService().settingsConflict(requireLocalCloudVaultRoot()),
+  );
+  handle(
+    IPC.CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE,
+    (_event, choice: CloudSyncSettingsChoice) =>
+      getCloudSyncService().resolveSettingsConflict(
+        requireLocalCloudVaultRoot(),
+        choice === "cloud" ? "cloud" : "local",
+      ),
   );
   handle(IPC.CLOUD_BACKUPS_LIST, () =>
     getCloudSyncService().listBackups(requireLocalCloudVaultRoot()),

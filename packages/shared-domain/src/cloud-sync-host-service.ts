@@ -229,7 +229,8 @@ export class CloudSyncHostService {
         pulled: result.pulled,
         pushed: result.pushed,
         conflicts: result.conflicts,
-        bootstrap_conflicts: result.bootstrapConflicts
+        bootstrap_conflicts: result.bootstrapConflicts,
+        local_conflicts: result.localConflicts
       }
     } finally {
       await vault.refresh()

@@ -9,6 +9,8 @@ import type {
   CloudPublishedNote,
   CloudServiceAccount,
   CloudSyncRunSummary,
+  CloudSyncSettingsChoice,
+  CloudSyncSettingsConflict,
   CloudSyncVault,
   CloudUsage,
   CloudVaultLink,
@@ -39,6 +41,8 @@ type CloudAction =
   | "backup-refresh"
   | "publish-refresh"
   | "publish-delete"
+  | "settings-local"
+  | "settings-cloud"
   | null;
 
 export function CloudSettings({
@@ -57,6 +61,8 @@ export function CloudSettings({
   const [selectedVaultId, setSelectedVaultId] = useState("");
   const [newVaultName, setNewVaultName] = useState(localVaultName);
   const [summary, setSummary] = useState<CloudSyncRunSummary | null>(null);
+  const [settingsConflict, setSettingsConflict] =
+    useState<CloudSyncSettingsConflict | null>(null);
   const [backups, setBackups] = useState<CloudBackupSnapshot[]>([]);
   const [backupSchedule, setBackupSchedule] =
     useState<CloudBackupSchedule | null>(null);
@@ -283,10 +289,35 @@ export function CloudSettings({
       setRestoreResult(null);
     });
 
+  const loadSettingsConflict = useCallback(async (): Promise<void> => {
+    try {
+      setSettingsConflict(await bridge.getCloudSettingsConflict());
+    } catch {
+      // A host without the question (the web client) simply has none to ask.
+      setSettingsConflict(null);
+    }
+  }, [bridge]);
+
+  useEffect(() => {
+    void loadSettingsConflict();
+  }, [loadSettingsConflict]);
+
   const syncVault = (): Promise<void> =>
     runAction("sync", async () => {
       setSummary(await syncCloudVaultWithStatus(bridge, link?.vault_name));
+      await loadSettingsConflict();
     });
+
+  const resolveSettingsConflict = (
+    choice: CloudSyncSettingsChoice,
+  ): Promise<void> =>
+    runAction(
+      choice === "cloud" ? "settings-cloud" : "settings-local",
+      async () => {
+        await bridge.resolveCloudSettingsConflict(choice);
+        await loadSettingsConflict();
+      },
+    );
 
   const createBackup = (): Promise<void> =>
     runAction("backup-create", async () => {
@@ -497,6 +528,10 @@ export function CloudSettings({
                 onSync={() => void syncVault()}
                 onUnlink={() => void unlinkVault()}
                 onUseAnotherAccount={() => void logout()}
+                settingsConflict={settingsConflict}
+                onResolveSettingsConflict={(choice) =>
+                  void resolveSettingsConflict(choice)
+                }
                 syncIncluded={serviceAccount.features.sync.active}
               />
               <CloudPublishedNotesPanel
@@ -882,11 +917,13 @@ function CloudVaultPanel({
   localVaultAvailable,
   newVaultName,
   selectedVaultId,
+  settingsConflict,
   summary,
   syncIncluded,
   onCreateAndLink,
   onLink,
   onNewVaultNameChange,
+  onResolveSettingsConflict,
   onSelectedVaultChange,
   onSync,
   onUnlink,
@@ -900,11 +937,13 @@ function CloudVaultPanel({
   localVaultAvailable: boolean;
   newVaultName: string;
   selectedVaultId: string;
+  settingsConflict: CloudSyncSettingsConflict | null;
   summary: CloudSyncRunSummary | null;
   syncIncluded: boolean;
   onCreateAndLink: () => void;
   onLink: () => void;
   onNewVaultNameChange: (value: string) => void;
+  onResolveSettingsConflict: (choice: CloudSyncSettingsChoice) => void;
   onSelectedVaultChange: (value: string) => void;
   onSync: () => void;
   onUnlink: () => void;
@@ -1014,6 +1053,12 @@ function CloudVaultPanel({
                 </Button>
               </div>
             </div>
+            {settingsConflict && (
+              <CloudSettingsConflictCard
+                action={action}
+                onResolve={onResolveSettingsConflict}
+              />
+            )}
             {summary && <CloudSyncSummary summary={summary} />}
           </div>
         ) : (
@@ -1696,13 +1741,62 @@ function numericLimit(
     : null;
 }
 
+/**
+ * Vault settings that differ between this device and the cloud. Notes get a
+ * conflict copy to compare side by side, but settings are a single answer, and
+ * a copy of them inside a hidden folder is not something anyone can act on.
+ * This device's settings stay in use until the question is answered, so doing
+ * nothing keeps what is already working.
+ */
+function CloudSettingsConflictCard({
+  action,
+  onResolve,
+}: {
+  action: CloudAction;
+  onResolve: (choice: CloudSyncSettingsChoice) => void;
+}): JSX.Element {
+  return (
+    <div
+      role="group"
+      aria-label="Vault settings differ from the cloud"
+      className="rounded-xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-ink-700"
+    >
+      <div className="font-medium">Vault settings differ from the cloud</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        Another device saved different settings for this vault: favorites,
+        folder icons and colors, and where the built-in folders live. This
+        device&rsquo;s settings are the ones in use.
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button
+          variant="primary"
+          disabled={action !== null}
+          onClick={() => onResolve("local")}
+        >
+          {action === "settings-local" ? "Keeping…" : "Keep this device's"}
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={action !== null}
+          onClick={() => onResolve("cloud")}
+        >
+          {action === "settings-cloud" ? "Applying…" : "Use the cloud's"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CloudSyncSummary({
   summary,
 }: {
   summary: CloudSyncRunSummary;
 }): JSX.Element {
+  // A host on an older build sends no local_conflicts at all.
   const conflictCount =
-    summary.conflicts.length + summary.bootstrap_conflicts.length;
+    summary.conflicts.length +
+    summary.bootstrap_conflicts.length +
+    (summary.local_conflicts?.length ?? 0);
   return (
     <div
       role="status"

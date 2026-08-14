@@ -108,6 +108,74 @@ function remote(options: {
 }
 
 describe('CloudSyncCoordinator', () => {
+  // The Discord report behind this: a change for a file the device had never
+  // tracked threw, the run stopped before saving the cursor, and every later
+  // run replayed the same change and stopped at the same place. A repository
+  // that reports a conflict instead of throwing has to leave the run able to
+  // finish, or sync is wedged for good.
+  it('finishes the run and advances the cursor when a file reports a conflict', async () => {
+    const repository: CloudSyncRepository = {
+      async scan() {
+        return []
+      },
+      async apply(change) {
+        return {
+          code: 'LOCAL_EDIT_CONFLICT',
+          path: change.path,
+          conflict_copy_path: `${change.path} (cloud conflict)`
+        }
+      }
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 7,
+      items: {}
+    })
+    const server = remote({
+      changes: [
+        {
+          sequence: 8,
+          item_id: 'item-untracked',
+          type: 'upsert',
+          path: '.zennotes/vault.json',
+          previous_path: null,
+          revision: 3,
+          content: content('{}')
+        }
+      ],
+      mutate: () => ({ acknowledged: [], conflicts: [], cursor: 8 })
+    })
+
+    const first = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+
+    expect(first.localConflicts).toEqual([
+      {
+        code: 'LOCAL_EDIT_CONFLICT',
+        path: '.zennotes/vault.json',
+        conflict_copy_path: '.zennotes/vault.json (cloud conflict)'
+      }
+    ])
+    expect(states.current?.cursor).toBe(8)
+
+    // The next run is past it rather than replaying the same change forever.
+    const second = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+    expect(second.localConflicts).toEqual([])
+    expect(states.current?.cursor).toBe(8)
+  })
+
   it('merges remote and local files on first sync without deleting either side', async () => {
     const repository = memoryRepository([
       { path: 'local.md', kind: 'text', content: content('local') }

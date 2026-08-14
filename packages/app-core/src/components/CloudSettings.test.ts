@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   createAndLinkCloudVault: vi.fn(),
   unlinkCloudVault: vi.fn(),
   syncCloudVault: vi.fn(),
+  getCloudSettingsConflict: vi.fn(),
+  resolveCloudSettingsConflict: vi.fn(),
   listCloudBackups: vi.fn(),
   getCloudBackupSchedule: vi.fn(),
   updateCloudBackupSchedule: vi.fn(),
@@ -283,7 +285,7 @@ describe("CloudSettings", () => {
       pulled: 2,
       pushed: 3,
       conflicts: [],
-      bootstrap_conflicts: [],
+      bootstrap_conflicts: [], local_conflicts: [],
     };
     mocks.syncCloudVault.mockResolvedValue(summary);
 
@@ -322,6 +324,52 @@ describe("CloudSettings", () => {
     expect(mocks.syncCloudVaultWithStatus).toHaveBeenCalledOnce();
     expect(host.textContent).toContain("Downloaded 2 · Uploaded 3");
     expect(host.textContent).not.toContain("Cursor 7");
+  });
+
+  // Settings that differ between devices are a question, not a silent merge.
+  // Doing nothing keeps this device's settings, so the local choice leads.
+  it("asks which vault settings to keep and applies the answer", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudSettingsConflict.mockResolvedValue({
+      path: ".zennotes/vault.json",
+      cloud_path: ".zennotes/vault.cloud-conflict.json",
+    });
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    expect(host.textContent).toContain("Vault settings differ from the cloud");
+    expect(host.textContent).toContain("This device’s settings are the ones in use.");
+
+    const keepLocal = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Keep this device's",
+    );
+    const useCloud = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Use the cloud's",
+    );
+    expect(keepLocal).toBeTruthy();
+    expect(useCloud).toBeTruthy();
+
+    mocks.getCloudSettingsConflict.mockResolvedValue(null);
+    await act(async () => useCloud!.click());
+
+    expect(mocks.resolveCloudSettingsConflict).toHaveBeenCalledWith("cloud");
+    // Answered, so the question stops being asked.
+    expect(host.textContent).not.toContain("Vault settings differ from the cloud");
   });
 
   it("does not request vault data when sync is not included", async () => {
@@ -526,7 +574,7 @@ describe("CloudSettings", () => {
         pulled: 10,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [],
+        bootstrap_conflicts: [], local_conflicts: [],
       },
     });
     mocks.updateCloudBackupSchedule.mockResolvedValue({
@@ -573,7 +621,7 @@ describe("CloudSettings", () => {
         pulled: 1,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [],
+        bootstrap_conflicts: [], local_conflicts: [],
       },
     });
 

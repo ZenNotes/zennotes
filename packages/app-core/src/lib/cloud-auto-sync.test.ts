@@ -36,7 +36,7 @@ function setup(
     pulled: 0,
     pushed: 0,
     conflicts: [],
-    bootstrap_conflicts: [],
+    bootstrap_conflicts: [], local_conflicts: [],
   }));
   const logoutCloudAccount = vi.fn(async (): Promise<CloudAccountStatus> => {
     const disconnected: CloudAccountStatus = {
@@ -199,7 +199,7 @@ describe("cloud auto sync host wiring", () => {
               pulled: 1,
               pushed: 0,
               conflicts: [],
-              bootstrap_conflicts: [],
+              bootstrap_conflicts: [], local_conflicts: [],
             });
         }),
     );
@@ -267,7 +267,7 @@ describe("cloud auto sync host wiring", () => {
         pulled: 0,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [],
+        bootstrap_conflicts: [], local_conflicts: [],
       };
     });
     const runtime = startCloudAutoSync(host.bridge, host.environment, {

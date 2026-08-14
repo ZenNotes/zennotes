@@ -48,6 +48,8 @@ import type {
   CloudPublishNoteInput,
   CloudServiceAccount,
   CloudSyncRunSummary,
+  CloudSyncSettingsChoice,
+  CloudSyncSettingsConflict,
   CloudSyncVault,
   CloudVaultLink
 } from './cloud-sync'
@@ -139,6 +141,8 @@ export interface ZenBridge {
   createAndLinkCloudVault(name: string): Promise<CloudVaultLink>
   unlinkCloudVault(): Promise<void>
   syncCloudVault(): Promise<CloudSyncRunSummary>
+  getCloudSettingsConflict(): Promise<CloudSyncSettingsConflict | null>
+  resolveCloudSettingsConflict(choice: CloudSyncSettingsChoice): Promise<void>
   listCloudBackups(): Promise<CloudBackupSnapshot[]>
   getCloudBackupSchedule(): Promise<CloudBackupSchedule>
   updateCloudBackupSchedule(enabled: boolean): Promise<CloudBackupSchedule>

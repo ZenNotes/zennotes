@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type {
@@ -162,6 +162,48 @@ async function setup(
 }
 
 describe('DesktopCloudSyncService', () => {
+  // Settings differ between devices, so sync asks instead of picking. Doing
+  // nothing keeps this device's settings, which are already in use.
+  it('answers the settings question either way', async () => {
+    const { service, localRoot } = await setup([])
+    const settingsPath = path.join(localRoot, '.zennotes', 'vault.json')
+    const parkedPath = path.join(localRoot, '.zennotes', 'vault.cloud-conflict.json')
+    await mkdir(path.join(localRoot, '.zennotes'), { recursive: true })
+    await writeFile(settingsPath, JSON.stringify({ favorites: ['local.md'] }))
+
+    expect(await service.settingsConflict(localRoot)).toBeNull()
+
+    await writeFile(parkedPath, JSON.stringify({ favorites: ['cloud.md'] }))
+    expect(await service.settingsConflict(localRoot)).toEqual({
+      path: '.zennotes/vault.json',
+      cloud_path: '.zennotes/vault.cloud-conflict.json'
+    })
+
+    // Keeping this device's settings drops the pending copy and changes nothing.
+    await service.resolveSettingsConflict(localRoot, 'local')
+    expect(await service.settingsConflict(localRoot)).toBeNull()
+    expect(JSON.parse(await readFile(settingsPath, 'utf8')).favorites).toEqual(['local.md'])
+
+    // Taking the cloud's writes them through the vault's own normalizer.
+    await writeFile(parkedPath, JSON.stringify({ favorites: ['cloud.md'] }))
+    await service.resolveSettingsConflict(localRoot, 'cloud')
+    expect(await service.settingsConflict(localRoot)).toBeNull()
+    expect(JSON.parse(await readFile(settingsPath, 'utf8')).favorites).toEqual(['cloud.md'])
+  })
+
+  it('refuses to apply cloud settings that are not readable', async () => {
+    const { service, localRoot } = await setup([])
+    await mkdir(path.join(localRoot, '.zennotes'), { recursive: true })
+    await writeFile(path.join(localRoot, '.zennotes', 'vault.json'), JSON.stringify({}))
+    await writeFile(path.join(localRoot, '.zennotes', 'vault.cloud-conflict.json'), 'not json')
+
+    await expect(service.resolveSettingsConflict(localRoot, 'cloud')).rejects.toThrow(
+      'could not be read'
+    )
+    // The question stays open rather than resolving itself badly.
+    expect(await service.settingsConflict(localRoot)).not.toBeNull()
+  })
+
   it('links only a vault owned by the connected account', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',
@@ -335,7 +377,7 @@ describe('DesktopCloudSyncService', () => {
           local_sha256: 'a'.repeat(64),
           remote_sha256: 'b'.repeat(64)
         }
-      ]
+      ], local_conflicts: []
     })
 
     await expect(service.createBackup(localRoot)).rejects.toThrow('Resolve sync conflicts')

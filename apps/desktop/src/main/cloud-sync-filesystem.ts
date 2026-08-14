@@ -1,8 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
-import type { CloudSyncChange, CloudSyncContent } from '@zennotes/bridge-contract/cloud-sync'
+import type {
+  CloudSyncChange,
+  CloudSyncContent,
+  CloudSyncLocalConflict
+} from '@zennotes/bridge-contract/cloud-sync'
 import {
+  CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+  cloudSyncConflictCopyPath,
+  isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
   shouldSyncVaultPath,
   shouldTraverseCloudSyncDirectory
@@ -80,7 +87,10 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     return items.sort((left, right) => left.path.localeCompare(right.path))
   }
 
-  async apply(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined): Promise<void> {
+  async apply(
+    change: CloudSyncChange,
+    previous: CloudSyncTrackedItem | undefined
+  ): Promise<CloudSyncLocalConflict | void> {
     const affectedPaths = [change.path, change.previous_path, previous?.path].filter(
       (path): path is string => typeof path === 'string'
     )
@@ -88,13 +98,28 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
 
     if (change.type === 'upsert') {
       if (!change.content) throw new Error(`Upsert change ${change.sequence} did not include content`)
-      await this.assertUnchanged(previous?.path ?? change.path, previous)
+      const atTarget = await this.readIfExists(change.path)
+      // Already byte-for-byte what the change carries. There is nothing to
+      // write and nothing to conflict over, so adopt the file and move on.
+      // Without this, a file both sides already agree on stopped sync dead.
+      if (atTarget && sha256(atTarget) === change.content.sha256) return
+
+      const guardPath = previous?.path ?? change.path
+      const unvouched = await this.firstUnvouchedPath(
+        guardPath === change.path ? [change.path] : [guardPath, change.path],
+        previous
+      )
+      if (unvouched) return await this.keepBoth(change.path, decodeContent(change.content))
+
       await this.write(change.path, decodeContent(change.content))
       return
     }
 
     const previousPath = previous?.path ?? change.previous_path ?? change.path
-    await this.assertUnchanged(previousPath, previous)
+    const unvouched = await this.firstUnvouchedPath([previousPath], previous)
+    // A delete or a move carries no content to park, so keeping the local file
+    // where it is IS the preserved version. The next push re-uploads it.
+    if (unvouched) return localConflict(unvouched, null)
 
     if (change.type === 'delete') {
       await fs.rm(this.resolve(previousPath), { force: true })
@@ -104,9 +129,14 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     const source = this.resolve(previousPath)
     const destination = this.resolve(change.path)
     if (source === destination) return
+    if (!(await exists(source))) {
+      // Nothing here to move. Either the move already landed, or the file is
+      // gone locally and the next scan reconciles it.
+      return
+    }
     await fs.mkdir(path.dirname(destination), { recursive: true })
 
-    if (await exists(destination)) throw new CloudSyncLocalEditConflictError(change.path)
+    if (await exists(destination)) return localConflict(change.path, null)
     await fs.rename(source, destination)
   }
 
@@ -147,21 +177,53 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     return absolutePath
   }
 
-  private async assertUnchanged(
-    relPath: string,
-    previous: CloudSyncTrackedItem | undefined
-  ): Promise<void> {
-    const absolutePath = this.resolve(relPath)
-
+  private async readIfExists(relPath: string): Promise<Buffer | null> {
     try {
-      const bytes = await fs.readFile(absolutePath)
-      if (!previous || sha256(bytes) !== previous.sha256) {
-        throw new CloudSyncLocalEditConflictError(relPath)
-      }
+      return await fs.readFile(this.resolve(relPath))
     } catch (error) {
-      if (isMissingFileError(error) && !previous) return
+      if (isMissingFileError(error)) return null
       throw error
     }
+  }
+
+  /**
+   * The first of these paths holding a file sync cannot vouch for, meaning it
+   * is not the exact bytes we last agreed on with the server. A file that is
+   * absent is fine: there is nothing there to lose.
+   */
+  private async firstUnvouchedPath(
+    relPaths: readonly string[],
+    previous: CloudSyncTrackedItem | undefined
+  ): Promise<string | null> {
+    for (const relPath of relPaths) {
+      const bytes = await this.readIfExists(relPath)
+      if (!bytes) continue
+      if (!previous || sha256(bytes) !== previous.sha256) return relPath
+    }
+    return null
+  }
+
+  /** Park the incoming version beside the local file rather than over it. */
+  private async keepBoth(relPath: string, bytes: Buffer): Promise<CloudSyncLocalConflict> {
+    // Settings are answered, not merged: the newest cloud version replaces any
+    // older pending one at a fixed path, and the app asks which side to keep.
+    if (isCloudSyncVaultSettingsPath(relPath)) {
+      await this.write(CLOUD_SYNC_SETTINGS_CONFLICT_PATH, bytes)
+      return {
+        code: 'SETTINGS_CONFLICT',
+        path: relPath,
+        conflict_copy_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH
+      }
+    }
+    for (let attempt = 1; attempt <= 100; attempt++) {
+      const candidate = cloudSyncConflictCopyPath(relPath, attempt)
+      if (await exists(this.resolve(candidate))) continue
+      await this.write(candidate, bytes)
+      return localConflict(relPath, candidate)
+    }
+    // A hundred conflict copies of one file means something is looping. Keep
+    // the local file and report it rather than filling the vault.
+    return localConflict(relPath, null)
   }
 
   private async write(relPath: string, bytes: Buffer): Promise<void> {
@@ -270,6 +332,10 @@ function isText(relPath: string, bytes: Buffer): boolean {
 function mediaType(relPath: string, text: boolean): string {
   return MEDIA_TYPES[path.extname(relPath).toLowerCase()] ??
     (text ? 'text/plain' : 'application/octet-stream')
+}
+
+function localConflict(path: string, conflictCopyPath: string | null): CloudSyncLocalConflict {
+  return { code: 'LOCAL_EDIT_CONFLICT', path, conflict_copy_path: conflictCopyPath }
 }
 
 function sha256(bytes: Buffer): string {

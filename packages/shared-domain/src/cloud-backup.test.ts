@@ -42,7 +42,7 @@ describe('restoreCloudBackup', () => {
       pulled: 4,
       pushed: 0,
       conflicts: [],
-      bootstrap_conflicts: []
+      bootstrap_conflicts: [], local_conflicts: []
     }))
 
     await expect(

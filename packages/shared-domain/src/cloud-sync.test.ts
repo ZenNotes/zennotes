@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cloudSyncConflictCopyPath,
   cloudSyncPathKey,
+  isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
   shouldTraverseCloudSyncDirectory,
   shouldSyncVaultPath
@@ -22,6 +24,26 @@ describe('normalizeCloudSyncPath', () => {
 describe('cloudSyncPathKey', () => {
   it('uses a case-insensitive unicode-normalized collision key', () => {
     expect(cloudSyncPathKey('Inbox/Cafe\u0301.md')).toBe(cloudSyncPathKey('inbox/CAFÉ.md'))
+  })
+})
+
+describe('cloudSyncConflictCopyPath', () => {
+  it('keeps the extension so the copy opens like the original', () => {
+    expect(cloudSyncConflictCopyPath('inbox/Note.md', 1)).toBe('inbox/Note (cloud conflict).md')
+    expect(cloudSyncConflictCopyPath('inbox/Note.md', 3)).toBe('inbox/Note (cloud conflict 3).md')
+    expect(cloudSyncConflictCopyPath('Note.md', 1)).toBe('Note (cloud conflict).md')
+  })
+
+  it('treats a leading dot as part of the name, not an extension', () => {
+    expect(cloudSyncConflictCopyPath('.gitignore', 1)).toBe('.gitignore (cloud conflict)')
+  })
+})
+
+describe('isCloudSyncVaultSettingsPath', () => {
+  it('matches only the vault settings file', () => {
+    expect(isCloudSyncVaultSettingsPath('.zennotes/vault.json')).toBe(true)
+    expect(isCloudSyncVaultSettingsPath('.zennotes/vault.cloud-conflict.json')).toBe(false)
+    expect(isCloudSyncVaultSettingsPath('inbox/vault.json')).toBe(false)
   })
 })
 
@@ -49,6 +71,9 @@ describe('shouldSyncVaultPath', () => {
     '.zennotes/deleted-assets/token/file.png',
     '.zennotes/sync/device-state.json',
     '.zennotes/unknown-runtime-cache.json',
+    // The cloud's settings waiting for an answer are this device's business,
+    // and uploading them would hand the question to every other device too.
+    '.zennotes/vault.cloud-conflict.json',
     '.git/config',
     'vendor/project/.svn/entries',
     'node_modules/package/index.js'
