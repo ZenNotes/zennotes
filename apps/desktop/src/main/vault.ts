@@ -3050,7 +3050,12 @@ export async function readNote(root: string, rel: string): Promise<NoteContent> 
 export async function writeNote(root: string, rel: string, body: string): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
-  await fs.writeFile(abs, body, 'utf8')
+  // Atomic on purpose (#585): a plain writeFile truncates first, and the
+  // watcher echo of the PREVIOUS save can read the file inside that window.
+  // The renderer then sees an empty "external change" and replaces the open
+  // buffer with it, wiping the note. With temp-file + rename, no reader can
+  // ever observe a half-written note.
+  await writeFileAtomic(abs, body)
   invalidateNoteMetaCache(root, rel)
   invalidateVaultTextSearchCache(root)
   const folder = await folderOf(root, abs)

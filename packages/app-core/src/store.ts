@@ -6248,6 +6248,12 @@ export const useStore = create<Store>((set, get) => {
           const existing = s.noteContents[ev.path]
           // Ignore noise — only push when disk differs from our buffer.
           if (existing && existing.body === content.body) return s
+          // Never replace a dirty buffer: it holds edits the user has not
+          // saved, and the editor applies this push as a non-undoable doc
+          // swap (#247), so a stale or truncated read here destroyed work
+          // with no way back (#585). Same policy as the resync path above;
+          // the pending save will reconcile disk with the buffer instead.
+          if (s.noteDirty[ev.path]) return s
           const contents = { ...s.noteContents, [ev.path]: content }
           const dirty = { ...s.noteDirty, [ev.path]: false }
           return {
@@ -6333,7 +6339,13 @@ export const useStore = create<Store>((set, get) => {
         void get().refreshTypstPreambles()
       }
       set((cur) => {
-        const dirty = { ...cur.noteDirty, [path]: false }
+        // Keystrokes that landed while the write was in flight leave the
+        // buffer ahead of disk. Clearing the flag then made the already
+        // scheduled follow-up save bail on its dirty check and stranded
+        // those edits unsaved (#585) — the flag only clears when the buffer
+        // still holds exactly what hit disk.
+        const stillCurrent = cur.noteContents[path]?.body === writtenBody
+        const dirty = stillCurrent ? { ...cur.noteDirty, [path]: false } : cur.noteDirty
         return {
           noteDirty: dirty,
           notes: cur.notes.map((n) => (n.path === meta.path ? { ...n, ...meta } : n)),

@@ -191,3 +191,68 @@ describe('#202 — store keeps each note its own content during navigation', () 
     expect(writeCalls).toEqual([])
   })
 })
+
+// #585 ("ZenNotes clears all text from a note while editing"): the watcher
+// echo of one save could read the file while the next non-atomic save had it
+// truncated. applyChange pushed that empty read over the DIRTY buffer, the
+// editor applied it as a non-undoable doc swap, and persistNote had already
+// cleared the dirty flag so the follow-up save bailed instead of healing disk.
+describe('#585 — dirty buffers survive watcher change events', () => {
+  it('a change event delivering a truncated read never clobbers unsaved edits', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const paneId = useStore.getState().activePaneId
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(paneId, target)
+    await flush()
+
+    useStore.getState().updateNoteBody(target, 'INDEX_BODY plus unsaved edits')
+    // What the reporter hit: the file reads back empty mid-save-cycle.
+    vault.set(target, '')
+    await useStore
+      .getState()
+      .applyChange({ kind: 'change', path: target, folder: 'inbox', scope: 'content' })
+    await flush()
+
+    expect(useStore.getState().noteContents[target]?.body).toBe('INDEX_BODY plus unsaved edits')
+    expect(useStore.getState().noteDirty[target]).toBe(true)
+
+    // The still-pending save reconciles disk with the buffer, not vice versa.
+    await useStore.getState().persistNote(target)
+    expect(vault.get(target)).toBe('INDEX_BODY plus unsaved edits')
+  })
+
+  it('typing during a slow write keeps the note dirty so the follow-up save lands', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const paneId = useStore.getState().activePaneId
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(paneId, target)
+    await flush()
+
+    // Hold the first write open, as a real IPC round-trip can be.
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const zen = window.zen as unknown as {
+      writeNote: (p: string, b: string) => Promise<unknown>
+    }
+    const realWrite = zen.writeNote
+    zen.writeNote = async (p: string, b: string) => {
+      await gate
+      return realWrite(p, b)
+    }
+
+    useStore.getState().updateNoteBody(target, 'FIRST')
+    const persisting = useStore.getState().persistNote(target)
+    useStore.getState().updateNoteBody(target, 'FIRST AND SECOND') // typed mid-write
+    release()
+    await persisting
+
+    // The buffer is ahead of disk, so the flag must survive the completion.
+    expect(useStore.getState().noteDirty[target]).toBe(true)
+    await useStore.getState().persistNote(target)
+    expect(vault.get(target)).toBe('FIRST AND SECOND')
+  })
+})
