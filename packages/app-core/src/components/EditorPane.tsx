@@ -50,6 +50,7 @@ import {
 } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { isImeComposing } from '../lib/ime'
+import { displayRowBoundaryKeymap } from '../lib/cm-display-row'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import {
@@ -325,6 +326,11 @@ function pointerOverRange(
 
 function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
   return keymap.of([
+    // Home/End on the display row the user can see. Listed before
+    // defaultKeymap, whose versions hit-test an x coordinate at the editor's
+    // edge and misland on wrapped lines under fractional display scaling
+    // (#591, the same resolution #575 removed from `$`).
+    ...displayRowBoundaryKeymap,
     {
       key: 'Mod-f',
       run: () => {

@@ -1,5 +1,6 @@
 import { CodeMirror, Vim } from '@replit/codemirror-vim'
 import type { EditorView } from '@codemirror/view'
+import { displayRowEdge } from './cm-display-row'
 import { mathBlockLineRanges } from './cm-math-render'
 import { embedBlockLineRanges } from './cm-embed-render'
 import { mermaidBlockLineRanges } from './cm-mermaid-render'
@@ -109,73 +110,6 @@ function isWrapPoint(view: EditorView, offset: number): boolean {
   const after = view.coordsAtPos(offset, 1)
   if (!before || !after) return false
   return after.top - before.top > (before.bottom - before.top) / 2
-}
-
-/**
- * The wrap point ending the display row that contains `pos` (forward), or the
- * offset starting that row (backward). Forward returns `line.to` when the
- * cursor sits on the line's last row.
- *
- * Found by binary-searching `coordsAtPos` rows instead of hit-testing an x
- * coordinate at the viewport edge, which is what `goLineRight` does and what
- * #575 broke: under fractional display scaling the x resolution walks
- * sub-pixel glyph rects and lands several characters short of the wrap point,
- * or on a neighboring row entirely. Two positions count as the same row when
- * their vertical ranges overlap, not when their midpoints sit close: an
- * inline widget on the row (a rendered wikilink chip, say) can be taller
- * than the text beside it, and a midpoint tolerance misread that skew as a
- * wrap, which sent `A` and `$` short of a line-ending link (#582). Returns
- * null when coordinates are unavailable (unrendered or widget-only spans);
- * callers fall back structurally.
- */
-function displayRowEdge(view: EditorView, pos: number, forward: boolean): number | null {
-  const line = view.state.doc.lineAt(pos)
-  const rowCoords = (offset: number) => {
-    const side: 1 | -1 = offset >= line.to ? -1 : 1
-    const other: 1 | -1 = side === 1 ? -1 : 1
-    return view.coordsAtPos(offset, side) ?? view.coordsAtPos(offset, other)
-  }
-  const anchorCoords = rowCoords(pos)
-  if (!anchorCoords) return null
-  const sameRow = (offset: number): boolean | null => {
-    const coords = rowCoords(offset)
-    if (!coords) return null
-    const overlap =
-      Math.min(coords.bottom, anchorCoords.bottom) - Math.max(coords.top, anchorCoords.top)
-    const shortest = Math.min(
-      coords.bottom - coords.top,
-      anchorCoords.bottom - anchorCoords.top
-    )
-    return overlap > Math.max(1, shortest / 4)
-  }
-  if (forward) {
-    let lo = pos
-    let hi = line.to
-    const atEnd = sameRow(hi)
-    if (atEnd == null) return null
-    if (atEnd) return line.to
-    while (lo + 1 < hi) {
-      const mid = (lo + hi) >> 1
-      const same = sameRow(mid)
-      if (same == null) return null
-      if (same) lo = mid
-      else hi = mid
-    }
-    return hi
-  }
-  let lo = line.from
-  let hi = pos
-  const atStart = sameRow(lo)
-  if (atStart == null) return null
-  if (atStart) return line.from
-  while (lo + 1 < hi) {
-    const mid = (lo + hi) >> 1
-    const same = sameRow(mid)
-    if (same == null) return null
-    if (same) hi = mid
-    else lo = mid
-  }
-  return hi
 }
 
 /**
