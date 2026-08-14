@@ -74,7 +74,7 @@ import {
 } from '../lib/cm-vim-clipboard'
 import { wireYankHighlight, yankHighlightExtension } from '../lib/cm-yank-highlight'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
-import { frontmatterStyle } from '../lib/cm-frontmatter'
+import { frontmatterStyle, frontmatterTagExtension } from '../lib/cm-frontmatter'
 import { codeBlockFontPlugin } from '../lib/cm-code-block-font'
 import {
   orderedListRenumber,
@@ -105,6 +105,7 @@ import { hashtagExtension } from '../lib/cm-hashtags'
 import { taskMetadataExtension } from '../lib/cm-task-metadata'
 import { taskRollupExtension } from '../lib/cm-task-rollup'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
+import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
 import { applyHighlight, HIGHLIGHT_COLORS, highlightExtension } from '../lib/cm-highlight'
 import { wikilinkRenderExtension } from '../lib/cm-wikilink-render'
 import { mathRenderExtension } from '../lib/cm-math-render'
@@ -404,6 +405,7 @@ function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] 
     vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
     frontmatterStyle,
+    frontmatterTagExtension,
     orderedListRenumber,
     forwardOnCheckboxArrow,
     headingFolding({ showLevelLabels: showHeadingLevelLabels }),
@@ -1780,6 +1782,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               calloutTypeSource,
               dateShortcutSource,
               atNoteSource,
+              frontmatterTagSource,
               hashtagSource,
               wikilinkSource,
               wikilinkHeadingSource

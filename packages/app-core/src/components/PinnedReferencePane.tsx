@@ -44,13 +44,14 @@ import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
-import { frontmatterStyle } from '../lib/cm-frontmatter'
+import { frontmatterStyle, frontmatterTagExtension } from '../lib/cm-frontmatter'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
+import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
@@ -224,6 +225,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           frontmatterStyle,
+          frontmatterTagExtension,
           headingCompartment.of(
             headingFolding({ showLevelLabels: s0.showHeadingLevelLabels })
           ),
@@ -240,6 +242,7 @@ export function PinnedReferencePane(): JSX.Element | null {
               slashCommandSource,
               calloutTypeSource,
               dateShortcutSource,
+              frontmatterTagSource,
               hashtagSource,
               wikilinkSource,
               wikilinkHeadingSource

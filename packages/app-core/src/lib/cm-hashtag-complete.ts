@@ -16,6 +16,7 @@ import { useStore } from '../store'
 import { noteTagsForCount } from './tags'
 import { resolveTypstPreambleFolder } from './typst-preamble'
 import { isTagSkippedContext } from './cm-hashtags'
+import { isInsideFrontmatter } from './cm-frontmatter'
 
 /** Completion carrying the `_icon` the shared slash renderer reads. */
 type HashtagCompletion = Completion & { _icon?: string }
@@ -43,7 +44,7 @@ function hashtagMatch(context: CompletionContext): { from: number; query: string
  * them. The active note is read live from its buffer so a tag just typed in the
  * same note is offered too. Mirrors the aggregation in `TagView`.
  */
-function collectTagCounts(): Map<string, number> {
+export function collectTagCounts(): Map<string, number> {
   const state = useStore.getState()
   const activePath = state.activeNote?.path ?? null
   const activeBody = state.activeNote?.body ?? null
@@ -61,28 +62,34 @@ function collectTagCounts(): Map<string, number> {
   return counter
 }
 
+export interface RankedTag { tag: string; count: number }
+
+/** Rank vault tags for `query` so prefix matches beat substring matches, and
+ *  more-used tags beat less-used ones. Excludes the exact tag already typed. */
+export function rankTagCompletions(query: string, counts: Map<string, number>): RankedTag[] {
+  const q = query.toLowerCase()
+  return [...counts.entries()]
+    .map(([tag, count]) => {
+      const lower = tag.toLowerCase()
+      const rank = lower.startsWith(q) ? 0 : lower.includes(q) ? 1 : 2
+      return { tag, lower, count, rank }
+    })
+    .filter((t) => t.rank < 2 && t.lower !== q)
+    .sort((a, b) => a.rank - b.rank || b.count - a.count || a.tag.localeCompare(b.tag))
+    .slice(0, MAX_SUGGESTIONS)
+    .map(({ tag, count }) => ({ tag, count }))
+}
+
 export function hashtagSource(context: CompletionContext): CompletionResult | null {
   const match = hashtagMatch(context)
   // Require at least one character after `#` so a bare `#` (headings, an empty
   // token) doesn't flash the menu; suggestions appear once a tag is being typed.
   if (!match || match.query.length < 1) return null
-  // Don't suggest where a `#` isn't a tag (code spans/blocks, headings).
+  // Don't suggest where a `#` isn't a tag (code spans/blocks, headings, frontmatter).
   if (isTagSkippedContext(context.state, context.pos)) return null
+  if (isInsideFrontmatter(context.state, context.pos)) return null
 
-  const q = match.query.toLowerCase()
-  const ranked = [...collectTagCounts().entries()]
-    .map(([tag, count]) => {
-      const lower = tag.toLowerCase()
-      // Prefix matches rank above substring matches; then by usage, then name.
-      const rank = lower.startsWith(q) ? 0 : lower.includes(q) ? 1 : 2
-      return { tag, lower, count, rank }
-    })
-    // Drop non-matches and the exact tag already typed — completing to what's
-    // on screen is a no-op, and the live buffer read would otherwise suggest the
-    // in-progress tag back to itself.
-    .filter((t) => t.rank < 2 && t.lower !== q)
-    .sort((a, b) => a.rank - b.rank || b.count - a.count || a.tag.localeCompare(b.tag))
-    .slice(0, MAX_SUGGESTIONS)
+  const ranked = rankTagCompletions(match.query, collectTagCounts())
   if (ranked.length === 0) return null
 
   const options: Completion[] = ranked.map(

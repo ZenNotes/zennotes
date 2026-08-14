@@ -96,6 +96,11 @@ describe('hashtagSource (#410 — hashtag autocomplete)', () => {
     expect(result('#project')?.options.map((o) => o.label)).toEqual(['projectplan'])
   })
 
+  it('does not suggest inside frontmatter', () => {
+    const doc = '---\ntags: #pro\n---\n'
+    expect(result(doc)).toBeNull()
+  })
+
   it('does not suggest inside a fenced code block', () => {
     const parent = document.createElement('div')
     document.body.append(parent)
