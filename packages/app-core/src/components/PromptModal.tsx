@@ -4,6 +4,17 @@ import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
+/**
+ * Touch devices get a tap-first prompt when suggestions exist: no input
+ * autofocus (which summons the soft keyboard over the very list the user is
+ * about to tap — the folder picker was unusable one-handed on phones), no
+ * keyboard-shortcut hint line, and taller suggestion rows. Typing is still one
+ * tap away via the input itself.
+ */
+function isCoarsePointer(): boolean {
+  return typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+}
+
 export interface PromptSuggestion {
   value: string
   label?: string
@@ -107,6 +118,8 @@ export function PromptModal({
   }, [options.initialValue, options.title])
 
   useEffect(() => {
+    // Tap-first on touch when there is a list to tap (see isCoarsePointer).
+    if (isCoarsePointer() && (options.suggestions?.length ?? 0) > 0) return
     const t = setTimeout(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
@@ -213,7 +226,7 @@ export function PromptModal({
           }}
           className="w-full rounded-md border border-paper-300 bg-paper-50 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent"
         />
-        {options.suggestionsHint && (
+        {options.suggestionsHint && !isCoarsePointer() && (
           <div className="mt-2 text-xs text-ink-400">{options.suggestionsHint}</div>
         )}
         {showSuggestions && (
@@ -233,7 +246,8 @@ export function PromptModal({
                     onMouseEnter={() => setActiveSuggestion(index)}
                     onClick={() => chooseSuggestion(suggestion)}
                     className={[
-                      'flex w-full items-center justify-between gap-3 px-3 py-2 text-left transition-colors',
+                      'flex w-full items-center justify-between gap-3 px-3 text-left transition-colors',
+                      isCoarsePointer() ? 'py-3' : 'py-2',
                       active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                     ].join(' ')}
                   >
