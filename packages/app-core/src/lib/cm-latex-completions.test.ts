@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
-import { isInMathContext, latexTokenBefore } from './cm-latex-completions'
+import { CompletionContext } from '@codemirror/autocomplete'
+import { isInMathContext, latexCommandSource, latexTokenBefore } from './cm-latex-completions'
+import { mathRenderExtension } from './cm-math-render'
 
 function state(doc: string): EditorState {
   return EditorState.create({ doc, extensions: [markdown()] })
@@ -75,5 +77,48 @@ describe('latexTokenBefore', () => {
 
     const plain = '$x + y'
     expect(latexTokenBefore(state(plain), plain.length)).toBeNull()
+  })
+})
+
+// Review follow-ups to #594.
+describe('math context, delimiters that are not delimiters', () => {
+  it('ignores dollars inside a code block, which would otherwise flip parity', () => {
+    // `$$` is the shell PID, and a note that mentions it used to leave every
+    // later line reading as display math.
+    const doc = 'intro\n\n```bash\necho $$\n```\n\nplain prose here\n'
+    expect(isInMathContext(state(doc), after(doc, 'plain prose'))).toBe(false)
+  })
+
+  it('ignores a dollar inside inline code on the same line', () => {
+    const doc = 'costs `$5` and then more prose'
+    expect(isInMathContext(state(doc), after(doc, 'more prose'))).toBe(false)
+  })
+
+  it('still sees real math after a code block that mentions dollars', () => {
+    const doc = '```bash\necho $$\n```\n\n$x + '
+    expect(isInMathContext(state(doc), doc.length)).toBe(true)
+  })
+})
+
+describe('the typesetter the note is set to', () => {
+  const DOC = 'text $\\su'
+
+  function sourceFor(renderer: 'katex' | 'typst') {
+    const editorState = EditorState.create({
+      doc: DOC,
+      extensions: [markdown(), mathRenderExtension(renderer)]
+    })
+    return latexCommandSource(new CompletionContext(editorState, DOC.length, false))
+  }
+
+  it('offers LaTeX commands with KaTeX selected', () => {
+    const result = sourceFor('katex')
+    expect(result?.options.length ?? 0).toBeGreaterThan(0)
+  })
+
+  it('stays out of the way when the note compiles as Typst', () => {
+    // Typst is a different language: `\\frac{}{}` is not what it takes, so
+    // suggesting it would be wrong every time.
+    expect(sourceFor('typst')).toBeNull()
   })
 })

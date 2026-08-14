@@ -30,6 +30,12 @@ const mathRendererFacet = Facet.define<MathRenderer, MathRenderer>({
   combine: (values) => (values.length ? values[values.length - 1] : 'katex')
 })
 
+/** The typesetter this editor is configured for. Anything offering LaTeX help
+ *  has to ask: a note written for Typst takes different syntax entirely. */
+export function mathRendererOf(state: EditorState): MathRenderer {
+  return state.facet(mathRendererFacet)
+}
+
 /** Tag-driven Typst definitions for the note in this editor, prepended to every
  *  formula it compiles. Rides a facet like the renderer, so changing a note's
  *  tags reconfigures the pane and re-renders its math. Empty for KaTeX and for

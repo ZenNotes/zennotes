@@ -13,6 +13,7 @@ import { snippet } from '@codemirror/autocomplete'
 import { syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import katex from 'katex'
+import { mathRendererOf } from './cm-math-render'
 
 interface LatexCommand {
   /** Command as typed, with the backslash: `\sum`. */
@@ -183,19 +184,42 @@ function codeContext(state: EditorState, pos: number): CodeContext {
 /** Inside `$…$`, `$$…$$`, or a ```math fence at `pos`? Counts unmatched
  *  dollar delimiters so a formula still being typed (no closing `$` yet)
  *  already counts as math. */
+/** How far back an unclosed `$$` is looked for. A display block open further
+ *  above than this is not a formula anyone is still typing, and the bound keeps
+ *  the scan off the whole document on every `\` in a long note. */
+const BLOCK_SCAN_WINDOW = 20_000
+
+/** Dollars inside code are not delimiters: `echo $$` in a shell block would
+ *  otherwise flip the parity and make the rest of the note read as math. */
+function countDelimiters(state: EditorState, from: number, text: string, re: RegExp): number {
+  let count = 0
+  for (const match of text.matchAll(re)) {
+    if (match.index === undefined) continue
+    if (codeContext(state, from + match.index + 1)) continue
+    count++
+  }
+  return count
+}
+
 export function isInMathContext(state: EditorState, pos: number): boolean {
   const code = codeContext(state, pos)
   // A ```math fence is a math region in its own right (remark-math renders
   // it as display math); every other code region shuts completion off.
   if (code) return code.kind === 'fenced' && code.lang === 'math'
-  const before = state.doc.sliceString(0, pos)
-  const blockFences = before.match(/(?<!\\)\$\$/g)?.length ?? 0
+  const blockFrom = Math.max(0, pos - BLOCK_SCAN_WINDOW)
+  const blockFences = countDelimiters(
+    state,
+    blockFrom,
+    state.doc.sliceString(blockFrom, pos),
+    /(?<!\\)\$\$/g
+  )
   if (blockFences % 2 === 1) return true
   const line = state.doc.lineAt(pos)
-  const lineBefore = state.doc
-    .sliceString(line.from, pos)
-    .replace(/(?<!\\)\$\$/g, '')
-  const singles = lineBefore.match(/(?<!\\)\$/g)?.length ?? 0
+  const lineBefore = state.doc.sliceString(line.from, pos)
+  // `$$` pairs on this line are block fences, already counted above.
+  const singles =
+    countDelimiters(state, line.from, lineBefore, /(?<!\\)\$/g) -
+    2 * countDelimiters(state, line.from, lineBefore, /(?<!\\)\$\$/g)
   return singles % 2 === 1
 }
 
@@ -231,6 +255,9 @@ function buildOptions(): Completion[] {
 }
 
 export function latexCommandSource(context: CompletionContext): CompletionResult | null {
+  // These are LaTeX commands. A note set to the Typst typesetter takes
+  // different syntax, so offering `\frac{}{}` there would only ever be wrong.
+  if (mathRendererOf(context.state) !== 'katex') return null
   const token = latexTokenBefore(context.state, context.pos)
   if (!token) return null
   if (!isInMathContext(context.state, token.from)) return null
@@ -239,6 +266,24 @@ export function latexCommandSource(context: CompletionContext): CompletionResult
     options: buildOptions(),
     validFor: /^\\[a-zA-Z]*$/
   }
+}
+
+/** KaTeX output for one preview, kept between popups: a bare `\` opens the
+ *  whole table at once, and re-typesetting every row each time it opens is the
+ *  one visible cost this feature has. */
+const previewCache = new Map<string, string>()
+
+function renderPreview(latex: string): string {
+  const cached = previewCache.get(latex)
+  if (cached !== undefined) return cached
+  let html = ''
+  try {
+    html = katex.renderToString(latex, { throwOnError: false })
+  } catch {
+    html = ''
+  }
+  previewCache.set(latex, html)
+  return html
 }
 
 /** Full option row for a LaTeX completion — the KaTeX-rendered symbol sits in
@@ -258,11 +303,7 @@ export function renderLatexCompletion(completion: Completion): HTMLElement | nul
   icon.style.display = 'inline-flex'
   icon.style.alignItems = 'center'
   icon.style.justifyContent = 'center'
-  try {
-    icon.innerHTML = katex.renderToString(_preview ?? completion.label, { throwOnError: false })
-  } catch {
-    icon.textContent = ''
-  }
+  icon.innerHTML = renderPreview(_preview ?? completion.label)
 
   const label = document.createElement('span')
   label.className = 'slash-cmd-label'
