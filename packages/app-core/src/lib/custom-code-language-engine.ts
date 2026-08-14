@@ -162,13 +162,26 @@ export function tokenizeWithGrammar(
   const lines = source.split("\n");
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const line = lines[lineIndex];
-    const started = performance.now();
-    const result = grammar.tokenizeLine(line, state, LINE_TIME_LIMIT_MS);
-    const elapsed = performance.now() - started;
+    let started = performance.now();
+    let result = grammar.tokenizeLine(line, state, LINE_TIME_LIMIT_MS);
+    let elapsed = performance.now() - started;
     spent += elapsed;
     if (elapsed > LINE_BUDGET_MS || spent > FENCE_BUDGET_MS) {
       quarantine(definition.id, definition.name);
       return [];
+    }
+    // TextMate charges one-time scanner compilation against the first line's
+    // limit. A busy Windows host can exhaust that limit before scanning even a
+    // tiny line. Retry that first line once now that the scanner is compiled.
+    if (lineIndex === 0 && result.stoppedEarly) {
+      started = performance.now();
+      result = grammar.tokenizeLine(line, state, LINE_TIME_LIMIT_MS);
+      elapsed = performance.now() - started;
+      spent += elapsed;
+      if (elapsed > LINE_BUDGET_MS || spent > FENCE_BUDGET_MS) {
+        quarantine(definition.id, definition.name);
+        return [];
+      }
     }
     if (result.stoppedEarly) return [];
     state = result.ruleStack;

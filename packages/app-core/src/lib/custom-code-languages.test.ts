@@ -63,6 +63,28 @@ describe("custom code language runtime", () => {
     expect(highlighted).toContainEqual({ text: "42", kind: "number" });
   });
 
+  it("retries a cold grammar when scanner compilation uses the first line budget", async () => {
+    await customCodeLanguageRegistry.replace([gleam]);
+    const engine = await import("./custom-code-language-engine");
+    const loaded = customCodeLanguageRegistry.resolve("gleam");
+    if (!loaded) throw new Error("gleam should be registered");
+
+    const realTokenizeLine = loaded.grammar.tokenizeLine.bind(loaded.grammar);
+    let calls = 0;
+    loaded.grammar.tokenizeLine = ((line, state, limit) => {
+      const result = realTokenizeLine(line, state, limit);
+      calls++;
+      return calls === 1 ? { ...result, stoppedEarly: true } : result;
+    }) as typeof loaded.grammar.tokenizeLine;
+
+    const source = "fn main";
+    const tokens = engine.tokenizeWithGrammar(loaded, source);
+    expect(tokens.map((token) => source.slice(token.from, token.to))).toContain(
+      "fn",
+    );
+    expect(calls).toBe(2);
+  });
+
   it("uses one registry for rendered Markdown and CodeMirror decorations", async () => {
     await customCodeLanguageRegistry.replace([gleam]);
     const source = "```gleam\nfn main {\n  let answer = 42\n}\n```";
