@@ -15,6 +15,16 @@ function isCoarsePointer(): boolean {
   return typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false)
 }
 
+/**
+ * Whether to focus (and so pop the soft keyboard for) the prompt input on open.
+ * Only a touch device with a list to tap opts out — a mouse never does, and a
+ * prompt with no suggestions (Rename, New folder) is pure typing, so it keeps
+ * the focus it has always had.
+ */
+export function shouldAutofocusPrompt(coarsePointer: boolean, suggestionCount: number): boolean {
+  return !(coarsePointer && suggestionCount > 0)
+}
+
 export interface PromptSuggestion {
   value: string
   label?: string
@@ -118,8 +128,7 @@ export function PromptModal({
   }, [options.initialValue, options.title])
 
   useEffect(() => {
-    // Tap-first on touch when there is a list to tap (see isCoarsePointer).
-    if (isCoarsePointer() && (options.suggestions?.length ?? 0) > 0) return
+    if (!shouldAutofocusPrompt(isCoarsePointer(), options.suggestions?.length ?? 0)) return
     const t = setTimeout(() => {
       inputRef.current?.focus()
       inputRef.current?.select()
