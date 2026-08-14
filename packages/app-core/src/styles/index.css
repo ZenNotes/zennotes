@@ -5372,6 +5372,19 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   background-color: rgb(var(--z-accent) / 0.2);
 }
 
+/* Frontmatter `tags:` values are also clickable chips, styled a little smaller
+   than inline hashtags so they sit comfortably in the compact metadata block. */
+.cm-wysiwyg .cm-editor .cm-frontmatter-tag {
+  color: rgb(var(--z-accent));
+  cursor: pointer;
+  border-radius: 0.35em;
+  padding: 0.05em 0.35em;
+  background-color: rgb(var(--z-accent) / 0.08);
+}
+.cm-wysiwyg .cm-editor .cm-frontmatter-tag:hover {
+  background-color: rgb(var(--z-accent) / 0.15);
+}
+
 /* Task metadata on task lines (#454): priorities, due dates, and @fields get
    the same at-a-glance cues as the Tasks view, so they stand out from the task
    text. All three are chips — a tinted background plus the coloured text — and
