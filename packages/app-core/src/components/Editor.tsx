@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
+import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
 import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { foldAll, unfoldAll, foldCode, unfoldCode } from "@codemirror/language";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
@@ -156,8 +157,15 @@ function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
 }
 
 function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{ id: KeymapId; action: string; bindings: string[] }> =
-    [
+  const mappings: Array<{
+    id: KeymapId;
+    action: string;
+    bindings: string[];
+    // VimNav's global fallback stands down while the editor has focus (#578),
+    // so anything that used to reach it from a standing selection has to be
+    // mapped in visual context here as well.
+    contexts?: Array<"normal" | "visual">;
+  }> = [
       {
         id: "vim.goToDefinition",
         action: "goToDefinition",
@@ -187,6 +195,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       },
       {
         id: "vim.bufferPrevious",
+        contexts: ["normal", "visual"],
         action: "previousBuffer",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.bufferPrevious")),
@@ -194,6 +203,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       },
       {
         id: "vim.bufferNext",
+        contexts: ["normal", "visual"],
         action: "nextBuffer",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.bufferNext")),
@@ -201,6 +211,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       },
       {
         id: "vim.tabPrevious",
+        contexts: ["normal", "visual"],
         action: "previousBuffer",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.tabPrevious")),
@@ -208,6 +219,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       },
       {
         id: "vim.tabNext",
+        contexts: ["normal", "visual"],
         action: "nextBuffer",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.tabNext")),
@@ -258,21 +270,20 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
     ];
 
   for (const mapping of mappings) {
+    const contexts = mapping.contexts ?? ["normal"];
     for (const binding of syncedVimBindings[mapping.id] ?? []) {
-      try {
-        Vim.unmap(binding, "normal");
-      } catch {
-        /* ignore */
+      for (const context of contexts) {
+        try {
+          Vim.unmap(binding, context);
+        } catch {
+          /* ignore */
+        }
       }
     }
     for (const binding of mapping.bindings) {
-      Vim.mapCommand(
-        binding,
-        "action",
-        mapping.action,
-        {},
-        { context: "normal" },
-      );
+      for (const context of contexts) {
+        Vim.mapCommand(binding, "action", mapping.action, {}, { context });
+      }
     }
     syncedVimBindings[mapping.id] = mapping.bindings;
   }
@@ -423,6 +434,7 @@ function registerVimCommands(): void {
   // #290/#312: make j/k move by display line through soft-wrapped content.
   // Shared with the Quick Note window (QuickCaptureApp) via the same helper.
   registerDisplayLineMotion();
+  registerHeadingMotion();
 
   Vim.defineEx("write", "w", () => {
     void useStore.getState().persistActive();

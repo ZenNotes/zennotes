@@ -34,6 +34,7 @@ import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { registerDisplayLineMotion } from '../lib/cm-vim-display-line'
+import { registerHeadingMotion } from '../lib/cm-vim-heading-motion'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
@@ -550,6 +551,7 @@ function registerFloatingVimCommands(): void {
   floatingVimRegistered = true
 
   registerDisplayLineMotion()
+  registerHeadingMotion()
 
   Vim.defineEx('write', 'w', () => {
     void floatingHandlers.persist?.()

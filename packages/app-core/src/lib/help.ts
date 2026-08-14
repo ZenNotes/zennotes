@@ -506,6 +506,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
       { keys: 'Space s t', action: 'Search vault text', detail: 'Fuzzy-search matching text lines across notes in Inbox, Quick Notes, and Archive.' },
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
+      { keys: ']] / [[', action: 'Next / previous heading', detail: 'Jump the cursor to the next or previous markdown heading in the note, the way Vim’s section motions move between sections. It is a motion, so it composes: `d]]` deletes to the next heading, `v]]` selects to it, `3]]` skips three, and `Ctrl+O` jumps back. Headings inside code fences and frontmatter are skipped, matching the outline. With no heading left that way, the cursor goes to the end or start of the note.' },
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },

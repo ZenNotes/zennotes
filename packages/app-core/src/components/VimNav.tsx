@@ -550,18 +550,16 @@ export function VimNav(): JSX.Element | null {
         }
       }
 
-      if (
-        !leaderPending.current &&
-        !(
-          isEditorFocused(state.editorViewRef) &&
-          (isEditorInsertMode(state.editorViewRef, state.vimMode) ||
-            // While Vim is mid-command awaiting an argument (after f/F/t/T/r, an
-            // operator, or a count), the next key is that command's literal
-            // target — e.g. `f[` finds `[`. Don't let the `[b`/`]b` buffer-nav
-            // or `gt`/`gT` prefixes swallow it; let it reach codemirror-vim.
-            isVimAwaitingArgument(state.editorViewRef))
-        )
-      ) {
+      // Buffer and tab sequences as a GLOBAL fallback: they exist for when
+      // focus sits anywhere but the editor (#321). A focused editor has
+      // codemirror-vim, which carries `[b`/`]b` and `gt`/`gT` of its own, so
+      // this layer must not touch its keys. Consuming the first key here meant
+      // no Vim sequence beginning with `[` or `]` could ever run: `]]` and
+      // `[[` were swallowed before Vim saw either press (#578). The same
+      // problem was already visible for a pending argument (`f[` finding a
+      // bracket) and patched narrowly then; standing down for the whole
+      // focused editor is the rule that covers both.
+      if (!leaderPending.current && !isEditorFocused(state.editorViewRef)) {
         const consumeBufferKey = (): void => {
           e.preventDefault()
           e.stopImmediatePropagation()
