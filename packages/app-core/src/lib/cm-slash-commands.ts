@@ -2,6 +2,7 @@ import type { CompletionContext, CompletionResult, Completion } from '@codemirro
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
 import { renderLatexCompletion } from './cm-latex-completions'
+import { renderTypstCompletion } from './cm-typst-completions'
 
 interface SlashCmd {
   label: string
@@ -70,6 +71,8 @@ const COMMANDS: SlashCmd[] = [
 function renderCompletion(completion: Completion): HTMLElement {
   const latex = renderLatexCompletion(completion)
   if (latex) return latex
+  const typst = renderTypstCompletion(completion)
+  if (typst) return typst
   const decorated = completion as DecoratedCompletion
   if (decorated._kind === 'callout') {
     const el = document.createElement('div')

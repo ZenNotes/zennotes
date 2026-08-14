@@ -13,6 +13,7 @@ import { snippet } from '@codemirror/autocomplete'
 import type { EditorState } from '@codemirror/state'
 import { isInMathContext } from './cm-latex-completions'
 import { mathRendererOf } from './cm-math-render'
+import { peekTypstMathSvg, renderTypstMathToSvg } from './typst-math-render'
 
 interface TypstCommand {
   /** The word as typed: `sum`, `alpha`, `frac`. */
@@ -22,6 +23,9 @@ interface TypstCommand {
   template?: string
   /** Unicode glyph (or short sketch) for the icon slot. */
   icon: string
+  /** Typst math compiled for the icon slot; the glyph paints while it loads.
+   *  Constructs need this — no single glyph says `mat(1, 2; 3, 4)`. */
+  preview?: string
   boost?: number
 }
 
@@ -113,6 +117,15 @@ export function typstTokenBefore(
   return { from: pos - match[0].length, query: match[0] }
 }
 
+/** The compiled preview is the template with its `${…}` fields unwrapped:
+ *  `frac(${a}, ${b})` previews as `frac(a, b)`. Deriving it keeps preview and
+ *  insertion from ever drifting apart. Exported for tests. */
+export function previewSourceOf(cmd: { template?: string; preview?: string }): string | null {
+  if (cmd.preview) return cmd.preview
+  if (!cmd.template) return null
+  return cmd.template.replace(/\$\{([^}]*)\}/g, '$1')
+}
+
 let cachedOptions: Completion[] | null = null
 
 function buildOptions(): Completion[] {
@@ -125,10 +138,73 @@ function buildOptions(): Completion[] {
         boost: cmd.boost ?? 0,
         _kind: 'typst',
         _icon: cmd.icon,
+        _preview: previewSourceOf(cmd),
         apply: cmd.template ? snippet(cmd.template) : undefined
-      }) as Completion & { _kind: string; _icon: string }
+      }) as Completion & { _kind: string; _icon: string; _preview: string | null }
   )
   return cachedOptions
+}
+
+/** Full option row for a Typst completion. The Unicode glyph paints
+ *  immediately; entries with arguments swap in the compiled Typst preview as
+ *  soon as the shared render queue produces it (cached across popups, so the
+ *  swap only happens the first time). Null for every other completion kind. */
+export function renderTypstCompletion(completion: Completion): HTMLElement | null {
+  const { _kind, _icon, _preview } = completion as Completion & {
+    _kind?: string
+    _icon?: string
+    _preview?: string | null
+  }
+  if (_kind !== 'typst') return null
+
+  const el = document.createElement('div')
+  el.className = 'slash-cmd-item'
+
+  const icon = document.createElement('span')
+  icon.className = 'slash-cmd-icon typst-cmd-icon'
+  icon.style.fontSize = '0.8em'
+  icon.style.lineHeight = '1'
+  icon.style.display = 'inline-flex'
+  icon.style.alignItems = 'center'
+  icon.style.justifyContent = 'center'
+  icon.style.overflow = 'hidden'
+  icon.textContent = _icon ?? ''
+  if (_preview) {
+    const showSvg = (svg: string): void => {
+      icon.innerHTML = svg
+      const svgEl = icon.querySelector('svg')
+      if (svgEl) {
+        svgEl.style.maxWidth = '2.6em'
+        svgEl.style.maxHeight = '2.2em'
+      }
+    }
+    const cached = peekTypstMathSvg(_preview, false)
+    if (cached?.ok) {
+      showSvg(cached.svg)
+    } else if (!cached) {
+      renderTypstMathToSvg(_preview, false)
+        .then((res) => {
+          // A closed popup leaves the node detached; the warm cache still
+          // pays off on the next open.
+          if (res.ok && icon.isConnected) showSvg(res.svg)
+        })
+        .catch(() => undefined)
+    }
+    // A cached error keeps the glyph: it said all it had to say once.
+  }
+
+  const label = document.createElement('span')
+  label.className = 'slash-cmd-label'
+  label.textContent = completion.label
+
+  const detail = document.createElement('span')
+  detail.className = 'slash-cmd-detail'
+  detail.textContent = completion.detail ?? ''
+
+  el.appendChild(icon)
+  el.appendChild(label)
+  el.appendChild(detail)
+  return el
 }
 
 export function typstCommandSource(context: CompletionContext): CompletionResult | null {

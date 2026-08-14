@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
 import { CompletionContext } from '@codemirror/autocomplete'
-import { typstCommandSource, typstTokenBefore } from './cm-typst-completions'
+import { previewSourceOf, typstCommandSource, typstTokenBefore } from './cm-typst-completions'
 import { mathRenderExtension } from './cm-math-render'
 
 function state(doc: string, renderer: 'katex' | 'typst' = 'typst'): EditorState {
@@ -63,5 +63,25 @@ describe('typstCommandSource', () => {
 
   it('works in display math still being typed', () => {
     expect(sourceAt('$$\nx = su')).not.toBeNull()
+  })
+})
+
+describe('compiled previews', () => {
+  it('derives the preview by unwrapping the snippet fields', () => {
+    expect(previewSourceOf({ template: 'frac(${a}, ${b})' })).toBe('frac(a, b)')
+    expect(previewSourceOf({ template: 'sum_(${i=1})^(${n})' })).toBe('sum_(i=1)^(n)')
+    expect(previewSourceOf({})).toBeNull()
+    expect(previewSourceOf({ preview: 'mat(1;2)', template: 'mat(${})' })).toBe('mat(1;2)')
+  })
+
+  it('every templated option carries a well-formed preview', () => {
+    const result = sourceAt('formule $su')!
+    for (const option of result.options) {
+      const preview = (option as { _preview?: string | null })._preview
+      if ((option as { apply?: unknown }).apply === undefined) continue
+      expect(preview, option.label).toBeTruthy()
+      // No snippet syntax may leak into what the compiler will typeset.
+      expect(preview, option.label).not.toMatch(/\$\{|\}/)
+    }
   })
 })
