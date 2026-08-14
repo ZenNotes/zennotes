@@ -2,7 +2,7 @@ import path from 'node:path'
 import chokidar, { FSWatcher } from 'chokidar'
 import type { NoteFolder, VaultChangeEvent, VaultChangeKind, VaultSettings } from '@shared/ipc'
 import { databaseCsvPathFor } from '@shared/databases'
-import { folderForRelativePath, getVaultSettings } from './vault'
+import { folderForRelativePath, getVaultSettings, isAtomicWriteTempPath } from './vault'
 
 const ATTACHMENTS_DIRS = new Set(['assets', 'attachements', '_assets'])
 const INTERNAL_VAULT_DIR = '.zennotes'
@@ -92,10 +92,10 @@ export class VaultWatcher {
         if (this.root && isVaultSettingsPath(this.root, p)) return false
         if (this.root && relativeVaultPath(this.root, p) === INTERNAL_VAULT_DIR) return false
         const base = path.basename(p)
-        // `<name>.<pid>.<timestamp>.tmp` is writeFileAtomic's scratch file
-        // (note saves, database saves). Its add/unlink pair is not a vault
-        // change; without this filter every save also fired an asset refresh.
-        if (/\.\d+\.\d+\.tmp$/.test(base)) return true
+        // writeFileAtomic's scratch file (note saves, database saves). Its
+        // add/unlink pair is not a vault change; without this filter every save
+        // also fired an asset refresh.
+        if (isAtomicWriteTempPath(p)) return true
         return base.startsWith('.') || base === 'node_modules'
       },
       awaitWriteFinish: {

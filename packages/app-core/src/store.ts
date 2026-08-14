@@ -6236,7 +6236,12 @@ export const useStore = create<Store>((set, get) => {
       return
     }
 
-    if (ev.kind === 'change') {
+    // 'add' counts as new content for a note we already hold open. A writer
+    // that renames a file into place (ZenNotes saving atomically, but equally
+    // git, rsync, Syncthing or vim) shows up on Linux as IN_MOVED_TO, which the
+    // server's watcher reports as 'add' rather than 'change'; treating it as
+    // noise left the buffer showing content that no longer existed on disk.
+    if (ev.kind === 'change' || ev.kind === 'add') {
       try {
         const content = await window.zen.readNote(ev.path)
         // Drop the watcher echo of our own writes. Without this, an

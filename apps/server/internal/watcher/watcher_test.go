@@ -228,3 +228,90 @@ func TestActiveDistinguishesRealFromDisabledWatcher(t *testing.T) {
 		t.Fatal("nil watcher reports Active")
 	}
 }
+
+// Every atomic note save creates a scratch file next to the note and renames it
+// into place. The scratch file is not a vault change, and because its name does
+// not end in .md a client that heard about it would answer by re-listing the
+// whole asset tree, on every save.
+func TestWatcherIgnoresAtomicWriteScratchFiles(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	scratch := filepath.Join(root, "inbox", "note.md.4123.1786714355519123456.tmp")
+	for _, op := range []fsnotify.Op{fsnotify.Create, fsnotify.Write, fsnotify.Rename} {
+		w.handle(fsnotify.Event{Name: scratch, Op: op})
+	}
+
+	select {
+	case ev := <-ch:
+		t.Fatalf("a scratch file reached clients: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// The note the scratch file was renamed onto still reports normally.
+	w.handle(fsnotify.Event{Name: filepath.Join(root, "inbox", "note.md"), Op: fsnotify.Create})
+	if ev := recvChange(t, ch); ev.Path != "inbox/note.md" {
+		t.Fatalf("note event = %+v, want inbox/note.md", ev)
+	}
+}
+
+// inotify reports a rename-into-place as IN_MOVED_TO, which fsnotify folds into
+// Create, so an atomic write (ours, or git/rsync/vim/Syncthing doing the same
+// dance) surfaces as "add" rather than "change". Clients therefore have to treat
+// an "add" for a note they hold open as new content to read, and this test is
+// what pins that contract down on the server side.
+func TestWatcherReportsRenameIntoPlaceAsAdd(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	note := filepath.Join(root, "inbox", "note.md")
+	if err := os.MkdirAll(filepath.Dir(note), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(note, []byte("replaced by rename"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	w.handle(fsnotify.Event{Name: note, Op: fsnotify.Create})
+	ev := recvChange(t, ch)
+	if ev.Kind != "add" || ev.Path != "inbox/note.md" || ev.Scope != "" {
+		t.Fatalf("rename-into-place event = %+v, want {add inbox/note.md}", ev)
+	}
+}
+
+// The kqueue backend (a server hosted on macOS) reports the rename half of an
+// atomic save as a delete of the note itself, arriving just before the add. A
+// client that believes it closes the tab of the note being saved, so a path
+// that still exists must never be reported as gone.
+func TestWatcherDoesNotReportAReplacedNoteAsDeleted(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	note := filepath.Join(root, "inbox", "note.md")
+	if err := os.MkdirAll(filepath.Dir(note), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(note, []byte("the replacement is already here"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	w.handle(fsnotify.Event{Name: note, Op: fsnotify.Remove})
+	if ev := recvChange(t, ch); ev.Kind == "unlink" {
+		t.Fatalf("a replaced note was reported as deleted: %+v", ev)
+	}
+
+	// A note that really is gone still reports as gone.
+	if err := os.Remove(note); err != nil {
+		t.Fatal(err)
+	}
+	w.handle(fsnotify.Event{Name: note, Op: fsnotify.Remove})
+	if ev := recvChange(t, ch); ev.Kind != "unlink" {
+		t.Fatalf("deleted note event = %+v, want unlink", ev)
+	}
+}

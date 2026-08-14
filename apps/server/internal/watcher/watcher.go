@@ -244,6 +244,12 @@ func (w *Watcher) commentsNotePath(absPath string) (string, bool) {
 
 func (w *Watcher) handle(ev fsnotify.Event) {
 	base := filepath.Base(ev.Name)
+	// The scratch file every atomic write renames from. Its create/write/rename
+	// burst is not a vault change, and since the name does not end in .md a
+	// client would answer each one by re-listing the whole asset tree.
+	if vault.IsAtomicWriteTempPath(ev.Name) {
+		return
+	}
 	if strings.HasPrefix(base, ".") && !w.isVaultSettingsPath(ev.Name) && base != internalVaultDir {
 		return
 	}
@@ -275,7 +281,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	}
 	if relPosix == vaultSettingsFilePath {
 		w.reloadFolderPaths()
-		kind := eventKind(ev)
+		kind := eventKind(ev, statErr == nil)
 		if kind == "" {
 			return
 		}
@@ -288,7 +294,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 		return
 	}
 	if notePath, ok := w.commentsNotePath(ev.Name); ok {
-		kind := eventKind(ev)
+		kind := eventKind(ev, statErr == nil)
 		if kind == "" {
 			return
 		}
@@ -321,7 +327,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 		}
 	}
 
-	kind := eventKind(ev)
+	kind := eventKind(ev, statErr == nil)
 	if kind == "" {
 		return
 	}
@@ -335,13 +341,23 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 	w.broadcast(change)
 }
 
-func eventKind(ev fsnotify.Event) string {
+// exists says whether the path was still on disk when the event was handled,
+// which is what separates a deleted note from a replaced one.
+func eventKind(ev fsnotify.Event, exists bool) string {
 	switch {
 	case ev.Op&fsnotify.Create != 0:
 		return "add"
 	case ev.Op&fsnotify.Write != 0:
 		return "change"
 	case ev.Op&fsnotify.Remove != 0, ev.Op&fsnotify.Rename != 0:
+		// A rename into place, which is what every atomic save is, drops the
+		// old directory entry while the replacement is already sitting there.
+		// The kqueue backend (a server hosted on macOS) reports that as a
+		// delete of the note itself, and a client told its open note was
+		// deleted closes the tab. A path that still exists was replaced.
+		if exists {
+			return "add"
+		}
 		return "unlink"
 	default:
 		return ""

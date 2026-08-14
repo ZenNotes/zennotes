@@ -303,10 +303,12 @@ async function linkTargetOf(abs: string): Promise<string | null> {
  * regular file where the link was and detach the link from its target for good,
  * so the note the user sees in two places would silently become two files, and
  * an undo afterwards would write a plain file over the link as well. `vault.ts`
- * saves with `fs.writeFile`, which follows the link, so a workflow editing a
- * note must do the same. Resolving the link and doing the atomic dance at the
- * target keeps both properties: the link survives and no reader ever sees a
- * half-written file.
+ * saves through the link, so a workflow editing a note must do the same.
+ * Resolving the link and doing the atomic dance at the target keeps both
+ * properties: the link survives and no reader ever sees a half-written file.
+ * `writeFileAtomic` resolves links itself now, so this is belt and braces; the
+ * resolved path is still wanted here, because undo removes the file the run
+ * created and that file is the target, never the link.
  *
  * The target may sit outside the vault. That is what following a link means,
  * and it is the same reach every other save in the app has; see

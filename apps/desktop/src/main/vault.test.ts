@@ -36,6 +36,7 @@ import {
   setVaultSettings,
   unarchiveNote,
   vaultChangeAffectsSettings,
+  isAtomicWriteTempPath,
   writeNote
 } from './vault'
 
@@ -1166,5 +1167,61 @@ describe('per-vault view settings round-trip (#292)', () => {
     const root = await makeTempDir('zennotes-vault-noview-')
     await ensureVaultLayout(root)
     expect((await getVaultSettings(root)).view).toBeUndefined()
+  })
+})
+
+// #585 made note saves atomic (temp file + rename) so no reader can ever see a
+// half-written note. A rename replaces the directory entry, so these are the
+// properties the plain fs.writeFile gave for free and that the atomic write has
+// to put back deliberately.
+describe('writeNote atomic-save fidelity (#585)', () => {
+  it('writes THROUGH a symlinked note instead of replacing the link', async () => {
+    const root = await makeTempDir('zennotes-atomic-symlink-')
+    await ensureVaultLayout(root)
+    const srcDir = await makeTempDir('zennotes-atomic-symlink-src-')
+    const external = path.join(srcDir, 'External.md')
+    await writeFile(external, '# External\n\noriginal\n', 'utf8')
+
+    const link = path.join(root, 'inbox', 'Linked.md')
+    try {
+      await symlink(external, link)
+    } catch {
+      // Creating symlinks can require privileges (e.g. Windows); skip there.
+      return
+    }
+
+    await writeNote(root, 'inbox/Linked.md', '# External\n\nedited through the link\n')
+
+    expect((await fsPromises.lstat(link)).isSymbolicLink()).toBe(true)
+    expect(await readFile(external, 'utf8')).toBe('# External\n\nedited through the link\n')
+  })
+
+  it('leaves an existing note its own permissions', async () => {
+    if (process.platform === 'win32') return
+    const root = await makeTempDir('zennotes-atomic-mode-')
+    await ensureVaultLayout(root)
+    const abs = path.join(root, 'inbox', 'Private.md')
+    await writeFile(abs, '# Private\n', 'utf8')
+    await chmod(abs, 0o600)
+
+    await writeNote(root, 'inbox/Private.md', '# Private\n\nsecond draft\n')
+
+    expect((await stat(abs)).mode & 0o777).toBe(0o600)
+  })
+
+  it('leaves no scratch file behind', async () => {
+    const root = await makeTempDir('zennotes-atomic-scratch-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/Note.md', 'one')
+    await writeNote(root, 'inbox/Note.md', 'two')
+
+    const entries = await fsPromises.readdir(path.join(root, 'inbox'))
+    expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('recognizes its own scratch files without swallowing user files', () => {
+    expect(isAtomicWriteTempPath('inbox/Note.md.4123.1786714355519000.tmp')).toBe(true)
+    expect(isAtomicWriteTempPath('inbox/Note.md')).toBe(false)
+    expect(isAtomicWriteTempPath('inbox/report.2024.01.tmp')).toBe(false)
   })
 })

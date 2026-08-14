@@ -255,4 +255,44 @@ describe('#585 — dirty buffers survive watcher change events', () => {
     await useStore.getState().persistNote(target)
     expect(vault.get(target)).toBe('FIRST AND SECOND')
   })
+
+  // Saves are atomic now (temp file renamed into place), and on Linux a rename
+  // arrives as IN_MOVED_TO, which the server's watcher reports as 'add'. Any
+  // other tool that writes by renaming (git, rsync, Syncthing, vim) looks the
+  // same, so an 'add' for an open note carries content that must be read.
+  it('refreshes an open note when a writer renames a new file into place', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const paneId = useStore.getState().activePaneId
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(paneId, target)
+    await flush()
+
+    vault.set(target, 'REPLACED BY RENAME')
+    await useStore
+      .getState()
+      .applyChange({ kind: 'add', path: target, folder: 'inbox', scope: 'content' })
+    await flush()
+
+    expect(useStore.getState().noteContents[target]?.body).toBe('REPLACED BY RENAME')
+    expect(writeCalls).toEqual([])
+  })
+
+  it('still refuses to let an add event overwrite unsaved edits', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const paneId = useStore.getState().activePaneId
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(paneId, target)
+    await flush()
+
+    useStore.getState().updateNoteBody(target, 'INDEX_BODY with unsaved edits')
+    vault.set(target, 'REPLACED BY RENAME')
+    await useStore
+      .getState()
+      .applyChange({ kind: 'add', path: target, folder: 'inbox', scope: 'content' })
+    await flush()
+
+    expect(useStore.getState().noteContents[target]?.body).toBe('INDEX_BODY with unsaved edits')
+  })
 })

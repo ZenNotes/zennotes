@@ -1511,10 +1511,7 @@ func (v *Vault) WriteNote(rel, body string) (NoteMeta, error) {
 	if err != nil {
 		return NoteMeta{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), v.dirMode); err != nil {
-		return NoteMeta{}, err
-	}
-	if err := os.WriteFile(abs, []byte(body), v.fileMode); err != nil {
+	if err := writeFileAtomic(abs, []byte(body), v.fileMode, v.dirMode); err != nil {
 		return NoteMeta{}, err
 	}
 	v.invalidateTextSearchCache()
