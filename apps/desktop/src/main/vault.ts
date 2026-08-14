@@ -666,6 +666,32 @@ export function isAtomicWriteTempPath(p: string): boolean {
   return ATOMIC_WRITE_TEMP_PATTERN.test(path.basename(p))
 }
 
+const ATOMIC_RENAME_ATTEMPTS = 20
+
+function transientRenameError(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  return code === 'EACCES' || code === 'EPERM' || code === 'EBUSY'
+}
+
+/** Wait out a reader that temporarily denies replacing the destination. */
+export async function renameWithRetry(
+  from: string,
+  to: string,
+  rename: (from: string, to: string) => Promise<void> = fs.rename,
+  pause: (delayMs: number) => Promise<void> = (delayMs) =>
+    new Promise<void>((resolve) => setTimeout(resolve, delayMs))
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      if (attempt >= ATOMIC_RENAME_ATTEMPTS || !transientRenameError(error)) throw error
+      await pause(Math.min(2 ** (attempt - 1), 25))
+    }
+  }
+}
+
 /** Same millisecond, same path, two writers: the stamp alone would name one
  *  temp file for both and let them interleave into it. */
 let atomicWriteSequence = 0
@@ -733,7 +759,7 @@ export async function writeFileAtomic(absPath: string, data: string): Promise<vo
   }
   try {
     if (existingMode !== null) await fs.chmod(tmp, existingMode)
-    await fs.rename(tmp, target)
+    await renameWithRetry(tmp, target)
   } catch (err) {
     try {
       await fs.unlink(tmp)

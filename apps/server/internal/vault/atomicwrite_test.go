@@ -3,12 +3,14 @@ package vault
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // The #585 property, and the whole reason WriteNote is atomic: the watcher
@@ -79,6 +81,33 @@ func TestWriteNoteNeverExposesAPartialFile(t *testing.T) {
 	case msg := <-bad:
 		t.Fatal(msg)
 	default:
+	}
+}
+
+func TestRenameWithRetryWaitsOutTransientPermissionErrors(t *testing.T) {
+	calls := 0
+	var delays []time.Duration
+	err := renameWithRetry(
+		"note.tmp",
+		"note.md",
+		func(_, _ string) error {
+			calls++
+			if calls < 3 {
+				return fs.ErrPermission
+			}
+			return nil
+		},
+		func(delay time.Duration) { delays = append(delays, delay) },
+	)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 {
+		t.Fatalf("rename calls = %d, want 3", calls)
+	}
+	if len(delays) != 2 || delays[0] <= 0 || delays[1] <= delays[0] {
+		t.Fatalf("retry delays = %v, want two increasing delays", delays)
 	}
 }
 

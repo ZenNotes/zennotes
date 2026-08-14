@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"syscall"
 	"time"
 )
 
@@ -87,11 +89,44 @@ func writeFileAtomic(abs string, data []byte, fileMode, dirMode fs.FileMode) err
 			return err
 		}
 	}
-	if err := os.Rename(temp, target); err != nil {
+	if err := renameWithRetry(temp, target, os.Rename, time.Sleep); err != nil {
 		_ = os.Remove(temp)
 		return err
 	}
 	return nil
+}
+
+const atomicRenameAttempts = 20
+const windowsSharingViolation syscall.Errno = 32
+
+func transientRenameError(err error) bool {
+	if errors.Is(err, fs.ErrPermission) {
+		return true
+	}
+	var errno syscall.Errno
+	return runtime.GOOS == "windows" && errors.As(err, &errno) && errno == windowsSharingViolation
+}
+
+// Windows refuses a replace while any reader has the destination open without
+// delete sharing. Watchers, indexers, and antivirus scanners all create that
+// short-lived condition, so wait for the handle instead of failing the save.
+func renameWithRetry(
+	from, to string,
+	rename func(string, string) error,
+	sleep func(time.Duration),
+) error {
+	delay := time.Millisecond
+	for attempt := 1; ; attempt++ {
+		err := rename(from, to)
+		if err == nil {
+			return nil
+		}
+		if attempt >= atomicRenameAttempts || !transientRenameError(err) {
+			return err
+		}
+		sleep(delay)
+		delay = min(delay*2, 25*time.Millisecond)
+	}
 }
 
 func writeAndSync(f *os.File, data []byte) error {

@@ -37,6 +37,7 @@ import {
   unarchiveNote,
   vaultChangeAffectsSettings,
   isAtomicWriteTempPath,
+  renameWithRetry,
   writeNote
 } from './vault'
 
@@ -1217,6 +1218,27 @@ describe('writeNote atomic-save fidelity (#585)', () => {
 
     const entries = await fsPromises.readdir(path.join(root, 'inbox'))
     expect(entries.filter((name) => name.endsWith('.tmp'))).toEqual([])
+  })
+
+  it('retries a replace while another process temporarily denies it', async () => {
+    let calls = 0
+    const delays: number[] = []
+    await renameWithRetry(
+      'Note.md.tmp',
+      'Note.md',
+      async () => {
+        calls++
+        if (calls < 3) {
+          throw Object.assign(new Error('sharing violation'), { code: 'EACCES' })
+        }
+      },
+      async (delay) => {
+        delays.push(delay)
+      }
+    )
+
+    expect(calls).toBe(3)
+    expect(delays).toEqual([1, 2])
   })
 
   it('recognizes its own scratch files without swallowing user files', () => {
