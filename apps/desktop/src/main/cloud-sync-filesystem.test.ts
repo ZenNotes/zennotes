@@ -235,6 +235,7 @@ describe('DesktopCloudSyncRepository', () => {
       path: '.zennotes/vault.json',
       conflict_copy_path: '.zennotes/vault.cloud-conflict.json'
     })
+    expect(await repository.pendingConflictPaths()).toEqual(['.zennotes/vault.json'])
     // The settings in use are still this device's.
     expect(await readFile(path.join(root, '.zennotes', 'vault.json'), 'utf8')).toBe(
       '{"favorites":["a"]}'

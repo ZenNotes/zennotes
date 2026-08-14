@@ -208,6 +208,35 @@ describe('PortableCloudSyncRepository', () => {
     expect(fs.text('inbox/Plan (cloud conflict).md')).toBe('remote edit')
   })
 
+  it('reports a parked settings choice until its cloud copy is removed', async () => {
+    const fs = new MemoryFileSystem({
+      '.zennotes/vault.json': '{"favorites":["local.md"]}'
+    })
+    const repository = new PortableCloudSyncRepository(fs)
+
+    const conflict = await repository.apply(
+      {
+        sequence: 2,
+        item_id: 'settings-1',
+        type: 'upsert',
+        path: '.zennotes/vault.json',
+        previous_path: '.zennotes/vault.json',
+        revision: 2,
+        content: await textContent('{"favorites":["cloud.md"]}')
+      },
+      undefined
+    )
+
+    expect(conflict).toEqual({
+      code: 'SETTINGS_CONFLICT',
+      path: '.zennotes/vault.json',
+      conflict_copy_path: '.zennotes/vault.cloud-conflict.json'
+    })
+    expect(await repository.pendingConflictPaths()).toEqual(['.zennotes/vault.json'])
+    await fs.deleteFile('.zennotes/vault.cloud-conflict.json')
+    expect(await repository.pendingConflictPaths()).toEqual([])
+  })
+
   it('adopts a file that already matches the incoming change', async () => {
     const fs = new MemoryFileSystem({ '.zennotes/vault.json': '{"favorites":[]}' })
     const repository = new PortableCloudSyncRepository(fs)

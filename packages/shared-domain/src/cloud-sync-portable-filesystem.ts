@@ -5,6 +5,7 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
   CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+  CLOUD_SYNC_VAULT_SETTINGS_PATH,
   cloudSyncConflictCopyPath,
   isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
@@ -105,6 +106,12 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     const items: CloudSyncLocalItem[] = []
     await this.walk('', items)
     return items.sort((left, right) => left.path.localeCompare(right.path))
+  }
+
+  async pendingConflictPaths(): Promise<string[]> {
+    return (await this.fs.stat(CLOUD_SYNC_SETTINGS_CONFLICT_PATH)) === 'file'
+      ? [CLOUD_SYNC_VAULT_SETTINGS_PATH]
+      : []
   }
 
   async apply(

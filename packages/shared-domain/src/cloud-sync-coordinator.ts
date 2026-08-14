@@ -8,7 +8,7 @@ import type {
   CloudSyncMutationRequest,
   CloudSyncMutationResponse
 } from '@zennotes/bridge-contract/cloud-sync'
-import { cloudSyncPathKey } from './cloud-sync'
+import { cloudSyncPathKey, isCloudSyncVaultSettingsPath } from './cloud-sync'
 import {
   emptyCloudSyncState,
   planCloudSyncMutations,
@@ -40,6 +40,10 @@ export interface CloudSyncRemote {
 
 export interface CloudSyncRepository {
   scan(): Promise<CloudSyncLocalItem[]>
+  /** Paths with a durable user decision still pending. The coordinator leaves
+   *  both their tracked and local versions out of mutation planning until the
+   *  host removes the pending marker. */
+  pendingConflictPaths?(): Promise<string[]>
   /** Returns a conflict when the local file was kept instead of being
    *  replaced, so one unapplied change reports itself rather than stopping
    *  the run. Sync must always be able to move past a single file. */
@@ -109,7 +113,25 @@ export class CloudSyncCoordinator {
     pulled += initialPull.pulled
     localConflicts.push(...initialPull.localConflicts)
 
-    const plan = planCloudSyncMutations(state, await this.repository.scan(), this.ids)
+    const localItems = await this.repository.scan()
+    const pendingPathKeys = new Set(
+      (await this.repository.pendingConflictPaths?.() ?? []).map(cloudSyncPathKey)
+    )
+    const mutationState =
+      pendingPathKeys.size === 0
+        ? state
+        : {
+            ...state,
+            items: Object.fromEntries(
+              Object.entries(state.items).filter(
+                ([, item]) => !pendingPathKeys.has(cloudSyncPathKey(item.path))
+              )
+            )
+          }
+    const mutationItems = localItems.filter(
+      (item) => !pendingPathKeys.has(cloudSyncPathKey(item.path))
+    )
+    const plan = planCloudSyncMutations(mutationState, mutationItems, this.ids)
     const conflicts: CloudSyncConflict[] = []
     const acknowledgedSequences = new Set<number>()
     let mutationCursor = state.cursor
@@ -189,6 +211,13 @@ export class CloudSyncCoordinator {
     for (const item of manifest.items) {
       const local = localByPath.get(cloudSyncPathKey(item.path))
       if (local && local.content.sha256 !== item.sha256) {
+        if (isCloudSyncVaultSettingsPath(item.path)) {
+          if (!item.content) throw new Error(`Manifest item ${item.item_id} did not include content`)
+          const conflict = await this.repository.apply(manifestUpsert(item), undefined)
+          if (conflict) localConflicts.push(conflict)
+          pulled++
+          continue
+        }
         conflicts.push({
           code: 'BOOTSTRAP_CONTENT_CONFLICT',
           item_id: item.item_id,

@@ -217,6 +217,123 @@ describe('CloudSyncCoordinator', () => {
     expect(states.current?.cursor).toBe(4)
   })
 
+  it('parks differing settings on first sync while continuing with other files', async () => {
+    const localSettings = {
+      path: '.zennotes/vault.json',
+      kind: 'text' as const,
+      content: content('{"favorites":["local.md"]}')
+    }
+    const localNote = { path: 'local.md', kind: 'text' as const, content: content('local') }
+    const repository: CloudSyncRepository & {
+      pendingConflictPaths(): Promise<string[]>
+    } = {
+      async scan() {
+        return [localSettings, localNote]
+      },
+      async apply(change) {
+        if (change.path !== '.zennotes/vault.json') return
+        return {
+          code: 'SETTINGS_CONFLICT',
+          path: change.path,
+          conflict_copy_path: '.zennotes/vault.cloud-conflict.json'
+        }
+      },
+      async pendingConflictPaths() {
+        return ['.zennotes/vault.json']
+      }
+    }
+    const states = memoryState()
+    const server = remote({
+      manifest: {
+        data: [
+          {
+            item_id: 'settings-remote',
+            path: '.zennotes/vault.json',
+            kind: 'text',
+            revision: 2,
+            sha256: 'hash:{"favorites":["cloud.md"]}',
+            byte_length: 26,
+            media_type: 'application/json',
+            content: content('{"favorites":["cloud.md"]}')
+          }
+        ],
+        cursor: 4,
+        next_page: null
+      }
+    })
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+
+    expect(result.bootstrapConflicts).toEqual([])
+    expect(result.localConflicts).toEqual([
+      expect.objectContaining({ code: 'SETTINGS_CONFLICT', path: '.zennotes/vault.json' })
+    ])
+    expect(server.mutations).toHaveLength(1)
+    expect(server.mutations[0]?.mutations).toEqual([
+      expect.objectContaining({ type: 'upsert', path: 'local.md' })
+    ])
+    expect(states.current?.items['settings-remote']?.sha256).toBe(
+      'hash:{"favorites":["cloud.md"]}'
+    )
+  })
+
+  it('does not upload local settings while their cloud choice is still pending', async () => {
+    const repository: CloudSyncRepository & {
+      pendingConflictPaths(): Promise<string[]>
+    } = {
+      async scan() {
+        return [
+          {
+            path: '.zennotes/vault.json',
+            kind: 'text',
+            content: content('{"favorites":["local.md"]}')
+          }
+        ]
+      },
+      async apply() {},
+      async pendingConflictPaths() {
+        return ['.zennotes/vault.json']
+      }
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 9,
+      items: {
+        'settings-remote': {
+          item_id: 'settings-remote',
+          path: '.zennotes/vault.json',
+          kind: 'text',
+          revision: 3,
+          sha256: 'hash:{"favorites":["cloud.md"]}',
+          byte_length: 26,
+          media_type: 'application/json'
+        }
+      }
+    })
+    const server = remote({})
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+
+    expect(result.pushed).toBe(0)
+    expect(server.mutations).toEqual([])
+    expect(states.current?.items['settings-remote']?.sha256).toBe(
+      'hash:{"favorites":["cloud.md"]}'
+    )
+  })
+
   it('pulls contiguous remote changes before planning local mutations', async () => {
     const states = memoryState({
       version: 1,
