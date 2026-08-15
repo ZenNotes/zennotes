@@ -64,6 +64,18 @@ describe('typstCommandSource', () => {
   it('works in display math still being typed', () => {
     expect(sourceAt('$$\nx = su')).not.toBeNull()
   })
+
+  it('covers the slice-3 families: arrows, comparisons, sets, styles', () => {
+    const labels = sourceAt('formule $ar')!.options.map((o) => o.label)
+    for (const word of ['arrow.r.double', 'lt.eq', 'inter', 'nothing', 'dif', 'bold', 'bb']) {
+      expect(labels, word).toContain(word)
+    }
+  })
+
+  it('the token matcher reaches doubly-dotted names like arrow.l.r.double', () => {
+    const doc = '$arrow.l.r.double'
+    expect(typstTokenBefore(state(doc), doc.length)!.query).toBe('arrow.l.r.double')
+  })
 })
 
 describe('compiled previews', () => {

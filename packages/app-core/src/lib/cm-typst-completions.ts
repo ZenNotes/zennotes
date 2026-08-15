@@ -62,7 +62,35 @@ const SYMBOLS: Array<[string, string, string]> = [
   ['QQ', 'ℚ', 'rationals'],
   ['CC', 'ℂ', 'complexes'],
   ['dots.h', '⋯', 'horizontal dots'],
-  ['dots.v', '⋮', 'vertical dots']
+  ['dots.v', '⋮', 'vertical dots'],
+
+  // Arrows — Typst also accepts the ASCII shorthands noted in the detail.
+  ['arrow.r', '→', 'right arrow — or ->'],
+  ['arrow.l', '←', 'left arrow — or <-'],
+  ['arrow.l.r', '↔', 'left-right arrow — or <->'],
+  ['arrow.r.double', '⇒', 'implies — or =>'],
+  ['arrow.l.r.double', '⇔', 'if and only if — or <=>'],
+  ['arrow.r.bar', '↦', 'maps to — or |->'],
+  ['arrow.t', '↑', 'up arrow'],
+  ['arrow.b', '↓', 'down arrow'],
+
+  // Comparisons.
+  ['lt.eq', '≤', 'less or equal — or <='],
+  ['gt.eq', '≥', 'greater or equal — or >='],
+  ['eq.not', '≠', 'not equal — or !='],
+
+  // Sets.
+  ['inter', '∩', 'set intersection'],
+  ['nothing', '∅', 'empty set'],
+  ['subset.eq', '⊆', 'subset or equal'],
+  ['supset.eq', '⊇', 'superset or equal'],
+  ['in.not', '∉', 'not element of'],
+
+  // Operators.
+  ['compose', '∘', 'function composition'],
+  ['plus.o', '⊕', 'direct sum'],
+  ['times.o', '⊗', 'tensor product'],
+  ['dif', 'd', 'differential — dif x in integrals']
 ]
 
 const FUNCTIONS = [
@@ -95,6 +123,12 @@ const TYPST_COMMANDS: TypstCommand[] = [
   { label: 'arrow', detail: 'vector arrow', template: 'arrow(${x})', icon: 'x⃗' },
   { label: 'overline', detail: 'overline', template: 'overline(${x})', icon: 'x̄' },
   { label: 'underline', detail: 'underline', template: 'underline(${x})', icon: 'x̲' },
+
+  // Text styles.
+  { label: 'bold', detail: 'bold', template: 'bold(${x})', icon: '𝐱' },
+  { label: 'upright', detail: 'upright (non-italic)', template: 'upright(${x})', icon: 'x' },
+  { label: 'cal', detail: 'calligraphic', template: 'cal(${A})', icon: '𝒜' },
+  { label: 'bb', detail: 'blackboard bold', template: 'bb(${A})', icon: '𝔸' },
 
   ...GREEK.map(([label, icon]): TypstCommand => ({ label, icon, detail: 'greek' })),
   ...SYMBOLS.map(([label, icon, detail]): TypstCommand => ({ label, icon, detail })),
