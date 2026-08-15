@@ -1781,6 +1781,33 @@ function adjacentTableRange(
   return null
 }
 
+/** Find the rendered table widget whose document position is `tableFrom` and
+ *  focus a specific cell inside it. Used when creating a table from a slash
+ *  command so the cursor lands in the first cell instead of after the block. */
+export function focusTableCell(
+  view: EditorView,
+  tableFrom: number,
+  row: number,
+  col: number
+): boolean {
+  const widgets = view.contentDOM.querySelectorAll<HTMLElement>('.cm-table-widget')
+  for (const widget of widgets) {
+    let pos: number
+    try {
+      pos = view.posAtDOM(widget)
+    } catch {
+      continue
+    }
+    if (pos !== tableFrom) continue
+    const cell = widget.querySelector<HTMLElement>(`[data-row="${row}"][data-col="${col}"]`)
+    if (cell) {
+      cell.focus()
+      return true
+    }
+  }
+  return false
+}
+
 /** Focus the entry cell of the table widget at `tableFrom`: the first header
  *  cell when entering from above, the first cell of the last row from below. */
 function focusTableEntryCell(

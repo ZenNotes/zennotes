@@ -1,6 +1,7 @@
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete'
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
+import { focusTableCell } from './cm-table'
 import { renderLatexCompletion } from './cm-latex-completions'
 import { renderTypstCompletion } from './cm-typst-completions'
 
@@ -238,6 +239,21 @@ export function slashCommandSource(context: CompletionContext): CompletionResult
             changes: { from: slashStart, to, insert },
             selection: { anchor: cursorPos }
           })
+          if (cmd.label === 'Table') {
+            // The table renders as a block widget; once it appears, move focus
+            // into the first header cell so typing can start immediately.
+            const tableFrom = slashStart + leadPad.length
+            view.requestMeasure({
+              key: {},
+              read: (v) => focusTableCell(v, tableFrom, -1, 0),
+              write: (focused, v) => {
+                if (!focused) {
+                  // Parsing may still be finishing; try again on the next frame.
+                  requestAnimationFrame(() => focusTableCell(v, tableFrom, -1, 0))
+                }
+              }
+            })
+          }
         }
       } as Completion & { _icon: string })
     ),

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { CompletionContext } from '@codemirror/autocomplete'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { describe, expect, it, vi } from 'vitest'
@@ -14,6 +15,7 @@ import {
   templateSlashCommandSource,
   blockInsertPadding
 } from './cm-slash-commands'
+import { tablePlugin } from './cm-table'
 
 type Source = typeof templateSlashCommandSource
 
@@ -124,9 +126,8 @@ describe('/table insertion separates the table into its own block (#294)', () =>
 
   const TABLE = '| Column 1 | Column 2 |\n| --- | --- |\n| | |'
 
-  // A trailing newline is added at the end of the document so the caret can land
-  // on the line AFTER the table's block widget rather than inside its replaced
-  // range (a caret inside renders as a tall bar at the pane edge). (#340)
+  // The table renders as a block widget; focus should move into the first body
+  // cell instead of being left in the raw source or after the block. (#340)
   it('inserts the bare table at document start', () => {
     expect(applyTable('/')).toBe(`${TABLE}\n`)
   })
@@ -139,25 +140,31 @@ describe('/table insertion separates the table into its own block (#294)', () =>
     expect(applyTable('Some text\n\n/')).toBe(`Some text\n\n${TABLE}\n`)
   })
 
-  function applyTableCaretLine(doc: string): string {
+  async function focusAfterTableInsertion(doc: string): Promise<boolean> {
     const parent = document.createElement('div')
     document.body.append(parent)
-    const view = new EditorView({ parent, state: EditorState.create({ doc }) })
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        extensions: [markdown({ base: markdownLanguage }), tablePlugin]
+      })
+    })
     const result = templateSlashCommandSource(new CompletionContext(view.state, doc.length, true))
     const table = result?.options.find((o) => (o.displayLabel ?? o.label) === 'Table')
     const apply = table?.apply
     if (typeof apply !== 'function') throw new Error('expected a Table apply handler')
     apply(view, table!, result!.from, view.state.doc.length)
-    const line = view.state.doc.lineAt(view.state.selection.main.head)
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    const cell = view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="-1"][data-col="0"]')
+    const focused = document.activeElement === cell
     view.destroy()
     parent.remove()
-    return line.text
+    return focused
   }
 
-  it('lands the caret on the empty line after the table, not inside it (#340)', () => {
-    // Every table source line contains a pipe; the landing line must not.
-    const caretLine = applyTableCaretLine('/')
-    expect(caretLine).toBe('')
-    expect(caretLine.includes('|')).toBe(false)
+  it('focuses the first cell of the inserted table (#340)', async () => {
+    const focused = await focusAfterTableInsertion('/')
+    expect(focused).toBe(true)
   })
 })
