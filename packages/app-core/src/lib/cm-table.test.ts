@@ -510,3 +510,184 @@ describe('renderInlineCell', () => {
     expect(renderInlineCell('a\nb')).toBe('a b')
   })
 })
+
+describe('table cell formatting shortcuts', () => {
+  const saved = useStore.getState().vimMode
+  afterEach(() => {
+    useStore.setState({ vimMode: saved })
+  })
+
+  function focusCell(view: EditorView, row: number, col: number): HTMLElement {
+    const cell = view.dom.querySelector<HTMLElement>(
+      `.cm-table-widget [data-row="${row}"][data-col="${col}"]`
+    )!
+    cell.focus()
+    return cell
+  }
+
+  function setSelection(cell: HTMLElement, from: number, to: number): void {
+    const node = cell.firstChild
+    if (!node || node.nodeType !== Node.TEXT_NODE) return
+    const range = document.createRange()
+    range.setStart(node, from)
+    range.setEnd(node, to)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  }
+
+  it('wraps selected text with Mod+B bold in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('**Alice**')
+    expect(window.getSelection()?.anchorOffset).toBe(2)
+    expect(window.getSelection()?.focusOffset).toBe(7)
+    view.destroy()
+  })
+
+  it('wraps selected text with Mod+I italic in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'i', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('*Alice*')
+    view.destroy()
+  })
+
+  it('wraps selected text with Mod+E code in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('`Alice`')
+    view.destroy()
+  })
+
+  it('wraps selected text with Shift+Mod+S strikethrough in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'S', shiftKey: true, metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('~~Alice~~')
+    view.destroy()
+  })
+
+  it('wraps selected text with Shift+Mod+H highlight in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'H', shiftKey: true, metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('==Alice==')
+    view.destroy()
+  })
+
+  it('wraps selected text with Shift+Mod+M math in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'M', shiftKey: true, metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('$Alice$')
+    view.destroy()
+  })
+
+  it('turns selected text into a link with Mod+K in a non-Vim cell', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    setSelection(cell, 0, 5)
+    const ev = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('[Alice]()')
+    expect(window.getSelection()?.anchorOffset).toBe(8)
+    view.destroy()
+  })
+
+  it('inserts an empty bold pair and places the cursor between markers', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 1, 0)
+    // jsdom does not reliably place the caret at the end of a focused contenteditable
+    // node, so pin it to the end of "Bob" before dispatching the shortcut.
+    setSelection(cell, 3, 3)
+    const ev = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('Bob****')
+    expect(window.getSelection()?.anchorOffset).toBe(5)
+    view.destroy()
+  })
+
+  it('removes an empty bold pair when the cursor is between the markers', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 1, 0)
+    cell.textContent = '****'
+    cell.dataset.raw = '****'
+    setSelection(cell, 2, 2)
+    const ev = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('')
+    expect(window.getSelection()?.anchorOffset).toBe(0)
+    view.destroy()
+  })
+
+  it('unwraps selected text that already has bold markers', () => {
+    useStore.setState({ vimMode: false })
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    cell.textContent = '**Alice**'
+    cell.dataset.raw = '**Alice**'
+    setSelection(cell, 2, 7)
+    const ev = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('does not intercept plain b in Vim normal mode', () => {
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    const ev = new KeyboardEvent('keydown', { key: 'b', bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    // The cursor moved to the previous word start (already at 0, so stays 0).
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('wraps a Vim visual selection with Mod+B', () => {
+    const view = mount(TABLE_DOC)
+    const cell = focusCell(view, 0, 0)
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', bubbles: true, cancelable: true }))
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true, cancelable: true }))
+    const ev = new KeyboardEvent('keydown', { key: 'b', metaKey: true, bubbles: true, cancelable: true })
+    cell.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(cell.dataset.raw).toBe('**Al**ice')
+    view.destroy()
+  })
+})
+

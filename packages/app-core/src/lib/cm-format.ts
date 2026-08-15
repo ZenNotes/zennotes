@@ -33,6 +33,18 @@ function longerMarkerPairAt(state: EditorState, at: number, marker: string): boo
   return WRAP_MARKERS.some((w) => w.length > marker.length && isEmptyPairAt(state, at, w))
 }
 
+function isEmptyPairAtText(text: string, at: number, marker: string): boolean {
+  if (at - marker.length < 0 || at + marker.length > text.length) return false
+  return (
+    text.slice(at - marker.length, at) === marker &&
+    text.slice(at, at + marker.length) === marker
+  )
+}
+
+function longerMarkerPairAtText(text: string, at: number, marker: string): boolean {
+  return WRAP_MARKERS.some((w) => w.length > marker.length && isEmptyPairAtText(text, at, w))
+}
+
 /**
  * `text` (the line up to the cursor) leaves `marker` open — an odd number of
  * them, so the cursor is inside a span this marker started. A single `*` skips
@@ -80,79 +92,121 @@ export function formatMarkerBackspaceTransaction(state: EditorState): Transactio
 }
 
 /**
+ * Pure-text version of the symmetric-marker toggle. Returns a single change
+ * range and the selection that should be active after applying it.
+ */
+export function toggleWrapEdit(
+  text: string,
+  marker: string,
+  from: number,
+  to: number,
+  lineStart = 0
+): { from: number; to: number; insert: string; selection: { from: number; to: number } } {
+  const m = marker
+  if (from === to) {
+    const before = text.slice(Math.max(0, from - m.length), from)
+    const after = text.slice(from, Math.min(text.length, from + m.length))
+
+    if (after === m && before === m && !longerMarkerPairAtText(text, from, m)) {
+      // Empty pair: pressing the shortcut again removes the markers.
+      return {
+        from: from - m.length,
+        to: from + m.length,
+        insert: '',
+        selection: { from: from - m.length, to: from - m.length }
+      }
+    }
+
+    if (after === m) {
+      const lineBefore = text.slice(lineStart, from)
+      if (isInsideUnclosedMarker(lineBefore, m)) {
+        // Cursor is just before the closing marker from a previously inserted
+        // pair. Leave the span instead of inserting another marker pair.
+        return {
+          from,
+          to,
+          insert: '',
+          selection: { from: from + m.length, to: from + m.length }
+        }
+      }
+    }
+
+    // No selection: insert the pair and drop the cursor between them.
+    return {
+      from,
+      to,
+      insert: m + m,
+      selection: { from: from + m.length, to: from + m.length }
+    }
+  }
+
+  const before = text.slice(Math.max(0, from - m.length), from)
+  const after = text.slice(to, Math.min(text.length, to + m.length))
+  if (before === m && after === m) {
+    // Unwrap: drop the markers just outside the selection.
+    return {
+      from: from - m.length,
+      to: to + m.length,
+      insert: text.slice(from, to),
+      selection: { from: from - m.length, to: to - m.length }
+    }
+  }
+  const selected = text.slice(from, to)
+  if (selected.length >= m.length * 2 && selected.startsWith(m) && selected.endsWith(m)) {
+    // The selection itself includes the markers — strip them from inside.
+    return {
+      from,
+      to,
+      insert: selected.slice(m.length, selected.length - m.length),
+      selection: { from, to: to - m.length * 2 }
+    }
+  }
+  // Wrap.
+  return {
+    from,
+    to,
+    insert: m + selected + m,
+    selection: { from: from + m.length, to: to + m.length }
+  }
+}
+
+/**
  * Toggle a symmetric inline marker around each selection range: wrap when it
  * isn't wrapped, unwrap when the markers already sit just outside (or just
  * inside) the selection.
  */
 export function toggleWrap(view: EditorView, marker: string): boolean {
-  const m = marker
+  const text = view.state.doc.toString()
   view.dispatch(
     view.state.changeByRange((range) => {
-      const { from, to } = range
-      if (from === to) {
-        const before = view.state.sliceDoc(Math.max(0, from - m.length), from)
-        const after = view.state.sliceDoc(from, Math.min(view.state.doc.length, from + m.length))
-
-        if (after === m) {
-          if (before === m && !longerMarkerPairAt(view.state, from, m)) {
-            // Empty pair: pressing the shortcut again removes the markers.
-            return {
-              changes: { from: from - m.length, to: from + m.length, insert: '' },
-              range: EditorSelection.cursor(from - m.length)
-            }
-          }
-
-          const line = view.state.doc.lineAt(from)
-          const lineBefore = view.state.sliceDoc(line.from, from)
-          if (isInsideUnclosedMarker(lineBefore, m)) {
-            // Cursor is just before the closing marker from a previously inserted
-            // pair. Treat the shortcut as leaving/toggling off formatting instead
-            // of inserting another marker pair inside it.
-            return {
-              changes: [],
-              range: EditorSelection.cursor(from + m.length)
-            }
-          }
-        }
-
-        // No selection: insert the pair and drop the cursor between them.
-        return {
-          changes: { from, insert: m + m },
-          range: EditorSelection.cursor(from + m.length)
-        }
-      }
-      const before = view.state.sliceDoc(Math.max(0, from - m.length), from)
-      const after = view.state.sliceDoc(to, Math.min(view.state.doc.length, to + m.length))
-      if (before === m && after === m) {
-        // Unwrap: drop the markers just outside the selection.
-        return {
-          changes: [
-            { from: from - m.length, to: from, insert: '' },
-            { from: to, to: to + m.length, insert: '' }
-          ],
-          range: EditorSelection.range(from - m.length, to - m.length)
-        }
-      }
-      const selected = view.state.sliceDoc(from, to)
-      if (selected.length >= m.length * 2 && selected.startsWith(m) && selected.endsWith(m)) {
-        // The selection itself includes the markers — strip them from inside.
-        return {
-          changes: { from, to, insert: selected.slice(m.length, selected.length - m.length) },
-          range: EditorSelection.range(from, to - m.length * 2)
-        }
-      }
-      // Wrap.
+      const lineStart = view.state.doc.lineAt(range.from).from
+      const edit = toggleWrapEdit(text, marker, range.from, range.to, lineStart)
       return {
-        changes: [
-          { from, insert: m },
-          { from: to, insert: m }
-        ],
-        range: EditorSelection.range(from + m.length, to + m.length)
+        changes: { from: edit.from, to: edit.to, insert: edit.insert },
+        range: EditorSelection.range(edit.selection.from, edit.selection.to)
       }
     })
   )
   view.focus()
   return true
+}
+
+/**
+ * Pure-text version of link wrapping. Returns a single change range and the
+ * cursor position after the opening parenthesis.
+ */
+export function wrapLinkEdit(
+  selected: string,
+  from: number,
+  to: number
+): { from: number; to: number; insert: string; cursor: number } {
+  const insert = `[${selected}]()`
+  return {
+    from,
+    to,
+    insert,
+    cursor: from + insert.length - 1
+  }
 }
 
 /**
@@ -242,11 +296,9 @@ export function wrapLink(view: EditorView): boolean {
   view.dispatch(
     view.state.changeByRange((range) => {
       const { from, to } = range
-      const text = view.state.sliceDoc(from, to)
-      const insert = `[${text}]()`
+      const edit = wrapLinkEdit(view.state.sliceDoc(from, to), from, to)
       // Cursor between the parentheses: after `[text](`.
-      const cursor = from + 1 + text.length + 2
-      return { changes: { from, to, insert }, range: EditorSelection.cursor(cursor) }
+      return { changes: { from: edit.from, to: edit.to, insert: edit.insert }, range: EditorSelection.cursor(edit.cursor) }
     })
   )
   view.focus()

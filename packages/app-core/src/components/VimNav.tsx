@@ -527,6 +527,10 @@ export function VimNav(): JSX.Element | null {
       // the open menu. (#337)
       const fmtView = state.editorViewRef
       if (fmtView && isEditorFocused(fmtView) && completionStatus(fmtView.state) !== 'active') {
+        // Table cells have their own formatting handler; don't apply the
+        // editor-level toggle to the main selection while focus is inside a cell.
+        if (document.activeElement?.closest('.cm-table-widget')) return
+
         // Focus the selection toolbar (when shown) for keyboard navigation.
         if (matchesShortcutBinding(e, 'Mod+/')) {
           const firstItem = document.querySelector<HTMLElement>(

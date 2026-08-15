@@ -43,12 +43,78 @@ import {
 const MIN_COL_WIDTH = 48
 import { openTableContextMenu } from './cm-table-menu'
 import { renderMarkdown } from './markdown'
+import { toggleWrapEdit, wrapLinkEdit } from './cm-format'
 import { getCM } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
 import { matchesSequenceToken } from './keymaps'
 import { followLinkTarget } from './follow-link'
 import { extractLinkAtCursor } from './internal-links'
+
+/** Compute the total text length of a node and its descendants. */
+function textLength(node: Node): number {
+  return node.textContent?.length ?? 0
+}
+
+/** Convert a DOM boundary point into a character offset within `root`'s text. */
+function textOffsetAt(root: Node, container: Node, offset: number): number {
+  if (container === root) {
+    let off = 0
+    for (let i = 0; i < offset; i++) off += textLength(root.childNodes[i])
+    return off
+  }
+  if (container.nodeType === Node.TEXT_NODE) {
+    let off = offset
+    let node = container
+    while (node && node !== root) {
+      let prev = node.previousSibling
+      while (prev) {
+        off += textLength(prev)
+        prev = prev.previousSibling
+      }
+      node = node.parentNode!
+    }
+    return off
+  }
+  let off = 0
+  for (let i = 0; i < offset; i++) off += textLength(container.childNodes[i])
+  let node = container
+  while (node && node !== root) {
+    let prev = node.previousSibling
+    while (prev) {
+      off += textLength(prev)
+      prev = prev.previousSibling
+    }
+    node = node.parentNode!
+  }
+  return off
+}
+
+/** Compute selection character offsets relative to a cell's text content. */
+function getCellSelectionOffsets(el: HTMLElement): { from: number; to: number; collapsed: boolean } | null {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0) return null
+  const range = sel.getRangeAt(0)
+  if (!el.contains(range.commonAncestorContainer)) return null
+  const from = textOffsetAt(el, range.startContainer, range.startOffset)
+  const to = textOffsetAt(el, range.endContainer, range.endOffset)
+  return { from: Math.min(from, to), to: Math.max(from, to), collapsed: sel.isCollapsed }
+}
+
+/** Restore a selection inside a cell after a programmatic text change. */
+function setCellSelection(el: HTMLElement, from: number, to: number = from): void {
+  const node = el.firstChild
+  if (!node || node.nodeType !== Node.TEXT_NODE) return
+  const max = node.textContent?.length ?? 0
+  const a = Math.max(0, Math.min(from, max))
+  const b = Math.max(0, Math.min(to, max))
+  const range = document.createRange()
+  range.setStart(node, a)
+  range.setEnd(node, b)
+  const sel = window.getSelection()
+  sel?.removeAllRanges()
+  sel?.addRange(range)
+}
 
 /** The follow target for a rendered link anchor inside a table cell: a
  *  wikilink's name (`data-wikilink`) or a plain link's href. Returns null for
@@ -743,6 +809,12 @@ class TableWidget extends WidgetType {
   ): void {
     const cols = this.model.headers.length
     const rowsCount = this.model.rows.length
+
+    // Formatting shortcuts (Mod+B bold, Mod+I italic, etc.) are handled by the
+    // editor keymap in the main document, but inside a table cell focus lives in
+    // the cell's own contenteditable so the global handler never runs. Apply
+    // the same wrap/unwrap/link behavior directly to the cell source.
+    if (this.applyFormatShortcut(event, editable)) return
 
     if (vimEnabled()) {
       if (this.cellMode === 'insert') {
@@ -1501,6 +1573,126 @@ class TableWidget extends WidgetType {
       model: this.model,
       apply: (next, focus) => this.applyMenuAction(next, focus, anchor)
     })
+  }
+
+  private formatShortcutFromEvent(event: KeyboardEvent): string | null {
+    if (event.altKey) return null
+    const mod = event.ctrlKey || event.metaKey
+    if (!mod) return null
+    const key = event.key.toLowerCase()
+    if (event.shiftKey) {
+      switch (key) {
+        case 's':
+          return 'strikethrough'
+        case 'h':
+          return 'highlight'
+        case 'm':
+          return 'math'
+        default:
+          return null
+      }
+    }
+    switch (key) {
+      case 'b':
+        return 'bold'
+      case 'i':
+        return 'italic'
+      case 'e':
+        return 'code'
+      case 'k':
+        return 'link'
+      default:
+        return null
+    }
+  }
+
+  private getCellSelection(editable: HTMLElement): { from: number; to: number; empty: boolean } | null {
+    if (editable.getAttribute('contenteditable') === 'true') {
+      const offsets = getCellSelectionOffsets(editable)
+      if (!offsets) return null
+      return {
+        from: offsets.from,
+        to: offsets.to,
+        empty: offsets.collapsed
+      }
+    }
+    // Vim normal mode: visual selection or block cursor.
+    if (this.visualMode) {
+      const raw = editable.dataset.raw ?? ''
+      const from = Math.min(this.visualAnchor, this.cursorOffset)
+      const to = Math.min(raw.length, Math.max(this.visualAnchor, this.cursorOffset) + 1)
+      return { from, to, empty: false }
+    }
+    return { from: this.cursorOffset, to: this.cursorOffset, empty: true }
+  }
+
+  private setCellCaret(editable: HTMLElement, from: number, to: number | null = from): void {
+    if (editable.getAttribute('contenteditable') === 'true') {
+      setCellSelection(editable, from, to ?? from)
+    } else {
+      this.cursorOffset = from
+      this.clearCellCursor(editable)
+      this.renderCellCursor(editable)
+    }
+  }
+
+  private applyCellMarker(
+    editable: HTMLElement,
+    marker: string,
+    text: string,
+    sel: NonNullable<ReturnType<TableWidget['getCellSelection']>>
+  ): void {
+    const edit = toggleWrapEdit(text, marker, sel.from, sel.to, 0)
+    editable.textContent = text.slice(0, edit.from) + edit.insert + text.slice(edit.to)
+    editable.dataset.raw = editable.textContent
+    this.dirty = true
+    if (editable.getAttribute('contenteditable') !== 'true') {
+      this.exitVisual()
+    }
+    this.setCellCaret(editable, edit.selection.from, edit.selection.to)
+  }
+
+  private applyCellLink(
+    editable: HTMLElement,
+    text: string,
+    sel: NonNullable<ReturnType<TableWidget['getCellSelection']>>
+  ): void {
+    const edit = wrapLinkEdit(text.slice(sel.from, sel.to), sel.from, sel.to)
+    editable.textContent = text.slice(0, edit.from) + edit.insert + text.slice(edit.to)
+    editable.dataset.raw = editable.textContent
+    this.dirty = true
+    if (editable.getAttribute('contenteditable') !== 'true') {
+      this.exitVisual()
+    }
+    this.setCellCaret(editable, edit.cursor, edit.cursor)
+  }
+
+  private applyFormatShortcut(event: KeyboardEvent, editable: HTMLElement): boolean {
+    const kind = this.formatShortcutFromEvent(event)
+    if (!kind) return false
+    if (editable.dataset.rendered === 'true') {
+      editable.textContent = editable.dataset.raw ?? ''
+      editable.dataset.rendered = 'false'
+    }
+    const text = editable.textContent ?? ''
+    const sel = this.getCellSelection(editable)
+    if (!sel) return false
+    const markers: Record<string, string> = {
+      bold: '**',
+      italic: '*',
+      code: '`',
+      strikethrough: '~~',
+      highlight: '==',
+      math: '$'
+    }
+    if (kind === 'link') {
+      this.applyCellLink(editable, text, sel)
+    } else {
+      this.applyCellMarker(editable, markers[kind], text, sel)
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    return true
   }
 
   ignoreEvent(): boolean {
