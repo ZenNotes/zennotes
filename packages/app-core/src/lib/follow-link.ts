@@ -2,8 +2,12 @@ import { useStore } from '../store'
 import { offerCreateNoteFromLink } from './create-note-from-link'
 import { externalFileLink, openExternalFileLink } from './external-file-link'
 import { externalLinkUrl, resolveInternalNoteHref } from './internal-links'
-import { resolveWikilinkTarget, wikilinkHeadingAnchor } from './wikilinks'
-import { openDatabaseFromWikilink, openWikilinkHeading } from './wikilink-navigation'
+import { resolveWikilinkTarget } from './wikilinks'
+import {
+  openDatabaseFromWikilink,
+  openWikilinkHeading,
+  openWikilinkTarget
+} from './wikilink-navigation'
 
 /**
  * Follow a link target from the active note. The `target` is either a
@@ -35,9 +39,7 @@ export function followLinkTarget(target: string): boolean {
   }
   const wikilink = resolveWikilinkTarget(state.notes, target)
   if (wikilink) {
-    const heading = wikilinkHeadingAnchor(target)
-    if (heading) void openWikilinkHeading(wikilink.path, heading).then(focusSoon)
-    else void state.selectNote(wikilink.path).then(focusSoon)
+    void openWikilinkTarget(wikilink.path, target).then(focusSoon)
     return true
   }
   if (openDatabaseFromWikilink(target)) {

@@ -4,7 +4,12 @@ import { CompletionContext } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { describe, expect, it, vi } from 'vitest'
-import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from './cm-wikilinks'
+import {
+  wikilinkSource,
+  wikilinkHeadingSource,
+  wikilinkBlockSource,
+  atNoteSource
+} from './cm-wikilinks'
 
 const storeState = vi.hoisted(() => ({
   activeNote: {
@@ -19,10 +24,12 @@ const storeState = vi.hoisted(() => ({
     wikilinks: [],
     hasAttachments: false,
     excerpt: '',
-    body: '# Home\n\n## Tasks\n'
+    body: '# Home\n\n## Tasks\n\n- Daily standup ^standup\n'
   },
   noteContents: {
-    'inbox/Zen Garden.md': { body: '# Intro\n\n## Setup\n\n## Usage Notes\n\nbody\n' }
+    'inbox/Zen Garden.md': {
+      body: '# Intro\n\n## Setup\n\n- Install the thing ^install\n\n## Usage Notes\n\n- Run it ^run-it\n\nbody\n'
+    }
   },
   notes: [
     {
@@ -173,6 +180,55 @@ describe('wikilinkHeadingSource (#196 — heading autocomplete)', () => {
 
   it('returns null without a # (note mode owns that)', async () => {
     expect(await headingResult('[[Zen Garden')).toBeNull()
+  })
+})
+
+function blockResult(doc: string) {
+  const state = EditorState.create({ doc })
+  return wikilinkBlockSource(new CompletionContext(state, doc.length, true))
+}
+
+describe('wikilinkBlockSource (#601 — block id autocomplete)', () => {
+  it('suggests the target note block ids after ^', async () => {
+    const result = await blockResult('[[Zen Garden^')
+    expect(result?.options.map((o) => o.label)).toEqual(['install', 'run-it'])
+  })
+
+  it('shows the block text so ids can be told apart', async () => {
+    const result = await blockResult('[[Zen Garden^')
+    expect(result?.options.map((o) => o.detail)).toEqual([
+      '- Install the thing',
+      '- Run it'
+    ])
+  })
+
+  it('anchors the completion just after the ^ so the id lands inside the link', async () => {
+    expect((await blockResult('[[Zen Garden^ru'))?.from).toBe('[[Zen Garden^'.length)
+  })
+
+  it('inserts the chosen id and closes the link', async () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({ parent, state: EditorState.create({ doc: '[[Zen Garden^ru' }) })
+    const result = await wikilinkBlockSource(
+      new CompletionContext(view.state, view.state.doc.length, true)
+    )
+    const option = result?.options.find((o) => o.label === 'run-it')
+    const apply = option?.apply
+    if (typeof apply !== 'function') throw new Error('expected a function apply handler')
+    apply(view, option!, result!.from, view.state.doc.length)
+    expect(view.state.doc.toString()).toBe('[[Zen Garden^run-it]]')
+    view.destroy()
+    parent.remove()
+  })
+
+  it('falls back to the current note for [[^', async () => {
+    expect((await blockResult('[[^'))?.options.map((o) => o.label)).toEqual(['standup'])
+  })
+
+  it('returns null without a ^, and yields to the heading source when # comes first', async () => {
+    expect(await blockResult('[[Zen Garden')).toBeNull()
+    expect(await blockResult('[[Zen Garden#Setup^')).toBeNull()
   })
 })
 

@@ -15,6 +15,8 @@ import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
 import type { VFile } from 'vfile'
 import { recordRendererPerf } from './perf'
+import { trailingBlockIdRange } from './block-anchors'
+import { wikilinkDisplayLabel } from './wikilinks'
 import { classifyLocalAssetHref } from './local-assets'
 import { parseEmbedSizeHint, splitEmbedLabel } from './excalidraw-preview'
 import { parseColWidthsComment } from './markdown-table'
@@ -91,6 +93,27 @@ function sanitizeRenderedHtml(html: string): string {
   })
 }
 
+/**
+ * Drop the trailing `^block-id` marker from rendered prose. It names the block
+ * so `[[Note^id]]` can point at it, which is addressing rather than something
+ * to read, and the editor's live preview hides it for the same reason. Code
+ * spans and fences are untouched: those are `inlineCode` / `code` nodes, which
+ * this never visits. (#601)
+ */
+function remarkBlockIds() {
+  return (tree: MdRoot): void => {
+    visit(tree, 'text', (node) => {
+      const text = node as AnyNode & { value?: string }
+      if (typeof text.value !== 'string') return
+      const marker = trailingBlockIdRange(text.value)
+      // A marker alone on its line has nothing left to attach to, so leave it
+      // rather than rendering an empty paragraph.
+      if (!marker || marker.from === 0) return
+      text.value = text.value.slice(0, marker.from).replace(/[ \t]+$/, '')
+    })
+  }
+}
+
 function remarkWikilinks() {
   function buildWikilinkNode(bang: string, target: string, label: string): AnyNode {
     const assetKind = classifyLocalAssetHref(target)
@@ -146,7 +169,12 @@ function remarkWikilinks() {
           'data-wikilink': target
         }
       },
-      children: [{ type: 'text', value: label }]
+      // An un-aliased anchored link would otherwise read `Daily Note^note-two`
+      // mid-sentence; the label is `target` exactly when no alias was
+      // given. (#601)
+      children: [
+        { type: 'text', value: label === target ? wikilinkDisplayLabel(target) : label }
+      ]
     }
   }
 
@@ -999,6 +1027,7 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
     // head of one unsplit text node when it is matched.
     .use(remarkTaskStates)
     .use(remarkTaskRollup)
+    .use(remarkBlockIds)
     .use(remarkWikilinks)
     .use(remarkImageSizeHints)
     .use(remarkHashtags)

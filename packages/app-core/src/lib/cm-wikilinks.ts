@@ -2,6 +2,7 @@ import type { Completion, CompletionContext, CompletionResult } from '@codemirro
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
 import { resolveWikilinkTarget } from './wikilinks'
+import { parseBlockAnchors } from './block-anchors'
 import { parseOutline } from './outline'
 import { linkCandidates, type LinkCandidate } from './link-candidates'
 
@@ -178,7 +179,10 @@ export function atNoteSource(context: CompletionContext): CompletionResult | nul
  * The note is everything before the first `#`; the heading query is whatever
  * follows the last `#` (so nested `#a#b` still completes the deepest part).
  */
-function wikilinkHeadingMatch(context: CompletionContext): {
+function wikilinkAnchorMatch(
+  context: CompletionContext,
+  marker: '#' | '^'
+): {
   from: number
   notePart: string
   query: string
@@ -191,14 +195,18 @@ function wikilinkHeadingMatch(context: CompletionContext): {
 
   const inside = before.slice(openIndex + 2)
   if (inside.includes(']]') || inside.includes('|')) return null
-  const firstHash = inside.indexOf('#')
-  if (firstHash < 0) return null // no heading anchor — `wikilinkSource` owns this
-  const lastHash = inside.lastIndexOf('#')
+  const first = inside.indexOf(marker)
+  if (first < 0) return null // no anchor of this kind — `wikilinkSource` owns this
+  // Whichever marker opens the anchor owns everything after it, the same rule
+  // wikilinkHeadingAnchor / wikilinkBlockAnchor follow. (#601)
+  const other = inside.indexOf(marker === '#' ? '^' : '#')
+  if (other >= 0 && other < first) return null
+  const last = inside.lastIndexOf(marker)
 
   return {
-    from: line.from + openIndex + 2 + lastHash + 1,
-    notePart: inside.slice(0, firstHash).trim(),
-    query: inside.slice(lastHash + 1)
+    from: line.from + openIndex + 2 + last + 1,
+    notePart: inside.slice(0, first).trim(),
+    query: inside.slice(last + 1)
   }
 }
 
@@ -211,30 +219,87 @@ const headingBodyCache = new Map<string, string>()
  * Autocomplete headings inside a wikilink: typing `[[Note#` (or `[[#` for the
  * current note) suggests that note's headings. (#196)
  */
-export async function wikilinkHeadingSource(
-  context: CompletionContext
-): Promise<CompletionResult | null> {
-  const match = wikilinkHeadingMatch(context)
-  if (!match) return null
-
+async function anchorNoteBody(notePart: string): Promise<string | null> {
   const state = useStore.getState()
-  const note = match.notePart
-    ? resolveWikilinkTarget(state.notes, match.notePart)
-    : state.activeNote
+  const note = notePart ? resolveWikilinkTarget(state.notes, notePart) : state.activeNote
   if (!note) return null
 
-  let body =
+  const body =
     state.noteContents[note.path]?.body ??
     (note as { body?: string }).body ?? // activeNote ([[#…]]) already carries its body
     headingBodyCache.get(note.path)
-  if (body == null) {
-    try {
-      body = (await window.zen.readNote(note.path)).body
-      headingBodyCache.set(note.path, body)
-    } catch {
-      return null
-    }
+  if (body != null) return body
+
+  try {
+    const read = (await window.zen.readNote(note.path)).body
+    headingBodyCache.set(note.path, read)
+    return read
+  } catch {
+    return null
   }
+}
+
+/**
+ * Insert `text` at the completion range, closing the wikilink when the source
+ * hasn't already got a `]]` waiting.
+ */
+function applyAnchorCompletion(text: string) {
+  return (view: EditorView, _completion: Completion, from: number, to: number): void => {
+    const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
+    const insert = `${text}${existingClose ? '' : ']]'}`
+    view.dispatch({
+      changes: { from, to, insert },
+      selection: { anchor: from + text.length + (existingClose ? 0 : 2) }
+    })
+  }
+}
+
+/**
+ * Autocomplete block ids inside a wikilink: typing `[[Note^` (or `[[^` for the
+ * current note) suggests that note's block ids, with the block's own text as
+ * the hint so you can tell them apart. (#601)
+ */
+export async function wikilinkBlockSource(
+  context: CompletionContext
+): Promise<CompletionResult | null> {
+  const match = wikilinkAnchorMatch(context, '^')
+  if (!match) return null
+
+  const body = await anchorNoteBody(match.notePart)
+  if (body == null) return null
+
+  const lines = body.split('\n')
+  const seen = new Set<string>()
+  const options: Completion[] = []
+  for (const anchor of parseBlockAnchors(body)) {
+    const key = normalize(anchor.id)
+    if (seen.has(key)) continue
+    seen.add(key)
+    // Show what the id actually marks; an id on its own line describes the
+    // block above it, so fall back to that.
+    const own = (lines[anchor.line - 1] ?? '').slice(0, -(anchor.id.length + 1)).trim()
+    const detail = own || (lines[anchor.line - 2] ?? '').trim()
+    options.push({
+      label: anchor.id,
+      detail: detail.slice(0, 60) || undefined,
+      type: 'text',
+      apply: applyAnchorCompletion(anchor.id)
+    })
+    if (options.length >= 100) break
+  }
+  if (options.length === 0) return null
+
+  return { from: match.from, options, validFor: /^[^\]|]*$/ }
+}
+
+export async function wikilinkHeadingSource(
+  context: CompletionContext
+): Promise<CompletionResult | null> {
+  const match = wikilinkAnchorMatch(context, '#')
+  if (!match) return null
+
+  const body = await anchorNoteBody(match.notePart)
+  if (body == null) return null
 
   const seen = new Set<string>()
   const options: Completion[] = []
@@ -247,14 +312,7 @@ export async function wikilinkHeadingSource(
       label: text,
       detail: `H${heading.level}`,
       type: 'text',
-      apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
-        const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
-        const insert = `${text}${existingClose ? '' : ']]'}`
-        view.dispatch({
-          changes: { from, to, insert },
-          selection: { anchor: from + text.length + (existingClose ? 0 : 2) }
-        })
-      }
+      apply: applyAnchorCompletion(text)
     })
     if (options.length >= 100) break
   }

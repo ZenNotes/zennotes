@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import {
+  blockAnchorsTargeting,
   extractWikilinkTargets,
   extractMarkdownLinkHrefs,
   extractMentionSnippet,
@@ -18,6 +19,12 @@ import { PanelResizeHandle } from './PanelResizeHandle'
 interface MentionItem {
   note: NoteMeta
   snippet: string
+}
+
+interface BacklinkItem {
+  note: NoteMeta
+  /** `^block` ids this note points at here, when it aimed at a block. (#601) */
+  blocks: string[]
 }
 
 interface MissingLinkItem {
@@ -39,7 +46,7 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
   const setConnectionsCursorIndex = useStore((s) => s.setConnectionsCursorIndex)
   const setConnectionPreview = useStore((s) => s.setConnectionPreview)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [backlinks, setBacklinks] = useState<NoteMeta[]>([])
+  const [backlinks, setBacklinks] = useState<BacklinkItem[]>([])
   const [mentions, setMentions] = useState<MentionItem[]>([])
   const [scanLoading, setScanLoading] = useState(false)
   const isConnectionsFocused = focusedPanel === 'connections'
@@ -193,6 +200,8 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
           return {
             note: candidate,
             backlink: linksHere,
+            // Which block ids this note reached for, so the row can say so. (#601)
+            blocks: blockAnchorsTargeting(notes, targets, note.path),
             mentionSnippet: snippet
           }
         } catch {
@@ -201,11 +210,11 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
       })
     ).then((results) => {
       if (cancelled) return
-      const nextBacklinks: NoteMeta[] = []
+      const nextBacklinks: BacklinkItem[] = []
       const nextMentions: MentionItem[] = []
       for (const item of results) {
         if (!item) continue
-        if (item.backlink) nextBacklinks.push(item.note)
+        if (item.backlink) nextBacklinks.push({ note: item.note, blocks: item.blocks })
         if (item.mentionSnippet) {
           nextMentions.push({ note: item.note, snippet: item.mentionSnippet })
         }
@@ -312,11 +321,15 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
             subtitle="Notes already pointing at this page."
             empty="No backlinks yet."
           >
-            {backlinks.map((item) => (
+            {backlinks.map(({ note: item, blocks }) => (
               <ConnectionRow
                 key={item.path}
                 note={item}
-                summary={item.excerpt || 'No excerpt available yet.'}
+                summary={
+                  blocks.length
+                    ? `Points at ${blocks.map((id) => `^${id}`).join(', ')}`
+                    : item.excerpt || 'No excerpt available yet.'
+                }
                 onOpen={() => void selectNote(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()

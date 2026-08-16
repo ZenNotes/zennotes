@@ -49,7 +49,11 @@ import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
-import { wikilinkSource, wikilinkHeadingSource } from '../lib/cm-wikilinks'
+import {
+  wikilinkSource,
+  wikilinkHeadingSource,
+  wikilinkBlockSource
+} from '../lib/cm-wikilinks'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
@@ -245,7 +249,8 @@ export function PinnedReferencePane(): JSX.Element | null {
               frontmatterTagSource,
               hashtagSource,
               wikilinkSource,
-              wikilinkHeadingSource
+              wikilinkHeadingSource,
+              wikilinkBlockSource
             ],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,

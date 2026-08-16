@@ -287,7 +287,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Forward a task to another note',
     body:
-      'Forwarding moves a task to a different note while leaving a record behind — the bullet-journal “migrate” gesture. Type `>` inside a task’s checkbox (turning `- [ ]` into `- [>]`) to open a note picker, run “Forward Task to Note…” from the command palette with the cursor on a task, or press `>` on a task in the Tasks list. The original stays as `- [>] … [[Target]]` (a forwarded marker linking to where it went), and a fresh `- [ ] … [[Source]]` copy is added to the note you pick, backlinked home. Forwarded tasks collect under their own “Forwarded” group in the Tasks list, kept out of Today and Done.'
+      'Forwarding moves a task to a different note while leaving a record behind — the bullet-journal “migrate” gesture. Type `>` inside a task’s checkbox (turning `- [ ]` into `- [>]`) to open a note picker, run “Forward Task to Note…” from the command palette with the cursor on a task, or press `>` on a task in the Tasks list. The picker filters as you type and preselects the first match, so typing part of a note’s name and pressing Enter forwards straight there; ↑↓, Ctrl+J / Ctrl+K, and Ctrl+N / Ctrl+P step between the matches. The original stays as `- [>] … [[Target]]` (a forwarded marker linking to where it went), and a fresh `- [ ] … [[Source]]` copy is added to the note you pick, backlinked home. Forwarded tasks collect under their own “Forwarded” group in the Tasks list, kept out of Today and Done.'
   },
   {
     title: 'Cancel a task',
@@ -383,6 +383,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: 'Links are actionable',
     body:
       'Use [[wikilinks]] or markdown links. Following a link — click it, Cmd/Ctrl-click it, or use the follow-link motion (`gd`) in normal mode — opens the note under the cursor and pins PDFs into the reference pane. If the note does not exist yet, following the link offers to create it (after you confirm) rather than leaving a dead link. Prefix a wikilink with `!` to embed rather than link: `![[Note]]` inlines the target note content in the reading view and PDF export — recursively, with cycle protection — so a master note can pull in sub-notes and export to PDF as one document. `![[image.png]]` embeds an image and `![[drawing.excalidraw]]` embeds an Excalidraw drawing as a PNG preview; both take optional `|width` or `|WxH` size hints (`![[image.png|300]]`, `![[image.png|600x400]]`), and the markdown form carries the same hint after the alt text (`![caption|300](image.png)`).'
+  },
+  {
+    title: 'Point at one block, not a whole note',
+    body:
+      'End any line with a `^block-id` marker (letters, digits and hyphens, e.g. `- Ship the picker ^ship-it`) to name that block, then link at it with `[[Note^ship-it]]`. Following the link opens the note scrolled to that exact block, the way `[[Note#Heading]]` reaches a section. Put the marker on its own line to tag the paragraph above it without touching its text. Typing `^` inside a wikilink lists the target note\'s ids with the block text beside each one, so you can pick without leaving the keyboard, and `[[^id]]` points at a block in the note you are already in. Embedding follows the same rule: `![[Note^ship-it]]` inlines just that block rather than the whole note, bringing a bullet\'s children along with it. The marker itself is addressing, not prose, so it stays hidden in the reading view and in the editor until your cursor is on the line to edit it. The Connections panel says which block a note reached for instead of only that it linked here.'
   },
   {
     title: 'Files stay local',
@@ -614,7 +619,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Move to the first or last visible result.' },
       { keys: 'Enter / o', action: 'Open current result', detail: 'Open the selected task source note, tagged note, or trashed note.' },
       { keys: 'x', action: 'Toggle task', detail: 'Tasks view only: check or uncheck the selected task. A checked task lingers in place for a couple of seconds before it drops into Done, so you can toggle it again to undo. Space also toggles unless Space is your Vim leader key, in which case it starts a leader sequence.' },
-      { keys: '>', action: 'Forward task', detail: 'Tasks list only: forward the selected task to another note. Opens a note picker; the original becomes a forwarded record (`[>]`) linking to the target, and a fresh copy is added there, backlinked home. Forwarded tasks live under a “Forwarded” group.' },
+      { keys: '>', action: 'Forward task', detail: 'Tasks list only: forward the selected task to another note. Opens a note picker that filters as you type and preselects the first match, so Enter forwards without reaching for an arrow key. The original becomes a forwarded record (`[>]`) linking to the target, and a fresh copy is added there, backlinked home. Forwarded tasks live under a “Forwarded” group.' },
       { keys: 'i', action: 'Mark task in progress', detail: 'Tasks list only: mark the selected task as started (`- [/]`), or set it back to open. In-progress tasks stay in Today and on the calendar, so the row keeps its place.' },
       { keys: 'c', action: 'Cancel task', detail: 'Tasks list only: mark the selected task as intentionally abandoned (`- [-]`), or un-cancel it. Cancelled tasks live under a “Cancelled” group, out of Today and Done.' },
       { keys: 'K / J', action: 'Move task up / down', detail: 'Tasks list only: reorder the selected task within its group. Works with Vim mode on or off.' },

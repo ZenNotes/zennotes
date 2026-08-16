@@ -13,11 +13,14 @@ import { selectTypstPreambleFor } from "../lib/typst-preamble-select";
 import { useStore } from "../store";
 import { useDiagramTheme } from "../lib/use-diagram-theme-mode";
 import {
+  isSameFileBlockLink,
   isSameFileHeadingLink,
   resolveWikilinkTarget,
-  wikilinkHeadingAnchor,
 } from "../lib/wikilinks";
-import { openWikilinkHeading } from "../lib/wikilink-navigation";
+import {
+  openWikilinkHeading,
+  openWikilinkTarget,
+} from "../lib/wikilink-navigation";
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
 import { toggleTaskAtIndex } from "../lib/tasklists";
@@ -435,10 +438,9 @@ export const Preview = memo(function Preview({
         e.preventDefault();
         const path = anchor.dataset.resolvedPath;
         if (path) {
-          // Scroll to the #heading when the link carries one. (#196)
-          const headingAnchor = wikilinkHeadingAnchor(anchor.dataset.wikilink ?? "");
-          if (headingAnchor) void openWikilinkHeading(path, headingAnchor);
-          else void selectNoteRef.current(path);
+          // Scroll to the #heading or the ^block when the link carries one.
+          // (#196, #601)
+          void openWikilinkTarget(path, anchor.dataset.wikilink ?? "");
         } else if (anchor.dataset.databaseCsv) {
           void useStore.getState().openDatabase(anchor.dataset.databaseCsv);
         }
@@ -645,9 +647,10 @@ export const Preview = memo(function Preview({
         delete a.dataset.databaseCsv;
         return;
       }
-      // `[[#heading]]` (no note part) links to a heading in THIS note — resolve
-      // it to the note being previewed so the click scrolls in place. (#291)
-      if (isSameFileHeadingLink(target)) {
+      // `[[#heading]]` / `[[^block]]` (no note part) point inside THIS note —
+      // resolve them to the note being previewed so the click scrolls in
+      // place. (#291, #601)
+      if (isSameFileHeadingLink(target) || isSameFileBlockLink(target)) {
         a.classList.remove("broken");
         a.dataset.resolvedPath = notePath;
         delete a.dataset.databaseCsv;

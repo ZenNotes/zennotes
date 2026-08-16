@@ -124,7 +124,12 @@ import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { latexCommandSource } from '../lib/cm-latex-completions'
 import { typstCommandSource } from '../lib/cm-typst-completions'
-import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
+import {
+  wikilinkSource,
+  wikilinkHeadingSource,
+  wikilinkBlockSource,
+  atNoteSource
+} from '../lib/cm-wikilinks'
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
@@ -1795,7 +1800,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               frontmatterTagSource,
               hashtagSource,
               wikilinkSource,
-              wikilinkHeadingSource
+              wikilinkHeadingSource,
+              wikilinkBlockSource
             ],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,

@@ -20,14 +20,11 @@ import { rankItems } from "../lib/fuzzy-score";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import { mergeTemplates } from "@shared/template-files";
 import type { PaneLayout, PaneSplit } from "../lib/pane-layout";
-import {
-  parseCreateNotePath,
-  resolveWikilinkTarget,
-  wikilinkHeadingAnchor,
-} from "../lib/wikilinks";
+import { parseCreateNotePath, resolveWikilinkTarget } from "../lib/wikilinks";
 import {
   openDatabaseFromWikilink,
   openWikilinkHeading,
+  openWikilinkTarget,
 } from "../lib/wikilink-navigation";
 import {
   classifyLocalAssetHref,
@@ -654,14 +651,7 @@ function registerVimCommands(): void {
         state.setFocusedPanel("editor");
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus());
       };
-      const headingAnchor = wikilinkHeadingAnchor(target);
-      if (headingAnchor) {
-        void openWikilinkHeading(resolved.path, headingAnchor).then(
-          focusEditorSoon,
-        );
-      } else {
-        void state.selectNote(resolved.path).then(focusEditorSoon);
-      }
+      void openWikilinkTarget(resolved.path, target).then(focusEditorSoon);
       return;
     }
 

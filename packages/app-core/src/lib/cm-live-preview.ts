@@ -16,6 +16,7 @@ import {
   resolveAssetVaultRelativePath,
   resolveLocalAssetUrl
 } from './local-assets'
+import { trailingBlockIdRange } from './block-anchors'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
 import { assetTabPath } from './asset-tabs'
@@ -1158,6 +1159,22 @@ function computeDecorations(view: EditorView): DecorationSet {
           to: line.from,
           deco: imageEmbedLine
         })
+      }
+
+      // #601: a trailing `^block-id` names the line so `[[Note^id]]` can point
+      // at it. That is addressing, not prose, so hide it the way other markers
+      // are hidden and reveal it when the cursor is on the line to edit.
+      if (!lineActive && !replacedLines.has(lineNo)) {
+        const blockId = trailingBlockIdRange(line.text)
+        // Leave a lone `^id` line visible: hiding it would render an empty line
+        // with nothing to explain the gap.
+        if (blockId && blockId.from > 0) {
+          pending.push({
+            from: line.from + blockId.from,
+            to: line.from + blockId.to,
+            deco: hide
+          })
+        }
       }
     }
   }
