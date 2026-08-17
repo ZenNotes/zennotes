@@ -254,6 +254,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'show disclosure arrows in the sidebar'
   },
   contentAlign: { section: 'appearance', tomlKey: 'content_align', comment: 'center | left' },
+  rtlMode: { section: 'appearance', tomlKey: 'rtl_mode', comment: 'off | auto | on' },
   unifiedSidebar: {
     section: 'appearance',
     tomlKey: 'unified_sidebar',

@@ -632,6 +632,9 @@ interface Prefs {
   /** Whether the editor and preview content sit centered (with the
    *  width capped) or are left-aligned to the pane edge. */
   contentAlign: 'center' | 'left'
+  /** Text direction for editor + preview: off = LTR always, auto = detect
+   *  per note (frontmatter `dir:` wins), on = RTL always. Persisted. */
+  rtlMode: 'off' | 'auto' | 'on'
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
@@ -1026,6 +1029,7 @@ export const DEFAULT_PREFS: Prefs = {
   pinnedRefKind: 'note',
   noteRefs: {},
   contentAlign: 'center',
+  rtlMode: 'auto',
   tagsCollapsed: false,
   nestedTags: true,
   // Off by default, deliberately: workflows can rewrite notes in bulk, and the
@@ -1317,6 +1321,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.contentAlign === 'left' || p.contentAlign === 'center'
         ? p.contentAlign
         : DEFAULT_PREFS.contentAlign,
+    rtlMode:
+      p.rtlMode === 'off' || p.rtlMode === 'auto' || p.rtlMode === 'on'
+        ? p.rtlMode
+        : DEFAULT_PREFS.rtlMode,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
     nestedTags: typeof p.nestedTags === 'boolean' ? p.nestedTags : DEFAULT_PREFS.nestedTags,
@@ -2160,6 +2168,7 @@ function collectPrefs(s: {
   pinnedRefKind: 'note' | 'asset'
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
+  rtlMode: 'off' | 'auto' | 'on'
   tagsCollapsed: boolean
   nestedTags: boolean
   workflowsEnabled: boolean
@@ -2251,6 +2260,7 @@ function collectPrefs(s: {
     pinnedRefKind: s.pinnedRefKind,
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
+    rtlMode: s.rtlMode,
     tagsCollapsed: s.tagsCollapsed,
     nestedTags: s.nestedTags,
     workflowsEnabled: s.workflowsEnabled,
@@ -2807,6 +2817,11 @@ interface Store {
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
   contentAlign: 'center' | 'left'
+
+  /** Text direction for editor + preview: off/auto/on. Auto resolves per
+   *  note via frontmatter `dir:` + a body heuristic. Persisted. */
+  rtlMode: 'off' | 'auto' | 'on'
+  setRtlMode: (mode: 'off' | 'auto' | 'on') => void
 
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
@@ -4521,6 +4536,7 @@ export const useStore = create<Store>((set, get) => {
   pinnedRefKind: loadPrefs().pinnedRefKind,
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
+  rtlMode: loadPrefs().rtlMode,
   tagsCollapsed: loadPrefs().tagsCollapsed,
   nestedTags: loadPrefs().nestedTags,
   workflowsEnabled: loadPrefs().workflowsEnabled,
@@ -7933,6 +7949,11 @@ export const useStore = create<Store>((set, get) => {
 
   setContentAlign: (align) => {
     set({ contentAlign: align })
+    savePrefs(collectPrefs(get()))
+  },
+
+  setRtlMode: (mode) => {
+    set({ rtlMode: mode })
     savePrefs(collectPrefs(get()))
   },
   setTagsCollapsed: (collapsed) => {

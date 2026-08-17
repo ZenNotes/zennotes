@@ -111,6 +111,7 @@ export const PORTABLE_PREF_KEYS = [
   'darkSidebar',
   'showSidebarChevrons',
   'contentAlign',
+  'rtlMode',
   'unifiedSidebar',
   // typography
   'interfaceFont',
@@ -224,6 +225,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   darkSidebar: true,
   showSidebarChevrons: true,
   contentAlign: 'center',
+  rtlMode: 'auto',
   unifiedSidebar: true,
   interfaceFont: null,
   textFont: null,

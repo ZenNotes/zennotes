@@ -1544,6 +1544,74 @@ textarea,
   margin-left: 0;
   margin-right: 0;
 }
+/* --- Right-to-left text direction -------------------------------------- */
+/* The editor's `dir` arrives via EditorView.contentAttributes, which CM reads
+   for its BiDi layout — only the alignment needs CSS here. The reading view
+   carries `dir` on the .prose-zen article itself. */
+.cm-editor .cm-content[dir="rtl"] {
+  text-align: right;
+}
+.prose-zen[dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+:root[data-content-align="left"] .prose-zen[dir="rtl"] {
+  margin-left: 0;
+  margin-right: 0;
+}
+/* Mirror rules that assume LTR geometry. Directional properties are flipped
+   so list markers, rails and checkboxes land on the right. */
+.prose-zen[dir="rtl"] ul,
+.prose-zen[dir="rtl"] ol {
+  padding-left: 0;
+  padding-right: 1.4em;
+}
+.prose-zen[dir="rtl"] li.task-list-item {
+  margin-left: 0;
+  margin-right: -1.4em;
+  padding-left: 0;
+  padding-right: 1.5em;
+}
+.prose-zen[dir="rtl"] li.task-list-item input[type="checkbox"] {
+  left: auto;
+  right: 0;
+}
+.prose-zen[dir="rtl"] .zen-task-state {
+  left: auto;
+  right: 0;
+}
+.prose-zen[dir="rtl"] blockquote {
+  border-left: none;
+  border-right: 3px solid theme("colors.paper.400");
+  border-radius: 8px 0 0 8px;
+}
+.prose-zen[dir="rtl"] .note-embed {
+  border-left: none;
+  border-right: 3px solid rgb(var(--z-accent) / 0.5);
+}
+.prose-zen[dir="rtl"] th,
+.prose-zen[dir="rtl"] td {
+  text-align: right;
+}
+/* Code is always LTR, even inside an RTL document. */
+.prose-zen[dir="rtl"] pre,
+.prose-zen[dir="rtl"] pre code,
+.prose-zen[dir="rtl"] :not(pre) > code {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+.cm-editor .cm-content[dir="rtl"] .cm-line.cm-markdown-list-line {
+  padding-left: 0;
+  padding-right: calc(var(--z-list-hanging-indent, 0) + var(--z-list-indent-pad, 0ch));
+  text-indent: calc(var(--z-list-hanging-indent, 0) * 1);
+}
+.cm-wysiwyg .cm-editor .cm-content[dir="rtl"] .cm-wq-quote {
+  border-left: none;
+  border-right: 3px solid rgb(var(--z-accent) / 0.45);
+  padding-left: 0;
+  padding-right: 16px;
+}
 .cm-editor .cm-line {
   padding: 0;
   line-height: var(--z-editor-line-height, 1.7);
