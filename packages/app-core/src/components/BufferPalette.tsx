@@ -236,6 +236,7 @@ export function BufferPalette(): JSX.Element {
   const setOpen = useStore((s) => s.setBufferPaletteOpen)
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
+  const closeTab = useStore((s) => s.closeTab)
 
   // Select primitives separately so each selector returns a stable
   // reference; compute the derived entries list with useMemo. Returning
@@ -285,6 +286,10 @@ export function BufferPalette(): JSX.Element {
   useEffect(() => setActive(0), [query])
 
   useEffect(() => {
+    setActive((index) => Math.max(0, Math.min(index, results.length - 1)))
+  }, [results.length])
+
+  useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-buf-idx="${active}"]`)
     el?.scrollIntoView({ block: 'nearest' })
   }, [active])
@@ -311,6 +316,13 @@ export function BufferPalette(): JSX.Element {
     focusEditorNormalMode()
   }
 
+  const closeSelected = async (): Promise<void> => {
+    const entry = results[active]
+    if (!entry) return
+    await closeTab(entry.path)
+    inputRef.current?.focus()
+  }
+
   return (
     <Modal size="md" layer="palette" onClose={close} closeOnEsc={false}>
       <div className="border-b border-paper-300/70 px-4 py-3">
@@ -334,6 +346,16 @@ export function BufferPalette(): JSX.Element {
                 e.preventDefault()
                 const entry = results[active]
                 if (entry) void open(entry)
+              } else if (
+                e.ctrlKey &&
+                !e.metaKey &&
+                !e.altKey &&
+                !e.shiftKey &&
+                e.key.toLowerCase() === 'd'
+              ) {
+                e.preventDefault()
+                e.stopPropagation()
+                void closeSelected()
               } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
@@ -398,7 +420,10 @@ export function BufferPalette(): JSX.Element {
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> switch
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+D</kbd> close buffer
+          </span>
+          <span>
+            <kbd className="rounded bg-paper-200 px-1">esc</kbd> dismiss
           </span>
         </div>
     </Modal>
