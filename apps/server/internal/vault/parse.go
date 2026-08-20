@@ -254,6 +254,7 @@ var (
 	inlineDueRe     = regexp.MustCompile(`(?i)(?:^|\s)due:\s*(\S+)`)
 	inlinePriority  = regexp.MustCompile(`(?i)(?:^|\s)!(high|med|medium|low|h|m|l)\b`)
 	inlineWaitingRe = regexp.MustCompile(`(?i)(?:^|\s)@waiting\b`)
+	inlineFieldRe   = regexp.MustCompile(`(?i)(?:^|\s)@([a-z][a-z0-9_-]*):([\p{L}\d][\p{L}\d/_-]*)`)
 	inlineTagRe     = regexp.MustCompile(`(?:^|\s)#([\p{L}\d][\p{L}\d/_\-]*)`)
 	isoDateRe       = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 )
@@ -504,6 +505,8 @@ func parseTaskFile(path, title string, folder NoteFolder, body string) (Task, bo
 		Due:           normalizeDueDate(firstScalar(fm["due"])),
 		Priority:      normalizePriority(firstScalar(fm["priority"])),
 		Waiting:       status == "waiting",
+		Fields:        map[string]string{"status": status},
+		Status:        status,
 		Tags:          tags,
 		Kind:          "file",
 		Scheduled:     normalizeDueDate(firstScalar(fm["scheduled"])),
@@ -586,6 +589,7 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 		due := ""
 		priority := ""
 		waiting := false
+		fields := map[string]string{}
 		tags := []string{}
 		stripped := tail
 
@@ -602,6 +606,18 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 		if inlineWaitingRe.MatchString(stripped) {
 			waiting = true
 			stripped = inlineWaitingRe.ReplaceAllString(stripped, " ")
+		}
+		for _, fm := range inlineFieldRe.FindAllStringSubmatch(stripped, -1) {
+			if len(fm) < 3 {
+				continue
+			}
+			key := strings.ToLower(fm[1])
+			if _, exists := fields[key]; !exists {
+				fields[key] = strings.ToLower(fm[2])
+			}
+		}
+		if len(fields) > 0 {
+			stripped = inlineFieldRe.ReplaceAllString(stripped, " ")
 		}
 		for _, tm := range inlineTagRe.FindAllStringSubmatch(tail, -1) {
 			if len(tm) >= 2 {
@@ -630,6 +646,9 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 		if priority == "" {
 			priority = defaults.Priority
 		}
+		if _, hasStatus := fields["status"]; !hasStatus && defaults.Status != "" {
+			fields["status"] = defaults.Status
+		}
 
 		task := Task{
 			ID:         fmtTaskID(path, taskIndex),
@@ -647,6 +666,8 @@ func ParseTasksWith(path, title string, folder NoteFolder, body string, opts Par
 			Due:        due,
 			Priority:   priority,
 			Waiting:    waiting,
+			Fields:     fields,
+			Status:     fields["status"],
 			Tags:       tags,
 		}
 		out = append(out, task)
