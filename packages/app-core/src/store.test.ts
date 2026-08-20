@@ -1406,6 +1406,33 @@ describe('pdfExportUseTheme — theme in PDF export', () => {
   })
 })
 
+describe('vimWrappedLineMotions (#638)', () => {
+  it('defaults to display rows and round-trips the logical-line preference', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().vimWrappedLineMotions).toBe('display')
+
+    useStore.getState().setVimWrappedLineMotions('logical')
+    expect(useStore.getState().vimWrappedLineMotions).toBe('logical')
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.vimWrappedLineMotions).toBe('logical')
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().vimWrappedLineMotions).toBe('logical')
+  })
+
+  it('normalizes an unknown stored value to display rows', async () => {
+    installZen()
+    localStorage.setItem(
+      'zen:prefs:v2',
+      JSON.stringify({ vimWrappedLineMotions: 'somewhere-else' })
+    )
+    const { useStore } = await loadStore()
+    expect(useStore.getState().vimWrappedLineMotions).toBe('display')
+  })
+})
+
 describe('workflowsEnabled (Workflows feature switch)', () => {
   it('defaults off and round-trips the opt-in through persistence', async () => {
     installZen()

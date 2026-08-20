@@ -63,6 +63,7 @@ import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-comple
 import { slashCommandRender, templateSlashCommandSource } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
 import type { NoteMeta } from '@shared/ipc'
+import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import {
   DEFAULT_THEME_ID,
   THEMES,
@@ -87,6 +88,7 @@ const PREFS_KEY = 'zen:prefs:v2'
 interface QuickCapturePrefs {
   vimMode: boolean
   vimInsertEscape: string
+  vimWrappedLineMotions: VimWrappedLineMotionMode
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -103,6 +105,7 @@ function loadPrefs(): QuickCapturePrefs {
   const fallback: QuickCapturePrefs = {
     vimMode: true,
     vimInsertEscape: '',
+    vimWrappedLineMotions: 'display',
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
     themeMode: 'dark',
@@ -121,6 +124,8 @@ function loadPrefs(): QuickCapturePrefs {
     return {
       ...fallback,
       ...parsed,
+      vimWrappedLineMotions:
+        parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       editorTabSize: normalizeEditorTabSize(parsed.editorTabSize)
@@ -203,13 +208,15 @@ let vimRegistered = false
  *  `windowClose` synchronously inside the ex callback occasionally
  *  surfaces as "Object has been destroyed" / dropped saves — exactly
  *  the same hazard documented on the floating-note window. */
-function registerCaptureVimCommands(): void {
+function registerCaptureVimCommands(
+  getWrappedLineMotionMode: () => VimWrappedLineMotionMode
+): void {
+  registerDisplayLineMotion(getWrappedLineMotionMode)
   if (vimRegistered) return
   vimRegistered = true
 
   // #312: this window is a separate Electron renderer with its own Vim, so it
   // needs its own registration to get the main editor's j/k display-line motion.
-  registerDisplayLineMotion()
   registerHeadingMotion()
 
   Vim.defineEx('write', 'w', () => {
@@ -532,9 +539,9 @@ export function QuickCaptureApp(): JSX.Element {
     vimHandlers.close = () => window.zen.windowClose()
     vimHandlers.newNote = resetToNew
     vimHandlers.openPicker = () => setOverlay('search')
-    registerCaptureVimCommands()
+    registerCaptureVimCommands(() => prefs.vimWrappedLineMotions)
     applyVimInsertEscape(prefs.vimInsertEscape)
-  }, [resetToNew, save, submitAndClose, prefs.vimInsertEscape])
+  }, [resetToNew, save, submitAndClose, prefs.vimInsertEscape, prefs.vimWrappedLineMotions])
 
   // Window-level chord handlers. We attach the listener exactly once
   // and read state through refs so the handler is never operating on a

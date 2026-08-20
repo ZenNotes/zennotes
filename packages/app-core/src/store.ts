@@ -118,7 +118,8 @@ import {
   type AppConfigPortable,
   type CompletedTaskStyle,
   type MathRenderer,
-  type TimeFormat
+  type TimeFormat,
+  type VimWrappedLineMotionMode
 } from '@shared/app-config'
 import {
   type LabelKey,
@@ -486,6 +487,9 @@ interface Prefs {
   /** When true, Vim yank/delete/change also copy to the system clipboard and
    *  `p` / `P` paste from it (like `set clipboard=unnamed`). */
   vimYankToClipboard: boolean
+  /** Whether unprefixed Vim line-boundary motions follow visible display rows
+   *  or the complete logical line when word wrap is enabled. */
+  vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
   /** Enabled CSS overrides, keyed by filename (e.g. `"focus.css": "on"`). Persisted. */
   enabledOverrides: Record<string, string>
@@ -956,6 +960,7 @@ export const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
   vimYankToClipboard: false,
+  vimWrappedLineMotions: 'display',
   keymapOverrides: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
@@ -1076,6 +1081,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimYankToClipboard === 'boolean'
         ? p.vimYankToClipboard
         : DEFAULT_PREFS.vimYankToClipboard,
+    vimWrappedLineMotions:
+      p.vimWrappedLineMotions === 'logical' || p.vimWrappedLineMotions === 'display'
+        ? p.vimWrappedLineMotions
+        : DEFAULT_PREFS.vimWrappedLineMotions,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
     enabledOverrides: normalizeEnabledOverrides(p.enabledOverrides),
     themeTweaks: normalizeThemeTweaks(p.themeTweaks),
@@ -2118,6 +2127,7 @@ function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
   vimYankToClipboard: boolean
+  vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
   enabledOverrides: Record<string, string>
   themeTweaks: Record<string, string>
@@ -2211,6 +2221,7 @@ function collectPrefs(s: {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
     vimYankToClipboard: s.vimYankToClipboard,
+    vimWrappedLineMotions: s.vimWrappedLineMotions,
     keymapOverrides: s.keymapOverrides,
     enabledOverrides: s.enabledOverrides,
     themeTweaks: s.themeTweaks,
@@ -2713,6 +2724,8 @@ interface Store {
   vimInsertEscape: string
   /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
   vimYankToClipboard: boolean
+  /** Display-row or logical-line semantics for $, I, A and dependent operators. */
+  vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
   /** Enabled CSS overrides, keyed by filename. Persisted to config [overrides]. */
   enabledOverrides: Record<string, string>
@@ -3207,6 +3220,7 @@ interface Store {
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
   setVimYankToClipboard: (on: boolean) => void
+  setVimWrappedLineMotions: (mode: VimWrappedLineMotionMode) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
@@ -4503,6 +4517,7 @@ export const useStore = create<Store>((set, get) => {
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
+  vimWrappedLineMotions: loadPrefs().vimWrappedLineMotions,
   keymapOverrides: loadPrefs().keymapOverrides,
   enabledOverrides: loadPrefs().enabledOverrides,
   themeTweaks: loadPrefs().themeTweaks,
@@ -7043,6 +7058,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimYankToClipboard: (on) => {
     set({ vimYankToClipboard: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setVimWrappedLineMotions: (mode) => {
+    set({ vimWrappedLineMotions: mode })
     savePrefs(collectPrefs(get()))
   },
   setKeymapBinding: (id, binding) => {

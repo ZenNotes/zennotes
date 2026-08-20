@@ -429,7 +429,9 @@ function registerVimCommands(): void {
 
   // #290/#312: make j/k move by display line through soft-wrapped content.
   // Shared with the Quick Note window (QuickCaptureApp) via the same helper.
-  registerDisplayLineMotion();
+  registerDisplayLineMotion(
+    () => useStore.getState().vimWrappedLineMotions,
+  );
   registerHeadingMotion();
 
   Vim.defineEx("write", "w", () => {

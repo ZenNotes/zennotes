@@ -94,6 +94,7 @@ describe('TOML serialization', () => {
   it('round-trips portable prefs, including nullable and map fields', () => {
     const portable: AppConfigPortable = {
       vimMode: false,
+      vimWrappedLineMotions: 'logical',
       editorFontSize: 18,
       editorLineHeight: 1.6,
       themeFamily: 'nord',
@@ -120,6 +121,7 @@ describe('TOML serialization', () => {
     const { version, portable: round } = deserializeConfig(text)
     expect(version).toBe(CONFIG_VERSION)
     expect(round.vimMode).toBe(false)
+    expect(round.vimWrappedLineMotions).toBe('logical')
     expect(round.editorFontSize).toBe(18)
     expect(round.editorLineHeight).toBeCloseTo(1.6)
     expect(round.themeFamily).toBe('nord')
@@ -154,6 +156,9 @@ describe('TOML serialization', () => {
       'auto_pair_quotes_in_prose = false  # also auto-insert matching quotes outside Markdown code'
     )
     expect(text).toContain('[vim]')
+    expect(text).toContain(
+      'wrapped_line_motions = "display"  # display | logical — how $, I, A and dependent operators treat soft-wrapped lines'
+    )
     expect(text).toContain('[view]')
     // Keymaps: every action listed as a commented, grouped default reference.
     expect(text).toContain('[keymaps]')

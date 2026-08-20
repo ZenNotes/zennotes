@@ -56,6 +56,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'yank_to_clipboard',
     comment: 'sync the system clipboard with Vim yank/delete/change and p/P paste'
   },
+  vimWrappedLineMotions: {
+    section: 'vim',
+    tomlKey: 'wrapped_line_motions',
+    comment: 'display | logical — how $, I, A and dependent operators treat soft-wrapped lines'
+  },
   whichKeyHints: {
     section: 'vim',
     tomlKey: 'which_key_hints',

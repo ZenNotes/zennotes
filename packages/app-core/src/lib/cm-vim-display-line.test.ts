@@ -3,6 +3,7 @@ import { EditorState } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { mathRenderExtension } from './cm-math-render'
 import {
+  zenEnterInsertAtLineBoundary,
   zenMoveByDisplayLine,
   zenMoveToDisplayLineBoundary,
   zenMoveToViewportEdge
@@ -330,6 +331,70 @@ describe('wrapped display-row boundaries (#536)', () => {
     expect(
       zenMoveToDisplayLineBoundary(cm, { line: 4, ch: 7 }, { forward: true, repeat: 3 })
     ).toEqual({ line: 6, ch: Infinity })
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+})
+
+describe('configurable wrapped-line boundaries (#638)', () => {
+  it('moves a bare $ to the logical line end without measuring the display row', () => {
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: vi.fn()
+    }
+
+    expect(
+      zenMoveToDisplayLineBoundary(cm, { line: 4, ch: 7 }, {
+        forward: true,
+        repeat: 1,
+        lineMode: 'logical'
+      })
+    ).toEqual({ line: 4, ch: Infinity })
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+
+  it('enters insert mode at the first non-blank character of the logical line for I', () => {
+    const enterInsertMode = vi.fn()
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: () => ({ line: 4, ch: 30 }),
+      getLine: () => '    logical line'
+    }
+
+    zenEnterInsertAtLineBoundary.call(
+      { enterInsertMode },
+      cm,
+      { forward: false, lineMode: 'logical' },
+      { insertMode: false }
+    )
+
+    expect(enterInsertMode).toHaveBeenCalledWith(
+      cm,
+      { head: { line: 4, ch: 4 }, insertAt: 'inplace', repeat: undefined },
+      { insertMode: false }
+    )
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+
+  it('enters insert mode at the logical line end for A', () => {
+    const enterInsertMode = vi.fn()
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: () => ({ line: 4, ch: 7 }),
+      getLine: () => 'complete logical line'
+    }
+
+    zenEnterInsertAtLineBoundary.call(
+      { enterInsertMode },
+      cm,
+      { forward: true, lineMode: 'logical' },
+      { insertMode: false }
+    )
+
+    expect(enterInsertMode).toHaveBeenCalledWith(
+      cm,
+      { head: { line: 4, ch: 21 }, insertAt: 'inplace', repeat: undefined },
+      { insertMode: false }
+    )
     expect(cm.execCommand).not.toHaveBeenCalled()
   })
 })

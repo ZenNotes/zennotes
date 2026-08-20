@@ -18,6 +18,7 @@ import {
   DEFAULT_MONTHLY_NOTE_TITLE_PATTERN,
   DEFAULT_MONTHLY_NOTES_DIRECTORY,
 } from "@shared/ipc";
+import type { VimWrappedLineMotionMode } from "@shared/app-config";
 import type {
   AppUpdateState,
   CliInstallStatus,
@@ -442,6 +443,10 @@ export function SettingsModal(): JSX.Element {
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape);
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard);
   const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard);
+  const vimWrappedLineMotions = useStore((s) => s.vimWrappedLineMotions);
+  const setVimWrappedLineMotions = useStore(
+    (s) => s.setVimWrappedLineMotions,
+  );
   const keymapOverrides = useStore((s) => s.keymapOverrides);
   const setKeymapBinding = useStore((s) => s.setKeymapBinding);
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps);
@@ -1262,6 +1267,9 @@ export function SettingsModal(): JSX.Element {
   }, []);
 
   const leaderKeyHintsTargetId = vimMode ? "leader-key-hints" : "vim-mode";
+  const wrappedLineMotionsTargetId = vimMode
+    ? "wrapped-line-motions"
+    : "vim-mode";
   const leaderHintBehaviorTargetId =
     vimMode && whichKeyHints ? "leader-hint-behavior" : leaderKeyHintsTargetId;
   const leaderHintDurationTargetId =
@@ -1787,6 +1795,14 @@ export function SettingsModal(): JSX.Element {
           keywords: ["vim", "motions"],
         },
         {
+          id: "wrapped-line-motions",
+          title: "Wrapped line motions",
+          description:
+            "Choose whether $, I, A, and dependent operators follow a visible display row or the complete logical line.",
+          keywords: ["vim", "word wrap", "display row", "logical line", "$", "I", "A"],
+          targetId: wrappedLineMotionsTargetId,
+        },
+        {
           id: "vim-insert-escape",
           title: "Exit insert mode with",
           description:
@@ -2146,6 +2162,7 @@ export function SettingsModal(): JSX.Element {
           title: "Vim",
           searchIds: [
             "vim-mode",
+            "wrapped-line-motions",
             "vim-insert-escape",
             "leader-key-hints",
             "leader-hint-behavior",
@@ -2167,6 +2184,21 @@ export function SettingsModal(): JSX.Element {
                 />
                 {vimMode ? (
                   <>
+                    <SegmentedRow
+                      label="Wrapped line motions"
+                      description="Display row keeps $, I, A, v$, y$, d$, and c$ on the visible wrapped row. Logical line restores traditional Vim behavior; g0, g^, and g$ still target the display row."
+                      value={vimWrappedLineMotions}
+                      settingId="wrapped-line-motions"
+                      options={[
+                        { value: "display", label: "Display row" },
+                        { value: "logical", label: "Logical line" },
+                      ]}
+                      onChange={(next) =>
+                        setVimWrappedLineMotions(
+                          next as VimWrappedLineMotionMode,
+                        )
+                      }
+                    />
                     <TextInputRow
                       label="Exit insert mode with"
                       description="Type this key sequence in insert mode to act as Escape, e.g. jk or jj. Leave empty to disable."

@@ -41,6 +41,7 @@ import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@code
 import { tags as t } from '@lezer/highlight'
 import { searchKeymap } from '@codemirror/search'
 import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
+import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { headingFolding } from '../lib/cm-heading-fold'
@@ -98,6 +99,7 @@ export const paperHighlight = HighlightStyle.define([
 export interface FloatingPrefs {
   vimMode: boolean
   vimInsertEscape: string
+  vimWrappedLineMotions: VimWrappedLineMotionMode
   livePreview: boolean
   themeId: string
   themeFamily: ThemeFamily
@@ -117,6 +119,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
   const fallback: FloatingPrefs = {
     vimMode: true,
     vimInsertEscape: '',
+    vimWrappedLineMotions: 'display',
     livePreview: true,
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
@@ -144,6 +147,8 @@ export function loadFloatingPrefs(): FloatingPrefs {
     return {
       ...fallback,
       ...parsed,
+      vimWrappedLineMotions:
+        parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       lineNumberMode,
@@ -430,9 +435,9 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
     floatingHandlers.close = (): void => {
       window.zen.windowClose()
     }
-    registerFloatingVimCommands()
+    registerFloatingVimCommands(() => prefs.vimWrappedLineMotions)
     applyVimInsertEscape(prefs.vimInsertEscape)
-  }, [persist, prefs.vimInsertEscape])
+  }, [persist, prefs.vimInsertEscape, prefs.vimWrappedLineMotions])
 
   const title = useMemo(() => {
     if (content?.title) return content.title
@@ -546,11 +551,13 @@ function deferredClose(): void {
   setTimeout(() => floatingHandlers.close?.(), 0)
 }
 
-function registerFloatingVimCommands(): void {
+function registerFloatingVimCommands(
+  getWrappedLineMotionMode: () => VimWrappedLineMotionMode
+): void {
+  registerDisplayLineMotion(getWrappedLineMotionMode)
   if (floatingVimRegistered) return
   floatingVimRegistered = true
 
-  registerDisplayLineMotion()
   registerHeadingMotion()
 
   Vim.defineEx('write', 'w', () => {

@@ -992,6 +992,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Editor behavior',
     items: [
       { label: 'Vim mode', detail: 'Turn CodeMirror Vim bindings on or off for the editor and reference pane.' },
+      { label: 'Wrapped line motions', detail: 'Choose whether Vim $, I, A, and dependent operators such as v$, y$, d$, and c$ stop at the current visible display row or the full logical line when Word wrap is on. Explicit display-row motions g0, g^, and g$ stay display-row based in either mode.' },
       { label: 'Sync clipboard with Vim registers', detail: 'Mirror Vim and the system clipboard in both directions (like Vim\'s clipboard=unnamed): yank, delete, and change (y/d/c/x) copy to the clipboard, and p / P paste whatever is on the clipboard, so you can move text between ZenNotes and other apps without leaving normal mode. Only available when Vim mode is enabled.' },
       { label: 'Leader key hints', detail: 'Show a which-key style guide after pressing the configured Leader key so available leader actions stay visible while you decide. This setting is only available when Vim mode is enabled.' },
       { label: 'Leader hint behavior', detail: 'Choose whether leader hints auto-hide after a timeout or stay open until you dismiss them with the Leader key or Esc. These controls only appear when Vim mode is enabled.' },

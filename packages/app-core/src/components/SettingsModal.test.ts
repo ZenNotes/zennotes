@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
       darkSidebar: false,
       editorFontSize: 16,
       editorLineHeight: 1.6,
+      editorScrollOff: 0,
       fzfBinaryPath: null,
       hiddenWorkflowPresets: [],
       hideBuiltinTemplates: false,
@@ -57,6 +58,8 @@ const mocks = vi.hoisted(() => {
       vaultTextSearchBackend: "auto",
       vimInsertEscape: "",
       vimMode: false,
+      vimWrappedLineMotions: "logical",
+      setVimWrappedLineMotions: vi.fn(),
       whichKeyHintMode: "timed",
       whichKeyHintTimeoutMs: 1200,
       whichKeyHints: true,
@@ -127,6 +130,8 @@ describe("SettingsModal date note directories", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.state.vimMode = false;
+    mocks.state.vimWrappedLineMotions = "logical";
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -253,6 +258,32 @@ describe("SettingsModal date note directories", () => {
     expect(mocks.state.setTextReplacements).toHaveBeenCalledWith({
       "(c)": "→",
     });
+  });
+
+  it("offers display-row and logical-line Vim motion behavior", async () => {
+    mocks.state.vimMode = true;
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+
+    const search = [...host.querySelectorAll<HTMLInputElement>("input")].find(
+      (input) => input.placeholder === "Search settings…",
+    );
+    await act(async () => changeInput(search!, "wrapped line motions"));
+
+    const displayRow = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Display row");
+    const logicalLine = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Logical line");
+    expect(displayRow).toBeTruthy();
+    expect(logicalLine).toBeTruthy();
+
+    await act(async () => displayRow!.click());
+    expect(mocks.state.setVimWrappedLineMotions).toHaveBeenCalledWith(
+      "display",
+    );
   });
 
   it("opens directly to ZenNotes Cloud when requested by the app shell", async () => {
