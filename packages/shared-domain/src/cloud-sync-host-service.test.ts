@@ -69,6 +69,7 @@ function setup(vaults: CloudSyncVault[] = []) {
         updated_at: '2026-08-10T12:00:00.000Z'
       }
     })),
+    deleteVault: vi.fn(async () => undefined),
     manifest: vi.fn(async () => ({ data: [], cursor: 0, next_page: null })),
     changes: vi.fn(async () => ({ data: [], cursor: 0, has_more: false })),
     mutate: vi.fn(async (_vaultId: string, body: CloudSyncMutationRequest) => ({
@@ -204,6 +205,26 @@ describe('CloudSyncHostService', () => {
     expect(client.manifest).toHaveBeenCalledTimes(1)
     expect(first).toEqual(second)
     expect(hostVault.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('deletes the remote vault before dropping the link', async () => {
+    const { client, hostVault, service } = setup()
+
+    await service.createAndLink(hostVault, 'My Notes')
+    await service.deleteLinkedVault(hostVault)
+
+    expect(client.deleteVault).toHaveBeenCalledWith('vault-created')
+    await expect(service.linkedVault(hostVault)).resolves.toBeNull()
+  })
+
+  it('keeps the link when the remote delete fails', async () => {
+    const { client, hostVault, service } = setup()
+
+    await service.createAndLink(hostVault, 'My Notes')
+    client.deleteVault.mockRejectedValueOnce(new Error('offline'))
+
+    await expect(service.deleteLinkedVault(hostVault)).rejects.toThrow('offline')
+    await expect(service.linkedVault(hostVault)).resolves.toMatchObject({ vault_id: 'vault-created' })
   })
 
   it('refuses to sync a link from a different cloud origin', async () => {

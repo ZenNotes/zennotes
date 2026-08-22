@@ -3,7 +3,7 @@
   stdenv,
   fetchurl,
   autoPatchelfHook,
-  makeWrapper,
+  makeShellWrapper,
   wrapGAppsHook3,
   copyDesktopItems,
   makeDesktopItem,
@@ -24,6 +24,7 @@
   gtk3,
   libdrm,
   libGL,
+  libglvnd,
   libgbm,
   libnotify,
   libpulseaudio,
@@ -58,7 +59,7 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeBuildInputs = [
     autoPatchelfHook
-    makeWrapper
+    makeShellWrapper
     wrapGAppsHook3
     copyDesktopItems
   ];
@@ -100,9 +101,12 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   # dlopen'd at runtime (not in DT_NEEDED), so keep them on the wrapper's path.
+  # libglvnd provides libEGL.so.1, which ANGLE dlopens; without it the GPU
+  # process crash-loops and the window never maps.
   runtimeDependencies = [
     (lib.getLib systemd)
     libGL
+    libglvnd
     libnotify
     libpulseaudio
     wayland
@@ -110,7 +114,10 @@ stdenv.mkDerivation (finalAttrs: {
 
   dontConfigure = true;
   dontBuild = true;
-  # We invoke makeWrapper manually and splice in gappsWrapperArgs ourselves.
+  # We invoke the wrapper manually and splice in gappsWrapperArgs ourselves.
+  # Must be makeShellWrapper: wrapGAppsHook3 propagates makeBinaryWrapper,
+  # whose binary wrapper can't expand ''${NIXOS_OZONE_WL:+…} at runtime, so
+  # the flag reaches Electron as a literal string instead.
   dontWrapGApps = true;
 
   installPhase = ''
@@ -129,8 +136,9 @@ stdenv.mkDerivation (finalAttrs: {
       install -Dm644 "$icon" "$out/share/icons/hicolor/$size/apps/${finalAttrs.pname}.png"
     done
 
-    makeWrapper $out/share/zennotes/ZenNotes $out/bin/${finalAttrs.pname} \
+    makeShellWrapper $out/share/zennotes/ZenNotes $out/bin/${finalAttrs.pname} \
       "''${gappsWrapperArgs[@]}" \
+      --prefix LD_LIBRARY_PATH : "${lib.makeLibraryPath [ libglvnd ]}" \
       --add-flags "\''${NIXOS_OZONE_WL:+\''${WAYLAND_DISPLAY:+--ozone-platform-hint=auto}}" \
       ${lib.optionalString (commandLineArgs != "") "--add-flags ${lib.escapeShellArg commandLineArgs}"}
 

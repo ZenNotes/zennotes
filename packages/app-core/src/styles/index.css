@@ -4,6 +4,15 @@
    looks the same in the editor and the preview on every theme. (#390-adjacent) */
 @import "katex/dist/katex.min.css";
 
+/* Math size (#623): one user-set factor scales inline and block math in both
+ * the editor and the reading view, for KaTeX and Typst alike. zoom keeps the
+ * surrounding layout honest where transform: scale would overlap lines. */
+:is(.prose-zen, .cm-editor) .katex,
+:is(.prose-zen, .cm-editor) .zen-typst-math,
+:is(.prose-zen, .cm-editor) :is(.cm-math-inline, .cm-math-block) > svg {
+  zoom: var(--z-math-scale, 1);
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -1950,9 +1959,11 @@ textarea,
 /* In progress: the checkbox square with its left half filled in, in the accent
    so started work reads as live at a glance. Deliberately the same silhouette
    as `.cm-task-checkbox` (a rounded square, not a new symbol) — it is the same
-   box part-way to done, and the text is NOT struck, unlike cancelled. */
+   box part-way to done, and the text is NOT struck, unlike cancelled. Clickable
+   (checks the task off, #599), unlike the forwarded/cancelled record markers. */
 .cm-editor .cm-task-in-progress-marker {
   color: rgb(var(--z-accent));
+  cursor: pointer;
 }
 .cm-editor .cm-task-in-progress-marker::before {
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5'%3E%3Crect x='3.5' y='3.5' width='17' height='17' rx='3.5'/%3E%3Cpath d='M12 5.5H7.5A2 2 0 0 0 5.5 7.5v9a2 2 0 0 0 2 2H12z' fill='black' stroke='none'/%3E%3C/svg%3E");

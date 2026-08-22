@@ -141,8 +141,20 @@ export async function writeWorkflowFile(
 
   // A rename during an edit. The old file goes only after the new one is
   // durably in place, so a failed write leaves the original as the surviving
-  // copy instead of destroying both.
-  if (prevAbs && prevAbs !== abs) await fs.rm(prevAbs, { force: true })
+  // copy instead of destroying both. On a case-insensitive filesystem two
+  // differently-cased paths can name the SAME file the write just landed on,
+  // so compare file identity, never path spelling: a spelling compare deleted
+  // the workflow that was just saved.
+  if (prevAbs && prevAbs !== abs) {
+    let sameFile = false
+    try {
+      const [prevStat, newStat] = await Promise.all([fs.stat(prevAbs), fs.stat(abs)])
+      sameFile = prevStat.dev === newStat.dev && prevStat.ino === newStat.ino
+    } catch {
+      // Either side unstattable: the remove below treats a missing file as done.
+    }
+    if (!sameFile) await fs.rm(prevAbs, { force: true })
+  }
 
   return { id: workflowIdForName(name), sourcePath, raw: input.raw }
 }

@@ -82,7 +82,55 @@ export function wikilinkHeadingAnchor(target: string): string | null {
   if (hash < 0) return null
   const caret = target.indexOf('^')
   if (caret >= 0 && caret < hash) return null // a ^block anchor comes first
-  return target.slice(hash + 1).trim() || null
+  const anchor = target.slice(hash + 1).trim()
+  // Obsidian writes block references as `Note#^id`: the hash is its anchor
+  // separator and the caret makes it a block, never a heading named "^id".
+  // Treating it as one sent every imported Obsidian block link to the top of
+  // the note. (#601)
+  if (anchor.startsWith('^')) return null
+  return anchor || null
+}
+
+/**
+ * The `^block` id from a wikilink target, or null when there's no block anchor.
+ * `[[Doc^note-two]]` → `note-two`; `[[Doc#Heading]]` / `[[Doc]]` → null. The
+ * mirror of {@link wikilinkHeadingAnchor}: whichever marker comes first owns
+ * the anchor (`[[Doc#Heading^id]]` is a heading link), with one exception in
+ * Obsidian's favor: `[[Doc#^id]]`, hash immediately followed by caret, is its
+ * canonical block reference and parses as one. (#601)
+ */
+export function wikilinkBlockAnchor(target: string): string | null {
+  const caret = target.indexOf('^')
+  if (caret < 0) return null
+  const hash = target.indexOf('#')
+  if (hash >= 0 && hash < caret) {
+    // `Note#Heading^tail` is a heading link, but Obsidian's canonical block
+    // form `Note#^id` (nothing between the two markers) is a block link.
+    if (target.slice(hash + 1, caret).trim() !== '') return null
+  }
+  return target.slice(caret + 1).trim() || null
+}
+
+/**
+ * True for `[[^block]]`: a wikilink whose note part is empty, so it targets a
+ * block *in the current note*, the block-level twin of
+ * {@link isSameFileHeadingLink}. (#601)
+ */
+export function isSameFileBlockLink(target: string): boolean {
+  return stripWikilinkAnchor(target).trim() === '' && wikilinkBlockAnchor(target) != null
+}
+
+/**
+ * What an un-aliased `[[target]]` should read as. An anchored target is
+ * addressing, so showing it raw puts `Daily Note^note-two` in the middle of a
+ * sentence; separate the note from what it points at instead. A target with no
+ * anchor is already its own label. (#601)
+ */
+export function wikilinkDisplayLabel(target: string): string {
+  const anchor = wikilinkHeadingAnchor(target) ?? wikilinkBlockAnchor(target)
+  if (!anchor) return target
+  const note = stripWikilinkAnchor(target).trim()
+  return note ? `${note} > ${anchor}` : anchor
 }
 
 /**
@@ -144,6 +192,25 @@ export function resolveWikilinkTarget<T extends NoteRef>(notes: T[], target: str
   return visible.find((note) => normalizeForCompare(note.title) === needle) ?? null
 }
 
+/**
+ * The note path a wikilink should open, including same-note `[[#heading]]` and
+ * `[[^block]]` targets whose note part is intentionally empty. Keeping this
+ * decision beside resolution prevents keyboard and raw-link entry points from
+ * rejecting the target before anchor navigation gets a chance to dispatch it.
+ */
+export function resolveWikilinkPath<T extends NoteRef>(
+  notes: T[],
+  target: string,
+  currentPath: string | null | undefined
+): string | null {
+  const resolved = resolveWikilinkTarget(notes, target)
+  if (resolved) return resolved.path
+  if (currentPath && (isSameFileHeadingLink(target) || isSameFileBlockLink(target))) {
+    return currentPath
+  }
+  return null
+}
+
 export function backlinksForNote<T extends NoteRef & Pick<NoteMeta, 'wikilinks'>>(
   notes: T[],
   current: Pick<NoteMeta, 'path'>
@@ -157,6 +224,29 @@ export function backlinksForNote<T extends NoteRef & Pick<NoteMeta, 'wikilinks'>
     }
   }
   return out
+}
+
+/**
+ * The `^block` ids among `targets` that point into the note at `currentPath`,
+ * de-duplicated and in first-seen order.
+ *
+ * Backlinks are resolved with the anchor stripped, so a note that reached for
+ * one specific block looks identical to one that linked at the whole page.
+ * This recovers that detail for the Connections panel. (#601)
+ */
+export function blockAnchorsTargeting<T extends NoteRef>(
+  notes: T[],
+  targets: string[],
+  currentPath: string
+): string[] {
+  const seen = new Set<string>()
+  for (const target of targets) {
+    const block = wikilinkBlockAnchor(target)
+    if (!block) continue
+    if (resolveWikilinkTarget(notes, target)?.path !== currentPath) continue
+    seen.add(block)
+  }
+  return [...seen]
 }
 
 export function extractWikilinkTargets(body: string): string[] {

@@ -1,0 +1,1228 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZenNotes Atlas</title>
+<style>
+  /* Committed single-theme design: a night sky of notes. Every color painted explicitly. */
+  :root {
+    --ink: #0A0D15;
+    --parchment: #E9E4D6;
+    --muted: #97A0B5;
+    --faint: #5A6378;
+    --panel: rgba(15, 19, 31, 0.94);
+    --line: #232B3D;
+    --accent: #E6C87E;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ink); color: var(--parchment);
+    font-family: var(--sans); overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  #map { position: fixed; inset: 0; display: block; cursor: grab; background: var(--ink); }
+  #map.dragging { cursor: grabbing; }
+
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 16px;
+    padding: 14px 18px; pointer-events: none;
+  }
+  .cartouche { pointer-events: auto; }
+  .cartouche h1 {
+    margin: 0; font-family: var(--serif); font-weight: 500;
+    font-size: 20px; letter-spacing: 0.38em; text-transform: uppercase;
+    color: var(--parchment);
+  }
+  .cartouche p {
+    margin: 2px 0 0; font-size: 11px; color: var(--muted); letter-spacing: 0.04em;
+  }
+  .topbar .spacer { flex: 1; }
+  .lens-chip {
+    pointer-events: auto; cursor: pointer; user-select: none;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    color: var(--accent); background: rgba(230, 200, 126, 0.08);
+    border: 1px solid rgba(230, 200, 126, 0.35); border-radius: 999px;
+    padding: 5px 12px;
+  }
+  .lens-chip.structure { color: var(--muted); border-color: var(--line); background: rgba(151,160,181,0.06); }
+
+  #filterwrap {
+    pointer-events: auto; display: none; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px;
+  }
+  #filterwrap.active { display: flex; }
+  #filterwrap .slash { font-family: var(--mono); color: var(--accent); font-size: 13px; }
+  #filter {
+    background: none; border: none; outline: none; color: var(--parchment);
+    font-family: var(--sans); font-size: 13px; width: 200px;
+  }
+  #filtercount { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  .hud {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 18px; pointer-events: none;
+    font-family: var(--mono); font-size: 11px; color: var(--faint);
+  }
+  .hud .hints { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .hud .hint { pointer-events: auto; cursor: pointer; white-space: nowrap; }
+  .hud .hint:hover { color: var(--muted); }
+  .hud .hint kbd {
+    font-family: var(--mono); font-size: 10px; color: var(--parchment);
+    background: #161C2C; border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 4px; padding: 1px 5px; margin-right: 4px;
+  }
+  .hud .spacer { flex: 1; }
+  .hud .stats { color: var(--faint); white-space: nowrap; }
+
+  #panel {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 20;
+    width: min(360px, 92vw); background: var(--panel);
+    border-left: 1px solid var(--line);
+    transform: translateX(105%); transition: transform 0.28s cubic-bezier(.3,.9,.3,1);
+    padding: 22px 20px; overflow-y: auto; backdrop-filter: blur(6px);
+  }
+  #panel.open { transform: translateX(0); }
+  #panel h2 { margin: 0 0 6px; font-family: var(--serif); font-weight: 500; font-size: 21px; line-height: 1.25; text-wrap: balance; }
+  #panel .meta { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 12px; }
+  #panel .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 16px; }
+  #panel .chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line); color: var(--muted); background: rgba(151,160,181,0.06);
+  }
+  #panel .chip.region { border-color: currentColor; background: none; }
+  #panel .body {
+    font-size: 13px; line-height: 1.65; color: #C6C2B4;
+    border-left: 2px solid var(--line); padding-left: 12px; margin-bottom: 18px;
+  }
+  #panel .body .wl { color: var(--accent); }
+  #panel h3 {
+    margin: 18px 0 8px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--faint); font-weight: 600;
+  }
+  #panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  #panel li { display: flex; align-items: center; gap: 8px; }
+  #panel .rowbtn {
+    flex: 1; text-align: left; background: none; border: none; cursor: pointer;
+    color: var(--parchment); font-family: var(--sans); font-size: 13px;
+    padding: 5px 8px; border-radius: 6px;
+  }
+  #panel .rowbtn:hover, #panel .rowbtn:focus-visible { background: rgba(151,160,181,0.1); outline: none; }
+  #panel .rowbtn .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; }
+  #panel .linkbtn {
+    background: rgba(230,200,126,0.1); color: var(--accent); border: 1px solid rgba(230,200,126,0.4);
+    border-radius: 6px; font-family: var(--mono); font-size: 10px; padding: 3px 8px; cursor: pointer;
+  }
+  #panel .linkbtn:hover, #panel .linkbtn:focus-visible { background: rgba(230,200,126,0.22); outline: none; }
+  #panel .empty { font-size: 12px; color: var(--faint); padding: 4px 8px; }
+
+  #help {
+    position: fixed; inset: 0; z-index: 30; display: none;
+    background: rgba(6, 8, 14, 0.82); backdrop-filter: blur(4px);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  #help.open { display: flex; }
+  #help .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    max-width: 620px; width: 100%; max-height: 86vh; overflow-y: auto; padding: 28px 30px;
+  }
+  #help h2 { margin: 0 0 4px; font-family: var(--serif); font-weight: 500; letter-spacing: 0.3em; text-transform: uppercase; font-size: 16px; }
+  #help .sub { font-size: 12.5px; color: var(--muted); line-height: 1.6; margin: 0 0 18px; }
+  #help .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 28px; }
+  #help .krow { display: flex; align-items: baseline; gap: 10px; padding: 4px 0; font-size: 12.5px; color: #C6C2B4; }
+  #help .krow kbd {
+    font-family: var(--mono); font-size: 11px; color: var(--parchment); min-width: 46px; text-align: center;
+    background: #161C2C; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 2px 6px;
+  }
+  #help h3 { margin: 16px 0 6px; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+
+  #toast {
+    position: fixed; bottom: 52px; left: 50%; transform: translateX(-50%) translateY(8px);
+    z-index: 25; background: var(--panel); border: 1px solid rgba(230,200,126,0.4);
+    color: var(--parchment); font-size: 12.5px; padding: 9px 16px; border-radius: 8px;
+    opacity: 0; transition: opacity 0.25s, transform 0.25s; pointer-events: none;
+    font-family: var(--mono); max-width: 80vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  #replaybar {
+    position: fixed; bottom: 44px; left: 50%; transform: translateX(-50%);
+    z-index: 15; display: none; align-items: center; gap: 14px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 16px; width: min(560px, 90vw);
+  }
+  #replaybar.active { display: flex; }
+  #replaybar button {
+    background: none; border: 1px solid var(--line); color: var(--parchment); border-radius: 6px;
+    font-family: var(--mono); font-size: 11px; padding: 4px 10px; cursor: pointer;
+  }
+  #replaybar button:hover { border-color: var(--accent); color: var(--accent); }
+  #replaydate { font-family: var(--mono); font-size: 11px; color: var(--accent); min-width: 76px; text-align: right; }
+  #replayrange { flex: 1; accent-color: #E6C87E; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    #panel { transition: none; }
+    #toast { transition: none; }
+  }
+</style>
+
+<canvas id="map"></canvas>
+
+<header class="topbar">
+  <div class="cartouche">
+    <h1>Atlas</h1>
+    <p id="subtitle">a map of this vault · prototype</p>
+  </div>
+  <div class="spacer"></div>
+  <div id="filterwrap"><span class="slash">/</span><input id="filter" placeholder="filter notes and tags" autocomplete="off"><span id="filtercount"></span></div>
+  <div id="lenschip" class="lens-chip structure" role="button" tabindex="0" title="Cycle lenses (1..5)">structure</div>
+</header>
+
+<footer class="hud">
+  <div class="hints">
+    <span class="hint" data-act="hint"><kbd>f</kbd>jump</span>
+    <span class="hint" data-act="filter"><kbd>/</kbd>filter</span>
+    <span class="hint"><kbd>hjkl</kbd>move</span>
+    <span class="hint"><kbd>+ -</kbd>zoom</span>
+    <span class="hint" data-act="mode"><kbd>v</kbd>2d/3d</span>
+    <span class="hint" data-act="orbit"><kbd>o</kbd>rings</span>
+    <span class="hint" data-act="trace"><kbd>m</kbd>trace</span>
+    <span class="hint" data-act="edges"><kbd>c</kbd>links</span>
+    <span class="hint" data-act="replay"><kbd>t</kbd>replay</span>
+    <span class="hint" data-act="lens"><kbd>1..5</kbd>lens</span>
+    <span class="hint" data-act="help"><kbd>?</kbd>help</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="stats" id="stats"></div>
+</footer>
+
+<aside id="panel" aria-label="Note details"></aside>
+
+<div id="help" role="dialog" aria-label="Help">
+  <div class="card">
+    <h2>Atlas</h2>
+    <p class="sub">A stable map of the vault, floating in space. Regions are constellations of
+    linked notes; node size is how linked a note is; the camera orbits, and the map drifts
+    gently when your hands are off the keys. Positions are computed once and cached, so
+    the sky looks the same tomorrow. Lenses recolor it to answer a question.</p>
+    <div class="cols">
+      <div class="krow"><kbd>f</kbd> hint jump to any visible note</div>
+      <div class="krow"><kbd>/</kbd> filter by title or tag</div>
+      <div class="krow"><kbd>v</kbd> toggle the sky (3D) and the map (2D)</div>
+      <div class="krow"><kbd>h j k l</kbd> orbit and tilt in 3D, pan in 2D</div>
+      <div class="krow"><kbd>+ / -</kbd> fly closer / further</div>
+      <div class="krow"><kbd>Enter</kbd> open the focused note</div>
+      <div class="krow"><kbd>o</kbd> rings around the focused note</div>
+      <div class="krow"><kbd>z z</kbd> center on the focused note</div>
+      <div class="krow"><kbd>[ / ]</kbd> previous / next region</div>
+      <div class="krow"><kbd>m</kbd> mark twice, trace the path</div>
+      <div class="krow"><kbd>c</kbd> links: quiet, all, off</div>
+      <div class="krow"><kbd>t</kbd> replay the vault through time</div>
+      <div class="krow"><kbd>a</kbd> accept best suggested link</div>
+      <div class="krow"><kbd>Esc</kbd> unwind one layer</div>
+    </div>
+    <h3>Lenses</h3>
+    <div class="cols">
+      <div class="krow"><kbd>1</kbd> Structure: the plain sky</div>
+      <div class="krow"><kbd>2</kbd> Heat: glow is recent editing</div>
+      <div class="krow"><kbd>3</kbd> Orphans: notes with no links</div>
+      <div class="krow"><kbd>4</kbd> Bridges: notes joining regions</div>
+      <div class="krow"><kbd>5</kbd> Suggestions: ghost links to accept</div>
+    </div>
+    <h3>In the real app</h3>
+    <p class="sub" style="margin:6px 0 0">Opens with <kbd style="font-family:var(--mono);font-size:11px;background:#161C2C;border:1px solid var(--line);border-radius:4px;padding:1px 5px">Space g</kbd> or :atlas. Mouse: drag orbits,
+    shift-drag pans, wheel flies. With vim mode off, arrows orbit, Enter opens, Escape
+    unwinds, and the toolbar carries everything else.</p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<div id="replaybar">
+  <button id="replayplay">play</button>
+  <input type="range" id="replayrange" min="0" max="1000" value="0" aria-label="Replay timeline">
+  <span id="replaydate"></span>
+</div>
+
+<script>
+'use strict';
+/* ---------------- deterministic rng ---------------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rng = mulberry32(20260818);
+
+/* ---------------- the fake vault ---------------- */
+const REGIONS = [
+  { name:'Systems Programming', hue:'#6E93D6', tags:['rust','systems'], era:[380,1050], heat:200,
+    titles:['Ownership and borrowing, finally','Go scheduler internals','Channels vs mutexes','Zero-copy parsing notes','The cost of async','Arena allocators','Error handling taxonomies','epoll, kqueue, io_uring','Writing a toy allocator','Rust lifetimes cheat sheet','Memory ordering models','Profiling with flamegraphs','Syscalls from scratch','Green threads history','Fearless concurrency, mostly','The Zen of Go'] },
+  { name:'Zen Practice', hue:'#8FBE9B', tags:['zen','meditation'], era:[300,1100], heat:90,
+    titles:['Shikantaza notes','The beginner\'s mind','Dogen on time','Breath counting log','Sitting schedule','Kinhin walking meditation','Zazen posture fixes','Attention as a muscle','Non-doing and effort','Sesshin retreat notes','Mu koan','Mind like water'] },
+  { name:'Cooking', hue:'#D98E5F', tags:['cooking','recipes'], era:[150,900], heat:60,
+    titles:['Weeknight ramen broth','Sourdough starter log','Knife sharpening angles','Cast iron care','Miso soup variations','Fermentation basics','Dashi from scratch','Pizza dough hydration','Espresso dialing log','Curry paste experiments','Tamago kake gohan','Shokupan milk bread','Mise en place for programmers','Salt to taste, measured'] },
+  { name:'Book Notes', hue:'#D4B266', tags:['books','reading'], era:[100,1100], heat:45,
+    titles:['How to take smart notes','Thinking, Fast and Slow','Deep Work','The Mythical Man-Month','Godel, Escher, Bach','The Design of Everyday Things','Zen and the Art of Motorcycle Maintenance','Salt Fat Acid Heat','The Master and His Emissary','Structure and Interpretation','Musashi','Snow Country','Antifragile','The Timeless Way of Building','The Art of Doing Science and Engineering'] },
+  { name:'Machine Learning', hue:'#A88FD0', tags:['ml','ai'], era:[60,420], heat:25,
+    titles:['Embeddings intuition','Attention, annotated','The bitter lesson','Tokenizers deep dive','Local LLM setup','RLHF overview','Loss landscapes','Gradient checkpointing','Fine-tuning diary','RAG evaluation notes','Diffusion models sketch','Perplexity explained'] },
+  { name:'ZenNotes Dev', hue:'#5FB3AE', tags:['zennotes','dev'], era:[30,700], heat:10,
+    titles:['Vault watcher design','CodeMirror decorations','IPC bridge trust model','Atomic writes everywhere','Vim mode edge cases','Release checklist','Sidebar virtualization','Electron packaging scars','Sync conflict copies','Workflows engine notes','Kanban drag bugs','Hint mode leniency','Task parser quirks','MCP server plans'] },
+  { name:'Travel', hue:'#D083A0', tags:['travel','japan'], era:[420,560], heat:380,
+    titles:['Kyoto temple loop','Tokyo coffee list','Onsen etiquette','JR pass math','Osaka street food','Packing list, one bag','Naoshima art island','Shinkansen window seats','Hakone loop notes','Teamlab tickets'] },
+  { name:'Journal', hue:'#8B93A7', tags:['journal'], era:[5,720], heat:6,
+    titles:['Why I keep notes','On finishing things','Digital garden doubts','Morning pages digest','Three good things','Week 30: quiet days','Week 31: release crunch','Week 32: slow mornings','Kyoto planning','A year of daily notes','What sticks and why','Notes on attention'] },
+  { name:'Inbox', hue:'#6B7280', tags:['inbox'], era:[2,60], heat:20,
+    titles:['Car insurance renewal','Wifi router settings','Gift ideas','Old phone backup codes','Dentist notes','Random shower thought'] },
+];
+const BRIDGES = [
+  ['The Zen of Go','The beginner\'s mind'],
+  ['Mise en place for programmers','Deep Work'],
+  ['Mise en place for programmers','Release checklist'],
+  ['Zen and the Art of Motorcycle Maintenance','Dogen on time'],
+  ['Salt Fat Acid Heat','Weeknight ramen broth'],
+  ['Snow Country','Kyoto temple loop'],
+  ['Shokupan milk bread','Tokyo coffee list'],
+  ['How to take smart notes','Why I keep notes'],
+  ['How to take smart notes','Digital garden doubts'],
+  ['The bitter lesson','The Art of Doing Science and Engineering'],
+  ['Attention as a muscle','Deep Work'],
+  ['Attention as a muscle','Notes on attention'],
+  ['Local LLM setup','MCP server plans'],
+  ['Week 31: release crunch','Release checklist'],
+  ['Week 32: slow mornings','Sitting schedule'],
+  ['Kyoto planning','Kyoto temple loop'],
+  ['Kyoto planning','JR pass math'],
+  ['On finishing things','The Mythical Man-Month'],
+  ['A year of daily notes','Morning pages digest'],
+];
+const GHOSTS = [
+  ['Godel, Escher, Bach','Mu koan'],
+  ['Tokenizers deep dive','Structure and Interpretation'],
+  ['Onsen etiquette','Sesshin retreat notes'],
+  ['Espresso dialing log','Morning pages digest'],
+  ['The Design of Everyday Things','Hint mode leniency'],
+  ['Musashi','Knife sharpening angles'],
+  ['Fermentation basics','Antifragile'],
+  ['Embeddings intuition','Notes on attention'],
+  ['The Timeless Way of Building','Vault watcher design'],
+];
+const BLURBS = {
+  'Systems Programming':'Working notes, mostly from reading source and tracing syscalls. The parts that surprised me are marked.',
+  'Zen Practice':'Practice log and reading notes. Short entries, kept honest.',
+  'Cooking':'Ratios, timings, and what actually happened. The failures are the useful part.',
+  'Book Notes':'Reading notes in my own words, one idea per heading, linked where ideas touch.',
+  'Machine Learning':'Trying to keep intuitions ahead of the jargon. Diagrams redrawn from memory to test them.',
+  'ZenNotes Dev':'Design notes and scars. Written for the next person to touch this code, who is me.',
+  'Travel':'Plans, then what actually happened. Kept for the next trip.',
+  'Journal':'Daily and weekly entries. The links out are the whole point.',
+  'Inbox':'Captured and not yet filed.',
+};
+
+/* build notes */
+const notes = []; const byTitle = new Map();
+REGIONS.forEach((reg, ri) => {
+  reg.titles.forEach((title, ti) => {
+    const created = reg.era[0] + rng() * (reg.era[1] - reg.era[0]);
+    const updated = Math.min(created, reg.heat * (0.3 + rng() * 1.4) * (ti === 0 ? 0.3 : 1));
+    const tags = [reg.tags[0]];
+    if (rng() > 0.45 && reg.tags[1]) tags.push(reg.tags[1]);
+    const n = { id: notes.length, title, region: ri, tags, created, updated, out: new Set() };
+    notes.push(n); byTitle.set(title, n);
+  });
+});
+byTitle.get('Snow Country').tags.push('japan');
+byTitle.get('Shokupan milk bread').tags.push('japan');
+byTitle.get('Kyoto planning').tags.push('japan');
+
+/* links: preferential attachment inside regions, then explicit bridges */
+const edges = []; const edgeSet = new Set();
+const ekey = (a,b) => a < b ? a + ':' + b : b + ':' + a;
+function addEdge(a, b, fresh) {
+  if (a === b || edgeSet.has(ekey(a.id, b.id))) return false;
+  edgeSet.add(ekey(a.id, b.id));
+  edges.push({ a: a.id, b: b.id, fresh: fresh ? performance.now() : 0 });
+  a.out.add(b.id); b.out.add(a.id);
+  return true;
+}
+REGIONS.forEach((reg, ri) => {
+  if (reg.name === 'Inbox') return;
+  const rn = notes.filter(n => n.region === ri);
+  rn.forEach((n, i) => {
+    if (i === 0) return;
+    const links = 1 + Math.floor(rng() * 2.4);
+    for (let k = 0; k < links; k++) {
+      const t = rng() < 0.55 ? rn[Math.floor(rng() * Math.min(3, i))] : rn[Math.floor(rng() * i)];
+      addEdge(n, t);
+    }
+  });
+});
+BRIDGES.forEach(([a, b]) => addEdge(byTitle.get(a), byTitle.get(b)));
+let suggestions = GHOSTS.map(([a, b]) => ({ a: byTitle.get(a).id, b: byTitle.get(b).id }))
+  .filter(s => !edgeSet.has(ekey(s.a, s.b)));
+notes.forEach(n => {
+  n.degree = n.out.size;
+  n.heat = Math.max(0, 1 - n.updated / 240);
+});
+
+/* ---------------- layout: constellations on a fibonacci sky, seeded relax, then frozen ---------------- */
+const GOLD = 2.3999632;
+const regionCenters = [];
+{
+  const R = REGIONS.length;
+  REGIONS.forEach((reg, ri) => {
+    const count = reg.titles.length;
+    const yy = 1 - 2 * (ri + 0.5) / R;
+    const rr = Math.sqrt(Math.max(0, 1 - yy * yy));
+    const th = ri * GOLD * 2.1;
+    regionCenters.push({
+      x: Math.cos(th) * rr * 500,
+      y: yy * 350,
+      z: Math.sin(th) * rr * 500,
+      r: 30 * Math.sqrt(count) + 36,
+    });
+  });
+}
+notes.forEach(n => {
+  const c = regionCenters[n.region];
+  const rn = notes.filter(m => m.region === n.region);
+  const j = rn.indexOf(n);
+  const yy = 1 - 2 * (j + 0.5) / rn.length;
+  const rr = Math.sqrt(Math.max(0, 1 - yy * yy));
+  const th = j * GOLD + n.region * 1.7;
+  const rad = c.r * 0.85;
+  n.x = c.x + Math.cos(th) * rr * rad + (rng() - 0.5) * 20;
+  n.y = c.y + yy * rad * 0.85 + (rng() - 0.5) * 20;
+  n.z = c.z + Math.sin(th) * rr * rad + (rng() - 0.5) * 20;
+});
+for (let it = 0; it < 120; it++) {
+  const fx = new Float64Array(notes.length), fy = new Float64Array(notes.length), fz = new Float64Array(notes.length);
+  for (let i = 0; i < notes.length; i++) for (let j = i + 1; j < notes.length; j++) {
+    const dx = notes[j].x - notes[i].x, dy = notes[j].y - notes[i].y, dz = notes[j].z - notes[i].z;
+    const d2 = dx * dx + dy * dy + dz * dz + 40;
+    if (d2 < 40000) {
+      const f = 2400 / d2, d = Math.sqrt(d2);
+      fx[i] -= f * dx / d * 13; fy[i] -= f * dy / d * 13; fz[i] -= f * dz / d * 13;
+      fx[j] += f * dx / d * 13; fy[j] += f * dy / d * 13; fz[j] += f * dz / d * 13;
+    }
+  }
+  edges.forEach(e => {
+    const a = notes[e.a], b = notes[e.b];
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    const same = a.region === b.region;
+    const rest = same ? 85 : 330; const k = same ? 0.016 : 0.004;
+    const f = k * (d - rest);
+    fx[e.a] += f * dx / d; fy[e.a] += f * dy / d; fz[e.a] += f * dz / d;
+    fx[e.b] -= f * dx / d; fy[e.b] -= f * dy / d; fz[e.b] -= f * dz / d;
+  });
+  notes.forEach((n, i) => {
+    const c = regionCenters[n.region];
+    fx[i] += (c.x - n.x) * 0.012; fy[i] += (c.y - n.y) * 0.012; fz[i] += (c.z - n.z) * 0.012;
+    n.x += Math.max(-13, Math.min(13, fx[i]));
+    n.y += Math.max(-13, Math.min(13, fy[i]));
+    n.z += Math.max(-13, Math.min(13, fz[i]));
+  });
+}
+/* recentre region label anchors on their notes' final centroids */
+REGIONS.forEach((reg, ri) => {
+  const rn = notes.filter(n => n.region === ri);
+  regionCenters[ri].lx = rn.reduce((s, n) => s + n.x, 0) / rn.length;
+  regionCenters[ri].ly = rn.reduce((s, n) => s + n.y, 0) / rn.length - regionCenters[ri].r * 0.7;
+  regionCenters[ri].lz = rn.reduce((s, n) => s + n.z, 0) / rn.length;
+});
+notes.forEach(n => { n.x3 = n.x; n.y3 = n.y; n.z3 = n.z; });
+
+/* ---------------- a second, flat layout for the 2D map view ---------------- */
+REGIONS.forEach((reg, ri) => {
+  const ang = ri * GOLD; const rad = ri === 0 ? 0 : 300 * Math.sqrt(ri + 0.55);
+  regionCenters[ri].x2 = Math.cos(ang) * rad;
+  regionCenters[ri].y2 = Math.sin(ang) * rad * 0.86;
+});
+notes.forEach(n => {
+  const c = regionCenters[n.region];
+  const rn = notes.filter(m => m.region === n.region);
+  const j = rn.indexOf(n);
+  const rr = c.r * 0.9 * Math.sqrt((j + 0.6) / rn.length);
+  const th = j * GOLD + n.region * 1.7;
+  n.x2 = c.x2 + Math.cos(th) * rr + (rng() - 0.5) * 22;
+  n.y2 = c.y2 + Math.sin(th) * rr + (rng() - 0.5) * 22;
+});
+for (let it = 0; it < 140; it++) {
+  const fx = new Float64Array(notes.length), fy = new Float64Array(notes.length);
+  for (let i = 0; i < notes.length; i++) for (let j = i + 1; j < notes.length; j++) {
+    const dx = notes[j].x2 - notes[i].x2, dy = notes[j].y2 - notes[i].y2;
+    const d2 = dx * dx + dy * dy + 40;
+    if (d2 < 44000) { const f = 2600 / d2; const d = Math.sqrt(d2);
+      fx[i] -= f * dx / d * 14; fy[i] -= f * dy / d * 14; fx[j] += f * dx / d * 14; fy[j] += f * dy / d * 14; }
+  }
+  edges.forEach(e => {
+    const a = notes[e.a], b = notes[e.b];
+    const dx = b.x2 - a.x2, dy = b.y2 - a.y2; const d = Math.hypot(dx, dy) || 1;
+    const same = a.region === b.region;
+    const rest = same ? 95 : 340; const k = same ? 0.016 : 0.004;
+    const f = k * (d - rest);
+    fx[e.a] += f * dx / d; fy[e.a] += f * dy / d; fx[e.b] -= f * dx / d; fy[e.b] -= f * dy / d;
+  });
+  notes.forEach((n, i) => {
+    const c = regionCenters[n.region];
+    fx[i] += (c.x2 - n.x2) * 0.012; fy[i] += (c.y2 - n.y2) * 0.012;
+    n.x2 += Math.max(-14, Math.min(14, fx[i])); n.y2 += Math.max(-14, Math.min(14, fy[i]));
+  });
+}
+REGIONS.forEach((reg, ri) => {
+  const rn = notes.filter(n => n.region === ri);
+  regionCenters[ri].lx2 = rn.reduce((s, n) => s + n.x2, 0) / rn.length;
+  regionCenters[ri].ly2 = rn.reduce((s, n) => s + n.y2, 0) / rn.length - regionCenters[ri].r * 0.55;
+});
+/* animated label anchors so region names travel with the morph */
+regionCenters.forEach(c => { c.ax = c.lx; c.ay = c.ly; c.az = c.lz; });
+
+notes.forEach(n => { n.dx = n.x; n.dy = n.y; n.dz = n.z; n.tx = n.x; n.ty = n.y; n.tz2 = n.z; n.alpha = 0; });
+function volBound(get) {
+  const pts = notes.map(get);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), zs = pts.map(p => p[2]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2,
+        cz = (Math.min(...zs) + Math.max(...zs)) / 2;
+  const R = Math.max(...pts.map(p => Math.hypot(p[0] - cx, p[1] - cy, p[2] - cz))) + 140;
+  return { cx, cy, cz, R };
+}
+const bound3o = volBound(n => [n.x3, n.y3, n.z3]);
+const bound2o = volBound(n => [n.x2, n.y2, 0]);
+const boundR = bound3o.R;
+
+/* faint far stars for parallax */
+const stars = [];
+{
+  const sr = mulberry32(77);
+  for (let i = 0; i < 150; i++) {
+    const yy = 1 - 2 * (i + 0.5) / 150, rr = Math.sqrt(Math.max(0, 1 - yy * yy)), th = i * GOLD * 3.7 + sr() * 0.5;
+    stars.push({ x: Math.cos(th) * rr * boundR * 4, y: yy * boundR * 4, z: Math.sin(th) * rr * boundR * 4, a: 0.08 + sr() * 0.16 });
+  }
+}
+
+/* ---------------- betweenness (Brandes, unweighted) ---------------- */
+const between = new Float64Array(notes.length);
+{
+  const adj = notes.map(n => [...n.out]);
+  for (let s = 0; s < notes.length; s++) {
+    const stack = [], pred = notes.map(() => []), sigma = new Float64Array(notes.length),
+      dist = new Int32Array(notes.length).fill(-1), delta = new Float64Array(notes.length);
+    sigma[s] = 1; dist[s] = 0; const q = [s];
+    while (q.length) {
+      const v = q.shift(); stack.push(v);
+      for (const w of adj[v]) {
+        if (dist[w] < 0) { dist[w] = dist[v] + 1; q.push(w); }
+        if (dist[w] === dist[v] + 1) { sigma[w] += sigma[v]; pred[w].push(v); }
+      }
+    }
+    while (stack.length) {
+      const w = stack.pop();
+      for (const v of pred[w]) delta[v] += (sigma[v] / sigma[w]) * (1 + delta[w]);
+      if (w !== s) between[w] += delta[w];
+    }
+  }
+}
+const maxBetween = Math.max(...between);
+
+/* ---------------- state ---------------- */
+const canvas = document.getElementById('map');
+const ctx = canvas.getContext('2d');
+let vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const F = 900; /* focal length */
+const cam = {
+  yaw: 0.6, pitch: 0.3, dist: boundR * 2.6,
+  yawT: 0.6, pitchT: 0.3, distT: boundR * 2.6,
+  cx: 0, cy: 0, cz: 0, cxT: 0, cyT: 0, czT: 0,
+};
+let focusId = -1, hoverId = -1;
+let lens = 1;                       /* 1 structure 2 heat 3 orphans 4 bridges 5 suggestions */
+let filterQ = '';
+let hint = null;
+let orbit = null;
+let trace = { a: -1, edges: null, nodes: null };
+let replay = null;
+let zPending = 0;
+let edgeMode = 0;                   /* 0 quiet · 1 all · 2 off */
+let mode3d = true, modeMix = 1;     /* v toggles; modeMix eases stars and drift out in 2D */
+let savedYaw = 0.6, savedPitch = 0.3;
+let camTouched = false, lastInteract = 0;
+const born = performance.now();
+const minCreated = Math.max(...notes.map(n => n.created));
+const NOW = Date.now();
+
+const lensNames = { 1: 'structure', 2: 'heat', 3: 'orphans', 4: 'bridges', 5: 'suggestions' };
+const $ = (id) => document.getElementById(id);
+const touchCam = () => { camTouched = true; lastInteract = performance.now(); };
+
+function fmtAgo(days) {
+  if (days < 1) return 'today';
+  if (days < 30) return Math.round(days) + 'd ago';
+  if (days < 365) return Math.round(days / 30) + 'mo ago';
+  return (days / 365).toFixed(1) + 'y ago';
+}
+function fmtDate(daysAgo) {
+  const d = new Date(NOW - daysAgo * 86400000);
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._h); toast._h = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function updateChrome() {
+  const chip = $('lenschip');
+  chip.textContent = replay ? 'replay' : lensNames[lens];
+  chip.classList.toggle('structure', lens === 1 && !replay);
+  $('stats').textContent = notes.length + ' notes · ' + (REGIONS.length - 1) + ' regions · ' + edges.length + ' links';
+}
+updateChrome();
+
+/* ---------------- projection ---------------- */
+let cosY = 1, sinY = 0, cosP = 1, sinP = 0;
+function project(x, y, z) {
+  const px = x - cam.cx, py = y - cam.cy, pz = z - cam.cz;
+  const xr = px * cosY - pz * sinY;
+  const z1 = px * sinY + pz * cosY;
+  const yr = py * cosP - z1 * sinP;
+  const zr = py * sinP + z1 * cosP;
+  const depth = zr + cam.dist;
+  if (depth < 60) return null;
+  const s = F / depth;
+  const rel = depth / cam.dist;
+  const fog = Math.max(0.14, Math.min(1, 1.55 - rel * 0.55));
+  return { sx: vw / 2 + xr * s, sy: vh / 2 + yr * s, s, fog, depth };
+}
+function camRight() { return [cosY, 0, -sinY]; }
+function camUp() { return [sinY * sinP, cosP, cosY * sinP]; }
+const zoomLevel = () => F / cam.dist;
+
+const curBound = () => mode3d ? bound3o : bound2o;
+const maxDist = () => curBound().R * 6;
+function fitAll() {
+  const B = curBound();
+  cam.cxT = B.cx; cam.cyT = B.cy; cam.czT = B.cz;
+  cam.distT = Math.max(B.R * 1.15, Math.min(B.R * 2.4, B.R * F / (Math.min(vw, vh) * 0.62)));
+}
+function centerOn(n, closer) {
+  touchCam();
+  cam.cxT = n.tx; cam.cyT = n.ty; cam.czT = n.tz2;
+  if (closer) cam.distT = Math.min(cam.distT, F / 1.1);
+}
+function fitRegion(ri) {
+  touchCam();
+  const c = regionCenters[ri];
+  if (mode3d) { cam.cxT = c.lx; cam.cyT = c.ly + c.r * 0.7; cam.czT = c.lz; }
+  else { cam.cxT = c.lx2; cam.cyT = c.ly2 + c.r * 0.55; cam.czT = 0; }
+  cam.distT = Math.max(F * 0.5, c.r * F / (Math.min(vw, vh) * 0.33));
+}
+function setMode(three) {
+  if (mode3d === three) return;
+  if (orbit) exitOrbit();
+  mode3d = three;
+  notes.forEach(n => {
+    n.x = three ? n.x3 : n.x2; n.y = three ? n.y3 : n.y2; n.z = three ? n.z3 : 0;
+    n.tx = n.x; n.ty = n.y; n.tz2 = n.z;
+  });
+  touchCam();
+  if (three) { cam.yawT = savedYaw; cam.pitchT = savedPitch; }
+  else {
+    savedYaw = cam.yawT; savedPitch = cam.pitchT;
+    cam.yawT = Math.round(cam.yaw / (Math.PI * 2)) * Math.PI * 2;
+    cam.pitchT = 0;
+  }
+  fitAll();
+  toast(three ? 'View: sky (3D)' : 'View: map (2D)');
+}
+
+/* ---------------- emphasis: one place decides how visible everything is ---------------- */
+function noteVisibleInReplay(n) { return !replay || n.created >= replay.t; }
+function nodeEmphasis(n) {
+  let a = 1, glow = 0;
+  if (replay) return { a: n.created >= replay.t ? 1 : 0, glow: 0 };
+  if (orbit) {
+    if (n.id === orbit.center) return { a: 1, glow: 0.6 };
+    if (orbit.members.has(n.id)) a = 1;
+    else if (orbit.ghosts.has(n.id)) a = 0.75;
+    else return { a: 0.04, glow: 0 };
+  }
+  if (filterQ) {
+    const q = filterQ.toLowerCase();
+    const match = n.title.toLowerCase().includes(q) || n.tags.some(t => t.includes(q));
+    if (!match) return { a: 0.05, glow: 0 };
+    glow = 0.3;
+  }
+  if (trace.nodes) { if (!trace.nodes.has(n.id)) return { a: 0.07, glow: 0 }; glow = 0.5; }
+  if (lens === 2) { a = 0.25 + 0.75 * n.heat; glow = n.heat; }
+  if (lens === 3) { if (n.degree === 0) { glow = 0.8; } else a = Math.min(a, 0.12); }
+  if (lens === 4) { const b = between[n.id] / maxBetween; a = 0.16 + 0.84 * Math.pow(b, 0.5); glow = Math.pow(b, 0.6); }
+  if (lens === 5) {
+    const has = suggestions.some(s => s.a === n.id || s.b === n.id);
+    if (has) glow = 0.5; else a = Math.min(a, 0.28);
+  }
+  return { a, glow };
+}
+
+/* ---------------- render ---------------- */
+function syncSize() {
+  /* the embedded preview pane reports window.innerWidth as 0 and phantom 300x150
+     layout boxes, so measure the canvas itself and only accept real panes */
+  const r = canvas.getBoundingClientRect();
+  if (r.width > 340 && r.height > 200) { vw = r.width; vh = r.height; }
+}
+function resize() {
+  syncSize();
+  const dpr = devicePixelRatio || 1;
+  const W = Math.round(vw * dpr), H = Math.round(vh * dpr);
+  if (canvas.width !== W || canvas.height !== H) {
+    canvas.width = W; canvas.height = H;
+    canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
+  }
+}
+addEventListener('resize', resize); resize(); fitAll();
+cam.dist = cam.distT * (reduceMotion ? 1 : 1.25);
+
+function draw(now) {
+  requestAnimationFrame(draw);
+  resize();
+  const dpr = devicePixelRatio || 1;
+  /* time-based easing: throttled frames still converge in wall-clock time */
+  const dt = Math.min(500, now - (draw._last || now)); draw._last = now;
+  const lerp = reduceMotion ? 1 : 1 - Math.exp(-dt / 150);
+  const kA = reduceMotion ? 1 : 1 - Math.exp(-dt / 170);
+  /* ambient drift when idle, only in the sky */
+  modeMix += ((mode3d ? 1 : 0) - modeMix) * kA;
+  if (mode3d && !reduceMotion && !orbit && !replay && now - lastInteract > 4000) cam.yawT += dt * 0.000045;
+  cam.yaw += (cam.yawT - cam.yaw) * lerp;
+  cam.pitch += (cam.pitchT - cam.pitch) * lerp;
+  cam.dist += (cam.distT - cam.dist) * lerp;
+  cam.cx += (cam.cxT - cam.cx) * lerp; cam.cy += (cam.cyT - cam.cy) * lerp; cam.cz += (cam.czT - cam.cz) * lerp;
+  cosY = Math.cos(cam.yaw); sinY = Math.sin(cam.yaw);
+  cosP = Math.cos(cam.pitch); sinP = Math.sin(cam.pitch);
+
+  notes.forEach(n => {
+    n.dx += (n.tx - n.dx) * kA;
+    n.dy += (n.ty - n.dy) * kA;
+    n.dz += (n.tz2 - n.dz) * kA;
+    const settle = reduceMotion ? 1 : Math.min(1, (now - born - n.region * 60 - 100) / 500);
+    const em = nodeEmphasis(n);
+    n._em = em;
+    n.alpha += (Math.max(0, settle) * em.a - n.alpha) * kA;
+    n._p = project(n.dx, n.dy, n.dz);
+  });
+  regionCenters.forEach(c => {
+    const ax = mode3d ? c.lx : c.lx2, ay = mode3d ? c.ly : c.ly2, az = mode3d ? c.lz : 0;
+    c.ax += (ax - c.ax) * kA; c.ay += (ay - c.ay) * kA; c.az += (az - c.az) * kA;
+  });
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#0A0D15'; ctx.fillRect(0, 0, vw, vh);
+
+  /* far stars, sky only */
+  if (modeMix > 0.03) {
+    ctx.fillStyle = '#E9E4D6';
+    stars.forEach(st => {
+      const p = project(st.x, st.y, st.z);
+      if (!p) return;
+      ctx.globalAlpha = st.a * modeMix;
+      ctx.fillRect(p.sx, p.sy, 1.2, 1.2);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  const order = [...notes].filter(n => n._p && n.alpha > 0.01).sort((a, b) => b._p.depth - a._p.depth);
+
+  /* nebula halos, far to near */
+  if (!replay) order.forEach(n => {
+    const p = n._p;
+    const r = (26 + Math.sqrt(n.degree) * 9) * p.s;
+    if (r < 3 || p.sx < -r || p.sy < -r || p.sx > vw + r || p.sy > vh + r) return;
+    const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, r);
+    g.addColorStop(0, REGIONS[n.region].hue + '30');
+    g.addColorStop(1, REGIONS[n.region].hue + '00');
+    ctx.globalAlpha = 0.32 * n.alpha * p.fog * Math.min(1, (now - born) / 900);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, p.sy, r, 0, 7); ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  /* links: quiet by default, loud on hover / focus / trace / fresh */
+  edges.forEach(e => {
+    const a = notes[e.a], b = notes[e.b];
+    if (!a._p || !b._p) return;
+    if (replay && (!noteVisibleInReplay(a) || !noteVisibleInReplay(b))) return;
+    const active = e.a === hoverId || e.b === hoverId || e.a === focusId || e.b === focusId;
+    const onPath = trace.edges && trace.edges.has(ekey(e.a, e.b));
+    const freshGlow = e.fresh && now - e.fresh < 3000 ? (1 - (now - e.fresh) / 3000) : 0;
+    const fog = Math.min(a._p.fog, b._p.fog);
+    let al = Math.min(a.alpha, b.alpha) * (edgeMode === 1 ? 0.5 : 0.24) * fog;
+    if (edgeMode === 2) al = 0;
+    if (trace.edges && !onPath) al *= 0.15;
+    if (al < 0.01 && !active && !onPath && !freshGlow) return;
+    const sw = Math.max(0.4, (a._p.s + b._p.s) * 0.45);
+    if (onPath || freshGlow > 0) {
+      ctx.strokeStyle = '#E6C87E'; ctx.globalAlpha = onPath ? 0.9 : 0.4 + freshGlow * 0.6;
+      ctx.lineWidth = Math.max(1, sw * 1.6);
+    } else if (active) {
+      ctx.strokeStyle = '#B9C4DC'; ctx.globalAlpha = 0.5 * fog + 0.2; ctx.lineWidth = Math.max(0.7, sw * 1.1);
+    } else {
+      ctx.strokeStyle = '#5A6A8C'; ctx.globalAlpha = al; ctx.lineWidth = Math.max(0.4, sw * 0.9);
+    }
+    ctx.beginPath(); ctx.moveTo(a._p.sx, a._p.sy); ctx.lineTo(b._p.sx, b._p.sy); ctx.stroke();
+  });
+  /* ghost links: suggestions lens, or ring ghosts */
+  if (lens === 5 || orbit) {
+    ctx.setLineDash([4, 5]);
+    suggestions.forEach(s => {
+      const a = notes[s.a], b = notes[s.b];
+      if (!a._p || !b._p) return;
+      if (orbit && s.a !== orbit.center && s.b !== orbit.center) return;
+      const hot = s.a === focusId || s.b === focusId || s.a === hoverId || s.b === hoverId;
+      ctx.strokeStyle = '#E6C87E'; ctx.globalAlpha = (hot ? 0.85 : 0.3) * Math.min(a._p.fog, b._p.fog);
+      ctx.lineWidth = hot ? 1.4 : 0.9;
+      ctx.beginPath(); ctx.moveTo(a._p.sx, a._p.sy); ctx.lineTo(b._p.sx, b._p.sy); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+  }
+  ctx.globalAlpha = 1;
+
+  /* region names: billboarded at constellation centroids, fading up close */
+  if (!orbit && !replay) {
+    const regionAlpha = Math.max(0, Math.min(1, (1.6 - zoomLevel()) / 1.0)) * Math.min(1, (now - born) / 1200);
+    if (regionAlpha > 0.02) {
+      ctx.textAlign = 'center';
+      REGIONS.forEach((reg, ri) => {
+        const c = regionCenters[ri];
+        const p = project(c.ax, c.ay, c.az);
+        if (!p) return;
+        if (reg.name === 'Inbox' && zoomLevel() > 0.9) return;
+        ctx.font = '500 ' + Math.max(10, Math.min(19, 15 * p.s)) + 'px ' + 'Iowan Old Style, Palatino, Georgia, serif';
+        ctx.fillStyle = reg.hue; ctx.globalAlpha = regionAlpha * 0.85 * p.fog;
+        ctx.fillText(reg.name.toUpperCase().split('').join('  '), p.sx, p.sy);
+      });
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /* nodes, far to near */
+  const t = now / 1000;
+  order.forEach(n => {
+    const p = n._p;
+    if (p.sx < -60 || p.sy < -60 || p.sx > vw + 60 || p.sy > vh + 60) return;
+    const hue = REGIONS[n.region].hue;
+    const base = Math.max(1.4, (3.6 + Math.sqrt(n.degree) * 2.2) * p.s);
+    const em = n._em || { a: 1, glow: 0 };
+    if (em.glow > 0.05) {
+      const g = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, base * 4.5);
+      g.addColorStop(0, (lens === 2 || trace.nodes ? '#E6C87E' : hue) + '55');
+      g.addColorStop(1, '#00000000');
+      ctx.globalAlpha = em.glow * n.alpha * 0.8 * p.fog;
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.sx, p.sy, base * 4.5, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = n.alpha * p.fog;
+    ctx.fillStyle = hue;
+    ctx.beginPath(); ctx.arc(p.sx, p.sy, base, 0, 7); ctx.fill();
+    /* a small bright core keeps near nodes starry rather than flat */
+    ctx.globalAlpha = n.alpha * p.fog * 0.5;
+    ctx.fillStyle = '#F2EBD8';
+    ctx.beginPath(); ctx.arc(p.sx - base * 0.25, p.sy - base * 0.25, base * 0.32, 0, 7); ctx.fill();
+    if (n.id === focusId) {
+      const pulse = reduceMotion ? 0 : Math.sin(t * 3.2) * 1.6;
+      ctx.strokeStyle = '#E6C87E'; ctx.lineWidth = 1.6; ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, base + 4.5 + pulse, 0, 7); ctx.stroke();
+    } else if (n.id === hoverId) {
+      ctx.strokeStyle = '#B9C4DC'; ctx.lineWidth = 1.2; ctx.globalAlpha = 0.8;
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, base + 3.5, 0, 7); ctx.stroke();
+    }
+    if (trace.a === n.id && !trace.nodes) {
+      ctx.fillStyle = '#E6C87E'; ctx.font = '600 10px ' + 'ui-monospace, Menlo, monospace';
+      ctx.textAlign = 'center'; ctx.globalAlpha = 1; ctx.fillText('A', p.sx, p.sy - base - 8);
+    }
+  });
+  ctx.globalAlpha = 1;
+
+  /* labels: semantic bands + collision skip, near notes first */
+  const zl = zoomLevel();
+  const showAll = zl > 1.1 || !!orbit;
+  const showHubs = zl > 0.5;
+  if (showHubs && !replay) {
+    const placed = [];
+    ctx.textAlign = 'left';
+    const byDeg = [...order].reverse().sort((a, b) => b.degree - a.degree);
+    for (const n of byDeg) {
+      if (n.alpha < 0.25 || !n._p) continue;
+      const p = n._p;
+      if (p.fog < 0.4) continue;
+      const em = n._em || { a: 1 };
+      const isHub = n.degree >= 6;
+      const forced = n.id === focusId || n.id === hoverId || (lens !== 2 && (em.glow || 0) > 0.45);
+      if (!showAll && !isHub && !forced) continue;
+      if (p.sx < -40 || p.sy < -20 || p.sx > vw + 40 || p.sy > vh + 20) continue;
+      const size = (forced ? 12 : isHub ? 11.5 : 10.5) * Math.max(0.85, Math.min(1.15, p.s));
+      ctx.font = (isHub || forced ? '600 ' : '400 ') + size.toFixed(1) + 'px ' + 'ui-sans-serif, system-ui, sans-serif';
+      const tw = ctx.measureText(n.title).width;
+      const lx = p.sx + 9, ly = p.sy + 4;
+      let collide = false;
+      for (const q of placed) if (Math.abs(q.y - ly) < 13 && lx < q.x + q.w && lx + tw > q.x) { collide = true; break; }
+      if (collide && !forced) continue;
+      placed.push({ x: lx, y: ly, w: tw });
+      ctx.fillStyle = '#05070C'; ctx.globalAlpha = 0.65 * n.alpha * p.fog;
+      ctx.fillText(n.title, lx + 1, ly + 1);
+      ctx.fillStyle = forced ? '#F2EBD8' : isHub ? '#D8D3C4' : '#A8AEBE';
+      ctx.globalAlpha = Math.min(1, n.alpha) * p.fog * (forced ? 1 : 0.9);
+      ctx.fillText(n.title, lx, ly);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* hint labels */
+  if (hint) {
+    ctx.textAlign = 'center';
+    for (const [id, code] of hint.labels) {
+      if (hint.typed && !code.startsWith(hint.typed)) continue;
+      const n = notes[id];
+      if (!n._p) continue;
+      const x = n._p.sx, y = n._p.sy;
+      ctx.font = '700 11px ui-monospace, Menlo, monospace';
+      const w = 24, h = 16;
+      ctx.fillStyle = '#E6C87E'; ctx.globalAlpha = 0.96;
+      ctx.beginPath(); ctx.roundRect(x - w / 2, y - h - 10, w, h, 4); ctx.fill();
+      ctx.fillStyle = '#0A0D15';
+      ctx.fillText(code, x, y - 14);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* replay advance */
+  if (replay && replay.playing) {
+    replay.t -= (minCreated / 9000) * dt;
+    if (replay.t <= 0) { replay.t = 0; replay.playing = false; $('replayplay').textContent = 'play'; }
+    syncReplayUI();
+  }
+}
+requestAnimationFrame(draw);
+
+/* ---------------- panel ---------------- */
+function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function openPanel(n) {
+  const reg = REGIONS[n.region];
+  const linksOut = [...n.out].map(id => notes[id]);
+  const sugg = suggestions.filter(s => s.a === n.id || s.b === n.id)
+    .map(s => notes[s.a === n.id ? s.b : s.a]);
+  const seeAlso = linksOut.slice(0, 2).map(m => '<span class="wl">[[' + escapeHtml(m.title) + ']]</span>').join(' and ');
+  const row = (m, extra) => '<li><button class="rowbtn" data-go="' + m.id + '">' +
+    '<span class="dot" style="background:' + REGIONS[m.region].hue + '"></span>' +
+    escapeHtml(m.title) + '</button>' + (extra || '') + '</li>';
+  $('panel').innerHTML =
+    '<h2>' + escapeHtml(n.title) + '</h2>' +
+    '<div class="meta">created ' + fmtDate(n.created) + ' · edited ' + fmtAgo(n.updated) + ' · ' + n.degree + (n.degree === 1 ? ' link' : ' links') + '</div>' +
+    '<div class="chips"><span class="chip region" style="color:' + reg.hue + '">' + escapeHtml(reg.name) + '</span>' +
+    n.tags.map(t => '<span class="chip">#' + t + '</span>').join('') + '</div>' +
+    '<div class="body">' + escapeHtml(BLURBS[reg.name]) + (seeAlso ? '<br>See also ' + seeAlso + '.' : '') + '</div>' +
+    '<h3>Links</h3><ul>' + (linksOut.length ? linksOut.map(m => row(m)).join('') : '<li class="empty">No links yet. This is what the Suggestions lens is for.</li>') + '</ul>' +
+    '<h3>Suggested links</h3><ul>' + (sugg.length ? sugg.map(m => row(m, '<button class="linkbtn" data-link="' + m.id + '">link</button>')).join('') : '<li class="empty">Nothing unlinked looks related right now.</li>') + '</ul>';
+  $('panel').classList.add('open');
+  $('panel').querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => {
+    const m = notes[+b.dataset.go]; setFocus(m.id); centerOn(m, true); openPanel(m);
+  }));
+  $('panel').querySelectorAll('[data-link]').forEach(b => b.addEventListener('click', () => acceptSuggestion(n, notes[+b.dataset.link])));
+}
+function closePanel() { $('panel').classList.remove('open'); }
+function setFocus(id) { focusId = id; }
+
+function acceptSuggestion(a, b) {
+  suggestions = suggestions.filter(s => !(s.a === a.id && s.b === b.id) && !(s.a === b.id && s.b === a.id));
+  addEdge(a, b, true);
+  a.degree = a.out.size; b.degree = b.out.size;
+  updateChrome();
+  toast('Linked: [[' + b.title + ']] added under ## Related in "' + a.title + '"');
+  if ($('panel').classList.contains('open')) openPanel(a);
+}
+
+/* ---------------- rings (the local view): laid out facing the camera ---------------- */
+function enterOrbit(id) {
+  const n = notes[id];
+  const ring1 = [...n.out].map(i => notes[i]).sort((x, y) => y.degree - x.degree);
+  const ring2set = new Set();
+  ring1.forEach(m => m.out.forEach(i => { if (i !== id && !n.out.has(i)) ring2set.add(i); }));
+  const ring2 = [...ring2set].map(i => notes[i]);
+  const ghosts = suggestions.filter(s => s.a === id || s.b === id).map(s => notes[s.a === id ? s.b : s.a]);
+  orbit = { center: id, members: new Set([id, ...ring1.map(m => m.id), ...ring2.map(m => m.id)]), ghosts: new Set(ghosts.map(g => g.id)) };
+  n.tx = n.x; n.ty = n.y; n.tz2 = n.z;
+  const R = camRight(), U = camUp();
+  const place = (arr, radius, offset) => arr.forEach((m, i) => {
+    const th = offset + i * (Math.PI * 2 / Math.max(arr.length, 1));
+    const rx = Math.cos(th) * radius, ry = Math.sin(th) * radius;
+    m.tx = n.x + R[0] * rx + U[0] * ry;
+    m.ty = n.y + R[1] * rx + U[1] * ry;
+    m.tz2 = n.z + R[2] * rx + U[2] * ry;
+  });
+  place(ring1, 130, -Math.PI / 2);
+  place(ring2, 265, -Math.PI / 2 + 0.35);
+  place(ghosts, 200, Math.PI / 2);
+  touchCam();
+  cam.cxT = n.x; cam.cyT = n.y; cam.czT = n.z;
+  cam.distT = F / 1.25;
+  toast('Rings: ' + n.title + ' · Esc to return');
+}
+function exitOrbit() {
+  notes.forEach(n => { n.tx = n.x; n.ty = n.y; n.tz2 = n.z; });
+  orbit = null;
+}
+
+/* ---------------- trace ---------------- */
+function markTrace() {
+  if (focusId < 0) { toast('Focus a note first (f, then two letters)'); return; }
+  if (trace.a < 0 || trace.nodes) { trace = { a: focusId, edges: null, nodes: null }; toast('Trace: marked A, now mark B with m'); return; }
+  if (trace.a === focusId) return;
+  const prev = new Int32Array(notes.length).fill(-2); prev[trace.a] = -1;
+  const q = [trace.a];
+  while (q.length) {
+    const v = q.shift(); if (v === focusId) break;
+    for (const w of notes[v].out) if (prev[w] === -2) { prev[w] = v; q.push(w); }
+  }
+  if (prev[focusId] === -2) { toast('No path through links between these two'); trace = { a: -1, edges: null, nodes: null }; return; }
+  const en = new Set(), nn = new Set();
+  let v = focusId; nn.add(v);
+  while (prev[v] >= 0) { en.add(ekey(v, prev[v])); v = prev[v]; nn.add(v); }
+  trace.edges = en; trace.nodes = nn;
+  toast('Path: ' + (nn.size - 1) + ' hops from "' + notes[trace.a].title + '"');
+}
+
+/* ---------------- replay ---------------- */
+function syncReplayUI() {
+  $('replayrange').value = Math.round(1000 * (1 - replay.t / minCreated));
+  $('replaydate').textContent = fmtDate(replay.t);
+}
+function enterReplay() {
+  replay = { t: minCreated, playing: !reduceMotion };
+  $('replaybar').classList.add('active');
+  $('replayplay').textContent = replay.playing ? 'pause' : 'play';
+  syncReplayUI(); updateChrome();
+}
+function exitReplay() { replay = null; $('replaybar').classList.remove('active'); updateChrome(); }
+$('replayplay').addEventListener('click', () => { replay.playing = !replay.playing; $('replayplay').textContent = replay.playing ? 'pause' : 'play'; });
+$('replayrange').addEventListener('input', () => { replay.t = minCreated * (1 - $('replayrange').value / 1000); replay.playing = false; $('replayplay').textContent = 'play'; syncReplayUI(); });
+
+/* ---------------- hint mode ---------------- */
+const HINTKEYS = 'asdfghjkl';
+function enterHint() {
+  const visible = notes.filter(n => {
+    if (n.alpha < 0.2 || !n._p) return false;
+    return n._p.sx > 10 && n._p.sy > 40 && n._p.sx < vw - 10 && n._p.sy < vh - 40;
+  }).sort((a, b) => {
+    const da = (a._p.sx - vw / 2) ** 2 + (a._p.sy - vh / 2) ** 2;
+    const db = (b._p.sx - vw / 2) ** 2 + (b._p.sy - vh / 2) ** 2;
+    return da - db;
+  }).slice(0, 81);
+  const labels = new Map();
+  visible.forEach((n, i) => labels.set(n.id, HINTKEYS[Math.floor(i / 9)] + HINTKEYS[i % 9]));
+  hint = { labels, typed: '' };
+}
+function hintKey(ch) {
+  hint.typed += ch;
+  const matches = [...hint.labels.entries()].filter(([, c]) => c.startsWith(hint.typed));
+  if (matches.length === 1 && matches[0][1] === hint.typed) {
+    const id = matches[0][0]; hint = null;
+    setFocus(id); centerOn(notes[id]);
+  } else if (matches.length === 0) hint = null;
+}
+
+/* ---------------- filter ---------------- */
+function enterFilter() { $('filterwrap').classList.add('active'); $('filter').focus(); }
+function exitFilter() { filterQ = ''; $('filter').value = ''; $('filterwrap').classList.remove('active'); $('filtercount').textContent = ''; }
+$('filter').addEventListener('input', () => {
+  filterQ = $('filter').value.trim();
+  if (!filterQ) { $('filtercount').textContent = ''; return; }
+  const q = filterQ.toLowerCase();
+  const c = notes.filter(n => n.title.toLowerCase().includes(q) || n.tags.some(t => t.includes(q))).length;
+  $('filtercount').textContent = c + (c === 1 ? ' match' : ' matches');
+});
+$('filter').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  if (e.key === 'Escape') { exitFilter(); }
+  if (e.key === 'Enter') { $('filter').blur(); if (!filterQ) exitFilter(); }
+});
+
+/* ---------------- lenses ---------------- */
+function setLens(v) {
+  lens = v; updateChrome();
+  const blurb = { 1: 'Structure: the plain sky', 2: 'Heat: glow is recent editing', 3: 'Orphans: ' + notes.filter(n => n.degree === 0).length + ' notes with no links', 4: 'Bridges: the notes holding regions together', 5: 'Suggestions: ' + suggestions.length + ' ghost links · focus one end, then a accepts' };
+  toast(blurb[v]);
+}
+$('lenschip').addEventListener('click', () => setLens(lens % 5 + 1));
+$('lenschip').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLens(lens % 5 + 1); } });
+
+/* ---------------- keyboard ---------------- */
+addEventListener('keydown', (e) => {
+  if (e.target === $('filter')) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key;
+
+  if ($('help').classList.contains('open')) { if (k === 'Escape' || k === '?') $('help').classList.remove('open'); return; }
+  if (hint) {
+    if (k === 'Escape') { hint = null; return; }
+    if (/^[a-z]$/.test(k)) { hintKey(k); e.preventDefault(); }
+    return;
+  }
+  if (replay) {
+    if (k === 'Escape' || k === 't') { exitReplay(); return; }
+    if (k === ' ') { e.preventDefault(); replay.playing = !replay.playing; $('replayplay').textContent = replay.playing ? 'pause' : 'play'; return; }
+  }
+  if (zPending && k === 'z') { zPending = 0; if (focusId >= 0) centerOn(notes[focusId], true); return; }
+  zPending = 0;
+
+  if ('hjkl+-='.includes(k) || k === '[' || k === ']' || k.startsWith('Arrow')) touchCam();
+  const panStep = 60 * cam.dist / F;
+  switch (k) {
+    case 'h': case 'ArrowLeft': if (mode3d) cam.yawT -= 0.14; else cam.cxT -= panStep; break;
+    case 'l': case 'ArrowRight': if (mode3d) cam.yawT += 0.14; else cam.cxT += panStep; break;
+    case 'k': case 'ArrowUp': if (mode3d) cam.pitchT = Math.min(1.25, cam.pitchT + 0.1); else cam.cyT -= panStep; break;
+    case 'j': case 'ArrowDown': if (mode3d) cam.pitchT = Math.max(-1.25, cam.pitchT - 0.1); else cam.cyT += panStep; break;
+    case '+': case '=': cam.distT = Math.max(F * 0.3, cam.distT / 1.22); break;
+    case '-': cam.distT = Math.min(maxDist(), cam.distT * 1.22); break;
+    case 'v': setMode(!mode3d); break;
+    case 'f': enterHint(); e.preventDefault(); break;
+    case '/': enterFilter(); e.preventDefault(); break;
+    case 'Enter': if (focusId >= 0) openPanel(notes[focusId]); break;
+    case 'o': if (orbit) exitOrbit(); else if (focusId >= 0) enterOrbit(focusId); else toast('Focus a note first (f, then two letters)'); break;
+    case 'z': zPending = 1; setTimeout(() => zPending = 0, 500); break;
+    case 'c': edgeMode = (edgeMode + 1) % 3; toast('Links: ' + ['quiet', 'all', 'off'][edgeMode]); break;
+    case '[': case ']': {
+      const dir = k === ']' ? 1 : -1;
+      const cur = focusId >= 0 ? notes[focusId].region : 0;
+      const next = (cur + dir + REGIONS.length) % REGIONS.length;
+      fitRegion(next); toast(REGIONS[next].name);
+      const hub = notes.find(n => n.region === next); if (hub) setFocus(hub.id);
+      break;
+    }
+    case 'm': markTrace(); break;
+    case 't': enterReplay(); break;
+    case 'a': {
+      if (focusId < 0) break;
+      const n = notes[focusId];
+      const s = suggestions.find(s => s.a === n.id || s.b === n.id);
+      if (s) acceptSuggestion(n, notes[s.a === n.id ? s.b : s.a]); else toast('No suggestions for this note');
+      break;
+    }
+    case '1': case '2': case '3': case '4': case '5': setLens(+k); break;
+    case '?': $('help').classList.add('open'); break;
+    case 'Escape':
+      if (orbit) exitOrbit();
+      else if (trace.a >= 0 || trace.nodes) { trace = { a: -1, edges: null, nodes: null }; toast('Trace cleared'); }
+      else if (filterQ) exitFilter();
+      else if ($('panel').classList.contains('open')) closePanel();
+      else if (lens !== 1) setLens(1);
+      else focusId = -1;
+      break;
+  }
+});
+
+/* clickable HUD hints */
+document.querySelectorAll('.hint[data-act]').forEach(el => el.addEventListener('click', () => {
+  const act = el.dataset.act;
+  if (act === 'hint') enterHint();
+  if (act === 'filter') enterFilter();
+  if (act === 'orbit') { if (orbit) exitOrbit(); else if (focusId >= 0) enterOrbit(focusId); else toast('Click a note first'); }
+  if (act === 'trace') markTrace();
+  if (act === 'edges') { edgeMode = (edgeMode + 1) % 3; toast('Links: ' + ['quiet', 'all', 'off'][edgeMode]); }
+  if (act === 'mode') setMode(!mode3d);
+  if (act === 'replay') replay ? exitReplay() : enterReplay();
+  if (act === 'lens') setLens(lens % 5 + 1);
+  if (act === 'help') $('help').classList.add('open');
+}));
+$('help').addEventListener('click', (e) => { if (e.target === $('help')) $('help').classList.remove('open'); });
+
+/* ---------------- mouse: drag orbits, shift-drag pans, wheel flies ---------------- */
+let drag = null, moved = false;
+function hitTest(sx, sy) {
+  let best = -1, bd = 1e18;
+  notes.forEach(n => {
+    if (n.alpha < 0.1 || !n._p) return;
+    const r = Math.max(1.4, (3.6 + Math.sqrt(n.degree) * 2.2) * n._p.s) + 6;
+    const d = (n._p.sx - sx) ** 2 + (n._p.sy - sy) ** 2;
+    if (d < r * r && n._p.depth < bd) { bd = n._p.depth; best = n.id; }
+  });
+  return best;
+}
+canvas.addEventListener('mousedown', (e) => {
+  touchCam();
+  drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey };
+  moved = false; canvas.classList.add('dragging');
+});
+addEventListener('mousemove', (e) => {
+  if (drag) {
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX; drag.y = e.clientY;
+    if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+    if (drag.pan || !mode3d) {
+      const s = F / cam.dist;
+      const R = camRight(), U = camUp();
+      cam.cxT -= (R[0] * dx + U[0] * dy) / s; cam.cx = cam.cxT;
+      cam.cyT -= (R[1] * dx + U[1] * dy) / s; cam.cy = cam.cyT;
+      cam.czT -= (R[2] * dx + U[2] * dy) / s; cam.cz = cam.czT;
+    } else {
+      cam.yawT += dx * 0.005; cam.yaw = cam.yawT;
+      cam.pitchT = Math.max(-1.25, Math.min(1.25, cam.pitchT + dy * 0.004)); cam.pitch = cam.pitchT;
+    }
+    touchCam();
+  } else {
+    hoverId = hitTest(e.clientX, e.clientY);
+    canvas.style.cursor = hoverId >= 0 ? 'pointer' : 'grab';
+  }
+});
+addEventListener('mouseup', (e) => {
+  canvas.classList.remove('dragging');
+  if (drag && !moved) {
+    const id = hitTest(e.clientX, e.clientY);
+    if (id >= 0) { setFocus(id); openPanel(notes[id]); }
+    else { focusId = -1; closePanel(); }
+  }
+  drag = null;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  touchCam();
+  cam.distT = Math.max(F * 0.3, Math.min(maxDist(), cam.distT * Math.exp(e.deltaY * 0.0014)));
+}, { passive: false });
+
+/* touch: one finger orbits, tap selects, two fingers pinch to fly */
+let touch = null;
+canvas.addEventListener('touchstart', (e) => {
+  touchCam();
+  if (e.touches.length === 1) touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, moved: false };
+  else if (e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    touch = { pinch: d, d0: cam.distT };
+  }
+}, { passive: true });
+canvas.addEventListener('touchmove', (e) => {
+  if (!touch) return;
+  if (touch.pinch && e.touches.length === 2) {
+    const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    cam.distT = Math.max(F * 0.3, Math.min(maxDist(), touch.d0 * touch.pinch / d));
+  } else if (!touch.pinch && e.touches.length === 1) {
+    const dx = e.touches[0].clientX - touch.x, dy = e.touches[0].clientY - touch.y;
+    touch.x = e.touches[0].clientX; touch.y = e.touches[0].clientY;
+    if (Math.abs(dx) + Math.abs(dy) > 4) touch.moved = true;
+    if (mode3d) {
+      cam.yawT += dx * 0.005; cam.pitchT = Math.max(-1.25, Math.min(1.25, cam.pitchT + dy * 0.004));
+    } else {
+      const s = F / cam.dist; const R = camRight(), U = camUp();
+      cam.cxT -= (R[0] * dx + U[0] * dy) / s; cam.cyT -= (R[1] * dx + U[1] * dy) / s; cam.czT -= (R[2] * dx + U[2] * dy) / s;
+    }
+  }
+  touchCam();
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('touchend', (e) => {
+  if (touch && !touch.pinch && !touch.moved && e.changedTouches.length) {
+    const id = hitTest(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    if (id >= 0) { setFocus(id); openPanel(notes[id]); } else { focusId = -1; closePanel(); }
+  }
+  if (e.touches.length === 0) touch = null;
+});
+
+/* prototype-only debug handle */
+window.__atlas = { cam, fitRegion: (ri) => fitRegion(ri), setMode: (t) => setMode(t), size: () => [vw, vh] };
+</script>

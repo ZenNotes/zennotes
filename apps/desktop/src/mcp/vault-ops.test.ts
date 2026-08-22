@@ -3,7 +3,14 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseOpenNoteDeepLink } from '../main/deep-links'
-import { createNote, listNotes, renameNote, scanAllTasks, searchText } from './vault-ops'
+import {
+  createNote,
+  listNotes,
+  renameNote,
+  scanAllTasks,
+  searchText,
+  toggleTaskInBody
+} from './vault-ops'
 
 // Every note-shaped MCP result carries `link`, the zennotes:// deep link a
 // model renders as a markdown link so the user can click from chat straight
@@ -78,6 +85,15 @@ describe('mcp task states', () => {
     expect(byContent.get('scrapped')?.cancelled).toBe(true)
     expect(byContent.get('open')?.inProgress).toBe(false)
     expect(byContent.get('done')?.checked).toBe(true)
+  })
+
+  it('toggle follows the app rules: [/] checks off, records stay (#599)', () => {
+    const body = '- [ ] open\n- [/] started\n- [x] done\n- [-] scrapped\n- [>] gone\n'
+    expect(toggleTaskInBody(body, 0)).toContain('- [x] open')
+    expect(toggleTaskInBody(body, 1)).toContain('- [x] started')
+    expect(toggleTaskInBody(body, 2)).toContain('- [ ] done')
+    expect(toggleTaskInBody(body, 3)).toContain('- [-] scrapped')
+    expect(toggleTaskInBody(body, 4)).toContain('- [>] gone')
   })
 })
 

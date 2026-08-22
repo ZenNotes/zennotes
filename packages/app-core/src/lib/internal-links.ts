@@ -10,8 +10,11 @@
 export interface InternalNoteLink {
   /** Vault-relative path of the resolved note. */
   path: string
-  /** A `#heading` anchor carried by the link, or null. */
-  heading: string | null
+  /** The raw fragment carried by the link, or null: heading text for
+   *  `Note.md#Heading`, `^id` for the Obsidian block form `Note.md#^id`.
+   *  Callers hand it to `openWikilinkTarget` (as `#<anchor>`) so the anchor
+   *  KIND is decided in one place, not per click surface. (#601) */
+  anchor: string | null
 }
 
 interface NoteRef {
@@ -90,7 +93,7 @@ export function resolveInternalNoteHref(
   const hashIdx = raw.indexOf('#')
   const rawPath = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw
   if (!rawPath) return null // pure "#heading" — same note, handled elsewhere
-  const heading = hashIdx >= 0 ? decode(raw.slice(hashIdx + 1)).trim() || null : null
+  const anchor = hashIdx >= 0 ? decode(raw.slice(hashIdx + 1)).trim() || null : null
 
   const decoded = decode(rawPath)
   const noteDir = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
@@ -103,7 +106,7 @@ export function resolveInternalNoteHref(
   if (!target || target === '..' || target.startsWith('../')) return null
 
   const match = matchNote(notes, target)
-  return match ? { path: match, heading } : null
+  return match ? { path: match, anchor } : null
 }
 
 function unwrapMdUrl(url: string): string {

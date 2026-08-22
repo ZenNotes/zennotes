@@ -19,13 +19,16 @@ import {
   isTasksViewActive,
   isTrashViewActive,
   isWorkflowsViewActive,
+  isAtlasViewActive,
   useStore,
 } from "../store";
 import { Button } from "./ui/Button";
 import { confirmMoveToTrash } from "../lib/confirm-trash";
+import { moveNoteToTrash } from "../lib/trash-note";
 import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
 import { buildTagTree, extractTags, flattenTagTree } from "../lib/tags";
 import { isTypstPreamblePath, resolveTypstPreambleFolder } from "../lib/typst-preamble";
+import { focusEditorNormalMode } from "../lib/editor-focus";
 import type { AssetMeta, FolderColorId, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
 import type { NoteSortOrder } from "../store";
 import { isArchiveTabPath } from "@shared/archive";
@@ -55,6 +58,7 @@ import {
   TargetIcon,
   TrashIcon,
   WorkflowIcon,
+  AtlasIcon,
 } from "./icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
@@ -460,6 +464,9 @@ export function Sidebar(): JSX.Element {
   const openWorkflowsView = useStore((s) => s.openWorkflowsView);
   const workflowsViewActive = useStore(isWorkflowsViewActive);
   const workflowsEnabled = useStore((s) => s.workflowsEnabled);
+  const openAtlasView = useStore((s) => s.openAtlasView);
+  const atlasViewActive = useStore(isAtlasViewActive);
+  const atlasEnabled = useStore((s) => s.atlasEnabled);
   const openQuickNotesView = useStore((s) => s.openQuickNotesView);
   const quickNotesViewActive = useStore(isQuickNotesViewActive);
   const openHelpView = useStore((s) => s.openHelpView);
@@ -591,8 +598,11 @@ export function Sidebar(): JSX.Element {
     (path: string): void => {
       // Single click opens a VS Code-style preview tab; without tabs there
       // is nothing to preview, so fall back to a plain open.
-      if (tabsEnabled) void previewNote(path);
-      else void selectNote(path);
+      const opened = tabsEnabled ? previewNote(path) : selectNote(path);
+      // Every keyboard opener (VimNav Enter, palettes, gt) hands the keyboard
+      // to the editor afterwards; the mouse click was the one path that left
+      // focus on the clicked row, so typing kept driving the sidebar. (#599)
+      void opened.then(() => focusEditorNormalMode());
     },
     [previewNote, selectNote, tabsEnabled],
   );
@@ -965,6 +975,9 @@ export function Sidebar(): JSX.Element {
     y: number;
     tag: string;
   } | null>(null);
+  // Assets row menu (#621): the row advertised the `m` hint like every other
+  // sidebar row but had no context menu wired at all.
+  const [assetsRowMenu, setAssetsRowMenu] = useState<{ x: number; y: number } | null>(null);
   const [folderMenu, setFolderMenu] = useState<{
     x: number;
     y: number;
@@ -1734,7 +1747,9 @@ export function Sidebar(): JSX.Element {
           });
           if (!ok) return;
           for (const note of liveNotes) {
-            await window.zen.moveToTrash(note.path);
+            await moveNoteToTrash(note.path, {
+              temporarySession: vault?.temporary === true,
+            });
           }
           if (selectedActiveNote) await selectNote(null);
           await refreshAndClear();
@@ -2421,7 +2436,12 @@ export function Sidebar(): JSX.Element {
         danger: true,
         onSelect: async () => {
           if (!(await confirmMoveToTrash(n.title))) return;
-          await window.zen.moveToTrash(n.path);
+          if (
+            !(await moveNoteToTrash(n.path, {
+              temporarySession: vault?.temporary === true,
+            }))
+          )
+            return;
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
         },
@@ -2442,7 +2462,12 @@ export function Sidebar(): JSX.Element {
         danger: true,
         onSelect: async () => {
           if (!(await confirmMoveToTrash(n.title))) return;
-          await window.zen.moveToTrash(n.path);
+          if (
+            !(await moveNoteToTrash(n.path, {
+              temporarySession: vault?.temporary === true,
+            }))
+          )
+            return;
           await refreshNotes();
           if (selectedPath === n.path) await selectNote(null);
         },
@@ -2825,6 +2850,11 @@ export function Sidebar(): JSX.Element {
     },
     [prepareContextSelection],
   );
+
+  const openAssetsRowMenu = useCallback((e: React.MouseEvent): void => {
+    e.preventDefault();
+    setAssetsRowMenu({ x: e.clientX, y: e.clientY });
+  }, []);
 
   const openAssetMenu = useCallback(
     (e: React.MouseEvent, asset: AssetMeta): void => {
@@ -3346,6 +3376,20 @@ export function Sidebar(): JSX.Element {
             />
           )}
 
+          {/* Same skip-before-props trick as Workflows above. */}
+          {atlasEnabled && (
+            <TaskSidebarRow
+              active={atlasViewActive}
+              onClick={() => void openAtlasView()}
+              label="Atlas"
+              icon={<AtlasIcon width={12} height={12} strokeWidth={2.15} />}
+              sidebarType="workflows"
+              sidebarIdx={idxCounter.current.value++}
+              vimHighlight={vimCursor === idxCounter.current.value - 1}
+              sidebarFocused={isSidebarFocused}
+            />
+          )}
+
           <FolderTreeRoot
             label={folderLabels.quick}
             icon={
@@ -3718,6 +3762,7 @@ export function Sidebar(): JSX.Element {
                 count={assetCount}
                 active={assetsViewActive}
                 onClick={() => void openAssetsView()}
+                onContextMenu={openAssetsRowMenu}
                 sidebarIdx={idxCounter.current.value++}
                 vimHighlight={vimCursor === idxCounter.current.value - 1}
                 sidebarFocused={isSidebarFocused}
@@ -3803,6 +3848,43 @@ export function Sidebar(): JSX.Element {
           y={folderMenu.y}
           items={folderMenuItems}
           onClose={() => setFolderMenu(null)}
+        />
+      )}
+      {assetsRowMenu && (
+        <ContextMenu
+          x={assetsRowMenu.x}
+          y={assetsRowMenu.y}
+          items={(() => {
+            const state = useStore.getState();
+            const current = state.assetSortOrder;
+            const sortItem = (
+              label: string,
+              field: "name" | "used" | "type" | "size" | "modified",
+            ): ContextMenuItem => {
+              const activeField = current.startsWith(field + "-");
+              const asc = current === field + "-asc";
+              return {
+                label: `Sort by ${label}`,
+                // Re-picking the active field flips its direction, like a
+                // list header; a fresh field starts ascending.
+                hint: activeField ? (asc ? "↑" : "↓") : undefined,
+                onSelect: () =>
+                  state.setAssetSortOrder(
+                    activeField && asc ? `${field}-desc` : `${field}-asc`,
+                  ),
+              };
+            };
+            return [
+              { label: "Open Assets", onSelect: () => void openAssetsView() },
+              { kind: "separator" as const },
+              sortItem("name", "name"),
+              sortItem("type", "type"),
+              sortItem("size", "size"),
+              sortItem("last modified", "modified"),
+              sortItem("times used", "used"),
+            ];
+          })()}
+          onClose={() => setAssetsRowMenu(null)}
         />
       )}
       {rootMenu && (
@@ -5067,7 +5149,9 @@ const NoteLeaf = memo(function NoteLeaf({
   );
   const handleDoubleClick = useCallback(() => {
     // Double click keeps the note open as a permanent tab (VS Code-style).
-    void openNotePermanent(note.path);
+    // The second press re-focused the row after the first click's editor
+    // hand-off, so hand the keyboard back once more. (#599)
+    void openNotePermanent(note.path).then(() => focusEditorNormalMode());
   }, [note.path, openNotePermanent]);
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => onContextMenuNote(event, note),

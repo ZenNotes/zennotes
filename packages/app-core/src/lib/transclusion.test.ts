@@ -98,3 +98,54 @@ describe('note-embed wrapper renders its inner markdown (foundation)', () => {
     expect(html).toContain('<strong>bold</strong>')
   })
 })
+
+// The real `resolve` runs through resolveWikilinkTarget, which strips the
+// `#heading` / `^block` anchor before matching a note. Mirror that here.
+function anchorAwareCtxFor(vault: Record<string, { title: string; body: string }>) {
+  return {
+    resolve: (target: string) => {
+      const key = target.split(/[#^]/)[0].trim().replace(/\.md$/i, '')
+      return vault[key] ? { path: `${key}.md`, title: vault[key].title } : null
+    },
+    loadNote: async (path: string) => vault[path.replace(/\.md$/i, '')]?.body ?? null
+  }
+}
+
+describe('expandEmbeds: block transclusion (#601)', () => {
+  const vault = {
+    Daily: {
+      title: 'Daily',
+      body: '# Daily\n\n## Notes\n\n- First note\n- Second note ^note-two\n- Third note\n'
+    }
+  }
+
+  it('embeds only the block the id marks, not the whole note', async () => {
+    const out = await expandEmbeds('![[Daily^note-two]]', 'Master.md', anchorAwareCtxFor(vault))
+    expect(out).toContain('- Second note')
+    expect(out).not.toContain('First note')
+    expect(out).not.toContain('Third note')
+    expect(out).not.toContain('# Daily')
+  })
+
+  it('drops the marker from the embedded text', async () => {
+    const out = await expandEmbeds('![[Daily^note-two]]', 'Master.md', anchorAwareCtxFor(vault))
+    expect(out).not.toContain('^note-two\n')
+  })
+
+  it('titles the embed with the note and the block', async () => {
+    const out = await expandEmbeds('![[Daily^note-two]]', 'Master.md', anchorAwareCtxFor(vault))
+    expect(out).toContain('Daily > note-two')
+  })
+
+  it('shows a notice when the id is gone, rather than the whole note', async () => {
+    const out = await expandEmbeds('![[Daily^deleted]]', 'Master.md', anchorAwareCtxFor(vault))
+    expect(out).toContain('Embedded block not found')
+    expect(out).not.toContain('First note')
+  })
+
+  it('still embeds the whole note when no block is named', async () => {
+    const out = await expandEmbeds('![[Daily]]', 'Master.md', anchorAwareCtxFor(vault))
+    expect(out).toContain('First note')
+    expect(out).toContain('Third note')
+  })
+})

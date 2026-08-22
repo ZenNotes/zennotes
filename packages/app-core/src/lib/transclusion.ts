@@ -12,6 +12,9 @@
  * pipeline.
  */
 
+import { extractBlock } from './block-anchors'
+import { wikilinkBlockAnchor } from './wikilinks'
+
 export interface ExpandEmbedsCtx {
   /** Resolve an embed target (text inside `![[…]]`) to a note, or null when it
    *  isn't a note (image/unknown) — those are left as-is. */
@@ -64,13 +67,18 @@ function wrapEmbed(target: string, title: string, inner: string): string {
 }
 
 /** A non-recursing placeholder for cycles / too-deep / missing targets. */
-function notice(target: string, kind: 'circular' | 'too-deep' | 'missing'): string {
+function notice(
+  target: string,
+  kind: 'circular' | 'too-deep' | 'missing' | 'missing-block'
+): string {
   const msg =
     kind === 'circular'
       ? `⚠ Circular embed skipped`
       : kind === 'too-deep'
         ? `⚠ Embed nesting too deep — stopped here`
-        : `⚠ Embedded note not found`
+        : kind === 'missing-block'
+          ? `⚠ Embedded block not found`
+          : `⚠ Embedded note not found`
   return `\n\n<div class="note-embed note-embed-notice" data-embed-src="${escapeAttr(target)}">\n\n*${msg}: [[${target}]]*\n\n</div>\n\n`
 }
 
@@ -110,8 +118,20 @@ async function expand(
       out += notice(target, 'missing')
       continue
     }
-    const inner = await expand(stripFrontmatter(body), note.path, ctx, [...stack, note.path], depth + 1)
-    out += wrapEmbed(target, note.title, inner)
+    // `![[Note^id]]` embeds just the block that id marks, not the whole
+    // note. (#601)
+    const blockId = wikilinkBlockAnchor(target)
+    let source = stripFrontmatter(body)
+    if (blockId) {
+      const block = extractBlock(body, blockId)
+      if (block == null) {
+        out += notice(target, 'missing-block')
+        continue
+      }
+      source = block
+    }
+    const inner = await expand(source, note.path, ctx, [...stack, note.path], depth + 1)
+    out += wrapEmbed(target, blockId ? `${note.title || target} > ${blockId}` : note.title, inner)
   }
   out += md.slice(last)
   return out

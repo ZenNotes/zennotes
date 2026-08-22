@@ -107,11 +107,13 @@ function CloudSyncStatus({
           ? "Cloud connected"
           : phase === "syncing"
             ? "Syncing…"
-            : phase === "error"
-              ? "Sync failed"
-              : lastSyncedAt === null
-                ? "Cloud ready"
-                : `Synced ${formatRelativeSyncTime(lastSyncedAt, now)}`;
+            : phase === "attention"
+              ? "Sync incomplete"
+              : phase === "error"
+                ? "Sync failed"
+                : lastSyncedAt === null
+                  ? "Cloud ready"
+                  : `Synced ${formatRelativeSyncTime(lastSyncedAt, now)}`;
   const title =
     phase === "disconnected"
       ? (error ?? "Connect this vault to ZenNotes Cloud.")
@@ -119,19 +121,23 @@ function CloudSyncStatus({
         ? "Finish signing in in your browser."
         : phase === "unlinked"
           ? "Choose the cloud vault this device should use."
-          : phase === "error"
-            ? `${error ?? "Sync could not finish."} Click to retry.`
-            : phase === "syncing"
-              ? `Syncing ${vaultName ?? "this vault"}`
-              : `${vaultName ?? "Cloud vault"} is connected. Click to sync now.`;
+          : phase === "attention"
+            ? (error ?? "Some Cloud changes could not be synchronized.")
+            : phase === "error"
+              ? `${error ?? "Sync could not finish."} Click to retry.`
+              : phase === "syncing"
+                ? `Syncing ${vaultName ?? "this vault"}`
+                : `${vaultName ?? "Cloud vault"} is connected. Click to sync now.`;
   const statusTone =
     phase === "error"
       ? "text-danger"
-      : phase === "ready" || phase === "unlinked"
-        ? "text-success"
-        : phase === "disconnected"
-          ? "text-ink-500"
-          : "text-accent";
+      : phase === "attention"
+        ? "text-warning"
+        : phase === "ready" || phase === "unlinked"
+          ? "text-success"
+          : phase === "disconnected"
+            ? "text-ink-500"
+            : "text-accent";
   const actionLabel =
     phase === "disconnected"
       ? error
@@ -139,9 +145,11 @@ function CloudSyncStatus({
         : "Connect"
       : phase === "unlinked"
         ? "Set up"
-        : phase === "error"
-          ? "Retry"
-          : "Sync now";
+        : phase === "attention"
+          ? "Review"
+          : phase === "error"
+            ? "Retry"
+            : "Sync now";
 
   const runCloudAction = (): void => {
     if (phase === "disconnected") {
@@ -149,6 +157,11 @@ function CloudSyncStatus({
       return;
     }
     if (phase === "unlinked") {
+      requestSettingsTarget("cloud");
+      setSettingsOpen(true);
+      return;
+    }
+    if (phase === "attention") {
       requestSettingsTarget("cloud");
       setSettingsOpen(true);
       return;
@@ -219,7 +232,7 @@ function CloudStatusIcon({
     );
   }
 
-  if (phase === "error") {
+  if (phase === "error" || phase === "attention") {
     return (
       <svg
         aria-hidden="true"

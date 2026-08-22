@@ -39,6 +39,16 @@ export { connectionErrorMessage }
 
 /** The server never answered: DNS/refused/timeout. The workspace may be
  *  fine; the network is not. Callers must never read this as "absent". */
+import type {
+  ApplyWorkflowInput,
+  WorkflowFile,
+  WorkflowRunReceipt,
+  WorkflowRunSummary,
+  WorkflowUndoResult,
+  WriteWorkflowInput
+} from '@zennotes/bridge-contract/workflows'
+import { prepareWorkflowRun } from '@shared/workflows/prepare-run'
+
 export class RemoteConnectionError extends Error {}
 
 /** The server answered with a non-2xx status: it is alive and made a
@@ -129,6 +139,66 @@ export class RemoteServerClient {
     if (paths.ripgrepPath) params.set('ripgrepPath', paths.ripgrepPath)
     if (paths.fzfPath) params.set('fzfPath', paths.fzfPath)
     return this.jsonRequest<VaultTextSearchMatch[]>(`/api/search/text?${params.toString()}`)
+  }
+
+  /** True when the connected server advertises the journalled workflow API
+   *  from #608. Older servers stay read-only, exactly like the web client. */
+  async supportsWorkflows(): Promise<boolean> {
+    const caps = await this.getCapabilities()
+    return (caps as { supportsWorkflows?: boolean } | null)?.supportsWorkflows === true
+  }
+
+  async listWorkflows(): Promise<WorkflowFile[]> {
+    return this.jsonRequest<WorkflowFile[]>('/api/workflows')
+  }
+
+  async writeWorkflow(input: WriteWorkflowInput): Promise<WorkflowFile> {
+    return this.jsonRequest<WorkflowFile>('/api/workflows/write', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>
+    })
+  }
+
+  async deleteWorkflow(sourcePath: string): Promise<void> {
+    await this.jsonRequest('/api/workflows/delete', { method: 'POST', body: { sourcePath } })
+  }
+
+  /** Prepare on this side (reads through the server), apply transactionally on
+   *  the server — the same split the web bridge ships for #608. */
+  async applyWorkflow(input: ApplyWorkflowInput): Promise<WorkflowRunReceipt> {
+    const settings = await this.getVaultSettings()
+    const prepared = await prepareWorkflowRun(input, {
+      read: async (path: string) => {
+        try {
+          return (await this.readNote(path)).body
+        } catch {
+          return null
+        }
+      },
+      systemFolderDirs: settings.systemFolderPaths ?? {}
+    })
+    return this.jsonRequest<WorkflowRunReceipt>('/api/workflows/apply', {
+      method: 'POST',
+      body: prepared as unknown as Record<string, unknown>
+    })
+  }
+
+  async undoWorkflowRun(runId: string): Promise<WorkflowUndoResult> {
+    return this.jsonRequest<WorkflowUndoResult>('/api/workflows/undo', {
+      method: 'POST',
+      body: { runId }
+    })
+  }
+
+  async listWorkflowRuns(): Promise<WorkflowRunSummary[]> {
+    return this.jsonRequest<WorkflowRunSummary[]>('/api/workflows/runs')
+  }
+
+  async deleteWorkflowRuns(workflowId: string): Promise<number> {
+    return this.jsonRequest<number>('/api/workflows/runs/delete', {
+      method: 'POST',
+      body: { workflowId }
+    })
   }
 
   async readNote(relPath: string): Promise<NoteContent> {

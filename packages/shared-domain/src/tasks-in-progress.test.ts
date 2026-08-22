@@ -107,6 +107,13 @@ describe('task in-progress primitives (#512)', () => {
     expect(rest).toBe('- [x] done\n- [-] scrapped\n- [>] gone [[X]]')
   })
 
+  it('rolls a loose list forward whole, blank lines included (#611 review)', () => {
+    const md = ['- [ ] task', '    - [ ] a', '', '    - [ ] b', '', 'A paragraph.'].join('\n')
+    const { moved, rest } = extractOpenTaskBlocks(md)
+    expect(moved).toEqual(['- [ ] task', '    - [ ] a', '', '    - [ ] b'])
+    expect(rest).toBe('\nA paragraph.')
+  })
+
   it('reads a file-task `status: in-progress` as in progress, and writes it', () => {
     const body = '---\ntags: [task]\ntitle: Rewrite\nstatus: in-progress\n---\n\nHalf done.'
     const t = parseTaskFile(body, ctx)

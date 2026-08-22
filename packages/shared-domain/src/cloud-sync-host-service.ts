@@ -25,6 +25,7 @@ type SyncClient = Pick<
   | 'account'
   | 'listVaults'
   | 'createVault'
+  | 'deleteVault'
   | 'manifest'
   | 'changes'
   | 'mutate'
@@ -118,6 +119,18 @@ export class CloudSyncHostService {
 
   async unlink(vault: CloudSyncHostVault): Promise<void> {
     await this.dependencies.persistence.deleteLink(vault.key)
+  }
+
+  /**
+   * Delete the cloud copy this vault is linked to, then drop the link.
+   * Mirrors the desktop service: the remote call goes first so a failure
+   * leaves the link (and the user's ability to retry) intact. Local files are
+   * never touched.
+   */
+  async deleteLinkedVault(vault: CloudSyncHostVault): Promise<void> {
+    const { client, link } = await this.linkedConnection(vault)
+    await client.deleteVault(link.vault_id)
+    await this.unlink(vault)
   }
 
   async listBackups(vault: CloudSyncHostVault): Promise<CloudBackupSnapshot[]> {

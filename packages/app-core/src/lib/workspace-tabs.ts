@@ -5,6 +5,7 @@ import { isTagsTabPath } from '@shared/tags'
 import { isTasksTabPath } from '@shared/tasks'
 import { isTrashTabPath } from '@shared/trash'
 import { isWorkflowsTabPath } from '@shared/workflows-view'
+import { isAtlasTabPath } from '@shared/atlas-view'
 import { isDatabaseTabPath } from '@shared/databases'
 import { isAssetsViewTabPath } from '@shared/assets-view'
 import { isAssetTabPath } from './asset-tabs'
@@ -16,6 +17,7 @@ export function isWorkspaceVirtualTabPath(path: string): boolean {
     isQuickNotesTabPath(path) ||
     isTasksTabPath(path) ||
     isWorkflowsTabPath(path) ||
+    isAtlasTabPath(path) ||
     isTagsTabPath(path) ||
     isHelpTabPath(path) ||
     isArchiveTabPath(path) ||

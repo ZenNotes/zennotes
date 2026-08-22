@@ -2,8 +2,11 @@ import { useStore } from '../store'
 import { offerCreateNoteFromLink } from './create-note-from-link'
 import { externalFileLink, openExternalFileLink } from './external-file-link'
 import { externalLinkUrl, resolveInternalNoteHref } from './internal-links'
-import { resolveWikilinkTarget, wikilinkHeadingAnchor } from './wikilinks'
-import { openDatabaseFromWikilink, openWikilinkHeading } from './wikilink-navigation'
+import { resolveWikilinkPath } from './wikilinks'
+import {
+  openDatabaseFromWikilink,
+  openWikilinkTarget
+} from './wikilink-navigation'
 
 /**
  * Follow a link target from the active note. The `target` is either a
@@ -29,15 +32,13 @@ export function followLinkTarget(target: string): boolean {
   }
   const internal = resolveInternalNoteHref(state.selectedPath, target, state.notes)
   if (internal) {
-    if (internal.heading) void openWikilinkHeading(internal.path, internal.heading).then(focusSoon)
+    if (internal.anchor) void openWikilinkTarget(internal.path, `#${internal.anchor}`).then(focusSoon)
     else void state.selectNote(internal.path).then(focusSoon)
     return true
   }
-  const wikilink = resolveWikilinkTarget(state.notes, target)
-  if (wikilink) {
-    const heading = wikilinkHeadingAnchor(target)
-    if (heading) void openWikilinkHeading(wikilink.path, heading).then(focusSoon)
-    else void state.selectNote(wikilink.path).then(focusSoon)
+  const wikilinkPath = resolveWikilinkPath(state.notes, target, state.selectedPath)
+  if (wikilinkPath) {
+    void openWikilinkTarget(wikilinkPath, target).then(focusSoon)
     return true
   }
   if (openDatabaseFromWikilink(target)) {

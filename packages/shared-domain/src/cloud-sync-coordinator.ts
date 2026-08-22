@@ -5,6 +5,7 @@ import type {
   CloudSyncLocalConflict,
   CloudSyncManifestItem,
   CloudSyncManifestResponse,
+  CloudSyncMutation,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -137,8 +138,7 @@ export class CloudSyncCoordinator {
     let mutationCursor = state.cursor
     let pushed = 0
 
-    for (let offset = 0; offset < plan.mutations.length; offset += MUTATION_BATCH_SIZE) {
-      const batch = { mutations: plan.mutations.slice(offset, offset + MUTATION_BATCH_SIZE) }
+    for (const batch of mutationBatches(plan.mutations)) {
       const response = await this.remote.mutate(this.vaultId, batch)
       const resolution = resolveCloudSyncMutations(state, batch, response)
       state = resolution.state
@@ -168,26 +168,53 @@ export class CloudSyncCoordinator {
     let state = initialState
     let pulled = 0
     const localConflicts: CloudSyncLocalConflict[] = []
+    const changes: CloudSyncChange[] = []
+    let after = state.cursor
 
     for (;;) {
-      const response = await this.remote.changes(this.vaultId, state.cursor, CHANGE_PAGE_SIZE)
-
-      for (const change of response.data) {
-        if (!acknowledgedSequences.has(change.sequence)) {
-          const previous = state.items[change.item_id]
-          const conflict = await this.repository.apply(change, previous)
-          if (conflict) localConflicts.push(conflict)
-          pulled++
-        }
-        state = reduceCloudSyncChange(state, change)
-        await this.states.save(state)
-      }
+      const response = await this.remote.changes(this.vaultId, after, CHANGE_PAGE_SIZE)
+      changes.push(...response.data)
+      const last = response.data.at(-1)
+      if (last) after = last.sequence
 
       if (!response.has_more) break
       if (response.data.length === 0) {
         throw new Error('Cloud sync change feed reported another page without returning a change')
       }
     }
+
+    // A client that catches up after another device created and filled a note
+    // can receive every saved revision of that file. Applying each historical
+    // body turns stale intermediate bytes into numbered conflict copies even
+    // when both devices already agree on the final body. Skip an upsert when
+    // the next change for that item is another upsert at the same path. Moves
+    // and deletes still run because later content changes depend on their
+    // filesystem effects. Every change is reduced so cursor and tracked state
+    // remain exact (#661).
+    const supersededUpserts = new Set<number>()
+    const nextChangeByItem = new Map<string, CloudSyncChange>()
+    for (let index = changes.length - 1; index >= 0; index -= 1) {
+      const change = changes[index]
+      const next = nextChangeByItem.get(change.item_id)
+      if (change.type === 'upsert' && next?.type === 'upsert' && next.path === change.path) {
+        supersededUpserts.add(change.sequence)
+      }
+      nextChangeByItem.set(change.item_id, change)
+    }
+
+    for (const change of changes) {
+      const acknowledged = acknowledgedSequences.has(change.sequence)
+      if (!acknowledged) {
+        if (!supersededUpserts.has(change.sequence)) {
+          const previous = state.items[change.item_id]
+          const conflict = await this.repository.apply(change, previous)
+          if (conflict) localConflicts.push(conflict)
+        }
+        pulled++
+      }
+      state = reduceCloudSyncChange(state, change)
+    }
+    if (changes.length > 0) await this.states.save(state)
 
     return { state, pulled, localConflicts }
   }
@@ -275,6 +302,37 @@ export class CloudSyncCoordinator {
 
     throw new Error('Vault changed repeatedly while the initial sync manifest was loading')
   }
+}
+
+function mutationBatches(mutations: CloudSyncMutation[]): CloudSyncMutationRequest[] {
+  const batches: CloudSyncMutationRequest[] = []
+  let batch: CloudSyncMutation[] = []
+
+  const flush = (): void => {
+    if (batch.length === 0) return
+    batches.push({ mutations: batch })
+    batch = []
+  }
+
+  for (const mutation of mutations) {
+    // The cloud server persists non-UTF-8 payloads to object storage serially.
+    // Isolating each one keeps several assets from exhausting one request's
+    // timeout and rolling back the whole batch before progress is checkpointed.
+    const usesObjectStorage =
+      mutation.type === 'upsert' && mutation.content.encoding !== 'utf8'
+
+    if (usesObjectStorage) {
+      flush()
+      batches.push({ mutations: [mutation] })
+      continue
+    }
+
+    batch.push(mutation)
+    if (batch.length === MUTATION_BATCH_SIZE) flush()
+  }
+
+  flush()
+  return batches
 }
 
 function manifestState(

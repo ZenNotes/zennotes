@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 import type { AssetMeta, NoteMeta } from '@shared/ipc'
 import { isDatabaseCsvPath } from '@shared/databases'
 import { DENSITY, densityFromTweaks } from '@shared/overrides'
@@ -866,9 +867,15 @@ export function NoteList(): JSX.Element {
                       active={entry.note.path === selectedPath}
                       compact={rowDensity === 'compact'}
                       onSelect={() =>
-                        void (tabsEnabled ? previewNote : selectNote)(entry.note.path)
+                        // Mouse opens hand the keyboard to the editor, same as
+                        // every keyboard opener already does. (#599)
+                        void (tabsEnabled ? previewNote : selectNote)(entry.note.path).then(() =>
+                          focusEditorNormalMode()
+                        )
                       }
-                      onOpenPermanent={() => void selectNote(entry.note.path)}
+                      onOpenPermanent={() =>
+                        void selectNote(entry.note.path).then(() => focusEditorNormalMode())
+                      }
                       onContextMenu={(e) => {
                         e.preventDefault()
                         setMenu({ x: e.clientX, y: e.clientY, path: entry.note.path })

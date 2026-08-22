@@ -1,11 +1,12 @@
 import { app, shell } from 'electron'
 import { execFile, spawn } from 'node:child_process'
-import fs, { promises as fsp } from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import type { RaycastExtensionStatus } from '@shared/ipc'
+import { resolveCommandViaLoginShell } from './login-shell-path'
 
 const execFileAsync = promisify(execFile)
 
@@ -106,8 +107,11 @@ async function raycastAppInstalled(): Promise<boolean> {
 }
 
 async function resolveToolchain(): Promise<Toolchain> {
-  const nodePath = await resolveLoginShellCommand('node')
-  const npmPath = await resolveLoginShellCommand('npm')
+  // The shared resolver, not a private login-shell query: it reads the
+  // interactive shell's PATH (where nvm and friends initialize, #634) and
+  // falls back to probing nvm's install directory directly.
+  const nodePath = await resolveCommandViaLoginShell('node')
+  const npmPath = await resolveCommandViaLoginShell('npm')
   const env = buildCommandEnv({ nodePath, npmPath })
   const nodeVersion = nodePath ? await readVersion(nodePath, env) : null
   const npmVersion = npmPath ? await readVersion(npmPath, env) : null
@@ -120,29 +124,6 @@ async function resolveToolchain(): Promise<Toolchain> {
     nodeMeetsMinimum: versionAtLeast(nodeVersion, MIN_NODE_VERSION),
     npmMeetsMinimum: versionAtLeast(npmVersion, MIN_NPM_VERSION)
   }
-}
-
-async function resolveLoginShellCommand(command: 'node' | 'npm'): Promise<string | null> {
-  const shells = Array.from(
-    new Set([process.env.SHELL, '/bin/zsh', '/bin/bash', '/bin/sh'].filter(Boolean))
-  ) as string[]
-
-  for (const shellPath of shells) {
-    try {
-      await fsp.access(shellPath, fs.constants.X_OK)
-      const { stdout } = await execFileAsync(shellPath, ['-lc', `command -v ${command}`], {
-        encoding: 'utf8',
-        timeout: 10000,
-        maxBuffer: 1024 * 1024
-      })
-      const resolved = String(stdout).trim().split(/\r?\n/)[0]
-      if (resolved) return resolved
-    } catch {
-      /* keep trying */
-    }
-  }
-
-  return null
 }
 
 async function readVersion(commandPath: string, env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -205,7 +186,7 @@ function unavailableReason(input: {
     return 'Raycast is not installed on this Mac.'
   }
   if (!input.toolchain.nodePath) {
-    return 'Node.js 22.14 or newer is required to install a local Raycast extension.'
+    return 'Node.js 22.14 or newer is required to install a local Raycast extension. ZenNotes looks for it on your shell PATH and in nvm installs.'
   }
   if (!input.toolchain.nodeMeetsMinimum) {
     return `Raycast extension tooling requires Node.js 22.14 or newer. Found ${input.toolchain.nodeVersion ?? 'an unknown version'}.`

@@ -16,6 +16,7 @@ import { findLeaf } from './pane-layout'
 import { requestPaneMode } from './pane-mode'
 import { resolveQuickNoteTitle } from './quick-note-title'
 import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
+import { canManageWorkflows } from './workflow-workspace'
 import { toggleCheckbox } from './cm-toggle-checkbox'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
@@ -261,6 +262,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.new.here',
       title: 'New Note in Current Folder',
       category: 'Note',
+      shortcut: shortcut('global.newNoteHere'),
       keywords: 'create add write',
       when: () => {
         const s = getState()
@@ -268,24 +270,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (s.activeNote && s.activeNote.folder !== 'trash') return true
         return s.view.kind === 'folder' && s.view.folder !== 'trash'
       },
-      run: () => {
-        const s = getState()
-        if (isTrashViewActive(s)) return
-        // "Current folder" is the folder of the active note (the one you're
-        // editing), not the sidebar's browse view. Those drift apart when notes
-        // from different folders are open, since switching tabs doesn't move the
-        // view, so reading the view created the note in the wrong directory.
-        // (#403) Fall back to the browsed folder only when no note is open.
-        const active = s.activeNote
-        if (active && active.folder !== 'trash') {
-          return s.createAndOpen(active.folder, noteFolderSubpath(active, s.vaultSettings), {
-            focusTitle: true
-          })
-        }
-        const v = s.view
-        if (v.kind !== 'folder' || v.folder === 'trash') return
-        return s.createAndOpen(v.folder, v.subpath, { focusTitle: true })
-      }
+      run: () => getState().createNoteInCurrentFolder()
     },
     {
       id: 'note.save',
@@ -1135,6 +1120,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().openWorkflowsView()
     },
     {
+      id: 'view.atlas',
+      title: 'Open Atlas',
+      category: 'View',
+      shortcut: leaderShortcut('vim.leaderAtlas'),
+      keywords: 'atlas map graph vault visualize notes links regions sky 3d',
+      // Hidden entirely when the feature is switched off in Settings
+      when: () => getState().atlasEnabled,
+      run: () => getState().openAtlasView()
+    },
+    {
       id: 'view.tags',
       title: 'Open Tags',
       category: 'View',
@@ -1888,14 +1883,20 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   // run, and a row that only answers with an error is worse than no row.
   {
     const state = getState()
-    // Where a workflow could run at all: the desktop app, on a local vault.
+    // Where a workflow could run at all: any host that can keep workflow
+    // files and journals, the same predicate the Workflows view uses. Gating
+    // on runtime === 'desktop' left capable web workspaces (a 2.29 server
+    // advertising supportsWorkflows) with a working view but no palette rows
+    // and no vim ex-commands, on the keyboard-first surface of all places.
     // Deliberately NOT gated on the feature switch, because the tutorial below
     // must be findable BEFORE someone has opted in: starting it IS the opt-in,
     // exactly like the button in Settings.
     const workflowsPossibleHere =
-      state.workspaceMode !== 'remote' &&
-      window.zen.getAppInfo().runtime === 'desktop' &&
-      typeof window.zen.applyWorkflow === 'function'
+      canManageWorkflows(
+        window.zen.getAppInfo().runtime,
+        state.workspaceMode,
+        window.zen.getCapabilities()
+      ) && typeof window.zen.applyWorkflow === 'function'
     if (workflowsPossibleHere) {
       cmds.push({
         id: 'workflow.tutorial',

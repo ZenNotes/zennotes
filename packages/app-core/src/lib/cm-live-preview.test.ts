@@ -167,6 +167,19 @@ describe('livePreviewPlugin', () => {
     view.destroy()
   })
 
+  it('hides a standalone block id off-cursor and reveals it on its line (#601)', () => {
+    const doc = 'Named paragraph.\n\n^standalone\n\nAfter.'
+    const view = mountEditor(doc, doc.indexOf('After'))
+
+    expect(view.dom.textContent).toContain('Named paragraph.')
+    expect(view.dom.textContent).not.toContain('^standalone')
+
+    view.dispatch({ selection: { anchor: doc.indexOf('^standalone') + 2 } })
+    expect(view.dom.textContent).toContain('^standalone')
+
+    view.destroy()
+  })
+
   it('replaces an unchecked task marker with a checkbox widget', () => {
     // Cursor on the intro line — the task line is inactive, so it renders.
     const doc = 'intro\n\n- [ ] Buy milk'

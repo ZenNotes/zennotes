@@ -39,6 +39,16 @@ export const WorkflowIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** Three linked nodes: a constellation, the shape of the Atlas map. */
+export const AtlasIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="18" cy="9" r="2.5" />
+    <circle cx="10" cy="18" r="2.5" />
+    <path d="M8.3 7 15.6 8.6M16.4 11 11.5 16M7 8.2l2.2 7.4" />
+  </I>
+)
+
 export const TableIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="3" width="18" height="18" rx="2" />

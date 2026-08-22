@@ -23,6 +23,7 @@ import { isHelpTabPath } from '@shared/help'
 import { isTagsTabPath } from '@shared/tags'
 import { isTasksTabPath } from '@shared/tasks'
 import { isWorkflowsTabPath } from '@shared/workflows-view'
+import { isAtlasTabPath } from '@shared/atlas-view'
 import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
@@ -44,6 +45,14 @@ interface BufferEntry {
 function fallbackTitle(path: string): string {
   const filename = path.split('/').pop() ?? path
   return filename.replace(/\.md$/i, '') || path
+}
+
+/** The row's secondary column: the note's folder, not the full path — the
+ *  filename part would just repeat the title, and it was crowding the title
+ *  out of the row (#635). The full path stays searchable via keywords. */
+function parentDir(path: string): string {
+  const idx = path.lastIndexOf('/')
+  return idx > 0 ? path.slice(0, idx) : ''
 }
 
 interface BuildDeps {
@@ -87,6 +96,19 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
         title: 'Tasks',
         subtitle: 'Vault-wide task list',
         keywords: 'tasks todos checklist vault virtual',
+        badge,
+        current: isCurrent,
+        dirty: false,
+        virtual: true
+      })
+      return
+    }
+    if (isAtlasTabPath(path)) {
+      entries.push({
+        path,
+        title: 'Atlas',
+        subtitle: 'The vault as a map',
+        keywords: 'atlas map graph vault notes links virtual',
         badge,
         current: isCurrent,
         dirty: false,
@@ -179,7 +201,7 @@ function buildEntries(deps: BuildDeps): BufferEntry[] {
     entries.push({
       path,
       title,
-      subtitle: path,
+      subtitle: parentDir(path),
       keywords: [title, path, meta?.folder].filter(Boolean).join(' '),
       badge,
       current: isCurrent,
@@ -214,6 +236,7 @@ export function BufferPalette(): JSX.Element {
   const setOpen = useStore((s) => s.setBufferPaletteOpen)
   const setActivePane = useStore((s) => s.setActivePane)
   const focusTabInPane = useStore((s) => s.focusTabInPane)
+  const closeTab = useStore((s) => s.closeTab)
 
   // Select primitives separately so each selector returns a stable
   // reference; compute the derived entries list with useMemo. Returning
@@ -263,6 +286,10 @@ export function BufferPalette(): JSX.Element {
   useEffect(() => setActive(0), [query])
 
   useEffect(() => {
+    setActive((index) => Math.max(0, Math.min(index, results.length - 1)))
+  }, [results.length])
+
+  useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-buf-idx="${active}"]`)
     el?.scrollIntoView({ block: 'nearest' })
   }, [active])
@@ -289,6 +316,13 @@ export function BufferPalette(): JSX.Element {
     focusEditorNormalMode()
   }
 
+  const closeSelected = async (): Promise<void> => {
+    const entry = results[active]
+    if (!entry) return
+    await closeTab(entry.path)
+    inputRef.current?.focus()
+  }
+
   return (
     <Modal size="md" layer="palette" onClose={close} closeOnEsc={false}>
       <div className="border-b border-paper-300/70 px-4 py-3">
@@ -312,6 +346,16 @@ export function BufferPalette(): JSX.Element {
                 e.preventDefault()
                 const entry = results[active]
                 if (entry) void open(entry)
+              } else if (
+                e.ctrlKey &&
+                !e.metaKey &&
+                !e.altKey &&
+                !e.shiftKey &&
+                e.key.toLowerCase() === 'd'
+              ) {
+                e.preventDefault()
+                e.stopPropagation()
+                void closeSelected()
               } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
@@ -338,7 +382,11 @@ export function BufferPalette(): JSX.Element {
                   i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                 ].join(' ')}
               >
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink-900">
+                {/* The title is what the user is switching by, so it wins the
+                    space fight: natural width, truncating only when it alone
+                    overflows the row. The folder column takes whatever is
+                    left (flex-1, basis 0) and collapses first. (#635) */}
+                <span className="min-w-0 truncate text-sm font-medium text-ink-900">
                   {entry.title}
                   {entry.dirty && (
                     <span
@@ -349,8 +397,12 @@ export function BufferPalette(): JSX.Element {
                     </span>
                   )}
                 </span>
-                <span className="shrink-0 truncate text-xs text-ink-400">
-                  {entry.virtual ? 'virtual' : entry.subtitle}
+                {/* dir="rtl" moves the ellipsis to the left edge, so a folder
+                    that no longer fits keeps its distinguishing tail visible
+                    (…ZenNotes/Enhancements). The LRE/PDF bidi embedding keeps
+                    the path itself rendering left-to-right inside it. */}
+                <span dir="rtl" className="min-w-0 flex-1 truncate text-xs text-ink-400">
+                  {`\u202A${entry.virtual ? 'virtual' : entry.subtitle}\u202C`}
                 </span>
                 <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
                   {entry.badge}
@@ -368,7 +420,10 @@ export function BufferPalette(): JSX.Element {
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> switch
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+D</kbd> close buffer
+          </span>
+          <span>
+            <kbd className="rounded bg-paper-200 px-1">esc</kbd> dismiss
           </span>
         </div>
     </Modal>

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
-import { computeTasksRender, isOverdue } from '../lib/tasks-filter'
+import { computeTasksRender, filterTasks, isOverdue } from '../lib/tasks-filter'
 import { forwardTaskWithPicker } from '../lib/forward-task'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
@@ -60,6 +60,7 @@ export function TasksView(): JSX.Element {
   const closeTasksView = useStore((s) => s.closeTasksView)
   const reorderTaskInNote = useStore((s) => s.reorderTaskInNote)
   const newTaskFile = useStore((s) => s.newTaskFile)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
 
   // Tasks written inside a daily note inherit that note's date as an implicit
   // due date (a clean line, no `due:` token) so they appear on the calendar.
@@ -74,6 +75,11 @@ export function TasksView(): JSX.Element {
     () => inferDailyTaskDueDates(filterTasksForDisplay(rawTasks, showArchivedTasks), dueByPath),
     [rawTasks, showArchivedTasks, dueByPath]
   )
+  // One filter, three sub-views: the list applies it inside computeTasksRender,
+  // the calendar takes this pre-filtered list, and the Kanban receives the raw
+  // query so it can narrow cards without losing the full board (its group-by
+  // options and card-order persistence must keep seeing every task).
+  const filteredTasks = useMemo(() => filterTasks(tasks, filter), [tasks, filter])
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
   const viewMode = useStore((s) => s.tasksViewMode)
@@ -299,8 +305,18 @@ export function TasksView(): JSX.Element {
 
   const runExCommand = useCallback(
     (raw: string): void => {
-      const cmd = raw.trim().replace(/^:/, '').toLowerCase()
-      if (!cmd) return
+      const input = raw.trim().replace(/^:/, '')
+      if (!input) return
+      // `:filter <text>` sets the shared filter (all three sub-views);
+      // bare `:filter` (or `:f`) clears it. Parsed off the un-lowercased
+      // input so the query lands in the box as typed.
+      const spaceIdx = input.indexOf(' ')
+      const head = (spaceIdx === -1 ? input : input.slice(0, spaceIdx)).toLowerCase()
+      if (head === 'filter' || head === 'f') {
+        setFilter(spaceIdx === -1 ? '' : input.slice(spaceIdx + 1).trim())
+        return
+      }
+      const cmd = input.toLowerCase()
       const store = useStore.getState()
       const path = store.selectedPath
       switch (cmd) {
@@ -368,7 +384,7 @@ export function TasksView(): JSX.Element {
           return
       }
     },
-    [closeTasksView, refreshTasks, setViewMode]
+    [closeTasksView, refreshTasks, setFilter, setViewMode]
   )
 
   // Window-level handler with two responsibilities:
@@ -573,12 +589,21 @@ export function TasksView(): JSX.Element {
     <div
       ref={rootRef}
       className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900"
+      // The pane's capture handlers claim focusedPanel 'editor' for any click
+      // or focus inside the pane (#477), which disconnects this view's window
+      // keydown handler (gated on 'tasks', #412): after focusing the filter
+      // box, 1/2/3, `/`, `:` and the list keys all fell through to VimNav,
+      // which walked the SIDEBAR cursor instead. This view is a panel, not an
+      // editor surface, so re-claim 'tasks'. Outer capture handlers run before
+      // inner ones, so this always lands after the pane's claim and wins.
+      onMouseDownCapture={() => setFocusedPanel('tasks')}
+      onFocusCapture={() => setFocusedPanel('tasks')}
     >
       <div className="flex items-center gap-2 border-b border-paper-300/45 px-4 py-3">
         <CheckSquareIcon width={18} height={18} />
         <h1 className="text-sm font-semibold">Tasks</h1>
         <span className="ml-2 rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
-          {tasks.length} total
+          {filter.trim() ? `${filteredTasks.length} of ${tasks.length}` : `${tasks.length} total`}
         </span>
         {loading && <span className="text-xs text-current/50">scanning…</span>}
 
@@ -606,28 +631,29 @@ export function TasksView(): JSX.Element {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {viewMode === 'list' && (
-            <input
-              ref={filterRef}
-              type="text"
-              placeholder="Filter…  /  to focus"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              onKeyDown={(e) => {
-                // While composing (IME), let the input own Enter/Arrows. (#183)
-                if (isImeComposing(e)) return
-                if (e.key === 'Escape') {
-                  e.stopPropagation()
-                  if (filter) setFilter('')
-                  else e.currentTarget.blur()
-                }
-                if (e.key === 'Enter') {
-                  e.currentTarget.blur()
-                }
-              }}
-              className="w-56 rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-1 text-xs outline-none focus:border-paper-400/70"
-            />
-          )}
+          {/* Mounted in every sub-view: the same query narrows the list, the
+              calendar, and the Kanban board, so switching views keeps the
+              focus you typed. (#583) */}
+          <input
+            ref={filterRef}
+            type="text"
+            placeholder="Filter…  /  to focus"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              // While composing (IME), let the input own Enter/Arrows. (#183)
+              if (isImeComposing(e)) return
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                if (filter) setFilter('')
+                else e.currentTarget.blur()
+              }
+              if (e.key === 'Enter') {
+                e.currentTarget.blur()
+              }
+            }}
+            className="w-56 rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-1 text-xs outline-none focus:border-paper-400/70"
+          />
           <button
             type="button"
             onClick={() => void newTaskFile()}
@@ -710,7 +736,7 @@ export function TasksView(): JSX.Element {
 
       {viewMode === 'calendar' && (
         <TasksCalendar
-          tasks={tasks}
+          tasks={filteredTasks}
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}
@@ -726,6 +752,7 @@ export function TasksView(): JSX.Element {
       {viewMode === 'kanban' && (
         <TasksKanban
           tasks={tasks}
+          filter={filter}
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}

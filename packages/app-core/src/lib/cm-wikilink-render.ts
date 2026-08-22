@@ -20,8 +20,8 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { useStore } from '../store'
-import { isSameFileHeadingLink, resolveWikilinkTarget, wikilinkHeadingAnchor } from './wikilinks'
-import { openDatabaseFromWikilink, openWikilinkHeading } from './wikilink-navigation'
+import { isSameFileBlockLink, isSameFileHeadingLink, resolveWikilinkTarget } from './wikilinks'
+import { openDatabaseFromWikilink, openWikilinkTarget } from './wikilink-navigation'
 import { offerCreateNoteFromLink } from './create-note-from-link'
 
 // Same shape as the Preview pipeline (remarkWikilinks).
@@ -144,13 +144,12 @@ function openWikilink(target: string): void {
     requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
   }
 
-  const anchor = wikilinkHeadingAnchor(target)
   const resolved = resolveWikilinkTarget(state.notes, target)
   if (!resolved) {
-    // `[[#heading]]` (no note part) points at a heading in the current note,
-    // so scroll within the note being edited. (#291)
-    if (anchor && isSameFileHeadingLink(target) && state.selectedPath) {
-      void openWikilinkHeading(state.selectedPath, anchor).then(focusEditorSoon)
+    // `[[#heading]]` / `[[^block]]` (no note part) point within the note being
+    // edited, so scroll there instead of hunting for a note by name. (#291, #601)
+    if ((isSameFileHeadingLink(target) || isSameFileBlockLink(target)) && state.selectedPath) {
+      void openWikilinkTarget(state.selectedPath, target).then(focusEditorSoon)
       return
     }
     // Not a note — maybe a `.base` database; otherwise offer to create the note
@@ -160,11 +159,7 @@ function openWikilink(target: string): void {
     return
   }
 
-  if (!anchor) {
-    void state.selectNote(resolved.path).then(focusEditorSoon)
-    return
-  }
-  void openWikilinkHeading(resolved.path, anchor).then(focusEditorSoon)
+  void openWikilinkTarget(resolved.path, target).then(focusEditorSoon)
 }
 
 // Click a rendered wikilink to jump. Intercept on mousedown so CodeMirror

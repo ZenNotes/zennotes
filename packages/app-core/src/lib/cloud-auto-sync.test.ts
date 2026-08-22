@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CloudAccountStatus } from "@zennotes/bridge-contract/cloud-sync";
+import type {
+  CloudAccountStatus,
+  CloudSyncRunSummary,
+} from "@zennotes/bridge-contract/cloud-sync";
 import type { VaultChangeEvent } from "@shared/ipc";
 import {
   clearCloudSyncStatus,
@@ -31,13 +34,16 @@ function setup(
   let linkBaseUrl = "https://zennotes.org";
   let online = true;
   let active = true;
-  const syncCloudVault = vi.fn(async () => ({
-    cursor: 1,
-    pulled: 0,
-    pushed: 0,
-    conflicts: [],
-    bootstrap_conflicts: [], local_conflicts: [],
-  }));
+  const syncCloudVault = vi.fn(
+    async (): Promise<CloudSyncRunSummary> => ({
+      cursor: 1,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    }),
+  );
   const logoutCloudAccount = vi.fn(async (): Promise<CloudAccountStatus> => {
     const disconnected: CloudAccountStatus = {
       state: "disconnected",
@@ -199,7 +205,8 @@ describe("cloud auto sync host wiring", () => {
               pulled: 1,
               pushed: 0,
               conflicts: [],
-              bootstrap_conflicts: [], local_conflicts: [],
+              bootstrap_conflicts: [],
+              local_conflicts: [],
             });
         }),
     );
@@ -220,6 +227,72 @@ describe("cloud auto sync host wiring", () => {
       error: null,
     });
     expect(useCloudSyncStatusStore.getState().lastSyncedAt).not.toBeNull();
+  });
+
+  it("does not report a quota-conflicted sync as successful", async () => {
+    const host = setup();
+    host.syncCloudVault.mockResolvedValue({
+      cursor: 2,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [
+        {
+          operation_id: "operation-1",
+          item_id: "item-1",
+          code: "QUOTA_EXCEEDED",
+          current_revision: null,
+          current_path: null,
+        },
+      ],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    });
+
+    await syncCloudVaultWithStatus(host.bridge, "Notes");
+
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "attention",
+      vaultName: "Notes",
+      lastSyncedAt: null,
+      error:
+        "Cloud capacity reached. Remove files or increase your Cloud capacity.",
+    });
+  });
+
+  it("shows the active item usage returned with a quota conflict", async () => {
+    const host = setup();
+    host.syncCloudVault.mockResolvedValue({
+      cursor: 2,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [
+        {
+          operation_id: "operation-1",
+          item_id: "item-1",
+          code: "QUOTA_EXCEEDED",
+          current_revision: null,
+          current_path: null,
+          capacity: {
+            dimension: "sync_active_items",
+            used: 100,
+            reserved: 0,
+            limit: 100,
+            projected: 101,
+            can_retry_after_reduction: true,
+          },
+        },
+      ],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    });
+
+    await syncCloudVaultWithStatus(host.bridge, "Notes");
+
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "attention",
+      error:
+        "Cloud active-item limit reached (100 of 100). Remove files or increase your Cloud capacity.",
+    });
   });
 
   it("starts cloud sign-in from the status bar", async () => {
@@ -267,7 +340,8 @@ describe("cloud auto sync host wiring", () => {
         pulled: 0,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [], local_conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
       };
     });
     const runtime = startCloudAutoSync(host.bridge, host.environment, {

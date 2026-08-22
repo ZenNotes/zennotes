@@ -47,6 +47,7 @@ import {
   convertInchesToTwip
 } from 'docx'
 import { withExportTitle } from '@shared/export-title'
+import { stripBlockAnchorMarkers } from '@shared/block-anchors'
 
 /* -------------------------------------------------------------------------- */
 /*  The intermediate representation                                           */
@@ -244,14 +245,16 @@ function blockOf(node: RootContent): IRBlock[] | null {
 }
 
 /** Parse a note's markdown (title already stated, see `withExportTitle`) into
- *  the IR. Exported for tests: every mapping decision is visible here. */
+ *  the IR. Exported for tests: every mapping decision is visible here.
+ *  `^block-id` markers are addressing, not prose, and a Word document handed
+ *  to non-ZenNotes readers is the last place they should print. (#601) */
 export function noteMarkdownToIR(markdown: string): IRBlock[] {
   const tree = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkFrontmatter, ['yaml', 'toml'])
     .use(remarkMath)
-    .parse(markdown) as Root
+    .parse(stripBlockAnchorMarkers(markdown)) as Root
   return tree.children.flatMap((node) => blockOf(node) ?? [])
 }
 

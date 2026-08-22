@@ -27,7 +27,9 @@ export const SELF_KEYED_SURFACES = [
   // Runs its own vim-style motion grid.
   '[data-zen-db-grid]',
   '[data-workflow-list-pane]',
-  '[data-workflow-canvas]'
+  '[data-workflow-canvas]',
+  // Owns bracket region navigation before global Vim buffer prefixes.
+  '[data-atlas-view]'
 ].join(', ')
 
 /** Blur the active element when it sits inside a self-keyed surface, so keys

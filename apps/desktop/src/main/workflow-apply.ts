@@ -355,6 +355,11 @@ function stringField(record: Record<string, unknown>, key: string): string | nul
  * Rebuilt field by field rather than cast, which is not ceremony: the result is
  * what gets persisted into the ledger, so anything extra that rode in on the
  * wire is dropped here instead of being kept forever in the run history.
+ *
+ * SYNCED COPIES: the same validator exists in @shared/workflows/prepare-run
+ * (the web client's), and the Go server mirrors the field list in
+ * requiredWorkflowOpFields (apps/server/internal/vault/workflows.go). A new
+ * op kind or field lands in all three.
  */
 export function parseWorkflowOp(value: unknown): WorkflowOp | null {
   if (typeof value !== 'object' || value === null) return null

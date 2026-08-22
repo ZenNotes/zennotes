@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import { isTasksTabPath } from '@shared/tasks'
 import { isWorkflowsTabPath } from '@shared/workflows-view'
+import { isAtlasTabPath } from '@shared/atlas-view'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
 import { isArchiveTabPath } from '@shared/archive'
@@ -25,6 +26,8 @@ export function TitleBar(): JSX.Element {
       ? labels.tasks
     : isWorkflowsTabPath(selectedPath)
       ? 'Workflows'
+    : isAtlasTabPath(selectedPath)
+      ? 'Atlas'
       : isTagsTabPath(selectedPath)
         ? 'Tags'
         : isHelpTabPath(selectedPath)

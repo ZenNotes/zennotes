@@ -7,6 +7,10 @@ import {
   DesktopCloudSyncRepository,
   DesktopCloudSyncStateStore
 } from './cloud-sync-filesystem'
+import {
+  CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
+  cloudSyncUploadSource
+} from './cloud-sync-upload-source'
 import type { CloudSyncChange } from '@zennotes/bridge-contract/cloud-sync'
 import type { CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 
@@ -73,6 +77,29 @@ describe('DesktopCloudSyncRepository', () => {
     expect(items.map((item) => item.path)).toEqual(['image.png', 'note.md'])
     expect(items.find((item) => item.path === 'note.md')?.content.encoding).toBe('utf8')
     expect(items.find((item) => item.path === 'image.png')?.content.encoding).toBe('base64')
+  })
+
+  it('keeps oversized file contents out of memory and records their upload source', async () => {
+    const root = await temporaryRoot()
+    const absolutePath = path.join(root, 'archive.bin')
+    const bytes = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 17)
+    await writeFile(absolutePath, bytes)
+
+    const items = await new DesktopCloudSyncRepository(root).scan()
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      path: 'archive.bin',
+      kind: 'binary',
+      content: {
+        encoding: 'base64',
+        data: '',
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        byte_length: bytes.byteLength,
+        media_type: 'application/octet-stream'
+      }
+    })
+    expect(cloudSyncUploadSource(items[0]!.content)).toBe(absolutePath)
   })
 
   it('keeps device-local workspace state out of scans and ignores remote workspace mutations', async () => {

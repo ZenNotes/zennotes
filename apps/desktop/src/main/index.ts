@@ -83,6 +83,7 @@ import {
   moveNote,
   moveAsset,
   moveToTrash,
+  trashNoteToSystem,
   readNoteComments,
   readNote,
   renameFolder,
@@ -672,7 +673,7 @@ function queueMarkdownFileOpen(
 function handleStartupMarkdownArgs(
   argv: string[],
   reuseMainWindow: boolean,
-): void {
+): number {
   // Candidates include directories (temporary folder session); the opener stats
   // each path and ignores anything that isn't a markdown file or a folder. The
   // app's own path is filtered by value (#579): launchers that run
@@ -680,18 +681,46 @@ function handleStartupMarkdownArgs(
   // skipping by index alone let the app dir through as a folder to open.
   const isUnpackagedElectronLaunch =
     (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
+  let queued = 0;
   for (const candidate of candidatePathsFromArgv(
     argv,
     isUnpackagedElectronLaunch,
     app.getAppPath(),
   )) {
     queueMarkdownFileOpen(candidate, reuseMainWindow);
+    queued += 1;
   }
+  return queued;
 }
 
 // Returns true when at least one file produced (or focused) a window, so
 // the caller can skip opening a redundant default-vault window.
-async function flushPendingFileOpens(): Promise<boolean> {
+// Flushes still opening their windows. `second-instance` waits on these
+// before deciding whether a default window is needed at all (#649).
+const inFlightFileOpens = new Set<Promise<boolean>>();
+
+function flushPendingFileOpens(): Promise<boolean> {
+  const run = drainPendingFileOpens();
+  inFlightFileOpens.add(run);
+  void run.finally(() => inFlightFileOpens.delete(run));
+  return run;
+}
+
+async function settleFileOpens(): Promise<void> {
+  while (inFlightFileOpens.size > 0) {
+    await Promise.allSettled([...inFlightFileOpens]);
+  }
+}
+
+function hasWorkspaceWindow(): boolean {
+  // Count only real workspace windows: a hidden quick-capture panel (or
+  // other utility window) must not pass for a usable window.
+  return BrowserWindow.getAllWindows().some(
+    (win) => !win.isDestroyed() && isWorkspaceWindow(win),
+  );
+}
+
+async function drainPendingFileOpens(): Promise<boolean> {
   if (!app.isReady() || pendingFileOpens.length === 0) return false;
   const items = pendingFileOpens.splice(0);
   let openedAny = false;
@@ -2630,6 +2659,9 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_LINK_DELETE, () =>
     getCloudSyncService().unlink(requireLocalCloudVaultRoot()),
   );
+  handle(IPC.CLOUD_VAULT_DELETE, () =>
+    getCloudSyncService().deleteLinkedVault(requireLocalCloudVaultRoot()),
+  );
   handle(IPC.CLOUD_VAULT_SYNC, () =>
     getCloudSyncService().sync(requireLocalCloudVaultRoot()),
   );
@@ -2990,17 +3022,31 @@ function registerIpc(): void {
 
   // Workflows are authored as files in the vault, so remote workspaces (which
   // have no local `.zennotes/workflows`) simply have none.
+  // Remote workspaces delegate every workflow call to the server's journalled
+  // workflow API from #608 when it is advertised; older servers stay
+  // read-only, matching the web client. (#618)
+  const requireRemoteWorkflows = async () => {
+    const client = requireRemoteWorkspaceClient();
+    if (!(await client.supportsWorkflows())) {
+      throw new Error(
+        "This ZenNotes server does not support workflows yet. Update the server and reconnect.",
+      );
+    }
+    return client;
+  };
+
   handle(IPC.VAULT_LIST_WORKFLOWS, async () => {
-    if (isRemoteWorkspaceActive()) return [];
+    if (isRemoteWorkspaceActive()) {
+      const client = requireRemoteWorkspaceClient();
+      return (await client.supportsWorkflows()) ? await client.listWorkflows() : [];
+    }
     const v = requireVault();
     return await listWorkflowFiles(v.root);
   });
 
-  // Authoring needs the local filesystem, so remote workspaces reject rather
-  // than resolve: a silent success would leave the editor believing it saved.
   handle(IPC.VAULT_WRITE_WORKFLOW, async (_e, input: WriteWorkflowInput) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Workflows are unavailable on remote vaults");
+      return await (await requireRemoteWorkflows()).writeWorkflow(input);
     }
     const v = requireVault();
     return await writeWorkflowFile(v.root, input);
@@ -3008,7 +3054,7 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_DELETE_WORKFLOW, async (_e, sourcePath: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Workflows are unavailable on remote vaults");
+      return await (await requireRemoteWorkflows()).deleteWorkflow(sourcePath);
     }
     const v = requireVault();
     return await deleteWorkflowFile(v.root, sourcePath);
@@ -3080,7 +3126,7 @@ function registerIpc(): void {
   // the dry run and asked for it here.
   handle(IPC.VAULT_APPLY_WORKFLOW, async (_e, input: ApplyWorkflowInput) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Workflows are unavailable on remote vaults");
+      return await (await requireRemoteWorkflows()).applyWorkflow(input);
     }
     const v = requireVault();
     return await applyWorkflowOps(v.root, input);
@@ -3091,7 +3137,7 @@ function registerIpc(): void {
   // is unknown or already undone.
   handle(IPC.VAULT_UNDO_WORKFLOW_RUN, async (_e, runId: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Workflows are unavailable on remote vaults");
+      return await (await requireRemoteWorkflows()).undoWorkflowRun(runId);
     }
     const v = requireVault();
     return await undoWorkflowRun(v.root, runId);
@@ -3100,13 +3146,21 @@ function registerIpc(): void {
   // Run history is read from files in the vault, so a remote workspace simply
   // has none, matching how it reports workflows themselves.
   handle(IPC.VAULT_LIST_WORKFLOW_RUNS, async () => {
-    if (isRemoteWorkspaceActive()) return [];
+    if (isRemoteWorkspaceActive()) {
+      const client = requireRemoteWorkspaceClient();
+      return (await client.supportsWorkflows()) ? await client.listWorkflowRuns() : [];
+    }
     const v = requireVault();
     return await listWorkflowRuns(v.root);
   });
 
   handle(IPC.VAULT_DELETE_WORKFLOW_RUNS, async (_e, workflowId: string) => {
-    if (isRemoteWorkspaceActive()) return 0;
+    if (isRemoteWorkspaceActive()) {
+      if (typeof workflowId !== "string" || !workflowId) {
+        throw new Error("deleteWorkflowRuns needs a workflow id");
+      }
+      return await (await requireRemoteWorkflows()).deleteWorkflowRuns(workflowId);
+    }
     if (typeof workflowId !== "string" || !workflowId) {
       throw new Error("deleteWorkflowRuns needs a workflow id");
     }
@@ -3468,12 +3522,13 @@ function registerIpc(): void {
       return await requireRemoteWorkspaceClient().moveToTrash(relPath);
     }
     const v = requireVault();
-    // Trash would create a `trash/` folder inside a temporary session's folder.
-    // Keep it pristine: refuse rather than litter (edits still save in place).
+    // A vault trash would create a `trash/` folder inside a temporary
+    // session's folder. Keep it pristine, but do not refuse: refusing used to
+    // be silent, so the note stayed put with nothing to explain why (#650).
+    // The operating system's Trash takes the file instead, and can give it
+    // back.
     if (isEphemeralRoot(v.root)) {
-      throw new Error(
-        "Move to Trash is not available in a temporary folder session.",
-      );
+      return await trashNoteToSystem(v.root, relPath);
     }
     return await moveToTrash(v.root, relPath);
   });
@@ -5051,7 +5106,12 @@ app.whenReady().then(async () => {
 
   try {
     const cfg = await loadConfig();
-    const desired = cfg.quickCaptureHotkey || DEFAULT_QUICK_CAPTURE_HOTKEY;
+    // loadConfig always yields a normalized string here, and empty string is
+    // the user's explicit "disabled" choice — registerQuickCaptureHotkey("")
+    // is a clean no-op. Falling back to the default on falsey re-registered
+    // the shortcut on every launch, which on Wayland invoked the
+    // global-shortcuts portal and popped GNOME's shortcut dialog. (#615)
+    const desired = cfg.quickCaptureHotkey;
     const result = registerQuickCaptureHotkey(desired);
     if (!result.ok) console.warn(result.error ?? `Failed to bind ${desired}`);
   } catch (err) {
@@ -5059,13 +5119,8 @@ app.whenReady().then(async () => {
   }
 
   app.on("activate", () => {
-    // Count only real workspace windows: a hidden quick-capture panel
-    // (or other utility window) must not stop the dock click from
-    // bringing back a usable window.
-    const hasWorkspaceWindow = BrowserWindow.getAllWindows().some(
-      (win) => !win.isDestroyed() && isWorkspaceWindow(win),
-    );
-    if (!hasWorkspaceWindow) void ensureMainWindow();
+    // A dock click must bring back a usable window when none is left.
+    if (!hasWorkspaceWindow()) void ensureMainWindow();
   });
 
   app.on("new-window-for-tab", () => {
@@ -5107,8 +5162,20 @@ app.on("open-file", (event, filePath) => {
 // process.
 app.on("second-instance", (_event, argv) => {
   const deepLinkResult = handleStartupDeepLinks(argv);
-  handleStartupMarkdownArgs(argv, false);
+  const queued = handleStartupMarkdownArgs(argv, false);
   if (deepLinkResult === "quick-capture") return;
+  if (queued > 0) {
+    // Every forwarded path opens or focuses a window of its own. Raising the
+    // main window on top of that used to resurrect the last vault next to the
+    // folder `zn open` asked for whenever every window had been closed first
+    // (macOS keeps the app alive without windows, #649). A default window is
+    // only the right answer when nothing could be opened and no workspace
+    // window is left to show.
+    void settleFileOpens().then(() => {
+      if (!hasWorkspaceWindow()) return ensureMainWindow();
+    });
+    return;
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     focusWindow(mainWindow);
     return;

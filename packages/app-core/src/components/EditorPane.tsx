@@ -123,7 +123,13 @@ import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands
 import { calloutTypeSource } from '../lib/cm-callouts'
 import { dateShortcutSource } from '../lib/cm-date-shortcuts'
 import { latexCommandSource } from '../lib/cm-latex-completions'
-import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
+import { typstCommandSource } from '../lib/cm-typst-completions'
+import {
+  wikilinkSource,
+  wikilinkHeadingSource,
+  wikilinkBlockSource,
+  atNoteSource
+} from '../lib/cm-wikilinks'
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
@@ -156,7 +162,9 @@ import { QuickNotesView } from './QuickNotesView'
 import type { MathRenderer } from '@shared/app-config'
 import { isTasksTabPath } from '@shared/tasks'
 import { isWorkflowsTabPath } from '@shared/workflows-view'
+import { isAtlasTabPath } from '@shared/atlas-view'
 import { LazyWorkflowsView } from './LazyWorkflowsView'
+import { LazyAtlasView } from './LazyAtlasView'
 import { isDatabaseTabPath, databaseTitleFromTab, databaseTabPath, isDatabaseCsvPath } from '@shared/databases'
 import { isTagsTabPath } from '@shared/tags'
 import { isHelpTabPath } from '@shared/help'
@@ -412,7 +420,6 @@ function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] 
     customCodeFenceHighlightExtension,
     vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
-    frontmatterStyle,
     frontmatterTagExtension,
     orderedListRenumber,
     forwardOnCheckboxArrow,
@@ -447,6 +454,9 @@ function wysiwygExtensions(
 ): Extension[] {
   return [
     livePreviewPlugin,
+    // Frontmatter renders as compact properties only while Live Preview is
+    // on; with it off the block reads as plain --- markdown. (#616)
+    frontmatterStyle,
     codeBlockFlairPlugin,
     // Table widgets are gated on a setting — off keeps tables as plain editable
     // markdown for full keyboard/Vim editing (#232).
@@ -1801,11 +1811,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               calloutTypeSource,
               dateShortcutSource,
               latexCommandSource,
+              typstCommandSource,
               atNoteSource,
               frontmatterTagSource,
               hashtagSource,
               wikilinkSource,
-              wikilinkHeadingSource
+              wikilinkHeadingSource,
+              wikilinkBlockSource
             ],
             addToOptions: [{ render: slashCommandRender.render, position: 0 }],
             icons: false,
@@ -1845,6 +1857,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     const link = markdownLinkAt(doc, pos)
                     if (
                       link &&
+                      useStore.getState().livePreview &&
                       pointerOverRange(view, link.from, link.to, event.clientX, event.clientY)
                     ) {
                       const sel = view.state.selection.main
@@ -2799,6 +2812,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isWorkflows: true
           }
         }
+        if (isAtlasTabPath(path)) {
+          return {
+            ...base,
+            title: 'Atlas',
+            isWorkflows: true
+          }
+        }
         if (isTasksTabPath(path)) {
           return {
             ...base,
@@ -2941,6 +2961,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (
       isQuickNotesTabPath(path) ||
       isWorkflowsTabPath(path) ||
+      isAtlasTabPath(path) ||
       isTagsTabPath(path) ||
       isHelpTabPath(path) ||
       isArchiveTabPath(path) ||
@@ -3782,6 +3803,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           )}
           {isWorkflowsTabPath(activeTab) ? (
             <LazyWorkflowsView />
+          ) : isAtlasTabPath(activeTab) ? (
+            <LazyAtlasView />
           ) : isTasksTabPath(activeTab) ? (
             <TasksView />
           ) : isQuickNotesTabPath(activeTab) ? (

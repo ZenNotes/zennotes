@@ -221,8 +221,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
 /* -------------------------------------------------------------------------- */
 
 /** The slice of the bridge the tutorial needs, injectable so tests can run it
- *  against a fake. `deleteWorkflowRuns` is optional because the web bridge
- *  does not have it (workflows are read-only there anyway). */
+ *  against a fake. `deleteWorkflowRuns` stays optional for older or minimal
+ *  injected bridges; current desktop and web hosts both provide it. */
 export interface TutorialBridge {
   writeNote(relPath: string, body: string): Promise<unknown>
   createFolder(folder: 'inbox', subpath: string): Promise<void>

@@ -2,7 +2,7 @@
 
 A visual, keyboard-drivable pipeline editor for the vault.
 
-> **Status (updated for v2.20, July 2026).** This is the design document the
+> **Status (updated for v2.29, August 2026).** This is the design document the
 > feature was built from, kept as rationale, not as a manual. If you are here to
 > learn how workflows work, the real docs are the in-app Help (`:help`, section
 > "Workflows") and https://zennotes.org/docs. What this doc calls "the gallery"
@@ -13,10 +13,12 @@ A visual, keyboard-drivable pipeline editor for the vault.
 > Shipped in 2.20: manual runs (from the view and the command palette), the
 > canvas/text lossless pair, the dry-run confirmation, byte-for-byte Undo with
 > crash recovery, presets, import-as-review, and the guided tutorial. Desktop
-> only. Not shipped yet, and described below as design: event and schedule
-> triggers (they parse but do not fire), server-side execution in Go, workflow
-> MCP tools, and anything labeled community. The web client shows workflows
-> read-only.
+> local vaults shipped first. Since 2.29, current self-hosted web servers also
+> store workflow files and apply the browser-prepared transaction under the Go
+> vault lock, with the same journalled Undo and crash recovery. Electron remote
+> workspaces remain read-only. Not shipped yet, and described below as design:
+> event and schedule triggers (they parse but do not fire), workflow MCP tools,
+> and anything labeled community.
 
 ## Problem Statement
 

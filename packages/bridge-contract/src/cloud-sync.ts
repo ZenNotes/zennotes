@@ -51,7 +51,18 @@ export type CloudSyncConflictCode =
   | "REVISION_CONFLICT"
   | "PATH_CONFLICT"
   | "ITEM_DELETED"
-  | "QUOTA_EXCEEDED";
+  | "QUOTA_EXCEEDED"
+  | "CAPACITY_EXCEEDED"
+  | "FILE_SIZE_LIMIT_EXCEEDED";
+
+export interface CloudSyncCapacityConflict {
+  dimension: string;
+  used: number;
+  reserved: number;
+  limit: number;
+  projected: number;
+  can_retry_after_reduction: boolean;
+}
 
 export interface CloudSyncConflict {
   operation_id: string;
@@ -59,12 +70,49 @@ export interface CloudSyncConflict {
   code: CloudSyncConflictCode;
   current_revision: number | null;
   current_path: string | null;
+  capacity?: CloudSyncCapacityConflict;
 }
 
 export interface CloudSyncMutationResponse {
   acknowledged: CloudSyncMutationAcknowledgement[];
   conflicts: CloudSyncConflict[];
   cursor: number;
+}
+
+export interface CloudSyncUploadRequest {
+  operation_id: string;
+  item_id: string;
+  base_revision: number | null;
+  path: string;
+  kind: CloudSyncItemKind;
+  content: Pick<
+    CloudSyncContent,
+    "encoding" | "sha256" | "byte_length" | "media_type"
+  >;
+}
+
+export interface CloudSyncUploadInitiationResponse {
+  data: {
+    id: string;
+    operation_id: string;
+    status: "initiated" | "uploading";
+    expected_bytes: number;
+    expires_at: string;
+    upload: {
+      method: "PUT";
+      url: string;
+      headers: Record<string, string>;
+    };
+  };
+}
+
+export interface CloudSyncUploadCompletionResponse {
+  data: {
+    id: string;
+    operation_id: string;
+    status: "completed";
+    result: CloudSyncMutationResponse;
+  };
 }
 
 export interface CloudSyncManifestItem {
@@ -274,6 +322,10 @@ export interface CloudUsage {
   sync: {
     vaults: number;
     items: number;
+    markdown_items?: number;
+    binary_items?: number;
+    other_items?: number;
+    metadata_items?: number;
   };
   backup: {
     snapshots: number;

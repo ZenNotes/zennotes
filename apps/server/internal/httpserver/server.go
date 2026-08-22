@@ -230,6 +230,14 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Post("/demo/generate", s.demoGenerate)
 	r.Post("/demo/remove", s.demoRemove)
 
+	r.Get("/workflows", s.listWorkflows)
+	r.Post("/workflows/write", s.writeWorkflow)
+	r.Post("/workflows/delete", s.deleteWorkflow)
+	r.Post("/workflows/apply", s.applyWorkflow)
+	r.Post("/workflows/undo", s.undoWorkflowRun)
+	r.Get("/workflows/runs", s.listWorkflowRuns)
+	r.Post("/workflows/runs/delete", s.deleteWorkflowRuns)
+
 	r.Get("/watch", s.watchWS)
 }
 
@@ -287,6 +295,14 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, vault.ErrPathEscape) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, vault.ErrInvalidWorkflow) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, vault.ErrWorkflowConflict) {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	// A missing file is the caller's answer, not our failure. Clients rely on
@@ -395,6 +411,10 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		// on this to give older servers a "server needs an update" message
 		// instead of a bare 404.
 		"supportsAssetOps": true,
+		// Workflow files and run journals live in the mounted vault, and the
+		// prepared-run endpoint applies them under the same vault lock as note
+		// writes. Its presence lets bundled web clients enable authoring and Run.
+		"supportsWorkflows": true,
 		// Says out loud that a missing file answers 404 rather than 500.
 		// Databases are composed from file reads where "absent" and "failed"
 		// mean opposite things (see remote-absence.ts), and a server that

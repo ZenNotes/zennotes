@@ -294,6 +294,11 @@ export interface VaultTask {
   checked: boolean
   /** True for a `[-]` cancelled task — intentionally abandoned (#450). */
   cancelled?: boolean
+  /** True for a `[>]` forwarded record: the task moved to another note and a
+   *  live copy exists there, so this line is history, not open work (#316).
+   *  Without this flag the subtree forward (#611) doubled every carried task
+   *  in MCP/CLI listings: the records read as open beside the live copies. */
+  forwarded?: boolean
   /** True for a `[/]` task in progress: started, not finished (#512). Still
    *  open work, unlike checked/cancelled. */
   inProgress?: boolean
@@ -1339,6 +1344,7 @@ function parseTasksFromBody(
     const checked = checkedChar === 'x' || checkedChar === 'X'
     const cancelled = checkedChar === '-'
     const inProgress = checkedChar === '/'
+    const forwarded = checkedChar === '>'
 
     let due: string | undefined
     let priority: 'high' | 'med' | 'low' | undefined
@@ -1381,6 +1387,7 @@ function parseTasksFromBody(
       checked,
       cancelled,
       inProgress,
+      forwarded,
       due: due ?? defaults.due,
       priority: priority ?? defaults.priority,
       waiting,
@@ -1736,7 +1743,12 @@ export function toggleTaskInBody(body: string, targetIndex: number): string | nu
     (_m, ch: string, tail: string) => {
       const fullMatch = original.match(TASK_LINE_RE)!
       const bracketIdx = original.indexOf('[' + ch + ']')
-      const next = ch === ' ' ? 'x' : ' '
+      // Same rules as the app's toggle (cm-toggle-checkbox / toggleTaskAtIndex):
+      // open and done flip, in-progress `[/]` checks off to done, and the
+      // forwarded / cancelled record markers are left alone. `[/]` used to fall
+      // into the "anything else opens" branch, silently erasing it. (#599)
+      if (ch === '>' || ch === '-') return fullMatch[0]
+      const next = /[xX]/.test(ch) ? ' ' : 'x'
       // Preserve the full prefix (list marker, whitespace) by splicing only
       // the single character inside the brackets.
       if (bracketIdx >= 0) {

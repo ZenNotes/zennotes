@@ -1,7 +1,11 @@
 import type { VaultTask, VaultTaskGroups } from '@shared/tasks'
 import { groupTasks, isOverdue } from '@shared/tasks'
 
-/** Simple substring filter across content, note title, tags, and priority. */
+/** Simple substring filter across content, note title, tags, fields, and
+ *  priority. Tags match with the leading `#` so `#proj` narrows the way it
+ *  reads in a note. `@key:value` fields are stripped from the display content,
+ *  so they match against the reassembled token: `@project`, `project:alpha`,
+ *  and plain `alpha` all reach a task carrying `@project:alpha`. */
 export function filterTasks(tasks: VaultTask[], query: string): VaultTask[] {
   const q = query.trim().toLowerCase()
   if (!q) return tasks
@@ -9,7 +13,12 @@ export function filterTasks(tasks: VaultTask[], query: string): VaultTask[] {
     if (task.content.toLowerCase().includes(q)) return true
     if (task.noteTitle.toLowerCase().includes(q)) return true
     if (task.priority && `!${task.priority}`.includes(q)) return true
-    if (task.tags.some((t) => t.toLowerCase().includes(q))) return true
+    if (task.tags.some((t) => `#${t.toLowerCase()}`.includes(q))) return true
+    if (task.fields) {
+      for (const [key, value] of Object.entries(task.fields)) {
+        if (`@${key}:${value}`.toLowerCase().includes(q)) return true
+      }
+    }
     return false
   })
 }

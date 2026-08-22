@@ -517,6 +517,16 @@ async function main() {
     )
     await press(client, 'u')
 
+    await keys(client, ['g', 'g', '0'])
+    const wrappedCountStart = await editorSnapshot(client)
+    await keys(client, ['8', 'j'])
+    const wrappedCounted = await editorSnapshot(client)
+    check(
+      '8j from a wrapped line follows logical relative line numbers',
+      wrappedCountStart?.logicalLine === 1 && wrappedCounted?.logicalLine === 9,
+      JSON.stringify({ wrappedCountStart, wrappedCounted })
+    )
+
     await gotoLine(client, 10)
     await keys(client, ['3', 'j'])
     const counted = await editorSnapshot(client)

@@ -53,6 +53,7 @@ export type Panel =
   | 'hoverpreview'
   | 'tasks'
   | 'tags'
+  | 'atlas'
 
 export interface PanelVisibility {
   sidebarOpen: boolean
@@ -63,6 +64,7 @@ export interface PanelVisibility {
   outlineOpen: boolean
   calendarOpen: boolean
   tasksViewOpen: boolean
+  atlasViewOpen?: boolean
 }
 
 /** Every panel on screen, ordered left to right — the focus order both pane
@@ -72,7 +74,7 @@ export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   const panels: Panel[] = []
   if (visibility.sidebarOpen) panels.push('sidebar')
   if (visibility.noteListOpen && !visibility.unifiedSidebar) panels.push('notelist')
-  panels.push(visibility.tasksViewOpen ? 'tasks' : 'editor')
+  panels.push(visibility.tasksViewOpen ? 'tasks' : visibility.atlasViewOpen ? 'atlas' : 'editor')
   if (visibility.connectionsOpen) panels.push('connections')
   if (visibility.commentsOpen) panels.push('comments')
   if (visibility.outlineOpen) panels.push('outline')
@@ -102,6 +104,7 @@ export function getVisiblePanelsNow(state: {
   noteListOpen: boolean
   unifiedSidebar: boolean
   tasksViewOpen: boolean
+  atlasViewOpen?: boolean
 }): Panel[] {
   const onScreen = (selector: string): boolean =>
     typeof document !== 'undefined' && document.querySelector(selector) !== null
@@ -110,6 +113,7 @@ export function getVisiblePanelsNow(state: {
     noteListOpen: state.noteListOpen,
     unifiedSidebar: state.unifiedSidebar,
     tasksViewOpen: state.tasksViewOpen,
+    atlasViewOpen: state.atlasViewOpen,
     connectionsOpen: onScreen(PANEL_MARKERS.connections),
     commentsOpen: onScreen(PANEL_MARKERS.comments),
     outlineOpen: onScreen(PANEL_MARKERS.outline),

@@ -30,6 +30,7 @@ import type { NoteFolder } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
+import { filterTasks } from '../lib/tasks-filter'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
@@ -44,6 +45,10 @@ import {
 
 interface Props {
   tasks: VaultTask[]
+  /** The Tasks header's filter query. Narrows the cards on the board; the
+   *  column set, group-by options, and card-order persistence keep working
+   *  from the full task list. (#583) */
+  filter?: string
   today: Date
   onOpenTask: (task: VaultTask) => void
   onToggleTask: (task: VaultTask) => void
@@ -531,7 +536,7 @@ interface DragPreview {
 
 const POINTER_DRAG_THRESHOLD = 5
 
-export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): JSX.Element {
+export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: Props): JSX.Element {
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
@@ -575,6 +580,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
   })
   const columnOrderRef = useRef(initialCardOrder)
   const columnsRef = useRef<Column[]>([])
+  const fullColumnsRef = useRef<Column[]>([])
   const columnTitleInputRef = useRef<HTMLInputElement | null>(null)
   const boardRef = useRef<HTMLDivElement | null>(null)
   const pointerDragRef = useRef<ActivePointerDrag | null>(null)
@@ -628,7 +634,7 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
     setDisplayTasks(mergedTasks)
   }, [mergeTasksWithPendingMoves, tasks])
 
-  const columns = useMemo(
+  const fullColumns = useMemo(
     () => {
       const orderedColumns = applyColumnOrder(
         groupBy,
@@ -654,7 +660,28 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
       today
     ]
   )
+
+  // The filter narrows cards, never columns: the board keeps its full column
+  // set while typing (a discovered-value column doesn't vanish because its
+  // cards are filtered out), and the unfiltered columns stay the source of
+  // truth for card-order persistence so a focused board can't prune hidden
+  // cards out of a hand-made arrangement. (#583)
+  const filterQuery = (filter ?? '').trim()
+  const columns = useMemo(() => {
+    if (!filterQuery) return fullColumns
+    return fullColumns.map((column) => {
+      const visible = filterTasks(column.tasks, filterQuery)
+      if (visible.length === column.tasks.length) return column
+      let badge = column.badge
+      if (badge?.kind === 'overdue') {
+        const value = visible.filter((t) => isTaskOverdue(t, today)).length
+        badge = value > 0 ? { kind: 'overdue', value } : undefined
+      }
+      return { ...column, tasks: visible, badge }
+    })
+  }, [fullColumns, filterQuery, today])
   columnsRef.current = columns
+  fullColumnsRef.current = fullColumns
 
   // Group-by options: the three static boards, the default custom-status field,
   // then one option per `@key:` field discovered across the current tasks. This
@@ -920,17 +947,29 @@ export function TasksKanban({ tasks, today, onOpenTask, onToggleTask }: Props): 
       if (targetIndex == null) return
 
       const movingKey = taskIdentityKey(task)
+      // The drop index counts the VISIBLE cards (the DOM the user aimed at),
+      // which the filter may have narrowed. Resolve it to the visible card the
+      // drop landed in front of, then splice next to that card in the FULL
+      // column, so filtered-out cards keep their hand-arranged positions
+      // instead of being pruned by the persist below. Unfiltered, the two
+      // boards are identical and this is the plain bounded insert.
+      const visibleTarget = columnsRef.current.find((column) => column.id === targetColumnId)
+      const visibleKeys = (visibleTarget?.tasks ?? [])
+        .map((columnTask) => taskIdentityKey(columnTask))
+        .filter((key) => key !== movingKey)
+      const anchorKey = visibleKeys[targetIndex] ?? null
+
       const nextOrderMap = new Map(columnOrderRef.current)
       const persistedEntries: Record<string, string[]> = {}
 
-      for (const column of columnsRef.current) {
+      for (const column of fullColumnsRef.current) {
         const keys = column.tasks
           .map((columnTask) => taskIdentityKey(columnTask))
           .filter((key) => key !== movingKey)
 
         if (column.id === targetColumnId) {
-          const boundedIndex = Math.max(0, Math.min(targetIndex, keys.length))
-          keys.splice(boundedIndex, 0, movingKey)
+          const anchorIndex = anchorKey ? keys.indexOf(anchorKey) : -1
+          keys.splice(anchorIndex === -1 ? keys.length : anchorIndex, 0, movingKey)
         }
 
         nextOrderMap.set(columnOrderKey(groupBy, column.id), keys)

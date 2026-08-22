@@ -5,6 +5,14 @@ import { renderMarkdown } from './markdown'
 import { setMarkdownMathRenderer } from './markdown-settings'
 
 describe('renderMarkdown', () => {
+  it('keeps source newlines soft while preserving explicit hard breaks (#656)', () => {
+    const soft = renderMarkdown('Preview should reflow this prose\nwhen the pane changes width.')
+    const hard = renderMarkdown('Keep this explicit break.  \nStart a new visual line.')
+
+    expect(soft).not.toContain('<br>')
+    expect(hard).toContain('<br>')
+  })
+
   it('hides leading YAML/TOML frontmatter in preview output', () => {
     const yaml = renderMarkdown('---\ntitle: Hidden\ntags: [a, b]\n---\n\n# Visible')
     expect(yaml).toContain('<h1 data-source-line="6">Visible</h1>')
@@ -14,6 +22,38 @@ describe('renderMarkdown', () => {
     const toml = renderMarkdown('+++\ntitle = "Hidden"\n+++\n\nBody')
     expect(toml).toContain('<p data-source-line="5">Body</p>')
     expect(toml).not.toContain('title =')
+  })
+
+  it('hides trailing and standalone block ids from rendered prose (#601)', () => {
+    const html = renderMarkdown(
+      ['A trailing marker. ^trailing', '', 'A standalone marker names this.', '', '^standalone'].join(
+        '\n'
+      )
+    )
+
+    expect(html).toContain('A trailing marker.')
+    expect(html).toContain('A standalone marker names this.')
+    expect(html).not.toContain('^trailing')
+    expect(html).not.toContain('^standalone')
+  })
+
+  it('never deletes prose that merely resembles a block id (#601 review)', () => {
+    const html = renderMarkdown('See note ^ref *below* for details\n\n| a |\n| - |\n| 10 ^2 |')
+    // The caret is mid-line, so it is prose, and the joining space survives.
+    expect(html).toContain('^ref <em>below</em>')
+    expect(html).toContain('10 ^2')
+  })
+
+  it('strips a genuine anchor on a non-final paragraph line (#601 review)', () => {
+    const html = renderMarkdown('first line ^mid\nsecond line')
+    expect(html).not.toContain('^mid')
+    expect(html).toContain('first line')
+    expect(html).toContain('second line')
+  })
+
+  it('leaves code-fence and frontmatter carets untouched (#601 review)', () => {
+    const html = renderMarkdown('```bash\nkill %1 ^Z2\n```')
+    expect(html).toContain('^Z2')
   })
 
   it('sanitizes raw HTML and javascript URLs', () => {

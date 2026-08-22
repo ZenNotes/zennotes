@@ -31,6 +31,16 @@ describe('toggleTaskAtIndex', () => {
     const md = '- [ ] only one'
     expect(toggleTaskAtIndex(md, 5, true)).toBe(md)
   })
+
+  it('checks an in-progress task off to done', () => {
+    expect(toggleTaskAtIndex('- [/] started', 0, true)).toBe('- [x] started')
+  })
+
+  it('unchecking keeps an in-progress task in progress (#599)', () => {
+    // set-checked:false arrives from Kanban drops between live columns;
+    // in-progress already is "not done", so the `/` must survive.
+    expect(toggleTaskAtIndex('- [/] started', 0, false)).toBe('- [/] started')
+  })
 })
 
 describe('setTaskCheckedAtIndex', () => {

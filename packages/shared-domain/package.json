@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/shared-domain",
   "private": true,
-  "version": "2.28.2",
+  "version": "2.35.0",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"

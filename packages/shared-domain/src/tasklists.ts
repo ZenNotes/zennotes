@@ -122,6 +122,11 @@ export function toggleTaskAtIndex(
   checked: boolean
 ): string {
   return editTaskAtIndex(markdown, taskIndex, (match) => {
+    // Unchecking means "not done", and an in-progress `[/]` already is not
+    // done: keep the `/` instead of collapsing it to open. Before this, a
+    // Kanban drag between live columns (which applies set-checked: false)
+    // silently erased the in-progress state. (#599)
+    if (!checked && match[2] === '/') return `${match[1]}/${match[3]}`
     return `${match[1]}${checked ? 'x' : ' '}${match[3]}`
   })
 }
@@ -300,6 +305,66 @@ export function setTaskForwardedAtIndex(
   })
 }
 
+/**
+ * Forward the task at `taskIndex` together with its indented subtree (#611).
+ *
+ * The parent line flips to `[>]` and gains `linkToken`, exactly like
+ * {@link setTaskForwardedAtIndex}. Its subtree (the indented block
+ * `taskBlockEnd` delimits, the same walk `extractOpenTaskBlocks` uses, loose
+ * sub-paragraphs included) becomes part of the forwarded record. Open
+ * subtasks (`[ ]` / `[/]`) flip to `[>]` so they stop reading as live work in
+ * the source; done and cancelled subtasks keep their state, since that
+ * history is what the record preserves. Only the parent carries the link.
+ *
+ * `childLines` is the subtree as it read BEFORE the flip, a faithful copy of
+ * the task's current state, re-based to the parent's indent so the caller can
+ * place it under an unindented copy in the destination note.
+ *
+ * Returns the markdown unchanged (and no child lines) when the index is out of
+ * range or the parent line would not change.
+ */
+export function forwardTaskSubtreeAtIndex(
+  markdown: string,
+  taskIndex: number,
+  linkToken: string
+): { body: string; childLines: string[] } {
+  const unchanged = { body: markdown, childLines: [] as string[] }
+  if (taskIndex < 0) return unchanged
+  const lines = markdown.split('\n')
+  const parentAt = taskLineNumbers(lines)[taskIndex]
+  if (parentAt == null) return unchanged
+
+  const parentLine = lines[parentAt]
+  const match = parentLine.match(TASK_LINE_RE)
+  if (!match || !match[3].startsWith(']')) return unchanged
+  const tail = match[3].slice(1).replace(/\s+$/u, '')
+  const nextTail = !linkToken || tail.includes(linkToken) ? tail : `${tail} ${linkToken}`
+  const nextParent = `${match[1]}>]${nextTail}`
+  if (nextParent === parentLine) return unchanged
+
+  const parentIndent = parentLine.match(/^[ \t]*/u)?.[0] ?? ''
+  const end = taskBlockEnd(lines, parentAt, leadingIndentWidth(parentLine))
+
+  // Re-base children to the parent's indent. When a child does not share the
+  // parent's exact whitespace prefix (tabs under a space-indented parent),
+  // fall back to trimming the same NUMBER of whitespace characters, so the
+  // copy still nests under the destination line instead of keeping its
+  // absolute depth.
+  const childLines = lines.slice(parentAt + 1, end).map((l) => {
+    if (l.startsWith(parentIndent)) return l.slice(parentIndent.length)
+    return l.replace(/^[ \t]+/u, (ws) => ws.slice(Math.min(ws.length, parentIndent.length)))
+  })
+
+  lines[parentAt] = nextParent
+  for (let i = parentAt + 1; i < end; i++) {
+    const childMatch = lines[i].match(TASK_LINE_RE)
+    if (childMatch && (childMatch[2] === ' ' || childMatch[2] === '/')) {
+      lines[i] = `${childMatch[1]}>${childMatch[3]}`
+    }
+  }
+  return { body: lines.join('\n'), childLines }
+}
+
 /** Mark the task line at `taskIndex` as in progress (`[/]`) when `inProgress`,
  *  or flip it back to open (`[ ]`) when not. In progress = started but not
  *  finished, so it stays an OPEN task everywhere: it keeps its place in Today,
@@ -377,6 +442,38 @@ function leadingIndentWidth(line: string): number {
 }
 
 /**
+ * The exclusive end index of the indented block belonging to the task line at
+ * `start`: wrapped text, children, and loose sub-paragraphs. A blank line does
+ * not end the block when the content after it is still deeper-indented than
+ * the task, so a loose list travels whole; a dedent, a fence, or the end of
+ * the note closes it, and trailing blanks are left behind.
+ *
+ * Shared by the daily roll-forward and task forwarding so the two carry
+ * mechanisms always agree about which lines belong to a task. Stopping at the
+ * first blank line used to split loose lists: forwarding carried half a task's
+ * children and stranded the rest live in the source (#611 review).
+ */
+function taskBlockEnd(lines: string[], start: number, baseIndent: number): number {
+  let end = start + 1
+  while (end < lines.length) {
+    const next = lines[end]
+    if (next.trim() === '') {
+      let j = end + 1
+      while (j < lines.length && lines[j].trim() === '') j++
+      if (j >= lines.length) break
+      if (FENCE_RE.test(lines[j])) break
+      if (leadingIndentWidth(lines[j]) <= baseIndent) break
+      end = j
+      continue
+    }
+    if (FENCE_RE.test(next)) break
+    if (leadingIndentWidth(next) <= baseIndent) break
+    end++
+  }
+  return end
+}
+
+/**
  * Pull every OPEN task line — together with its indented continuation / child
  * lines — out of `markdown`. Used to roll unfinished tasks forward from past
  * daily notes into today's note.
@@ -392,9 +489,9 @@ function leadingIndentWidth(line: string): number {
  *   (`- [-]`) was abandoned on purpose. Carrying those forward would undo the
  *   decision the state records.
  * - `- [ ]` inside fenced code blocks is ignored (never a real task).
- * - A task's indented children (deeper-indented following lines, up to the
- *   first blank line, dedent, or fence) move with it so sub-bullets aren't
- *   orphaned.
+ * - A task's indented children move with it so sub-bullets aren't orphaned:
+ *   deeper-indented following lines, loose sub-paragraphs included, up to a
+ *   dedent or a fence (see `taskBlockEnd`).
  *
  * Returns the moved raw lines (in document order) and the remaining body.
  */
@@ -432,18 +529,14 @@ export function extractOpenTaskBlocks(markdown: string): {
     moved.push(line)
     consumed[i] = true
 
-    // Carry indented continuation/child lines along with the task.
-    let j = i + 1
-    while (j < lines.length) {
-      const next = lines[j]
-      if (next.trim() === '') break
-      if (FENCE_RE.test(next)) break
-      if (leadingIndentWidth(next) <= baseIndent) break
-      moved.push(next)
+    // Carry indented continuation/child lines along with the task, loose
+    // sub-paragraphs included (see taskBlockEnd, shared with forwarding).
+    const blockEnd = taskBlockEnd(lines, i, baseIndent)
+    for (let j = i + 1; j < blockEnd; j++) {
+      moved.push(lines[j])
       consumed[j] = true
-      j++
     }
-    i = j - 1 // skip the consumed block (its children are not new tasks)
+    i = blockEnd - 1 // skip the consumed block (its children are not new tasks)
   }
 
   const rest = lines.filter((_, idx) => !consumed[idx]).join('\n')

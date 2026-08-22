@@ -69,4 +69,30 @@ describe("cloud sync status time", () => {
     act(() => root.unmount());
     host.remove();
   });
+
+  it("shows conflicted syncs as incomplete and offers a review action", () => {
+    useCloudSyncStatusStore.setState({
+      phase: "attention",
+      vaultName: "Notes",
+      lastSyncedAt: null,
+      error: "Cloud active-item limit reached (100 of 100).",
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(createElement(StatusBar, { note: null })));
+
+    const status = host.querySelector<HTMLElement>("[data-cloud-sync-status]");
+    const action = host.querySelector<HTMLButtonElement>(
+      "[data-cloud-sync-action]",
+    );
+    expect(status?.textContent).toContain("Sync incomplete");
+    expect(status?.className).toContain("text-warning");
+    expect(status?.title).toBe("Cloud active-item limit reached (100 of 100).");
+    expect(action?.textContent).toBe("Review");
+
+    act(() => root.unmount());
+    host.remove();
+  });
 });

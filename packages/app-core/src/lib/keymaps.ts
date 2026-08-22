@@ -13,6 +13,7 @@ export type KeymapId =
   | "global.searchNotesNonVim"
   | "global.commandPalette"
   | "global.newQuickNote"
+  | "global.newNoteHere"
   | "global.openSettings"
   | "global.openFile"
   | "global.toggleSidebar"
@@ -50,6 +51,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderWorkflows"
+  | "vim.leaderAtlas"
   | "vim.leaderSearchNotes"
   | "vim.leaderSearchGroup"
   | "vim.leaderSearchVaultText"
@@ -175,6 +177,16 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "New quick note",
     description: "Create a quick capture note and focus its title.",
     defaultBinding: "Shift+Mod+N",
+  },
+  {
+    id: "global.newNoteHere",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "New note in current folder",
+    description:
+      "Create a note in the active note's folder (or the browsed folder when no note is open) and focus its title.",
+    defaultBinding: "Mod+N",
   },
   {
     id: "global.openSettings",
@@ -442,6 +454,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader: open buffers",
     description: "Open the buffer switcher.",
     defaultBinding: "o",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderAtlas",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: open atlas",
+    description: "Open the Atlas map of the vault.",
+    defaultBinding: "g",
     vimOnly: true,
     maxTokens: 1,
   },

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { constants as fsConstants, promises as fs } from 'node:fs'
+import { constants as fsConstants, createReadStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import type {
   CloudSyncChange,
@@ -26,6 +26,10 @@ import type {
   CloudSyncState,
   CloudSyncTrackedItem
 } from '@zennotes/shared-domain/cloud-sync-engine'
+import {
+  CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
+  rememberCloudSyncUploadSource
+} from './cloud-sync-upload-source'
 
 const TEXT_EXTENSIONS = new Set([
   '.base',
@@ -162,11 +166,11 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       if (entry.isDirectory() && shouldTraverseCloudSyncDirectory(relPath)) {
         await this.walk(absolutePath, relPath, items)
       } else if (entry.isFile() && shouldSyncVaultPath(relPath)) {
-        const bytes = await fs.readFile(absolutePath)
+        const content = await encodeFileContent(relPath, absolutePath)
         items.push({
           path: normalizeCloudSyncPath(relPath),
-          kind: isText(relPath, bytes) ? 'text' : 'binary',
-          content: encodeContent(relPath, bytes)
+          kind: content.encoding === 'utf8' ? 'text' : 'binary',
+          content
         })
       }
     }
@@ -318,6 +322,75 @@ function encodeContent(relPath: string, bytes: Buffer): CloudSyncContent {
     byte_length: bytes.byteLength,
     media_type: mediaType(relPath, text)
   }
+}
+
+async function encodeFileContent(relPath: string, absolutePath: string): Promise<CloudSyncContent> {
+  const stats = await fs.stat(absolutePath)
+  if (stats.size <= CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES) {
+    const bytes = await fs.readFile(absolutePath)
+    if (bytes.byteLength <= CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES) {
+      return encodeContent(relPath, bytes)
+    }
+    return directUploadContent(relPath, absolutePath, bytes)
+  }
+
+  const hash = createHash('sha256')
+  let byteLength = 0
+  let text = TEXT_EXTENSIONS.has(path.extname(relPath).toLowerCase())
+  const decoder = text ? new TextDecoder('utf-8', { fatal: true }) : null
+
+  for await (const chunk of createReadStream(absolutePath)) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    byteLength += bytes.byteLength
+    hash.update(bytes)
+    if (text && decoder) {
+      try {
+        decoder.decode(bytes, { stream: true })
+      } catch {
+        text = false
+      }
+    }
+  }
+
+  if (text && decoder) {
+    try {
+      decoder.decode()
+    } catch {
+      text = false
+    }
+  }
+
+  if (byteLength <= CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES) {
+    const bytes = await fs.readFile(absolutePath)
+    return bytes.byteLength <= CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES
+      ? encodeContent(relPath, bytes)
+      : directUploadContent(relPath, absolutePath, bytes)
+  }
+
+  return rememberCloudSyncUploadSource(
+    {
+      encoding: text ? 'utf8' : 'base64',
+      data: '',
+      sha256: hash.digest('hex'),
+      byte_length: byteLength,
+      media_type: mediaType(relPath, text)
+    },
+    absolutePath
+  )
+}
+
+function directUploadContent(relPath: string, absolutePath: string, bytes: Buffer): CloudSyncContent {
+  const text = isText(relPath, bytes)
+  return rememberCloudSyncUploadSource(
+    {
+      encoding: text ? 'utf8' : 'base64',
+      data: '',
+      sha256: sha256(bytes),
+      byte_length: bytes.byteLength,
+      media_type: mediaType(relPath, text)
+    },
+    absolutePath
+  )
 }
 
 function decodeContent(content: CloudSyncContent): Buffer {

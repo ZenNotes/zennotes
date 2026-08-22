@@ -29,6 +29,16 @@ function content(data: string): CloudSyncContent {
   }
 }
 
+function binaryContent(data: string): CloudSyncContent {
+  return {
+    encoding: 'base64',
+    data,
+    sha256: `hash:${data}`,
+    byte_length: data.length,
+    media_type: 'image/jpeg'
+  }
+}
+
 function ids(): CloudSyncIdSource {
   let item = 0
   let operation = 0
@@ -108,6 +118,153 @@ function remote(options: {
 }
 
 describe('CloudSyncCoordinator', () => {
+  it('applies only the newest remote revision of a file when catching up (#661)', async () => {
+    const finalBody = '## Tasks\n\n- [ ] Rolled over once\n'
+    const localItem: CloudSyncLocalItem = {
+      path: 'inbox/Daily Notes/2026-08-21.md',
+      kind: 'text',
+      content: content(finalBody)
+    }
+    const applied: CloudSyncChange[] = []
+    const repository: CloudSyncRepository = {
+      async scan() {
+        return [localItem]
+      },
+      async apply(change) {
+        applied.push(change)
+        if (change.content?.sha256 === localItem.content.sha256) return
+        return {
+          code: 'LOCAL_EDIT_CONFLICT',
+          path: change.path,
+          conflict_copy_path: `inbox/Daily Notes/2026-08-21 (cloud conflict ${applied.length}).md`
+        }
+      }
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        'daily-note': {
+          item_id: 'daily-note',
+          path: localItem.path,
+          kind: 'text',
+          revision: 1,
+          sha256: 'hash:yesterday',
+          byte_length: 9,
+          media_type: 'text/markdown'
+        }
+      }
+    })
+    const server = remote({
+      changes: [
+        {
+          sequence: 2,
+          item_id: 'daily-note',
+          type: 'upsert',
+          path: localItem.path,
+          previous_path: null,
+          revision: 2,
+          content: content('')
+        },
+        {
+          sequence: 3,
+          item_id: 'daily-note',
+          type: 'upsert',
+          path: localItem.path,
+          previous_path: null,
+          revision: 3,
+          content: content('## Tasks\n')
+        },
+        {
+          sequence: 4,
+          item_id: 'daily-note',
+          type: 'upsert',
+          path: localItem.path,
+          previous_path: null,
+          revision: 4,
+          content: content(finalBody)
+        }
+      ]
+    })
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+
+    expect(applied.map((change) => change.sequence)).toEqual([4])
+    expect(result.localConflicts).toEqual([])
+    expect(result.pulled).toBe(3)
+    expect(result.pushed).toBe(0)
+    expect(states.current?.cursor).toBe(4)
+  })
+
+  it('keeps structural changes while coalescing later content revisions (#661)', async () => {
+    const repository = memoryRepository([
+      { path: 'inbox/Old daily.md', kind: 'text', content: content('old') }
+    ])
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        'daily-note': {
+          item_id: 'daily-note',
+          path: 'inbox/Old daily.md',
+          kind: 'text',
+          revision: 1,
+          sha256: 'hash:old',
+          byte_length: 3,
+          media_type: 'text/markdown'
+        }
+      }
+    })
+    const server = remote({
+      changes: [
+        {
+          sequence: 2,
+          item_id: 'daily-note',
+          type: 'move',
+          path: 'inbox/Daily Notes/2026-08-21.md',
+          previous_path: 'inbox/Old daily.md',
+          revision: 2
+        },
+        {
+          sequence: 3,
+          item_id: 'daily-note',
+          type: 'upsert',
+          path: 'inbox/Daily Notes/2026-08-21.md',
+          previous_path: null,
+          revision: 3,
+          content: content('')
+        },
+        {
+          sequence: 4,
+          item_id: 'daily-note',
+          type: 'upsert',
+          path: 'inbox/Daily Notes/2026-08-21.md',
+          previous_path: null,
+          revision: 4,
+          content: content('## Tasks\n\n- [ ] Rolled over once\n')
+        }
+      ]
+    })
+
+    await new CloudSyncCoordinator('vault-1', server, repository, states, ids()).sync()
+
+    expect(repository.items).toEqual([
+      {
+        path: 'inbox/Daily Notes/2026-08-21.md',
+        kind: 'text',
+        content: content('## Tasks\n\n- [ ] Rolled over once\n')
+      }
+    ])
+  })
+
   // The Discord report behind this: a change for a file the device had never
   // tracked threw, the run stopped before saving the cursor, and every later
   // run replayed the same change and stopped at the same place. A repository
@@ -423,6 +580,57 @@ describe('CloudSyncCoordinator', () => {
     expect(second.state.cursor).toBe(1)
     expect(mutations).toHaveLength(1)
     expect(apply).not.toHaveBeenCalled()
+  })
+
+  it('checkpoints binary uploads one per request while retaining text batches', async () => {
+    const states = memoryState({ version: 1, vault_id: 'vault-1', cursor: 0, items: {} })
+    const repository = memoryRepository([
+      { path: 'a.md', kind: 'text', content: content('a') },
+      { path: 'b.md', kind: 'text', content: content('b') },
+      { path: 'c.jpg', kind: 'binary', content: binaryContent('c') },
+      { path: 'd.jpg', kind: 'binary', content: binaryContent('d') },
+      { path: 'e.jpg', kind: 'binary', content: binaryContent('e') },
+      { path: 'f.jpg', kind: 'binary', content: binaryContent('f') },
+      { path: 'g.md', kind: 'text', content: content('g') },
+      { path: 'h.md', kind: 'text', content: content('h') }
+    ])
+    const requests: CloudSyncMutationRequest[] = []
+    let sequence = 0
+    const server: CloudSyncRemote = {
+      async manifest() {
+        return { data: [], cursor: 0, next_page: null }
+      },
+      async changes(_vaultId, after) {
+        return { data: [], cursor: after, has_more: false }
+      },
+      async mutate(_vaultId, body) {
+        requests.push(body)
+        const acknowledged = body.mutations.map((mutation) => ({
+          operation_id: mutation.operation_id,
+          item_id: mutation.item_id,
+          revision: 1,
+          sequence: ++sequence
+        }))
+        return { acknowledged, conflicts: [], cursor: sequence }
+      }
+    }
+
+    await new CloudSyncCoordinator('vault-1', server, repository, states, ids()).sync()
+
+    expect(
+      requests.map((request) =>
+        request.mutations.map((mutation) =>
+          mutation.type === 'upsert' ? mutation.path : mutation.type
+        )
+      )
+    ).toEqual([
+      ['a.md', 'b.md'],
+      ['c.jpg'],
+      ['d.jpg'],
+      ['e.jpg'],
+      ['f.jpg'],
+      ['g.md', 'h.md']
+    ])
   })
 
   it('stops initial sync on same-path content conflicts', async () => {

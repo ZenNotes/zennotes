@@ -88,6 +88,7 @@ import { useStore } from '../store'
 import type { WorkflowRunRecord } from '../store'
 import { useToastStore } from '../lib/toast'
 import { createVaultReader } from '../lib/workflow-vault-reader'
+import { canManageWorkflows } from '../lib/workflow-workspace'
 import {
   advanceSequence,
   formatKeyToken,
@@ -1363,32 +1364,55 @@ export function WorkflowsView(): JSX.Element {
   // the drag that was made, and must record it against the file it was made on.
   const pendingLayoutWrite = useRef<PendingLayoutWrite | null>(null)
 
-  // Workflow files live on the local filesystem, which web and remote
-  // workspaces do not have: the web bridge rejects a write and the main process
-  // refuses one for a remote vault. Both are knowable up front, so the
-  // affordances are hidden rather than offered and then failed, and the typeof
-  // checks stay as the last line of defence for a bridge that predates these
-  // methods. Authoring degrades to read-only; it never throws.
-  const localVault = window.zen.getAppInfo().runtime === 'desktop' && workspaceMode !== 'remote'
-  const canWrite = localVault && typeof window.zen.writeWorkflow === 'function'
-  const canDelete = localVault && typeof window.zen.deleteWorkflow === 'function'
+  // Desktop owns local workflow files directly. Remote workspaces (web or
+  // Electron) own them through a server that explicitly advertises journalled
+  // workflow support; older servers stay read-only. For a desktop remote
+  // workspace the static preload capabilities describe the app, not the
+  // server, so ask the server itself. (#618)
+  const appInfo = window.zen.getAppInfo()
+  const capabilities = window.zen.getCapabilities()
+  const [remoteWorkflowsSupported, setRemoteWorkflowsSupported] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (workspaceMode !== 'remote' || appInfo.runtime !== 'desktop') return
+    let cancelled = false
+    window.zen
+      .getServerCapabilities()
+      .then((caps) => {
+        if (!cancelled) setRemoteWorkflowsSupported(caps?.supportsWorkflows === true)
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteWorkflowsSupported(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceMode])
+  const effectiveCapabilities =
+    appInfo.runtime === 'desktop' && workspaceMode === 'remote'
+      ? { ...capabilities, supportsWorkflows: remoteWorkflowsSupported === true }
+      : capabilities
+  const writableWorkspace = canManageWorkflows(appInfo.runtime, workspaceMode, effectiveCapabilities)
+  const nativeLocalVault = appInfo.runtime === 'desktop' && workspaceMode !== 'remote'
+  const canWrite = writableWorkspace && typeof window.zen.writeWorkflow === 'function'
+  const canDelete = writableWorkspace && typeof window.zen.deleteWorkflow === 'function'
   // Applying is the only thing in this view that writes NOTES, and it runs in
   // the main process, so it is gated exactly like the authoring affordances:
   // a bridge that predates these methods offers no Run button at all rather
   // than one that throws.
-  const canApply = localVault && typeof window.zen.applyWorkflow === 'function'
-  const canUndoRuns = localVault && typeof window.zen.undoWorkflowRun === 'function'
+  const canApply = writableWorkspace && typeof window.zen.applyWorkflow === 'function'
+  const canUndoRuns = writableWorkspace && typeof window.zen.undoWorkflowRun === 'function'
   // `revealNote` reveals any VAULT-RELATIVE path, which is what a workflow's
   // `sourcePath` is, so the file manager entry needs no bridge of its own. Gated
   // the same way as the rest: a workspace with no local files gets no item at
   // all rather than one that opens nothing.
-  const canReveal = localVault && typeof window.zen.revealNote === 'function'
+  const canReveal = nativeLocalVault && typeof window.zen.revealNote === 'function'
   // Saving a copy somewhere else, and reading one back, both need a native file
   // dialog and a filesystem, so both are desktop-only and hidden elsewhere
   // rather than offered and then refused. Copying to the CLIPBOARD is not gated
   // this way on purpose: it needs nothing but a clipboard, and it is the form of
   // sharing that actually travels through a chat message or a gist.
-  const canExportFile = localVault && typeof window.zen.exportWorkflow === 'function'
+  const canExportFile = nativeLocalVault && typeof window.zen.exportWorkflow === 'function'
   const canImportFile = canWrite && typeof window.zen.importWorkflowFile === 'function'
   // A stable action, so subscribing costs nothing; see the selectors above.
   const addToast = useToastStore((s) => s.addToast)

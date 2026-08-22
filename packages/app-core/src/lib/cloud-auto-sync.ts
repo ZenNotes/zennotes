@@ -40,6 +40,7 @@ export type CloudSyncPhase =
   | "unlinked"
   | "ready"
   | "syncing"
+  | "attention"
   | "error";
 
 interface CloudSyncStatusStore {
@@ -181,6 +182,16 @@ export async function syncCloudVaultWithStatus(
 
   try {
     const summary = await bridge.syncCloudVault();
+    const attention = cloudSyncAttentionMessage(summary);
+    if (attention !== null) {
+      useCloudSyncStatusStore.setState({
+        phase: "attention",
+        vaultName: nextVaultName,
+        lastSyncedAt: current.lastSyncedAt,
+        error: attention,
+      });
+      return summary;
+    }
     useCloudSyncStatusStore.setState({
       phase: "ready",
       vaultName: nextVaultName,
@@ -307,4 +318,57 @@ function logAutomaticSyncError(error: unknown, retryInMs: number): void {
 
 function cloudSyncErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+export function cloudSyncAttentionMessage(
+  summary: CloudSyncRunSummary,
+): string | null {
+  const capacityConflict = summary.conflicts.find((conflict) =>
+    [
+      "QUOTA_EXCEEDED",
+      "CAPACITY_EXCEEDED",
+      "FILE_SIZE_LIMIT_EXCEEDED",
+    ].includes(conflict.code),
+  );
+  if (capacityConflict) {
+    const capacity = capacityConflict.capacity;
+    if (capacity?.dimension === "sync_active_items") {
+      return `Cloud active-item limit reached (${capacity.used + capacity.reserved} of ${capacity.limit}). Remove files or increase your Cloud capacity.`;
+    }
+    if (capacity?.dimension === "sync_active_bytes") {
+      return `Cloud storage limit reached (${formatCloudBytes(capacity.used + capacity.reserved)} of ${formatCloudBytes(capacity.limit)}). Remove files or increase your Cloud capacity.`;
+    }
+    if (capacity?.dimension === "sync_max_file_bytes") {
+      return `A file exceeds the ${formatCloudBytes(capacity.limit)} Cloud file-size limit.`;
+    }
+    return "Cloud capacity reached. Remove files or increase your Cloud capacity.";
+  }
+
+  if (summary.bootstrap_conflicts.length > 0) {
+    const count = summary.bootstrap_conflicts.length;
+    return `Cloud sync needs attention: ${count} ${count === 1 ? "file differs" : "files differ"} on this device and in Cloud.`;
+  }
+  if (summary.local_conflicts.length > 0) {
+    const count = summary.local_conflicts.length;
+    return `Cloud sync kept both versions of ${count} changed ${count === 1 ? "file" : "files"}. Review the conflict copies.`;
+  }
+  if (summary.conflicts.length > 0) {
+    const count = summary.conflicts.length;
+    return `Cloud sync needs attention: ${count} ${count === 1 ? "change could" : "changes could"} not be applied.`;
+  }
+
+  return null;
+}
+
+function formatCloudBytes(bytes: number): string {
+  if (bytes < 1_024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1_024;
+  let unit = units[0];
+  for (const candidate of units.slice(1)) {
+    if (value < 1_024) break;
+    value /= 1_024;
+    unit = candidate;
+  }
+  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
 }

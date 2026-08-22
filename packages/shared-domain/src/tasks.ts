@@ -600,6 +600,14 @@ export function tasksDueOn(tasks: VaultTask[], iso: string): VaultTask[] {
  * wins, so only tasks with no `due` are touched; the result is flagged
  * `dueInferred` so UIs can distinguish it. Returns the same array instance when
  * nothing changed (cheap to call from a memo).
+ *
+ * Forwarded (`[>]`) records are exempt: the work left this note, so the note's
+ * date no longer says anything about when it is due. Inferring it anyway put
+ * the record back on the calendar and, for a task carried across daily notes,
+ * stamped every hop with a different date, so one task read as several (#610).
+ * An explicit `due:` on a forwarded record still shows, since the author wrote
+ * that date on the line (the case the calendar deliberately keeps, see
+ * `isTaskOpen`).
  */
 export function inferDailyTaskDueDates(
   tasks: VaultTask[],
@@ -608,7 +616,7 @@ export function inferDailyTaskDueDates(
   if (dueByPath.size === 0) return tasks
   let changed = false
   const out = tasks.map((task) => {
-    if (task.due) return task
+    if (task.due || task.forwarded) return task
     const iso = dueByPath.get(task.sourcePath)
     if (!iso) return task
     changed = true
@@ -620,13 +628,18 @@ export function inferDailyTaskDueDates(
 /** Bucket tasks by `due` ISO date. Done (checked) and cancelled tasks are
  *  skipped (see `isTaskOpen`); waiting tasks are kept so a `@waiting` task with
  *  a due date still appears on the calendar on its date (#236). Tasks without a
- *  due date land in the special `'unscheduled'` key. */
+ *  due date land in the special `'unscheduled'` key. A forwarded record only
+ *  buckets when it carries an explicit date: dated, it keeps its calendar slot
+ *  (the copy is written without the `due:` token, see `isTaskOpen`); undated,
+ *  it is a record of a move, not unscheduled work, and listing it beside the
+ *  live copy made one task read as two (#610). */
 export function bucketTasksByDueDate(
   tasks: VaultTask[]
 ): Map<string, VaultTask[]> {
   const map = new Map<string, VaultTask[]>()
   for (const task of tasks) {
     if (!isTaskOpen(task)) continue
+    if (task.forwarded && !task.due) continue
     const key = task.due ?? 'unscheduled'
     const list = map.get(key)
     if (list) list.push(task)

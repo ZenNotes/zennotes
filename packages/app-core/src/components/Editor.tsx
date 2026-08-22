@@ -20,14 +20,10 @@ import { rankItems } from "../lib/fuzzy-score";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import { mergeTemplates } from "@shared/template-files";
 import type { PaneLayout, PaneSplit } from "../lib/pane-layout";
-import {
-  parseCreateNotePath,
-  resolveWikilinkTarget,
-  wikilinkHeadingAnchor,
-} from "../lib/wikilinks";
+import { parseCreateNotePath, resolveWikilinkPath } from "../lib/wikilinks";
 import {
   openDatabaseFromWikilink,
-  openWikilinkHeading,
+  openWikilinkTarget,
 } from "../lib/wikilink-navigation";
 import {
   classifyLocalAssetHref,
@@ -204,7 +200,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
       {
         id: "vim.bufferNext",
         contexts: ["normal", "visual"],
-        action: "nextBuffer",
+        action: "nextBufferRelative",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.bufferNext")),
         ].filter((binding): binding is string => !!binding),
@@ -433,7 +429,9 @@ function registerVimCommands(): void {
 
   // #290/#312: make j/k move by display line through soft-wrapped content.
   // Shared with the Quick Note window (QuickCaptureApp) via the same helper.
-  registerDisplayLineMotion();
+  registerDisplayLineMotion(
+    () => useStore.getState().vimWrappedLineMotions,
+  );
   registerHeadingMotion();
 
   Vim.defineEx("write", "w", () => {
@@ -648,20 +646,13 @@ function registerVimCommands(): void {
     }
 
     const notes = state.notes;
-    const resolved = resolveWikilinkTarget(notes, target);
-    if (resolved) {
+    const wikilinkPath = resolveWikilinkPath(notes, target, state.selectedPath);
+    if (wikilinkPath) {
       const focusEditorSoon = (): void => {
         state.setFocusedPanel("editor");
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus());
       };
-      const headingAnchor = wikilinkHeadingAnchor(target);
-      if (headingAnchor) {
-        void openWikilinkHeading(resolved.path, headingAnchor).then(
-          focusEditorSoon,
-        );
-      } else {
-        void state.selectNote(resolved.path).then(focusEditorSoon);
-      }
+      void openWikilinkTarget(wikilinkPath, target).then(focusEditorSoon);
       return;
     }
 
@@ -674,8 +665,8 @@ function registerVimCommands(): void {
         state.setFocusedPanel("editor");
         requestAnimationFrame(() => useStore.getState().editorViewRef?.focus());
       };
-      if (internal.heading) {
-        void openWikilinkHeading(internal.path, internal.heading).then(
+      if (internal.anchor) {
+        void openWikilinkTarget(internal.path, `#${internal.anchor}`).then(
           focusEditorSoon,
         );
       } else {
@@ -741,6 +732,21 @@ function registerVimCommands(): void {
         return;
       }
       navigateActiveBuffer(useStore.getState(), 1);
+    },
+  );
+  // ]b is RELATIVE with a count ({count}]b walks forward count tabs), unlike
+  // gt whose {count} is vim's absolute tab number. [b shares previousBuffer
+  // with gT and was already relative. (#622)
+  Vim.defineAction(
+    "nextBufferRelative",
+    (
+      _cm: unknown,
+      actionArgs?: { repeat?: number; repeatIsExplicit?: boolean },
+    ) => {
+      const repeat = actionArgs?.repeatIsExplicit
+        ? (actionArgs.repeat ?? 1)
+        : 1;
+      navigateActiveBuffer(useStore.getState(), repeat);
     },
   );
 

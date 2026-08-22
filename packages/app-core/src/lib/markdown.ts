@@ -2,7 +2,6 @@ import { unified } from 'unified'
 import DOMPurify from 'dompurify'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
-import remarkBreaks from 'remark-breaks'
 import remarkMath from 'remark-math'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkRehype from 'remark-rehype'
@@ -15,6 +14,8 @@ import type { Root as MdRoot } from 'mdast'
 import type { Root as HastRoot, Element as HastElement } from 'hast'
 import type { VFile } from 'vfile'
 import { recordRendererPerf } from './perf'
+import { stripBlockAnchorMarkers } from './block-anchors'
+import { wikilinkDisplayLabel } from './wikilinks'
 import { classifyLocalAssetHref } from './local-assets'
 import { parseEmbedSizeHint, splitEmbedLabel } from './excalidraw-preview'
 import { parseColWidthsComment } from './markdown-table'
@@ -146,7 +147,12 @@ function remarkWikilinks() {
           'data-wikilink': target
         }
       },
-      children: [{ type: 'text', value: label }]
+      // An un-aliased anchored link would otherwise read `Daily Note^note-two`
+      // mid-sentence; the label is `target` exactly when no alias was
+      // given. (#601)
+      children: [
+        { type: 'text', value: label === target ? wikilinkDisplayLabel(target) : label }
+      ]
     }
   }
 
@@ -596,11 +602,10 @@ function remarkCallouts() {
       const type = marker[1].toLowerCase()
 
       // Split the paragraph's inline children into the title line and the
-      // body. remark-breaks runs earlier, so soft breaks arrive as `break`
-      // nodes and the first one ends the title; the delimiter itself is
-      // dropped, or the body paragraph opens with a stray <br> that reads as
-      // a phantom empty line. Raw newlines are handled too, in case the
-      // plugin ever runs without remark-breaks.
+      // body. Explicit Markdown breaks arrive as `break` nodes, while ordinary
+      // source newlines remain inside text nodes. The first one ends the title;
+      // the delimiter itself is dropped, or the body paragraph opens with a
+      // stray <br> that reads as a phantom empty line.
       type Inline = (typeof first.children)[number]
       const titleChildren: Inline[] = []
       const bodyChildren: Inline[] = []
@@ -985,7 +990,6 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
     .use(remarkParse)
     .use(remarkFrontmatter, ['yaml', 'toml'])
     .use(remarkGfm)
-    .use(remarkBreaks)
     .use(remarkMath)
     .use(remarkCurrencyGuard)
 
@@ -1247,10 +1251,16 @@ export function renderMarkdown(src: string): string {
 
   const startedAt = performance.now()
   try {
+    // Anchor markers are stripped from the SOURCE, with the parser's own
+    // line-level grammar, before remark ever sees it. Stripping per mdast
+    // text node deleted real prose (a mid-line `^word` before emphasis) and
+    // missed genuine anchors on non-final paragraph lines. (#601)
     const html = sanitizeRenderedHtml(
       String(
         activeProcessor().processSync(
-          escapeTableMathPipes(normalizeBlockMathFences(src, markdownLooseMathDelimiters()))
+          escapeTableMathPipes(
+            normalizeBlockMathFences(stripBlockAnchorMarkers(src), markdownLooseMathDelimiters())
+          )
         )
       )
     )

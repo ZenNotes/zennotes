@@ -1,5 +1,7 @@
 import { CodeMirror, Vim } from '@replit/codemirror-vim'
+import type { InputStateInterface } from '@replit/codemirror-vim'
 import type { EditorView } from '@codemirror/view'
+import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import { displayRowEdge } from './cm-display-row'
 import { mathBlockLineRanges } from './cm-math-render'
 import { embedBlockLineRanges } from './cm-embed-render'
@@ -26,6 +28,7 @@ type VimDisplayBoundaryCm = {
   lastLine?: () => number
   execCommand: (command: string) => void
   getCursor: () => { line: number; ch: number; sticky?: string }
+  getLine?: (line: number) => string
   charCoords?: (
     position: { line: number; ch: number },
     mode: string
@@ -60,6 +63,40 @@ type VimMotionState = {
   lastHSPos?: number
   lastHPos?: number
   inputState?: { operator?: unknown }
+}
+
+type VimMotionInputState = Pick<InputStateInterface, 'prefixRepeat' | 'motionRepeat'>
+
+type VimBoundaryMotionArgs = {
+  forward?: boolean
+  repeat?: number
+  /** Explicit display mode keeps g0 independent of the user's $/I/A choice. */
+  lineMode?: VimWrappedLineMotionMode
+}
+
+type VimActionTable = {
+  enterInsertMode: (
+    cm: unknown,
+    args: {
+      head: { line: number; ch: number }
+      insertAt: 'inplace'
+      repeat?: number
+    },
+    vim: unknown
+  ) => void
+}
+
+let readWrappedLineMotionMode: () => VimWrappedLineMotionMode = () => 'display'
+
+function wrappedLineMotionMode(
+  explicit?: VimWrappedLineMotionMode
+): VimWrappedLineMotionMode {
+  if (explicit) return explicit
+  try {
+    return readWrappedLineMotionMode() === 'logical' ? 'logical' : 'display'
+  } catch {
+    return 'display'
+  }
 }
 
 let pixelMotionFailureWarned = false
@@ -147,15 +184,21 @@ export function zenMoveByDisplayLine(
   cm: VimMotionCm,
   head: { line: number; ch: number },
   motionArgs: { forward?: boolean; repeat?: number; repeatIsExplicit?: boolean },
-  vim: VimMotionState
+  vim: VimMotionState,
+  inputState?: VimMotionInputState
 ): { line: number; ch: number } {
   const forward = !!motionArgs.forward
   const repeat = motionArgs.repeat || 1
+  // codemirror-vim leaves repeatIsExplicit unset for custom j/k mappings, but
+  // passes the original digit buffers as the motion's fifth argument (#660).
+  const countWasTyped =
+    !!motionArgs.repeatIsExplicit ||
+    !!(inputState && (inputState.prefixRepeat.length || inputState.motionRepeat.length))
   if (
     vim.visualLine ||
     vim.visualBlock ||
     vim.inputState?.operator ||
-    motionArgs.repeatIsExplicit
+    countWasTyped
   ) {
     const target = Math.max(
       cm.firstLine(),
@@ -263,9 +306,17 @@ export function zenMoveByDisplayLine(
 export function zenMoveToDisplayLineBoundary(
   cm: VimDisplayBoundaryCm,
   head: { line: number; ch: number },
-  motionArgs: { forward?: boolean; repeat?: number }
+  motionArgs: VimBoundaryMotionArgs
 ): { line: number; ch: number } {
   const repeat = motionArgs.repeat || 1
+  if (wrappedLineMotionMode(motionArgs.lineMode) === 'logical') {
+    const first = cm.firstLine?.() ?? 0
+    const last = cm.lastLine?.() ?? head.line + repeat - 1
+    const line = Math.max(first, Math.min(last, head.line + repeat - 1))
+    if (motionArgs.forward) return new CodeMirror.Pos(line, Infinity)
+    const text = logicalLineText(cm, head.line)
+    return new CodeMirror.Pos(head.line, text == null ? 0 : firstNonWhitespace(text))
+  }
   if (motionArgs.forward && repeat > 1) {
     const first = cm.firstLine?.() ?? 0
     const last = cm.lastLine?.() ?? head.line + repeat - 1
@@ -335,6 +386,63 @@ function firstNonWhitespace(text: string): number {
   return index < 0 ? text.length : index
 }
 
+function logicalLineText(cm: VimDisplayBoundaryCm, lineNumber: number): string | null {
+  const fromAdapter = cm.getLine?.(lineNumber)
+  if (typeof fromAdapter === 'string') return fromAdapter
+  const doc = cm.cm6?.state.doc
+  if (!doc || lineNumber + 1 > doc.lines) return null
+  return doc.line(lineNumber + 1).text
+}
+
+/** Enter insert mode at either the visible display-row edge or logical line edge. */
+export function zenEnterInsertAtLineBoundary(
+  this: VimActionTable,
+  cm: VimDisplayBoundaryCm,
+  actionArgs: VimBoundaryMotionArgs,
+  vim: unknown
+): void {
+  const cursor = cm.getCursor()
+  let target: { line: number; ch: number }
+  if (wrappedLineMotionMode(actionArgs.lineMode) === 'logical') {
+    const text = logicalLineText(cm, cursor.line)
+    target = new CodeMirror.Pos(
+      cursor.line,
+      actionArgs.forward ? (text?.length ?? Infinity) : firstNonWhitespace(text ?? '')
+    )
+  } else if (actionArgs.forward) {
+    // Insert at the raw display boundary. The normal-mode `$` motion backs up
+    // to the last visible character, but `A` belongs after it.
+    target = pixelMotionFallback(
+      () => {
+        const view = cm.cm6
+        if (view && cursor.line + 1 <= view.state.doc.lines) {
+          const line = view.state.doc.line(cursor.line + 1)
+          const pos = Math.min(line.to, line.from + Math.max(0, cursor.ch))
+          const edge = displayRowEdge(view, pos, true)
+          if (edge != null) return new CodeMirror.Pos(cursor.line, edge - line.from)
+          // No usable coordinates: append at the LOGICAL line end, like plain
+          // Vim, rather than goLineRight's rightmost visible glyph, which live
+          // preview's hidden closing tokens pull short (#582).
+          return new CodeMirror.Pos(cursor.line, line.length)
+        }
+        cm.execCommand('goLineRight')
+        return cm.getCursor()
+      },
+      () => cm.getCursor()
+    )
+  } else {
+    target = zenMoveToDisplayLineBoundary(cm, cursor, {
+      forward: false,
+      lineMode: 'display'
+    })
+  }
+  this.enterInsertMode(
+    cm,
+    { head: target, insertAt: 'inplace', repeat: actionArgs.repeat },
+    vim
+  )
+}
+
 /**
  * Preserve Vim's first press of H/L, then let another press at the same edge
  * step beyond the viewport. CodeMirror scrolls that returned position into
@@ -381,7 +489,10 @@ let displayLineMotionRegistered = false
  * normal + visual contexts, so operator-pending motions (dj/yj/cj) keep Vim's
  * default logical movement. Idempotent — safe to call once per renderer / on HMR.
  */
-export function registerDisplayLineMotion(): void {
+export function registerDisplayLineMotion(
+  getWrappedLineMotionMode?: () => VimWrappedLineMotionMode
+): void {
+  if (getWrappedLineMotionMode) readWrappedLineMotionMode = getWrappedLineMotionMode
   if (displayLineMotionRegistered) return
   displayLineMotionRegistered = true
   // The package's MotionFn type is looser/different than our precise params; the
@@ -398,57 +509,9 @@ export function registerDisplayLineMotion(): void {
     'zenMoveToViewportEdge',
     zenMoveToViewportEdge as unknown as Parameters<typeof Vim.defineMotion>[1]
   )
-  type VimActionTable = {
-    enterInsertMode: (
-      cm: unknown,
-      args: {
-        head: { line: number; ch: number }
-        insertAt: 'inplace'
-        repeat?: number
-      },
-      vim: unknown
-    ) => void
-  }
   Vim.defineAction(
     'zenEnterInsertAtDisplayLineBoundary',
-    function (
-      this: VimActionTable,
-      cm: VimDisplayBoundaryCm,
-      actionArgs: { forward?: boolean; repeat?: number },
-      vim: unknown
-    ) {
-      let target: { line: number; ch: number }
-      if (actionArgs.forward) {
-        // Insert at the raw display boundary. The normal-mode `$` motion
-        // backs up to the last visible character, but `A` belongs after it.
-        target = pixelMotionFallback(
-          () => {
-            const view = cm.cm6
-            const cursor = cm.getCursor()
-            if (view && cursor.line + 1 <= view.state.doc.lines) {
-              const line = view.state.doc.line(cursor.line + 1)
-              const pos = Math.min(line.to, line.from + Math.max(0, cursor.ch))
-              const edge = displayRowEdge(view, pos, true)
-              if (edge != null) return new CodeMirror.Pos(cursor.line, edge - line.from)
-              // No usable coordinates: append at the LOGICAL line end, like
-              // plain Vim, rather than goLineRight's rightmost visible glyph,
-              // which live preview's hidden closing tokens pull short (#582).
-              return new CodeMirror.Pos(cursor.line, line.length)
-            }
-            cm.execCommand('goLineRight')
-            return cm.getCursor()
-          },
-          () => cm.getCursor()
-        )
-      } else {
-        target = zenMoveToDisplayLineBoundary(cm, cm.getCursor(), { forward: false })
-      }
-      this.enterInsertMode(
-        cm,
-        { head: target, insertAt: 'inplace', repeat: actionArgs.repeat },
-        vim
-      )
-    } as unknown as Parameters<typeof Vim.defineAction>[1]
+    zenEnterInsertAtLineBoundary as unknown as Parameters<typeof Vim.defineAction>[1]
   )
   for (const context of ['normal', 'visual'] as const) {
     Vim.mapCommand(
@@ -492,7 +555,7 @@ export function registerDisplayLineMotion(): void {
       'g0',
       'motion',
       'zenMoveToDisplayLineBoundary',
-      { forward: false },
+      { forward: false, lineMode: 'display' },
       { context }
     )
   }

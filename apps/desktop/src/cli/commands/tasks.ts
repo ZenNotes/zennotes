@@ -18,8 +18,11 @@ export async function cmdTaskList(vault: VaultBackend, args: ParsedArgs): Promis
 
   let tasks = await vault.scanAllTasks(includeExcluded ? { includeExcluded: true } : undefined)
   if (!showAll) {
-    if (onlyUnchecked) tasks = tasks.filter((t) => !t.checked)
-    else tasks = tasks.filter((t) => !t.checked && !t.waiting)
+    // A `[>]` forwarded record is history of a move; its live copy is in the
+    // destination note and lists on its own, so showing both doubled every
+    // carried task (#611 review). `--all` still surfaces the records.
+    if (onlyUnchecked) tasks = tasks.filter((t) => !t.checked && !t.forwarded)
+    else tasks = tasks.filter((t) => !t.checked && !t.waiting && !t.forwarded)
   }
   if (tag) tasks = tasks.filter((t) => t.tags.includes(tag))
 
@@ -34,13 +37,15 @@ export async function cmdTaskList(vault: VaultBackend, args: ParsedArgs): Promis
   for (const t of tasks) {
     const box = t.checked
       ? '[x]'
-      : t.cancelled
-        ? '[-]'
-        : t.inProgress
-          ? '[/]'
-          : t.waiting
-            ? '[~]'
-            : '[ ]'
+      : t.forwarded
+        ? '[>]'
+        : t.cancelled
+          ? '[-]'
+          : t.inProgress
+            ? '[/]'
+            : t.waiting
+              ? '[~]'
+              : '[ ]'
     const due = t.due ? `  due:${t.due}` : ''
     const pri = t.priority ? `  !${t.priority}` : ''
     emitLine(`${box}  ${pad(t.id, 40)}  ${truncate(t.content, 80)}${due}${pri}`)

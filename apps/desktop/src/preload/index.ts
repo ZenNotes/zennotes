@@ -103,7 +103,8 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   // and is gated to a follow-up.
   supportsCliInstall: process.platform === 'darwin' || process.platform === 'linux',
   supportsCustomTemplates: true,
-  supportsCustomCodeLanguages: true
+  supportsCustomCodeLanguages: true,
+  supportsWorkflows: true
 }
 
 const DESKTOP_APP_INFO: ZenAppInfo = {
@@ -246,6 +247,7 @@ const api: ZenBridge = {
   createAndLinkCloudVault: (name: string): Promise<CloudVaultLink> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_CREATE, name),
   unlinkCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_DELETE),
+  deleteCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_DELETE),
   syncCloudVault: (): Promise<CloudSyncRunSummary> => ipcRenderer.invoke(IPC.CLOUD_VAULT_SYNC),
   getCloudSettingsConflict: (): Promise<CloudSyncSettingsConflict | null> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET),

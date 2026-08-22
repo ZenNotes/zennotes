@@ -25,6 +25,7 @@ import {
 } from '@zennotes/shared-domain/cloud-sync'
 import { setVaultSettings } from './vault'
 import type { CloudSyncApiClient } from '@zennotes/shared-domain/cloud-sync-api'
+import { CloudServiceRequestError } from './cloud-sync-client'
 import { createDesktopCloudSyncCoordinator } from './cloud-sync-filesystem'
 
 type SyncClient = Pick<
@@ -36,6 +37,7 @@ type SyncClient = Pick<
   | 'unpublishNote'
   | 'listVaults'
   | 'createVault'
+  | 'deleteVault'
   | 'manifest'
   | 'changes'
   | 'mutate'
@@ -82,8 +84,17 @@ export class DesktopCloudSyncService {
   }
 
   async listPublishedNotes(): Promise<CloudPublishedNote[]> {
-    const { client } = await this.connection()
-    return (await client.listPublishedNotes()).data
+    const connection = await this.optionalConnection()
+    if (!connection) return []
+
+    try {
+      return (await connection.client.listPublishedNotes()).data
+    } catch (error) {
+      if (error instanceof CloudServiceRequestError && error.code === 'FEATURE_NOT_ENTITLED') {
+        return []
+      }
+      throw error
+    }
   }
 
   async publishNote(input: CloudPublishNoteInput): Promise<CloudPublishedNoteResult> {
@@ -140,6 +151,12 @@ export class DesktopCloudSyncService {
 
   async unlink(localRoot: string): Promise<void> {
     await fs.rm(this.linkPath(localRoot), { force: true })
+  }
+
+  async deleteLinkedVault(localRoot: string): Promise<void> {
+    const { client, link } = await this.linkedConnection(localRoot)
+    await client.deleteVault(link.vault_id)
+    await this.unlink(localRoot)
   }
 
   async listBackups(localRoot: string): Promise<CloudBackupSnapshot[]> {
@@ -354,10 +371,18 @@ export class DesktopCloudSyncService {
     client: SyncClient
     token: string
   }> {
+    const connection = await this.optionalConnection()
+    if (!connection) throw new Error('Connect ZenNotes Cloud before using sync.')
+    return connection
+  }
+
+  private async optionalConnection(): Promise<{
+    account: NonNullable<CloudAccountStatus['account']>
+    client: SyncClient
+    token: string
+  } | null> {
     const status = await this.dependencies.accountStatus()
-    if (status.state !== 'connected' || !status.account) {
-      throw new Error('Connect ZenNotes Cloud before using sync.')
-    }
+    if (status.state !== 'connected' || !status.account) return null
     const token = await this.dependencies.getSecret(status.account.base_url)
     if (!token) throw new Error('The ZenNotes Cloud credential is unavailable. Sign in again.')
     return {

@@ -23,8 +23,11 @@ export function WhichKeyOverlay({
 
   return createPortal(
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-[100] flex justify-center px-4">
-      <div className="w-[min(640px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-paper-300/70 bg-paper-100 shadow-float backdrop-blur-md">
-        <div className="flex items-center justify-between gap-3 border-b border-paper-300/60 px-3.5 py-2.5">
+      {/* Bottom-anchored, so on short windows (tiled WMs, high zoom) an uncapped
+          card grows past the top edge and clips the header first (#636). Cap it
+          to the viewport and let the item grid scroll under a pinned header. */}
+      <div className="pointer-events-auto flex max-h-[calc(100vh-2.5rem)] w-[min(640px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-paper-300/70 bg-paper-100 shadow-float backdrop-blur-md">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-paper-300/60 px-3.5 py-2.5">
           <div className="flex min-w-0 items-center gap-2.5">
             <span className="rounded-md border border-accent/35 bg-paper-200 px-2 py-1 text-2xs font-semibold uppercase tracking-[0.18em] text-accent">
               {prefix}
@@ -36,7 +39,12 @@ export function WhichKeyOverlay({
           </div>
         </div>
 
-        <div className={['grid bg-paper-100', twoColumn ? 'sm:grid-cols-2' : 'grid-cols-1'].join(' ')}>
+        <div
+          className={[
+            'grid min-h-0 overflow-y-auto overscroll-contain bg-paper-100',
+            twoColumn ? 'sm:grid-cols-2' : 'grid-cols-1'
+          ].join(' ')}
+        >
           {items.map((item, index) => (
             <div
               key={`${prefix}-${item.keyLabel}`}

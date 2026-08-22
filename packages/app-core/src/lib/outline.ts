@@ -16,6 +16,13 @@
  * character offset where the heading line starts — useful when the
  * caller already has the full body in hand.
  */
+import { scanMarkdownLines } from '@shared/markdown-lines'
+
+// The line walker (frontmatter and fence rules) lives in shared-domain now so
+// the block-anchor grammar and the DOCX export share it; this re-export keeps
+// the historical app-core import path working.
+export { scanMarkdownLines, type MarkdownLine } from '@shared/markdown-lines'
+
 export interface OutlineItem {
   level: number // 1..6
   text: string
@@ -25,77 +32,17 @@ export interface OutlineItem {
 
 const ATX_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
 const SETEXT_UNDERLINE_RE = /^(=+|-+)\s*$/
-// A fenced code block opens with a run of >=3 backticks or tildes; the second
-// group is the rest of the line (the info string).
-const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)$/
-// A closing fence is a run of fence characters alone on its line, save for
-// trailing whitespace (no info string).
-const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})[ \t]*$/
-
-/**
- * 0-based index of the closing `---` of a leading YAML frontmatter block,
- * or -1 when the body has none. Matches the editor's frontmatter detection
- * (cm-wysiwyg-blocks): the very first line must be `---`, and the block runs
- * to the next `---` line.
- */
-function frontmatterEndIndex(lines: string[]): number {
-  if (lines.length < 2 || lines[0].trim() !== '---') return -1
-  for (let i = 1; i < lines.length; i++) {
-    if (lines[i].trim() === '---') return i
-  }
-  return -1
-}
 
 export function parseOutline(body: string): OutlineItem[] {
   const items: OutlineItem[] = []
-  if (!body) return items
 
-  const lines = body.split('\n')
-  // Everything up to and including this line is frontmatter and is skipped.
-  const frontmatterEnd = frontmatterEndIndex(lines)
-  // The marker run (``` / ~~~) that opened the current fence, or null when not
-  // inside one. Tracking the exact marker — instead of toggling a boolean on
-  // any fence-looking line — means a `~~~` line can't close a ``` block, a
-  // longer closer is required for a longer opener, and an inline `​```…``` `
-  // code span isn't mistaken for a block fence (#249).
-  let fence: string | null = null
-  let offset = 0
-
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]
-    const lineStart = offset
-    offset += raw.length + 1 // +1 for the stripped newline
-
-    // Skip the leading frontmatter block wholesale — its fences and `key: value`
-    // lines are YAML, not markdown, and must never surface as outline entries.
-    if (i <= frontmatterEnd) continue
-
-    if (fence) {
-      const close = raw.match(FENCE_CLOSE_RE)
-      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) {
-        fence = null
-      }
-      continue
-    }
-
-    const open = raw.match(FENCE_OPEN_RE)
-    if (open) {
-      const [, marker, info] = open
-      // A backtick fence's info string may not contain backticks; when it does,
-      // the line is an inline code span (e.g. ```[[link]]```), not a block
-      // fence — so don't enter a fence, and let heading parsing fall through.
-      if (marker[0] !== '`' || !info.includes('`')) {
-        fence = marker
-        continue
-      }
-    }
-
+  for (const { text: raw, next, line, from: lineStart } of scanMarkdownLines(body)) {
     const atx = raw.match(ATX_RE)
     if (atx) {
       items.push({
         level: atx[1].length,
         text: atx[2].trim(),
-        line: i + 1,
+        line,
         from: lineStart
       })
       continue
@@ -104,14 +51,13 @@ export function parseOutline(body: string): OutlineItem[] {
     // Setext: current line is the title, next line is `===` or `---`.
     // Only treat it as a heading when the title line has content and
     // the next line is purely underline characters.
-    const next = lines[i + 1]
     if (next !== undefined && raw.trim().length > 0) {
       const under = next.match(SETEXT_UNDERLINE_RE)
       if (under) {
         items.push({
           level: under[1].startsWith('=') ? 1 : 2,
           text: raw.trim(),
-          line: i + 1,
+          line,
           from: lineStart
         })
       }

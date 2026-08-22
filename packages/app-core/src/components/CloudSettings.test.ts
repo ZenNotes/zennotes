@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   linkCloudVault: vi.fn(),
   createAndLinkCloudVault: vi.fn(),
   unlinkCloudVault: vi.fn(),
+  deleteCloudVault: vi.fn(),
   syncCloudVault: vi.fn(),
   getCloudSettingsConflict: vi.fn(),
   resolveCloudSettingsConflict: vi.fn(),
@@ -50,7 +51,8 @@ vi.mock("../lib/confirm-requests", () => ({
   confirmApp: mocks.confirmApp,
 }));
 
-vi.mock("../lib/cloud-auto-sync", () => ({
+vi.mock("../lib/cloud-auto-sync", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/cloud-auto-sync")>()),
   requestCloudAutoSync: mocks.requestCloudAutoSync,
   syncCloudVaultWithStatus: mocks.syncCloudVaultWithStatus,
 }));
@@ -95,7 +97,14 @@ const serviceAccount: CloudServiceAccount = {
       backup_bytes: 1_024,
       publish_bytes: 0,
     },
-    sync: { vaults: 2, items: 38 },
+    sync: {
+      vaults: 2,
+      items: 38,
+      markdown_items: 30,
+      binary_items: 5,
+      other_items: 2,
+      metadata_items: 1,
+    },
     backup: {
       snapshots: 1,
       ready_snapshots: 1,
@@ -196,7 +205,10 @@ describe("CloudSettings", () => {
     expect(host.textContent).toContain("PublishIncluded");
     expect(host.textContent).toContain("Cloud storage");
     expect(host.textContent).toContain("1.5 MB of 1.0 GB");
-    expect(host.textContent).toContain("38 synced notes across 2 vaults");
+    expect(host.textContent).toContain("38 synced files across 2 vaults");
+    expect(host.textContent).toContain(
+      "30 Markdown · 5 binary · 2 other · 1 ZenNotes metadata",
+    );
     expect(host.textContent).toContain("1 backup · 30-day retention");
     expect(host.textContent).toContain("1 published note");
     expect(host.textContent).not.toContain("views");
@@ -285,7 +297,8 @@ describe("CloudSettings", () => {
       pulled: 2,
       pushed: 3,
       conflicts: [],
-      bootstrap_conflicts: [], local_conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
     };
     mocks.syncCloudVault.mockResolvedValue(summary);
 
@@ -326,6 +339,149 @@ describe("CloudSettings", () => {
     expect(host.textContent).not.toContain("Cursor 7");
   });
 
+  it("separates unlinking this device from permanently deleting the cloud vault", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.unlinkCloudVault.mockResolvedValue(undefined);
+    mocks.deleteCloudVault.mockResolvedValue(undefined);
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    const unlink = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Unlink this device",
+    );
+    const remove = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Delete Cloud vault",
+    );
+
+    expect(unlink).toBeTruthy();
+    expect(remove).toBeTruthy();
+    await act(async () => remove!.click());
+
+    expect(mocks.confirmApp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        danger: true,
+        confirmLabel: "Delete Cloud vault",
+        title: "Delete Cloud Notes from ZenNotes Cloud?",
+      }),
+    );
+    expect(mocks.deleteCloudVault).toHaveBeenCalledOnce();
+    expect(mocks.unlinkCloudVault).not.toHaveBeenCalled();
+    expect(host.textContent).not.toContain("Linked to Cloud Notes");
+  });
+
+  it("presents capacity rejections as queued uploads instead of reviewable conflicts", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.syncCloudVault.mockResolvedValue({
+      cursor: 7,
+      pulled: 0,
+      pushed: 0,
+      conflicts: Array.from({ length: 107 }, (_, index) => ({
+        operation_id: `operation-${index}`,
+        item_id: `item-${index}`,
+        code: "QUOTA_EXCEEDED" as const,
+        current_revision: null,
+        current_path: null,
+        capacity: {
+          dimension: "sync_active_items",
+          used: 100,
+          reserved: 0,
+          limit: 100,
+          projected: 101,
+          can_retry_after_reduction: true,
+        },
+      })),
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    });
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    const sync = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Sync now",
+    );
+    await act(async () => sync!.click());
+
+    expect(host.textContent).toContain("Sync incomplete");
+    expect(host.textContent).toContain(
+      "Cloud active-item limit reached (100 of 100)",
+    );
+    expect(host.textContent).toContain("107 changes are waiting to upload");
+    expect(host.textContent).not.toContain("Everything is up to date");
+    expect(host.textContent).not.toContain("conflicts need review");
+  });
+
+  it("clears a stale successful summary when a later manual sync times out", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.syncCloudVault
+      .mockResolvedValueOnce({
+        cursor: 7,
+        pulled: 0,
+        pushed: 0,
+        conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
+      })
+      .mockRejectedValueOnce(new Error("Cloud sync timed out."));
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    const sync = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Sync now",
+    );
+    await act(async () => sync!.click());
+    expect(host.textContent).toContain("Everything is up to date");
+
+    await act(async () => sync!.click());
+
+    expect(host.textContent).toContain("Cloud sync timed out.");
+    expect(host.textContent).not.toContain("Everything is up to date");
+  });
+
   // Settings that differ between devices are a question, not a silent merge.
   // Doing nothing keeps this device's settings, so the local choice leads.
   it("asks which vault settings to keep and applies the answer", async () => {
@@ -353,7 +509,9 @@ describe("CloudSettings", () => {
     );
 
     expect(host.textContent).toContain("Vault settings differ from the cloud");
-    expect(host.textContent).toContain("This device’s settings are the ones in use.");
+    expect(host.textContent).toContain(
+      "This device’s settings are the ones in use.",
+    );
 
     const keepLocal = [...host.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Keep this device's",
@@ -369,7 +527,9 @@ describe("CloudSettings", () => {
 
     expect(mocks.resolveCloudSettingsConflict).toHaveBeenCalledWith("cloud");
     // Answered, so the question stops being asked.
-    expect(host.textContent).not.toContain("Vault settings differ from the cloud");
+    expect(host.textContent).not.toContain(
+      "Vault settings differ from the cloud",
+    );
   });
 
   it("does not request vault data when sync is not included", async () => {
@@ -440,6 +600,31 @@ describe("CloudSettings", () => {
 
     expect(host.textContent).toContain("The cloud service is unavailable.");
     expect(host.textContent).not.toContain("Error invoking remote method");
+  });
+
+  it("refreshes and clears a connection error when the network comes back", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue(null);
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    expect(host.textContent).toContain("fetch failed");
+
+    await act(async () => window.dispatchEvent(new Event("online")));
+
+    expect(host.textContent).not.toContain("fetch failed");
+    expect(host.textContent).toContain("SyncIncluded");
   });
 
   it("guides a vault linked to another cloud service into the current account", async () => {
@@ -574,7 +759,8 @@ describe("CloudSettings", () => {
         pulled: 10,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [], local_conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
       },
     });
     mocks.updateCloudBackupSchedule.mockResolvedValue({
@@ -621,7 +807,8 @@ describe("CloudSettings", () => {
         pulled: 1,
         pushed: 0,
         conflicts: [],
-        bootstrap_conflicts: [], local_conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
       },
     });
 

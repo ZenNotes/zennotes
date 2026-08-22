@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { completionStatus } from '@codemirror/autocomplete'
-import { isTagsViewActive, isTasksViewActive, useStore } from '../store'
+import { isAtlasViewActive, isTagsViewActive, isTasksViewActive, useStore } from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
@@ -82,6 +82,7 @@ export function VimNav(): JSX.Element | null {
   // #321: `g`-prefix pending for gt/gT. Tracked separately (not via advanceSequence)
   // because `g` is shared with gg/gd, so it must NOT be consumed on the `g` press.
   const gTabPending = useRef(false)
+  const bufferCount = useRef<{ n: number; at: number } | null>(null)
   const leaderPending = useRef<'leader' | 'leader-l' | 'leader-s' | null>(null)
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
   const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -155,7 +156,7 @@ export function VimNav(): JSX.Element | null {
       })
     })
   }, [])
-  const navigateBuffer = useCallback((delta: 1 | -1): void => {
+  const navigateBuffer = useCallback((delta: number): void => {
     const focusIfCurrentNoteTab = (paneId: string, path: string): void => {
       const latest = useStore.getState()
       const leaf = findLeaf(latest.paneLayout, paneId)
@@ -259,6 +260,15 @@ export function VimNav(): JSX.Element | null {
     }
 
     const items: WhichKeyItem[] = [
+      ...(useStore.getState().atlasEnabled
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderAtlas'),
+              label: 'Open atlas',
+              detail: 'See the vault as a map of notes and links.'
+            }
+          ]
+        : []),
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenBuffers'),
         label: 'Open buffers',
@@ -564,13 +574,38 @@ export function VimNav(): JSX.Element | null {
           e.preventDefault()
           e.stopImmediatePropagation()
         }
+        // A vim-style count prefix for the sequences below ({count}[b walks
+        // back count tabs). Digits are recorded without being consumed, so
+        // anything else digits mean elsewhere still works; a completed
+        // sequence spends the count, and it expires quickly on its own. A
+        // leading 0 never starts a count, matching vim. (#622)
+        if (
+          /^[0-9]$/.test(e.key) &&
+          !e.metaKey &&
+          !e.ctrlKey &&
+          !e.altKey &&
+          (bufferCount.current !== null || e.key !== '0')
+        ) {
+          const now = Date.now()
+          const prev =
+            bufferCount.current && now - bufferCount.current.at < 1500
+              ? bufferCount.current.n
+              : 0
+          bufferCount.current = { n: Math.min(99, prev * 10 + Number(e.key)), at: now }
+        }
+        const takeBufferCount = (): number => {
+          const entry = bufferCount.current
+          bufferCount.current = null
+          if (!entry || Date.now() - entry.at > 1500) return 1
+          return Math.max(1, entry.n)
+        }
         if (
           advanceSequence(
             e,
             getKeymapBinding(overrides, 'vim.bufferPrevious'),
             previousBufferPending,
             previousBufferTimer,
-            () => navigateBuffer(-1),
+            () => navigateBuffer(-takeBufferCount()),
             consumeBufferKey
           )
         ) {
@@ -582,7 +617,7 @@ export function VimNav(): JSX.Element | null {
             getKeymapBinding(overrides, 'vim.bufferNext'),
             nextBufferPending,
             nextBufferTimer,
-            () => navigateBuffer(1),
+            () => navigateBuffer(takeBufferCount()),
             consumeBufferKey
           )
         ) {
@@ -714,7 +749,8 @@ export function VimNav(): JSX.Element | null {
           sidebarOpen: state.sidebarOpen,
           noteListOpen: state.noteListOpen,
           unifiedSidebar: state.unifiedSidebar,
-          tasksViewOpen: isTasksViewActive(state)
+          tasksViewOpen: isTasksViewActive(state),
+          atlasViewOpen: isAtlasViewActive(state)
         })
         const direction =
           matchesSequenceToken(e, overrides, 'vim.paneFocusLeft') ||
@@ -792,7 +828,8 @@ export function VimNav(): JSX.Element | null {
       // (hint mode) and every other leader command work in these panels too.
       // VimNav consumes the leader keypress before TasksView sees it, so the
       // leader no longer collides with Space-to-toggle. (#151)
-      const panelViewActive = isTasksViewActive(state) || isTagsViewActive(state)
+      const panelViewActive =
+        isTasksViewActive(state) || isTagsViewActive(state) || isAtlasViewActive(state)
       // Only defer while that view actually holds keyboard focus. After pane
       // navigation moves focus to another panel (e.g. Ctrl+W h → sidebar), the
       // Tasks/Tags tab is still "active" but focusedPanel is no longer
@@ -802,7 +839,8 @@ export function VimNav(): JSX.Element | null {
       const panelViewFocused =
         state.focusedPanel == null ||
         state.focusedPanel === 'tasks' ||
-        state.focusedPanel === 'tags'
+        state.focusedPanel === 'tags' ||
+        state.focusedPanel === 'atlas'
       if (
         panelViewActive &&
         panelViewFocused &&
@@ -847,6 +885,13 @@ export function VimNav(): JSX.Element | null {
         }
         // Skipped outright when Workflows is off, so the key falls through as
         // an unbound leader press instead of arming a dead view.
+        if (state.atlasEnabled && matchesSequenceToken(e, overrides, 'vim.leaderAtlas')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.openAtlasView()
+          return
+        }
         if (state.workflowsEnabled && matchesSequenceToken(e, overrides, 'vim.leaderWorkflows')) {
           e.preventDefault()
           e.stopImmediatePropagation()

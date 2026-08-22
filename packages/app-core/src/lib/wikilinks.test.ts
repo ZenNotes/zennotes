@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  blockAnchorsTargeting,
   extractWikilinkTargets,
   extractMarkdownLinkHrefs,
+  isSameFileBlockLink,
   isSameFileHeadingLink,
   parseCreateNotePath,
+  resolveWikilinkPath,
   resolveWikilinkTarget,
   stripWikilinkAnchor,
   suggestCreateNotePath,
+  wikilinkBlockAnchor,
+  wikilinkDisplayLabel,
   wikilinkHeadingAnchor
 } from './wikilinks'
 
@@ -51,6 +56,65 @@ describe('wikilinkHeadingAnchor (#196)', () => {
   })
 })
 
+describe('wikilinkBlockAnchor (#601)', () => {
+  it('returns the block id after ^', () => {
+    expect(wikilinkBlockAnchor('Daily Note^note-two')).toBe('note-two')
+    expect(wikilinkBlockAnchor('projects/Spec^abc123')).toBe('abc123')
+  })
+
+  it('is null without a block anchor', () => {
+    expect(wikilinkBlockAnchor('My Document')).toBeNull()
+    expect(wikilinkBlockAnchor('My Document#My Heading')).toBeNull()
+    expect(wikilinkBlockAnchor('My Document^')).toBeNull()
+  })
+
+  it('yields to whichever anchor marker comes first', () => {
+    // A heading link that happens to contain a caret stays a heading link.
+    expect(wikilinkBlockAnchor('Doc#Heading^id')).toBeNull()
+    expect(wikilinkHeadingAnchor('Doc#Heading^id')).toBe('Heading^id')
+    // ...and the reverse.
+    expect(wikilinkBlockAnchor('Doc^id#not-a-heading')).toBe('id#not-a-heading')
+    expect(wikilinkHeadingAnchor('Doc^id#not-a-heading')).toBeNull()
+  })
+
+  it("parses Obsidian's canonical block form Note#^id as a block link (#601 review)", () => {
+    expect(wikilinkBlockAnchor('Daily Note#^note-two')).toBe('note-two')
+    expect(wikilinkHeadingAnchor('Daily Note#^note-two')).toBeNull()
+    // The same-file spelling Obsidian writes.
+    expect(wikilinkBlockAnchor('#^note-two')).toBe('note-two')
+    expect(isSameFileBlockLink('#^note-two')).toBe(true)
+  })
+})
+
+describe('wikilinkDisplayLabel (#601)', () => {
+  it('separates the note from the anchor it points at', () => {
+    expect(wikilinkDisplayLabel('Daily Note^note-two')).toBe('Daily Note > note-two')
+    expect(wikilinkDisplayLabel('Daily Note#Notes')).toBe('Daily Note > Notes')
+  })
+
+  it('shows just the anchor for a same-note link', () => {
+    expect(wikilinkDisplayLabel('^note-two')).toBe('note-two')
+    expect(wikilinkDisplayLabel('#Notes')).toBe('Notes')
+  })
+
+  it('leaves an un-anchored target alone', () => {
+    expect(wikilinkDisplayLabel('Daily Note')).toBe('Daily Note')
+    expect(wikilinkDisplayLabel('projects/Spec')).toBe('projects/Spec')
+  })
+})
+
+describe('isSameFileBlockLink (#601)', () => {
+  it('is true for a block link with no note part', () => {
+    expect(isSameFileBlockLink('^note-two')).toBe(true)
+  })
+
+  it('is false when a note part is present, or there is no block anchor', () => {
+    expect(isSameFileBlockLink('Doc^note-two')).toBe(false)
+    expect(isSameFileBlockLink('#My Heading')).toBe(false)
+    expect(isSameFileBlockLink('^')).toBe(false)
+  })
+})
+
 describe('isSameFileHeadingLink (#291)', () => {
   it('is true for a heading link with no note part', () => {
     expect(isSameFileHeadingLink('#My Heading')).toBe(true)
@@ -66,6 +130,24 @@ describe('isSameFileHeadingLink (#291)', () => {
     expect(isSameFileHeadingLink('Doc')).toBe(false)
     expect(isSameFileHeadingLink('#')).toBe(false)
     expect(isSameFileHeadingLink('^block')).toBe(false)
+  })
+})
+
+describe('blockAnchorsTargeting (#601)', () => {
+  const here = 'inbox/My Document.md'
+
+  it('collects the block ids a note aimed at here', () => {
+    const targets = ['My Document^note-two', 'My Document^intro', 'Other Note^elsewhere']
+    expect(blockAnchorsTargeting(notes, targets, here)).toEqual(['note-two', 'intro'])
+  })
+
+  it('ignores links that carry no block anchor', () => {
+    expect(blockAnchorsTargeting(notes, ['My Document', 'My Document#Heading'], here)).toEqual([])
+  })
+
+  it('de-duplicates a block referenced twice', () => {
+    const targets = ['My Document^note-two', 'My Document^note-two']
+    expect(blockAnchorsTargeting(notes, targets, here)).toEqual(['note-two'])
   })
 })
 
@@ -88,6 +170,28 @@ describe('resolveWikilinkTarget — heading/block anchors (#196)', () => {
 
   it('returns null for a bare [[#heading]] with no document', () => {
     expect(resolveWikilinkTarget(notes, '#My Heading')).toBeNull()
+  })
+})
+
+describe('resolveWikilinkPath: same-note anchors (#601)', () => {
+  const currentPath = 'inbox/My Document.md'
+
+  it('uses the current note for a same-note block link', () => {
+    expect(resolveWikilinkPath(notes, '^note-two', currentPath)).toBe(currentPath)
+  })
+
+  it('uses the current note for a same-note heading link', () => {
+    expect(resolveWikilinkPath(notes, '#Introduction', currentPath)).toBe(currentPath)
+  })
+
+  it('still resolves a cross-note anchored link normally', () => {
+    expect(resolveWikilinkPath(notes, 'projects/Spec^design', currentPath)).toBe(
+      'inbox/projects/Spec.md'
+    )
+  })
+
+  it('returns null when a same-note anchor has no current note', () => {
+    expect(resolveWikilinkPath(notes, '^note-two', null)).toBeNull()
   })
 })
 

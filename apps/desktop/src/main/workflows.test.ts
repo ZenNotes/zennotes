@@ -297,6 +297,22 @@ describe('writeWorkflowFile', () => {
     expect(await readFile(path.join(workflowsDirOf(root), 'same.md'), 'utf8')).toBe('second\n')
   })
 
+  it('survives a rename that differs from the old file only by case (#605 review)', async () => {
+    const root = await makeVault()
+    // Seed the odd-cased spelling directly: on a case-insensitive filesystem
+    // it names the same physical file the save lands on, and the cleanup used
+    // to delete the workflow that was just written.
+    await mkdir(workflowsDirOf(root), { recursive: true })
+    await writeFile(path.join(workflowsDirOf(root), 'My-Flow.md'), 'old\n')
+    const saved = await writeWorkflowFile(root, {
+      slug: 'my-flow',
+      raw: 'new\n',
+      previousSourcePath: '.zennotes/workflows/My-Flow.md'
+    })
+    expect(saved.raw).toBe('new\n')
+    expect(await readFile(path.join(workflowsDirOf(root), 'my-flow.md'), 'utf8')).toBe('new\n')
+  })
+
   it('tolerates a previousSourcePath that no longer exists', async () => {
     const root = await makeVault()
     const saved = await writeWorkflowFile(root, {

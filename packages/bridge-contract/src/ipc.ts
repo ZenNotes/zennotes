@@ -122,6 +122,7 @@ export const IPC = {
   CLOUD_VAULT_LINK_SET: 'cloud-vault-link:set',
   CLOUD_VAULT_LINK_CREATE: 'cloud-vault-link:create',
   CLOUD_VAULT_LINK_DELETE: 'cloud-vault-link:delete',
+  CLOUD_VAULT_DELETE: 'cloud-vault:delete',
   CLOUD_VAULT_SYNC: 'cloud-vault:sync',
   CLOUD_VAULT_SETTINGS_CONFLICT_GET: 'cloud-vault-settings-conflict:get',
   CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE: 'cloud-vault-settings-conflict:resolve',
@@ -742,6 +743,9 @@ export interface ServerCapabilities {
    *  (delete/duplicate/restore/purge). Absent on servers before 2.24, which
    *  is what turns a bare 404 into a "server needs an update" message. */
   supportsAssetOps?: boolean
+  /** Server-side workflow file CRUD plus journalled apply/undo. Absent before
+   *  2.29, where the web client must keep Workflows read-only. */
+  supportsWorkflows?: boolean
 }
 
 export interface ServerSessionStatus {

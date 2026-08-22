@@ -669,7 +669,9 @@ const TOOLS: ToolDef[] = [
       const all = await scanAllTasks(vault, includeExcluded ? { includeExcluded: true } : undefined)
       return all.filter((t) => {
         if (folder && t.noteFolder !== folder) return false
-        if (status === 'open' && (t.checked || t.waiting)) return false
+        // A `[>]` record's live copy sits in the destination note; listing the
+        // record as open doubled every carried task for agents (#611 review).
+        if (status === 'open' && (t.checked || t.waiting || t.forwarded)) return false
         if (status === 'done' && !t.checked) return false
         if (status === 'waiting' && !t.waiting) return false
         if (priority && t.priority !== priority) return false

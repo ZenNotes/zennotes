@@ -2,10 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type {
+  CloudAccountStatus,
   CloudSyncMutationRequest,
   CloudSyncVault
 } from '@zennotes/bridge-contract/cloud-sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CloudServiceRequestError } from './cloud-sync-client'
 import { DesktopCloudSyncService } from './cloud-sync-service'
 
 const temporaryDirectories: string[] = []
@@ -20,7 +22,8 @@ afterEach(async () => {
 
 async function setup(
   vaults: CloudSyncVault[] = [],
-  fetchImplementation?: typeof fetch
+  fetchImplementation?: typeof fetch,
+  accountStatus?: () => Promise<CloudAccountStatus>
 ) {
   const localRoot = await mkdtemp(path.join(os.tmpdir(), 'zennotes-local-vault-'))
   const storageDirectory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-cloud-state-'))
@@ -64,6 +67,7 @@ async function setup(
         updated_at: '2026-08-10T12:00:00.000Z'
       }
     })),
+    deleteVault: vi.fn(async () => {}),
     manifest: vi.fn(async () => ({ data: [], cursor: 0, next_page: null })),
     changes: vi.fn(async () => ({ data: [], cursor: 0, has_more: false })),
     mutate: vi.fn(async (_vaultId: string, body: CloudSyncMutationRequest) => ({
@@ -144,15 +148,17 @@ async function setup(
   }
   const service = new DesktopCloudSyncService({
     storageDirectory,
-    accountStatus: async () => ({
-      state: 'connected',
-      account: {
-        base_url: 'https://zennotes.org',
-        user: { name: 'Ada', email: 'ada@example.com' },
-        device: { id: 'device-1', name: 'Test Mac', platform: 'desktop' },
-        connected_at: '2026-08-10T12:00:00.000Z'
-      }
-    }),
+    accountStatus:
+      accountStatus ??
+      (async () => ({
+        state: 'connected',
+        account: {
+          base_url: 'https://zennotes.org',
+          user: { name: 'Ada', email: 'ada@example.com' },
+          device: { id: 'device-1', name: 'Test Mac', platform: 'desktop' },
+          connected_at: '2026-08-10T12:00:00.000Z'
+        }
+      })),
     getSecret: async () => 'secret-token',
     createClient: () => client,
     fetchImplementation,
@@ -254,6 +260,30 @@ describe('DesktopCloudSyncService', () => {
     expect(client.unpublishNote).toHaveBeenCalledWith(42)
   })
 
+  it('treats the optional published-note list as empty when publishing is unavailable', async () => {
+    const disconnected = await setup([], undefined, async () => ({
+      state: 'disconnected',
+      account: null
+    }))
+
+    await expect(disconnected.service.listPublishedNotes()).resolves.toEqual([])
+    expect(disconnected.client.listPublishedNotes).not.toHaveBeenCalled()
+
+    const connected = await setup()
+    connected.client.listPublishedNotes.mockRejectedValueOnce(
+      new CloudServiceRequestError('Publishing is not included.', 403, 'FEATURE_NOT_ENTITLED')
+    )
+
+    await expect(connected.service.listPublishedNotes()).resolves.toEqual([])
+  })
+
+  it('still surfaces unexpected failures while listing published notes', async () => {
+    const { service, client } = await setup()
+    client.listPublishedNotes.mockRejectedValueOnce(new Error('Network unavailable'))
+
+    await expect(service.listPublishedNotes()).rejects.toThrow('Network unavailable')
+  })
+
   it('creates, links, and uploads an untracked local vault', async () => {
     const { service, client, localRoot } = await setup()
     await writeFile(path.join(localRoot, 'Note.md'), '# Local note')
@@ -264,6 +294,23 @@ describe('DesktopCloudSyncService', () => {
     expect(client.createVault).toHaveBeenCalledWith('My Notes')
     expect(client.mutate).toHaveBeenCalledTimes(1)
     expect(result).toMatchObject({ pulled: 0, pushed: 1, conflicts: [] })
+  })
+
+  it('deletes the remote vault before removing the local device link', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+
+    await expect(service.deleteLinkedVault(localRoot)).resolves.toBeUndefined()
+
+    expect(client.deleteVault).toHaveBeenCalledWith(remoteVault.id)
+    await expect(service.linkedVault(localRoot)).resolves.toBeNull()
   })
 
   it('coalesces overlapping sync runs for the same local vault', async () => {

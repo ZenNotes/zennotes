@@ -15,6 +15,9 @@ import type {
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
+  CloudSyncUploadCompletionResponse,
+  CloudSyncUploadInitiationResponse,
+  CloudSyncUploadRequest,
   CloudSyncVaultCollection,
   CloudSyncVaultResponse
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -23,6 +26,7 @@ export interface CloudSyncHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
   path: string
   body?: unknown
+  timeoutMs?: number
 }
 
 export interface CloudSyncHttpTransport {
@@ -43,6 +47,13 @@ export class CloudSyncApiClient {
 
   async createVault(name: string): Promise<CloudSyncVaultResponse> {
     return this.http.request({ method: 'POST', path: '/api/v1/vaults', body: { name } })
+  }
+
+  async deleteVault(vaultId: string): Promise<void> {
+    await this.http.request({
+      method: 'DELETE',
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}`
+    })
   }
 
   async listPublishedNotes(): Promise<CloudPublishedNoteCollection> {
@@ -109,6 +120,35 @@ export class CloudSyncApiClient {
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/mutations`,
       body
+    })
+  }
+
+  async initiateUpload(
+    vaultId: string,
+    body: CloudSyncUploadRequest
+  ): Promise<CloudSyncUploadInitiationResponse> {
+    return this.http.request({
+      method: 'POST',
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/uploads`,
+      body
+    })
+  }
+
+  async completeUpload(
+    vaultId: string,
+    uploadId: string
+  ): Promise<CloudSyncUploadCompletionResponse> {
+    return this.http.request({
+      method: 'POST',
+      path: `${this.uploadPath(vaultId, uploadId)}/complete`,
+      timeoutMs: 300_000
+    })
+  }
+
+  async abortUpload(vaultId: string, uploadId: string): Promise<void> {
+    await this.http.request({
+      method: 'DELETE',
+      path: this.uploadPath(vaultId, uploadId)
     })
   }
 
@@ -204,6 +244,10 @@ export class CloudSyncApiClient {
 
   private backupPath(vaultId: string, backupId: string): string {
     return `/api/v1/vaults/${encodeURIComponent(vaultId)}/backups/${encodeURIComponent(backupId)}`
+  }
+
+  private uploadPath(vaultId: string, uploadId: string): string {
+    return `/api/v1/vaults/${encodeURIComponent(vaultId)}/uploads/${encodeURIComponent(uploadId)}`
   }
 }
 

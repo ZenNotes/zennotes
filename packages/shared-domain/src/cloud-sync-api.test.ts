@@ -57,6 +57,50 @@ describe('CloudSyncApiClient', () => {
     ])
   })
 
+  it('initiates, completes, and aborts direct sync uploads', async () => {
+    const requests: CloudSyncHttpRequest[] = []
+    const client = new CloudSyncApiClient({
+      async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
+        requests.push(request)
+        return {} as Response
+      }
+    })
+    const upload = {
+      operation_id: '4b66f4b4-08f9-4e5a-a300-686ed4ef7e92',
+      item_id: '9b0ff39e-7ace-4fae-82aa-9f80a7458543',
+      base_revision: 2,
+      path: 'attachments/archive.zip',
+      kind: 'binary' as const,
+      content: {
+        encoding: 'base64' as const,
+        sha256: 'a'.repeat(64),
+        byte_length: 6_000_000,
+        media_type: 'application/zip'
+      }
+    }
+
+    await client.initiateUpload('vault/1', upload)
+    await client.completeUpload('vault/1', 'upload/1')
+    await client.abortUpload('vault/1', 'upload/1')
+
+    expect(requests).toEqual([
+      {
+        method: 'POST',
+        path: '/api/v1/vaults/vault%2F1/uploads',
+        body: upload
+      },
+      {
+        method: 'POST',
+        path: '/api/v1/vaults/vault%2F1/uploads/upload%2F1/complete',
+        timeoutMs: 300_000
+      },
+      {
+        method: 'DELETE',
+        path: '/api/v1/vaults/vault%2F1/uploads/upload%2F1'
+      }
+    ])
+  })
+
   it('addresses backup deletion, download, and idempotent restores', async () => {
     const requests: CloudSyncHttpRequest[] = []
     const client = new CloudSyncApiClient({
@@ -94,6 +138,25 @@ describe('CloudSyncApiClient', () => {
     expect(client.backupDownloadPath('vault/1', 'backup/1')).toBe(
       '/api/v1/vaults/vault%2F1/backups/backup%2F1/download'
     )
+  })
+
+  it('permanently deletes an encoded cloud vault', async () => {
+    const requests: CloudSyncHttpRequest[] = []
+    const client = new CloudSyncApiClient({
+      async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
+        requests.push(request)
+        return {} as Response
+      }
+    })
+
+    await client.deleteVault('vault/1')
+
+    expect(requests).toEqual([
+      {
+        method: 'DELETE',
+        path: '/api/v1/vaults/vault%2F1'
+      }
+    ])
   })
 
   it('addresses backup schedules, snapshot items, and one-note restores', async () => {

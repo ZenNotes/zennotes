@@ -3,7 +3,7 @@ import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
 import { isEphemeralRoot } from './ephemeral-vaults'
@@ -3680,6 +3680,23 @@ async function moveBetweenFolders(
 
 export function moveToTrash(root: string, rel: string): Promise<NoteMeta> {
   return moveBetweenFolders(root, rel, 'trash')
+}
+
+/**
+ * Send a note to the operating system's Trash instead of the vault's own
+ * `trash/` folder. Temporary folder sessions use this: they must not grow a
+ * trash folder inside whatever directory was opened, yet Move to Trash has to
+ * do something visible (#650). The OS can still bring the file back. The
+ * returned meta describes the note as it was, since nothing remains in place.
+ */
+export async function trashNoteToSystem(root: string, rel: string): Promise<NoteMeta> {
+  const abs = resolveSafe(root, rel)
+  const folder = (await folderOf(root, abs)) ?? 'inbox'
+  const meta = await readMeta(root, abs, folder)
+  await shell.trashItem(abs)
+  invalidateNoteMetaCache(root, rel)
+  invalidateVaultTextSearchCache(root)
+  return meta
 }
 
 export function restoreFromTrash(root: string, rel: string): Promise<NoteMeta> {

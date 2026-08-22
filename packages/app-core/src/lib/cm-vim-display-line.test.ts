@@ -3,6 +3,7 @@ import { EditorState } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { mathRenderExtension } from './cm-math-render'
 import {
+  zenEnterInsertAtLineBoundary,
   zenMoveByDisplayLine,
   zenMoveToDisplayLineBoundary,
   zenMoveToViewportEdge
@@ -18,7 +19,8 @@ type VimState = Parameters<typeof zenMoveByDisplayLine>[3]
 function run(
   args: MotionArgs,
   vim: VimState = {},
-  head: { line: number; ch: number } = { line: 10, ch: 3 }
+  head: { line: number; ch: number } = { line: 10, ch: 3 },
+  inputState?: { prefixRepeat: string[]; motionRepeat: string[] }
 ): { res: { line: number; ch: number }; findPosV: ReturnType<typeof vi.fn> } {
   const findPosV = vi.fn(() => ({ line: 99, ch: 7 }))
   const cm = {
@@ -27,7 +29,7 @@ function run(
     findPosV,
     charCoords: () => ({ left: 42 })
   } as unknown as Cm
-  const res = zenMoveByDisplayLine(cm, head, args, vim)
+  const res = zenMoveByDisplayLine(cm, head, args, vim, inputState)
   return { res, findPosV }
 }
 
@@ -43,6 +45,18 @@ describe('zenMoveByDisplayLine (#290 display-line j/k, #314 count fallback)', ()
     expect(findPosV).not.toHaveBeenCalled()
     expect(res.line).toBe(13) // 10 + 3 logical lines — matches the relativenumber gutter
     expect(res.ch).toBe(3) // keeps the column
+  })
+
+  it('reads a typed 8j count from the adapter input state (#660)', () => {
+    const { res, findPosV } = run(
+      { forward: true, repeat: 8 },
+      {},
+      { line: 0, ch: 0 },
+      { prefixRepeat: ['8'], motionRepeat: [] }
+    )
+
+    expect(findPosV).not.toHaveBeenCalled()
+    expect(res.line).toBe(8)
   })
 
   it('an explicit count upward (4k) moves logical lines up (#314)', () => {
@@ -330,6 +344,70 @@ describe('wrapped display-row boundaries (#536)', () => {
     expect(
       zenMoveToDisplayLineBoundary(cm, { line: 4, ch: 7 }, { forward: true, repeat: 3 })
     ).toEqual({ line: 6, ch: Infinity })
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+})
+
+describe('configurable wrapped-line boundaries (#638)', () => {
+  it('moves a bare $ to the logical line end without measuring the display row', () => {
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: vi.fn()
+    }
+
+    expect(
+      zenMoveToDisplayLineBoundary(cm, { line: 4, ch: 7 }, {
+        forward: true,
+        repeat: 1,
+        lineMode: 'logical'
+      })
+    ).toEqual({ line: 4, ch: Infinity })
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+
+  it('enters insert mode at the first non-blank character of the logical line for I', () => {
+    const enterInsertMode = vi.fn()
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: () => ({ line: 4, ch: 30 }),
+      getLine: () => '    logical line'
+    }
+
+    zenEnterInsertAtLineBoundary.call(
+      { enterInsertMode },
+      cm,
+      { forward: false, lineMode: 'logical' },
+      { insertMode: false }
+    )
+
+    expect(enterInsertMode).toHaveBeenCalledWith(
+      cm,
+      { head: { line: 4, ch: 4 }, insertAt: 'inplace', repeat: undefined },
+      { insertMode: false }
+    )
+    expect(cm.execCommand).not.toHaveBeenCalled()
+  })
+
+  it('enters insert mode at the logical line end for A', () => {
+    const enterInsertMode = vi.fn()
+    const cm = {
+      execCommand: vi.fn(),
+      getCursor: () => ({ line: 4, ch: 7 }),
+      getLine: () => 'complete logical line'
+    }
+
+    zenEnterInsertAtLineBoundary.call(
+      { enterInsertMode },
+      cm,
+      { forward: true, lineMode: 'logical' },
+      { insertMode: false }
+    )
+
+    expect(enterInsertMode).toHaveBeenCalledWith(
+      cm,
+      { head: { line: 4, ch: 21 }, insertAt: 'inplace', repeat: undefined },
+      { insertMode: false }
+    )
     expect(cm.execCommand).not.toHaveBeenCalled()
   })
 })
