@@ -46,7 +46,7 @@ import { renderMarkdown } from './markdown'
 import { getCM } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
-import { matchesSequenceToken } from './keymaps'
+import { matchesSequenceToken, matchesShortcutBinding } from './keymaps'
 import { followLinkTarget } from './follow-link'
 import { extractLinkAtCursor } from './internal-links'
 
@@ -205,6 +205,13 @@ function commitTable(
 }
 
 type CellAddress = { row: number; col: number }
+type VisualPosition = CellAddress & { offset: number }
+type VisualCellRange = CellAddress & {
+  cell: HTMLElement
+  from: number
+  to: number
+  fullCell: boolean
+}
 
 class TableWidget extends WidgetType {
   /** Working copy edited in place by the cells; committed on focus-out. */
@@ -223,10 +230,14 @@ class TableWidget extends WidgetType {
   private pendingOffset: number | 'end' | null = null
   /** A pending operator (`d`/`c`) waiting for its motion key (dw, cc, d$, …). */
   private pendingOp: 'd' | 'c' | null = null
-  /** Char-wise visual mode: true after `v`; `visualAnchor` is the fixed end of
-   *  the selection, `cursorOffset` is the moving end. */
-  private visualMode = false
-  private visualAnchor = 0
+  /** Table-aware visual mode. Anchor and head retain cell coordinates so the
+   *  selection survives focus moving across cell and row boundaries. */
+  private visualMode: 'char' | 'line' | null = null
+  private visualAnchor: VisualPosition | null = null
+  private visualHead: VisualPosition | null = null
+  /** A programmatic focus move made by a visual motion must not reset the
+   *  visual state in the target cell's focus handler. */
+  private preserveVisualOnFocus = false
   /** Pending text-object scope after `i`/`a` — in visual mode (`viw`) and in
    *  operator-pending (`diw`, `ca"`). */
   private visualScope: 'i' | 'a' | null = null
@@ -429,6 +440,7 @@ class TableWidget extends WidgetType {
     root.addEventListener('focusout', (event) => {
       const next = event.relatedTarget as Node | null
       if (next && root.contains(next)) return
+      if (this.visualMode) this.exitVisual()
       this.commitIfDirty()
     })
 
@@ -540,8 +552,13 @@ class TableWidget extends WidgetType {
         this.pendingOp = null
         this.pendingScope = null
         this.pendingG = false
-        this.visualMode = false
-        this.visualScope = null
+        if (!this.preserveVisualOnFocus) {
+          this.clearVisualCells()
+          this.visualMode = null
+          this.visualAnchor = null
+          this.visualHead = null
+          this.visualScope = null
+        }
         const len = (editable.dataset.raw ?? '').length
         this.cursorOffset =
           this.pendingOffset === 'end'
@@ -744,6 +761,19 @@ class TableWidget extends WidgetType {
     const cols = this.model.headers.length
     const rowsCount = this.model.rows.length
 
+    if (editable.getAttribute('contenteditable') === 'true') {
+      const marker = matchesShortcutBinding(event, 'Mod+B')
+        ? '**'
+        : matchesShortcutBinding(event, 'Mod+I')
+          ? '*'
+          : null
+      if (marker && this.toggleCellFormatting(editable, marker)) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+    }
+
     if (vimEnabled()) {
       if (this.cellMode === 'insert') {
         // INSERT: Escape (or the configurable insert-escape sequence, e.g. jk)
@@ -786,7 +816,7 @@ class TableWidget extends WidgetType {
         const cellText = editable.dataset.raw ?? ''
         if (this.visualMode) {
           event.preventDefault()
-          this.handleVisualKey(editable, event.key, cellText)
+          this.handleVisualKey(editable, row, col, event.key, cellText)
           return
         }
         if (this.pendingOp) {
@@ -971,9 +1001,17 @@ class TableWidget extends WidgetType {
             return
           case 'v':
             event.preventDefault()
-            this.visualMode = true
-            this.visualAnchor = this.cursorOffset
-            this.renderCellSelection(editable)
+            this.visualMode = 'char'
+            this.visualAnchor = { row, col, offset: this.cursorOffset }
+            this.visualHead = { ...this.visualAnchor }
+            this.renderVisualSelection()
+            return
+          case 'V':
+            event.preventDefault()
+            this.visualMode = 'line'
+            this.visualAnchor = { row, col, offset: this.cursorOffset }
+            this.visualHead = { ...this.visualAnchor }
+            this.renderVisualSelection()
             return
           case 'u':
             // Undo: flush pending cell edits as one history step, then undo it
@@ -1210,7 +1248,9 @@ class TableWidget extends WidgetType {
     this.pendingScope = null
     this.pendingFind = null
     this.pendingReplace = false
-    this.visualMode = false
+    this.visualMode = null
+    this.visualAnchor = null
+    this.visualHead = null
     this.visualScope = null
     this.clearCellCursor(cell)
     cell.classList.remove('is-vim-normal')
@@ -1220,6 +1260,26 @@ class TableWidget extends WidgetType {
       cell.dataset.rendered = 'false'
     }
     placeCaretAt(cell, caretOffset)
+  }
+
+  /** Apply or remove a Markdown marker around the native selection in an
+   *  editable cell. Cell edits do not pass through CodeMirror's keymap, so the
+   *  widget mirrors the editor's bold and italic toggle locally. */
+  private toggleCellFormatting(cell: HTMLElement, marker: string): boolean {
+    const selection = cellSelectionOffsets(cell)
+    if (!selection) return false
+    const change = toggleCellTextWrap(
+      cell.textContent ?? '',
+      selection.from,
+      selection.to,
+      marker
+    )
+    cell.textContent = change.text
+    cell.dataset.raw = change.text
+    cell.dataset.rendered = 'false'
+    this.dirty = true
+    placeCellSelection(cell, change.from, change.to)
+    return true
   }
 
   /** Commit the focused cell and drop from INSERT back to NORMAL. Optionally
@@ -1339,118 +1399,348 @@ class TableWidget extends WidgetType {
     }
   }
 
-  /** Render the char-wise visual selection [anchor..head] as a themed overlay
-   *  measured over the range — NOT a native DOM selection, which CodeMirror
-   *  would mirror into a multi-cell editor selection (and which falls back to
-   *  the washed-out OS color). */
-  private renderCellSelection(cell: HTMLElement): void {
-    this.clearCellCursor(cell)
-    const text = cell.dataset.raw ?? ''
-    const node = cell.firstChild
-    if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0) return
-    const from = Math.max(0, Math.min(this.visualAnchor, this.cursorOffset))
-    const to = Math.min(text.length, Math.max(this.visualAnchor, this.cursorOffset) + 1)
-    const range = document.createRange()
-    range.setStart(node, from)
-    range.setEnd(node, to)
-    if (typeof range.getBoundingClientRect !== 'function') return
-    const rect = range.getBoundingClientRect()
-    const cellRect = cell.getBoundingClientRect()
-    const overlay = document.createElement('span')
-    overlay.className = 'cm-table-cell-sel'
-    overlay.style.left = `${rect.left - cellRect.left}px`
-    overlay.style.top = `${rect.top - cellRect.top}px`
-    overlay.style.width = `${Math.max(rect.width, 2)}px`
-    overlay.style.height = `${rect.height || 18}px`
-    cell.appendChild(overlay)
+  private cellOrder(): CellAddress[] {
+    const order: CellAddress[] = []
+    for (let col = 0; col < this.model.headers.length; col++) {
+      order.push({ row: -1, col })
+    }
+    for (let row = 0; row < this.model.rows.length; row++) {
+      for (let col = 0; col < this.model.headers.length; col++) {
+        order.push({ row, col })
+      }
+    }
+    return order
+  }
+
+  private adjacentCell(row: number, col: number, delta: -1 | 1): CellAddress | null {
+    const order = this.cellOrder()
+    const index = order.findIndex((addr) => addr.row === row && addr.col === col)
+    return order[index + delta] ?? null
+  }
+
+  /** Move the visual head to another cell without letting its focus handler
+   *  reset the selection. */
+  private moveVisualTo(row: number, col: number, offset: number | 'end'): void {
+    const cell = this.cellEl(row, col)
+    if (!cell) return
+    const length = (cell.dataset.raw ?? '').length
+    const nextOffset =
+      offset === 'end'
+        ? Math.max(0, length - 1)
+        : Math.max(0, Math.min(offset, Math.max(0, length - 1)))
+    if (document.activeElement !== cell) {
+      this.pendingOffset = nextOffset
+      this.preserveVisualOnFocus = true
+      try {
+        cell.focus()
+      } finally {
+        this.preserveVisualOnFocus = false
+        this.pendingOffset = null
+      }
+    }
+    this.cursorOffset = nextOffset
+    this.visualHead = { row, col, offset: nextOffset }
+    this.renderVisualSelection()
+  }
+
+  private visualSelectionRanges(): VisualCellRange[] {
+    if (!this.visualMode || !this.visualAnchor || !this.visualHead) return []
+    const order = this.cellOrder()
+    if (this.visualMode === 'line') {
+      const firstRow = Math.min(this.visualAnchor.row, this.visualHead.row)
+      const lastRow = Math.max(this.visualAnchor.row, this.visualHead.row)
+      return order.flatMap(({ row, col }) => {
+        if (row < firstRow || row > lastRow) return []
+        const cell = this.cellEl(row, col)
+        if (!cell) return []
+        return [
+          { cell, row, col, from: 0, to: (cell.dataset.raw ?? '').length, fullCell: true }
+        ]
+      })
+    }
+
+    const anchorIndex = order.findIndex(
+      (addr) => addr.row === this.visualAnchor?.row && addr.col === this.visualAnchor?.col
+    )
+    const headIndex = order.findIndex(
+      (addr) => addr.row === this.visualHead?.row && addr.col === this.visualHead?.col
+    )
+    if (anchorIndex < 0 || headIndex < 0) return []
+    const anchorFirst =
+      anchorIndex < headIndex ||
+      (anchorIndex === headIndex && this.visualAnchor.offset <= this.visualHead.offset)
+    const firstIndex = anchorFirst ? anchorIndex : headIndex
+    const lastIndex = anchorFirst ? headIndex : anchorIndex
+    const firstOffset = anchorFirst ? this.visualAnchor.offset : this.visualHead.offset
+    const lastOffset = anchorFirst ? this.visualHead.offset : this.visualAnchor.offset
+    const ranges: VisualCellRange[] = []
+    for (let index = firstIndex; index <= lastIndex; index++) {
+      const addr = order[index]
+      const cell = this.cellEl(addr.row, addr.col)
+      if (!cell) continue
+      const length = (cell.dataset.raw ?? '').length
+      const from = index === firstIndex ? Math.min(firstOffset, length) : 0
+      const to = index === lastIndex ? Math.min(lastOffset + 1, length) : length
+      ranges.push({ cell, ...addr, from, to, fullCell: false })
+    }
+    return ranges
+  }
+
+  /** Render every selected table fragment with themed overlays. Selected cells
+   *  expose their raw source while visual mode is active so character offsets
+   *  stay exact even when Markdown would normally render as nested elements. */
+  private renderVisualSelection(): void {
+    const ranges = this.visualSelectionRanges()
+    const selected = new Set(ranges.map((range) => range.cell))
+    const active = this.dom?.ownerDocument.activeElement
+    this.dom?.querySelectorAll<HTMLElement>('.cm-table-cell.is-vim-visual').forEach((cell) => {
+      cell.querySelectorAll('.cm-table-cell-sel').forEach((overlay) => overlay.remove())
+      cell.classList.remove('is-vim-visual')
+      if (!selected.has(cell) && cell !== active && cell.dataset.rendered === 'false') {
+        cell.innerHTML = renderInlineCell(cell.dataset.raw ?? '')
+        cell.dataset.rendered = 'true'
+      }
+    })
+
+    for (const { cell, from, to, fullCell } of ranges) {
+      this.clearCellCursor(cell)
+      cell.classList.add('is-vim-visual')
+      if (cell.dataset.rendered === 'true') {
+        cell.textContent = cell.dataset.raw ?? ''
+        cell.dataset.rendered = 'false'
+      }
+      const overlay = cell.ownerDocument.createElement('span')
+      overlay.className = 'cm-table-cell-sel'
+      const text = cell.dataset.raw ?? ''
+      if (fullCell || text.length === 0) {
+        overlay.classList.add('is-full')
+        cell.appendChild(overlay)
+        continue
+      }
+      const node = cell.firstChild
+      const range = cell.ownerDocument.createRange()
+      if (
+        !node ||
+        node.nodeType !== Node.TEXT_NODE ||
+        typeof range.getBoundingClientRect !== 'function'
+      ) {
+        continue
+      }
+      range.setStart(node, Math.max(0, Math.min(from, text.length)))
+      range.setEnd(node, Math.max(from, Math.min(to, text.length)))
+      const rect = range.getBoundingClientRect()
+      const cellRect = cell.getBoundingClientRect()
+      overlay.style.left = `${rect.left - cellRect.left}px`
+      overlay.style.top = `${rect.top - cellRect.top}px`
+      overlay.style.width = `${Math.max(rect.width, 2)}px`
+      overlay.style.height = `${rect.height || 18}px`
+      cell.appendChild(overlay)
+    }
+  }
+
+  private clearVisualCells(): void {
+    const active = this.dom?.ownerDocument.activeElement
+    this.dom?.querySelectorAll<HTMLElement>('.cm-table-cell.is-vim-visual').forEach((cell) => {
+      cell.querySelectorAll('.cm-table-cell-sel').forEach((overlay) => overlay.remove())
+      cell.classList.remove('is-vim-visual')
+      if (cell !== active && cell.dataset.rendered === 'false') {
+        cell.innerHTML = renderInlineCell(cell.dataset.raw ?? '')
+        cell.dataset.rendered = 'true'
+      }
+    })
   }
 
   private exitVisual(): void {
-    this.visualMode = false
+    this.visualMode = null
+    this.visualAnchor = null
+    this.visualHead = null
     this.visualScope = null
+    this.clearVisualCells()
     window.getSelection()?.removeAllRanges()
   }
 
-  /** Keys while in char-wise visual mode: motions extend the selection; d/x
-   *  delete it, c/s change it, y yanks it, Esc cancels. */
-  private handleVisualKey(cell: HTMLElement, key: string, text: string): void {
-    const selFrom = (): number => Math.max(0, Math.min(this.visualAnchor, this.cursorOffset))
-    const selTo = (): number =>
-      Math.min(text.length, Math.max(this.visualAnchor, this.cursorOffset) + 1)
+  private finishVisualAtStart(first: VisualCellRange, insert: boolean): void {
+    const target = first.cell
+    const nextLength = (target.dataset.raw ?? '').length
+    const offset = Math.max(0, Math.min(first.from, Math.max(0, nextLength - 1)))
+    this.exitVisual()
+    if (document.activeElement === target) {
+      this.cursorOffset = offset
+      this.enterNormalCell(target)
+    } else {
+      this.focusCellAtOffset(first.row, first.col, offset)
+    }
+    if (insert) this.enterInsertMode(target, first.from)
+  }
+
+  private deleteVisualSelection(insert: boolean): void {
+    const ranges = this.visualSelectionRanges()
+    const first = ranges[0]
+    if (!first) return
+    let changed = false
+    for (const { cell, from, to } of ranges) {
+      const text = cell.dataset.raw ?? ''
+      if (to > from) changed = true
+      const next = text.slice(0, from) + text.slice(to)
+      cell.dataset.raw = next
+      cell.textContent = next
+      cell.dataset.rendered = 'false'
+    }
+    if (changed) this.dirty = true
+    this.finishVisualAtStart(first, insert)
+  }
+
+  private yankVisualSelection(): void {
+    const ranges = this.visualSelectionRanges()
+    const first = ranges[0]
+    if (!first) return
+    let previousRow: number | null = null
+    let selected = ''
+    for (const { cell, row, from, to } of ranges) {
+      if (previousRow !== null) selected += row === previousRow ? '\t' : '\n'
+      selected += (cell.dataset.raw ?? '').slice(from, to)
+      previousRow = row
+    }
+    void navigator.clipboard?.writeText(selected)
+    this.finishVisualAtStart(first, false)
+  }
+
+  /** Keys while in table visual mode. Motions update a coordinate-aware head;
+   *  edit and yank commands consume the same multi-cell range. */
+  private handleVisualKey(
+    cell: HTMLElement,
+    row: number,
+    col: number,
+    key: string,
+    text: string
+  ): void {
+    if (!this.visualHead) this.visualHead = { row, col, offset: this.cursorOffset }
     if (this.visualScope) {
-      // `vi{obj}` / `va{obj}`: select the text object.
       const scope = this.visualScope
       this.visualScope = null
-      const r = textObjectRange(text, this.cursorOffset, scope, key)
-      if (r) {
-        this.visualAnchor = r.from
-        this.cursorOffset = Math.max(r.from, r.to - 1)
-        this.renderCellSelection(cell)
+      const range = textObjectRange(text, this.cursorOffset, scope, key)
+      if (range) {
+        this.visualMode = 'char'
+        this.visualAnchor = { row, col, offset: range.from }
+        this.cursorOffset = Math.max(range.from, range.to - 1)
+        this.visualHead = { row, col, offset: this.cursorOffset }
+        this.renderVisualSelection()
       }
       return
     }
-    if (key === 'i' || key === 'a') {
+    if (this.visualMode === 'char' && (key === 'i' || key === 'a')) {
       this.visualScope = key
       return
     }
+
+    if (key === 'Escape') {
+      this.exitVisual()
+      this.renderCellCursor(cell)
+      return
+    }
+    if (key === 'd' || key === 'x') {
+      this.deleteVisualSelection(false)
+      return
+    }
+    if (key === 'c' || key === 's') {
+      this.deleteVisualSelection(true)
+      return
+    }
+    if (key === 'y') {
+      this.yankVisualSelection()
+      return
+    }
+    if (key === 'v') {
+      if (this.visualMode === 'char') {
+        this.exitVisual()
+        this.renderCellCursor(cell)
+      } else {
+        this.visualMode = 'char'
+        this.renderVisualSelection()
+      }
+      return
+    }
+    if (key === 'V') {
+      if (this.visualMode === 'line') {
+        this.exitVisual()
+        this.renderCellCursor(cell)
+      } else {
+        this.visualMode = 'line'
+        this.renderVisualSelection()
+      }
+      return
+    }
+
+    const moveVertical = (delta: -1 | 1): void => {
+      const targetRow = row + delta
+      if (targetRow < -1 || targetRow >= this.model.rows.length) return
+      this.moveVisualTo(targetRow, col, this.cursorOffset)
+    }
+    if (this.visualMode === 'line') {
+      if (key === 'j') moveVertical(1)
+      if (key === 'k') moveVertical(-1)
+      return
+    }
+
+    const updateOffset = (offset: number): void => this.moveVisualTo(row, col, offset)
     switch (key) {
-      case 'h':
-        this.cursorOffset = Math.max(0, this.cursorOffset - 1)
-        this.renderCellSelection(cell)
+      case 'h': {
+        if (this.cursorOffset > 0) updateOffset(this.cursorOffset - 1)
+        else {
+          const previous = this.adjacentCell(row, col, -1)
+          if (previous) this.moveVisualTo(previous.row, previous.col, 'end')
+        }
         return
-      case 'l':
-        this.cursorOffset = Math.min(Math.max(0, text.length - 1), this.cursorOffset + 1)
-        this.renderCellSelection(cell)
+      }
+      case 'l': {
+        if (this.cursorOffset < text.length - 1) updateOffset(this.cursorOffset + 1)
+        else {
+          const next = this.adjacentCell(row, col, 1)
+          if (next) this.moveVisualTo(next.row, next.col, 0)
+        }
         return
-      case 'w':
-        this.cursorOffset = nextWordStart(text, this.cursorOffset)
-        this.renderCellSelection(cell)
+      }
+      case 'j':
+        moveVertical(1)
         return
-      case 'e':
-        this.cursorOffset = nextWordEnd(text, this.cursorOffset)
-        this.renderCellSelection(cell)
+      case 'k':
+        moveVertical(-1)
         return
-      case 'b':
-        this.cursorOffset = prevWordStart(text, this.cursorOffset)
-        this.renderCellSelection(cell)
+      case 'w': {
+        const nextOffset = nextWordStartWithinCell(text, this.cursorOffset)
+        if (nextOffset !== null) updateOffset(nextOffset)
+        else {
+          const next = this.adjacentCell(row, col, 1)
+          if (next) this.moveVisualTo(next.row, next.col, 0)
+        }
         return
+      }
+      case 'e': {
+        const nextOffset = nextWordEnd(text, this.cursorOffset)
+        if (nextOffset > this.cursorOffset) updateOffset(nextOffset)
+        else {
+          const next = this.adjacentCell(row, col, 1)
+          if (next) {
+            const nextText = this.cellEl(next.row, next.col)?.dataset.raw ?? ''
+            this.moveVisualTo(next.row, next.col, nextWordEnd(nextText, -1))
+          }
+        }
+        return
+      }
+      case 'b': {
+        const previousOffset = prevWordStart(text, this.cursorOffset)
+        if (previousOffset < this.cursorOffset) updateOffset(previousOffset)
+        else {
+          const previous = this.adjacentCell(row, col, -1)
+          if (previous) this.moveVisualTo(previous.row, previous.col, 'end')
+        }
+        return
+      }
       case '0':
-        this.cursorOffset = 0
-        this.renderCellSelection(cell)
+        updateOffset(0)
         return
       case '$':
-        this.cursorOffset = Math.max(0, text.length - 1)
-        this.renderCellSelection(cell)
-        return
-      case 'd':
-      case 'x': {
-        const from = selFrom()
-        const to = selTo()
-        this.exitVisual()
-        this.deleteRange(cell, from, to)
-        return
-      }
-      case 'c':
-      case 's': {
-        const from = selFrom()
-        const to = selTo()
-        this.exitVisual()
-        this.deleteRange(cell, from, to)
-        this.enterInsertMode(cell, from)
-        return
-      }
-      case 'y': {
-        const from = selFrom()
-        const to = selTo()
-        void navigator.clipboard?.writeText(text.slice(from, to))
-        this.cursorOffset = from
-        this.exitVisual()
-        this.renderCellCursor(cell)
-        return
-      }
-      case 'Escape':
-        this.exitVisual()
-        this.renderCellCursor(cell)
+        updateOffset(Math.max(0, text.length - 1))
         return
       default:
         return
@@ -1460,12 +1750,11 @@ class TableWidget extends WidgetType {
   /** Leave the table, returning the caret to the document just before/after the
    *  table block. The atomic range keeps it from sliding back in. */
   private exitToEditor(side: 'before' | 'after'): void {
+    if (this.visualMode) this.exitVisual()
     this.commitIfDirty()
     this.cellMode = 'normal'
     this.pendingOp = null
     this.pendingScope = null
-    this.visualMode = false
-    this.visualScope = null
     const dom = this.dom
     if (!dom) {
       this.view.focus()
@@ -1535,11 +1824,19 @@ function charClass(ch: string): 0 | 1 | 2 {
 export function nextWordStart(text: string, off: number): number {
   const n = text.length
   if (n === 0) return 0
+  return nextWordStartWithinCell(text, off) ?? n - 1
+}
+
+/** Next word start inside this cell, or null when the motion must continue in
+ *  the next cell. */
+function nextWordStartWithinCell(text: string, off: number): number | null {
+  const n = text.length
+  if (n === 0) return null
   let i = off
   const cls = charClass(text[i] ?? ' ')
   if (cls !== 0) while (i < n && charClass(text[i]) === cls) i++
   while (i < n && charClass(text[i]) === 0) i++
-  return Math.min(i, n - 1)
+  return i < n ? i : null
 }
 
 /** Vim `b`: index of the start of the current/previous word. */
@@ -1698,6 +1995,109 @@ function placeCaretAt(el: HTMLElement, offset: number): void {
   const sel = window.getSelection()
   sel?.removeAllRanges()
   sel?.addRange(range)
+}
+
+/** Native selection offsets measured against an editable cell's plain text. */
+function cellSelectionOffsets(el: HTMLElement): { from: number; to: number } | null {
+  const selection = el.ownerDocument.getSelection()
+  if (
+    !selection?.anchorNode ||
+    !selection.focusNode ||
+    !el.contains(selection.anchorNode) ||
+    !el.contains(selection.focusNode)
+  ) {
+    return null
+  }
+  const offsetOf = (node: Node, offset: number): number => {
+    const range = el.ownerDocument.createRange()
+    range.setStart(el, 0)
+    range.setEnd(node, offset)
+    return range.toString().length
+  }
+  const anchor = offsetOf(selection.anchorNode, selection.anchorOffset)
+  const head = offsetOf(selection.focusNode, selection.focusOffset)
+  return { from: Math.min(anchor, head), to: Math.max(anchor, head) }
+}
+
+type CellTextWrap = { text: string; from: number; to: number }
+
+/** Toggle a symmetric Markdown marker around one cell selection. */
+function toggleCellTextWrap(
+  text: string,
+  from: number,
+  to: number,
+  marker: string
+): CellTextWrap {
+  const markerLength = marker.length
+  if (from === to) {
+    const before = text.slice(Math.max(0, from - markerLength), from)
+    const after = text.slice(from, from + markerLength)
+    const insideLongerPair =
+      marker === '*' && text.slice(from - 2, from) === '**' && text.slice(from, from + 2) === '**'
+    if (before === marker && after === marker && !insideLongerPair) {
+      return {
+        text: text.slice(0, from - markerLength) + text.slice(from + markerLength),
+        from: from - markerLength,
+        to: from - markerLength
+      }
+    }
+    return {
+      text: text.slice(0, from) + marker + marker + text.slice(from),
+      from: from + markerLength,
+      to: from + markerLength
+    }
+  }
+
+  const before = text.slice(Math.max(0, from - markerLength), from)
+  const after = text.slice(to, to + markerLength)
+  if (before === marker && after === marker) {
+    return {
+      text: text.slice(0, from - markerLength) + text.slice(from, to) + text.slice(to + markerLength),
+      from: from - markerLength,
+      to: to - markerLength
+    }
+  }
+
+  const selected = text.slice(from, to)
+  if (
+    selected.length >= markerLength * 2 &&
+    selected.startsWith(marker) &&
+    selected.endsWith(marker)
+  ) {
+    return {
+      text:
+        text.slice(0, from) +
+        selected.slice(markerLength, selected.length - markerLength) +
+        text.slice(to),
+      from,
+      to: to - markerLength * 2
+    }
+  }
+
+  return {
+    text: text.slice(0, from) + marker + selected + marker + text.slice(to),
+    from: from + markerLength,
+    to: to + markerLength
+  }
+}
+
+/** Restore a native selection after replacing a cell's textContent. */
+function placeCellSelection(el: HTMLElement, from: number, to: number): void {
+  const text = el.textContent ?? ''
+  const start = Math.max(0, Math.min(from, text.length))
+  const end = Math.max(start, Math.min(to, text.length))
+  const node = el.firstChild
+  const range = el.ownerDocument.createRange()
+  if (node?.nodeType === Node.TEXT_NODE) {
+    range.setStart(node, start)
+    range.setEnd(node, end)
+  } else {
+    range.setStart(el, 0)
+    range.setEnd(el, 0)
+  }
+  const selection = el.ownerDocument.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
 }
 
 function buildDecorations(state: EditorState): DecorationSet {

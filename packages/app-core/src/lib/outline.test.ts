@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseOutline } from './outline'
+import { activeOutlineLineForCursor, parseOutline } from './outline'
 
 describe('parseOutline — #249 code block with wikilinks', () => {
   it('keeps headings after a single-line triple-backtick code span (the #248/#249 repro)', () => {
@@ -103,5 +103,21 @@ describe('parseOutline — #442 frontmatter is not parsed as headings', () => {
   it('handles an empty frontmatter block', () => {
     const body = ['---', '---', '# Only Heading'].join('\n')
     expect(parseOutline(body).map((i) => i.text)).toEqual(['Only Heading'])
+  })
+})
+
+describe('activeOutlineLineForCursor — discussion #597', () => {
+  const items = parseOutline(['intro', '# One', 'body', '## Two', 'more', '# Three'].join('\n'))
+
+  it('tracks the heading that contains the cursor instead of a viewport probe', () => {
+    expect(activeOutlineLineForCursor(items, 2)).toBe(2)
+    expect(activeOutlineLineForCursor(items, 3)).toBe(2)
+    expect(activeOutlineLineForCursor(items, 5)).toBe(4)
+    expect(activeOutlineLineForCursor(items, 6)).toBe(6)
+  })
+
+  it('has no active heading before the first heading or in an empty outline', () => {
+    expect(activeOutlineLineForCursor(items, 1)).toBeNull()
+    expect(activeOutlineLineForCursor([], 20)).toBeNull()
   })
 })

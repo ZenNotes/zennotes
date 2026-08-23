@@ -30,6 +30,19 @@ export interface OutlineItem {
   from: number // 0-based char offset of the heading line
 }
 
+/** Find the last heading at or before a 1-based editor cursor line. */
+export function activeOutlineLineForCursor(
+  items: readonly OutlineItem[],
+  cursorLine: number
+): number | null {
+  let activeLine: number | null = null
+  for (const item of items) {
+    if (item.line > cursorLine) break
+    activeLine = item.line
+  }
+  return activeLine
+}
+
 const ATX_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/
 const SETEXT_UNDERLINE_RE = /^(=+|-+)\s*$/
 

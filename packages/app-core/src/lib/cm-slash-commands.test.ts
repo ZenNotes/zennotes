@@ -1,19 +1,30 @@
 // @vitest-environment jsdom
 
-import { CompletionContext } from '@codemirror/autocomplete'
+import {
+  acceptCompletion,
+  autocompletion,
+  completionStatus,
+  CompletionContext,
+  selectedCompletion,
+  startCompletion
+} from '@codemirror/autocomplete'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { forceParsing } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { describe, expect, it, vi } from 'vitest'
 
 // The "Page" command reaches into the store on apply; nothing else does, and the
 // tests below never apply Page, so a bare stub keeps the module store-free.
-vi.mock('../store', () => ({ useStore: { getState: () => ({}) } }))
+vi.mock('../store', () => ({ useStore: { getState: () => ({ vimMode: false }) } }))
 
 import {
   slashCommandSource,
   templateSlashCommandSource,
-  blockInsertPadding
+  blockInsertPadding,
+  tableCaretTrail
 } from './cm-slash-commands'
+import { tablePlugin } from './cm-table'
 
 type Source = typeof templateSlashCommandSource
 
@@ -102,6 +113,14 @@ describe('blockInsertPadding (#294 — tables become their own block)', () => {
   it('pads both sides when inserted between two paragraphs', () => {
     expect(blockInsertPadding('para', 'para')).toEqual({ lead: '\n\n', trail: '\n\n' })
   })
+
+  it('leaves a safe continuation line after a table', () => {
+    expect(tableCaretTrail('')).toBe('\n\n')
+    expect(tableCaretTrail('Following')).toBe('\n\n\n')
+    expect(tableCaretTrail('\nFollowing')).toBe('\n\n')
+    expect(tableCaretTrail('\n\nFollowing')).toBe('\n')
+    expect(tableCaretTrail('\n\n\nFollowing')).toBe('')
+  })
 })
 
 describe('/table insertion separates the table into its own block (#294)', () => {
@@ -124,19 +143,18 @@ describe('/table insertion separates the table into its own block (#294)', () =>
 
   const TABLE = '| Column 1 | Column 2 |\n| --- | --- |\n| | |'
 
-  // A trailing newline is added at the end of the document so the caret can land
-  // on the line AFTER the table's block widget rather than inside its replaced
-  // range (a caret inside renders as a tall bar at the pane edge). (#340)
+  // Two trailing newlines leave a blank separator before the caret line. A
+  // single newline looks correct until the next text is parsed as a table row.
   it('inserts the bare table at document start', () => {
-    expect(applyTable('/')).toBe(`${TABLE}\n`)
+    expect(applyTable('/')).toBe(`${TABLE}\n\n`)
   })
 
   it('inserts a blank line before a table typed directly under a paragraph', () => {
-    expect(applyTable('Some text\n/')).toBe(`Some text\n\n${TABLE}\n`)
+    expect(applyTable('Some text\n/')).toBe(`Some text\n\n${TABLE}\n\n`)
   })
 
   it('does not double a blank line that already separates it', () => {
-    expect(applyTable('Some text\n\n/')).toBe(`Some text\n\n${TABLE}\n`)
+    expect(applyTable('Some text\n\n/')).toBe(`Some text\n\n${TABLE}\n\n`)
   })
 
   function applyTableCaretLine(doc: string): string {
@@ -159,5 +177,49 @@ describe('/table insertion separates the table into its own block (#294)', () =>
     const caretLine = applyTableCaretLine('/')
     expect(caretLine).toBe('')
     expect(caretLine.includes('|')).toBe(false)
+  })
+
+  it('keeps editor focus after the table widget instead of entering its first cell (#663)', async () => {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: '/table',
+        selection: { anchor: 6 },
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          tablePlugin,
+          autocompletion({
+            override: [templateSlashCommandSource],
+            interactionDelay: 0
+          })
+        ]
+      })
+    })
+    view.focus()
+    startCompletion(view)
+    await vi.waitFor(() => {
+      expect(completionStatus(view.state)).toBe('active')
+      expect(selectedCompletion(view.state)?.displayLabel).toBe('Table')
+    })
+    expect(acceptCompletion(view)).toBe(true)
+    forceParsing(view, view.state.doc.length, 5000)
+
+    expect(view.state.doc.lineAt(view.state.selection.main.head).text).toBe('')
+    expect(document.activeElement).toBe(view.contentDOM)
+
+    for (const character of 'Continues below.') {
+      view.dispatch(view.state.replaceSelection(character))
+      forceParsing(view, view.state.doc.length, 5000)
+    }
+    expect(view.state.doc.toString()).toBe(
+      '| Column 1 | Column 2 |\n| --- | --- |\n| | |\n\nContinues below.'
+    )
+    expect(view.dom.querySelectorAll('.cm-table-cell')).toHaveLength(4)
+    expect(document.activeElement).toBe(view.contentDOM)
+
+    view.destroy()
+    parent.remove()
   })
 })

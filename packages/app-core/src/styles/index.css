@@ -4978,9 +4978,9 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   border-radius: 1px;
   pointer-events: none;
 }
-/* Vim visual-mode selection inside a cell uses the native selection; match the
-   editor's own selection tint (theme accent at the same strength) so it reads
-   consistently instead of the washed-out OS default. */
+/* Native selection is still used while editing a cell; match the editor's own
+   selection tint instead of the washed-out OS default. Vim visual mode uses
+   the coordinate-aware overlays below. */
 .cm-table-widget .cm-table-cell::selection,
 .cm-table-widget .cm-table-cell ::selection {
   background: rgb(var(--z-accent) / 0.22);
@@ -4992,6 +4992,12 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   background: rgb(var(--z-accent) / 0.28);
   border-radius: 2px;
   pointer-events: none;
+}
+.cm-table-widget .cm-table-cell.is-vim-visual {
+  position: relative;
+}
+.cm-table-widget .cm-table-cell-sel.is-full {
+  inset: 3px 5px;
 }
 /* While a table cell is focused, the "real" cursor lives in the cell, so hide
    the editor's own cursor layer — otherwise its Vim block cursor lingers at the

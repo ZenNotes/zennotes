@@ -132,6 +132,8 @@ import {
 } from '../lib/cm-wikilinks'
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
+import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
+import { editorCursorPosition } from '../lib/editor-cursor-position'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
@@ -197,7 +199,7 @@ import {
   recallTabScroll,
   type TabScrollPosition
 } from '../lib/tab-scroll-memory'
-import { parseOutline } from '../lib/outline'
+import { activeOutlineLineForCursor, parseOutline } from '../lib/outline'
 import {
   findRenderedHeadingForOutlineLine,
   nextOutlinePreviewSyncLockUntil,
@@ -750,6 +752,7 @@ function selectionEdgeCoords(view: EditorView): {
 }
 
 function getSelectionCommentAction(view: EditorView): SelectionCommentAction {
+  if (!shouldShowSelectionToolbar(view, useStore.getState().vimMode)) return null
   const sel = view.state.selection.main
   const active = document.activeElement
   // Keep the toolbar up while the editor holds the selection OR while the user
@@ -842,6 +845,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const setActiveCommentId = useStore((s) => s.setActiveCommentId)
 
   const setEditorViewRef = useStore((s) => s.setEditorViewRef)
+  const activeEditorCursorPosition = useStore((s) =>
+    isActive ? s.editorCursorPosition : null
+  )
   const sidebarOpen = useStore((s) => s.sidebarOpen)
   const zenMode = useStore((s) => s.zenMode)
   const toggleSidebar = useStore((s) => s.toggleSidebar)
@@ -1627,23 +1633,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setActiveOutlineLineSafely(null)
       return
     }
-    // Probe ~25% down the viewport (capped) so a heading is considered
-    // active once it scrolls into the upper portion of the visible area
-    // — not only after it has scrolled past the very top edge.
-    const rect = view.scrollDOM.getBoundingClientRect()
-    const probeY = rect.top + Math.min(140, rect.height * 0.25)
-    const pos = view.posAtCoords({ x: rect.left + 8, y: probeY })
-    if (pos == null) {
-      setActiveOutlineLineSafely(null)
-      return
-    }
-    const probeLine = view.state.doc.lineAt(pos).number
-    let activeLine: number | null = null
-    for (const item of outlineItems) {
-      if (item.line <= probeLine) activeLine = item.line
-      else break
-    }
-    setActiveOutlineLineSafely(activeLine)
+    const cursorLine = view.state.doc.lineAt(view.state.selection.main.head).number
+    setActiveOutlineLineSafely(activeOutlineLineForCursor(outlineItems, cursorLine))
   }, [outlineItems, setActiveOutlineLineSafely])
 
   const computeActiveFromPreview = useCallback(() => {
@@ -1973,6 +1964,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             }
             if (upd.viewportChanged || upd.geometryChanged) {
               schedulePreviewSyncFromEditorViewport()
+            }
+            if (
+              (upd.selectionSet || upd.docChanged) &&
+              useStore.getState().editorViewRef === upd.view
+            ) {
+              useStore.getState().setEditorCursorPosition(editorCursorPosition(upd.state))
             }
             if (!upd.docChanged) return
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return
@@ -3488,10 +3485,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     focusEditorNormalMode()
   }, [applyPaneMode, mode])
 
-  // Track the topmost-visible heading and surface it as the active
-  // outline item. We listen on whichever surface is the user's scroll
-  // target for the current mode — split mode follows the editor since
-  // that's where typing happens.
+  // Editing follows the cursor so keyboard motion updates the Outline even
+  // when the viewport barely moves. Preview mode remains scroll-driven.
   useEffect(() => {
     if (!outlineOpen) {
       setActiveOutlineLineSafely(null)
@@ -3512,6 +3507,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
     }
   }, [
+    activeEditorCursorPosition?.line,
     computeActiveFromEditor,
     content?.path,
     mode,

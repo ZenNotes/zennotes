@@ -19,7 +19,10 @@ export interface ParsedNoteSearchQuery {
 
 export type NoteSearchDefaultOrder = 'current' | 'quick-first-recent'
 
-const LONG_QUERY_EXACT_FIRST_CHARS = 16
+/** Short abbreviations benefit from fuzzy matching. At four characters and
+ *  above, a real substring match is strong enough to suppress incidental
+ *  subsequences from long note excerpts. */
+const EXACT_FIRST_MIN_QUERY_CHARS = 4
 
 export function buildNoteSearchIndex(notes: NoteMeta[]): NoteSearchEntry[] {
   return notes.map((note) => {
@@ -164,7 +167,7 @@ export function searchNoteIndex(
 
   const preparedQuery = freeText.toLowerCase()
   const matches: Array<{ entry: NoteSearchEntry; score: number }> = []
-  if (preparedQuery.length >= LONG_QUERY_EXACT_FIRST_CHARS) {
+  if (preparedQuery.length >= EXACT_FIRST_MIN_QUERY_CHARS) {
     for (const entry of entries) {
       if (entry.note.folder === 'trash' || !matchesTags(entry, tagTokens)) continue
       const score = scoreNote(entry, preparedQuery, false)

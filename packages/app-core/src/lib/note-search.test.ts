@@ -66,6 +66,24 @@ describe('note search', () => {
     ])
   })
 
+  it('does not mix weak fuzzy excerpt matches into a unique word result (#666)', () => {
+    const entries = buildNoteSearchIndex([
+      note('inbox/permissions.md', 'Linux file permissions', {
+        excerpt: 'Restore ownership with the chown command before restarting the service.'
+      }),
+      note('inbox/coffee.md', 'Check how to make coffee, choose beans, and grind them', {
+        excerpt: 'A long collection of brewing notes and recommendations for home use.'
+      }),
+      note('inbox/joplin.md', 'Joplin', {
+        excerpt: 'A checklist showing how notes can be organized when moving applications.'
+      })
+    ])
+
+    expect(searchNoteIndex(entries, 'chown', { limit: 20 }).map((n) => n.title)).toEqual([
+      'Linux file permissions'
+    ])
+  })
+
   it('finds long exact tokens without requiring fuzzy scoring', () => {
     const entries = buildNoteSearchIndex([
       note('inbox/a.md', 'Alpha', {

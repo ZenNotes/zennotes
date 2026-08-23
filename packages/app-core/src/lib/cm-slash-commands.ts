@@ -168,6 +168,18 @@ export function blockInsertPadding(
   return { lead, trail }
 }
 
+/**
+ * Newlines needed after an inserted table so its caret line remains outside
+ * GFM table syntax. At end of document, two newlines create a blank separator
+ * followed by the continuation line. Before existing content, three newlines
+ * leave that same continuation line between the table and the content.
+ */
+export function tableCaretTrail(after: string): string {
+  if (after.length === 0) return '\n\n'
+  const existingNewlines = after.match(/^\n*/)?.[0].length ?? 0
+  return '\n'.repeat(Math.max(0, 3 - existingNewlines))
+}
+
 export function slashCommandSource(context: CompletionContext): CompletionResult | null {
   const { state, pos } = context
   const line = state.doc.lineAt(pos)
@@ -220,11 +232,10 @@ export function slashCommandSource(context: CompletionContext): CompletionResult
             const after = view.state.doc.sliceString(to)
             const pad = blockInsertPadding(view.state.doc.sliceString(0, slashStart), after)
             leadPad = pad.lead
-            // The table renders as a block widget; a caret left inside its
-            // replaced range smears into a tall bar at the pane's edge. Land the
-            // caret on the line AFTER the table instead, adding one at the end of
-            // the document where blockInsertPadding leaves no trailing line. (#340)
-            const trail = after.length === 0 ? pad.trail || '\n' : pad.trail
+            // A visible caret line still needs a blank separator before it.
+            // Otherwise the first text typed there parses as another GFM table
+            // row and the rebuilt widget pulls the DOM selection into itself.
+            const trail = tableCaretTrail(after)
             insert = pad.lead + cmd.insert + trail
             tableCaretAfter = true
           }
@@ -232,7 +243,7 @@ export function slashCommandSource(context: CompletionContext): CompletionResult
             cmd.cursorOffset != null
               ? slashStart + insert.length + cmd.cursorOffset
               : tableCaretAfter
-                ? slashStart + leadPad.length + cmd.insert.length + 1
+                ? slashStart + leadPad.length + cmd.insert.length + 2
                 : slashStart + leadPad.length + cmd.insert.length
           view.dispatch({
             changes: { from: slashStart, to, insert },

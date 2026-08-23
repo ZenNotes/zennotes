@@ -24,6 +24,7 @@ import { requestSettingsTarget } from "../lib/settings-navigation";
  */
 export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   const notes = useStore((s) => s.notes);
+  const cursorPosition = useStore((s) => s.editorCursorPosition);
 
   const { words, characters, minutes } = useMemo(() => {
     const body = note?.body ?? "";
@@ -69,6 +70,15 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
             </Stat>
             <Stat>{characters.toLocaleString()} characters</Stat>
             <Stat>{minutes} min read</Stat>
+            {cursorPosition && (
+              <span
+                data-editor-position
+                className="tabular-nums"
+                title={`Line ${cursorPosition.line}, column ${cursorPosition.column}`}
+              >
+                Ln {cursorPosition.line}, Col {cursorPosition.column}
+              </span>
+            )}
           </>
         )}
       </div>

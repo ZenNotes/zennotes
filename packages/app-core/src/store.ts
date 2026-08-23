@@ -1,5 +1,9 @@
 import { create } from 'zustand'
 import type { EditorView } from '@codemirror/view'
+import {
+  editorCursorPosition,
+  type EditorCursorPosition
+} from './lib/editor-cursor-position'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
 import { resolveFolderPath } from '@shared/system-folder-paths'
 import { normalizeTasksExcludedFolder } from '@shared/tasks-excluded-folders'
@@ -2986,6 +2990,7 @@ interface Store {
   outlineCursorIndex: number
   connectionPreview: ConnectionPreviewState | null
   editorViewRef: EditorView | null
+  editorCursorPosition: EditorCursorPosition | null
   pendingTitleFocusPath: string | null
 
   /**
@@ -3425,6 +3430,7 @@ interface Store {
   setOutlineCursorIndex: (idx: number) => void
   setConnectionPreview: (preview: ConnectionPreviewState | null) => void
   setEditorViewRef: (view: EditorView | null) => void
+  setEditorCursorPosition: (position: EditorCursorPosition | null) => void
 
   /* ---- Pane tree actions ---- */
   /** Focus the given pane and sync active-note plumbing to its activeTab. */
@@ -4643,6 +4649,7 @@ export const useStore = create<Store>((set, get) => {
   outlineCursorIndex: 0,
   connectionPreview: null,
   editorViewRef: null,
+  editorCursorPosition: null,
   pendingTitleFocusPath: null,
   paneLayout: initialPane,
   activePaneId: initialPane.id,
@@ -8137,7 +8144,12 @@ export const useStore = create<Store>((set, get) => {
   setConnectionsCursorIndex: (idx) => set({ connectionsCursorIndex: idx }),
   setOutlineCursorIndex: (idx) => set({ outlineCursorIndex: idx }),
   setConnectionPreview: (preview) => set({ connectionPreview: preview }),
-  setEditorViewRef: (view) => set({ editorViewRef: view }),
+  setEditorViewRef: (view) =>
+    set({
+      editorViewRef: view,
+      editorCursorPosition: view ? editorCursorPosition(view.state) : null
+    }),
+  setEditorCursorPosition: (position) => set({ editorCursorPosition: position }),
   setActivePane: (paneId) => {
     const s = get()
     if (s.activePaneId === paneId) return
