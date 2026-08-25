@@ -17,20 +17,29 @@ function labels(doc: string): string[] {
   return (complete(doc)?.options ?? []).map((o) => o.displayLabel ?? o.label)
 }
 
-/** Apply the option whose display label matches, return the resulting doc. */
-function apply(doc: string, label: string): string {
+/** Apply the option whose display label matches, return the resulting doc and
+ *  caret. `pos` is where the caret sits; it defaults to the end of the doc,
+ *  and sits before the closer when auto-pair brackets already typed it. */
+function applyAt(doc: string, label: string, pos = doc.length): { doc: string; cursor: number } {
   const parent = document.createElement('div')
   document.body.append(parent)
-  const view = new EditorView({ parent, state: EditorState.create({ doc }) })
-  const result = calloutTypeSource(new CompletionContext(view.state, doc.length, true))
+  const view = new EditorView({
+    parent,
+    state: EditorState.create({ doc, selection: { anchor: pos } })
+  })
+  const result = calloutTypeSource(new CompletionContext(view.state, pos, true))
   const option = result?.options.find((o) => (o.displayLabel ?? o.label) === label)
   const fn = option?.apply
   if (typeof fn !== 'function') throw new Error(`no apply handler for ${label}`)
-  fn(view, option!, result!.from, view.state.doc.length)
-  const out = view.state.doc.toString()
+  fn(view, option!, result!.from, pos)
+  const out = { doc: view.state.doc.toString(), cursor: view.state.selection.main.head }
   view.destroy()
   parent.remove()
   return out
+}
+
+function apply(doc: string, label: string): string {
+  return applyAt(doc, label).doc
 }
 
 describe('calloutTypeSource', () => {
@@ -126,5 +135,32 @@ describe('calloutGroupFor', () => {
   it('has a unique canonical keyword per entry', () => {
     const types = CALLOUT_TYPES.map((c) => c.type)
     expect(new Set(types).size).toBe(types.length)
+  })
+  describe('with an auto-paired closer already after the caret (#671)', () => {
+    it('absorbs the `]` instead of typing a second one', () => {
+      const doc = '> [!]'
+      const out = applyAt(doc, 'Quote', doc.length - 1)
+      expect(out.doc).toBe('> [!quote] ')
+      expect(out.cursor).toBe(out.doc.length)
+    })
+
+    it('absorbs the closer after a partial type', () => {
+      const doc = '> [!wa]'
+      const out = applyAt(doc, 'Warning', doc.length - 1)
+      expect(out.doc).toBe('> [!warning] ')
+    })
+
+    it('reuses a space that already follows the closer', () => {
+      const doc = '> [!] Title'
+      const out = applyAt(doc, 'Note', 4)
+      expect(out.doc).toBe('> [!note] Title')
+      expect(out.cursor).toBe('> [!note] '.length)
+    })
+
+    it('still types the closer when nothing follows (auto-pair off)', () => {
+      const out = applyAt('> [!', 'Tip')
+      expect(out.doc).toBe('> [!tip] ')
+      expect(out.cursor).toBe(out.doc.length)
+    })
   })
 })

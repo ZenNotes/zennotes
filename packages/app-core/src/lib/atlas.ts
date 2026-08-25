@@ -86,6 +86,17 @@ export function atlasRegionDirection(event: KeyboardEvent): -1 | 0 | 1 {
   return 0
 }
 
+/**
+ * Whether the map owns single-key input right now: its tab is active and no
+ * other panel has claimed the keyboard. `focusedPanel` is null right after the
+ * tab opens, before any click has landed anywhere, and the map must already
+ * answer then; DOM focus is not a reliable witness because opening the map
+ * blurs to <body> (#670).
+ */
+export function atlasHoldsKeyboard(focusedPanel: string | null, atlasActive: boolean): boolean {
+  return atlasActive && (focusedPanel == null || focusedPanel === 'atlas')
+}
+
 export function buildAtlasGraph(notes: readonly NoteMeta[]): AtlasGraph {
   const usable = notes.filter((n) => n.folder !== 'trash')
   const regionKeys = new Map<string, number>()

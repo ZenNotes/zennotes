@@ -424,9 +424,11 @@ type Task struct {
 	Due       string `json:"due,omitempty"`
 	Priority  string `json:"priority,omitempty"`
 	Waiting   bool   `json:"waiting"`
-	// Fields contains inline @key:value metadata (or a file task's
+	// Fields contains inline @key:value metadata (or a file task's explicit
 	// frontmatter status) so remote Kanban boards group tasks exactly like the
-	// desktop parser. Status mirrors Fields["status"] for convenience (#643).
+	// desktop parser (#643). Status is the effective status: Fields["status"]
+	// when set, and "open" for a file task whose frontmatter says nothing,
+	// which deliberately stays out of Fields (#672).
 	Fields map[string]string `json:"fields"`
 	Status string            `json:"status,omitempty"`
 	Tags   []string          `json:"tags"`

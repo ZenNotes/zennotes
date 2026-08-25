@@ -481,9 +481,16 @@ func parseTaskFile(path, title string, folder NoteFolder, body string) (Task, bo
 		return Task{}, false
 	}
 
+	// "open" is the effective state of a note that says nothing, not a custom
+	// status the author chose: only an explicit status: reaches Fields, so the
+	// note sits in the board's "No status" column and a drop there (which
+	// clears the key) survives the next rescan. Mirrors parseTaskFile in
+	// packages/shared-domain/src/tasks.ts (#672).
 	status := "open"
+	fields := map[string]string{}
 	if s := firstScalar(fm["status"]); s != "" {
 		status = strings.ToLower(s)
+		fields["status"] = status
 	}
 	content := title
 	if t := strings.TrimSpace(firstScalar(fm["title"])); t != "" {
@@ -505,7 +512,7 @@ func parseTaskFile(path, title string, folder NoteFolder, body string) (Task, bo
 		Due:           normalizeDueDate(firstScalar(fm["due"])),
 		Priority:      normalizePriority(firstScalar(fm["priority"])),
 		Waiting:       status == "waiting",
-		Fields:        map[string]string{"status": status},
+		Fields:        fields,
 		Status:        status,
 		Tags:          tags,
 		Kind:          "file",

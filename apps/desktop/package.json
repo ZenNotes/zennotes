@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.36.0",
+  "version": "2.37.0",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",

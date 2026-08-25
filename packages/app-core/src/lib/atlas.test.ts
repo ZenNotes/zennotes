@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest'
-import { atlasRegionDirection } from './atlas'
+import { atlasHoldsKeyboard, atlasRegionDirection } from './atlas'
 import { SELF_KEYED_SURFACES } from './self-keyed-surfaces'
 
 function keyboardEvent(
@@ -63,5 +63,23 @@ describe('atlasRegionDirection (#657)', () => {
     expect(
       atlasRegionDirection(keyboardEvent({ key: '{', code: 'BracketLeft', shiftKey: true }))
     ).toBe(0)
+  })
+})
+
+describe('atlasHoldsKeyboard (#670)', () => {
+  it('owns the keyboard straight after opening, before any click lands', () => {
+    // openAtlasView blurs to <body> and marks the panel; no DOM focus yet.
+    expect(atlasHoldsKeyboard('atlas', true)).toBe(true)
+    expect(atlasHoldsKeyboard(null, true)).toBe(true)
+  })
+
+  it('yields once another panel has claimed the keyboard', () => {
+    expect(atlasHoldsKeyboard('sidebar', true)).toBe(false)
+    expect(atlasHoldsKeyboard('editor', true)).toBe(false)
+  })
+
+  it('never owns the keyboard while its tab is inactive', () => {
+    expect(atlasHoldsKeyboard('atlas', false)).toBe(false)
+    expect(atlasHoldsKeyboard(null, false)).toBe(false)
   })
 })

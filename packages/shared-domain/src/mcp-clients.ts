@@ -102,6 +102,10 @@ export interface McpServerRuntime {
    *  build hasn\u2019t produced it yet (dev environment without a
    *  prior `npm run build`). */
   entryPath: string | null
+  /** Set when this build cannot run or install the MCP server at all (the
+   *  web client). The settings page shows this sentence instead of the
+   *  runtime details and the client list (#672). */
+  unavailableReason?: string
 }
 
 /**

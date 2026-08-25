@@ -7210,8 +7210,12 @@ export const useStore = create<Store>((set, get) => {
     await get().openNoteInPane(state.activePaneId, ATLAS_TAB_PATH)
     // Hand the keyboard over on EVERY open, not just the first: clicking the
     // sidebar row leaves focus (and focusedPanel) on the sidebar, and the
-    // row click is also how people re-enter an already-open Atlas tab.
-    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    // row click is also how people re-enter an already-open Atlas tab. The
+    // map takes DOM focus itself once it owns the panel, so only strip focus
+    // from something else; blurring the map root here put focus back on
+    // <body> and the global Vim layer ate `[`/`]` as buffer prefixes (#670).
+    const active = document.activeElement as HTMLElement | null
+    if (active && !active.closest('[data-atlas-view]')) active.blur?.()
     set({ focusedPanel: 'atlas' })
   },
   setWorkflowsEnabled: (on) => {

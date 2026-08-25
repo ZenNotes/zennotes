@@ -45,6 +45,7 @@ import {
 } from '../lib/keyboard-context-menu'
 import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { atlasHoldsKeyboard } from '../lib/atlas'
 import { SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
@@ -569,7 +570,19 @@ export function VimNav(): JSX.Element | null {
       // problem was already visible for a pending argument (`f[` finding a
       // bracket) and patched narrowly then; standing down for the whole
       // focused editor is the rule that covers both.
-      if (!leaderPending.current && !isEditorFocused(state.editorViewRef)) {
+      // The Atlas map owns `[` and `]` for region jumps whenever it holds the
+      // keyboard, which is true straight after Leader+g, before any element
+      // inside it has DOM focus; keying the yield off `document.activeElement`
+      // alone ate the first bracket as a buffer-sequence prefix (#670).
+      const atlasOwnsBrackets = atlasHoldsKeyboard(
+        state.focusedPanel,
+        isAtlasViewActive(state)
+      )
+      if (
+        !leaderPending.current &&
+        !isEditorFocused(state.editorViewRef) &&
+        !atlasOwnsBrackets
+      ) {
         const consumeBufferKey = (): void => {
           e.preventDefault()
           e.stopImmediatePropagation()

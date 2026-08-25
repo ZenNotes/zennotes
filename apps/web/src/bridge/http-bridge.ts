@@ -1249,13 +1249,18 @@ async function renderTikz(_source: string): Promise<TikzRenderResponse> {
 // MCP (web build cannot install into local clients — return disabled)
 // --------------------------------------------------------------------
 
+// A well-formed runtime with nothing to run: the settings page reads
+// `args`/`entryPath` unconditionally, and the previous ad-hoc shape blanked
+// the whole app the moment the MCP tab opened (#672).
 async function mcpGetRuntime(): Promise<McpServerRuntime> {
   return {
-    nodePath: null,
-    scriptPath: null,
-    available: false,
-    reason: 'MCP client installation is only available in the desktop build.'
-  } as unknown as McpServerRuntime
+    command: '',
+    args: [],
+    env: {},
+    entryPath: null,
+    unavailableReason:
+      'MCP clients connect to the server bundled with the ZenNotes desktop app, which reads a vault folder on that machine. Install the desktop app and open this vault (or a synced copy of it) there to set up Claude, Codex, and friends.'
+  }
 }
 
 async function mcpGetStatuses(): Promise<McpClientStatus[]> {
@@ -1271,7 +1276,7 @@ async function mcpUninstall(_id: McpClientId): Promise<McpClientStatus> {
 }
 
 async function mcpGetInstructions(): Promise<McpInstructionsPayload> {
-  return { custom: null, effective: '', defaults: '' } as unknown as McpInstructionsPayload
+  return { defaultValue: '', current: '', isCustom: false, filePath: '' }
 }
 
 async function mcpSetInstructions(

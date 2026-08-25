@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseTasksFromBody, type ParseTasksContext } from './tasks'
+import { parseTaskFile, parseTasksFromBody, type ParseTasksContext } from './tasks'
 
 const ctx: ParseTasksContext = { path: 'inbox/t.md', title: 't', folder: 'inbox' }
 const parse = (body: string) => parseTasksFromBody(body, ctx)[0]
@@ -72,5 +72,30 @@ describe('parseTasksFromBody — general @key:value fields (#354)', () => {
     const task = parse('- [ ] a @waiting see http://x/y')
     expect(task.fields).toEqual({})
     expect(task.waiting).toBe(true)
+  })
+})
+
+describe('parseTaskFile — frontmatter status vs the custom-status field (#672)', () => {
+  it('keeps a note that says nothing out of every custom-status column', () => {
+    const body = '---\ntitle: Ship it\ntags: [ task ]\ndue: 2026-08-24\n---\n'
+    const task = parseTaskFile(body, ctx)!
+    expect(task.kind).toBe('file')
+    // Effective state is still open: unchecked, not cancelled, not waiting.
+    expect(task.status).toBe('open')
+    expect(task.checked).toBe(false)
+    expect(task.cancelled).toBe(false)
+    // ...but it is not a custom status the author chose.
+    expect(task.fields).toEqual({})
+  })
+
+  it('carries an explicit status: as the custom-status field, lower-cased', () => {
+    const task = parseTaskFile('---\ntags: [task]\nstatus: Review\n---\n', ctx)!
+    expect(task.status).toBe('review')
+    expect(task.fields).toEqual({ status: 'review' })
+  })
+
+  it('treats an explicit status: open as a chosen status', () => {
+    const task = parseTaskFile('---\ntags: [task]\nstatus: open\n---\n', ctx)!
+    expect(task.fields).toEqual({ status: 'open' })
   })
 })

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, isAtlasViewActive } from '../store'
 import {
   applyExtraLinkEdges,
+  atlasHoldsKeyboard,
   atlasRegionDirection,
   buildAtlasGraph,
   collectAtlasPositions,
@@ -95,6 +96,8 @@ export function AtlasView(): JSX.Element {
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const isActive = useStore(isAtlasViewActive)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const focusedPanel = useStore((s) => s.focusedPanel)
   const [mode3d, setMode3d] = useState(false)
   const [lens, setLens] = useState<Lens>(1)
   const [edgeMode, setEdgeMode] = useState(0) // 0 quiet · 1 all · 2 off
@@ -680,8 +683,7 @@ export function AtlasView(): JSX.Element {
       if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
-      const fp = useStore.getState().focusedPanel
-      if (fp != null && fp !== 'atlas') return
+      if (!atlasHoldsKeyboard(useStore.getState().focusedPanel, true)) return
       const regionDirection = atlasRegionDirection(e)
       if ((e.metaKey || e.ctrlKey || e.altKey) && regionDirection === 0) return
       const st = stateRef.current
@@ -820,6 +822,24 @@ export function AtlasView(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, filterOpen])
 
+  // Opening the map hands it the keyboard (focusedPanel = 'atlas') while DOM
+  // focus still sits on <body>. The global Vim layer keys part of its yield
+  // off the focused element, so `[` and `]` were swallowed as buffer-sequence
+  // prefixes until a click landed inside the map (#670). Take real focus
+  // whenever the map owns the keyboard, so every focus-based check agrees
+  // with the store; never steal it from a text field.
+  useEffect(() => {
+    if (!isActive || focusedPanel !== 'atlas') return
+    const root = rootRef.current
+    if (!root) return
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active !== document.body) {
+      if (root.contains(active)) return
+      if (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable) return
+    }
+    root.focus({ preventScroll: true })
+  }, [isActive, focusedPanel])
+
   // Mouse: drag orbits in 3D and pans in 2D; wheel flies; click focuses/opens.
   useEffect(() => {
     const canvas = canvasRef.current
@@ -926,8 +946,11 @@ export function AtlasView(): JSX.Element {
     'cursor-pointer rounded-full border border-paper-300 bg-paper-100 px-2.5 py-1 font-mono text-[11px] text-ink-600 hover:text-ink-800'
   return (
     <div
+      ref={rootRef}
       data-atlas-view
-      className="relative flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900"
+      // The map draws its own focus feedback; the browser's focus ring around
+      // the whole pane was the "white border" reported alongside #670.
+      className="relative flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900 outline-none"
       onMouseDownCapture={() => setFocusedPanel('atlas')}
       onFocusCapture={() => setFocusedPanel('atlas')}
       tabIndex={0}

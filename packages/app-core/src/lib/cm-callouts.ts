@@ -46,10 +46,17 @@ export function calloutTypeSource(context: CompletionContext): CompletionResult 
           _subtitle: def.description,
           type: 'callout',
           apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
-            const insert = `${def.type}] `
+            // With auto-pair brackets on, the `]` that closes `[!` is already
+            // sitting after the caret. Absorb it, the way the wikilink picker
+            // absorbs its `]]`, instead of typing a second closer behind it
+            // and leaving `[!quote] ]` (#671).
+            const doc = view.state.doc
+            const end = doc.sliceString(to, to + 1) === ']' ? to + 1 : to
+            const spaceAhead = doc.sliceString(end, end + 1) === ' '
+            const insert = `${def.type}]${spaceAhead ? '' : ' '}`
             view.dispatch({
-              changes: { from, to, insert },
-              selection: { anchor: from + insert.length }
+              changes: { from, to: end, insert },
+              selection: { anchor: from + insert.length + (spaceAhead ? 1 : 0) }
             })
           }
         }) as Completion & {

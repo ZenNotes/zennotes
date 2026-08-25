@@ -7665,6 +7665,36 @@ function McpSettings(): JSX.Element {
     runtime == null ? "off" : entryMissing ? "warn" : "ok";
   const serverStatusClass = statusChipClass(serverStatusTone);
 
+  // The web client has no MCP runtime to describe and nothing to install
+  // into; say so instead of rendering controls that cannot work (#672).
+  if (runtime?.unavailableReason) {
+    return (
+      <div className="space-y-6">
+        <Section
+          title="Server"
+          description="MCP integrations are set up from the ZenNotes desktop app."
+          settingId="mcp-server"
+        >
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2">
+              <span
+                className={[
+                  "rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]",
+                  statusChipClass("off"),
+                ].join(" ")}
+              >
+                Desktop only
+              </span>
+            </div>
+            <p className="mt-3 text-xs leading-5 text-ink-600">
+              {runtime.unavailableReason}
+            </p>
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <Section

@@ -430,7 +430,13 @@ export function parseTaskFile(
   const tags = asArray(fm.tags).map((t) => t.replace(/^#/, '').toLowerCase())
   if (!tags.includes(TASK_FILE_TAG)) return null
 
-  const status = (firstScalar(fm.status) ?? 'open').toLowerCase()
+  // `open` is the effective state of a note that says nothing (unchecked, not
+  // cancelled), not a custom status the author chose. Only an explicit
+  // `status:` reaches `fields`, so the note sits in the board's "No status"
+  // column, wears no phantom `@status:open` chip, and a drop into that column
+  // (which clears the key) survives the next rescan (#672).
+  const explicitStatus = firstScalar(fm.status)?.toLowerCase()
+  const status = explicitStatus ?? 'open'
   const title = firstScalar(fm.title)?.trim() || ctx.title
 
   return {
@@ -449,7 +455,7 @@ export function parseTaskFile(
     due: normalizeDueDate(firstScalar(fm.due)),
     priority: normalizePriority(firstScalar(fm.priority)),
     waiting: status === 'waiting',
-    fields: { status },
+    fields: explicitStatus ? { status: explicitStatus } : {},
     status,
     tags: tags.filter((t) => t !== TASK_FILE_TAG),
     kind: 'file',
