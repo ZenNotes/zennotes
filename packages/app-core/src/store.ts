@@ -493,6 +493,9 @@ interface Prefs {
   /** When true, Vim yank/delete/change also copy to the system clipboard and
    *  `p` / `P` paste from it (like `set clipboard=unnamed`). */
   vimYankToClipboard: boolean
+  /** Make the editor non-editable outside Vim insert mode so a CJK input
+   *  method cannot compose over normal-mode keys (#84, #464). */
+  vimBlockImeInNormalMode: boolean
   /** Whether unprefixed Vim line-boundary motions follow visible display rows
    *  or the complete logical line when word wrap is enabled. */
   vimWrappedLineMotions: VimWrappedLineMotionMode
@@ -707,6 +710,7 @@ export type TagMatchMode = 'all' | 'any'
 export type TaskMutation =
   | { kind: 'set-checked'; checked: boolean }
   | { kind: 'set-waiting'; waiting: boolean }
+  | { kind: 'set-in-progress'; inProgress: boolean }
   | { kind: 'set-priority'; priority: TaskLinePriority | null }
   | { kind: 'set-due'; due: string | null }
   | { kind: 'set-field'; key: string; value: string | null }
@@ -969,6 +973,7 @@ export const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
   vimYankToClipboard: false,
+  vimBlockImeInNormalMode: true,
   vimWrappedLineMotions: 'display',
   keymapOverrides: {},
   whichKeyHints: true,
@@ -1091,6 +1096,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimYankToClipboard === 'boolean'
         ? p.vimYankToClipboard
         : DEFAULT_PREFS.vimYankToClipboard,
+    vimBlockImeInNormalMode:
+      typeof p.vimBlockImeInNormalMode === 'boolean'
+        ? p.vimBlockImeInNormalMode
+        : DEFAULT_PREFS.vimBlockImeInNormalMode,
     vimWrappedLineMotions:
       p.vimWrappedLineMotions === 'logical' || p.vimWrappedLineMotions === 'display'
         ? p.vimWrappedLineMotions
@@ -1801,6 +1810,25 @@ function writeManualOrder(root: string, order: ManualNoteOrder): void {
 // Which vault root the in-memory manual order was loaded for; reloaded on switch.
 let manualOrderLoadedForRoot: string | null = null
 
+/** Roughly 8 MB of image per picture; larger ones fall back to alt text so a
+ *  paste never stalls a mail client. */
+const EMAIL_IMAGE_MAX_BASE64 = 11_000_000
+const EMAIL_IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  apng: 'image/apng',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif'
+}
+function emailImageMime(relPath: string): string {
+  const ext = relPath.slice(relPath.lastIndexOf('.') + 1).toLowerCase()
+  return EMAIL_IMAGE_MIME[ext] ?? 'application/octet-stream'
+}
+
 type InlineTaskMarker = 'open' | 'done' | 'forwarded' | 'cancelled' | 'in-progress'
 
 /** A checkbox line has exactly one state character. Mirror that exclusivity in
@@ -1854,6 +1882,14 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
               : { ...next, waiting: m.waiting }
         }
         break
+      case 'set-in-progress':
+        if (next.inProgress !== m.inProgress) {
+          next =
+            next.kind === 'file'
+              ? withFileTaskStatus(next, m.inProgress ? 'in-progress' : 'open')
+              : withInlineTaskMarker(next, m.inProgress ? 'in-progress' : 'open')
+        }
+        break
       case 'set-priority': {
         const priority = m.priority ?? undefined
         if (next.priority !== priority) next = { ...next, priority }
@@ -1899,6 +1935,9 @@ function fileTaskMutationUpdates(
         break
       case 'set-waiting':
         updates.status = m.waiting ? 'waiting' : 'open'
+        break
+      case 'set-in-progress':
+        updates.status = m.inProgress ? 'in-progress' : 'open'
         break
       case 'set-priority':
         updates.priority = taskFilePriorityValue(m.priority)
@@ -2141,6 +2180,7 @@ function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
   vimYankToClipboard: boolean
+  vimBlockImeInNormalMode: boolean
   vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
   enabledOverrides: Record<string, string>
@@ -2236,6 +2276,7 @@ function collectPrefs(s: {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
     vimYankToClipboard: s.vimYankToClipboard,
+    vimBlockImeInNormalMode: s.vimBlockImeInNormalMode,
     vimWrappedLineMotions: s.vimWrappedLineMotions,
     keymapOverrides: s.keymapOverrides,
     enabledOverrides: s.enabledOverrides,
@@ -2740,6 +2781,7 @@ interface Store {
   vimInsertEscape: string
   /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
   vimYankToClipboard: boolean
+  vimBlockImeInNormalMode: boolean
   /** Display-row or logical-line semantics for $, I, A and dependent operators. */
   vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
@@ -3242,6 +3284,7 @@ interface Store {
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
   setVimYankToClipboard: (on: boolean) => void
+  setVimBlockImeInNormalMode: (on: boolean) => void
   setVimWrappedLineMotions: (mode: VimWrappedLineMotionMode) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
   resetAllKeymaps: () => void
@@ -4531,6 +4574,7 @@ export const useStore = create<Store>((set, get) => {
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
+  vimBlockImeInNormalMode: loadPrefs().vimBlockImeInNormalMode,
   vimWrappedLineMotions: loadPrefs().vimWrappedLineMotions,
   keymapOverrides: loadPrefs().keymapOverrides,
   enabledOverrides: loadPrefs().enabledOverrides,
@@ -5479,6 +5523,9 @@ export const useStore = create<Store>((set, get) => {
                 break
               case 'set-waiting':
                 nextBody = setTaskWaitingAtIndex(nextBody, task.taskIndex, m.waiting)
+                break
+              case 'set-in-progress':
+                nextBody = setTaskInProgressAtIndex(nextBody, task.taskIndex, m.inProgress)
                 break
               case 'set-priority':
                 nextBody = setTaskPriorityAtIndex(nextBody, task.taskIndex, m.priority)
@@ -6982,8 +7029,24 @@ export const useStore = create<Store>((set, get) => {
     try {
       // Lazy: the renderer chain rides the markdown vendor chunk, which has
       // no business on the boot path for a clipboard command.
-      const { renderNoteEmailHtml } = await import('./lib/note-email-html')
-      const { html } = renderNoteEmailHtml(body, active.title)
+      const { renderNoteEmailHtml, collectEmailImageRefs } = await import('./lib/note-email-html')
+      const { resolveAssetVaultRelativePath } = await import('./lib/local-assets')
+      // Every local image rides along as a data: URI (#628). Anything the
+      // vault cannot serve, or that is too big for a mail body, keeps the
+      // alt-text fallback.
+      const images = new Map<string, string>()
+      for (const ref of collectEmailImageRefs(body)) {
+        const rel = resolveAssetVaultRelativePath(s.vault?.root, active.path, ref)
+        if (!rel) continue
+        try {
+          const base64 = await window.zen.readVaultAssetBase64(rel)
+          if (base64.length > EMAIL_IMAGE_MAX_BASE64) continue
+          images.set(ref, `data:${emailImageMime(rel)};base64,${base64}`)
+        } catch {
+          /* unreadable: the alt text stands in */
+        }
+      }
+      const { html } = renderNoteEmailHtml(body, active.title, { images })
       // Both flavors: rich for mail clients, the markdown itself for editors.
       await navigator.clipboard.write([
         new ClipboardItem({
@@ -7065,6 +7128,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setVimYankToClipboard: (on) => {
     set({ vimYankToClipboard: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setVimBlockImeInNormalMode: (on) => {
+    set({ vimBlockImeInNormalMode: on })
     savePrefs(collectPrefs(get()))
   },
   setVimWrappedLineMotions: (mode) => {

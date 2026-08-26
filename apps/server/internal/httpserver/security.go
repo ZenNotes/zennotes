@@ -437,7 +437,11 @@ func contentSecurityPolicy() string {
 		"object-src 'none'",
 		"base-uri 'none'",
 		"form-action 'none'",
-		"frame-ancestors 'none'",
+		// 'self', not 'none': the web client shows a vault's PDFs in an iframe
+		// served by this server, and the PDF response carries this policy too,
+		// so 'none' forbade the app's own same-origin frame (#121). Third-party
+		// framing stays blocked.
+		"frame-ancestors 'self'",
 		"manifest-src 'self'",
 	}, "; ")
 }

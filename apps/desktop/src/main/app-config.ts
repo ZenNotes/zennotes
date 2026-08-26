@@ -56,6 +56,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'yank_to_clipboard',
     comment: 'sync the system clipboard with Vim yank/delete/change and p/P paste'
   },
+  vimBlockImeInNormalMode: {
+    section: 'vim',
+    tomlKey: 'block_ime_in_normal_mode',
+    comment: 'keep the OS input method (a CJK IME) from composing in normal and visual mode, so hjkl stay motions'
+  },
   vimWrappedLineMotions: {
     section: 'vim',
     tomlKey: 'wrapped_line_motions',

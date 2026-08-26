@@ -65,3 +65,26 @@ describe('#468 — Backspace deletes the whole empty formatting snippet', () => 
     expect(view.state.doc.toString()).toBe('****')
   })
 })
+
+// #678: with auto-pairs on (the store default) the pair rule also answers
+// Backspace between `(` and `)`; the whole-scaffold rule must win the race.
+describe('#678 — Backspace inside an empty `[](|)` link removes the whole scaffold', () => {
+  it('beats the auto-pair rule from the URL hole', () => {
+    const view = mount('See []()', 7)
+    pressBackspace(view)
+    expect(view.state.doc.toString()).toBe('See ')
+    expect(view.state.selection.main.head).toBe(4)
+  })
+
+  it('beats the auto-pair rule from the text hole', () => {
+    const view = mount('[]()', 1)
+    pressBackspace(view)
+    expect(view.state.doc.toString()).toBe('')
+  })
+
+  it('still lets auto-pairs delete `()` once the link has text', () => {
+    const view = mount('[docs]()', 7)
+    pressBackspace(view)
+    expect(view.state.doc.toString()).toBe('[docs]')
+  })
+})

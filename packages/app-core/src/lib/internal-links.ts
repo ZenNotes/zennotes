@@ -110,8 +110,10 @@ export function resolveInternalNoteHref(
 }
 
 function unwrapMdUrl(url: string): string {
+  // A destination may end in a title (`x.png "x.png"`, as Zettlr writes);
+  // the title is not part of the path (#199).
+  const trimmed = url.trim().replace(/\s+(?:"[^"]*"|'[^']*')$/, '')
   // Markdown wraps URLs containing spaces in angle brackets: `[x](<a b.pdf>)`.
-  const trimmed = url.trim()
   if (trimmed.startsWith('<') && trimmed.endsWith('>')) return trimmed.slice(1, -1)
   return trimmed
 }

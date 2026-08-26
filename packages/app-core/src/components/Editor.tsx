@@ -12,6 +12,7 @@ import type { EditorView } from "@codemirror/view";
 import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
 import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
+import { registerReflowOperator } from "../lib/cm-vim-reflow";
 import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { foldAll, unfoldAll, foldCode, unfoldCode } from "@codemirror/language";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
@@ -433,6 +434,7 @@ function registerVimCommands(): void {
     () => useStore.getState().vimWrappedLineMotions,
   );
   registerHeadingMotion();
+  registerReflowOperator();
 
   Vim.defineEx("write", "w", () => {
     void useStore.getState().persistActive();

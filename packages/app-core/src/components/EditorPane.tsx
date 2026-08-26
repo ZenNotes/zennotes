@@ -232,6 +232,8 @@ import {
   ZapIcon
 } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { reflowParagraph } from '../lib/cm-reflow'
+import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import {
   getSystemFolderLabel,
   resolveSystemFolderLabels
@@ -369,6 +371,12 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     {
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.toggleCheckbox')),
       run: toggleCheckbox
+    },
+    // Join a hard-wrapped paragraph back into one line so the pane wraps it
+    // (#676). Mode-agnostic like the line moves; Vim mode also has `gq`.
+    {
+      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.reflowParagraph')),
+      run: reflowParagraph
     },
     // Step across inline markers, so a formatted word can be finished without
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
@@ -1747,6 +1755,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         extensions: [
           appMarkdownSnippetExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
+          // No text input outside Vim insert mode, so a CJK input method
+          // cannot compose over motions (#84, #464). Reads the pref live.
+          vimImeGuard(
+            () => useStore.getState().vimBlockImeInNormalMode && !isTouchPrimaryDevice()
+          ),
           historyCompartment.of(history()),
           drawSelectionCompartment.of(
             drawSelection({ cursorBlinkRate: s0.cursorBlink ? 1200 : 0 })
@@ -3215,7 +3228,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               </button>
             )}
             <button
-              onClick={() => void focusTabInPane(paneId, tab.path)}
+              onClick={(e) => {
+                // A mouse click parks DOM focus on this button, so the next
+                // keystrokes went to the tab (and drew its focus ring) instead
+                // of the note (#679). Land in the editor the way a hint or a
+                // palette pick does; a panel tab just lets go of the button.
+                const button = e.currentTarget
+                void focusTabInPane(paneId, tab.path).then(() => {
+                  if (isVirtual) button.blur()
+                  else focusEditorNormalMode({ attempts: 10, delayMs: 24 })
+                })
+              }}
               onDoubleClick={() => {
                 if (tab.preview) promoteTabInPane(paneId, tab.path)
               }}

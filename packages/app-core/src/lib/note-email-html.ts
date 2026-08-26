@@ -9,10 +9,13 @@
 // No app CSS, no theme variables, no scripts: the fragment must look right
 // inside someone else's mail client on someone else's machine.
 //
-// Deliberate degradations: local images become their alt text in italics (a
-// pasted email body cannot carry files on disk); math and diagram fences stay
-// as code. The title is stated in the fragment via the shared export-title
-// rule, so an email never starts mid-thought.
+// Images travel as `data:` URIs: a pasted email body cannot reference a file
+// on this disk, but mail clients turn an inline data image into an attached
+// inline picture, which is what the recipient expects to see (#628). The
+// caller reads the bytes (it has the vault and the bridge) and hands them in;
+// an image it could not read degrades to its alt text in italics. Math and
+// diagram fences stay as code. The title is stated in the fragment via the
+// shared export-title rule, so an email never starts mid-thought.
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
@@ -22,6 +25,7 @@ import rehypeStringify from 'rehype-stringify'
 import { visit } from 'unist-util-visit'
 import type { Element, Root as HastRoot } from 'hast'
 import { withExportTitle } from '@shared/export-title'
+import { isImageEmbedTarget, rewriteWikilinkImageEmbeds, splitEmbedLabel } from '@shared/embed-size'
 
 const MONO = "ui-monospace, 'SF Mono', Consolas, Menlo, monospace"
 
@@ -47,12 +51,23 @@ const TAG_STYLES: Record<string, string> = {
 
 const INLINE_CODE_STYLE = `font-family:${MONO};font-size:0.92em;background:#f5f5f5;padding:1px 4px;border-radius:3px`
 
-function styleTree(tree: HastRoot): void {
+const IMAGE_STYLE = 'max-width:100%;height:auto;display:block;margin:0.6em 0'
+
+function styleTree(tree: HastRoot, images: ReadonlyMap<string, string>): void {
   visit(tree, 'element', (node: Element, _index, parent) => {
-    // A pasted email cannot carry a file from this disk, so an image degrades
-    // to its alt text rather than a broken picture icon on the recipient's end.
     if (node.tagName === 'img') {
-      const alt = typeof node.properties?.alt === 'string' ? node.properties.alt : ''
+      const src = typeof node.properties?.src === 'string' ? node.properties.src : ''
+      const rawAlt = typeof node.properties?.alt === 'string' ? node.properties.alt : ''
+      const { alt, size } = splitEmbedLabel(rawAlt, 'markdown')
+      const embedded = images.get(src)
+      const remote = /^(?:https?:|data:)/i.test(src)
+      if (embedded || remote) {
+        const sizing = size ? `;width:${size.width}px${size.height ? `;height:${size.height}px` : ''}` : ''
+        node.properties = { src: embedded ?? src, alt, style: `${IMAGE_STYLE}${sizing}` }
+        return
+      }
+      // No bytes for this one (outside the vault, too large, unreadable): the
+      // alt text beats a broken picture icon on the recipient's end.
       node.tagName = 'em'
       node.properties = {}
       node.children = [{ type: 'text', value: alt ? `[${alt}]` : '[image]' }]
@@ -82,15 +97,46 @@ export interface EmailHtml {
   title: string
 }
 
-/** The note as an email-ready fragment: title stated, styles inline. */
-export function renderNoteEmailHtml(body: string, noteTitle: string): EmailHtml {
-  const titled = withExportTitle(body, noteTitle)
+export interface EmailHtmlOptions {
+  /** Image `src` as written in the note (after `![[…]]` rewriting, so the
+   *  wikilink target) mapped to a `data:` URI with the file's bytes. */
+  images?: ReadonlyMap<string, string>
+}
+
+const IMAGE_REF_RE = /!\[[^\]]*\]\((?:<([^>]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g
+const WIKILINK_REF_RE = /!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]/g
+
+/** Every local image the note refers to, in the form `styleTree` will see as
+ *  `src`: markdown destinations as written (title dropped) and wikilink
+ *  targets. Remote URLs are left out; the mail client fetches those itself. */
+export function collectEmailImageRefs(markdown: string): string[] {
+  const refs = new Set<string>()
+  for (const m of markdown.matchAll(IMAGE_REF_RE)) {
+    const href = (m[1] ?? m[2] ?? '').trim()
+    if (href && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(href)) refs.add(href)
+  }
+  for (const m of markdown.matchAll(WIKILINK_REF_RE)) {
+    const target = (m[1] ?? '').trim()
+    if (target && isImageEmbedTarget(target)) refs.add(target)
+  }
+  return [...refs]
+}
+
+/** The note as an email-ready fragment: title stated, styles inline, images
+ *  embedded when their bytes were supplied. */
+export function renderNoteEmailHtml(
+  body: string,
+  noteTitle: string,
+  options: EmailHtmlOptions = {}
+): EmailHtml {
+  const images = options.images ?? new Map<string, string>()
+  const titled = withExportTitle(rewriteWikilinkImageEmbeds(body), noteTitle)
   const rendered = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkFrontmatter, ['yaml', 'toml'])
     .use(remarkRehype)
-    .use(() => styleTree)
+    .use(() => (tree: HastRoot) => styleTree(tree, images))
     .use(rehypeStringify)
     .processSync(titled.markdown)
   const html =

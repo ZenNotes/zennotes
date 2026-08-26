@@ -70,11 +70,29 @@ const taskCancelledMark = Decoration.mark({ class: 'cm-task-cancelled' })
 // Stamped on an image line only while its raw source is hidden, so the host
 // line stops reserving a blank text row above/below the block figure (#261).
 const imageEmbedLine = Decoration.line({ class: 'cm-image-embed-line' })
-const STANDALONE_IMAGE_RE = /^\s*!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+))\)\s*$/
+// A markdown destination may carry a title: `![alt](path "title")`. Zettlr
+// writes one on every image it inserts, and reading the title into the href
+// turned such pictures into attachment chips in edit mode while the preview
+// (remark) drew them fine (#199). The bare form stays lazy so a path with a
+// space (`![](my image.png)`) still parses when no title follows.
+const MD_LINK_TITLE = String.raw`(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?`
+const STANDALONE_IMAGE_RE = new RegExp(
+  String.raw`^\s*!\[([^\]]*)\]\((?:<([^>]+)>|([^)]+?))` + MD_LINK_TITLE + String.raw`\s*\)\s*$`
+)
 const STANDALONE_OBSIDIAN_EMBED_RE = /^\s*!\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]\s*$/
 // Anchor-style standalone PDF link: `[Label](file.pdf)` or `[Label](<file with spaces.pdf>)`.
 // Same shape as the image regex but without the leading `!`.
-const STANDALONE_PDF_RE = /^\s*\[([^\]]*)\]\((?:<([^>]+)>|([^)]+))\)\s*$/
+const STANDALONE_PDF_RE = new RegExp(
+  String.raw`^\s*\[([^\]]*)\]\((?:<([^>]+)>|([^)]+?))` + MD_LINK_TITLE + String.raw`\s*\)\s*$`
+)
+
+/** The `alt` and `href` of a standalone markdown image line, title dropped;
+ *  null when the line is not one. Exported for tests. */
+export function parseStandaloneImageLine(lineText: string): { alt: string; href: string } | null {
+  const m = lineText.match(STANDALONE_IMAGE_RE)
+  if (!m) return null
+  return { alt: m[1] ?? '', href: (m[2] ?? m[3] ?? '').trim() }
+}
 
 type ParsedImage = {
   alt: string

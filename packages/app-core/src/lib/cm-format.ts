@@ -68,6 +68,8 @@ export function formatMarkerBackspaceTransaction(state: EditorState): Transactio
   const sel = state.selection.main
   if (!sel.empty) return null
   const head = sel.head
+  const link = emptyLinkBackspaceTransaction(state, head)
+  if (link) return link
   for (const m of WRAP_MARKERS) {
     if (isEmptyPairAt(state, head, m)) {
       return {
@@ -75,6 +77,33 @@ export function formatMarkerBackspaceTransaction(state: EditorState): Transactio
         selection: EditorSelection.cursor(head - m.length)
       }
     }
+  }
+  return null
+}
+
+/**
+ * The empty link scaffold Ctrl+K leaves behind (and the `/link` and `/image`
+ * slash commands), with the caret in either hole: `[](|)`, `[|]()`, or their
+ * `![…]()` image forms. Backspace inside one removes the whole scaffold. Left
+ * to the auto-pair rule it deleted only the `()` and stranded a `[]` (#678).
+ * Returns null unless both the text and the URL are empty.
+ */
+function emptyLinkBackspaceTransaction(state: EditorState, head: number): TransactionSpec | null {
+  const slice = (from: number, to: number): string =>
+    state.sliceDoc(Math.max(0, from), Math.min(state.doc.length, to))
+  const remove = (from: number, to: number): TransactionSpec => ({
+    changes: { from, to, insert: '' },
+    selection: EditorSelection.cursor(from)
+  })
+  // Caret in the URL hole: `[](|)`.
+  if (slice(head - 3, head) === '[](' && slice(head, head + 1) === ')') {
+    const bang = slice(head - 4, head - 3) === '!' ? 1 : 0
+    return remove(head - 3 - bang, head + 1)
+  }
+  // Caret in the text hole: `[|]()`.
+  if (slice(head - 1, head) === '[' && slice(head, head + 3) === ']()') {
+    const bang = slice(head - 2, head - 1) === '!' ? 1 : 0
+    return remove(head - 1 - bang, head + 3)
   }
   return null
 }

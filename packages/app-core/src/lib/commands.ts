@@ -18,6 +18,7 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { canManageWorkflows } from './workflow-workspace'
 import { toggleCheckbox } from './cm-toggle-checkbox'
+import { reflowParagraph } from './cm-reflow'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
@@ -911,6 +912,20 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => {
         const view = getState().editorViewRef
         if (view) toggleCheckbox(view)
+      }
+    },
+    {
+      id: 'editor.reflow-paragraph',
+      title: 'Reflow Paragraph',
+      category: 'Editor',
+      shortcut: shortcut('editor.reflowParagraph'),
+      keywords: 'reflow join lines unwrap hard wrap word wrap format paragraph gq fill',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (!view) return
+        reflowParagraph(view)
+        view.focus()
       }
     },
     {

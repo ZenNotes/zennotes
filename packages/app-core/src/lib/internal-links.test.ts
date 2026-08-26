@@ -186,3 +186,12 @@ describe('markdownLinkAt', () => {
     expect(markdownLinkAt('a [test](google.com) b', 0)).toBeNull()
   })
 })
+
+// #199: a markdown title after the destination is not part of the path.
+describe('markdownLinkAt with a title', () => {
+  it('drops the title from the href', () => {
+    const doc = 'see ![chart](assets/chart.png "chart.png") here'
+    expect(markdownLinkAt(doc, 8)?.href).toBe('assets/chart.png')
+    expect(markdownLinkAt('[x](<a b.pdf> "t")', 2)?.href).toBe('a b.pdf')
+  })
+})

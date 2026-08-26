@@ -20,8 +20,11 @@
 // markdown image syntax; sized via Electron's nativeImage, re-encoded to PNG
 // when Word would not accept the source format). Math renders as its literal
 // source in mono; mermaid and other diagram fences render as code blocks;
-// `![[wikilink]]` embeds pass through as text. Those upgrades want the real
-// renderers and belong to a follow-up, not to a worse approximation here.
+// `![[chart.png|600]]` image embeds are rewritten to standard image syntax
+// before parsing (the shared `rewriteWikilinkImageEmbeds`), so the pictures
+// the app itself inserts export like any other (#629); a `|600` hint sizes
+// the run. Note embeds still pass through as text. Those upgrades want the
+// real renderers and belong to a follow-up, not to a worse approximation here.
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
@@ -48,6 +51,7 @@ import {
 } from 'docx'
 import { withExportTitle } from '@shared/export-title'
 import { stripBlockAnchorMarkers } from '@shared/block-anchors'
+import { rewriteWikilinkImageEmbeds, splitEmbedLabel, type EmbedSize } from '@shared/embed-size'
 
 /* -------------------------------------------------------------------------- */
 /*  The intermediate representation                                           */
@@ -79,7 +83,7 @@ export type IRBlock =
   | { kind: 'list'; ordered: boolean; items: IRListItem[] }
   | { kind: 'table'; aligns: (AlignType | null)[]; header: IRRun[][]; rows: IRRun[][][] }
   | { kind: 'rule' }
-  | { kind: 'image'; src: string; alt: string }
+  | { kind: 'image'; src: string; alt: string; size?: EmbedSize }
 
 interface InlineStyle {
   bold?: boolean
@@ -195,7 +199,15 @@ function blockOf(node: RootContent): IRBlock[] | null {
       // A paragraph that is exactly one image is a figure, not a sentence.
       if (node.children.length === 1 && node.children[0].type === 'image') {
         const image = node.children[0]
-        return [{ kind: 'image', src: image.url, alt: image.alt ?? '' }]
+        const label = splitEmbedLabel(image.alt, 'markdown')
+        return [
+          {
+            kind: 'image',
+            src: image.url,
+            alt: label.alt,
+            ...(label.size ? { size: label.size } : {})
+          }
+        ]
       }
       return [{ kind: 'paragraph', runs: runsOf(node.children) }]
     }
@@ -249,6 +261,8 @@ function blockOf(node: RootContent): IRBlock[] | null {
  *  `^block-id` markers are addressing, not prose, and a Word document handed
  *  to non-ZenNotes readers is the last place they should print. (#601) */
 export function noteMarkdownToIR(markdown: string): IRBlock[] {
+  // `![[chart.png|600]]` becomes `![|600](chart.png)` before remark sees it (#629).
+  markdown = rewriteWikilinkImageEmbeds(markdown)
   const tree = unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -271,7 +285,9 @@ export interface ResolvedImage {
   type: 'png' | 'jpg' | 'gif' | 'bmp'
 }
 
-export type ImageResolver = (src: string) => Promise<ResolvedImage | null>
+/** `size` is the author's `|600` / `|600x400` hint, a request the resolver
+ *  honours within the page column. */
+export type ImageResolver = (src: string, size?: EmbedSize) => Promise<ResolvedImage | null>
 
 const HEADINGS = [
   HeadingLevel.HEADING_1,
@@ -452,7 +468,7 @@ async function blockToDocx(
         })
       ]
     case 'image': {
-      const resolved = await resolveImage(block.src).catch(() => null)
+      const resolved = await resolveImage(block.src, block.size).catch(() => null)
       if (!resolved) {
         return [
           new Paragraph({

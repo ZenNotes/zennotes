@@ -443,6 +443,8 @@ export function SettingsModal(): JSX.Element {
   const setVimInsertEscape = useStore((s) => s.setVimInsertEscape);
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard);
   const setVimYankToClipboard = useStore((s) => s.setVimYankToClipboard);
+  const vimBlockImeInNormalMode = useStore((s) => s.vimBlockImeInNormalMode);
+  const setVimBlockImeInNormalMode = useStore((s) => s.setVimBlockImeInNormalMode);
   const vimWrappedLineMotions = useStore((s) => s.vimWrappedLineMotions);
   const setVimWrappedLineMotions = useStore(
     (s) => s.setVimWrappedLineMotions,
@@ -2215,6 +2217,13 @@ export function SettingsModal(): JSX.Element {
                       value={vimYankToClipboard}
                       settingId="vim-yank-to-clipboard"
                       onChange={setVimYankToClipboard}
+                    />
+                    <ToggleRow
+                      label="Keep the input method out of normal mode"
+                      description="With a Korean, Chinese, or Japanese input method active, normal-mode keys were composed into syllables instead of running as motions. On, the editor takes no text input outside insert mode, so h j k l stay motions and i / a start a clean composition. Skipped on touch devices."
+                      value={vimBlockImeInNormalMode}
+                      settingId="vim-block-ime-in-normal-mode"
+                      onChange={setVimBlockImeInNormalMode}
                     />
                     <SliderRow
                       label="Scroll offset"

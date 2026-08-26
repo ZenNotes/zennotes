@@ -159,4 +159,49 @@ describe('renderNoteDocx', () => {
       }
     }
   )
+
+  // #629: `![[chart.png|320]]` is what the app writes when you paste a picture,
+  // and it used to reach Word as literal text.
+  it('turns a wikilink image embed into an image block with its size hint', () => {
+    const blocks = noteMarkdownToIR('![[chart.png|320]]\n\n![[Some note]]\n')
+    expect(blocks[0]).toEqual({ kind: 'image', src: 'chart.png', alt: '', size: { width: 320, height: undefined } })
+    expect(blocks[1]).toMatchObject({ kind: 'paragraph' })
+  })
+})
+
+describe('renderNoteDocx wikilink embeds', () => {
+  it('hands the wikilink target and its size hint to the image resolver', async () => {
+    const seen: Array<[string, unknown]> = []
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    await renderNoteDocx('![[chart.png|Quarter|600x400]]\n', 'T', async (src, size) => {
+      seen.push([src, size])
+      return { data: png, width: 1, height: 1, type: 'png' }
+    })
+    expect(seen).toEqual([['chart.png', { width: 600, height: 400 }]])
+  })
+
+  it('writes the wikilink-embedded picture into the package as media (#629)', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'zen-docx-'))
+    try {
+      const png = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64'
+      )
+      const buffer = await renderNoteDocx('Chart:\n\n![[chart.png|320]]\n', 'T', async (src) =>
+        src === 'chart.png' ? { data: png, width: 320, height: 107, type: 'png' } : null
+      )
+      const file = path.join(dir, 'note.docx')
+      await writeFile(file, buffer)
+      const listing = execFileSync('unzip', ['-l', file], { encoding: 'utf8' })
+      expect(listing).toMatch(/word\/media\/[^\s]+\.png/)
+      const xml = execFileSync('unzip', ['-p', file, 'word/document.xml'], { encoding: 'utf8' })
+      expect(xml).toContain('<w:drawing>')
+      expect(xml).not.toContain('![[chart.png')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

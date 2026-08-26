@@ -1940,6 +1940,43 @@ function sanitizePdfFilename(name: string): string {
  * the save dialog, and reading local image files for embedding. Local vaults
  * only for now: the serializer reads assets straight off disk.
  */
+
+const ASSET_SEARCH_DIRS = ["assets", "attachements", "_assets"];
+
+/** First file under the asset folders whose basename matches, case-insensitive.
+ *  Bounded depth so a stray symlink loop cannot hold the export hostage. */
+async function findAssetByBasename(
+  rootAbs: string,
+  name: string,
+): Promise<string | null> {
+  const wanted = name.toLowerCase();
+  const walk = async (dir: string, depth: number): Promise<string | null> => {
+    if (depth > 6) return null;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.toLowerCase() === wanted) {
+        return path.join(dir, entry.name);
+      }
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const hit = await walk(path.join(dir, entry.name), depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  for (const sub of ASSET_SEARCH_DIRS) {
+    const hit = await walk(path.join(rootAbs, sub), 0);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 async function exportNoteDocx(
   relPath: string,
   parentWindow: BrowserWindow | null | undefined,
@@ -1972,13 +2009,23 @@ async function exportNoteDocx(
   // that cannot be embedded (remote URLs, files outside the vault, formats
   // Word rejects that nativeImage cannot decode either). Null degrades to the
   // image's alt text in the document rather than failing the export.
-  const resolveImage = async (src: string) => {
+  const resolveImage = async (
+    src: string,
+    size?: { width: number; height?: number },
+  ) => {
     if (/^[a-z][a-z0-9+.-]*:/i.test(src)) return null;
     const decoded = decodeURIComponent(src);
     const candidates = [
       path.resolve(rootAbs, noteDir === "." ? "" : noteDir, decoded),
       path.resolve(rootAbs, decoded.replace(/^\/+/, "")),
     ];
+    // A wikilink embed names the file, not its folder (`![[chart.png]]`),
+    // the way the editor resolves it: look through the asset folders for the
+    // basename when neither literal path exists (#629).
+    if (!decoded.includes("/")) {
+      const found = await findAssetByBasename(rootAbs, decoded);
+      if (found) candidates.push(found);
+    }
     for (const abs of candidates) {
       if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) continue;
       let data: Buffer;
@@ -2001,16 +2048,23 @@ async function exportNoteDocx(
         data = converted.toPNG();
         type = "png";
       }
-      const size = nativeImage.createFromBuffer(data).getSize();
-      if (size.width === 0 || size.height === 0) return null;
+      const imageSize = nativeImage.createFromBuffer(data).getSize();
+      if (imageSize.width === 0 || imageSize.height === 0) return null;
       // Fit the printable Letter column (6.5in at Word's 96dpi), scaling only
-      // ever DOWN so small images keep their intrinsic size.
+      // ever DOWN so small images keep their intrinsic size. An author's
+      // `|600` hint is honoured inside that column; `|600x400` fixes both.
       const maxWidth = 624;
-      const scale = size.width > maxWidth ? maxWidth / size.width : 1;
+      const requestedWidth = size?.width
+        ? Math.min(size.width, maxWidth)
+        : Math.min(imageSize.width, maxWidth);
+      const scale = requestedWidth / imageSize.width;
+      const height = size?.width && size.height
+        ? Math.round((size.height * requestedWidth) / size.width)
+        : Math.round(imageSize.height * scale);
       return {
         data,
-        width: Math.round(size.width * scale),
-        height: Math.round(size.height * scale),
+        width: Math.round(requestedWidth),
+        height,
         type,
       };
     }

@@ -6,56 +6,11 @@ import {
   extractObsidianExcalidrawScene
 } from '@shared/excalidraw'
 
-export interface EmbedSize {
-  width?: number
-  height?: number
-}
-
-/** Parse an Obsidian-style embed size hint: `600`, `600x400`. Shared by
- *  Excalidraw AND image embeds (#570); it just happens to live here because
- *  drawings grew size hints first. */
-const SIZE_HINT_RE = /^(\d+)(?:x(\d+))?$/
-
-export function parseEmbedSizeHint(hint: string | null | undefined): EmbedSize | null {
-  if (!hint) return null
-  const m = hint.trim().match(SIZE_HINT_RE)
-  if (!m) return null
-  const width = Number(m[1])
-  const height = m[2] ? Number(m[2]) : undefined
-  // A zero dimension is not a resize. Treating `|0` or `|0x300` as a hint
-  // used to eat the caption and then skip the zero at the falsy checks
-  // downstream, distorting the image; an invalid hint stays a caption.
-  if (width < 1 || (height !== undefined && height < 1)) return null
-  return { width, height }
-}
-
-/** Split an embed label into its caption and a trailing size hint, covering
- *  every Obsidian spelling: `caption|600` (from `![caption|600](img)` alt
- *  text or `![[img|caption|600]]`), and plain captions with no hint. Pipes
- *  inside the caption survive; only a LAST segment that parses as a size is
- *  consumed. The whole-label form (`600x400` from `![[img|600x400]]`) is a
- *  hint only for `source: 'wikilink'`: in standard markdown the alt is the
- *  author's caption, so `![2024](chart.png)` keeps its numeric alt instead
- *  of being resized to 2024px (write `![|2024](chart.png)` to size). (#570) */
-export function splitEmbedLabel(
-  label: string | null | undefined,
-  source: 'wikilink' | 'markdown'
-): {
-  alt: string
-  size: EmbedSize | null
-} {
-  const raw = (label ?? '').trim()
-  if (!raw) return { alt: '', size: null }
-  if (source === 'wikilink') {
-    const wholeSize = parseEmbedSizeHint(raw)
-    if (wholeSize) return { alt: '', size: wholeSize }
-  }
-  const pipeAt = raw.lastIndexOf('|')
-  if (pipeAt < 0) return { alt: raw, size: null }
-  const size = parseEmbedSizeHint(raw.slice(pipeAt + 1))
-  if (!size) return { alt: raw, size: null }
-  return { alt: raw.slice(0, pipeAt).trim(), size }
-}
+// Size hints moved to shared-domain so the Word export in the desktop main
+// process reads `|600` the same way the editor does (#629). Re-exported here
+// because the editor and preview import them from this module.
+export { parseEmbedSizeHint, splitEmbedLabel } from '@shared/embed-size'
+export type { EmbedSize } from '@shared/embed-size'
 
 interface CacheEntry {
   mtime: number

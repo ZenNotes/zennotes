@@ -117,7 +117,8 @@ export type KeymapId =
   | "editor.hopMarkerBackward"
   | "editor.foldHeading"
   | "editor.unfoldHeading"
-  | "editor.toggleCheckbox";
+  | "editor.toggleCheckbox"
+  | "editor.reflowParagraph";
 
 export type KeymapOverrides = Partial<Record<KeymapId, string>>;
 
@@ -1151,6 +1152,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Turn the current line (or selected lines) into a checkbox, and toggle it between unchecked and checked on repeat. Plain text becomes `- [ ]`, keeping any list marker or blockquote prefix. Works with Vim mode on or off.",
     defaultBinding: "Mod+L",
+  },
+  {
+    id: "editor.reflowParagraph",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Reflow paragraph",
+    description:
+      "Join the hard-wrapped lines of the paragraph under the cursor (or of every paragraph in the selection) into one line, so the editor wraps it to the pane the way the preview does. Headings, list markers, tables, code, and explicit line breaks are left alone. Works with Vim mode on or off; Vim mode also has it as the `gq` operator (`gqip`, `gqj`, `gw` to keep the cursor).",
+    defaultBinding: "Alt+Q",
+    defaultBindingMac: "Ctrl+Q",
   },
   {
     id: "nav.localEx",

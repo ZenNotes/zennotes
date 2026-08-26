@@ -222,6 +222,13 @@ export function focusPaneOrEdgePanel(direction: PaneDirection): boolean {
   const focused = state.focusedPanel
   const panels = getVisiblePanelList(state)
 
+  // From the tab strip, down is the note under it. `<C-w>j` already lands
+  // there; the Alt binding dead-ended because no pane sits below (#679).
+  if (focused === 'tabs' && direction === 'j') {
+    focusPanel('editor')
+    return true
+  }
+
   // When focus is already on a panel, move relative to THAT panel instead of
   // geometrically from activePaneId — otherwise `l` from the sidebar navigates
   // from the last active pane and skips the pane sitting right next to it

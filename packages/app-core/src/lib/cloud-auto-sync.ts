@@ -61,6 +61,16 @@ export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
   ...emptyCloudSyncStatus,
 }));
 
+/**
+ * Phases in which a ZenNotes Cloud account is signed in on this device.
+ * Publishing a note talks to the account, not to a linked vault, so
+ * `unlinked` counts; `hidden` (no cloud capability, or status not yet
+ * known), `disconnected` and `connecting` do not.
+ */
+export function isCloudAccountConnectedPhase(phase: CloudSyncPhase): boolean {
+  return phase !== "hidden" && phase !== "disconnected" && phase !== "connecting";
+}
+
 type CloudAutoSyncTimings = Pick<
   CloudAutoSyncControllerOptions,
   "debounceMs" | "intervalMs" | "retryDelaysMs" | "onError"

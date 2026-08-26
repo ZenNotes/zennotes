@@ -28,6 +28,23 @@ export function appMarkdownSnippetExtension(): Extension {
         return s.textReplacementsEnabled && isTyping(view)
       }
     }),
+    // Backspace inside a just-inserted empty formatting snippet (`**|**`, `` `|` ``)
+    // deletes the whole pair, not one marker char (#468). Always on while typing —
+    // it's a formatting-shortcut fix, independent of the auto-pairs pref. It sits
+    // ahead of the auto-pair keymap on purpose: inside an empty `[](|)` link the
+    // pair rule would fire first and delete only the `()` (#678).
+    keymap.of([
+      {
+        key: 'Backspace',
+        run: (view: EditorView): boolean => {
+          if (!isTyping(view)) return false
+          const tr = formatMarkerBackspaceTransaction(view.state)
+          if (!tr) return false
+          view.dispatch(tr)
+          return true
+        }
+      }
+    ]),
     autoPairExtension({
       shouldHandle: (view) => useStore.getState().autoPairs && isTyping(view),
       shouldPairQuotes: (view, from) => {
@@ -40,21 +57,6 @@ export function appMarkdownSnippetExtension(): Extension {
         const s = useStore.getState()
         return s.markdownSnippets && isTyping(view)
       }
-    }),
-    // Backspace inside a just-inserted empty formatting snippet (`**|**`, `` `|` ``)
-    // deletes the whole pair, not one marker char (#468). Always on while typing —
-    // it's a formatting-shortcut fix, independent of the auto-pairs pref.
-    keymap.of([
-      {
-        key: 'Backspace',
-        run: (view: EditorView): boolean => {
-          if (!isTyping(view)) return false
-          const tr = formatMarkerBackspaceTransaction(view.state)
-          if (!tr) return false
-          view.dispatch(tr)
-          return true
-        }
-      }
-    ])
+    })
   ]
 }

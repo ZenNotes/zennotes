@@ -65,7 +65,7 @@ import { NoteHoverPreview } from "./NoteHoverPreview";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { ArrowUpRightIcon, MaximizeIcon, MinimizeIcon } from "./icons";
 import { promptApp } from "../lib/prompt-requests";
-import { buildMermaidTheme, loadMermaid } from "../lib/mermaid-render";
+import { peekMermaidSvg, renderMermaidSvg } from "../lib/mermaid-render";
 import { confirmApp } from "../lib/confirm-requests";
 
 // Mermaid's lazy loader and theme live in `lib/mermaid-render`, shared with
@@ -120,34 +120,35 @@ function prepareMermaidShell(el: HTMLElement, source: string): HTMLDivElement {
   return surface;
 }
 
+// Every preview rebuild hands over fresh DOM, so the diagrams went back
+// through mermaid's parse-and-layout on each keystroke in split view, which
+// is what made typing next to a diagram feel laggy (#184). The rendered SVG
+// only depends on the source and the theme, so it comes from the cache the
+// editor's live widget already keeps in `mermaid-render`; a rebuild costs an
+// innerHTML assignment, and the two surfaces share one render per diagram.
 async function renderMermaidBlocks(
   root: HTMLElement,
   mode: "light" | "dark",
-  opts: { expanded?: boolean } = {},
+  opts: { expanded?: boolean; themeKey?: string } = {},
 ): Promise<void> {
   const blocks = Array.from(root.querySelectorAll<HTMLElement>(".mermaid"));
   if (blocks.length === 0) return;
-  const mermaid = await loadMermaid();
-  const cfg = buildMermaidTheme(mode);
+  const themeKey = opts.themeKey ?? mode;
+  const needsRender = blocks.some((el) => {
+    const source = el.getAttribute("data-mermaid-source") ?? el.textContent ?? "";
+    return source.trim() !== "" && peekMermaidSvg(source, mode, themeKey) === null;
+  });
   // Mermaid measures text in a temporary element. If the active font is
   // still loading, metrics are taken against a fallback and the rendered
   // labels end up clipped once the real font applies. Wait for fonts first
-  // so the measured widths match the final painted text.
-  if (typeof document !== "undefined" && document.fonts) {
+  // so the measured widths match the final painted text. A cached diagram
+  // was measured already and skips the wait.
+  if (needsRender && typeof document !== "undefined" && document.fonts) {
     try {
       await document.fonts.ready;
     } catch {
       /* ignore font-api failures and render anyway */
     }
-  }
-  try {
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      ...cfg,
-    });
-  } catch {
-    /* initialize is tolerant across versions — ignore */
   }
 
   for (let i = 0; i < blocks.length; i++) {
@@ -159,17 +160,16 @@ async function renderMermaidBlocks(
     if (!source.trim()) continue;
     el.setAttribute("data-mermaid-source", source);
     const surface = prepareMermaidShell(el, source);
-    const id = `zen-mermaid-${Date.now()}-${i}-${opts.expanded ? "expanded" : "inline"}`;
-    try {
-      const { svg } = await mermaid.render(id, source);
-      surface.innerHTML = svg;
+    // The preview renders into a detached stage and commits afterwards, so
+    // the block is not in the document yet: always paint it.
+    const result = await renderMermaidSvg(source, mode, themeKey, "zen-mermaid-preview");
+    if (result.ok) {
+      surface.innerHTML = result.svg;
       // Inline pan/zoom (Cmd/Ctrl+wheel, drag, dblclick reset). The
       // expanded modal has its own React pan/zoom frame.
       if (!opts.expanded) attachInlineDiagramPanZoom(surface);
-    } catch (err) {
-      surface.innerHTML = `<pre class="whitespace-pre-wrap text-xs text-[color:rgb(var(--z-red))]">Mermaid error: ${
-        (err as Error).message
-      }</pre>`;
+    } else {
+      surface.innerHTML = `<pre class="whitespace-pre-wrap text-xs text-[color:rgb(var(--z-red))]">Mermaid error: ${result.error}</pre>`;
     }
   }
 }
@@ -790,7 +790,7 @@ export const Preview = memo(function Preview({
 
     const applyRenderedDom = async (): Promise<void> => {
       try {
-        await renderMermaidBlocks(stage, diagramTheme.mode);
+        await renderMermaidBlocks(stage, diagramTheme.mode, { themeKey: diagramTheme.key });
       } catch {
         /* render errors are surfaced inline per block */
       }
@@ -1294,7 +1294,7 @@ function DiagramPanZoomFrame({
 
     const render = async (): Promise<void> => {
       if (diagram.kind === "mermaid") {
-        await renderMermaidBlocks(host, diagramMode, { expanded: true });
+        await renderMermaidBlocks(host, diagramMode, { expanded: true, themeKey });
       } else {
         await renderDiagrams(host, { themeKey, expanded: true });
       }

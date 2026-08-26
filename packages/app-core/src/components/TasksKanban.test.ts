@@ -3,10 +3,14 @@ import type { VaultTask } from '@shared/tasks'
 import {
   applyColumnOrder,
   arrangeColumns,
+  completeStatusOrder,
   cursorAfterCardMove,
+  dropMutationsFor,
+  IN_PROGRESS_COLUMN_ID,
   kanbanGroupByKeyPlan,
   kanbanPendingGroupByPlan,
   NO_VALUE_COLUMN_ID,
+  statusColumns,
   taskIdentityKey,
   type Column
 } from './TasksKanban'
@@ -235,5 +239,112 @@ describe('group-by vs gt/gT tab keymaps (#573)', () => {
     expect(
       kanbanPendingGroupByPlan(overrides, event({ key: 'T', code: 'KeyT', shiftKey: true }))
     ).toBe('yield-to-tabs')
+  })
+})
+
+// #677: started work (`[/]`) gets its own column on the Status board.
+function card(over: Partial<VaultTask> & { content: string }): VaultTask {
+  return {
+    kind: 'inline',
+    sourcePath: 'inbox/board.md',
+    taskIndex: 0,
+    checked: false,
+    waiting: false,
+    inProgress: false,
+    cancelled: false,
+    forwarded: false,
+    ...over
+  } as VaultTask
+}
+
+const TODAY = new Date(2026, 7, 25)
+const columnIds = (columns: Column[], id: string): string[] =>
+  columns.find((c) => c.id === id)!.tasks.map((t) => t.content)
+
+describe('statusColumns (#677)', () => {
+  it('places [/] tasks in their own In progress column, in flow order', () => {
+    const columns = statusColumns(
+      [
+        card({ content: 'todo', taskIndex: 0 }),
+        card({ content: 'started', taskIndex: 1, inProgress: true }),
+        card({ content: 'later', taskIndex: 2, due: '2026-09-01' }),
+        card({ content: 'started later', taskIndex: 3, due: '2026-09-01', inProgress: true }),
+        card({ content: 'blocked', taskIndex: 4, waiting: true, inProgress: true }),
+        card({ content: 'shipped', taskIndex: 5, checked: true })
+      ],
+      TODAY
+    )
+    expect(columns.map((c) => c.id)).toEqual(['today', 'upcoming', IN_PROGRESS_COLUMN_ID, 'waiting', 'done'])
+    expect(columnIds(columns, 'today')).toEqual(['todo'])
+    expect(columnIds(columns, 'upcoming')).toEqual(['later'])
+    expect(columnIds(columns, IN_PROGRESS_COLUMN_ID)).toEqual(['started', 'started later'])
+    // @waiting wins over [/]: the card reads as blocked until the wait clears.
+    expect(columnIds(columns, 'waiting')).toEqual(['blocked'])
+    expect(columnIds(columns, 'done')).toEqual(['shipped'])
+  })
+
+  it('counts overdue cards per column, not the ones that moved to In progress', () => {
+    const columns = statusColumns(
+      [
+        card({ content: 'late', taskIndex: 0, due: '2026-08-01' }),
+        card({ content: 'late but started', taskIndex: 1, due: '2026-08-01', inProgress: true })
+      ],
+      TODAY
+    )
+    expect(columns.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 1 })
+    expect(columns.find((c) => c.id === IN_PROGRESS_COLUMN_ID)!.badge).toEqual({ kind: 'overdue', value: 1 })
+  })
+})
+
+describe('dropMutationsFor on the Status board (#677)', () => {
+  const kinds = (columnId: string, over: Partial<VaultTask> = {}): string[] =>
+    dropMutationsFor('status', columnId, card({ content: 'x', ...over }), TODAY)!.map((m) =>
+      m.kind === 'set-in-progress' ? `set-in-progress:${m.inProgress}` : m.kind
+    )
+
+  it('dropping into In progress marks the task [/] and clears done/waiting', () => {
+    expect(kinds(IN_PROGRESS_COLUMN_ID)).toEqual(['set-checked', 'set-waiting', 'set-in-progress:true'])
+  })
+
+  it('dropping back into Today or Upcoming reopens a [/] task', () => {
+    expect(kinds('today', { inProgress: true })).toContain('set-in-progress:false')
+    expect(kinds('upcoming', { inProgress: true })).toContain('set-in-progress:false')
+  })
+
+  it('dropping into Waiting keeps the [/] underneath', () => {
+    expect(kinds('waiting', { inProgress: true })).toEqual(['set-checked', 'set-waiting'])
+  })
+})
+
+describe('completeStatusOrder (#677)', () => {
+  const built = ['today', 'upcoming', IN_PROGRESS_COLUMN_ID, 'waiting', 'done']
+
+  it('leaves an empty saved order alone (built order applies)', () => {
+    expect(completeStatusOrder([], built)).toEqual([])
+  })
+
+  it('slots the new column after its built neighbour in a pre-2.38 saved order', () => {
+    expect(completeStatusOrder(['done', 'today', 'upcoming', 'waiting'], built)).toEqual([
+      'done',
+      'today',
+      'upcoming',
+      IN_PROGRESS_COLUMN_ID,
+      'waiting'
+    ])
+  })
+
+  it('keeps a saved order that already knows the column', () => {
+    const saved = [IN_PROGRESS_COLUMN_ID, 'today', 'upcoming', 'waiting', 'done']
+    expect(completeStatusOrder(saved, built)).toEqual(saved)
+  })
+
+  it('drops ids the board no longer builds and prepends a column with no built predecessor', () => {
+    expect(completeStatusOrder(['stale', 'upcoming', 'done'], built)).toEqual([
+      'today',
+      'upcoming',
+      IN_PROGRESS_COLUMN_ID,
+      'waiting',
+      'done'
+    ])
   })
 })

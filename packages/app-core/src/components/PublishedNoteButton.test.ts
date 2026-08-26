@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ZenBridge } from '@zennotes/bridge-contract/bridge'
 import { notifyPublishedNoteChanged } from '../lib/published-note-events'
 import { dismissPublishNoteRequest, getPublishNoteRequest } from '../lib/publish-note-requests'
+import { clearCloudSyncStatus, useCloudSyncStatusStore } from '../lib/cloud-auto-sync'
 import { PublishedNoteButton } from './PublishedNoteButton'
 
 const note = {
@@ -24,6 +25,8 @@ describe('PublishedNoteButton', () => {
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
+    // The button only exists while a Cloud account is signed in.
+    useCloudSyncStatusStore.setState({ phase: 'ready' })
   })
 
   afterEach(() => {
@@ -31,6 +34,34 @@ describe('PublishedNoteButton', () => {
     if (request) dismissPublishNoteRequest(request)
     act(() => root.unmount())
     host.remove()
+    clearCloudSyncStatus()
+  })
+
+  it('stays out of the header without a signed-in Cloud account, and never asks for the list', async () => {
+    const bridge = {
+      listCloudPublishedNotes: vi.fn(async () => [])
+    } as Pick<ZenBridge, 'listCloudPublishedNotes'>
+
+    for (const phase of ['hidden', 'disconnected', 'connecting'] as const) {
+      act(() => useCloudSyncStatusStore.setState({ phase }))
+      await act(async () => {
+        root.render(createElement(PublishedNoteButton, { note, bridge }))
+      })
+      expect(host.querySelector('button')).toBeNull()
+    }
+    expect(bridge.listCloudPublishedNotes).not.toHaveBeenCalled()
+
+    // A signed-in account with no linked vault can still publish.
+    act(() => useCloudSyncStatusStore.setState({ phase: 'unlinked' }))
+    await act(async () => {
+      root.render(createElement(PublishedNoteButton, { note, bridge }))
+    })
+    expect(host.querySelector('button')?.getAttribute('aria-label')).toBe('Publish note')
+    expect(bridge.listCloudPublishedNotes).toHaveBeenCalledTimes(1)
+
+    // Signing out takes it away again.
+    act(() => useCloudSyncStatusStore.setState({ phase: 'disconnected' }))
+    expect(host.querySelector('button')).toBeNull()
   })
 
   it('shows a minimal published icon and opens the manage dialog', async () => {

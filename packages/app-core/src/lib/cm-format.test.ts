@@ -147,6 +147,28 @@ describe('formatMarkerBackspaceTransaction', () => {
     const state = EditorState.create({ doc: '****', selection: EditorSelection.range(0, 2) })
     expect(formatMarkerBackspaceTransaction(state)).toBeNull()
   })
+
+  // #678: Ctrl+K leaves `[](|)` with the caret in the URL hole; Backspace there
+  // must take the whole scaffold, not just the parentheses.
+  it('removes an empty link scaffold from the URL hole', () => {
+    expect(backspace('[]()', 3)).toEqual({ doc: '', head: 0 })
+    expect(backspace('See []() now', 7)).toEqual({ doc: 'See  now', head: 4 })
+  })
+
+  it('removes an empty link scaffold from the text hole (slash-command form)', () => {
+    expect(backspace('[]()', 1)).toEqual({ doc: '', head: 0 })
+  })
+
+  it('removes an empty image scaffold in both holes', () => {
+    expect(backspace('![]()', 4)).toEqual({ doc: '', head: 0 })
+    expect(backspace('![]()', 2)).toEqual({ doc: '', head: 0 })
+  })
+
+  it('leaves a link alone once either hole has content', () => {
+    expect(backspace('[text]()', 7)).toBeNull()
+    expect(backspace('[](url)', 6)).toBeNull()
+    expect(backspace('[](url)', 1)).toBeNull()
+  })
 })
 
 describe('setBlockType', () => {

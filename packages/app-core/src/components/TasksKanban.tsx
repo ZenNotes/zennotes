@@ -74,7 +74,7 @@ function columnAccent(id: string): string | null {
  *  that should land. Returns `null` when the drop has no defined
  *  semantics (e.g. when group-by is 'folder'). Returns `[]` when the
  *  task is already in the target column — caller can short-circuit. */
-function dropMutationsFor(
+export function dropMutationsFor(
   groupBy: KanbanGroupBy,
   columnId: string,
   task: VaultTask,
@@ -84,11 +84,12 @@ function dropMutationsFor(
     const todayIso = toIsoDateLocal(today)
     switch (columnId) {
       case 'today':
-        // "Live" columns — make sure neither @waiting nor [x] keep the
+        // "Live" columns — make sure neither @waiting, [x] nor [/] keep the
         // task glued to a different bucket.
         return [
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: false },
+          { kind: 'set-in-progress', inProgress: false },
           { kind: 'set-due', due: todayIso }
         ]
       case 'upcoming': {
@@ -97,13 +98,24 @@ function dropMutationsFor(
         return [
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: false },
+          { kind: 'set-in-progress', inProgress: false },
           {
             kind: 'set-due',
             due: task.due && task.due > todayIso ? task.due : toIsoDateLocal(tomorrow)
           }
         ]
       }
+      case IN_PROGRESS_COLUMN_ID:
+        // Started work: `[/]`. The due date is left alone, so a card dragged
+        // back to Today or Upcoming keeps the date it had.
+        return [
+          { kind: 'set-checked', checked: false },
+          { kind: 'set-waiting', waiting: false },
+          { kind: 'set-in-progress', inProgress: true }
+        ]
       case 'waiting':
+        // `[/]` survives underneath on purpose: clearing the wait returns the
+        // card to In progress, where it came from.
         return [
           { kind: 'set-checked', checked: false },
           { kind: 'set-waiting', waiting: true }
@@ -140,22 +152,60 @@ export interface Column {
   tasks: VaultTask[]
 }
 
-function statusColumns(tasks: VaultTask[], today: Date): Column[] {
+/** Column id of the Status board's started-work bucket. */
+export const IN_PROGRESS_COLUMN_ID = 'in-progress'
+
+export function statusColumns(tasks: VaultTask[], today: Date): Column[] {
   const groups = groupTasks(tasks, today)
+  // `[/]` is an open task everywhere else: it keeps its place in Today, on the
+  // calendar and in the rollups (#512). A board is about flow, though, so
+  // started work gets its own column between the to-do buckets and Done, and
+  // a glance shows how much is in flight (#677). `@waiting` still wins: a
+  // blocked card reads as blocked and comes back here when the wait clears.
+  const inProgress = [...groups.today, ...groups.upcoming].filter((t) => t.inProgress)
+  const today_ = groups.today.filter((t) => !t.inProgress)
+  const upcoming = groups.upcoming.filter((t) => !t.inProgress)
+  const overdueBadge = (list: VaultTask[]): Column['badge'] => {
+    const value = list.filter((t) => isTaskOverdue(t, today)).length
+    return value > 0 ? { kind: 'overdue', value } : undefined
+  }
   return [
+    { id: 'today', label: 'Today', tasks: today_, badge: overdueBadge(today_) },
+    { id: 'upcoming', label: 'Upcoming', tasks: upcoming },
     {
-      id: 'today',
-      label: 'Today',
-      tasks: groups.today,
-      badge:
-        groups.overdueCount > 0
-          ? { kind: 'overdue', value: groups.overdueCount }
-          : undefined
+      id: IN_PROGRESS_COLUMN_ID,
+      label: 'In progress',
+      tasks: inProgress,
+      badge: overdueBadge(inProgress)
     },
-    { id: 'upcoming', label: 'Upcoming', tasks: groups.upcoming },
     { id: 'waiting', label: 'Waiting', tasks: groups.waiting },
     { id: 'done', label: 'Done', tasks: groups.done }
   ]
+}
+
+/** A saved Status-board column order predates the In progress column for
+ *  anyone who reordered that board before 2.38. `arrangeColumns` would park an
+ *  unlisted column after the saved ones, i.e. after Done, so a built column
+ *  missing from the saved order is slotted right after the built neighbour
+ *  that precedes it instead. Field boards keep the append rule: there a new
+ *  value really is new. */
+export function completeStatusOrder(saved: string[], builtIds: string[]): string[] {
+  if (saved.length === 0) return saved
+  const result = saved.filter((id) => builtIds.includes(id))
+  for (let i = 0; i < builtIds.length; i += 1) {
+    const id = builtIds[i]
+    if (result.includes(id)) continue
+    let at = 0
+    for (let j = i - 1; j >= 0; j -= 1) {
+      const prevAt = result.indexOf(builtIds[j])
+      if (prevAt >= 0) {
+        at = prevAt + 1
+        break
+      }
+    }
+    result.splice(at, 0, id)
+  }
+  return result
 }
 
 function priorityColumns(tasks: VaultTask[]): Column[] {
@@ -636,11 +686,18 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
 
   const fullColumns = useMemo(
     () => {
+      const built = buildColumns(groupBy, displayTasks, today, kanbanStatuses, showArchivedTasks)
+      const savedOrder = kanbanColumnOrder[groupBy] ?? []
       const orderedColumns = applyColumnOrder(
         groupBy,
         arrangeColumns(
-          buildColumns(groupBy, displayTasks, today, kanbanStatuses, showArchivedTasks),
-          kanbanColumnOrder[groupBy] ?? []
+          built,
+          groupBy === 'status'
+            ? completeStatusOrder(
+                savedOrder,
+                built.map((c) => c.id)
+              )
+            : savedOrder
         ),
         columnOrderRef.current
       )

@@ -6,6 +6,7 @@ import {
   type PublishedNoteChange
 } from '../lib/published-note-events'
 import { requestPublishNote } from '../lib/publish-note-requests'
+import { isCloudAccountConnectedPhase, useCloudSyncStatusStore } from '../lib/cloud-auto-sync'
 import { LinkIcon } from './icons'
 
 type PublishedNoteLookupBridge = Pick<ZenBridge, 'listCloudPublishedNotes'>
@@ -16,11 +17,20 @@ export function PublishedNoteButton({
 }: {
   note: PublishableCloudNote
   bridge?: PublishedNoteLookupBridge
-}): JSX.Element {
+}): JSX.Element | null {
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Publishing needs a signed-in Cloud account; without one the button opened
+  // a dialog that could only fail, so it stays out of the header until the
+  // account is connected (the status bar's Connect is the way in).
+  const connected = useCloudSyncStatusStore((state) => isCloudAccountConnectedPhase(state.phase))
 
   useEffect(() => {
+    if (!connected) {
+      setPublishedUrl(null)
+      setLoading(false)
+      return undefined
+    }
     let cancelled = false
     let changedSinceRequest = false
 
@@ -50,7 +60,9 @@ export function PublishedNoteButton({
       cancelled = true
       unsubscribe()
     }
-  }, [bridge, note.path])
+  }, [bridge, connected, note.path])
+
+  if (!connected) return null
 
   const published = publishedUrl !== null
   const label = published ? 'Published · Manage public note' : 'Publish note'
