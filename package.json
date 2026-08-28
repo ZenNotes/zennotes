@@ -47,6 +47,6 @@
     "perf:editor-scroll": "node tooling/scripts/perf-editor-scroll.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.5.8"
+    "turbo": "^2.10.11"
   }
 }

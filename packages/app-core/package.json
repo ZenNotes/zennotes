@@ -63,7 +63,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
