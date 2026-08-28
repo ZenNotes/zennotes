@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // updater.ts imports electron and electron-updater at module load. Stub both so
 // we can unit-test the pure Linux-install helpers without an Electron runtime.
@@ -9,14 +9,24 @@ vi.mock('electron', () => ({
   shell: {}
 }))
 vi.mock('electron-updater', () => ({
-  default: { autoUpdater: {} }
+  default: {
+    autoUpdater: {},
+    DebUpdater: class {},
+    RpmUpdater: class {},
+    PacmanUpdater: class {}
+  }
 }))
 
 import {
   elevatedInstallScript,
+  installedLinuxFormat,
+  linuxFormatFromOsRelease,
+  linuxInstallMismatch,
   linuxNeedsRootInstall,
   linuxPackageFormat,
-  manualInstallHint
+  linuxUpdaterFormat,
+  manualInstallHint,
+  mismatchedUpdateMessage
 } from './updater'
 
 describe('linuxPackageFormat', () => {
@@ -67,5 +77,116 @@ describe('manualInstallHint', () => {
   it('gives a copy-pasteable command per format', () => {
     expect(manualInstallHint('deb', '/tmp/a.deb')).toBe('sudo dpkg -i "/tmp/a.deb"')
     expect(manualInstallHint('rpm', '/tmp/a.rpm')).toBe('sudo rpm -U "/tmp/a.rpm"')
+  })
+})
+
+describe('linuxFormatFromOsRelease', () => {
+  it('reads the distro family, derivatives included', () => {
+    expect(linuxFormatFromOsRelease('ID=arch\n')).toBe('pacman')
+    expect(linuxFormatFromOsRelease('ID=ubuntu\nID_LIKE=debian\n')).toBe('deb')
+    expect(linuxFormatFromOsRelease('ID=fedora\nVERSION_ID=42\n')).toBe('rpm')
+    // The reporter's distro: unknown by name, but it declares its ancestor.
+    expect(linuxFormatFromOsRelease('NAME="CachyOS Linux"\nID=cachyos\nID_LIKE=arch\n')).toBe(
+      'pacman'
+    )
+    expect(linuxFormatFromOsRelease('ID=neon\nID_LIKE="ubuntu debian"\n')).toBe('deb')
+  })
+
+  it('tolerates quotes, spacing and files it cannot place', () => {
+    expect(linuxFormatFromOsRelease('ID = "manjaro"')).toBe('pacman')
+    expect(linuxFormatFromOsRelease('ID=nixos\nID_LIKE=\n')).toBe('unknown')
+    expect(linuxFormatFromOsRelease('')).toBe('unknown')
+  })
+})
+
+describe('installedLinuxFormat', () => {
+  afterEach(() => {
+    delete process.env.APPIMAGE
+  })
+
+  it('trusts the AppImage env var before anything on disk', () => {
+    process.env.APPIMAGE = '/home/kelv/Apps/ZenNotes.AppImage'
+    expect(
+      installedLinuxFormat(() => {
+        throw new Error('must not be read')
+      })
+    ).toBe('appimage')
+  })
+
+  it('falls back to os-release, and to unknown when it cannot be read', () => {
+    expect(installedLinuxFormat(() => 'ID=arch\n')).toBe('pacman')
+    expect(
+      installedLinuxFormat(() => {
+        throw new Error('ENOENT')
+      })
+    ).toBe('unknown')
+  })
+})
+
+describe('linuxInstallMismatch', () => {
+  it('catches the Arch-gets-a-deb case that shipped', () => {
+    expect(linuxInstallMismatch('deb', 'pacman')).toBe(true)
+    expect(linuxInstallMismatch('rpm', 'deb')).toBe(true)
+  })
+
+  it('never blocks a match, or a system it could not identify', () => {
+    expect(linuxInstallMismatch('deb', 'deb')).toBe(false)
+    expect(linuxInstallMismatch('pacman', 'pacman')).toBe(false)
+    expect(linuxInstallMismatch('deb', 'unknown')).toBe(false)
+    expect(linuxInstallMismatch('unknown', 'pacman')).toBe(false)
+  })
+})
+
+describe('mismatchedUpdateMessage', () => {
+  it('names both formats and points at the right download', () => {
+    const message = mismatchedUpdateMessage('deb', 'pacman', '2.40.0')
+    expect(message).toContain('ZenNotes 2.40.0')
+    expect(message).toContain('.deb package')
+    expect(message).toContain('https://zennotes.org/download/linux-pacman')
+  })
+})
+
+describe('linuxUpdaterFormat', () => {
+  const arch = 'NAME="CachyOS Linux"\nID=cachyos\nID_LIKE=arch\n'
+
+  it('sends an Arch system package to the pacman updater, whatever the stamp said', () => {
+    // The shipped case: the .pacman carried a `deb` stamp, so electron-updater
+    // had picked the deb updater. The stamp's value is never consulted here.
+    expect(
+      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: arch })
+    ).toBe('pacman')
+    expect(
+      linuxUpdaterFormat({
+        isAppImage: false,
+        hasPackageStamp: true,
+        osRelease: 'ID=ubuntu\nID_LIKE=debian\n'
+      })
+    ).toBe('deb')
+    expect(
+      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: 'ID=fedora\n' })
+    ).toBe('rpm')
+  })
+
+  it('leaves an AppImage alone even where a stamp leaked into it', () => {
+    expect(linuxUpdaterFormat({ isAppImage: true, hasPackageStamp: true, osRelease: arch })).toBe(
+      'appimage'
+    )
+  })
+
+  it('leaves an unstamped install (AUR, tar.gz) to its own package manager', () => {
+    // No stamp means nobody shipped this as a ZenNotes system package, so the
+    // update must not be installed over whatever owns the files.
+    expect(
+      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: false, osRelease: arch })
+    ).toBe('unknown')
+  })
+
+  it('stays with the default updater when the distro cannot be identified', () => {
+    expect(
+      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: null })
+    ).toBe('unknown')
+    expect(
+      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: 'ID=nixos\n' })
+    ).toBe('unknown')
   })
 })
