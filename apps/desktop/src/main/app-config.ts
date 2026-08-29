@@ -149,6 +149,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'wrap_tabs',
     comment: 'wrap the tab strip instead of scrolling it'
   },
+  titlebarTabs: {
+    section: 'editor',
+    tomlKey: 'titlebar_tabs',
+    comment: 'show tabs in the window title bar (desktop)'
+  },
   editorFontSize: {
     section: 'editor',
     tomlKey: 'font_size',
