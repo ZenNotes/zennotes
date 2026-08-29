@@ -111,10 +111,35 @@ func TestImportAssetWithinLimit(t *testing.T) {
 	if !bytes.Equal(got, body) {
 		t.Fatalf("written bytes differ from input")
 	}
-	// The embed markdown is relative to the note's directory: a root-level
-	// note links straight into assets/.
+	// A non-image keeps the note-relative markdown link: a root-level note
+	// links straight into assets/.
 	if asset.Markdown == "" || !strings.Contains(asset.Markdown, "assets/x.bin") {
 		t.Fatalf("markdown = %q, want a link into assets/", asset.Markdown)
+	}
+}
+
+// An image embeds by vault-relative wikilink whatever folder the note is in,
+// matching the desktop and both mobile apps, so moving the note cannot break
+// the link (nothing rewrites relative asset paths on move).
+func TestImportAssetEmbedsImagesByVaultRelativeWikilink(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	png := []byte{0x89, 'P', 'N', 'G'}
+	for _, notePath := range []string{"Note.md", "inbox/Note.md", "inbox/deep/Note.md"} {
+		asset, err := v.ImportAsset(notePath, "Photo.png", bytes.NewReader(png))
+		if err != nil {
+			t.Fatalf("%s: %v", notePath, err)
+		}
+		want := "![[" + asset.Path + "]]"
+		if asset.Markdown != want {
+			t.Fatalf("%s: markdown = %q, want %q", notePath, asset.Markdown, want)
+		}
+		if strings.Contains(asset.Markdown, "../") {
+			t.Fatalf("%s: markdown = %q, must not be note-relative", notePath, asset.Markdown)
+		}
 	}
 }
 
