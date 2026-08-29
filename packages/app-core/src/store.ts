@@ -589,6 +589,7 @@ interface Prefs {
   hideBuiltinTemplates: boolean // hide shipped built-in templates from the pickers
   tabsEnabled: boolean
   wrapTabs: boolean
+  titlebarTabs: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -1059,6 +1060,7 @@ export const DEFAULT_PREFS: Prefs = {
   hideBuiltinTemplates: false,
   tabsEnabled: true,
   wrapTabs: false,
+  titlebarTabs: false,
   themeId: DEFAULT_THEME_ID,
   themeFamily: 'gruvbox',
   themeMode: 'dark',
@@ -1264,6 +1266,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.tabsEnabled === 'boolean' ? p.tabsEnabled : DEFAULT_PREFS.tabsEnabled,
     wrapTabs:
       typeof p.wrapTabs === 'boolean' ? p.wrapTabs : DEFAULT_PREFS.wrapTabs,
+    titlebarTabs:
+      typeof p.titlebarTabs === 'boolean'
+        ? p.titlebarTabs
+        : DEFAULT_PREFS.titlebarTabs,
     themeId,
     themeFamily,
     themeMode,
@@ -2279,6 +2285,7 @@ function collectPrefs(s: {
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
+  titlebarTabs: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -2381,6 +2388,7 @@ function collectPrefs(s: {
     hideBuiltinTemplates: s.hideBuiltinTemplates,
     tabsEnabled: s.tabsEnabled,
     wrapTabs: s.wrapTabs,
+    titlebarTabs: s.titlebarTabs,
     themeId: s.themeId,
     themeFamily: s.themeFamily,
     themeMode: s.themeMode,
@@ -2911,6 +2919,7 @@ interface Store {
   hideBuiltinTemplates: boolean
   tabsEnabled: boolean
   wrapTabs: boolean
+  titlebarTabs: boolean
   settingsOpen: boolean
   /** Chapter index of the guided Workflows tutorial, or null when it is not
    *  running. Session-only on purpose: the tutorial re-seeds (and first
@@ -3441,6 +3450,7 @@ interface Store {
   setHiddenWorkflowPresets: (ids: readonly string[]) => void
   setTabsEnabled: (on: boolean) => void
   setWrapTabs: (on: boolean) => void
+  setTitlebarTabs: (on: boolean) => void
   setSettingsOpen: (open: boolean) => void
   setWorkflowTutorialStep: (step: number | null) => void
   setWorkflowRunRecord: (
@@ -4764,6 +4774,7 @@ export const useStore = create<Store>((set, get) => {
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
   tabsEnabled: loadPrefs().tabsEnabled,
   wrapTabs: loadPrefs().wrapTabs,
+  titlebarTabs: loadPrefs().titlebarTabs,
   settingsOpen: false,
   workflowTutorialStep: null,
   workflowRunRecord: null,
@@ -7595,6 +7606,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setWrapTabs: (on) => {
     set({ wrapTabs: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setTitlebarTabs: (on) => {
+    set({ titlebarTabs: on })
     savePrefs(collectPrefs(get()))
   },
   setPdfExportUseTheme: (on) => {

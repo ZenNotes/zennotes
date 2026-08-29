@@ -1498,6 +1498,63 @@ textarea,
   -webkit-app-region: no-drag;
 }
 
+/* ===========================================================================
+ * Title-bar tabs layout
+ * --------------------------------------------------------------------------
+ * When Settings → "Tabs in title bar" is on and there is only one pane, the
+ * title bar hosts the sidebar toggle, back/forward navigation, and the note
+ * tab strip instead of the centered window title. The active EditorPane
+ * portals its tab strip into #titlebar-tabs-host. When split into multiple
+ * panes, the title bar falls back to the normal centered title and each pane
+ * keeps its inline tab strip.
+ * =======================================================================*/
+
+/* The host must stretch to fill the title bar and clip any overflow so long
+   tab lists don't collide with window controls. */
+#titlebar-tabs-host {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0%;
+  align-items: stretch;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+
+#titlebar-tabs-host:empty {
+  display: none;
+}
+
+/* The ported tab strip fills the host and inherits the title bar's glass
+   background; remove its own chrome so it doesn't double-paint borders. */
+#titlebar-tabs-host > .titlebar-tab-strip {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: none;
+  -webkit-app-region: no-drag;
+}
+
+/* Make the tab rows the same height as the title bar. */
+#titlebar-tabs-host > .titlebar-tab-strip .workspace-tab-strip {
+  height: 100%;
+}
+
+/* Slimmer horizontal scrollbar inside the title bar. */
+#titlebar-tabs-host > .titlebar-tab-strip .workspace-tab-strip::-webkit-scrollbar {
+  height: 4px;
+}
+
+/* When the title bar is hosting tabs, keep its right padding compact so the
+   tab strip reaches the window controls / right edge. */
+.drag-region[data-titlebar-tabs] {
+  padding-right: 0;
+}
+
+/* Make the active tab in the title bar more visible against the glass. */
+#titlebar-tabs-host > .titlebar-tab-strip [data-tab-active="true"] {
+  background: rgb(var(--z-bg-1) / 0.9);
+}
+
 /* --- CodeMirror editor theme ------------------------------------------- */
 
 .cm-editor {
