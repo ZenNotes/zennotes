@@ -541,6 +541,7 @@ export function Sidebar(): JSX.Element {
   const previewNote = useStore((s) => s.previewNote);
   const selectedPath = useStore((s) => s.selectedPath);
   const tabsEnabled = useStore((s) => s.tabsEnabled);
+  const titlebarTabs = useStore((s) => s.titlebarTabs);
   const openNoteInTab = useStore((s) => s.openNoteInTab);
   const systemFolderLabels = useStore((s) => s.systemFolderLabels);
   const workspaceMode = useStore((s) => s.workspaceMode);
@@ -3110,9 +3111,11 @@ export function Sidebar(): JSX.Element {
           >
             <PlusIcon />
           </IconBtn>
-          <IconBtn title="Hide sidebar (⌘1)" onClick={toggleSidebar}>
-            <PanelLeftIcon />
-          </IconBtn>
+          {!titlebarTabs && (
+            <IconBtn title="Hide sidebar (⌘1)" onClick={toggleSidebar}>
+              <PanelLeftIcon />
+            </IconBtn>
+          )}
         </div>
       </div>
 
