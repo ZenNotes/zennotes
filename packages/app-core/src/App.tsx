@@ -380,6 +380,7 @@ function App(): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const monoFont = useStore((s) => s.monoFont)
   const darkSidebar = useStore((s) => s.darkSidebar)
+  const titlebarTabs = useStore((s) => s.titlebarTabs)
   const hasCompletedOnboarding = useStore((s) => s.hasCompletedOnboarding)
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
@@ -664,6 +665,16 @@ function App(): JSX.Element {
   useEffect(() => {
     document.documentElement.setAttribute('data-opaque', '')
   }, [])
+
+  // Title-bar tabs layout: mirror the pref onto the root element so override
+  // CSS and keyboard-navigation smoke checks can detect the mode globally.
+  useEffect(() => {
+    if (titlebarTabs) {
+      document.documentElement.setAttribute('data-titlebar-tabs', '')
+    } else {
+      document.documentElement.removeAttribute('data-titlebar-tabs')
+    }
+  }, [titlebarTabs])
 
   // Sidebar darken toggle: when on, the sidebar reads `--z-bg-1`
   // (one step darker than the main canvas `--z-bg`) regardless of
