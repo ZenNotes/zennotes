@@ -65,6 +65,7 @@ describe('shouldSyncVaultPath', () => {
     '.DS_Store',
     'Thumbs.db',
     'inbox/Note.md.tmp',
+    'inbox/2026-08-26 Wed.md.3252272.1787800172047252.tmp',
     'inbox/Note.md.bak',
     '.zennotes/workspace.json',
     '.zennotes/mobile-note-meta-cache-v1.json',

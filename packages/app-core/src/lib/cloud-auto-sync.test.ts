@@ -6,6 +6,7 @@ import type {
 import type { VaultChangeEvent } from "@shared/ipc";
 import {
   clearCloudSyncStatus,
+  cloudSyncAttentionItems,
   connectCloudAccountFromStatusBar,
   startCloudAutoSync,
   syncCloudVaultWithStatus,
@@ -480,5 +481,121 @@ describe("cloud auto sync host wiring", () => {
     expect(onError).toHaveBeenCalledWith(forbidden, 5_000);
 
     runtime.stop();
+  });
+});
+
+describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () => {
+  const base: CloudSyncRunSummary = {
+    cursor: 9,
+    pulled: 0,
+    pushed: 0,
+    conflicts: [],
+    bootstrap_conflicts: [],
+    local_conflicts: [],
+  };
+
+  it("names each kept-both, kept-local, bootstrap and rejected file with what to do", () => {
+    const items = cloudSyncAttentionItems({
+      ...base,
+      bootstrap_conflicts: [
+        {
+          code: "BOOTSTRAP_CONTENT_CONFLICT",
+          item_id: "b",
+          path: "inbox/Boot.md",
+          local_sha256: "a",
+          remote_sha256: "b",
+        },
+      ],
+      local_conflicts: [
+        {
+          code: "LOCAL_EDIT_CONFLICT",
+          path: "inbox/Plan.md",
+          conflict_copy_path: "inbox/Plan (cloud conflict).md",
+        },
+        { code: "LOCAL_EDIT_CONFLICT", path: "inbox/Moved.md", conflict_copy_path: null },
+      ],
+      conflicts: [
+        {
+          operation_id: "op-1",
+          item_id: "i-1",
+          code: "REVISION_CONFLICT",
+          current_revision: 4,
+          current_path: null,
+          path: "inbox/Daily.md",
+        },
+        {
+          operation_id: "op-2",
+          item_id: "i-2",
+          code: "PATH_CONFLICT",
+          current_revision: null,
+          current_path: "inbox/plan.md",
+          path: "inbox/Plan.md",
+        },
+        {
+          operation_id: "op-3",
+          item_id: "i-3",
+          code: "QUOTA_EXCEEDED",
+          current_revision: null,
+          current_path: null,
+          path: "assets/big.png",
+        },
+      ],
+    });
+    expect(items.map((item) => [item.kind, item.path])).toEqual([
+      ["bootstrap", "inbox/Boot.md"],
+      ["kept-both", "inbox/Plan.md"],
+      ["kept-local", "inbox/Moved.md"],
+      ["rejected", "inbox/Daily.md"],
+      ["rejected", "inbox/Plan.md"],
+    ]);
+    expect(items[1].conflictCopyPath).toBe("inbox/Plan (cloud conflict).md");
+    expect(items[1].detail).toContain("Plan (cloud conflict).md");
+    expect(items[3].detail).toContain("Changed in Cloud");
+    expect(items[4].detail).toContain("(inbox/plan.md)");
+  });
+
+  it("falls back to the cloud path or the item id when the client sent no path", () => {
+    const items = cloudSyncAttentionItems({
+      ...base,
+      conflicts: [
+        {
+          operation_id: "op",
+          item_id: "i-9",
+          code: "ITEM_DELETED",
+          current_revision: null,
+          current_path: "inbox/Old.md",
+        },
+        {
+          operation_id: "op2",
+          item_id: "i-10",
+          code: "ITEM_DELETED",
+          current_revision: null,
+          current_path: null,
+        },
+      ],
+    });
+    expect(items.map((item) => item.path)).toEqual(["inbox/Old.md", "item i-10"]);
+  });
+
+  it("remembers the last run summary so Review can show it without another sync", async () => {
+    clearCloudSyncStatus();
+    const summary: CloudSyncRunSummary = {
+      ...base,
+      conflicts: [
+        {
+          operation_id: "op",
+          item_id: "i",
+          code: "REVISION_CONFLICT",
+          current_revision: 2,
+          current_path: null,
+          path: "inbox/Daily.md",
+        },
+      ],
+    };
+    await syncCloudVaultWithStatus({ syncCloudVault: async () => summary }, "Notes");
+    expect(useCloudSyncStatusStore.getState().phase).toBe("attention");
+    expect(useCloudSyncStatusStore.getState().lastSummary).toEqual(summary);
+    clearCloudSyncStatus();
+    expect(useCloudSyncStatusStore.getState().lastSummary).toBeNull();
   });
 });

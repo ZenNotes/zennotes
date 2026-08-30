@@ -1,11 +1,14 @@
 /**
  * WYSIWYG rendering of ```embed and ```bookmark fences in the live editor, so a
- * URL embed shows as its player / card while you edit (not just in the reading
+ * URL embed shows as its poster / card while you edit (not just in the reading
  * view). Mirrors the block-math renderer: the whole fenced block is replaced
  * with a block widget, and the raw fence is revealed when the cursor sits in it.
  *
  * The widget DOM is reused while its URL is unchanged (WidgetType.eq), so moving
- * the cursor around the note never reloads a playing video.
+ * the cursor around the rest of the note never resets a playing video. Stepping
+ * the cursor into the block does rebuild it (source revealed, then hidden
+ * again); the embed is a click-to-play poster until the user starts it, so that
+ * rebuild is an image, not a player reload (see embed-renderers).
  *
  * WYSIWYG-only: registered via `wysiwygExtensions()`.
  */
@@ -45,11 +48,14 @@ class EmbedBlockWidget extends WidgetType {
       media.setAttribute('data-zen-bookmark-rendered', this.url)
       renderBookmarkElement(media, this.url, this.url)
     } else {
-      renderEmbedElement(media, this.url)
+      // Starting a video must not cost the note its keyboard: the poster click
+      // is swallowed before it can move focus, and the editor takes (or keeps)
+      // focus once the player is in, caret untouched.
+      renderEmbedElement(media, this.url, { onActivate: () => view.focus() })
     }
     content.appendChild(media)
 
-    // Clicking the media does its natural thing (play the video, open the link);
+    // Clicking the media does its natural thing (start the video, open the link);
     // this "Edit" pill is the discoverable, consistent way to edit the source.
     // It drops the caret into the block, which the StateField renders as source.
     const edit = document.createElement('button')
@@ -71,9 +77,9 @@ class EmbedBlockWidget extends WidgetType {
     el.appendChild(content)
     return el
   }
-  // The widget owns its clicks: the iframe plays the video and the bookmark
-  // anchor opens the link (see the anchor handler in embed-renderers). Editing
-  // is via the Edit pill or vim j/k, never a stray click, so this returns true.
+  // The widget owns its clicks: the poster starts the video and the bookmark
+  // anchor opens the link (see the handlers in embed-renderers). Editing is via
+  // the Edit pill or vim j/k, never a stray click, so this returns true.
   ignoreEvent(): boolean {
     return true
   }

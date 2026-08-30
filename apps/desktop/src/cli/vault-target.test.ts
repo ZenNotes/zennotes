@@ -6,6 +6,7 @@ import { parse } from './args'
 import {
   looksLikeServerUrl,
   resolveAuthToken,
+  resolveDefaultTarget,
   resolveTarget,
   resolveServerTarget,
   resolveVaultTarget
@@ -202,5 +203,90 @@ describe('resolveTarget — precedence across flags and environment', () => {
   it('lets --token override the profile token for one invocation', async () => {
     const target = await resolveTarget(args(['--server', 'home', '--token', 'once']))
     expect(target).toMatchObject({ authToken: 'once' })
+  })
+})
+
+describe('the default target follows the workspace the app has open (#688)', () => {
+  it('is the connected server when the app is in remote mode, token from the environment', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'http://192.168.1.10:7878' },
+      remoteWorkspaceProfileId: 'p1',
+      remoteWorkspaceProfiles: [{ ...HOME_PROFILE, authToken: undefined }]
+    })
+    vi.stubEnv('ZENNOTES_REMOTE_TOKEN', 'env-token')
+    expect(await resolveDefaultTarget(process.env)).toEqual({
+      kind: 'remote',
+      name: 'home',
+      baseUrl: 'http://192.168.1.10:7878',
+      authToken: 'env-token'
+    })
+    // `zn` with no flags lands on the same server as `zn mcp`.
+    expect(await resolveTarget(parse([]))).toMatchObject({ kind: 'remote', name: 'home' })
+  })
+
+  it('goes out unauthenticated when nothing supplies a token (the app keeps its own in the secret store)', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'http://192.168.1.10:7878' },
+      remoteWorkspaceProfileId: 'p1',
+      remoteWorkspaceProfiles: [{ ...HOME_PROFILE, authToken: undefined }]
+    })
+    expect(await resolveDefaultTarget(process.env)).toMatchObject({
+      kind: 'remote',
+      authToken: null
+    })
+  })
+
+  it('still honours a legacy plaintext token on the profile', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'http://192.168.1.10:7878' },
+      remoteWorkspaceProfileId: 'p1',
+      remoteWorkspaceProfiles: [HOME_PROFILE]
+    })
+    expect(await resolveDefaultTarget(process.env)).toMatchObject({ authToken: 'stored-token' })
+  })
+
+  it('names a bare-URL workspace with no matching profile by its URL', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'localhost:7878' },
+      remoteWorkspaceProfiles: []
+    })
+    expect(await resolveDefaultTarget(process.env)).toEqual({
+      kind: 'remote',
+      name: 'ZenNotes Server',
+      baseUrl: 'http://localhost:7878',
+      authToken: null
+    })
+  })
+
+  it('ZENNOTES_VAULT and ZENNOTES_SERVER still win over the app', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'http://192.168.1.10:7878' },
+      remoteWorkspaceProfiles: [HOME_PROFILE]
+    })
+    vi.stubEnv('ZENNOTES_VAULT', workVault)
+    expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
+    vi.stubEnv('ZENNOTES_VAULT', '')
+    vi.stubEnv('ZENNOTES_SERVER', 'localhost:9999')
+    expect(await resolveDefaultTarget(process.env)).toMatchObject({
+      kind: 'remote',
+      baseUrl: 'http://localhost:9999'
+    })
+  })
+
+  it('stays local when the app is in local mode or the remote entry is incomplete', async () => {
+    await writeConfig({ vaultRoot: workVault, workspaceMode: 'local', remoteWorkspaceProfiles: [HOME_PROFILE] })
+    expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
+    await writeConfig({ vaultRoot: workVault, workspaceMode: 'remote', remoteWorkspace: { baseUrl: '' } })
+    expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
   })
 })

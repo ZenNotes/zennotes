@@ -63,7 +63,10 @@ ZenNotes vaults run in one of two modes:
   like \`MyNote.md\`, no \`inbox/\` prefix).
 
 Call \`vault_info\` at the start of a session if you need to know which
-mode this vault uses. The folder enum in tool arguments (\`inbox\`,
+mode this vault uses. It also says where the vault lives: a folder on
+this machine, or a self-hosted ZenNotes server the desktop app is
+connected to (the tools behave the same either way; paths are what the
+server reports). The folder enum in tool arguments (\`inbox\`,
 \`quick\`, \`archive\`, \`trash\`) stays the same in both modes \u2014 only
 the on-disk shape differs. The \`path\` returned by every tool already
 reflects the mode; use it verbatim and you never have to think about

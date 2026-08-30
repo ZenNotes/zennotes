@@ -109,6 +109,62 @@ describe('planCloudSyncMutations', () => {
     ])
   })
 
+  it('plans a linked-note rename as one move plus one rewritten-note update', () => {
+    const state: CloudSyncState = {
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 8,
+      items: {
+        target: {
+          item_id: 'target',
+          path: 'inbox/Untitled.md',
+          kind: 'text',
+          revision: 3,
+          sha256: 'hash:# Untitled',
+          byte_length: 10,
+          media_type: 'text/markdown'
+        },
+        daily: {
+          item_id: 'daily',
+          path: 'inbox/Daily.md',
+          kind: 'text',
+          revision: 5,
+          sha256: 'hash:See [[Untitled]]',
+          byte_length: 16,
+          media_type: 'text/markdown'
+        }
+      }
+    }
+
+    const plan = planCloudSyncMutations(
+      state,
+      [
+        { path: 'inbox/Groceries.md', kind: 'text', content: content('# Untitled') },
+        { path: 'inbox/Daily.md', kind: 'text', content: content('See [[Groceries]]') }
+      ],
+      ids()
+    )
+
+    expect(plan.mutations).toHaveLength(2)
+    expect(plan.mutations).toContainEqual(
+      expect.objectContaining({
+        type: 'move',
+        item_id: 'target',
+        base_revision: 3,
+        path: 'inbox/Groceries.md'
+      })
+    )
+    expect(plan.mutations).toContainEqual(
+      expect.objectContaining({
+        type: 'upsert',
+        item_id: 'daily',
+        base_revision: 5,
+        path: 'inbox/Daily.md',
+        content: expect.objectContaining({ sha256: 'hash:See [[Groceries]]' })
+      })
+    )
+  })
+
   it('turns a removed tracked file into a tombstone mutation', () => {
     expect(planCloudSyncMutations(trackedState(), [], ids()).mutations).toEqual([
       expect.objectContaining({

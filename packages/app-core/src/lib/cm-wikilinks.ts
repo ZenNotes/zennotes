@@ -1,4 +1,5 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import type { EditorState, TransactionSpec } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
 import { resolveWikilinkTarget } from './wikilinks'
@@ -13,6 +14,54 @@ import { linkCandidates, type LinkCandidate } from './link-candidates'
 function normalize(value: string): string {
   return value.trim().toLowerCase()
 }
+
+/**
+ * The rest of the wikilink the caret sits in, when that link is already closed
+ * on this line: the text between the caret and its `]]`. Null while the link is
+ * still being typed (no `]]` ahead, or another `[[` opens before it), which is
+ * the case the completion has to close itself.
+ */
+function closedLinkTail(state: EditorState, pos: number): string | null {
+  const line = state.doc.lineAt(pos)
+  const after = state.doc.sliceString(pos, line.to)
+  const close = after.indexOf(']]')
+  if (close < 0) return null
+  const tail = after.slice(0, close)
+  return tail.includes('[[') ? null : tail
+}
+
+/**
+ * The edit a picker makes: replace the segment under the caret with `text`,
+ * keeping whatever the link already carries after it. Picking a note inside
+ * `[[old note#section|alias]]` used to replace only the text up to the caret
+ * and append its own `]]`, leaving `[[new note]]#section|alias]]` (#686). The
+ * segment ends at the first of `stops` in the closed link's tail (the note
+ * segment stops at `#`, `^` or `|`; a heading at `|` or a nested `#`), so the
+ * old name is replaced whole even when the caret sat in the middle of it, and
+ * the section and alias survive untouched. A link still being typed gets the
+ * closing brackets, as before, and never eats text after the caret.
+ */
+function linkSegmentEdit(
+  state: EditorState,
+  from: number,
+  to: number,
+  text: string,
+  stops: string
+): TransactionSpec {
+  const tail = closedLinkTail(state, to)
+  if (tail === null) {
+    const insert = `${text}]]`
+    return { changes: { from, to, insert }, selection: { anchor: from + insert.length } }
+  }
+  let end = tail.length
+  for (const stop of stops) {
+    const at = tail.indexOf(stop)
+    if (at >= 0 && at < end) end = at
+  }
+  return { changes: { from, to: to + end, insert: text }, selection: { anchor: from + text.length } }
+}
+
+const NOTE_SEGMENT_STOPS = '#^|'
 
 function wikilinkMatch(context: CompletionContext): {
   openFrom: number
@@ -72,19 +121,14 @@ export function wikilinkSource(context: CompletionContext): CompletionResult | n
         _target: target,
         _subtitle: subtitle,
         apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
-          const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
-          const insert = `${target}${existingClose ? '' : ']]'}`
+          const edit = linkSegmentEdit(view.state, from, to, target, NOTE_SEGMENT_STOPS)
           const addBangPrefix = !match.hasBangPrefix
+          const anchor = (edit.selection as { anchor: number }).anchor + (addBangPrefix ? 1 : 0)
           view.dispatch({
             changes: addBangPrefix
-              ? [
-                  { from: match.openFrom, to: match.openFrom, insert: '!' },
-                  { from, to, insert }
-                ]
-              : { from, to, insert },
-            selection: {
-              anchor: from + target.length + (existingClose ? 0 : 2) + (addBangPrefix ? 1 : 0)
-            }
+              ? [{ from: match.openFrom, to: match.openFrom, insert: '!' }, edit.changes!]
+              : edit.changes,
+            selection: { anchor }
           })
         }
       } as WikilinkCompletion
@@ -98,12 +142,7 @@ export function wikilinkSource(context: CompletionContext): CompletionResult | n
       _target: target,
       _subtitle: subtitle,
       apply: (view: EditorView, _completion: Completion, from: number, to: number) => {
-        const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
-        const insert = `${target}${existingClose ? '' : ']]'}`
-        view.dispatch({
-          changes: { from, to, insert },
-          selection: { anchor: from + target.length + (existingClose ? 0 : 2) }
-        })
+        view.dispatch(linkSegmentEdit(view.state, from, to, target, NOTE_SEGMENT_STOPS))
       }
     } as WikilinkCompletion
   })
@@ -259,17 +298,13 @@ async function anchorNoteBody(notePart: string): Promise<string | null> {
 }
 
 /**
- * Insert `text` at the completion range, closing the wikilink when the source
- * hasn't already got a `]]` waiting.
+ * Insert `text` as the anchor under the caret, closing the wikilink when the
+ * link is still being typed and otherwise keeping the `|alias` (and, for a
+ * heading, a nested `#part`) that already follows (#686).
  */
-function applyAnchorCompletion(text: string) {
+function applyAnchorCompletion(text: string, stops: string) {
   return (view: EditorView, _completion: Completion, from: number, to: number): void => {
-    const existingClose = view.state.doc.sliceString(to, to + 2) === ']]'
-    const insert = `${text}${existingClose ? '' : ']]'}`
-    view.dispatch({
-      changes: { from, to, insert },
-      selection: { anchor: from + text.length + (existingClose ? 0 : 2) }
-    })
+    view.dispatch(linkSegmentEdit(view.state, from, to, text, stops))
   }
 }
 
@@ -303,7 +338,7 @@ export async function wikilinkBlockSource(
       label: anchor.id,
       detail: detail.slice(0, 60) || undefined,
       type: 'text',
-      apply: applyAnchorCompletion(anchor.id)
+      apply: applyAnchorCompletion(anchor.id, '|')
     })
     if (options.length >= 100) break
   }
@@ -332,7 +367,7 @@ export async function wikilinkHeadingSource(
       label: text,
       detail: `H${heading.level}`,
       type: 'text',
-      apply: applyAnchorCompletion(text)
+      apply: applyAnchorCompletion(text, '#|')
     })
     if (options.length >= 100) break
   }

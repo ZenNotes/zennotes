@@ -14,6 +14,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  production-dependency-audit:
+    name: Production dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Reject high-severity production advisories
+        run: npm audit --omit=dev --audit-level=high
+
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

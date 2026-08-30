@@ -20,8 +20,10 @@ import {
   invalidateNoteMetaCache,
   invalidateVaultSettingsCache,
   listDeletedAssets,
+  listAssets,
   listNotes,
   listFolders,
+  migrateLooseAssets,
   moveAsset,
   moveToTrash,
   rememberLocalVault,
@@ -470,6 +472,37 @@ describe('importFiles', () => {
 
     expect(imported[0]?.path).toBe('assets/Photo 2.png')
     await expect(readFile(path.join(root, 'assets/Photo.png'), 'utf8')).resolves.toBe('existing')
+  })
+})
+
+describe('atomic save scratch files', () => {
+  it('never presents an in-flight note save as an asset', async () => {
+    const root = await makeTempDir('zennotes-atomic-assets-')
+    await ensureVaultLayout(root)
+    const scratchName = 'Daily.md.3252272.1787800172047252.tmp'
+    await writeFile(path.join(root, 'inbox', scratchName), 'in-flight save', 'utf8')
+    await writeFile(path.join(root, 'inbox', 'report.2024.01.tmp'), 'user file', 'utf8')
+
+    const assets = await listAssets(root)
+
+    expect(assets.map((asset) => asset.name)).not.toContain(scratchName)
+    expect(assets.map((asset) => asset.name)).toContain('report.2024.01.tmp')
+  })
+
+  it('does not migrate an in-flight root note save into assets', async () => {
+    const root = await makeTempDir('zennotes-atomic-migration-')
+    const scratchName = 'Daily.md.3252272.1787800172047252.tmp'
+    await writeFile(path.join(root, 'Existing.md'), '# Existing\n', 'utf8')
+    await writeFile(path.join(root, scratchName), 'in-flight save', 'utf8')
+    await writeFile(path.join(root, 'diagram.png'), 'real asset', 'utf8')
+
+    const result = await migrateLooseAssets(root)
+
+    expect(result.moved).toEqual(['assets/diagram.png'])
+    await expect(readFile(path.join(root, scratchName), 'utf8')).resolves.toBe('in-flight save')
+    await expect(readFile(path.join(root, 'assets', scratchName), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 })
 

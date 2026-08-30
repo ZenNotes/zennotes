@@ -18,7 +18,7 @@
  * return false and the key does whatever else it is bound to, rather than
  * inventing a jump to the end of the line.
  */
-import { EditorSelection } from '@codemirror/state'
+import { EditorSelection, type EditorState } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 
 /**
@@ -37,6 +37,37 @@ export function isMarkerChar(ch: string): boolean {
   return MARKER_CHARS.has(ch)
 }
 
+export interface MarkerHopOptions {
+  /**
+   * Count straight quotes as markers too. Auto-pair quotes drops the cursor
+   * between `"|"` exactly like the formatting shortcuts do, so the hop should
+   * carry it out again (#685). Only on where quotes actually auto-pair (the
+   * setting, or inside code): in ordinary prose a quote is punctuation, and a
+   * stop the user did not ask for is worse than the arrow keys.
+   */
+  quotes?: boolean
+}
+
+const WORD_CHAR_RE = /[\p{L}\p{N}_]/u
+
+/**
+ * Whether the character at `i` is a marker. With quotes on, a `'` between two
+ * word characters (`don't`, `it's`) is an apostrophe, not a pair, and is
+ * skipped; a `"` is always a marker, since it never sits inside a word.
+ */
+function isMarkerAt(text: string, i: number, quotes: boolean): boolean {
+  const ch = text[i]
+  if (MARKER_CHARS.has(ch)) return true
+  if (!quotes) return false
+  if (ch === '"') return true
+  if (ch === "'") {
+    const before = i > 0 ? text[i - 1] : ''
+    const after = i + 1 < text.length ? text[i + 1] : ''
+    return !(WORD_CHAR_RE.test(before) && WORD_CHAR_RE.test(after))
+  }
+  return false
+}
+
 /**
  * Column just past the next marker run to the right of `col` (`dir` 1), or just
  * before the previous run to its left (`dir` -1). Null when the line holds no
@@ -47,30 +78,44 @@ export function isMarkerChar(ch: string): boolean {
  * started only when it started outside a run, and otherwise walks pair by pair
  * exactly as the issue describes.
  */
-export function markerHopTarget(text: string, col: number, dir: 1 | -1): number | null {
+export function markerHopTarget(
+  text: string,
+  col: number,
+  dir: 1 | -1,
+  options: MarkerHopOptions = {}
+): number | null {
+  const quotes = options.quotes === true
   if (dir === 1) {
     let i = col
-    while (i < text.length && !isMarkerChar(text[i])) i++
+    while (i < text.length && !isMarkerAt(text, i, quotes)) i++
     if (i >= text.length) return null
     const ch = text[i]
-    while (i < text.length && text[i] === ch) i++
+    while (i < text.length && text[i] === ch && isMarkerAt(text, i, quotes)) i++
     return i
   }
   let i = col - 1
-  while (i >= 0 && !isMarkerChar(text[i])) i--
+  while (i >= 0 && !isMarkerAt(text, i, quotes)) i--
   if (i < 0) return null
   const ch = text[i]
-  while (i >= 0 && text[i] === ch) i--
+  while (i >= 0 && text[i] === ch && isMarkerAt(text, i, quotes)) i--
   return i + 1
 }
 
+export interface MarkerHopCommandOptions {
+  /** Whether straight quotes count as markers for a cursor at `pos`; the
+   *  editor answers with "wherever a quote would auto-pair here". Absent
+   *  means never, which keeps the plain commands exactly as they were. */
+  quotesAreMarkers?: (state: EditorState, pos: number) => boolean
+}
+
 /** Move every cursor across the next/previous marker run on its own line. */
-function hopMarker(view: EditorView, dir: 1 | -1): boolean {
+function hopMarker(view: EditorView, dir: 1 | -1, options: MarkerHopCommandOptions): boolean {
   const { state } = view
   let moved = false
   const selection = state.selection.ranges.map((range) => {
     const line = state.doc.lineAt(range.head)
-    const target = markerHopTarget(line.text, range.head - line.from, dir)
+    const quotes = options.quotesAreMarkers?.(state, range.head) ?? false
+    const target = markerHopTarget(line.text, range.head - line.from, dir, { quotes })
     if (target == null) return EditorSelection.cursor(range.head)
     moved = true
     return EditorSelection.cursor(line.from + target)
@@ -84,11 +129,22 @@ function hopMarker(view: EditorView, dir: 1 | -1): boolean {
 }
 
 /** `**bold|**` → `**bold**|`, then on to the next pair on the line. */
-export function hopMarkerForward(view: EditorView): boolean {
-  return hopMarker(view, 1)
+export function hopMarkerForward(view: EditorView, options: MarkerHopCommandOptions = {}): boolean {
+  return hopMarker(view, 1, options)
 }
 
 /** `**bold**|` → `**bold|**`, then out to `|**bold**`. */
-export function hopMarkerBackward(view: EditorView): boolean {
-  return hopMarker(view, -1)
+export function hopMarkerBackward(view: EditorView, options: MarkerHopCommandOptions = {}): boolean {
+  return hopMarker(view, -1, options)
+}
+
+/** The two commands bound to the keymap, with the editor's quote rule baked in. */
+export function markerHopCommands(options: MarkerHopCommandOptions): {
+  forward: (view: EditorView) => boolean
+  backward: (view: EditorView) => boolean
+} {
+  return {
+    forward: (view) => hopMarker(view, 1, options),
+    backward: (view) => hopMarker(view, -1, options)
+  }
 }

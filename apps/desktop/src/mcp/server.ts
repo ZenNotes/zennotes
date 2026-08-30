@@ -18,41 +18,14 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { resolveInstructions } from './instructions-store.js'
-import {
-  appendToNote,
-  archiveNote,
-  backlinks,
-  createFolder,
-  createNote,
-  deleteFolder,
-  deleteNote,
-  duplicateNote,
-  emptyTrash,
-  insertAtLine,
-  listAssets,
-  listFolders,
-  listNotes,
-  moveNote,
-  moveToTrash,
-  prependToNote,
-  readNote,
-  readPrimaryNotesLocation,
-  renameFolder,
-  renameNote,
-  replaceInNote,
-  resolveVaultRoot,
-  restoreFromTrash,
-  scanAllTasks,
-  searchText,
-  toggleTask,
-  unarchiveNote,
-  writeNote,
-  type NoteFolder
-} from './vault-ops.js'
+import { createBackend, type VaultBackend } from '../cli/backend.js'
+import { resolveDefaultTarget } from '../cli/vault-target.js'
+import { RemoteRequestError } from '../main/remote/connection.js'
+import type { NoteFolder } from './vault-ops.js'
 
 interface ToolDef {
   schema: Tool
-  handler: (args: Record<string, unknown>, vault: string) => Promise<unknown>
+  handler: (args: Record<string, unknown>, backend: VaultBackend) => Promise<unknown>
 }
 
 /* ---------- Argument helpers ----------------------------------------- */
@@ -105,16 +78,43 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'vault_info',
       description:
-        'Return the absolute path and top-level layout of the currently configured ZenNotes vault. Call this once at the start of a session to confirm you are pointing at the right vault — and to learn whether the user runs in `inbox` or `root` primary mode (the answer changes how every other tool behaves).',
+        'Return where the currently configured ZenNotes vault lives (a folder on this machine, or a self-hosted server the desktop app is connected to) and its top-level layout. Call this once at the start of a session to confirm you are pointing at the right vault, and to learn whether the user runs in `inbox` or `root` primary mode (the answer changes how every other tool behaves).',
       inputSchema: { type: 'object', properties: {} }
     },
-    handler: async (_args, vault) => {
-      const [folders, primaryNotesLocation] = await Promise.all([
-        listFolders(vault),
-        readPrimaryNotesLocation(vault)
-      ])
+    handler: async (_args, backend) => {
+      const [description, folders] = await Promise.all([backend.describe(), backend.listFolders()])
+      const primaryNotesLocation = description.primaryNotesLocation
       const isRootMode = primaryNotesLocation === 'root'
+      const pathNotes =
+        'IMPORTANT: Always use the `path` returned by other tools verbatim. Never prepend `inbox/` to a path you got back from list_notes / create_note / read_note. ' +
+        (isRootMode
+          ? 'This vault uses ROOT mode: notes for the conceptual `inbox` folder live directly at the vault root (e.g. `MyNote.md`), not under `inbox/`. The folders quick/, archive/, trash/ are real subdirectories at the root.'
+          : 'This vault uses INBOX mode: notes for the conceptual `inbox` folder live under `inbox/` (e.g. `inbox/MyNote.md`).')
+      if (description.kind === 'remote') {
+        // The workspace the desktop app has open is a server (#688). Every
+        // tool reads and writes through its HTTP API; the only thing this
+        // process cannot get from the app is its token.
+        return {
+          kind: 'remote',
+          server: description.baseUrl,
+          serverName: description.name || null,
+          vaultPath: description.vaultPath,
+          vaultName: description.vaultName,
+          primaryNotesLocation,
+          topFolders: ['inbox', 'quick', 'archive', 'trash'],
+          subfolders: folders,
+          authConfigured: description.authConfigured,
+          notes:
+            'This vault lives on a self-hosted ZenNotes server, the workspace the desktop app currently has open. Every tool works on it through the server API; paths are vault-relative POSIX paths exactly as the server reports them. ' +
+            pathNotes +
+            (description.authConfigured
+              ? ''
+              : ' No token is configured for this server in this process. If calls fail with 401, set ZENNOTES_REMOTE_TOKEN in the MCP server\'s environment to the token the server was started with.')
+        }
+      }
+      const vault = description.root
       return {
+        kind: 'local',
         vaultRoot: vault,
         primaryNotesLocation,
         // Where the conceptual `inbox` folder actually lives on disk.
@@ -123,11 +123,7 @@ const TOOLS: ToolDef[] = [
         inboxAbsolutePath: isRootMode ? vault : `${vault}/inbox`,
         topFolders: ['inbox', 'quick', 'archive', 'trash'],
         subfolders: folders,
-        notes:
-          'IMPORTANT: Always use the `path` returned by other tools verbatim. Never prepend `inbox/` to a path you got back from list_notes / create_note / read_note. ' +
-          (isRootMode
-            ? 'This vault uses ROOT mode: notes for the conceptual `inbox` folder live directly at the vault root (e.g. `MyNote.md`), not under `inbox/`. The folders quick/, archive/, trash/ are real on-disk subdirectories at the root.'
-            : 'This vault uses INBOX mode: notes for the conceptual `inbox` folder live under `inbox/` (e.g. `inbox/MyNote.md`).')
+        notes: pathNotes
       }
     }
   },
@@ -165,14 +161,14 @@ const TOOLS: ToolDef[] = [
         }
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const folder = args.folder ? requireFolder(args, 'folder') : null
       const sub = optionalString(args, 'subpath')
       const tag = optionalString(args, 'tag')?.toLowerCase()
       const wikilinkTo = optionalString(args, 'wikilinkTo')?.toLowerCase()
       const since = optionalNumber(args, 'updatedSinceMs')
       const limit = optionalNumber(args, 'limit') ?? 200
-      let notes = await listNotes(vault)
+      let notes = await backend.listNotes()
       if (folder) notes = notes.filter((n) => n.folder === folder)
       else notes = notes.filter((n) => n.folder !== 'trash')
       if (sub) {
@@ -196,7 +192,7 @@ const TOOLS: ToolDef[] = [
       description: 'List every subfolder in the vault grouped by top-level folder.',
       inputSchema: { type: 'object', properties: {} }
     },
-    handler: async (_args, vault) => await listFolders(vault)
+    handler: async (_args, backend) => await backend.listFolders()
   },
   {
     schema: {
@@ -205,7 +201,7 @@ const TOOLS: ToolDef[] = [
         'List files under the vault’s attachments directory (images, PDFs, audio, video, other binaries). Useful when a note references an asset you need to inspect.',
       inputSchema: { type: 'object', properties: {} }
     },
-    handler: async (_args, vault) => await listAssets(vault)
+    handler: async (_args, backend) => await backend.listAssets()
   },
   {
     schema: {
@@ -224,9 +220,9 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
-      return await readNote(vault, rel)
+      return await backend.readNote(rel)
     }
   },
   {
@@ -243,11 +239,11 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'body']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const body = args['body']
       if (typeof body !== 'string') throw new Error('body must be a string')
-      return await writeNote(vault, rel, body)
+      return await backend.writeNote(rel, body)
     }
   },
   {
@@ -281,13 +277,13 @@ const TOOLS: ToolDef[] = [
         }
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const folder = args.folder ? requireFolder(args, 'folder') : ('inbox' as NoteFolder)
       if (folder === 'trash') throw new Error('Refusing to create a note directly in trash/')
       const title = optionalString(args, 'title')
       const subpath = optionalString(args, 'subpath') ?? ''
       const body = optionalString(args, 'body')
-      return await createNote(vault, folder, title, subpath, body)
+      return await backend.createNote(folder, title, subpath, body)
     }
   },
   {
@@ -304,10 +300,10 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'newTitle']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const title = requireString(args, 'newTitle')
-      return await renameNote(vault, rel, title)
+      return await backend.renameNote(rel, title)
     }
   },
   {
@@ -325,11 +321,11 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'targetFolder']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const folder = requireFolder(args, 'targetFolder')
       const sub = optionalString(args, 'targetSubpath') ?? ''
-      return await moveNote(vault, rel, folder, sub)
+      return await backend.moveNote(rel, folder, sub)
     }
   },
   {
@@ -342,7 +338,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await duplicateNote(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.duplicateNote(requireString(args, 'path'))
   },
   {
     schema: {
@@ -354,7 +350,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await moveToTrash(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.moveToTrash(requireString(args, 'path'))
   },
   {
     schema: {
@@ -366,7 +362,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await restoreFromTrash(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.restoreFromTrash(requireString(args, 'path'))
   },
   {
     schema: {
@@ -384,11 +380,11 @@ const TOOLS: ToolDef[] = [
         required: ['confirm']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       if (args.confirm !== true) {
         throw new Error('empty_trash requires confirm=true. Ask the user first.')
       }
-      await emptyTrash(vault)
+      await backend.emptyTrash()
       return { ok: true }
     }
   },
@@ -406,9 +402,9 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'confirm']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       if (args.confirm !== true) throw new Error('delete_note requires confirm=true.')
-      await deleteNote(vault, requireString(args, 'path'))
+      await backend.deleteNote(requireString(args, 'path'))
       return { ok: true }
     }
   },
@@ -422,7 +418,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await archiveNote(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.archiveNote(requireString(args, 'path'))
   },
   {
     schema: {
@@ -434,7 +430,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await unarchiveNote(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.unarchiveNote(requireString(args, 'path'))
   },
   {
     schema: {
@@ -449,10 +445,10 @@ const TOOLS: ToolDef[] = [
         required: ['folder', 'subpath']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const folder = requireFolder(args, 'folder')
       if (folder === 'trash') throw new Error('Refusing to create subfolders inside trash/')
-      await createFolder(vault, folder, requireString(args, 'subpath'))
+      await backend.createFolder(folder, requireString(args, 'subpath'))
       return { ok: true }
     }
   },
@@ -470,11 +466,10 @@ const TOOLS: ToolDef[] = [
         required: ['folder', 'oldSubpath', 'newSubpath']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const folder = requireFolder(args, 'folder')
       if (folder === 'trash') throw new Error('Cannot rename inside trash/')
-      return await renameFolder(
-        vault,
+      return await backend.renameFolder(
         folder,
         requireString(args, 'oldSubpath'),
         requireString(args, 'newSubpath')
@@ -496,11 +491,11 @@ const TOOLS: ToolDef[] = [
         required: ['folder', 'subpath', 'confirm']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       if (args.confirm !== true) throw new Error('delete_folder requires confirm=true.')
       const folder = requireFolder(args, 'folder')
       if (folder === 'trash') throw new Error('Cannot delete inside trash/')
-      await deleteFolder(vault, folder, requireString(args, 'subpath'))
+      await backend.deleteFolder(folder, requireString(args, 'subpath'))
       return { ok: true }
     }
   },
@@ -518,10 +513,10 @@ const TOOLS: ToolDef[] = [
         required: ['query']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const query = requireString(args, 'query')
       const limit = optionalNumber(args, 'limit') ?? 80
-      return await searchText(vault, query, limit)
+      return await backend.searchText(query, limit)
     }
   },
   {
@@ -538,10 +533,10 @@ const TOOLS: ToolDef[] = [
         required: ['query']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const needle = requireString(args, 'query').toLowerCase()
       const limit = optionalNumber(args, 'limit') ?? 20
-      const all = await listNotes(vault)
+      const all = await backend.listNotes()
       return all
         .filter((n) => n.folder !== 'trash' && n.title.toLowerCase().includes(needle))
         .sort((a, b) => b.updatedAt - a.updatedAt)
@@ -562,10 +557,10 @@ const TOOLS: ToolDef[] = [
         required: ['tag']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const raw = requireString(args, 'tag').replace(/^#/, '').toLowerCase()
       const limit = optionalNumber(args, 'limit') ?? 200
-      const all = await listNotes(vault)
+      const all = await backend.listNotes()
       return all
         .filter(
           (n) => n.folder !== 'trash' && n.tags.map((t) => t.toLowerCase()).includes(raw)
@@ -581,8 +576,8 @@ const TOOLS: ToolDef[] = [
         'Enumerate every #tag used in the vault (excluding trash) with the count of notes carrying it.',
       inputSchema: { type: 'object', properties: {} }
     },
-    handler: async (_args, vault) => {
-      const all = await listNotes(vault)
+    handler: async (_args, backend) => {
+      const all = await backend.listNotes()
       const counts = new Map<string, number>()
       for (const n of all) {
         if (n.folder === 'trash') continue
@@ -609,7 +604,7 @@ const TOOLS: ToolDef[] = [
         required: ['path']
       }
     },
-    handler: async (args, vault) => await backlinks(vault, requireString(args, 'path'))
+    handler: async (args, backend) => await backend.backlinks(requireString(args, 'path'))
   },
   {
     schema: {
@@ -650,7 +645,7 @@ const TOOLS: ToolDef[] = [
         }
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const status = (optionalString(args, 'status') as
         | 'open'
         | 'done'
@@ -666,7 +661,7 @@ const TOOLS: ToolDef[] = [
       const folder = args.folder
         ? (requireFolder(args, 'folder') as 'inbox' | 'quick' | 'archive')
         : null
-      const all = await scanAllTasks(vault, includeExcluded ? { includeExcluded: true } : undefined)
+      const all = await backend.scanAllTasks(includeExcluded ? { includeExcluded: true } : undefined)
       return all.filter((t) => {
         if (folder && t.noteFolder !== folder) return false
         // A `[>]` record's live copy sits in the destination note; listing the
@@ -701,7 +696,7 @@ const TOOLS: ToolDef[] = [
         required: ['id']
       }
     },
-    handler: async (args, vault) => await toggleTask(vault, requireString(args, 'id'))
+    handler: async (args, backend) => await backend.toggleTask(requireString(args, 'id'))
   },
   {
     schema: {
@@ -717,10 +712,10 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'text']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const text = requireString(args, 'text')
-      return await appendToNote(vault, rel, text)
+      return await backend.appendToNote(rel, text)
     }
   },
   {
@@ -737,10 +732,10 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'text']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const text = requireString(args, 'text')
-      return await prependToNote(vault, rel, text)
+      return await backend.prependToNote(rel, text)
     }
   },
   {
@@ -758,12 +753,12 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'lineNumber', 'text']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const lineNumber = optionalNumber(args, 'lineNumber')
       if (lineNumber == null) throw new Error('lineNumber is required')
       const text = requireString(args, 'text')
-      return await insertAtLine(vault, rel, lineNumber, text)
+      return await backend.insertAtLine(rel, lineNumber, text)
     }
   },
   {
@@ -786,28 +781,67 @@ const TOOLS: ToolDef[] = [
         required: ['path', 'find', 'replace']
       }
     },
-    handler: async (args, vault) => {
+    handler: async (args, backend) => {
       const rel = requireString(args, 'path')
       const find = requireString(args, 'find')
       const replace = args.replace
       if (typeof replace !== 'string') throw new Error('replace must be a string')
       const occurrence = (optionalString(args, 'occurrence') as 'first' | 'all' | undefined) ?? 'first'
-      return await replaceInNote(vault, rel, find, replace, occurrence)
+      return await backend.replaceInNote(rel, find, replace, occurrence)
     }
   }
 ]
 
 /* ---------- Server plumbing ------------------------------------------ */
 
+/** Run one tool by name. The seam the tests use; the stdio server below goes
+ *  through the same handlers. */
+export async function callTool(
+  name: string,
+  args: Record<string, unknown>,
+  backend: VaultBackend
+): Promise<unknown> {
+  const tool = TOOLS.find((t) => t.schema.name === name)
+  if (!tool) throw new Error(`Unknown tool: ${name}`)
+  return await tool.handler(args, backend)
+}
+
+export function listToolNames(): string[] {
+  return TOOLS.map((t) => t.schema.name)
+}
+
+/**
+ * A server that turns the request away is the one failure an agent cannot
+ * fix by retrying: the desktop app keeps its token in the OS secret store,
+ * so this process only has one if the environment supplied it. Say so.
+ */
+export function describeToolError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err)
+  if (err instanceof RemoteRequestError && (err.status === 401 || err.status === 403)) {
+    return (
+      `${message} The MCP server has no valid token for this ZenNotes server. Set ZENNOTES_REMOTE_TOKEN ` +
+      'in the MCP server\'s environment (the desktop app\'s copy lives in the OS secret store, which zn cannot read), ' +
+      'or run zn with --token.'
+    )
+  }
+  return message
+}
+
 export async function runMcpServer(): Promise<void> {
-  // Resolve the vault up front so we fail fast with a clear error
-  // instead of surprising every tool call. When the user hasn't picked
-  // a vault yet we still boot so the client surface stays consistent,
-  // but every tool call will report the missing-vault error.
-  let vaultPromise: Promise<string> | null = null
-  const getVault = (): Promise<string> => {
-    if (!vaultPromise) vaultPromise = resolveVaultRoot()
-    return vaultPromise
+  // Resolve the vault lazily and once: the workspace the desktop app has
+  // open, a folder or a server (#688). When nothing is configured yet we
+  // still boot so the client surface stays consistent; every tool call then
+  // reports the missing-vault error, and the next call tries again rather
+  // than repeating a stale failure.
+  let backendPromise: Promise<VaultBackend> | null = null
+  const getBackend = (): Promise<VaultBackend> => {
+    if (!backendPromise) {
+      backendPromise = resolveDefaultTarget().then(createBackend)
+      backendPromise.catch(() => {
+        backendPromise = null
+      })
+    }
+    return backendPromise
   }
 
   const instructions = await resolveInstructions()
@@ -833,15 +867,14 @@ export async function runMcpServer(): Promise<void> {
       }
     }
     try {
-      const vault = await getVault()
-      const result = await tool.handler((args ?? {}) as Record<string, unknown>, vault)
+      const backend = await getBackend()
+      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend)
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       return {
-        content: [{ type: 'text', text: `Error: ${message}` }],
+        content: [{ type: 'text', text: `Error: ${describeToolError(err)}` }],
         isError: true
       }
     }

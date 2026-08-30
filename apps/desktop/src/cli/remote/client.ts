@@ -21,9 +21,18 @@ import type {
   VaultTextSearchMatch
 } from '../../mcp/vault-ops.js'
 
+/** `GET /api/vault`: the vault the server is serving, as the Go side names
+ *  it (`root`, not `path`; mirrors `VaultInfo` in the Go vault package). */
 export interface RemoteVaultInfo {
+  root: string
+  name: string
+}
+
+export interface RemoteAssetMeta {
   path: string
   name: string
+  size: number
+  updatedAt: number
 }
 
 export class CliRemoteClient {
@@ -82,6 +91,12 @@ export class CliRemoteClient {
     )
   }
 
+  /** Every file under the vault's attachment directories, as the server
+   *  lists them for the app's Assets view. */
+  listAssets(): Promise<RemoteAssetMeta[]> {
+    return this.get<RemoteAssetMeta[]>('/api/assets')
+  }
+
   scanTasksForPath(
     relPath: string,
     opts?: { includeExcluded?: boolean }
@@ -132,6 +147,10 @@ export class CliRemoteClient {
 
   async deleteNote(relPath: string): Promise<void> {
     await this.post<void>('/api/notes/delete', { path: relPath })
+  }
+
+  async emptyTrash(): Promise<void> {
+    await this.post<void>('/api/notes/empty-trash')
   }
 
   async createFolder(folder: NoteFolder, subpath: string): Promise<void> {

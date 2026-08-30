@@ -440,6 +440,80 @@ describe("CloudSettings", () => {
     expect(host.textContent).not.toContain("conflicts need review");
   });
 
+  it("lists each file that needs attention with a reason and an Open action", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.syncCloudVault.mockResolvedValue({
+      cursor: 7,
+      pulled: 1,
+      pushed: 0,
+      conflicts: [
+        {
+          operation_id: "op-1",
+          item_id: "item-1",
+          code: "REVISION_CONFLICT",
+          current_revision: 4,
+          current_path: null,
+          path: "inbox/Daily.md",
+        },
+      ],
+      bootstrap_conflicts: [],
+      local_conflicts: [
+        {
+          code: "LOCAL_EDIT_CONFLICT",
+          path: "inbox/Plan.md",
+          conflict_copy_path: "inbox/Plan (cloud conflict).md",
+        },
+      ],
+    });
+    const openNoteInTab = vi.fn(async () => undefined);
+    const setSettingsOpen = vi.fn();
+    const { useStore } = await import("../store");
+    const previous = { openNoteInTab: useStore.getState().openNoteInTab, setSettingsOpen: useStore.getState().setSettingsOpen };
+    useStore.setState({ openNoteInTab, setSettingsOpen });
+
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+      const sync = [...host.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Sync now",
+      );
+      await act(async () => sync!.click());
+
+      expect(host.textContent).toContain("Sync incomplete");
+      const list = host.querySelector('[aria-label="Files that need attention"]');
+      expect(list).not.toBeNull();
+      const rows = [...list!.querySelectorAll("li")].map((row) => row.textContent ?? "");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toContain("inbox/Plan.md");
+      expect(rows[0]).toContain("Plan (cloud conflict).md");
+      expect(rows[1]).toContain("inbox/Daily.md");
+      expect(rows[1]).toContain("Changed in Cloud");
+
+      const openCopy = [...list!.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Open copy",
+      );
+      await act(async () => openCopy!.click());
+      expect(setSettingsOpen).toHaveBeenCalledWith(false);
+      expect(openNoteInTab).toHaveBeenCalledWith("inbox/Plan (cloud conflict).md");
+    } finally {
+      useStore.setState(previous);
+    }
+  });
+
   it("clears a stale successful summary when a later manual sync times out", async () => {
     mocks.getCloudAccountStatus.mockResolvedValue(connected);
     mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);

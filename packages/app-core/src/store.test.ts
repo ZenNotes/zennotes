@@ -1654,6 +1654,58 @@ describe('renameNote heading sync (#455)', () => {
     expect(writeNote).toHaveBeenCalledWith('inbox/Groceries.md', '# Groceries\n\nbody\n')
   })
 
+  it('saves dirty linked notes before the rename can rewrite their wikilinks', async () => {
+    const order: string[] = []
+    const dirtyNote = makeNote('See [[Untitled]]\n', 'inbox/Daily.md')
+    const writeNote = vi.fn(async () => {
+      order.push('save')
+      return dirtyNote
+    })
+    const renameNote = vi.fn(async () => {
+      order.push('rename')
+      return renamedMeta
+    })
+    installRename({
+      renameNote,
+      writeNote,
+      readNote: vi.fn().mockResolvedValue(dirtyNote),
+      listNotes: vi.fn().mockResolvedValue([dirtyNote, renamedMeta])
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: [dirtyNote, metaOf('inbox/Untitled.md', 'Untitled')],
+      noteContents: { [dirtyNote.path]: dirtyNote },
+      noteDirty: { [dirtyNote.path]: true }
+    })
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+
+    expect(order.slice(0, 2)).toEqual(['save', 'rename'])
+  })
+
+  it('does not rename when a dirty linked note could not be saved', async () => {
+    const dirtyNote = makeNote('See [[Untitled]]\n', 'inbox/Daily.md')
+    const renameNote = vi.fn().mockResolvedValue(renamedMeta)
+    installRename({
+      renameNote,
+      writeNote: vi.fn().mockRejectedValue(new Error('disk unavailable')),
+      readNote: vi.fn().mockResolvedValue(dirtyNote),
+      listNotes: vi.fn().mockResolvedValue([dirtyNote, renamedMeta])
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: [dirtyNote, metaOf('inbox/Untitled.md', 'Untitled')],
+      noteContents: { [dirtyNote.path]: dirtyNote },
+      noteDirty: { [dirtyNote.path]: true }
+    })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+
+    expect(renameNote).not.toHaveBeenCalled()
+    expect(useStore.getState().noteDirty[dirtyNote.path]).toBe(true)
+  })
+
   it('retitles through the buffer when the note is open, so panes repaint', async () => {
     const { writeNote } = installRename()
     const { useStore } = await loadStore()

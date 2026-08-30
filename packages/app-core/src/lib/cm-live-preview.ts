@@ -19,6 +19,7 @@ import {
 import { parseBlockAnchors } from './block-anchors'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
+import { attachImageResizeHandle, setImageWidthOnLine } from './image-resize'
 import { assetTabPath } from './asset-tabs'
 import { openVaultAssetExternally } from './external-file-link'
 import {
@@ -486,6 +487,28 @@ class LocalImageWidget extends WidgetType {
       image.style.removeProperty('height')
     }
 
+    // Logseq-style resize (#684). The picture sits in a sizer that hugs it,
+    // so the handle on the sizer's right edge is the picture's edge whatever
+    // the frame's width (the frame keeps its full width, as before, so
+    // existing notes lay out unchanged). Live width changes stay on the
+    // element; the note gets the `|width` hint once, on release.
+    const sizer = document.createElement('div')
+    sizer.className = 'local-image-embed-sizer'
+    const resizeHandle = document.createElement('div')
+    resizeHandle.className = 'local-image-embed-resize'
+    resizeHandle.title = 'Drag to resize'
+    const sizeBadge = document.createElement('span')
+    sizeBadge.className = 'local-image-embed-size'
+    sizer.append(image, resizeHandle, sizeBadge)
+    attachImageResizeHandle({
+      handle: resizeHandle,
+      image,
+      figure,
+      badge: sizeBadge,
+      maxWidth: () => frame.clientWidth,
+      onCommit: (width) => this.commitWidth(figure, width)
+    })
+
     const topControls = document.createElement('div')
     topControls.className = 'local-image-embed-controls local-image-embed-controls-top'
     const editButton = document.createElement('button')
@@ -527,7 +550,7 @@ class LocalImageWidget extends WidgetType {
     })
     bottomControls.append(openButton)
 
-    frame.append(image, topControls, bottomControls)
+    frame.append(sizer, topControls, bottomControls)
 
     const caption = document.createElement('figcaption')
     caption.className = 'local-image-embed-caption'
@@ -535,6 +558,23 @@ class LocalImageWidget extends WidgetType {
 
     figure.append(frame, caption)
     return figure
+  }
+
+  /** Write a dragged width into the note as the size hint. The line is
+   *  looked up under the figure at release time rather than trusted from
+   *  this widget's own render, and left alone if its text has moved on. */
+  private commitWidth(figure: HTMLElement, width: number): void {
+    const editor = figure.closest<HTMLElement>('.cm-editor')
+    const view = (editor && EditorView.findFromDOM(editor)) ?? useStore.getState().editorViewRef
+    if (!view) return
+    let lineNumber: number
+    try {
+      lineNumber = view.state.doc.lineAt(view.posAtDOM(figure)).number
+    } catch {
+      return
+    }
+    if (view.state.doc.line(lineNumber).text !== this.lineText) return
+    setImageWidthOnLine(view, lineNumber, width)
   }
 
   ignoreEvent(): boolean {

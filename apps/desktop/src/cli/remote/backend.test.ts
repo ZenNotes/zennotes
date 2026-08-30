@@ -163,6 +163,15 @@ beforeAll(async () => {
         vault.notes.set(rel, seeded)
         return send(metaFor(rel, seeded))
       }
+      case 'POST /api/notes/rename': {
+        const payload = await readJsonBody(req) as { path: string; title: string }
+        const body = vault.notes.get(payload.path) ?? ''
+        const dir = payload.path.slice(0, payload.path.lastIndexOf('/') + 1)
+        const next = `${dir}${payload.title}.md`
+        vault.notes.delete(payload.path)
+        vault.notes.set(next, body)
+        return send(metaFor(next, body))
+      }
       case 'POST /api/notes/trash': {
         const payload = await readJsonBody(req) as { path: string }
         const body = vault.notes.get(payload.path) ?? ''
@@ -180,6 +189,20 @@ beforeAll(async () => {
       }
       case 'POST /api/folders/rename':
         return send({ subpath: 'Renamed' })
+      case 'GET /api/vault':
+        return send({ root: '/srv/notes', name: 'notes' })
+      case 'GET /api/vault/settings':
+        return send({ primaryNotesLocation: 'root', systemFolderPaths: null })
+      case 'GET /api/assets':
+        return send([
+          { path: 'assets/pic.png', name: 'pic.png', kind: 'image', siblingOrder: 0, size: 4, updatedAt: 9 }
+        ])
+      case 'POST /api/notes/empty-trash': {
+        for (const key of [...vault.notes.keys()]) if (key.startsWith('trash/')) vault.notes.delete(key)
+        res.writeHead(204)
+        res.end()
+        return
+      }
       default:
         res.writeHead(404)
         res.end('no route')
@@ -392,5 +415,81 @@ describe('local and remote edits produce identical bytes', () => {
 
     expect(remoteMeta.path).toBe(localMeta.path)
     expect(vault.notes.get(remoteMeta.path)).toBe((await readNoteLocal(root, localMeta.path)).body)
+  })
+})
+
+describe('RemoteBackend: what the MCP needs beyond the CLI (#688)', () => {
+  it('describes the server vault from /api/vault and its layout settings', async () => {
+    expect(await remote().describe()).toEqual({
+      kind: 'remote',
+      baseUrl,
+      name: 'test',
+      vaultPath: '/srv/notes',
+      vaultName: 'notes',
+      primaryNotesLocation: 'root',
+      authConfigured: true
+    })
+    expect(await remote(null).describe()).toMatchObject({ authConfigured: false })
+  })
+
+  it('lists assets in the local shape', async () => {
+    expect(await remote().listAssets()).toEqual([
+      { path: 'assets/pic.png', name: 'pic.png', size: 4, updatedAt: 9 }
+    ])
+  })
+
+  it('empties the trash through the server route', async () => {
+    vault.notes.set('trash/Old.md', '# Old')
+    await remote().emptyTrash()
+    expect(vault.requests.at(-1)?.url).toBe('/api/notes/empty-trash')
+    expect(vault.notes.has('trash/Old.md')).toBe(false)
+  })
+
+  it('inserts at a line as read-then-write', async () => {
+    await remote().insertAtLine('inbox/Daily.md', 2, '- zero')
+    expect(vault.notes.get('inbox/Daily.md')).toBe('# Daily\n\n- zero\n- [ ] first\n- [ ] second\n')
+  })
+
+  it('replaces in a note, and skips the write when nothing matched', async () => {
+    const backend = remote()
+    expect((await backend.replaceInNote('inbox/Daily.md', 'first', '1st', 'first')).replacements).toBe(1)
+    expect(vault.notes.get('inbox/Daily.md')).toContain('- [ ] 1st')
+    const before = vault.requests.length
+    const miss = await backend.replaceInNote('inbox/Daily.md', 'absent', 'x', 'all')
+    expect(miss.replacements).toBe(0)
+    expect(miss.meta.path).toBe('inbox/Daily.md')
+    expect(vault.requests.slice(before).map((r) => r.url)).not.toContain('/api/notes/write')
+  })
+})
+
+describe('RemoteBackend: renaming a record page keeps its row in step (#691)', () => {
+  it('updates the sidecar page pointer and the title cell after the server renames the file', async () => {
+    vault.notes.set('inbox/Meetings.base/data.csv', 'id,Name,Project\nrow-1,Kickoff,\n')
+    vault.notes.set(
+      'inbox/Meetings.base/schema.json',
+      JSON.stringify({
+        version: 1,
+        idFieldId: 'f_id',
+        fields: [
+          { id: 'f_id', name: 'id', type: 'text', hidden: true },
+          { id: 'f_name', name: 'Name', type: 'text' },
+          { id: 'f_project', name: 'Project', type: 'text' }
+        ],
+        views: [{ id: 'v1', name: 'Table', type: 'table', filters: [], sorts: [] }],
+        activeViewId: 'v1',
+        pages: { 'row-1': 'Kickoff.md' }
+      })
+    )
+    vault.notes.set('inbox/Meetings.base/Kickoff.md', '---\nProject:\n---\n# Kickoff\n\nagenda\n')
+
+    const meta = await remote().renameNote('inbox/Meetings.base/Kickoff.md', 'Kickoff notes')
+    expect(meta.path).toBe('inbox/Meetings.base/Kickoff notes.md')
+    expect(vault.notes.has('inbox/Meetings.base/Kickoff.md')).toBe(false)
+
+    const schema = JSON.parse(vault.notes.get('inbox/Meetings.base/schema.json') ?? '{}') as {
+      pages?: Record<string, string>
+    }
+    expect(schema.pages).toEqual({ 'row-1': 'Kickoff notes.md' })
+    expect(vault.notes.get('inbox/Meetings.base/data.csv')).toContain('row-1,Kickoff notes,')
   })
 })

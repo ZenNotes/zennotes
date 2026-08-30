@@ -20,6 +20,7 @@
 
 import { normalizeBaseUrl } from '../main/remote/connection.js'
 import {
+  readActiveWorkspaceFromConfig,
   readKnownVaultsFromConfig,
   readRemoteProfilesFromConfig,
   resolveVaultRoot,
@@ -141,9 +142,37 @@ export async function resolveVaultTarget(
 }
 
 /**
+ * The target when nothing named one: `ZENNOTES_SERVER` points at a server for
+ * a whole shell session, `ZENNOTES_VAULT` at a folder, and otherwise the vault
+ * the desktop app has open, a connected server included (#688). This is what
+ * `zn mcp` uses, so an agent works on the vault the user is looking at; the
+ * app's own token stays in the OS secret store, so a server that needs one
+ * gets it from `ZENNOTES_REMOTE_TOKEN` (or `--token`).
+ */
+export async function resolveDefaultTarget(
+  env: NodeJS.ProcessEnv = process.env,
+  flagToken?: string
+): Promise<VaultTarget> {
+  const envServer = env.ZENNOTES_SERVER?.trim()
+  if (envServer) return await resolveServerTarget(envServer, flagToken)
+
+  if (env.ZENNOTES_VAULT?.trim()) return { kind: 'local', root: await resolveVaultRoot() }
+
+  const active = await readActiveWorkspaceFromConfig()
+  if (active.kind === 'remote') {
+    return {
+      kind: 'remote',
+      name: active.name,
+      baseUrl: active.baseUrl,
+      authToken: resolveAuthToken(flagToken, active.authToken, env)
+    }
+  }
+  return { kind: 'local', root: await resolveVaultRoot() }
+}
+
+/**
  * The target for this invocation. `--server` wins over `--vault`; with
- * neither, `ZENNOTES_SERVER` points at a server for a whole shell session and
- * otherwise the configured local default applies.
+ * neither, `resolveDefaultTarget` follows the environment and then the app.
  */
 export async function resolveTarget(
   args: ParsedArgs,
@@ -156,8 +185,5 @@ export async function resolveTarget(
   const vault = getString(args, 'vault')
   if (vault) return await resolveVaultTarget(vault, flagToken)
 
-  const envServer = env.ZENNOTES_SERVER?.trim()
-  if (envServer) return await resolveServerTarget(envServer, flagToken)
-
-  return { kind: 'local', root: await resolveVaultRoot() }
+  return await resolveDefaultTarget(env, flagToken)
 }

@@ -59,7 +59,8 @@ import {
   markdownListIndentPlugin
 } from '../lib/cm-markdown-list-indent'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
-import { hopMarkerBackward, hopMarkerForward } from '../lib/cm-marker-hop'
+import { markerHopCommands } from '../lib/cm-marker-hop'
+import { isInMarkdownCode } from '../lib/cm-auto-pairs'
 import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
@@ -131,6 +132,7 @@ import {
   atNoteSource
 } from '../lib/cm-wikilinks'
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
+import { copyableLink, copyableLinkAt, linkMenuItems, type CopyableLink } from '../lib/link-copy'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
 import { editorCursorPosition } from '../lib/editor-cursor-position'
@@ -339,6 +341,13 @@ function pointerOverRange(
   return true
 }
 
+// Straight quotes join the hop's markers exactly where they auto-pair: with the
+// prose setting on, or inside code, where auto-pair always closes them (#685).
+const markerHop = markerHopCommands({
+  quotesAreMarkers: (state, pos) =>
+    useStore.getState().autoPairQuotesInProse || isInMarkdownCode(state, pos)
+})
+
 function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
   return keymap.of([
     // Home/End on the display row the user can see. Listed before
@@ -382,11 +391,11 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
     {
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerForward')),
-      run: hopMarkerForward
+      run: markerHop.forward
     },
     {
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerBackward')),
-      run: hopMarkerBackward
+      run: markerHop.backward
     },
     {
       key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.foldHeading')),
@@ -954,6 +963,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // selection can't be trusted when an item (e.g. Highlight) runs. (#416)
     selFrom: number
     selTo: number
+    /** The outside link under the pointer (or the caret, when opened from the
+     *  keyboard), so the menu can offer to open or copy it. */
+    link: CopyableLink | null
   } | null>(null)
   const [editorHydration, setEditorHydration] = useState<EditorHydrationState | null>(null)
   const [assetDropActive, setAssetDropActive] = useState(false)
@@ -1046,7 +1058,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       y: pos.y,
       hasSelection: !sel.empty,
       selFrom: sel.from,
-      selTo: sel.to
+      selTo: sel.to,
+      link: copyableLinkAt(view, sel.head)
     })
     view.focus()
     return true
@@ -3889,7 +3902,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     y: e.clientY,
                     hasSelection: !sel.empty,
                     selFrom: sel.from,
-                    selTo: sel.to
+                    selTo: sel.to,
+                    link: copyableLinkAtPointer(view, e.clientX, e.clientY)
                   })
                 }}
                 >
@@ -4026,7 +4040,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             viewRef.current,
             editorMenu.hasSelection,
             captureCommentDraft,
-            { from: editorMenu.selFrom, to: editorMenu.selTo }
+            { from: editorMenu.selFrom, to: editorMenu.selTo },
+            editorMenu.link
           )}
           onClose={() => setEditorMenu(null)}
         />
@@ -4118,13 +4133,25 @@ function HighlightSwatch({ color }: { color: string }): JSX.Element {
   )
 }
 
+/** The outside link whose rendered glyphs sit under the pointer, or null. The
+ *  range check is what tells "on the link" from "clamped to the link" when
+ *  the pointer is in blank space beside a line (#587). */
+function copyableLinkAtPointer(view: EditorView, x: number, y: number): CopyableLink | null {
+  const pos = view.posAtCoords({ x, y })
+  if (pos == null) return null
+  const range = linkRangeAtCursor(view.state.doc.toString(), pos)
+  if (!range || !pointerOverRange(view, range.from, range.to, x, y)) return null
+  return copyableLink(range.target)
+}
+
 function buildEditorContextItems(
   view: EditorView | null,
   hasSelection: boolean,
   onAddComment: () => void,
   // Selection snapshotted when the menu opened, applied by the highlight actions
   // so they don't depend on the live selection surviving the menu. (#416)
-  selRange: { from: number; to: number }
+  selRange: { from: number; to: number },
+  link: CopyableLink | null
 ): ContextMenuItem[] {
   if (!view) return []
 
@@ -4192,6 +4219,9 @@ function buildEditorContextItems(
   }
 
   return [
+    // A right-click on a web link or an email address leads with the link
+    // itself, the way a browser's menu does.
+    ...(link ? linkMenuItems(link) : []),
     {
       label: 'Add comment',
       hint: 'Enter',

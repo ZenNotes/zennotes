@@ -9,12 +9,14 @@ import {
   searchNoteIndex
 } from '../lib/note-search'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { useToastStore } from '../lib/toast'
 import { Modal } from './ui/Modal'
 
 export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const selectNote = useStore((s) => s.selectNote)
+  const trashNote = useStore((s) => s.trashNote)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -54,6 +56,20 @@ export function SearchPalette(): JSX.Element {
     focusEditorNormalMode()
   }
 
+  // Trash the highlighted note without leaving the palette (Discord ask: a
+  // search that ends in "this needs to go" used to mean opening the note or
+  // hunting for it in the sidebar). Same confirmation and clean-up as every
+  // other Move to Trash; the row disappears because search never lists trash.
+  const trashSelected = async (): Promise<void> => {
+    const note = results[active]
+    if (!note) return
+    const moved = await trashNote(note.path)
+    inputRef.current?.focus()
+    if (!moved) return
+    useToastStore.getState().addToast(`Moved "${note.title}" to Trash`, 'success')
+    setActive((a) => Math.max(0, Math.min(a, results.length - 2)))
+  }
+
   return (
     <Modal size="md" layer="palette" onClose={close} closeOnEsc={false}>
       <div className="border-b border-paper-300/70 px-4 py-3">
@@ -77,6 +93,16 @@ export function SearchPalette(): JSX.Element {
                 e.preventDefault()
                 const note = results[active]
                 if (note) open(note)
+              } else if (
+                e.ctrlKey &&
+                !e.metaKey &&
+                !e.altKey &&
+                !e.shiftKey &&
+                e.key.toLowerCase() === 'd'
+              ) {
+                e.preventDefault()
+                e.stopPropagation()
+                void trashSelected()
               } else if (e.key === 'Escape') {
                 e.preventDefault()
                 e.stopPropagation()
@@ -134,6 +160,9 @@ export function SearchPalette(): JSX.Element {
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">↵</kbd> open
+          </span>
+          <span>
+            <kbd className="rounded bg-paper-200 px-1">Ctrl+D</kbd> move to trash
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">esc</kbd> close

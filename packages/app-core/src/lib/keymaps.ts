@@ -1090,7 +1090,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Hop past next marker",
     description:
-      "Move the cursor to the far side of the next inline marker on the line — `**bold|**` becomes `**bold**|`, so finishing a formatted word never needs the arrow keys. Crosses `**`, `*`, `~~`, `==`, backticks, `$` and the bracket pairs. Works with Vim mode on or off.",
+      "Move the cursor to the far side of the next inline marker on the line: `**bold|**` becomes `**bold**|`, so finishing a formatted word never needs the arrow keys. Crosses `**`, `*`, `~~`, `==`, backticks, `$` and the bracket pairs, plus straight quotes wherever they auto-pair (the Auto-pair quotes setting, or inside code), so `\"quoted|\"` becomes `\"quoted\"|` too; an apostrophe inside a word is never a stop. Works with Vim mode on or off.",
     defaultBinding: "Alt+]",
     defaultBindingMac: "Ctrl+.",
   },

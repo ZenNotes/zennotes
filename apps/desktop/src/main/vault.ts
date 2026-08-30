@@ -1717,6 +1717,7 @@ export async function migrateLooseAssets(
     }
     for (const entry of rootEntries) {
       if (entry.name.startsWith('.') || !entry.isFile()) continue
+      if (isAtomicWriteTempPath(entry.name)) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue // a note
       if (databaseCsvPathFor(entry.name) || isDatabaseInternalPath(entry.name)) continue // a database
       await moveIntoAssets(entry.name)
@@ -1733,6 +1734,7 @@ export async function migrateLooseAssets(
     }
     for (const entry of entries) {
       if (entry.name.startsWith('.') || !entry.isFile()) continue
+      if (isAtomicWriteTempPath(entry.name)) continue
       await moveIntoAssets(`${dir}/${entry.name}`)
     }
     try {
@@ -4163,6 +4165,7 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
         continue
       }
       if (!entry.isFile()) continue
+      if (isAtomicWriteTempPath(entry.name)) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
       // Excalidraw drawings are a first-class file type (listed with notes), not
       // a generic attachment.

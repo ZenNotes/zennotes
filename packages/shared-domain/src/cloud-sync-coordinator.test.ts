@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type {
   CloudSyncChange,
@@ -18,6 +19,10 @@ import type {
   CloudSyncState,
   CloudSyncTrackedItem
 } from './cloud-sync-engine'
+import {
+  PortableCloudSyncRepository,
+  type PortableCloudSyncFileSystem
+} from './cloud-sync-portable-filesystem'
 
 function content(data: string): CloudSyncContent {
   return {
@@ -682,5 +687,220 @@ describe('CloudSyncCoordinator', () => {
     await Promise.all([coordinator.sync(), coordinator.sync()])
 
     expect(changes).toHaveBeenCalledTimes(1)
+  })
+})
+
+/* ---------- A device that missed several revisions of one file ------------ */
+
+/** Content with a real digest, so the portable repository's own vouching runs. */
+function realContent(data: string): CloudSyncContent {
+  return {
+    encoding: 'utf8',
+    data,
+    sha256: createHash('sha256').update(data, 'utf8').digest('hex'),
+    byte_length: Buffer.byteLength(data),
+    media_type: 'text/markdown'
+  }
+}
+
+function tracked(itemId: string, path: string, revision: number, data: string): CloudSyncTrackedItem {
+  const { sha256, byte_length, media_type } = realContent(data)
+  return { item_id: itemId, path, kind: 'text', revision, sha256, byte_length, media_type }
+}
+
+function memoryFileSystem(
+  initial: Record<string, string>
+): PortableCloudSyncFileSystem & { files: Map<string, string> } {
+  const files = new Map(Object.entries(initial))
+  return {
+    files,
+    async readdir(directory) {
+      const prefix = directory ? `${directory}/` : ''
+      const names = new Map<string, 'file' | 'directory'>()
+      for (const path of files.keys()) {
+        if (!path.startsWith(prefix)) continue
+        const rest = path.slice(prefix.length)
+        const slash = rest.indexOf('/')
+        if (slash < 0) names.set(rest, 'file')
+        else names.set(rest.slice(0, slash), 'directory')
+      }
+      return [...names].map(([name, type]) => ({ name, type }))
+    },
+    async stat(path) {
+      if (files.has(path)) return 'file'
+      const prefix = `${path}/`
+      return [...files.keys()].some((candidate) => candidate.startsWith(prefix)) ? 'directory' : null
+    },
+    async readBase64(path) {
+      const text = files.get(path)
+      if (text == null) throw new Error(`ENOENT: ${path}`)
+      return Buffer.from(text, 'utf8').toString('base64')
+    },
+    async writeText(path, value) {
+      files.set(path, value)
+    },
+    async writeBase64(path, value) {
+      files.set(path, Buffer.from(value, 'base64').toString('utf8'))
+    },
+    async deleteFile(path) {
+      files.delete(path)
+    },
+    async rename(from, to) {
+      const value = files.get(from)
+      if (value == null) throw new Error(`ENOENT: ${from}`)
+      files.delete(from)
+      files.set(to, value)
+    }
+  }
+}
+
+function upsert(sequence: number, itemId: string, path: string, data: string): CloudSyncChange {
+  return {
+    sequence,
+    item_id: itemId,
+    type: 'upsert',
+    path,
+    previous_path: null,
+    revision: sequence,
+    content: realContent(data)
+  }
+}
+
+describe('CloudSyncCoordinator: catching up on a file this device never touched', () => {
+  const path = 'inbox/Plan.md'
+
+  it('adopts the newest revision cleanly when earlier revisions were coalesced (Discord, unyanda)', async () => {
+    // The desktop saved Plan.md three times while this device was offline.
+    // Nothing here changed: the file is still the v1 that sync last agreed on.
+    const fs = memoryFileSystem({ [path]: 'v1' })
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: { plan: tracked('plan', path, 1, 'v1') }
+    })
+    const server = remote({
+      changes: [upsert(2, 'plan', path, 'v2'), upsert(3, 'plan', path, 'v3'), upsert(4, 'plan', path, 'v4')]
+    })
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    ).sync()
+
+    expect(result.localConflicts).toEqual([])
+    expect([...fs.files.keys()]).toEqual([path])
+    expect(fs.files.get(path)).toBe('v4')
+    // Nothing to push back: the device's file was never edited, so it must not
+    // re-upload its stale bytes over the revision it just received.
+    expect(server.mutations).toEqual([])
+    expect(states.current?.items.plan?.sha256).toBe(realContent('v4').sha256)
+    expect(states.current?.cursor).toBe(4)
+  })
+
+  it('applies a later delete or move against what is actually on disk', async () => {
+    const fs = memoryFileSystem({ [path]: 'v1' })
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: { plan: tracked('plan', path, 1, 'v1') }
+    })
+    const server = remote({
+      changes: [
+        upsert(2, 'plan', path, 'v2'),
+        upsert(3, 'plan', path, 'v3'),
+        {
+          sequence: 4,
+          item_id: 'plan',
+          type: 'move',
+          path: 'archive/Plan.md',
+          previous_path: path,
+          revision: 4
+        },
+        upsert(5, 'plan', 'archive/Plan.md', 'v5')
+      ]
+    })
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    ).sync()
+
+    expect(result.localConflicts).toEqual([])
+    expect([...fs.files.keys()]).toEqual(['archive/Plan.md'])
+    expect(fs.files.get('archive/Plan.md')).toBe('v5')
+    expect(server.mutations).toEqual([])
+  })
+
+  it('still parks a real local edit beside the incoming revision', async () => {
+    const fs = memoryFileSystem({ [path]: 'edited here while offline' })
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: { plan: tracked('plan', path, 1, 'v1') }
+    })
+    const server = remote({
+      changes: [upsert(2, 'plan', path, 'v2'), upsert(3, 'plan', path, 'v3')]
+    })
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    ).sync()
+
+    expect(result.localConflicts).toEqual([
+      { code: 'LOCAL_EDIT_CONFLICT', path, conflict_copy_path: 'inbox/Plan (cloud conflict).md' }
+    ])
+    expect(fs.files.get(path)).toBe('edited here while offline')
+    expect(fs.files.get('inbox/Plan (cloud conflict).md')).toBe('v3')
+  })
+})
+
+describe('CloudSyncCoordinator: rejected mutations name their file', () => {
+  it('annotates server conflicts with the local path, a delete with the path the item had here', async () => {
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        kept: tracked('kept', 'inbox/Kept.md', 1, 'v1'),
+        gone: tracked('gone', 'inbox/Gone.md', 1, 'v1')
+      }
+    })
+    // Kept.md was edited here; Gone.md was deleted here.
+    const repository = memoryRepository([
+      { path: 'inbox/Kept.md', kind: 'text', content: realContent('v2') }
+    ])
+    const server = remote({
+      mutate: (body) => ({
+        acknowledged: [],
+        conflicts: body.mutations.map((mutation) => ({
+          operation_id: mutation.operation_id,
+          item_id: mutation.item_id,
+          code: mutation.type === 'delete' ? ('ITEM_DELETED' as const) : ('REVISION_CONFLICT' as const),
+          current_revision: 3,
+          current_path: null
+        })),
+        cursor: 1
+      })
+    })
+
+    const result = await new CloudSyncCoordinator('vault-1', server, repository, states, ids()).sync()
+
+    expect(result.conflicts.map((c) => [c.item_id, c.code, c.path])).toEqual([
+      ['gone', 'ITEM_DELETED', 'inbox/Gone.md'],
+      ['kept', 'REVISION_CONFLICT', 'inbox/Kept.md']
+    ])
   })
 })

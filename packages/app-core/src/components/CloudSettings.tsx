@@ -18,13 +18,16 @@ import type {
 import { getZenBridge } from "@zennotes/bridge-contract/bridge";
 import { confirmApp } from "../lib/confirm-requests";
 import {
+  cloudSyncAttentionItems,
   cloudSyncAttentionMessage,
+  useCloudSyncStatusStore,
   requestCloudAutoSync,
   syncCloudVaultWithStatus,
 } from "../lib/cloud-auto-sync";
 import { useToastStore } from "../lib/toast";
 import { notifyPublishedNoteChanged } from "../lib/published-note-events";
 import { Button } from "./ui/Button";
+import { useStore } from "../store";
 
 type CloudAction =
   | "connect"
@@ -1017,6 +1020,7 @@ function CloudVaultPanel({
   onDelete: () => void;
   onUseAnotherAccount: () => void;
 }): JSX.Element {
+  const lastSummary = useCloudSyncStatusStore((s) => s.lastSummary);
   if (!syncIncluded) {
     return (
       <CloudNotice>Sync is not included in this subscription.</CloudNotice>
@@ -1136,7 +1140,9 @@ function CloudVaultPanel({
                 onResolve={onResolveSettingsConflict}
               />
             )}
-            {summary && <CloudSyncSummary summary={summary} />}
+            {(summary ?? lastSummary) && (
+              <CloudSyncSummary summary={(summary ?? lastSummary)!} />
+            )}
           </div>
         ) : (
           <CloudVaultDestinationOptions
@@ -1877,6 +1883,16 @@ function CloudSyncSummary({
       "FILE_SIZE_LIMIT_EXCEEDED",
     ].includes(conflict.code),
   ).length;
+  const items = attention ? cloudSyncAttentionItems(summary) : [];
+  // A note opens in the editor behind the modal; anything else (an asset, a
+  // settings file) is named so the user knows where to look.
+  const canOpen = (path: string): boolean =>
+    /\.md$/i.test(path) && !path.toLowerCase().startsWith(".zennotes/");
+  const openPath = (path: string): void => {
+    const store = useStore.getState();
+    store.setSettingsOpen(false);
+    void store.openNoteInTab(path);
+  };
   return (
     <div
       role="status"
@@ -1902,6 +1918,41 @@ function CloudSyncSummary({
           {capacityConflictCount === 1 ? "change is" : "changes are"} waiting to
           upload and will retry automatically.
         </div>
+      )}
+      {items.length > 0 && (
+        <ul className="mt-3 space-y-2" aria-label="Files that need attention">
+          {items.map((item) => (
+            <li
+              key={`${item.kind}:${item.path}`}
+              className="rounded-lg border border-paper-300/60 bg-paper-50/60 px-3 py-2"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs text-ink-800" title={item.path}>
+                    {item.path}
+                  </div>
+                  <div className="mt-0.5 text-xs leading-5 text-ink-500">{item.detail}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {canOpen(item.path) && (
+                    <Button variant="ghost" size="sm" onClick={() => openPath(item.path)}>
+                      Open
+                    </Button>
+                  )}
+                  {item.conflictCopyPath && canOpen(item.conflictCopyPath) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openPath(item.conflictCopyPath!)}
+                    >
+                      Open copy
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

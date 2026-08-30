@@ -23,6 +23,7 @@ import {
 } from "../lib/wikilink-navigation";
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
+import { copyableLink, linkMenuItems, type CopyableLink } from "../lib/link-copy";
 import { toggleTaskAtIndex } from "../lib/tasklists";
 import {
   enhanceLocalAssetNodes,
@@ -244,6 +245,11 @@ export const Preview = memo(function Preview({
     url: string;
     vaultRel: string | null;
     href: string;
+  } | null>(null);
+  const [linkMenu, setLinkMenu] = useState<{
+    x: number;
+    y: number;
+    link: CopyableLink;
   } | null>(null);
   const [expandedDiagram, setExpandedDiagram] =
     useState<ExpandedDiagram | null>(null);
@@ -618,6 +624,31 @@ export const Preview = memo(function Preview({
     };
     const onContextMenu = (e: MouseEvent): void => {
       const target = e.target as HTMLElement;
+      // A web link or an email address gets open / copy. Resolved the way the
+      // click handler resolves it, so a bare `google.com` copies as the URL
+      // that would have opened; note links, wikilinks and local assets fall
+      // through to their own handling.
+      const anchor = target.closest("a") as HTMLAnchorElement | null;
+      if (
+        anchor &&
+        !anchor.classList.contains("wikilink") &&
+        !anchor.classList.contains("hashtag")
+      ) {
+        const linkHref =
+          anchor.dataset.localAssetHref || anchor.getAttribute("href") || "";
+        const link = resolveInternalNoteHref(
+          notePathRef.current,
+          linkHref,
+          notesRef.current,
+        )
+          ? null
+          : copyableLink(linkHref);
+        if (link) {
+          e.preventDefault();
+          setLinkMenu({ x: e.clientX, y: e.clientY, link });
+          return;
+        }
+      }
       // Find the closest embedded-asset host (figure/anchor) that we
       // tagged in `enhanceLocalAssetNodes` or the CM PDF widget.
       const host = target.closest<HTMLElement>(
@@ -1080,6 +1111,14 @@ export const Preview = memo(function Preview({
           y={assetMenu.y}
           items={assetMenuItems}
           onClose={closeAssetMenu}
+        />
+      )}
+      {linkMenu && (
+        <ContextMenu
+          x={linkMenu.x}
+          y={linkMenu.y}
+          items={linkMenuItems(linkMenu.link)}
+          onClose={() => setLinkMenu(null)}
         />
       )}
       {expandedDiagram && (

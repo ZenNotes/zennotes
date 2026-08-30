@@ -1,3 +1,5 @@
+import { writeClipboardText } from './clipboard-text'
+
 const CODE_BLOCK_CLASS = 'zen-code-block'
 const CODE_BLOCK_TOOLBAR_CLASS = 'zen-code-block-toolbar'
 const CODE_BLOCK_SUMMARY_CLASS = 'zen-code-block-summary'
@@ -195,29 +197,6 @@ function readFoldMap(storageKey: string): Record<string, boolean> {
 
 function codeBlockFoldStorageKey(notePath: string): string {
   return `${CODE_BLOCK_FOLDS_STORAGE_PREFIX}:${encodeURIComponent(notePath)}`
-}
-
-function writeClipboardText(text: string): boolean {
-  if (typeof window === 'undefined') return false
-
-  try {
-    const bridge = (window as Window & {
-      zen?: { clipboardWriteText?: (value: string) => void }
-    }).zen
-    if (typeof bridge?.clipboardWriteText === 'function') {
-      bridge.clipboardWriteText(text)
-      return true
-    }
-
-    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    return false
-  }
-
-  return false
 }
 
 function setCopyButtonFeedback(

@@ -68,6 +68,8 @@ import { listContinuationPrefix } from "../lib/list-continuation";
 import { focusEditorNormalMode } from "../lib/editor-focus";
 import { toVimSequence } from "../lib/vim-key-sequence";
 import { registerNoteMoveExCommands } from "../lib/vim-ex-commands";
+import { promptImageWidth, setImageWidthFromInput } from "../lib/image-resize";
+import { copyLinkAtCursor } from "../lib/link-copy";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -360,6 +362,13 @@ function registerVimCommands(): void {
     {},
     { context: "visual" },
   );
+  // `gy` copies the link under the cursor (a web URL, or the address behind
+  // a mailto:), the keyboard twin of the right-click "Copy link".
+  Vim.defineAction("zenCopyLink", (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6;
+    if (view) copyLinkAtCursor(view);
+  });
+  Vim.mapCommand("gy", "action", "zenCopyLink", {}, { context: "normal" });
   Vim.mapCommand(
     "K",
     "action",
@@ -451,6 +460,23 @@ function registerVimCommands(): void {
   Vim.defineEx("format", "format", () => {
     void useStore.getState().formatActiveNote();
   });
+  // `:imgwidth 480` (`:imgw`) writes the `|480` size hint into the image on
+  // the cursor line, the same edit as dragging the widget's handle; `auto`
+  // (or 0) strips it, and no argument opens the Resize Image prompt (#684).
+  Vim.defineEx(
+    "imgwidth",
+    "imgw",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const view = useStore.getState().editorViewRef;
+      if (!view) return;
+      const arg = (params?.argString ?? "").trim();
+      if (!arg) {
+        void promptImageWidth(view);
+        return;
+      }
+      setImageWidthFromInput(view, arg);
+    },
+  );
   Vim.defineEx("quit", "q", () => {
     const state = useStore.getState();
     if (isTasksViewActive(state)) {

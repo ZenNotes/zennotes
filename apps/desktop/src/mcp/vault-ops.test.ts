@@ -5,8 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { parseOpenNoteDeepLink } from '../main/deep-links'
 import {
   createNote,
+  insertAtLineInBody,
   listNotes,
   renameNote,
+  replaceInBody,
   scanAllTasks,
   searchText,
   toggleTaskInBody
@@ -223,5 +225,20 @@ describe('rename_note heading sync (#455)', () => {
     await writeFile(path.join(root, 'inbox', 'Board.md'), body)
     const meta = await renameNote(root, 'inbox/Board.md', 'Canvas')
     expect(await readFile(path.join(root, meta.path), 'utf8')).toBe(body)
+  })
+})
+
+describe('pure body edits shared with the remote backend (#688)', () => {
+  it('replaceInBody replaces the first or every occurrence and counts them', () => {
+    expect(replaceInBody('a b a', 'a', 'x')).toEqual({ body: 'x b a', replacements: 1 })
+    expect(replaceInBody('a b a', 'a', 'x', 'all')).toEqual({ body: 'x b x', replacements: 2 })
+    expect(replaceInBody('a b a', 'z', 'x')).toEqual({ body: 'a b a', replacements: 0 })
+    expect(() => replaceInBody('a', '', 'x')).toThrow('find is required')
+  })
+
+  it('insertAtLineInBody inserts before a zero-based line, clamped, CRLF normalised', () => {
+    expect(insertAtLineInBody('one\ntwo', 1, 'mid')).toBe('one\nmid\ntwo')
+    expect(insertAtLineInBody('one\r\ntwo', 99, 'end\nmore')).toBe('one\ntwo\nend\nmore')
+    expect(insertAtLineInBody('one', -5, 'top')).toBe('top\none')
   })
 })

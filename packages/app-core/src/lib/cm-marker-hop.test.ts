@@ -116,3 +116,47 @@ describe('hopMarker commands', () => {
     expect(view.state.selection.main.head).toBe(8)
   })
 })
+
+describe('auto-paired quotes (#685)', () => {
+  const quoted = (marked: string, dir: 1 | -1): string => {
+    const { text, col } = parse(marked)
+    const target = markerHopTarget(text, col, dir, { quotes: true })
+    if (target == null) return marked
+    return `${text.slice(0, target)}|${text.slice(target)}`
+  }
+
+  it('steps out past a closing double or single quote', () => {
+    expect(quoted('"This|"', 1)).toBe('"This"|')
+    expect(quoted("'This|'", 1)).toBe("'This'|")
+  })
+
+  it('steps back in, then out before the opening quote', () => {
+    expect(quoted('"This"|', -1)).toBe('"This|"')
+    expect(quoted('"This|"', -1)).toBe('|"This"')
+  })
+
+  it('never stops at an apostrophe inside a word', () => {
+    expect(quoted("'don|'t'", 1)).toBe("'don't'|")
+    expect(quoted("we're |done", -1)).toBe("we're |done")
+    expect(quoted("it's| fine", 1)).toBe("it's| fine")
+  })
+
+  it('still crosses the formatting markers around a quote', () => {
+    expect(quoted('**"quoted"|**', 1)).toBe('**"quoted"**|')
+    expect(quoted('**|"quoted"**', 1)).toBe('**"|quoted"**')
+  })
+
+  it('leaves quotes alone when they are not markers (the default)', () => {
+    expect(hop('"This|"', 1)).toBe('"This|"')
+    expect(hop("'This|'", 1)).toBe("'This|'")
+  })
+
+  it('the commands ask the editor per cursor whether quotes count', () => {
+    const view = mount('"This"', 5) // "This|"
+    expect(hopMarkerForward(view)).toBe(false)
+    expect(hopMarkerForward(view, { quotesAreMarkers: () => true })).toBe(true)
+    expect(view.state.selection.main.head).toBe(6)
+    expect(hopMarkerBackward(view, { quotesAreMarkers: () => true })).toBe(true)
+    expect(view.state.selection.main.head).toBe(5)
+  })
+})

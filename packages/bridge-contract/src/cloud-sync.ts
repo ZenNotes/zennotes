@@ -71,6 +71,13 @@ export interface CloudSyncConflict {
   current_revision: number | null;
   current_path: string | null;
   capacity?: CloudSyncCapacityConflict;
+  /**
+   * The vault-relative path of the file the rejected operation was about, as
+   * this device knows it. The server answers with item ids only; the client
+   * that sent the mutation fills this in, so "1 change could not be applied"
+   * can name the file (a delete carries the path the item had here).
+   */
+  path?: string | null;
 }
 
 export interface CloudSyncMutationResponse {

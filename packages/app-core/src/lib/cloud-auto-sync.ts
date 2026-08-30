@@ -48,6 +48,9 @@ interface CloudSyncStatusStore {
   vaultName: string | null;
   lastSyncedAt: number | null;
   error: string | null;
+  /** What the last completed run reported, so the status bar's Review can
+   *  show the files that need attention without another sync first. */
+  lastSummary: CloudSyncRunSummary | null;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -55,6 +58,7 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   vaultName: null,
   lastSyncedAt: null,
   error: null,
+  lastSummary: null,
 };
 
 export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
@@ -199,6 +203,7 @@ export async function syncCloudVaultWithStatus(
         vaultName: nextVaultName,
         lastSyncedAt: current.lastSyncedAt,
         error: attention,
+        lastSummary: summary,
       });
       return summary;
     }
@@ -207,6 +212,7 @@ export async function syncCloudVaultWithStatus(
       vaultName: nextVaultName,
       lastSyncedAt: Date.now(),
       error: null,
+      lastSummary: summary,
     });
     return summary;
   } catch (error) {
@@ -368,6 +374,87 @@ export function cloudSyncAttentionMessage(
   }
 
   return null;
+}
+
+const CAPACITY_CODES = new Set([
+  "QUOTA_EXCEEDED",
+  "CAPACITY_EXCEEDED",
+  "FILE_SIZE_LIMIT_EXCEEDED",
+]);
+
+export interface CloudSyncAttentionItem {
+  kind: "kept-both" | "kept-local" | "settings" | "bootstrap" | "rejected";
+  /** The file on this device the item is about. */
+  path: string;
+  /** What happened and what to do, in plain words. */
+  detail: string;
+  /** Where the Cloud version was parked, when there is one to look at. */
+  conflictCopyPath: string | null;
+}
+
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * One row per file that needs the user's eyes, from a run summary. Capacity
+ * rejections are not listed: they are queued uploads that retry on their own,
+ * and the summary already says how many. Everything else names the file and
+ * says what sync did with it, because "1 change could not be applied" with
+ * nothing to open is a dead end (Discord).
+ */
+export function cloudSyncAttentionItems(
+  summary: CloudSyncRunSummary,
+): CloudSyncAttentionItem[] {
+  const items: CloudSyncAttentionItem[] = [];
+  for (const conflict of summary.bootstrap_conflicts) {
+    items.push({
+      kind: "bootstrap",
+      path: conflict.path,
+      detail:
+        "Differs on this device and in Cloud, and sync has not agreed on a version yet. Keep one copy (edit or rename the other) and sync again.",
+      conflictCopyPath: null,
+    });
+  }
+  for (const conflict of summary.local_conflicts) {
+    if (conflict.code === "SETTINGS_CONFLICT") {
+      items.push({
+        kind: "settings",
+        path: conflict.path,
+        detail: "Vault settings differ from the cloud. Choose which to keep above.",
+        conflictCopyPath: null,
+      });
+    } else if (conflict.conflict_copy_path) {
+      items.push({
+        kind: "kept-both",
+        path: conflict.path,
+        detail: `Edited on this device and in Cloud. Your version stays in place; the Cloud version is beside it as ${fileName(conflict.conflict_copy_path)}.`,
+        conflictCopyPath: conflict.conflict_copy_path,
+      });
+    } else {
+      items.push({
+        kind: "kept-local",
+        path: conflict.path,
+        detail:
+          "Cloud removed or moved this file, but it was edited on this device. Your version was kept and will be uploaded again.",
+        conflictCopyPath: null,
+      });
+    }
+  }
+  for (const conflict of summary.conflicts) {
+    if (CAPACITY_CODES.has(conflict.code)) continue;
+    const path = conflict.path ?? conflict.current_path ?? `item ${conflict.item_id}`;
+    const detail =
+      conflict.code === "REVISION_CONFLICT"
+        ? "Changed in Cloud after this device last synced. The next sync brings the Cloud version and keeps yours beside it if they differ."
+        : conflict.code === "PATH_CONFLICT"
+          ? `Another Cloud file already uses this name${conflict.current_path && conflict.current_path !== path ? ` (${conflict.current_path})` : ""}. Rename one of them and sync again.`
+          : conflict.code === "ITEM_DELETED"
+            ? "Deleted in Cloud. Your copy stays on this device and is uploaded again as a new file on the next sync."
+            : `Cloud rejected this change (${conflict.code}).`;
+    items.push({ kind: "rejected", path, detail, conflictCopyPath: null });
+  }
+  return items;
 }
 
 function formatCloudBytes(bytes: number): string {

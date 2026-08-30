@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -94,6 +94,32 @@ describe('VaultWatcher settings startup window', () => {
       const first = await waitForEvent(events)
       expect(first?.path).toBe('Note.md')
       expect(first?.folder).toBe('inbox')
+    },
+    20_000
+  )
+})
+
+describe('VaultWatcher atomic saves', () => {
+  it(
+    'reports the completed note without exposing its scratch filename',
+    async () => {
+      const root = await makeVault()
+      const events: VaultChangeEvent[] = []
+      const watcher = new VaultWatcher()
+      watchers.push(watcher)
+      watcher.start(root, (event) => events.push(event))
+      await sleep(400)
+
+      const scratch = path.join(root, 'Daily.md.3252272.1787800172047252.tmp')
+      await writeFile(scratch, '# Daily\n')
+      await sleep(250)
+      expect(events).toEqual([])
+
+      await rename(scratch, path.join(root, 'Daily.md'))
+      const completed = await waitForEvent(events)
+
+      expect(completed?.path).toBe('Daily.md')
+      expect(events.some((event) => event.path.endsWith('.tmp'))).toBe(false)
     },
     20_000
   )

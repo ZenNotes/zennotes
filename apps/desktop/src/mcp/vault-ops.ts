@@ -492,6 +492,56 @@ export async function readRemoteProfilesFromConfig(): Promise<KnownRemoteProfile
   return out
 }
 
+/**
+ * The workspace the desktop app currently has open: a vault on disk, or a
+ * self-hosted server. A flag-less `zn` and `zn mcp` follow this, so an agent
+ * talks to the vault the user is looking at rather than the last local one
+ * (#688). The app keeps server tokens in the OS secret store, which a plain
+ * Node process cannot read, so the token here is only ever the legacy
+ * plaintext one a pre-profile config may still carry; callers layer
+ * `ZENNOTES_REMOTE_TOKEN` / `--token` on top.
+ */
+export type ActiveWorkspace =
+  | { kind: 'local'; root: string | null }
+  | {
+      kind: 'remote'
+      baseUrl: string
+      name: string
+      profileId: string | null
+      authToken: string | null
+    }
+
+export async function readActiveWorkspaceFromConfig(): Promise<ActiveWorkspace> {
+  const parsed = await readConfigFile()
+  const vaultRoot = parsed?.vaultRoot
+  const root = typeof vaultRoot === 'string' && vaultRoot.trim() ? vaultRoot : null
+  if (parsed?.workspaceMode !== 'remote') return { kind: 'local', root }
+  const remote = parsed.remoteWorkspace
+  const rawBaseUrl =
+    remote && typeof remote === 'object' ? (remote as Record<string, unknown>).baseUrl : null
+  if (typeof rawBaseUrl !== 'string' || !rawBaseUrl.trim()) return { kind: 'local', root }
+  const baseUrl = normalizeBaseUrl(rawBaseUrl)
+  const configuredProfileId =
+    typeof parsed.remoteWorkspaceProfileId === 'string' && parsed.remoteWorkspaceProfileId.trim()
+      ? parsed.remoteWorkspaceProfileId
+      : null
+  const profiles = await readRemoteProfilesFromConfig()
+  const profile =
+    (configuredProfileId && profiles.find((p) => p.id === configuredProfileId)) ||
+    profiles.find((p) => p.baseUrl === baseUrl) ||
+    null
+  const legacyToken = (remote as Record<string, unknown>).authToken
+  return {
+    kind: 'remote',
+    baseUrl,
+    name: profile?.name ?? '',
+    profileId: profile?.id ?? configuredProfileId,
+    authToken:
+      profile?.authToken ??
+      (typeof legacyToken === 'string' && legacyToken.trim() ? legacyToken : null)
+  }
+}
+
 function expandHome(target: string): string {
   if (target === '~') return os.homedir()
   if (target.startsWith('~/') || target.startsWith(`~${path.sep}`)) {
@@ -1811,6 +1861,33 @@ export async function prependToNote(root: string, rel: string, text: string): Pr
   return await readMeta(root, abs, folder)
 }
 
+/** Literal find-and-replace on a body. Pure, so the CLI's remote backend and
+ *  the MCP compose the same bytes whichever side of the wire the note is on. */
+export function replaceInBody(
+  body: string,
+  find: string,
+  replace: string,
+  occurrence: 'first' | 'all' = 'first'
+): { body: string; replacements: number } {
+  if (!find) throw new Error('find is required')
+  if (occurrence === 'all') {
+    const parts = body.split(find)
+    return { body: parts.join(replace), replacements: parts.length - 1 }
+  }
+  const idx = body.indexOf(find)
+  if (idx < 0) return { body, replacements: 0 }
+  return { body: body.slice(0, idx) + replace + body.slice(idx + find.length), replacements: 1 }
+}
+
+/** Insert `text` before zero-based `lineNumber` (clamped to the body). Pure,
+ *  for the same reason as `replaceInBody`. */
+export function insertAtLineInBody(body: string, lineNumber: number, text: string): string {
+  const lines = body.replace(/\r\n/g, '\n').split('\n')
+  const clamped = Math.max(0, Math.min(lines.length, Math.floor(lineNumber)))
+  lines.splice(clamped, 0, ...text.split('\n'))
+  return lines.join('\n')
+}
+
 export async function replaceInNote(
   root: string,
   rel: string,
@@ -1818,24 +1895,9 @@ export async function replaceInNote(
   replace: string,
   occurrence: 'first' | 'all' = 'first'
 ): Promise<{ meta: NoteMeta; replacements: number }> {
-  if (!find) throw new Error('find is required')
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
-  let replacements = 0
-  let next: string
-  if (occurrence === 'all') {
-    const parts = body.split(find)
-    replacements = parts.length - 1
-    next = parts.join(replace)
-  } else {
-    const idx = body.indexOf(find)
-    if (idx < 0) {
-      next = body
-    } else {
-      next = body.slice(0, idx) + replace + body.slice(idx + find.length)
-      replacements = 1
-    }
-  }
+  const { body: next, replacements } = replaceInBody(body, find, replace, occurrence)
   if (replacements === 0) {
     const folder = await folderOf(root, abs)
     if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -1855,11 +1917,7 @@ export async function insertAtLine(
 ): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
-  const lines = body.replace(/\r\n/g, '\n').split('\n')
-  const clamped = Math.max(0, Math.min(lines.length, Math.floor(lineNumber)))
-  const insertLines = text.split('\n')
-  lines.splice(clamped, 0, ...insertLines)
-  await fs.writeFile(abs, lines.join('\n'), 'utf8')
+  await fs.writeFile(abs, insertAtLineInBody(body, lineNumber, text), 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)

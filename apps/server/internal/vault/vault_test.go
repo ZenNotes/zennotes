@@ -1103,6 +1103,41 @@ func TestCreateExcalidrawSeedsEmptyScene(t *testing.T) {
 	}
 }
 
+func TestListAssetsIgnoresAtomicWriteScratchFiles(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "inbox"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const scratch = "Daily.md.3252272.1787800172047252.tmp"
+	if err := os.WriteFile(filepath.Join(root, "inbox", scratch), []byte("in-flight save"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "inbox", "report.2024.01.tmp"), []byte("user file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	assets, err := v.ListAssets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sawUserFile := false
+	for _, asset := range assets {
+		if asset.Name == scratch {
+			t.Fatalf("ListAssets leaked an atomic save scratch file: %s", asset.Path)
+		}
+		if asset.Name == "report.2024.01.tmp" {
+			sawUserFile = true
+		}
+	}
+	if !sawUserFile {
+		t.Fatal("ListAssets dropped a user-authored .tmp file that does not match the atomic-save pattern")
+	}
+}
+
 func TestRenameAndMovePreserveExcalidrawExt(t *testing.T) {
 	root := t.TempDir()
 	v, err := New(root, Options{})

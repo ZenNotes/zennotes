@@ -25,6 +25,7 @@ import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHos
 import { ToastHost } from './components/ui'
 import { ExcalidrawEmbedMenuHost } from './components/ExcalidrawEmbedMenuHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
+import { escapeEmbedFrame } from './lib/embed-renderers'
 import {
   eventMatchesUserOverride,
   isMacPlatform,
@@ -445,6 +446,14 @@ function App(): JSX.Element {
         return
       }
       pendingOpenNoteRequestsRef.current.push(relPath)
+    })
+  }, [])
+
+  // Escape inside an embedded video player never reaches the page; desktop
+  // main relays it so the note gets its keyboard back.
+  useEffect(() => {
+    return window.zen.onFrameEscape?.(() => {
+      escapeEmbedFrame()
     })
   }, [])
 

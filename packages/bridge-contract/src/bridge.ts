@@ -348,6 +348,11 @@ export interface ZenBridge {
   onVaultChange(cb: (ev: VaultChangeEvent) => void): () => void
   onOpenSettings(cb: () => void): () => void
   onOpenNoteRequested(cb: (relPath: string) => void): () => void
+  /** Escape was pressed while a subframe (an embedded video player) owned the
+   *  keyboard. Keys inside a cross-origin frame never reach the page, so the
+   *  desktop main process relays this one; the app hands focus back to the
+   *  note. Desktop-only, the web build has no hook below the page. */
+  onFrameEscape?(cb: () => void): () => void
   notifyRendererReady(): void
   onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
 

@@ -392,12 +392,17 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Links are actionable',
     body:
-      'Use [[wikilinks]] or markdown links. Following a link — click it, Cmd/Ctrl-click it, or use the follow-link motion (`gd`) in normal mode — opens the note under the cursor and pins PDFs into the reference pane. If the note does not exist yet, following the link offers to create it (after you confirm) rather than leaving a dead link. Prefix a wikilink with `!` to embed rather than link: `![[Note]]` inlines the target note content in the reading view and PDF export — recursively, with cycle protection — so a master note can pull in sub-notes and export to PDF as one document. `![[image.png]]` embeds an image and `![[drawing.excalidraw]]` embeds an Excalidraw drawing as a PNG preview; both take optional `|width` or `|WxH` size hints (`![[image.png|300]]`, `![[image.png|600x400]]`), and the markdown form carries the same hint after the alt text (`![caption|300](image.png)`).'
+      'Use [[wikilinks]] or markdown links. Following a link — click it, Cmd/Ctrl-click it, or use the follow-link motion (`gd`) in normal mode — opens the note under the cursor and pins PDFs into the reference pane. If the note does not exist yet, following the link offers to create it (after you confirm) rather than leaving a dead link. Prefix a wikilink with `!` to embed rather than link: `![[Note]]` inlines the target note content in the reading view and PDF export — recursively, with cycle protection — so a master note can pull in sub-notes and export to PDF as one document. `![[image.png]]` embeds an image and `![[drawing.excalidraw]]` embeds an Excalidraw drawing as a PNG preview; both take optional `|width` or `|WxH` size hints (`![[image.png|300]]`, `![[image.png|600x400]]`), and the markdown form carries the same hint after the alt text (`![caption|300](image.png)`). In the editor, drag the handle on a picture\'s right edge to resize it; the width is written back as that hint, so the reading view, exports and Obsidian all show the same size. Resize Image… in the command palette (or `:imgwidth 480` in Vim mode, `:imgw auto` to reset) sets it by number for the image under the cursor. Right-click a web link or an email address, in the editor or the reading view, to open it or copy it (the address itself, without `mailto:`); `gy` in normal mode, or Copy Link Under Cursor in the palette, copies the one under the caret.'
   },
   {
     title: 'Point at one block, not a whole note',
     body:
       'End any line with a `^block-id` marker (letters, digits and hyphens, e.g. `- Ship the picker ^ship-it`) to name that block, then link at it with `[[Note^ship-it]]`. Following the link opens the note scrolled to that exact block, the way `[[Note#Heading]]` reaches a section. Put the marker on its own line to tag the paragraph above it without touching its text. Typing `^` inside a wikilink lists the target note\'s ids with the block text beside each one, so you can pick without leaving the keyboard, and `[[^id]]` points at a block in the note you are already in. Embedding follows the same rule: `![[Note^ship-it]]` inlines just that block rather than the whole note, bringing a bullet\'s children along with it. Obsidian\'s spellings work as-is, so a vault you share with Obsidian keeps its block links: `[[Note#^id]]`, `[[#^id]]`, and markdown-style `[text](Note.md#^id)` all reach the block. The marker itself is addressing, not prose, so it stays hidden in the reading view and in the editor until your cursor is on the line to edit it. The Connections panel says which block a note reached for instead of only that it linked here.'
+  },
+  {
+    title: 'Embed videos and link cards',
+    body:
+      'Paste a YouTube or Vimeo link on an empty line (Cmd/Ctrl+V, or `p` in normal mode) and a small "Paste as" menu offers Embed, Bookmark, or plain URL; `j`/`k`, the arrows, and Enter drive it, Esc dismisses it. An embed is an `embed` code fence holding the URL. It renders as the video poster with a play badge, in the editor and in the reading view alike, and no player exists until you click play, so the cursor walks straight over it and nothing can take the keyboard away from the note. Once a video is running, clicking inside it hands the keyboard to the player (its own shortcuts apply); press Esc (desktop) to hand it back to the note. A bookmark is a `bookmark` fence rendered as a rich link card built from the page metadata; clicking the card opens the link externally. In the editor, hover an embed or card for its Edit pill, or step into it with `j`/`k`, to reveal and edit the source.'
   },
   {
     title: 'Files stay local',
@@ -417,7 +422,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'The CLI is the bridge to launchers',
     body:
-      'The `zn` command-line tool can list, read, search, capture, edit, archive, trash, inspect tasks, work with databases (`zn base list / rows / get / add / set / create` — add rows with record pages, set fields with the grid’s exact semantics, locally or against a self-hosted server), and start the MCP server without the app running. Raycast uses it for search, then uses `zennotes://open` and `zennotes://open-window` links to bring the selected note back into ZenNotes. On macOS, Settings → CLI can install the bundled Raycast extension locally so users do not need to wait for the Raycast Store version.'
+      'The `zn` command-line tool can list, read, search, capture, edit, archive, trash, inspect tasks, work with databases (`zn base list / rows / get / add / set / create` — add rows with record pages, set fields with the grid’s exact semantics, locally or against a self-hosted server; renaming a record page with `zn rename` keeps its row pointing at it), and start the MCP server without the app running. With no `--vault` or `--server` flag, `zn` works on the vault the app has open, a connected server included (give it the token as `ZENNOTES_REMOTE_TOKEN` or `--token`). Raycast uses it for search, then uses `zennotes://open` and `zennotes://open-window` links to bring the selected note back into ZenNotes. On macOS, Settings → CLI can install the bundled Raycast extension locally so users do not need to wait for the Raycast Store version.'
   },
   {
     title: 'Excalidraw drawings are first-class files',
@@ -468,6 +473,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     description: 'These work across the main app shell.',
     items: [
       { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette.' },
+      { keys: 'Ctrl+D (in Search notes)', action: 'Move the highlighted note to Trash', detail: 'Trash a note straight from the search results, with the usual confirmation; the palette stays open, so a clean-up pass is search, Ctrl+D, search, Ctrl+D.' },
       { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
       { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: 'In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
@@ -734,6 +740,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Runs markdown formatting on the active note.'
   },
   {
+    command: ':imgwidth {px}',
+    summary: 'Resize the image on the cursor line',
+    detail: 'Writes the `|width` size hint into the image embed under the cursor, the same edit as dragging the handle on the picture. `:imgw auto` strips the hint; `:imgw` with no argument opens the Resize Image prompt.'
+  },
+  {
     command: ':tasks',
     summary: 'Open Tasks',
     detail: 'Open the vault-wide Tasks virtual tab.'
@@ -842,6 +853,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: 'gd',
     summary: 'Follow the link under the cursor',
     detail: 'Open wikilinks, open external links, create missing notes, or pin PDFs into the reference pane.'
+  },
+  {
+    command: 'gy',
+    summary: 'Copy the link under the cursor',
+    detail: 'Copies a web link\'s URL, or the address behind a `mailto:` link, to the clipboard. The same as right-clicking the link and choosing Copy link.'
   },
   {
     command: 'o / O',
@@ -1164,6 +1180,6 @@ export const HELP_CLI: HelpCard[] = [
   {
     title: 'MCP for AI agents',
     body:
-      '`zn mcp` starts the ZenNotes MCP server in stdio mode — the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves.'
+      '`zn mcp` starts the ZenNotes MCP server in stdio mode — the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. A server that requires a token needs it in the MCP client\'s environment as `ZENNOTES_REMOTE_TOKEN` (the app keeps its own copy in the OS secret store, which `zn` cannot read); `ZENNOTES_SERVER` or `ZENNOTES_VAULT` in that environment point the MCP at another vault instead.'
   }
 ]

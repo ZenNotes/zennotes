@@ -922,6 +922,7 @@ function openExternalFileWindow(absPath: string): void {
 
   installNavigationGuards(win);
   installZoomControls(win);
+  installFrameEscape(win);
   applyZoomFactor(win, currentZoomFactor);
 
   const params = `?externalFile=${encodeURIComponent(resolved)}`;
@@ -1208,6 +1209,32 @@ function installZoomControls(win: BrowserWindow): void {
   });
 }
 
+/**
+ * A key pressed inside an embedded video player (a cross-origin iframe) is
+ * delivered to the player's frame and never to the page, Escape included, so
+ * once a click lands in a player the renderer has no way to hand the keyboard
+ * back to the note on its own. The browser process still sees every key before
+ * it is routed: relay a bare Escape whenever a subframe owns focus and let the
+ * renderer decide what to refocus (see `escapeEmbedFrame` in app-core). The
+ * key is not swallowed, so a fullscreen player still leaves fullscreen on it.
+ */
+function installFrameEscape(win: BrowserWindow): void {
+  win.webContents.on("before-input-event", (_event, input) => {
+    if (input.type !== "keyDown" || input.key !== "Escape") return;
+    if (input.control || input.meta || input.alt || input.shift) return;
+    let inSubframe = false;
+    try {
+      // A frame mid-navigation can already be disposed when read; treat that
+      // as "not a subframe" rather than letting the throw escape the handler.
+      inSubframe = win.webContents.focusedFrame?.parent != null;
+    } catch {
+      inSubframe = false;
+    }
+    if (!inSubframe || win.isDestroyed()) return;
+    win.webContents.send(IPC.APP_FRAME_ESCAPE);
+  });
+}
+
 function sanitizeWindowState(
   state: PersistedWindowState | null,
 ): PersistedWindowState | null {
@@ -1397,6 +1424,7 @@ async function createWindow(
 
   installNavigationGuards(win);
   installZoomControls(win);
+  installFrameEscape(win);
   applyZoomFactor(win, currentZoomFactor);
 
   if (
@@ -4392,6 +4420,7 @@ function openFloatingNoteWindow(relPath: string): void {
   });
   installNavigationGuards(win);
   installZoomControls(win);
+  installFrameEscape(win);
   applyZoomFactor(win, currentZoomFactor);
   if (sourceWindow && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win);
@@ -4493,6 +4522,7 @@ async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
 
   installNavigationGuards(win);
   installZoomControls(win);
+  installFrameEscape(win);
   applyZoomFactor(win, currentZoomFactor);
   if (sourceWindow && !sourceWindow.isDestroyed()) {
     inheritWindowWorkspaceSession(sourceWindow, win);

@@ -1315,7 +1315,7 @@ func (v *Vault) ListAssets() ([]AssetMeta, error) {
 		}
 		for index, entry := range entries {
 			name := entry.Name()
-			if strings.HasPrefix(name, ".") {
+			if strings.HasPrefix(name, ".") || IsAtomicWriteTempPath(name) {
 				continue
 			}
 			full := filepath.Join(dir, name)

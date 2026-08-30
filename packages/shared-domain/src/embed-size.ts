@@ -49,6 +49,56 @@ export function splitEmbedLabel(
   return { alt: raw.slice(0, pipeAt).trim(), size }
 }
 
+const STANDALONE_WIKILINK_EMBED_LINE_RE = /^(\s*)!\[\[([^\]|]+?)(?:\|([^\]]*))?\]\](\s*)$/
+const STANDALONE_MARKDOWN_IMAGE_LINE_RE = /^(\s*)!\[([^\]]*)\](\(.*\))(\s*)$/
+
+/**
+ * Rewrite the size hint of a standalone image line (`![[pic.png|300]]`,
+ * `![alt|300](pic.png "title")`, or either form without a hint) to `width`,
+ * or strip it when `width` is null. The caption survives, the target and any
+ * markdown title are copied verbatim, and a `WxH` hint is replaced by the
+ * bare width so a resized picture keeps its aspect ratio instead of being
+ * distorted into the old height. An empty markdown alt keeps the leading pipe
+ * (`![|320](pic.png)`) because a lone number there is a caption (#570).
+ * Returns null when the line is not a standalone image embed. This is how the
+ * editor's drag handle and the Resize Image command write a size back into
+ * the note (#684): as the hint every surface already reads, never as private
+ * state.
+ */
+export function withEmbedWidth(lineText: string, width: number | null): string | null {
+  if (width !== null && (!Number.isInteger(width) || width < 1)) return null
+  const wiki = lineText.match(STANDALONE_WIKILINK_EMBED_LINE_RE)
+  if (wiki) {
+    const [, lead, target, label, trail] = wiki
+    if (!isImageEmbedTarget(target)) return null
+    const { alt } = splitEmbedLabel(label, 'wikilink')
+    const parts = [alt, width === null ? '' : String(width)].filter(Boolean)
+    const suffix = parts.length ? `|${parts.join('|')}` : ''
+    return `${lead}![[${target}${suffix}]]${trail}`
+  }
+  const md = lineText.match(STANDALONE_MARKDOWN_IMAGE_LINE_RE)
+  if (md) {
+    const [, lead, rawAlt, rest, trail] = md
+    const { alt } = splitEmbedLabel(rawAlt, 'markdown')
+    const altText = width === null ? alt : `${alt}|${width}`
+    return `${lead}![${altText}]${rest}${trail}`
+  }
+  return null
+}
+
+/** The width of the size hint on a standalone image line, or null when the
+ *  line is not one or carries no hint. Seeds the Resize Image prompt. */
+export function readEmbedWidth(lineText: string): number | null {
+  const wiki = lineText.match(STANDALONE_WIKILINK_EMBED_LINE_RE)
+  if (wiki) {
+    if (!isImageEmbedTarget(wiki[2])) return null
+    return splitEmbedLabel(wiki[3], 'wikilink').size?.width ?? null
+  }
+  const md = lineText.match(STANDALONE_MARKDOWN_IMAGE_LINE_RE)
+  if (md) return splitEmbedLabel(md[2], 'markdown').size?.width ?? null
+  return null
+}
+
 /** Extensions an `![[…]]` embed may point at and still mean "a picture". */
 export const IMAGE_EMBED_EXTENSIONS = new Set([
   'png',

@@ -3358,6 +3358,78 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   font-size: 1rem;
 }
 
+/* Resize handle (#684, editor only). The sizer hugs the picture so the handle
+   rides on the picture's right edge whatever the frame's width; dragging it
+   writes the `|width` hint into the note. */
+.cm-editor .local-image-embed-sizer {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.cm-editor .local-image-embed-resize {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 8px;
+  height: 44px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.92);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 2px 8px rgb(0 0 0 / 0.35);
+  transform: translateY(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.cm-editor .local-image-embed:hover .local-image-embed-resize,
+.cm-editor .local-image-embed.is-resizing .local-image-embed-resize {
+  opacity: 1;
+}
+
+.cm-editor .local-image-embed-size {
+  position: absolute;
+  right: 22px;
+  bottom: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgb(20 19 18 / 0.82);
+  color: rgb(255 255 255 / 0.94);
+  font-family: var(
+    --z-mono-font,
+    "SF Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace
+  );
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.cm-editor .local-image-embed.is-resizing {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.cm-editor .local-image-embed.is-resizing .local-image-embed-size {
+  opacity: 1;
+}
+
+.cm-editor .local-image-embed.is-resizing .local-image-embed-controls {
+  opacity: 0;
+}
+
 :is(.prose-zen, .cm-editor) .local-image-embed-caption {
   margin-top: 0.55rem;
   text-align: center;
@@ -3931,6 +4003,75 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   width: 100%;
   height: 100%;
   border: 0;
+}
+/* Click-to-play facade: poster, play badge, and provider name stand in for the
+   player until the user asks for it (no iframe exists before that, so nothing
+   can take the keyboard away from the note). The button fills the aspect box. */
+.zen-embed-frame .zen-embed-poster {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: #000;
+  color: #fff;
+  cursor: pointer;
+}
+.zen-embed-frame .zen-embed-poster-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.85;
+  transition: opacity 120ms ease;
+}
+.zen-embed-frame .zen-embed-poster:hover .zen-embed-poster-image,
+.zen-embed-frame .zen-embed-poster:focus-visible .zen-embed-poster-image {
+  opacity: 1;
+}
+.zen-embed-frame .zen-embed-play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 48px;
+  border-radius: 14px;
+  background: rgb(var(--z-accent));
+  color: rgb(var(--z-bg));
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+  transform: translate(-50%, -50%);
+  transition:
+    transform 120ms ease,
+    filter 120ms ease;
+}
+.zen-embed-frame .zen-embed-play svg {
+  margin-left: 3px;
+}
+.zen-embed-frame .zen-embed-poster:hover .zen-embed-play,
+.zen-embed-frame .zen-embed-poster:focus-visible .zen-embed-play {
+  transform: translate(-50%, -50%) scale(1.06);
+  filter: brightness(1.08);
+}
+.zen-embed-frame .zen-embed-poster:focus-visible {
+  outline: 2px solid rgb(var(--z-accent));
+  outline-offset: -2px;
+}
+.zen-embed-frame .zen-embed-provider {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 :is(.prose-zen, .cm-embed-block) .zen-embed-unsupported {
   padding: 10px 14px;

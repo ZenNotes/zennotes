@@ -267,3 +267,97 @@ describe('atNoteSource (#332 — @ note linking)', () => {
     expect(atResult('foo@Zen')).toBeNull()
   })
 })
+
+describe('editing an existing link keeps its section and alias (#686)', () => {
+  function editor(doc: string): { view: EditorView; done: () => void } {
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    const view = new EditorView({ parent, state: EditorState.create({ doc }) })
+    return {
+      view,
+      done: () => {
+        view.destroy()
+        parent.remove()
+      }
+    }
+  }
+
+  async function pickNote(view: EditorView, caret: number, label: string): Promise<void> {
+    const result = wikilinkSource(new CompletionContext(view.state, caret, true))
+    const option = result?.options.find((o) => o.label === label)
+    if (!option || typeof option.apply !== 'function') throw new Error(`no option ${label}`)
+    option.apply(view, option, result!.from, caret)
+  }
+
+  it('changing the note keeps #section|alias and replaces the whole old name', async () => {
+    // The user has typed the new name over the old one; the caret sits at the
+    // end of what they typed, with the section and alias still ahead.
+    const { view, done } = editor('see [[Zen G#notes|yesterday]] later')
+    await pickNote(view, 'see [[Zen G'.length, 'Zen Garden')
+    expect(view.state.doc.toString()).toBe('see [[Zen Garden#notes|yesterday]] later')
+    expect(view.state.selection.main.head).toBe('see [[Zen Garden'.length)
+    done()
+  })
+
+  it('replaces the rest of the old name when the caret sits inside it', async () => {
+    // Typed `Zen G` at the start of the old name; `ily note` is what is left
+    // of it after the caret and must go with the rest.
+    const { view, done } = editor('[[Zen Gily note#notes|yesterday]]')
+    await pickNote(view, '[[Zen G'.length, 'Zen Garden')
+    expect(view.state.doc.toString()).toBe('[[Zen Garden#notes|yesterday]]')
+    done()
+  })
+
+  it('keeps a bare alias, and a block anchor, in the same way', async () => {
+    const alias = editor('[[Zen G|yesterday]]')
+    await pickNote(alias.view, '[[Zen G'.length, 'Zen Garden')
+    expect(alias.view.state.doc.toString()).toBe('[[Zen Garden|yesterday]]')
+    alias.done()
+    const block = editor('[[Zen G^abc]]')
+    await pickNote(block.view, '[[Zen G'.length, 'Zen Garden')
+    expect(block.view.state.doc.toString()).toBe('[[Zen Garden^abc]]')
+    block.done()
+  })
+
+  it('changing the section keeps the alias', async () => {
+    const { view, done } = editor('[[Zen Garden#Us|yesterday]]')
+    const caret = '[[Zen Garden#Us'.length
+    const result = await wikilinkHeadingSource(new CompletionContext(view.state, caret, true))
+    const option = result?.options.find((o) => o.label === 'Usage Notes')
+    if (!option || typeof option.apply !== 'function') throw new Error('no heading option')
+    option.apply(view, option, result!.from, caret)
+    expect(view.state.doc.toString()).toBe('[[Zen Garden#Usage Notes|yesterday]]')
+    done()
+  })
+
+  it('changing a block id keeps the alias', async () => {
+    const { view, done } = editor('[[Zen Garden^ru|yesterday]]')
+    const caret = '[[Zen Garden^ru'.length
+    const result = await wikilinkBlockSource(new CompletionContext(view.state, caret, true))
+    const option = result?.options.find((o) => o.label === 'run-it')
+    if (!option || typeof option.apply !== 'function') throw new Error('no block option')
+    option.apply(view, option, result!.from, caret)
+    expect(view.state.doc.toString()).toBe('[[Zen Garden^run-it|yesterday]]')
+    done()
+  })
+
+  it('still closes a link being typed, and never eats text after the caret', async () => {
+    const fresh = editor('see [[Zen G and more text')
+    await pickNote(fresh.view, 'see [[Zen G'.length, 'Zen Garden')
+    expect(fresh.view.state.doc.toString()).toBe('see [[Zen Garden]] and more text')
+    fresh.done()
+    // A later, unrelated link must not count as this link's closing brackets.
+    const later = editor('[[Zen G and then [[Other]]')
+    await pickNote(later.view, '[[Zen G'.length, 'Zen Garden')
+    expect(later.view.state.doc.toString()).toBe('[[Zen Garden]] and then [[Other]]')
+    later.done()
+  })
+
+  it('leaves the caret before an auto-paired ]] as before', async () => {
+    const { view, done } = editor('[[Zen G]]')
+    await pickNote(view, '[[Zen G'.length, 'Zen Garden')
+    expect(view.state.doc.toString()).toBe('[[Zen Garden]]')
+    expect(view.state.selection.main.head).toBe('[[Zen Garden'.length)
+    done()
+  })
+})

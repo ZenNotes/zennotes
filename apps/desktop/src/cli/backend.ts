@@ -26,6 +26,10 @@ import {
   deleteFolder,
   deleteNote,
   duplicateNote,
+  emptyTrash,
+  insertAtLine,
+  insertAtLineInBody,
+  listAssets,
   listDatabaseDirs,
   listFolders,
   listNotes,
@@ -36,9 +40,12 @@ import {
   prependToNote,
   readDatabaseVaultLayout,
   readNote,
+  readPrimaryNotesLocation,
   readVaultFileTextOrNull,
   renameFolder,
   renameNote,
+  replaceInBody,
+  replaceInNote,
   restoreFromTrash,
   scanAllTasks,
   searchText,
@@ -52,6 +59,7 @@ import {
   type NoteContent,
   type NoteFolder,
   type NoteMeta,
+  type PrimaryNotesLocation,
   type VaultTask,
   type VaultTextSearchMatch
 } from '../mcp/vault-ops.js'
@@ -61,9 +69,39 @@ import {
   type DatabaseVaultLayout
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
+import { setCell } from '@shared/database-records'
+import {
+  csvPathForFormDir,
+  formDirContaining,
+  type DatabaseDoc,
+  type DatabaseSidecar
+} from '@shared/databases'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import { CliRemoteClient } from './remote/client.js'
 import type { VaultTarget } from './vault-target.js'
+
+export interface VaultAssetMeta {
+  path: string
+  name: string
+  size: number
+  updatedAt: number
+}
+
+/** Where a vault lives and how it is laid out: what `vault_info` reports. */
+export type VaultDescription =
+  | { kind: 'local'; root: string; primaryNotesLocation: PrimaryNotesLocation }
+  | {
+      kind: 'remote'
+      baseUrl: string
+      /** The saved server profile's name, or '' for a bare URL. */
+      name: string
+      /** The vault the server is serving, as it reports it. */
+      vaultPath: string | null
+      vaultName: string | null
+      primaryNotesLocation: PrimaryNotesLocation
+      /** Whether this process holds a token for the server at all. */
+      authConfigured: boolean
+    }
 
 export interface VaultBackend {
   readonly kind: 'local' | 'remote'
@@ -73,7 +111,9 @@ export interface VaultBackend {
    *  to resolve vault-relative paths and has nothing to resolve against. */
   readonly root: string
 
+  describe(): Promise<VaultDescription>
   listNotes(): Promise<NoteMeta[]>
+  listAssets(): Promise<VaultAssetMeta[]>
   listFolders(): Promise<{ folder: NoteFolder; subpath: string }[]>
   readNote(rel: string): Promise<NoteContent>
   writeNote(rel: string, body: string): Promise<NoteMeta>
@@ -93,6 +133,14 @@ export interface VaultBackend {
   restoreFromTrash(rel: string): Promise<NoteMeta>
   duplicateNote(rel: string): Promise<NoteMeta>
   deleteNote(rel: string): Promise<void>
+  emptyTrash(): Promise<void>
+  insertAtLine(rel: string, lineNumber: number, text: string): Promise<NoteMeta>
+  replaceInNote(
+    rel: string,
+    find: string,
+    replace: string,
+    occurrence: 'first' | 'all'
+  ): Promise<{ meta: NoteMeta; replacements: number }>
   createFolder(folder: NoteFolder, subpath: string): Promise<void>
   renameFolder(folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string>
   deleteFolder(folder: NoteFolder, subpath: string): Promise<void>
@@ -110,6 +158,53 @@ export function createBackend(target: VaultTarget): VaultBackend {
   return target.kind === 'remote' ? new RemoteBackend(target) : new LocalBackend(target.root)
 }
 
+function sidecarOf(doc: DatabaseDoc): DatabaseSidecar {
+  return {
+    version: 1,
+    idFieldId: doc.idFieldId,
+    fields: doc.fields,
+    views: doc.views,
+    activeViewId: doc.activeViewId,
+    ...(doc.pages ? { pages: doc.pages } : {})
+  }
+}
+
+/**
+ * A note inside a `<Name>.base/` folder is a record's page: the database's
+ * sidecar points at it by path and its title column carries the page's name.
+ * Renaming the file alone left that pointer dangling and the row reading the
+ * old name (#691), and `zn rename` looked like it had succeeded. The app's
+ * grid renames in the other direction (title cell, then file) and keeps both
+ * in step; this keeps them in step from the file side, for `zn rename` and
+ * the MCP's rename_note on local and remote vaults alike. Best effort: a
+ * database that cannot be read leaves the rename standing, since the note
+ * itself moved correctly.
+ */
+async function followRecordPageRename(
+  ops: DatabaseOps,
+  oldRel: string,
+  meta: NoteMeta
+): Promise<void> {
+  const formDir = formDirContaining(oldRel)
+  if (!formDir || meta.path === oldRel) return
+  const csvPath = csvPathForFormDir(formDir)
+  let doc: DatabaseDoc
+  try {
+    doc = await ops.openDatabase(csvPath)
+  } catch {
+    return
+  }
+  const oldKey = normalizeRelPath(oldRel)
+  const rowId = Object.entries(doc.pages ?? {}).find(
+    ([, pagePath]) => normalizeRelPath(pagePath) === oldKey
+  )?.[0]
+  if (!rowId) return
+  let next: DatabaseDoc = { ...doc, pages: { ...(doc.pages ?? {}), [rowId]: meta.path } }
+  const titleFieldId = doc.fields.find((field) => field.id !== doc.idFieldId)?.id
+  if (titleFieldId) next = setCell(next, rowId, titleFieldId, meta.title)
+  await ops.writeDatabaseSchema(csvPath, sidecarOf(next), next.rows)
+}
+
 /** A vault on this machine. Every method is vault-ops bound to one root. */
 class LocalBackend implements VaultBackend {
   readonly kind = 'local' as const
@@ -120,7 +215,13 @@ class LocalBackend implements VaultBackend {
     return this.root
   }
 
+  describe = async (): Promise<VaultDescription> => ({
+    kind: 'local',
+    root: this.root,
+    primaryNotesLocation: await readPrimaryNotesLocation(this.root)
+  })
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
+  listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
   readNote = (rel: string): Promise<NoteContent> => readNote(this.root, rel)
   writeNote = (rel: string, body: string): Promise<NoteMeta> => writeNote(this.root, rel, body)
@@ -134,8 +235,11 @@ class LocalBackend implements VaultBackend {
     appendToNote(this.root, rel, text)
   prependToNote = (rel: string, text: string): Promise<NoteMeta> =>
     prependToNote(this.root, rel, text)
-  renameNote = (rel: string, nextTitle: string): Promise<NoteMeta> =>
-    renameNote(this.root, rel, nextTitle)
+  renameNote = async (rel: string, nextTitle: string): Promise<NoteMeta> => {
+    const meta = await renameNote(this.root, rel, nextTitle)
+    await followRecordPageRename(this.databaseOps(), rel, meta)
+    return meta
+  }
   moveNote = (rel: string, folder: NoteFolder, subpath: string): Promise<NoteMeta> =>
     moveNote(this.root, rel, folder, subpath)
   archiveNote = (rel: string): Promise<NoteMeta> => archiveNote(this.root, rel)
@@ -144,6 +248,16 @@ class LocalBackend implements VaultBackend {
   restoreFromTrash = (rel: string): Promise<NoteMeta> => restoreFromTrash(this.root, rel)
   duplicateNote = (rel: string): Promise<NoteMeta> => duplicateNote(this.root, rel)
   deleteNote = (rel: string): Promise<void> => deleteNote(this.root, rel)
+  emptyTrash = (): Promise<void> => emptyTrash(this.root)
+  insertAtLine = (rel: string, lineNumber: number, text: string): Promise<NoteMeta> =>
+    insertAtLine(this.root, rel, lineNumber, text)
+  replaceInNote = (
+    rel: string,
+    find: string,
+    replace: string,
+    occurrence: 'first' | 'all'
+  ): Promise<{ meta: NoteMeta; replacements: number }> =>
+    replaceInNote(this.root, rel, find, replace, occurrence)
   createFolder = (folder: NoteFolder, subpath: string): Promise<void> =>
     createFolder(this.root, folder, subpath).then(() => undefined)
   renameFolder = (folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string> =>
@@ -188,7 +302,32 @@ class RemoteBackend implements VaultBackend {
     this.client = new CliRemoteClient(target.baseUrl, target.authToken)
   }
 
+  /** Two reads: the vault the server is serving and its layout settings. A
+   *  401 here is the first thing an unauthenticated session hits, which is
+   *  why `vault_info` is the place the token hint surfaces. */
+  describe = async (): Promise<VaultDescription> => {
+    const [vault, settings] = await Promise.all([
+      this.client.getCurrentVault(),
+      this.client.getVaultSettings()
+    ])
+    return {
+      kind: 'remote',
+      baseUrl: this.client.baseUrl,
+      name: this.label === this.client.baseUrl ? '' : this.label.replace(/ \(.*\)$/, ''),
+      vaultPath: vault?.root ?? null,
+      vaultName: vault?.name ?? null,
+      primaryNotesLocation: settings.primaryNotesLocation === 'root' ? 'root' : 'inbox',
+      authConfigured: !!this.client.authToken
+    }
+  }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
+  listAssets = async (): Promise<VaultAssetMeta[]> =>
+    (await this.client.listAssets()).map((asset) => ({
+      path: asset.path,
+      name: asset.name,
+      size: asset.size,
+      updatedAt: asset.updatedAt
+    }))
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> =>
     this.client.listFolders()
   readNote = (rel: string): Promise<NoteContent> => this.client.readNote(rel)
@@ -218,8 +357,11 @@ class RemoteBackend implements VaultBackend {
     return await this.client.writeNote(rel, prependToBody(note.body, text))
   }
 
-  renameNote = (rel: string, nextTitle: string): Promise<NoteMeta> =>
-    this.client.renameNote(rel, nextTitle)
+  renameNote = async (rel: string, nextTitle: string): Promise<NoteMeta> => {
+    const meta = await this.client.renameNote(rel, nextTitle)
+    await followRecordPageRename(this.databaseOps(), rel, meta)
+    return meta
+  }
   moveNote = (rel: string, folder: NoteFolder, subpath: string): Promise<NoteMeta> =>
     this.client.moveNote(rel, folder, subpath)
   archiveNote = (rel: string): Promise<NoteMeta> => this.client.archiveNote(rel)
@@ -228,6 +370,32 @@ class RemoteBackend implements VaultBackend {
   restoreFromTrash = (rel: string): Promise<NoteMeta> => this.client.restoreFromTrash(rel)
   duplicateNote = (rel: string): Promise<NoteMeta> => this.client.duplicateNote(rel)
   deleteNote = (rel: string): Promise<void> => this.client.deleteNote(rel)
+  emptyTrash = (): Promise<void> => this.client.emptyTrash()
+
+  insertAtLine = async (rel: string, lineNumber: number, text: string): Promise<NoteMeta> => {
+    const note = await this.client.readNote(rel)
+    return await this.client.writeNote(rel, insertAtLineInBody(note.body, lineNumber, text))
+  }
+
+  /** No match means no write: the receipt comes from the listing instead of
+   *  from a round trip that would only re-save identical bytes. */
+  replaceInNote = async (
+    rel: string,
+    find: string,
+    replace: string,
+    occurrence: 'first' | 'all'
+  ): Promise<{ meta: NoteMeta; replacements: number }> => {
+    const note = await this.client.readNote(rel)
+    const { body, replacements } = replaceInBody(note.body, find, replace, occurrence)
+    if (replacements === 0) {
+      const path = normalizeRelPath(rel)
+      const meta = (await this.client.listNotes()).find((n) => n.path === path)
+      if (!meta) throw new Error(`Note not found: ${rel}`)
+      return { meta, replacements: 0 }
+    }
+    return { meta: await this.client.writeNote(rel, body), replacements }
+  }
+
   createFolder = (folder: NoteFolder, subpath: string): Promise<void> =>
     this.client.createFolder(folder, subpath)
   renameFolder = (folder: NoteFolder, oldSubpath: string, newSubpath: string): Promise<string> =>
