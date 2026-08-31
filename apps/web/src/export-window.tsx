@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import type { AssetMeta, NoteContent, NoteMeta, VaultInfo } from '@shared/ipc'
 import { LazyPreview as Preview } from '@renderer/components/LazyPreview'
 import { useStore } from '@renderer/store'
+import { rewriteWikilinkImageEmbeds } from '@shared/embed-size'
 import '@renderer/styles/index.css'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -244,7 +245,11 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
         }
       `}</style>
       <main className="export-note-shell">
-        <Preview markdown={note.body} notePath={note.path} onRendered={() => void triggerPrint()} />
+        <Preview
+          markdown={rewriteWikilinkImageEmbeds(note.body)}
+          notePath={note.path}
+          onRendered={() => void triggerPrint()}
+        />
       </main>
     </>
   )

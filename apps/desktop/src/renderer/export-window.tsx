@@ -14,6 +14,7 @@ import {
   resolveCustomThemeMode
 } from '@renderer/lib/custom-themes'
 import { withExportTitle } from '@shared/export-title'
+import { rewriteWikilinkImageEmbeds } from '@shared/embed-size'
 import '@renderer/styles/index.css'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -446,7 +447,9 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
       `}</style>
       <main className="export-note-shell">
         <Preview
-          markdown={withExportTitle(note.body, note.title).markdown}
+          markdown={rewriteWikilinkImageEmbeds(
+            withExportTitle(note.body, note.title).markdown
+          )}
           notePath={note.path}
           onRendered={() => setExportState('ready')}
         />
