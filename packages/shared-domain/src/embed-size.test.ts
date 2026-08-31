@@ -37,6 +37,14 @@ describe('rewriteWikilinkImageEmbeds', () => {
     expect(rewriteWikilinkImageEmbeds('![[chart.png|Quarter|600x400]]')).toBe('![Quarter|600x400](chart.png)')
     expect(rewriteWikilinkImageEmbeds('![[assets/my chart.png]]')).toBe('![](<assets/my chart.png>)')
   })
+  it('supports nested paths, spaces, alt text, and dimension labels used by PDF export', () => {
+    expect(rewriteWikilinkImageEmbeds('![[subfolder/team photo.png|Team photo]]')).toBe(
+      '![Team photo](<subfolder/team photo.png>)'
+    )
+    expect(rewriteWikilinkImageEmbeds('![[subfolder/team photo.png|300]]')).toBe(
+      '![|300](<subfolder/team photo.png>)'
+    )
+  })
   it('leaves note embeds and fenced code alone', () => {
     const doc = '![[Some note]]\n\n```md\n![[chart.png]]\n```\n\n![[chart.png]]'
     expect(rewriteWikilinkImageEmbeds(doc)).toBe('![[Some note]]\n\n```md\n![[chart.png]]\n```\n\n![](chart.png)')

@@ -90,6 +90,20 @@ describe('#459 — vault-root wikilink embeds resolve from the root', () => {
     const img = root.querySelector<HTMLImageElement>('img')!
     expect(img.dataset.localAssetUrl).toBe('zen-asset://v/assets/image.png')
   })
+
+  it('leaves a missing image unresolved without throwing', async () => {
+    const { useStore, enhanceLocalAssetNodes } = await load()
+    useStore.setState({ assetFiles: [{ path: 'assets/other.png' }] as never })
+    const root = document.createElement('div')
+    root.innerHTML = '<p><img src="missing image.png" alt="Missing image"></p>'
+
+    expect(() =>
+      enhanceLocalAssetNodes(root, { vaultRoot: '/v', notePath: DAILY_NOTE })
+    ).not.toThrow()
+    const img = root.querySelector<HTMLImageElement>('img')!
+    expect(img.dataset.localAssetUrl).toBe('zen-asset://v/missing image.png')
+    expect(img.getAttribute('alt')).toBe('Missing image')
+  })
 })
 
 // #462: imported Obsidian vaults use per-folder `attachments/` directories and
