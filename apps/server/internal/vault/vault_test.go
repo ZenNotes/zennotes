@@ -111,8 +111,7 @@ func TestImportAssetWithinLimit(t *testing.T) {
 	if !bytes.Equal(got, body) {
 		t.Fatalf("written bytes differ from input")
 	}
-	// A non-image keeps the note-relative markdown link: a root-level note
-	// links straight into assets/.
+	// A non-image also uses a vault-relative markdown link into assets/.
 	if asset.Markdown == "" || !strings.Contains(asset.Markdown, "assets/x.bin") {
 		t.Fatalf("markdown = %q, want a link into assets/", asset.Markdown)
 	}
@@ -140,6 +139,24 @@ func TestImportAssetEmbedsImagesByVaultRelativeWikilink(t *testing.T) {
 		if strings.Contains(asset.Markdown, "../") {
 			t.Fatalf("%s: markdown = %q, must not be note-relative", notePath, asset.Markdown)
 		}
+	}
+}
+
+func TestImportAssetScrubsNamesThatBreakWikilinks(t *testing.T) {
+	root := t.TempDir()
+	v, err := New(root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, err := v.ImportAsset("Note.md", "Photo%5D [v2] #3.png", bytes.NewReader([]byte{0x89, 'P', 'N', 'G'}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.Path != "assets/Photo-5D -v2- -3.png" {
+		t.Fatalf("asset path = %q, want a wikilink-safe filename", asset.Path)
+	}
+	if asset.Markdown != "![[assets/Photo-5D -v2- -3.png]]" {
+		t.Fatalf("markdown = %q, want a valid wikilink embed", asset.Markdown)
 	}
 }
 

@@ -460,6 +460,22 @@ describe('importFiles', () => {
     )
   })
 
+  it('scrubs dropped image names that would break or retarget the wikilink', async () => {
+    const root = await makeTempDir('zennotes-import-files-wikilink-name-')
+    await ensureVaultLayout(root)
+    const srcDir = await makeTempDir('zennotes-import-src-wikilink-name-')
+    const src = path.join(srcDir, 'Photo%5D [v2] #3.png')
+    await writeFile(src, Buffer.from([1, 2, 3]))
+
+    const imported = await importFiles(root, 'Note.md', [src])
+
+    expect(imported[0]?.path).toBe('assets/Photo-5D -v2- -3.png')
+    expect(imported[0]?.markdown).toBe('![[assets/Photo-5D -v2- -3.png]]')
+    await expect(readFile(path.join(root, 'assets/Photo-5D -v2- -3.png'))).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    )
+  })
+
   it('uniquifies names against existing files already in assets/', async () => {
     const root = await makeTempDir('zennotes-import-files-unique-')
     await ensureVaultLayout(root)

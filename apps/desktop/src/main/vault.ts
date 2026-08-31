@@ -3428,6 +3428,19 @@ function markdownForImportedAsset(
   return `[${filename}](${markdownDestination(vaultRelPath)})`
 }
 
+/** A raw OS filename can contain characters that terminate or retarget a
+ * wikilink. Apply the same scrub used for pasted-image names before the file is
+ * copied, so the saved path and the emitted embed always agree. */
+function importedAssetFilename(filename: string): string {
+  const leaf = path.basename(filename)
+  const safe = leaf
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:%\u0000-\u001f*?"<>|[\]#^]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return safe && safe !== '.' && safe !== '..' ? safe : 'file'
+}
+
 // The naming lives in @shared/pasted-image so the web client produces the
 // same filenames; re-exported for the remote-workspace paste path, which
 // uploads the bytes but must name the file exactly like a local paste would.
@@ -4285,7 +4298,7 @@ export async function importFiles(
     if (!stat.isFile()) continue
 
     await fs.mkdir(assetsDir, { recursive: true })
-    const finalName = await uniqueFilename(assetsDir, path.basename(sourceAbs))
+    const finalName = await uniqueFilename(assetsDir, importedAssetFilename(sourceAbs))
     const destAbs = path.join(assetsDir, finalName)
     await fs.copyFile(sourceAbs, destAbs)
 

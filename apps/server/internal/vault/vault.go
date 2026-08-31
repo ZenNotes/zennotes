@@ -2517,7 +2517,7 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 // --- Assets upload + raw serving ---
 
 // ImportAsset writes raw bytes into the unified assets/ folder and returns
-// the markdown snippet to embed relative to the source note. The destination
+// the vault-relative markdown snippet to embed. The destination
 // mirrors the desktop importFiles/importPastedImage (#377): uploads used to
 // land at the vault root, which in Vault Root mode dumped them right next to
 // the notes.
@@ -2764,9 +2764,18 @@ func sanitizeFileStem(title string) string {
 }
 
 func sanitizeFileName(name string) string {
-	ext := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	return sanitizeFileStem(stem) + ext
+	leaf := filepath.Base(name)
+	safe := strings.Map(func(r rune) rune {
+		if r < 0x20 || strings.ContainsRune("\\/:%*?\"<>|[]#^", r) {
+			return '-'
+		}
+		return r
+	}, leaf)
+	safe = strings.Join(strings.Fields(safe), " ")
+	if safe == "." || safe == ".." {
+		return ""
+	}
+	return safe
 }
 
 func defaultTitle() string {
