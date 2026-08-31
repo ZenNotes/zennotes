@@ -11,19 +11,24 @@ vi.mock('electron', () => ({
 vi.mock('electron-updater', () => ({
   default: {
     autoUpdater: {},
+    AppImageUpdater: class {},
     DebUpdater: class {},
     RpmUpdater: class {},
     PacmanUpdater: class {}
   }
 }))
 
+import FpmTarget from 'app-builder-lib/out/targets/FpmTarget'
+import electronUpdater from 'electron-updater'
 import {
   elevatedInstallScript,
   installedLinuxFormat,
+  isOfficialLinuxSystemPackage,
   linuxFormatFromOsRelease,
   linuxInstallMismatch,
   linuxNeedsRootInstall,
   linuxPackageFormat,
+  linuxUpdaterForFormat,
   linuxUpdaterFormat,
   manualInstallHint,
   mismatchedUpdateMessage
@@ -97,6 +102,10 @@ describe('linuxFormatFromOsRelease', () => {
     expect(linuxFormatFromOsRelease('ID=nixos\nID_LIKE=\n')).toBe('unknown')
     expect(linuxFormatFromOsRelease('')).toBe('unknown')
   })
+
+  it('gives ID priority over ID_LIKE regardless of declaration order', () => {
+    expect(linuxFormatFromOsRelease('ID_LIKE=debian\nID=arch\n')).toBe('pacman')
+  })
 })
 
 describe('installedLinuxFormat', () => {
@@ -153,40 +162,89 @@ describe('linuxUpdaterFormat', () => {
     // The shipped case: the .pacman carried a `deb` stamp, so electron-updater
     // had picked the deb updater. The stamp's value is never consulted here.
     expect(
-      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: arch })
+      linuxUpdaterFormat({ isAppImage: false, isOfficialSystemPackage: true, osRelease: arch })
     ).toBe('pacman')
     expect(
       linuxUpdaterFormat({
         isAppImage: false,
-        hasPackageStamp: true,
+        isOfficialSystemPackage: true,
         osRelease: 'ID=ubuntu\nID_LIKE=debian\n'
       })
     ).toBe('deb')
     expect(
-      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: 'ID=fedora\n' })
+      linuxUpdaterFormat({
+        isAppImage: false,
+        isOfficialSystemPackage: true,
+        osRelease: 'ID=fedora\n'
+      })
     ).toBe('rpm')
   })
 
   it('leaves an AppImage alone even where a stamp leaked into it', () => {
-    expect(linuxUpdaterFormat({ isAppImage: true, hasPackageStamp: true, osRelease: arch })).toBe(
-      'appimage'
-    )
+    expect(
+      linuxUpdaterFormat({ isAppImage: true, isOfficialSystemPackage: false, osRelease: arch })
+    ).toBe('appimage')
   })
 
-  it('leaves an unstamped install (AUR, tar.gz) to its own package manager', () => {
-    // No stamp means nobody shipped this as a ZenNotes system package, so the
-    // update must not be installed over whatever owns the files.
+  it('forces the safe AppImage updater for AUR and tar installs even if the stamp leaked', () => {
     expect(
-      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: false, osRelease: arch })
-    ).toBe('unknown')
+      linuxUpdaterFormat({
+        isAppImage: false,
+        isOfficialSystemPackage: false,
+        osRelease: arch
+      })
+    ).toBe('appimage')
   })
 
   it('stays with the default updater when the distro cannot be identified', () => {
     expect(
-      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: null })
+      linuxUpdaterFormat({ isAppImage: false, isOfficialSystemPackage: true, osRelease: null })
     ).toBe('unknown')
     expect(
-      linuxUpdaterFormat({ isAppImage: false, hasPackageStamp: true, osRelease: 'ID=nixos\n' })
+      linuxUpdaterFormat({
+        isAppImage: false,
+        isOfficialSystemPackage: true,
+        osRelease: 'ID=nixos\n'
+      })
     ).toBe('unknown')
+  })
+})
+
+describe('isOfficialLinuxSystemPackage', () => {
+  it('accepts only a stamped electron-builder system-package install', () => {
+    expect(isOfficialLinuxSystemPackage('/opt/ZenNotes/resources', true)).toBe(true)
+    expect(isOfficialLinuxSystemPackage('/opt/ZenNotes/resources', false)).toBe(false)
+  })
+
+  it('rejects AUR and tar installs even if a racing target leaked the stamp', () => {
+    expect(isOfficialLinuxSystemPackage('/opt/zennotes-bin/resources', true)).toBe(false)
+    expect(
+      isOfficialLinuxSystemPackage('/tmp/ZenNotes-2.40.0-linux-x64/resources', true)
+    ).toBe(false)
+  })
+})
+
+describe('linuxUpdaterForFormat', () => {
+  it('creates a fresh AppImage updater instead of reusing the stamp-derived singleton', () => {
+    const selected = linuxUpdaterForFormat('appimage')
+    expect(selected).toBeInstanceOf(electronUpdater.AppImageUpdater)
+    expect(selected).not.toBe(electronUpdater.autoUpdater)
+  })
+
+  it('keeps the existing updater only when the system package format is unknown', () => {
+    expect(linuxUpdaterForFormat('unknown')).toBe(electronUpdater.autoUpdater)
+  })
+})
+
+describe('Linux updater build support', () => {
+  // 25.x omits pacman metadata. The pinned 26.15.7 has the current AppImage
+  // security fixes; apps/desktop/patches carries the cycle guard already
+  // merged upstream for its module collector. Upgrade only after this
+  // assertion and an electron-builder --dir package check pass.
+  it('emits pacman packages into latest-linux.yml', () => {
+    const supportsAutoUpdate = Reflect.get(FpmTarget.prototype, 'supportsAutoUpdate') as (
+      target: string
+    ) => boolean
+    expect(supportsAutoUpdate.call(Object.create(FpmTarget.prototype), 'pacman')).toBe(true)
   })
 })

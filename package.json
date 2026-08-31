@@ -1,7 +1,7 @@
 {
   "name": "zennotes-monorepo",
   "private": true,
-  "version": "2.39.0",
+  "version": "2.40.0",
   "description": "ZenNotes monorepo for desktop, web, and self-hosted server builds",
   "packageManager": "npm@10.9.2",
   "engines": {
@@ -18,9 +18,11 @@
     "@excalidraw/mermaid-to-excalidraw": {
       "@mermaid-js/parser": "1.2.1",
       "nanoid": "5.1.16"
-    }
+    },
+    "vite": "$vite"
   },
   "scripts": {
+    "postinstall": "cd apps/desktop && patch-package --error-on-fail",
     "dev": "npm run dev:desktop",
     "dev:desktop": "npm run dev --workspace @zennotes/desktop",
     "dev:web": "npm run dev --workspace @zennotes/web",
@@ -47,6 +49,8 @@
     "perf:editor-scroll": "node tooling/scripts/perf-editor-scroll.mjs"
   },
   "devDependencies": {
-    "turbo": "^2.5.8"
+    "patch-package": "8.0.1",
+    "turbo": "^2.5.8",
+    "vite": "^6.4.3"
   }
 }

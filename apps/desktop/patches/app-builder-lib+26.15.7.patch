@@ -1,0 +1,40 @@
+diff --git a/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js b/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
+index 31798e4..15bb8ce 100644
+--- a/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
++++ b/node_modules/app-builder-lib/out/node-module-collector/nodeModulesCollector.js
+@@ -238,17 +238,22 @@ class NodeModulesCollector {
+             const deps = (obj[key] || {}).dependencies || [];
+             for (const dep of deps) {
+                 const child = this.transformToHoisterTree(obj, dep, nodes);
+-                node.dependencies.add(child);
++                if (child !== node) {
++                    node.dependencies.add(child);
++                }
+             }
+         }
+         return node;
+     }
+-    async _getNodeModules(dependencies, result) {
++    async _getNodeModules(dependencies, result, ancestors = new Set()) {
+         var _a;
+         if (dependencies.size === 0) {
+             return;
+         }
+         for (const d of dependencies.values()) {
++            if (ancestors.has(d)) {
++                continue;
++            }
+             const reference = [...d.references][0];
+             const key = `${d.name}@${reference}`;
+             // Normalize the path to handle mixed separators from pnpm JSON output on Windows
+@@ -272,7 +277,9 @@ class NodeModulesCollector {
+             result.push(node);
+             if (d.dependencies.size > 0) {
+                 node.dependencies = [];
+-                await this._getNodeModules(d.dependencies, node.dependencies);
++                ancestors.add(d);
++                await this._getNodeModules(d.dependencies, node.dependencies, ancestors);
++                ancestors.delete(d);
+             }
+         }
+         result.sort((a, b) => a.name.localeCompare(b.name));

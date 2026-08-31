@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import electronUpdater, {
   type AppUpdater,
@@ -400,7 +400,7 @@ const DISTRO_FAMILY_FORMATS: Array<[LinuxPackageFormat, string[]]> = [
  *  ID_LIKE its space-separated ancestors, which is what carries derivatives
  *  (CachyOS declares `ID_LIKE=arch`) we would otherwise have to enumerate. */
 export function linuxFormatFromOsRelease(osRelease: string): LinuxPackageFormat {
-  const ids: string[] = []
+  const declared: Partial<Record<'ID' | 'ID_LIKE', string[]>> = {}
   for (const line of osRelease.split('\n')) {
     const match = /^\s*(ID|ID_LIKE)\s*=\s*(.*)$/.exec(line)
     if (!match) continue
@@ -408,11 +408,11 @@ export function linuxFormatFromOsRelease(osRelease: string): LinuxPackageFormat 
       .trim()
       .replace(/^["']|["']$/g, '')
       .toLowerCase()
-    // ID wins over ID_LIKE, so keep the declaration order: ID is listed first
-    // in every os-release we have seen, and a distro's own id is the better
-    // answer when the two families disagree.
-    ids.push(...value.split(/\s+/).filter(Boolean))
+    declared[match[1] as 'ID' | 'ID_LIKE'] = value.split(/\s+/).filter(Boolean)
   }
+  // A distro's own ID is authoritative if it conflicts with an ancestor.
+  // os-release is a set of assignments and does not require either key first.
+  const ids = [...(declared.ID ?? []), ...(declared.ID_LIKE ?? [])]
   for (const id of ids) {
     const family = DISTRO_FAMILY_FORMATS.find(([, members]) => members.includes(id))
     if (family) return family[0]
@@ -441,23 +441,37 @@ function defaultReadOsRelease(): string {
 /**
  * Which updater this Linux install needs, given what we can observe about it.
  *
- * The `package-type` stamp's VALUE is unreliable (see above), but its PRESENCE
- * still says something true: only the deb/rpm/pacman packages carry one. An
- * AppImage and an AUR or tar.gz install have none, and those two must keep
- * behaving exactly as they do today, the AppImage updating itself in userspace
- * and a distro-managed install leaving updates to the package manager that owns
- * it. So presence decides whether we are a system package at all, and the
- * running distro decides which one. 'appimage' and 'unknown' both mean "leave
- * electron-updater's own choice alone".
+ * The `package-type` stamp's VALUE is unreliable (see above). Its presence is
+ * useful only together with electron-builder's fixed `/opt/ZenNotes` install
+ * path: the shared staging directory can leak the stamp into tar.gz, which the
+ * AUR repackages under `/opt/zennotes-bin`. The path check keeps those installs
+ * owned by their package manager even when that race occurs.
+ *
+ * The AppImage updater is selected explicitly for non-system installs instead
+ * of returning electron-updater's `autoUpdater`: that singleton has already
+ * read the racing stamp by the time this module loads and may itself be a deb
+ * or rpm updater.
  */
 export function linuxUpdaterFormat(input: {
   isAppImage: boolean
-  hasPackageStamp: boolean
+  isOfficialSystemPackage: boolean
   osRelease: string | null
 }): LinuxPackageFormat {
   if (input.isAppImage) return 'appimage'
-  if (!input.hasPackageStamp) return 'unknown'
+  if (!input.isOfficialSystemPackage) return 'appimage'
   return input.osRelease === null ? 'unknown' : linuxFormatFromOsRelease(input.osRelease)
+}
+
+const OFFICIAL_LINUX_RESOURCES_PATH = join('/opt', 'ZenNotes', 'resources')
+
+/** True only for the fixed install layout emitted by this app's official
+ *  deb/rpm/pacman targets. The stamp alone is not enough because it is written
+ *  into a staging directory shared with tar.gz. */
+export function isOfficialLinuxSystemPackage(
+  resourcesPath: string,
+  hasPackageStamp: boolean
+): boolean {
+  return hasPackageStamp && resolve(resourcesPath) === OFFICIAL_LINUX_RESOURCES_PATH
 }
 
 /** True when running `downloaded`'s installer on a machine that is `installed`
@@ -486,25 +500,34 @@ export function mismatchedUpdateMessage(
   const name = version ? `ZenNotes ${version}` : 'The update'
   const page = DOWNLOAD_PAGE_BY_FORMAT[installed] ?? 'https://zennotes.org/download'
   const wanted = installed === 'appimage' ? 'an AppImage' : `a .${installed} package`
-  return `${name} was downloaded as a .${downloaded} package, but this copy of ZenNotes was installed as ${wanted}, so installing it here would fail. Download ${wanted} from ${page} and install it the way you installed ZenNotes. This build stamps the right package on every download, so the next update installs itself.`
+  return `${name} was downloaded as a .${downloaded} package, but this copy of ZenNotes was installed as ${wanted}, so installing it here would fail. Download ${wanted} from ${page} and install it the way you installed ZenNotes. This build now detects the right package type from your system, so the next update installs itself.`
 }
 
 /** The updater matching what this machine actually runs, rather than the one
  *  electron-updater chose from the stamp when the module was loaded. */
 function linuxUpdater(): AppUpdater {
-  let format: LinuxPackageFormat = 'unknown'
   try {
-    format = linuxUpdaterFormat({
-      isAppImage: Boolean(process.env.APPIMAGE),
-      hasPackageStamp: existsSync(join(process.resourcesPath, 'package-type')),
-      osRelease: readOsReleaseOrNull()
-    })
+    return linuxUpdaterForFormat(
+      linuxUpdaterFormat({
+        isAppImage: Boolean(process.env.APPIMAGE),
+        isOfficialSystemPackage: isOfficialLinuxSystemPackage(
+          process.resourcesPath,
+          existsSync(join(process.resourcesPath, 'package-type'))
+        ),
+        osRelease: readOsReleaseOrNull()
+      })
+    )
   } catch {
     // Any surprise here means we know nothing extra; electron-updater's own
     // choice is no worse than it was before.
     return autoUpdater
   }
+}
+
+export function linuxUpdaterForFormat(format: LinuxPackageFormat): AppUpdater {
   switch (format) {
+    case 'appimage':
+      return new electronUpdater.AppImageUpdater()
     case 'deb':
       return new electronUpdater.DebUpdater()
     case 'rpm':
