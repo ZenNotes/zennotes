@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import electronUpdater, {
   type AppUpdater,
@@ -462,7 +462,7 @@ export function linuxUpdaterFormat(input: {
   return input.osRelease === null ? 'unknown' : linuxFormatFromOsRelease(input.osRelease)
 }
 
-const OFFICIAL_LINUX_RESOURCES_PATH = join('/opt', 'ZenNotes', 'resources')
+const OFFICIAL_LINUX_RESOURCES_PATH = posix.join('/opt', 'ZenNotes', 'resources')
 
 /** True only for the fixed install layout emitted by this app's official
  *  deb/rpm/pacman targets. The stamp alone is not enough because it is written
@@ -471,7 +471,7 @@ export function isOfficialLinuxSystemPackage(
   resourcesPath: string,
   hasPackageStamp: boolean
 ): boolean {
-  return hasPackageStamp && resolve(resourcesPath) === OFFICIAL_LINUX_RESOURCES_PATH
+  return hasPackageStamp && posix.normalize(resourcesPath) === OFFICIAL_LINUX_RESOURCES_PATH
 }
 
 /** True when running `downloaded`'s installer on a machine that is `installed`
