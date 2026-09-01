@@ -1,7 +1,7 @@
 {
-  "version": "2.40.0",
-  "hash": "sha256-U2D9p5UVtkH9FLVEJ7iE5MiRoQKDKQ6aWzDYraOp3g0=",
-  "npmDepsHash": "sha256-cT2hRvtJiRdOb1e2jwoq3YT/9MCuasGcZe33b+Kgl0U=",
+  "version": "2.41.0",
+  "hash": "sha256-s2mz7Zn/3VBIjuR/wBDo/iJXX1sjDAkEjf55eKe8MvE=",
+  "npmDepsHash": "sha256-DdA0r3dcUEMuPBsOR91u/xfMUgA6xePdoAGaBu45i3A=",
   "vendorHash": "sha256-ZdOHC2JldvnKSDUFnBUJrKD4F1IWfvYJBksgeDnU9cw=",
-  "desktopHash": "sha256-4KoZOXIwE/al8EGWF5EoQDvorpK+EWDFcki/Rfaxdcs="
+  "desktopHash": "sha256-g47a2XAdBdHLouKZelbRu7i/pSD8L9fLLRuCp0o2/As="
 }
