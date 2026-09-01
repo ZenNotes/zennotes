@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import type { AssetMeta, NoteContent, NoteMeta, VaultInfo } from '@shared/ipc'
 import { LazyPreview as Preview } from '@renderer/components/LazyPreview'
 import { useStore } from '@renderer/store'
+import { withExportTitle } from '@shared/export-title'
 import '@renderer/styles/index.css'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -136,7 +137,10 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
           selectedPath: noteContent.path,
           activeNote: noteContent
         })
-        document.title = `${noteContent.title}.pdf`
+        // The browser's print dialog seeds the filename from document.title, so
+        // it takes the resolved export title (frontmatter `title:` beats the
+        // filename) rather than the note's filename alone.
+        document.title = `${withExportTitle(noteContent.body, noteContent.title).title}.pdf`
         setNote(noteContent)
       } catch (err) {
         if (cancelled) return
@@ -244,7 +248,11 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
         }
       `}</style>
       <main className="export-note-shell">
-        <Preview markdown={note.body} notePath={note.path} onRendered={() => void triggerPrint()} />
+        <Preview
+          markdown={withExportTitle(note.body, note.title).markdown}
+          notePath={note.path}
+          onRendered={() => void triggerPrint()}
+        />
       </main>
     </>
   )

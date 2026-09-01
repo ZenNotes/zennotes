@@ -2472,7 +2472,7 @@ export function SettingsModal(): JSX.Element {
                 />
                 <ToggleRow
                   label="Auto-close Markdown"
-                  description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. In Vim mode this only applies in insert mode."
+                  description="Auto-close markdown as you type: ** / __ / ~~ / ` / == / [[ / %% then Space wrap the cursor, and ``` / ~~~ / $$ then Enter expand a fenced block. Never fires inside a code block or inline code, so a == comparison in code stays code. In Vim mode this only applies in insert mode."
                   value={markdownSnippets}
                   settingId="markdown-overrides"
                   onChange={setMarkdownSnippets}
