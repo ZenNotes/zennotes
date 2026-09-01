@@ -1719,6 +1719,40 @@ describe('renameNote heading sync (#455)', () => {
     expect(writeNote).toHaveBeenCalledWith('inbox/Groceries.md', '# Groceries\n\nbody\n')
   })
 
+  it('keeps the focused editor open when its rename unlink arrives first (#713)', async () => {
+    const pendingRename = deferred<typeof renamedMeta>()
+    const renameNote = vi.fn().mockReturnValue(pendingRename.promise)
+    installRename({ renameNote })
+    const { useStore } = await loadStore()
+    await useStore.getState().selectNote('inbox/Untitled.md')
+
+    const renaming = useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+    await vi.waitFor(() => expect(renameNote).toHaveBeenCalledWith('inbox/Untitled.md', 'Groceries'))
+    await useStore.getState().applyChange({
+      kind: 'unlink',
+      path: 'inbox/Untitled.md',
+      folder: 'inbox'
+    })
+    pendingRename.resolve(renamedMeta)
+    await renaming
+
+    expect(useStore.getState().selectedPath).toBe('inbox/Groceries.md')
+  })
+
+  it('still closes the focused editor for an ordinary unlink', async () => {
+    installRename()
+    const { useStore } = await loadStore()
+    await useStore.getState().selectNote('inbox/Untitled.md')
+
+    await useStore.getState().applyChange({
+      kind: 'unlink',
+      path: 'inbox/Untitled.md',
+      folder: 'inbox'
+    })
+
+    expect(useStore.getState().selectedPath).toBeNull()
+  })
+
   it('leaves the body alone when the setting is off', async () => {
     const { writeNote, readNote } = installRename()
     const { useStore } = await loadStore()

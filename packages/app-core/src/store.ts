@@ -367,6 +367,7 @@ let coalescedNotesRefreshPending = false
  * IPC listener behind for the rest of the session.
  */
 let vaultChangeUnsubscribe: (() => void) | null = null
+const renamingNotePaths = new Set<string>()
 
 function refreshNotesCoalesced(): Promise<void> {
   if (coalescedNotesRefreshInFlight) {
@@ -6175,6 +6176,8 @@ export const useStore = create<Store>((set, get) => {
   },
 
   applyChange: async (ev) => {
+    if (ev.kind === 'unlink' && renamingNotePaths.has(ev.path)) return
+
     // The live feed's unlink handling, shared with the resync path below:
     // a deleted note's tab closes wherever it is open.
     const closeUnlinkedNote = (notePath: string): void => {
@@ -6620,15 +6623,20 @@ export const useStore = create<Store>((set, get) => {
       if (Object.values(get().noteDirty).some(Boolean)) {
         throw new Error('Could not rename while notes still have unsaved changes')
       }
-      const meta = await window.zen.renameNote(oldPath, nextTitle)
-      set((s) => renameNoteState(s, oldPath, meta))
-      await get().applyFavorites(
-        rewriteFavoriteNotePath(get().vaultSettings.favorites, oldPath, meta.path)
-      )
-      // Before the refresh so one listing picks up both the rename and the
-      // rewritten heading (excerpt, size).
-      await syncHeadingAfterRename(meta, get)
-      await get().refreshNotes()
+      renamingNotePaths.add(oldPath)
+      try {
+        const meta = await window.zen.renameNote(oldPath, nextTitle)
+        set((s) => renameNoteState(s, oldPath, meta))
+        await get().applyFavorites(
+          rewriteFavoriteNotePath(get().vaultSettings.favorites, oldPath, meta.path)
+        )
+        // Before the refresh so one listing picks up both the rename and the
+        // rewritten heading (excerpt, size).
+        await syncHeadingAfterRename(meta, get)
+        await get().refreshNotes()
+      } finally {
+        renamingNotePaths.delete(oldPath)
+      }
     } catch (err) {
       console.error('renameNote failed', err)
     }
