@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/app-core",
   "private": true,
-  "version": "2.39.0",
+  "version": "2.41.0",
   "type": "module",
   "exports": {
     "./main": "./src/main.tsx"
@@ -63,7 +63,8 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "vitest": "^2.1.8"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

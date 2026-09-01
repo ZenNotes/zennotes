@@ -2517,11 +2517,15 @@ func (v *Vault) SearchText(query string) ([]TextSearchMatch, error) {
 // --- Assets upload + raw serving ---
 
 // ImportAsset writes raw bytes into the unified assets/ folder and returns
-// the markdown snippet to embed relative to the source note. The destination
+// the vault-relative markdown snippet to embed. The destination
 // mirrors the desktop importFiles/importPastedImage (#377): uploads used to
 // land at the vault root, which in Vault Root mode dumped them right next to
 // the notes.
+// notePath is no longer read: the link is vault-relative now, so where the note
+// lives does not change what gets written. It stays in the signature because
+// the HTTP handler and clients still send it.
 func (v *Vault) ImportAsset(notePath, filename string, body io.Reader) (ImportedAsset, error) {
+	_ = notePath
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	assetsAbs := filepath.Join(v.root, AssetsDir)
@@ -2562,18 +2566,8 @@ func (v *Vault) ImportAsset(notePath, filename string, body io.Reader) (Imported
 		return ImportedAsset{}, err
 	}
 	rel := filepath.ToSlash(relFromRoot)
-	noteDir := filepath.Dir(filepath.FromSlash(notePath))
-	if noteDir == "." {
-		noteDir = ""
-	}
-	markdownPath := rel
-	if noteDir != "" {
-		if relative, err := filepath.Rel(noteDir, rel); err == nil {
-			markdownPath = filepath.ToSlash(relative)
-		}
-	}
 	kind := kindForExt(strings.ToLower(filepath.Ext(abs)))
-	markdown := makeAssetMarkdown(markdownPath, kind, filepath.Base(abs))
+	markdown := makeAssetMarkdown(rel, kind, filepath.Base(abs))
 	return ImportedAsset{
 		Name:     filepath.Base(abs),
 		Path:     rel,
@@ -2740,14 +2734,17 @@ func cleanAssetFilename(name string) (string, error) {
 	return trimmed, nil
 }
 
-func makeAssetMarkdown(relPath, kind, name string) string {
-	dest := "<" + strings.ReplaceAll(relPath, ">", "%3E") + ">"
-	switch kind {
-	case "image":
-		return "![" + name + "](" + dest + ")"
-	default:
-		return "[" + name + "](" + dest + ")"
+// makeAssetMarkdown mirrors the desktop markdownForImportedAsset: everything is
+// linked by VAULT-relative path, an image as a wikilink and anything else as a
+// markdown link, which is the single form every client now writes. The link
+// used to be relative to the note, so it broke as soon as the note moved to
+// another depth (nothing rewrites relative asset paths on move).
+func makeAssetMarkdown(vaultRelPath, kind, name string) string {
+	if kind == "image" {
+		return "![[" + vaultRelPath + "]]"
 	}
+	dest := "<" + strings.ReplaceAll(vaultRelPath, ">", "%3E") + ">"
+	return "[" + name + "](" + dest + ")"
 }
 
 // --- Misc helpers ---
@@ -2767,9 +2764,18 @@ func sanitizeFileStem(title string) string {
 }
 
 func sanitizeFileName(name string) string {
-	ext := filepath.Ext(name)
-	stem := strings.TrimSuffix(name, ext)
-	return sanitizeFileStem(stem) + ext
+	leaf := filepath.Base(name)
+	safe := strings.Map(func(r rune) rune {
+		if r < 0x20 || strings.ContainsRune("\\/:%*?\"<>|[]#^", r) {
+			return '-'
+		}
+		return r
+	}, leaf)
+	safe = strings.Join(strings.Fields(safe), " ")
+	if safe == "." || safe == ".." {
+		return ""
+	}
+	return safe
 }
 
 func defaultTitle() string {

@@ -7,6 +7,7 @@ import {
   type TransactionSpec
 } from '@codemirror/state'
 import { keymap, type EditorView } from '@codemirror/view'
+import { syntaxTree } from '@codemirror/language'
 
 export type MarkdownSnippetMode = 'inline' | 'block'
 
@@ -157,6 +158,10 @@ function blockSnippetTransaction(
   if (line.from !== pending.lineFrom || selection.head !== line.to) return null
   if (!isBlockOpenerLine(rule, line.text)) return null
   if (hasUnclosedBlockOpenerAbove(state, line.number, rule)) return null
+  // A `$$` (or nested fence marker) typed inside someone else's code block is
+  // code content, not an opener; this line's own unclosed fence is the one
+  // legitimate case (#718).
+  if (isInsideCode(state, selection.head, line.number)) return null
 
   // Align to the fence column so a block opened inside a list item keeps its
   // content and closing fence inside the item instead of escaping to col 0 (#405).
@@ -168,6 +173,36 @@ function blockSnippetTransaction(
     changes: { from: line.from, to: line.to, insert },
     selection: { anchor: cursor }
   }
+}
+
+/**
+ * True when `pos` sits in code the parser already recognizes: a fenced block or
+ * an inline code span. Markdown formatting means nothing there, so no snippet
+ * may fire; `==` in a code block used to wrap into a highlight pair the moment
+ * a comparison was followed by a space (#718).
+ *
+ * A fence's own opener line is exempt for block rules, via
+ * `exceptFenceOpenedAtLine`: typing ``` parses as an unclosed FencedCode
+ * immediately, and that line is exactly what the Enter-to-close snippet is
+ * for. Only checked at trigger time, on a settled state, so the tree is
+ * current rather than mid-update.
+ */
+function isInsideCode(
+  state: EditorState,
+  pos: number,
+  exceptFenceOpenedAtLine?: number
+): boolean {
+  let node = syntaxTree(state).resolveInner(pos, -1)
+  while (node) {
+    if (node.name === 'InlineCode') return true
+    if (node.name === 'FencedCode') {
+      const openerLine = state.doc.lineAt(node.from).number
+      return exceptFenceOpenedAtLine == null || openerLine !== exceptFenceOpenedAtLine
+    }
+    if (!node.parent) break
+    node = node.parent
+  }
+  return false
 }
 
 function hasOddBackslashRun(text: string, before: number): boolean {
@@ -239,6 +274,10 @@ export function markdownSnippetTransaction(
       if (transaction) return transaction
     }
   }
+
+  // Inside a code block or inline code span, `==`, `**`, a backtick and the
+  // rest are code, and wrapping them in formatting pairs is never right (#718).
+  if (isInsideCode(state, selection.head)) return null
 
   for (const rule of rules) {
     if (rule.mode === 'block') continue

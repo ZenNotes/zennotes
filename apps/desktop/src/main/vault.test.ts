@@ -442,7 +442,7 @@ describe('importFiles', () => {
     await expect(readFile(path.join(root, 'Diagram.png'))).rejects.toThrow()
   })
 
-  it('stores in assets/ for an inbox-mode note too, linked relative to the note', async () => {
+  it('stores in assets/ for an inbox-mode note too, linked by vault-relative wikilink', async () => {
     const root = await makeTempDir('zennotes-import-files-inbox-')
     await ensureVaultLayout(root)
     const srcDir = await makeTempDir('zennotes-import-src-inbox-')
@@ -452,9 +452,26 @@ describe('importFiles', () => {
     const imported = await importFiles(root, 'inbox/Note.md', [src])
 
     expect(imported[0]?.path).toBe('assets/Photo.png')
-    // Note in inbox/, asset in assets/, so the link steps up a level.
-    expect(imported[0]?.markdown).toContain('../assets/Photo.png')
+    // A dropped image embeds by vault-relative wikilink, the same form paste
+    // and the mobile apps write, so the link survives the note being moved.
+    expect(imported[0]?.markdown).toBe('![[assets/Photo.png]]')
     await expect(readFile(path.join(root, 'assets/Photo.png'))).resolves.toEqual(
+      Buffer.from([1, 2, 3])
+    )
+  })
+
+  it('scrubs dropped image names that would break or retarget the wikilink', async () => {
+    const root = await makeTempDir('zennotes-import-files-wikilink-name-')
+    await ensureVaultLayout(root)
+    const srcDir = await makeTempDir('zennotes-import-src-wikilink-name-')
+    const src = path.join(srcDir, 'Photo%5D [v2] #3.png')
+    await writeFile(src, Buffer.from([1, 2, 3]))
+
+    const imported = await importFiles(root, 'Note.md', [src])
+
+    expect(imported[0]?.path).toBe('assets/Photo-5D -v2- -3.png')
+    expect(imported[0]?.markdown).toBe('![[assets/Photo-5D -v2- -3.png]]')
+    await expect(readFile(path.join(root, 'assets/Photo-5D -v2- -3.png'))).resolves.toEqual(
       Buffer.from([1, 2, 3])
     )
   })

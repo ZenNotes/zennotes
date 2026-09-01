@@ -43,7 +43,7 @@ import {
 const MIN_COL_WIDTH = 48
 import { openTableContextMenu } from './cm-table-menu'
 import { renderMarkdown } from './markdown'
-import { getCM } from '@replit/codemirror-vim'
+import { getCM, Vim } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
 import { matchesSequenceToken, matchesShortcutBinding } from './keymaps'
@@ -63,6 +63,50 @@ function linkTargetFromAnchor(anchor: HTMLAnchorElement): string | null {
  *  fields driven by Tab/Enter (unchanged). */
 function vimEnabled(): boolean {
   return useStore.getState().vimMode
+}
+
+/** The Vim plugin's register controller, the same one the main editor's y/d/p
+ *  go through. Sharing it is what lets text move between a table cell and the
+ *  note body in either direction (#706). `pushText` is patched once by
+ *  cm-vim-clipboard, so a table yank also mirrors to the system clipboard
+ *  whenever the yank-to-clipboard setting is on, exactly like an editor yank. */
+interface VimRegisterController {
+  pushText: (
+    registerName: string,
+    operator: string,
+    text: string,
+    linewise?: boolean,
+    blockwise?: boolean
+  ) => void
+  unnamedRegister?: {
+    toString(): string
+    setText?: (text: string, linewise?: boolean, blockwise?: boolean) => void
+  }
+}
+
+function vimRegisters(): VimRegisterController | null {
+  try {
+    const controller = Vim.getRegisterController() as unknown as VimRegisterController | null
+    return controller && typeof controller.pushText === 'function' ? controller : null
+  } catch {
+    return null
+  }
+}
+
+/** Store yanked/deleted cell text in the unnamed register. Cell content is a
+ *  single line, so everything is charwise. */
+function saveVimRegister(operator: 'yank' | 'delete' | 'change', text: string): void {
+  if (!text) return
+  vimRegisters()?.pushText('"', operator, text, false, false)
+}
+
+/** The unnamed register's content flattened to fit a single-line cell: a
+ *  linewise yank sheds its trailing newline, and interior line/cell breaks
+ *  (a multi-line yank from the editor, a multi-cell table yank) become
+ *  spaces rather than breaking the row's markdown. */
+function registerPasteText(): string {
+  const raw = vimRegisters()?.unnamedRegister?.toString() ?? ''
+  return raw.replace(/\r?\n$/, '').replace(/[\t\r\n]+/g, ' ')
 }
 
 /** How long (ms) the pieces of a custom insert-escape sequence (e.g. jk) may be
@@ -228,8 +272,8 @@ class TableWidget extends WidgetType {
   /** Where to land the block cursor on the next cell focus: a char index, or
    *  'end' (last char). Lets h/l carry the cursor across cell boundaries. */
   private pendingOffset: number | 'end' | null = null
-  /** A pending operator (`d`/`c`) waiting for its motion key (dw, cc, d$, …). */
-  private pendingOp: 'd' | 'c' | null = null
+  /** A pending operator (`d`/`c`/`y`) waiting for its motion key (dw, cc, y$, …). */
+  private pendingOp: 'd' | 'c' | 'y' | null = null
   /** Table-aware visual mode. Anchor and head retain cell coordinates so the
    *  selection survives focus moving across cell and row boundaries. */
   private visualMode: 'char' | 'line' | null = null
@@ -829,8 +873,15 @@ class TableWidget extends WidgetType {
             this.pendingScope = null
             const r = textObjectRange(cellText, this.cursorOffset, scope, event.key)
             if (r) {
-              this.deleteRange(editable, r.from, r.to)
-              if (op === 'c') this.enterInsertMode(editable, r.from)
+              if (op === 'y') {
+                // yiw / ya" — yank the object, cursor to its start (Vim).
+                saveVimRegister('yank', cellText.slice(r.from, r.to))
+                this.cursorOffset = Math.min(r.from, Math.max(0, cellText.length - 1))
+                this.renderCellCursor(editable)
+              } else {
+                this.deleteRange(editable, r.from, r.to, op === 'c' ? 'change' : 'delete')
+                if (op === 'c') this.enterInsertMode(editable, r.from)
+              }
             }
             return
           }
@@ -982,7 +1033,7 @@ class TableWidget extends WidgetType {
           case 'C': {
             event.preventDefault()
             const at = this.cursorOffset
-            this.deleteRange(editable, at, cellText.length)
+            this.deleteRange(editable, at, cellText.length, 'change')
             this.enterInsertMode(editable, at)
             return
           }
@@ -998,6 +1049,20 @@ class TableWidget extends WidgetType {
           case 'c':
             event.preventDefault()
             this.pendingOp = 'c'
+            return
+          case 'y':
+            event.preventDefault()
+            this.pendingOp = 'y'
+            return
+          case 'Y':
+            // Vim's Y is yy: yank the whole (single-line) cell. (#706)
+            event.preventDefault()
+            saveVimRegister('yank', cellText)
+            return
+          case 'p':
+          case 'P':
+            event.preventDefault()
+            this.pasteIntoCell(editable, event.key === 'P')
             return
           case 'v':
             event.preventDefault()
@@ -1303,12 +1368,20 @@ class TableWidget extends WidgetType {
   }
 
   /** Delete `[from, to)` from the focused cell's source in place (no dispatch —
-   *  committed on blur, like typing). Re-renders the NORMAL block cursor. */
-  private deleteRange(cell: HTMLElement, from: number, to: number): void {
+   *  committed on blur, like typing). Re-renders the NORMAL block cursor.
+   *  The removed text lands in the unnamed register like any Vim delete, so
+   *  `dd` in one cell followed by `p` in another moves the text (#706). */
+  private deleteRange(
+    cell: HTMLElement,
+    from: number,
+    to: number,
+    register: 'delete' | 'change' = 'delete'
+  ): void {
     const text = cell.dataset.raw ?? ''
     const a = Math.max(0, Math.min(from, text.length))
     const b = Math.max(a, Math.min(to, text.length))
     if (b === a) return
+    saveVimRegister(register, text.slice(a, b))
     const next = text.slice(0, a) + text.slice(b)
     cell.dataset.raw = next
     this.dirty = true
@@ -1337,6 +1410,45 @@ class TableWidget extends WidgetType {
     this.renderCellCursor(cell)
   }
 
+  /** Resolve what `p`/`P` should paste. Normally the unnamed register; with
+   *  yank-to-clipboard on, the system clipboard is loaded into the register
+   *  first, mirroring `vimClipboardPasteExtension` so the table and the editor
+   *  paste the same thing (#706). The continuation may run async. */
+  private resolvePasteText(then: (text: string) => void): void {
+    const clipboard = navigator.clipboard
+    if (!useStore.getState().vimYankToClipboard || !clipboard?.readText) {
+      then(registerPasteText())
+      return
+    }
+    void clipboard
+      .readText()
+      .then((text) => {
+        if (text) vimRegisters()?.unnamedRegister?.setText?.(text, /\n$/.test(text))
+        then(registerPasteText())
+      })
+      .catch(() => then(registerPasteText()))
+  }
+
+  /** Vim `p` (after the cursor char) / `P` (before it): insert the unnamed
+   *  register into the cell, cursor landing on the last pasted char. (#706) */
+  private pasteIntoCell(cell: HTMLElement, before: boolean): void {
+    this.resolvePasteText((pasted) => {
+      if (!pasted) return
+      // Re-read the cell: the clipboard read may have resolved a tick later.
+      const text = cell.dataset.raw ?? ''
+      const at = before
+        ? Math.min(this.cursorOffset, text.length)
+        : Math.min(text.length, this.cursorOffset + (text.length > 0 ? 1 : 0))
+      const next = text.slice(0, at) + pasted + text.slice(at)
+      cell.dataset.raw = next
+      this.dirty = true
+      cell.textContent = next
+      cell.dataset.rendered = 'false'
+      this.cursorOffset = Math.max(0, at + pasted.length - 1)
+      this.renderCellCursor(cell)
+    })
+  }
+
   /** `r<char>`: replace the character under the block cursor. (#435) */
   private replaceChar(cell: HTMLElement, ch: string): void {
     const text = cell.dataset.raw ?? ''
@@ -1349,11 +1461,12 @@ class TableWidget extends WidgetType {
     this.renderCellCursor(cell)
   }
 
-  /** Apply a pending operator (`d`/`c`) over the motion in `key`: dd/cc clear
-   *  the cell; dw/cw, d$/c$, d0/c0, dl, db act over that range. `c` then edits. */
+  /** Apply a pending operator (`d`/`c`/`y`) over the motion in `key`: dd/cc/yy
+   *  act on the whole cell; dw/cw/yw, d$/c$/y$, d0, dl, db act over that range.
+   *  `c` then edits; `y` stores the range without touching the text (#706). */
   private applyOperator(
     cell: HTMLElement,
-    op: 'd' | 'c',
+    op: 'd' | 'c' | 'y',
     key: string,
     text: string
   ): void {
@@ -1361,7 +1474,7 @@ class TableWidget extends WidgetType {
     let from = off
     let to = off
     if (key === op) {
-      // dd / cc → the whole cell
+      // dd / cc / yy → the whole cell
       from = 0
       to = text.length
     } else {
@@ -1393,8 +1506,20 @@ class TableWidget extends WidgetType {
       }
     }
     const wholeCell = from === 0 && to === text.length
+    if (op === 'y') {
+      if (to > from) {
+        saveVimRegister('yank', text.slice(from, to))
+        // Vim: a charwise yank parks the cursor at the start of the yanked
+        // range; yy (linewise) stays put.
+        if (key !== op) {
+          this.cursorOffset = Math.min(from, Math.max(0, text.length - 1))
+          this.renderCellCursor(cell)
+        }
+      }
+      return
+    }
     if (to > from || wholeCell) {
-      this.deleteRange(cell, from, to)
+      this.deleteRange(cell, from, to, op === 'c' ? 'change' : 'delete')
       if (op === 'c') this.enterInsertMode(cell, from)
     }
   }
@@ -1573,10 +1698,24 @@ class TableWidget extends WidgetType {
     if (insert) this.enterInsertMode(target, first.from)
   }
 
+  /** The visual selection's text, cells joined with tabs within a row and
+   *  newlines across rows — the same shape a spreadsheet copy produces. */
+  private visualSelectionText(ranges: VisualCellRange[]): string {
+    let previousRow: number | null = null
+    let selected = ''
+    for (const { cell, row, from, to } of ranges) {
+      if (previousRow !== null) selected += row === previousRow ? '\t' : '\n'
+      selected += (cell.dataset.raw ?? '').slice(from, to)
+      previousRow = row
+    }
+    return selected
+  }
+
   private deleteVisualSelection(insert: boolean): void {
     const ranges = this.visualSelectionRanges()
     const first = ranges[0]
     if (!first) return
+    saveVimRegister(insert ? 'change' : 'delete', this.visualSelectionText(ranges))
     let changed = false
     for (const { cell, from, to } of ranges) {
       const text = cell.dataset.raw ?? ''
@@ -1594,15 +1733,44 @@ class TableWidget extends WidgetType {
     const ranges = this.visualSelectionRanges()
     const first = ranges[0]
     if (!first) return
-    let previousRow: number | null = null
-    let selected = ''
-    for (const { cell, row, from, to } of ranges) {
-      if (previousRow !== null) selected += row === previousRow ? '\t' : '\n'
-      selected += (cell.dataset.raw ?? '').slice(from, to)
-      previousRow = row
-    }
-    void navigator.clipboard?.writeText(selected)
+    // Through the shared Vim register, like the main editor's visual yank, so
+    // the text can be pasted anywhere with `p` — another cell or the note body.
+    // The system clipboard now follows the yank-to-clipboard setting (the
+    // register patch mirrors it) instead of being written unconditionally.
+    saveVimRegister('yank', this.visualSelectionText(ranges))
     this.finishVisualAtStart(first, false)
+  }
+
+  /** Visual `p`/`P`: the register replaces the selection; the replaced text
+   *  swaps into the unnamed register, per Vim. (#706) */
+  private pasteVisualSelection(): void {
+    this.resolvePasteText((pasted) => {
+      if (!pasted) return
+      const ranges = this.visualSelectionRanges()
+      const first = ranges[0]
+      if (!first) return
+      const replaced = this.visualSelectionText(ranges)
+      for (const { cell, from, to } of ranges) {
+        const text = cell.dataset.raw ?? ''
+        const next =
+          cell === first.cell
+            ? text.slice(0, from) + pasted + text.slice(to)
+            : text.slice(0, from) + text.slice(to)
+        cell.dataset.raw = next
+        cell.textContent = next
+        cell.dataset.rendered = 'false'
+      }
+      this.dirty = true
+      saveVimRegister('delete', replaced)
+      const offset = Math.max(0, first.from + pasted.length - 1)
+      this.exitVisual()
+      if (document.activeElement === first.cell) {
+        this.cursorOffset = offset
+        this.enterNormalCell(first.cell)
+      } else {
+        this.focusCellAtOffset(first.row, first.col, offset)
+      }
+    })
   }
 
   /** Keys while in table visual mode. Motions update a coordinate-aware head;
@@ -1648,6 +1816,10 @@ class TableWidget extends WidgetType {
     }
     if (key === 'y') {
       this.yankVisualSelection()
+      return
+    }
+    if (key === 'p' || key === 'P') {
+      this.pasteVisualSelection()
       return
     }
     if (key === 'v') {

@@ -20,6 +20,17 @@ import {
 import { closeTableContextMenu } from './cm-table-menu'
 import { isMacPlatform } from './keymaps'
 import { useStore } from '../store'
+import { Vim } from '@replit/codemirror-vim'
+
+/** The Vim plugin's unnamed register — the interop point that #706 wires the
+ *  table's y/d/p through, shared with the main editor. */
+function unnamedRegister(): { toString(): string; setText(text: string, linewise?: boolean): void } {
+  return (
+    Vim.getRegisterController() as unknown as {
+      unnamedRegister: { toString(): string; setText(text: string, linewise?: boolean): void }
+    }
+  ).unnamedRegister
+}
 
 const TABLE_DOC = `Intro text.
 
@@ -391,6 +402,130 @@ describe('tablePlugin', () => {
     cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }))
     cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, cancelable: true }))
     expect(cell.dataset.raw).toBe('')
+    view.destroy()
+  })
+
+  // #706: yank and paste inside table cells, through the shared Vim register.
+  const press = (cell: HTMLElement, ...keys: string[]): void => {
+    for (const key of keys) {
+      cell.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+  }
+
+  it('yy yanks the whole cell into the unnamed register (#706)', () => {
+    const view = mount(TABLE_DOC)
+    unnamedRegister().setText('')
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    press(cell, 'y', 'y')
+    expect(unnamedRegister().toString()).toBe('Alice')
+    // Yank leaves the cell untouched.
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('y$ and yiw yank ranges; Y yanks the cell (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    unnamedRegister().setText('')
+    press(cell, 'y', '$')
+    expect(unnamedRegister().toString()).toBe('Alice')
+    unnamedRegister().setText('')
+    press(cell, 'y', 'i', 'w')
+    expect(unnamedRegister().toString()).toBe('Alice')
+    unnamedRegister().setText('')
+    press(cell, 'Y')
+    expect(unnamedRegister().toString()).toBe('Alice')
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('p pastes the register after the cursor char, P before it (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="1"]'
+    )!
+    expect(cell.dataset.raw).toBe('30')
+    unnamedRegister().setText('X')
+    press(cell, 'p') // cursor on "3" → paste after it
+    expect(cell.dataset.raw).toBe('3X0')
+    unnamedRegister().setText('Y')
+    // After p the cursor sits on the pasted "X" (offset 1); P inserts before it.
+    press(cell, 'P')
+    expect(cell.dataset.raw).toBe('3YX0')
+    view.destroy()
+  })
+
+  it('yanks in one cell and pastes into another (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const alice = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    const bob = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="1"][data-col="0"]'
+    )!
+    press(alice, 'y', 'y')
+    press(bob, 'P')
+    expect(bob.dataset.raw).toBe('AliceBob')
+    view.destroy()
+  })
+
+  it('x and dd save the deleted text so it can be pasted back (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    press(cell, 'x')
+    expect(cell.dataset.raw).toBe('lice')
+    expect(unnamedRegister().toString()).toBe('A')
+    press(cell, 'P')
+    expect(cell.dataset.raw).toBe('Alice')
+    press(cell, 'd', 'd')
+    expect(cell.dataset.raw).toBe('')
+    expect(unnamedRegister().toString()).toBe('Alice')
+    press(cell, 'p')
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('visual y yanks the selection into the register (#706)', () => {
+    const view = mount(TABLE_DOC)
+    unnamedRegister().setText('')
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    press(cell, 'v', 'l', 'y')
+    expect(unnamedRegister().toString()).toBe('Al')
+    expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  it('visual p replaces the selection and swaps it into the register (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    unnamedRegister().setText('Zed')
+    press(cell, 'v', 'l', 'p')
+    expect(cell.dataset.raw).toBe('Zedice')
+    // Vim swap: the replaced text is now in the unnamed register.
+    expect(unnamedRegister().toString()).toBe('Al')
+    view.destroy()
+  })
+
+  it('flattens a multi-line register to a single cell line on paste (#706)', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>(
+      '.cm-table-widget [data-row="0"][data-col="0"]'
+    )!
+    // A linewise editor yank: interior break becomes a space, the trailing
+    // newline is shed, and the row's markdown stays intact.
+    unnamedRegister().setText('one\ntwo\n', true)
+    press(cell, 'P')
+    expect(cell.dataset.raw).toBe('one twoAlice')
     view.destroy()
   })
 })

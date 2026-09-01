@@ -3405,16 +3405,40 @@ function cleanDeletedAssetToken(token: string): string {
   return token
 }
 
+/**
+ * The link written for a file dragged or attached into a note, by VAULT-relative
+ * path: an image as a wikilink, anything else as a markdown link.
+ *
+ * This is the one rule every route now follows, on every platform: paste here,
+ * an existing asset dragged in from the sidebar
+ * (`importedAssetForExistingVaultAsset`), the server's own import, and both
+ * mobile apps. A drop used to be the odd one out, writing a path relative to
+ * the note, so the same file looked different depending on how it entered the
+ * note and the link broke as soon as the note moved to another depth, because
+ * nothing rewrites relative asset paths on move. Both forms resolve
+ * (`resolveAssetVaultRelativePath` tries note-relative, then vault-root, then a
+ * unique basename), so this is safe for links already in existing notes.
+ */
 function markdownForImportedAsset(
-  relativeFromNote: string,
+  vaultRelPath: string,
   filename: string,
   kind: ImportedAssetKind
 ): string {
-  const destination = markdownDestination(relativeFromNote)
-  if (kind === 'image') {
-    return `![${path.basename(filename, path.extname(filename))}](${destination})`
-  }
-  return `[${filename}](${destination})`
+  if (kind === 'image') return `![[${vaultRelPath}]]`
+  return `[${filename}](${markdownDestination(vaultRelPath)})`
+}
+
+/** A raw OS filename can contain characters that terminate or retarget a
+ * wikilink. Apply the same scrub used for pasted-image names before the file is
+ * copied, so the saved path and the emitted embed always agree. */
+function importedAssetFilename(filename: string): string {
+  const leaf = path.basename(filename)
+  const safe = leaf
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\\/:%\u0000-\u001f*?"<>|[\]#^]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return safe && safe !== '.' && safe !== '..' ? safe : 'file'
 }
 
 // The naming lives in @shared/pasted-image so the web client produces the
@@ -4261,7 +4285,6 @@ export async function importFiles(
 ): Promise<ImportedAsset[]> {
   await fs.mkdir(root, { recursive: true })
 
-  const noteDir = path.posix.dirname(toPosix(noteRelPath))
   const imported: ImportedAsset[] = []
   // Dropped files land in the unified `assets/` folder, matching pasted images
   // (`importPastedImage`). They used to be copied to the vault root, which in
@@ -4275,20 +4298,16 @@ export async function importFiles(
     if (!stat.isFile()) continue
 
     await fs.mkdir(assetsDir, { recursive: true })
-    const finalName = await uniqueFilename(assetsDir, path.basename(sourceAbs))
+    const finalName = await uniqueFilename(assetsDir, importedAssetFilename(sourceAbs))
     const destAbs = path.join(assetsDir, finalName)
     await fs.copyFile(sourceAbs, destAbs)
 
     const vaultRelPath = toPosix(path.relative(root, destAbs))
-    const relativeFromNote = path.posix.relative(
-      noteDir === '.' ? '' : noteDir,
-      vaultRelPath
-    )
     const kind = classifyImportedAsset(finalName)
     imported.push({
       name: finalName,
       path: vaultRelPath,
-      markdown: markdownForImportedAsset(relativeFromNote, finalName, kind),
+      markdown: markdownForImportedAsset(vaultRelPath, finalName, kind),
       kind
     })
   }

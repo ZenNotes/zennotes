@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/web",
   "private": true,
-  "version": "2.39.0",
+  "version": "2.41.0",
   "type": "module",
   "description": "ZenNotes web client for self-hosted and hosted deployments",
   "homepage": "https://zennotes.org",
@@ -65,6 +65,6 @@
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^6.4.3"
   }
 }

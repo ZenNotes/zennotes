@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.39.0",
+  "version": "2.41.0",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -96,15 +96,15 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "electron": "41.2.1",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^2.3.0",
+    "electron": "41.10.7",
+    "electron-builder": "26.15.7",
+    "electron-vite": "^3.1.0",
     "jsdom": "^29.0.2",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11",
-    "vitest": "^2.1.8"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   },
   "build": {
     "appId": "com.adibhanna.zennotes",
@@ -200,7 +200,7 @@
         "mimeType": "text/markdown"
       }
     ],
-    "electronVersion": "41.2.1",
+    "electronVersion": "41.10.7",
     "electronUpdaterCompatibility": ">=2.16",
     "mac": {
       "icon": "build/icon.icns",

@@ -1,5 +1,7 @@
 import { app, BrowserWindow, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import electronUpdater, {
   type AppUpdater,
@@ -175,7 +177,7 @@ export function initAppUpdater(): void {
     return
   }
 
-  updater = autoUpdater
+  updater = process.platform === 'linux' ? linuxUpdater() : autoUpdater
   updater.autoDownload = false
   updater.autoInstallOnAppQuit = true
 
@@ -356,6 +358,195 @@ export function linuxNeedsRootInstall(file: string | null): boolean {
   return format === 'deb' || format === 'rpm' || format === 'pacman'
 }
 
+// Which package format this machine can actually install.
+//
+// electron-updater picks its Linux updater (and therefore which release asset
+// an update downloads, and which installer runs it) from a `package-type` file
+// electron-builder stamps into the install. That stamp cannot be trusted: every
+// Linux target is cut from ONE shared staging directory, the targets build
+// concurrently, and only the deb and rpm targets write the file, so a package
+// ships whichever value another target happened to leave behind. Our published
+// 2.39.0 .pacman carried `deb`, which is why Arch users were handed a .deb and
+// a root prompt to run dpkg, a command their system does not have (reported on
+// Discord by Kelv, on CachyOS). It cannot be fixed reliably in the build for
+// the same reason it broke: there is one file and five racing writers.
+//
+// So the format is decided here instead, from the running system.
+const DISTRO_FAMILY_FORMATS: Array<[LinuxPackageFormat, string[]]> = [
+  ['pacman', ['arch', 'archarm', 'artix', 'cachyos', 'endeavouros', 'garuda', 'manjaro']],
+  [
+    'deb',
+    ['debian', 'devuan', 'elementary', 'kali', 'linuxmint', 'pop', 'raspbian', 'ubuntu', 'zorin']
+  ],
+  [
+    'rpm',
+    [
+      'almalinux',
+      'centos',
+      'fedora',
+      'mageia',
+      'opensuse',
+      'opensuse-leap',
+      'opensuse-tumbleweed',
+      'rhel',
+      'rocky',
+      'sles',
+      'suse'
+    ]
+  ]
+]
+
+/** Read ID and ID_LIKE out of an /etc/os-release body. ID names the distro,
+ *  ID_LIKE its space-separated ancestors, which is what carries derivatives
+ *  (CachyOS declares `ID_LIKE=arch`) we would otherwise have to enumerate. */
+export function linuxFormatFromOsRelease(osRelease: string): LinuxPackageFormat {
+  const declared: Partial<Record<'ID' | 'ID_LIKE', string[]>> = {}
+  for (const line of osRelease.split('\n')) {
+    const match = /^\s*(ID|ID_LIKE)\s*=\s*(.*)$/.exec(line)
+    if (!match) continue
+    const value = match[2]
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .toLowerCase()
+    declared[match[1] as 'ID' | 'ID_LIKE'] = value.split(/\s+/).filter(Boolean)
+  }
+  // A distro's own ID is authoritative if it conflicts with an ancestor.
+  // os-release is a set of assignments and does not require either key first.
+  const ids = [...(declared.ID ?? []), ...(declared.ID_LIKE ?? [])]
+  for (const id of ids) {
+    const family = DISTRO_FAMILY_FORMATS.find(([, members]) => members.includes(id))
+    if (family) return family[0]
+  }
+  return 'unknown'
+}
+
+/** The format this install can install, or 'unknown' when we cannot tell (in
+ *  which case nothing is blocked). */
+export function installedLinuxFormat(
+  readOsRelease: () => string = defaultReadOsRelease
+): LinuxPackageFormat {
+  // An AppImage updates itself in userspace and never needs a system package.
+  if (process.env.APPIMAGE) return 'appimage'
+  try {
+    return linuxFormatFromOsRelease(readOsRelease())
+  } catch {
+    return 'unknown'
+  }
+}
+
+function defaultReadOsRelease(): string {
+  return readFileSync('/etc/os-release', 'utf8')
+}
+
+/**
+ * Which updater this Linux install needs, given what we can observe about it.
+ *
+ * The `package-type` stamp's VALUE is unreliable (see above). Its presence is
+ * useful only together with electron-builder's fixed `/opt/ZenNotes` install
+ * path: the shared staging directory can leak the stamp into tar.gz, which the
+ * AUR repackages under `/opt/zennotes-bin`. The path check keeps those installs
+ * owned by their package manager even when that race occurs.
+ *
+ * The AppImage updater is selected explicitly for non-system installs instead
+ * of returning electron-updater's `autoUpdater`: that singleton has already
+ * read the racing stamp by the time this module loads and may itself be a deb
+ * or rpm updater.
+ */
+export function linuxUpdaterFormat(input: {
+  isAppImage: boolean
+  isOfficialSystemPackage: boolean
+  osRelease: string | null
+}): LinuxPackageFormat {
+  if (input.isAppImage) return 'appimage'
+  if (!input.isOfficialSystemPackage) return 'appimage'
+  return input.osRelease === null ? 'unknown' : linuxFormatFromOsRelease(input.osRelease)
+}
+
+const OFFICIAL_LINUX_RESOURCES_PATH = posix.join('/opt', 'ZenNotes', 'resources')
+
+/** True only for the fixed install layout emitted by this app's official
+ *  deb/rpm/pacman targets. The stamp alone is not enough because it is written
+ *  into a staging directory shared with tar.gz. */
+export function isOfficialLinuxSystemPackage(
+  resourcesPath: string,
+  hasPackageStamp: boolean
+): boolean {
+  return hasPackageStamp && posix.normalize(resourcesPath) === OFFICIAL_LINUX_RESOURCES_PATH
+}
+
+/** True when running `downloaded`'s installer on a machine that is `installed`
+ *  cannot work. Unknowns never block: a distro we do not recognize is not a
+ *  reason to refuse an update that would have worked. */
+export function linuxInstallMismatch(
+  downloaded: LinuxPackageFormat,
+  installed: LinuxPackageFormat
+): boolean {
+  if (installed === 'unknown' || downloaded === 'unknown') return false
+  return downloaded !== installed
+}
+
+const DOWNLOAD_PAGE_BY_FORMAT: Record<string, string> = {
+  deb: 'https://zennotes.org/download/linux-deb',
+  rpm: 'https://zennotes.org/download/linux-rpm',
+  pacman: 'https://zennotes.org/download/linux-pacman',
+  appimage: 'https://zennotes.org/download/linux-appimage'
+}
+
+export function mismatchedUpdateMessage(
+  downloaded: LinuxPackageFormat,
+  installed: LinuxPackageFormat,
+  version: string | null
+): string {
+  const name = version ? `ZenNotes ${version}` : 'The update'
+  const page = DOWNLOAD_PAGE_BY_FORMAT[installed] ?? 'https://zennotes.org/download'
+  const wanted = installed === 'appimage' ? 'an AppImage' : `a .${installed} package`
+  return `${name} was downloaded as a .${downloaded} package, but this copy of ZenNotes was installed as ${wanted}, so installing it here would fail. Download ${wanted} from ${page} and install it the way you installed ZenNotes. This build now detects the right package type from your system, so the next update installs itself.`
+}
+
+/** The updater matching what this machine actually runs, rather than the one
+ *  electron-updater chose from the stamp when the module was loaded. */
+function linuxUpdater(): AppUpdater {
+  try {
+    return linuxUpdaterForFormat(
+      linuxUpdaterFormat({
+        isAppImage: Boolean(process.env.APPIMAGE),
+        isOfficialSystemPackage: isOfficialLinuxSystemPackage(
+          process.resourcesPath,
+          existsSync(join(process.resourcesPath, 'package-type'))
+        ),
+        osRelease: readOsReleaseOrNull()
+      })
+    )
+  } catch {
+    // Any surprise here means we know nothing extra; electron-updater's own
+    // choice is no worse than it was before.
+    return autoUpdater
+  }
+}
+
+export function linuxUpdaterForFormat(format: LinuxPackageFormat): AppUpdater {
+  switch (format) {
+    case 'appimage':
+      return new electronUpdater.AppImageUpdater()
+    case 'deb':
+      return new electronUpdater.DebUpdater()
+    case 'rpm':
+      return new electronUpdater.RpmUpdater()
+    case 'pacman':
+      return new electronUpdater.PacmanUpdater()
+    default:
+      return autoUpdater
+  }
+}
+
+function readOsReleaseOrNull(): string | null {
+  try {
+    return defaultReadOsRelease()
+  } catch {
+    return null
+  }
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
@@ -402,6 +593,21 @@ async function installLinuxPackageUpdate(file: string): Promise<void> {
   if (!script) {
     // Unknown format — defer to electron-updater's own handling.
     updater?.quitAndInstall()
+    return
+  }
+
+  // Never ask for a root password to run an installer this system does not
+  // have. Point at the right download instead of failing inside pkexec.
+  const installed = installedLinuxFormat()
+  if (linuxInstallMismatch(format, installed)) {
+    revealDownloadedPackage(file)
+    setUpdateState(
+      nextStateFromInfo(
+        'error',
+        lastInfo,
+        mismatchedUpdateMessage(format, installed, lastInfo?.version ?? null)
+      )
+    )
     return
   }
 
