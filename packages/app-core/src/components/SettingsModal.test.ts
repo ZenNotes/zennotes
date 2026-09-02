@@ -132,6 +132,8 @@ describe("SettingsModal date note directories", () => {
     vi.clearAllMocks();
     mocks.state.vimMode = false;
     mocks.state.vimWrappedLineMotions = "logical";
+    mocks.state.workspaceMode = "local";
+    mocks.state.remoteWorkspaceInfo = null;
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -300,5 +302,53 @@ describe("SettingsModal date note directories", () => {
 
     expect(host.textContent).toContain("Keep your vault available everywhere");
     expect(host.textContent).toContain("Connect ZenNotes Cloud");
+  });
+
+  it("enables custom templates for a capable remote server", async () => {
+    mocks.state.workspaceMode = "remote";
+    mocks.state.remoteWorkspaceInfo = {
+      mode: "remote",
+      baseUrl: "https://notes.example.com",
+      authConfigured: true,
+      capabilities: { supportsCustomTemplates: true },
+      profileId: "remote",
+      bootError: null,
+    } as never;
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+    const templatesButton = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Templates");
+    expect(templatesButton).toBeTruthy();
+    await act(async () => templatesButton!.click());
+
+    expect(host.textContent).toContain("Create a custom template");
+    expect(host.textContent).not.toContain("Custom templates need a local vault");
+  });
+
+  it("keeps custom templates disabled for an older remote server", async () => {
+    mocks.state.workspaceMode = "remote";
+    mocks.state.remoteWorkspaceInfo = {
+      mode: "remote",
+      baseUrl: "https://notes.example.com",
+      authConfigured: true,
+      capabilities: {},
+      profileId: "remote",
+      bootError: null,
+    } as never;
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+    const templatesButton = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Templates");
+    expect(templatesButton).toBeTruthy();
+    await act(async () => templatesButton!.click());
+
+    expect(host.textContent).toContain(
+      "Custom templates need a local vault or a newer ZenNotes server",
+    );
+    expect(host.textContent).not.toContain("Create a custom template");
   });
 });

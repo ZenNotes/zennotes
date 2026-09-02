@@ -303,6 +303,11 @@ func New(root string, opts Options) (*Vault, error) {
 	if err := v.EnsureLayout(); err != nil {
 		return nil, err
 	}
+	// The server watcher starts after New; create template storage now so it
+	// cannot miss the first file while discovering a newly-created directory.
+	if err := os.MkdirAll(templateDir(v.root), v.dirMode); err != nil {
+		return nil, err
+	}
 	return v, nil
 }
 

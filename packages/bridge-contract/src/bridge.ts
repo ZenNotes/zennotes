@@ -93,7 +93,7 @@ export interface ZenCapabilities {
   supportsRemoteWorkspace: boolean
   supportsCloudSync?: boolean
   supportsCliInstall: boolean
-  /** Custom templates require local-filesystem CRUD; false on web/remote. */
+  /** Custom template CRUD is available locally or through the connected server. */
   supportsCustomTemplates: boolean
   supportsCustomCodeLanguages?: boolean
   /** Local desktop support, or a web client paired with a server that owns

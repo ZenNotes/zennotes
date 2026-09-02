@@ -109,6 +109,8 @@ Examples:
 
 - the app shows a visual `Remote` indicator
 - copying an absolute path becomes copying a `Server Path`
+- custom templates in `Settings -> Templates` are stored in the remote vault's `.zennotes/templates/` directory and stay live across connected clients
+- older servers keep custom-template controls disabled until the server is updated; built-in templates still work
 - revealing files in Finder or another local file manager may be unavailable or changed, because the file may only exist on the server host
 
 Desktop-only shell features still exist because you are still using the desktop app:

@@ -248,8 +248,8 @@ or via the orchestrator of your choice.
 - `ZENNOTES_BROWSE_ROOTS` — directories the server may consider as
   vault candidates. Anything outside is rejected.
 - `ZENNOTES_MAX_NOTE_BYTES` / `ZENNOTES_MAX_ASSET_BYTES` — per-request
-  byte caps for `/api/notes/write` and `/api/assets/upload`. Defaults
-  10 MiB and 50 MiB.
+  byte caps for `/api/notes/write`, `/api/templates/write`, and
+  `/api/assets/upload`. Defaults 10 MiB and 50 MiB.
 - `ZENNOTES_VAULT_FILE_MODE` / `ZENNOTES_VAULT_DIR_MODE` — octal mode
   for new files / directories. Defaults `0600` and `0700`.
 - `ZENNOTES_BASE_PATH` — mount the API and static bundle under a

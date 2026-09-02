@@ -205,6 +205,31 @@ func TestWatcherDoesNotSurfaceInternalDirAsFolder(t *testing.T) {
 	}
 }
 
+func TestWatcherReportsFirstTemplateWrite(t *testing.T) {
+	root := t.TempDir()
+	v, err := vault.New(root, vault.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := Start(v.Root())
+	if err != nil {
+		t.Skipf("fsnotify unavailable: %v", err)
+	}
+	defer w.Close()
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	template := filepath.Join(root, ".zennotes", "templates", "standup.md")
+	if err := os.WriteFile(template, []byte("# Standup"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	ev := recvChange(t, ch)
+	if ev.Scope != "templates" {
+		t.Fatalf("first template event = %+v, want template-scoped reload", ev)
+	}
+}
+
 func TestActiveDistinguishesRealFromDisabledWatcher(t *testing.T) {
 	root := t.TempDir()
 

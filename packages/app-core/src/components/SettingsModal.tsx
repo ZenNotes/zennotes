@@ -590,7 +590,8 @@ export function SettingsModal(): JSX.Element {
   );
   const supportsCustomTemplates =
     zenBridge.getCapabilities().supportsCustomTemplates &&
-    workspaceMode !== "remote";
+    (workspaceMode !== "remote" ||
+      remoteWorkspaceInfo?.capabilities?.supportsCustomTemplates === true);
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
   const [templateEditor, setTemplateEditor] = useState<{
@@ -4614,8 +4615,8 @@ export function SettingsModal(): JSX.Element {
               </div>
             ) : (
               <InlineNote>
-                Custom templates require a local vault. Built-in templates still
-                work here.
+                Custom templates need a local vault or a newer ZenNotes server.
+                Built-in templates still work here.
               </InlineNote>
             )}
             <div className="flex items-center justify-between gap-4 border-t border-paper-300/40 px-5 py-4">

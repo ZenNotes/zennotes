@@ -9,6 +9,7 @@ const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
+const TEMPLATES_PREFIX = `${INTERNAL_VAULT_DIR}/templates/`
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -127,6 +128,11 @@ export class VaultWatcher {
             scope: 'comments'
           })
         )
+        return
+      }
+      const rel = relativeVaultPath(this.root, absPath)
+      if (rel.startsWith(TEMPLATES_PREFIX) && rel.toLowerCase().endsWith('.md')) {
+        onEvent({ kind, path: rel, folder: 'inbox', scope: 'templates' })
         return
       }
       // Any database file — `<Name>.base/data.csv` or `schema.json` (or a legacy

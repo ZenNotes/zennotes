@@ -27,6 +27,8 @@ function safeSlug(slug: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9-]+/g, '-')
     .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '')
   return cleaned || 'template'
 }
 
