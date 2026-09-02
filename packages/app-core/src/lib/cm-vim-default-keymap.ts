@@ -2,8 +2,10 @@ import { defaultKeymap } from '@codemirror/commands'
 import { markdownKeymap } from '@codemirror/lang-markdown'
 import { Prec, type Extension } from '@codemirror/state'
 import { keymap, type EditorView, type KeyBinding } from '@codemirror/view'
+import { searchKeymap } from '@codemirror/search'
 import { getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
+import { isMacPlatform } from './keymaps'
 
 /**
  * macOS-only Vim keymap conflict (`Ctrl-d` deletes instead of half-page-down).
@@ -122,6 +124,22 @@ const vimModeKeymap: readonly KeyBinding[] = deferKeysToVim(
  */
 export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
   return vimMode ? vimModeKeymap : defaultKeymap
+}
+
+/**
+ * CodeMirror's `searchKeymap`, made Vim-aware where Mod is Ctrl.
+ *
+ * The search panel is bound to `Mod-f`. On Linux and Windows that is Ctrl+F,
+ * which in Vim is page-forward, and because the keymap handler runs ahead of
+ * the Vim plugin the panel won every time while `<C-b>` (page-back) reached
+ * Vim: the one motion chord the editor still took from Vim (#510). With Vim
+ * mode on, Vim users search with `/`, so the binding is dropped there and
+ * Ctrl+F pages like Ctrl+B. macOS keeps it: Cmd+F never collided with Vim.
+ * The rest of the keymap (find next, replace, select matches) stays as is.
+ */
+export function vimAwareSearchKeymap(vimMode: boolean, mac: boolean = isMacPlatform()): readonly KeyBinding[] {
+  if (!vimMode || mac) return searchKeymap
+  return searchKeymap.filter((binding) => binding.key !== 'Mod-f')
 }
 
 /**

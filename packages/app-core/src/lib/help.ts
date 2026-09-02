@@ -447,7 +447,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Destructive actions ask first',
     body:
-      'Moving a note to Trash now asks for confirmation before anything is deleted from the active workspace, and the Trash view separates restore from permanent delete. “Empty Trash” clears the whole bin in one confirmed step, and assets deleted from the Files view land in Trash too, restorable to their original location.'
+      'Moving a note to Trash now asks for confirmation before anything is deleted from the active workspace, and the Trash view separates restore from permanent delete. Open a trashed note and the editor header offers the same two actions, Restore and Delete permanently, in place of Archive and Move to Trash. “Empty Trash” clears the whole bin in one confirmed step, and assets deleted from the Files view land in Trash too, restorable to their original location.'
   },
   {
     title: 'Updates are release-driven',
@@ -470,14 +470,14 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'global-shortcuts',
     title: 'Global shortcuts',
-    description: 'These work across the main app shell.',
+    description: 'These work across the main app shell. With Vim mode on and the editor focused, an app shortcut on a Ctrl chord wins over Vim\u2019s own use of that chord, except the ones Vim mode keeps on purpose: Ctrl+W (the pane prefix), Ctrl+O and Ctrl+I (the jumplist), and Ctrl+D and Ctrl+U (half-page scroll). On macOS these shortcuts use Cmd and never collide.',
     items: [
-      { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette.' },
+      { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette, from the editor too: on Linux and Windows this wins over Vim\u2019s Ctrl+P (cursor up).' },
       { keys: 'Ctrl+D (in Search notes)', action: 'Move the highlighted note to Trash', detail: 'Trash a note straight from the search results, with the usual confirmation; the palette stays open, so a clean-up pass is search, Ctrl+D, search, Ctrl+D.' },
       { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
-      { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: 'In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it.' },
+      { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: 'With Vim mode on, Linux and Windows keep Ctrl+F as Vim\u2019s page-forward (search with / instead); on macOS and with Vim off the bar opens as usual. In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
-      { keys: 'Mod+N', action: 'New note in current folder', detail: 'Create a note in the active note\u2019s folder (or the browsed folder when no note is open) and focus its title. Rebindable under Settings \u2192 Keymaps.' },
+      { keys: 'Mod+N', action: 'New note in current folder', detail: 'Create a note in the active note\u2019s folder (or the browsed folder when no note is open) and focus its title. On Linux and Windows this wins over Vim\u2019s Ctrl+N (cursor down). Rebindable under Settings \u2192 Keymaps.' },
       { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note in the main window and focus its title.' },
       { keys: 'Shift+Mod+Space', action: 'Open quick capture window', detail: 'Open the floating, always-on-top capture window. Bound system-wide (CommandOrControl+Shift+Space by default) so it works over any app; change it under Settings → Editor.' },
       { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
@@ -488,11 +488,11 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Alt+H / Alt+J / Alt+K / Alt+L', action: 'Focus pane left / down / up / right', detail: 'Always-on pane-focus motions — they work even with Vim mode off and skip the Ctrl+W prefix some Linux setups intercept. (Ctrl+W h/j/k/l still works in Vim mode.) Both walk the same cycle, in the order the panels appear on screen: sidebar → note list → editor → connections → comments → outline → calendar, and back again.' },
       { keys: '↑ / ↓ / Enter / Esc', action: 'Move inside a focused panel', detail: 'Once a panel has focus, the arrows move its row cursor, Home and End jump to the ends, Enter opens the row under the cursor, and Esc (or ←) returns focus to the editor. These work with Vim mode off; the single-key motions (j / k, gg / G) stay Vim-only.' },
       { keys: 'Mod+.', action: 'Toggle Zen mode', detail: 'Hide or restore the app chrome so only the active editor, preview, or split view stays on screen.' },
-      { keys: 'Mod+W', action: 'Close active tab', detail: 'Close the current note or virtual tab.' },
+      { keys: 'Mod+W', action: 'Close active tab', detail: 'Close the current note or virtual tab. With Vim mode on, Linux and Windows keep Ctrl+W as the pane prefix while a tab is open: close the tab with :q or :bd, from the tab menu, or rebind this.' },
       { keys: 'Ctrl+Tab', action: 'Switch to previous note', detail: 'Switch to the most recently used note. Press again to alternate between the last two notes.' },
       { keys: 'Alt+1 … Alt+9', action: 'Go to tab 1 through 9', detail: 'Jump straight to a tab by position, browser-style (Ctrl+1 … Ctrl+9 on macOS, where Option types characters and the ⌘ digits are taken). Tab numbers count across panes in the same order gt cycles; rebindable under Settings → Keymaps. Vim users get the same jump as {count}gt. Heads-up for macOS with multiple Spaces: Mission Control claims Ctrl+digit for Switch to Desktop, so rebind here or free the key under System Settings → Keyboard Shortcuts.' },
       { keys: 'Shift+Mod+T', action: 'Reopen closed tab', detail: 'Reopen the most recently closed tab, restoring its position and pinned state. Repeat to walk back through your close history.' },
-      { keys: 'Mod+O', action: 'Open file', detail: 'Desktop only: pick a Markdown file with the native dialog. A file inside a known vault opens against that vault; anything else opens in a standalone external-file window.' },
+      { keys: 'Mod+O', action: 'Open file', detail: 'Desktop only: pick a Markdown file with the native dialog. A file inside a known vault opens against that vault; anything else opens in a standalone external-file window. Links in that window follow from the file\'s own folder: a relative link such as `../README.md` opens the file it names, and a `[[wikilink]]` finds a page of that name in the folder or below it, each in its own window (or in its vault, when the target lives in one).' },
       { keys: 'Mod+4 / Mod+5 / Mod+6', action: 'Edit / Split / Preview mode', detail: 'Switch the active note between the raw editor, side-by-side split, and rendered preview.' },
       { keys: 'Mod+L', action: 'Toggle checkbox', detail: 'Turn the current line into a checkbox and toggle it on repeat. See the “Any line becomes a checkbox” card in Core concepts for the full state rules.' },
       { keys: 'Alt+Q (macOS: Ctrl+Q)', action: 'Reflow paragraph', detail: 'Join the hard-wrapped lines of the paragraph under the cursor (or every paragraph in the selection) into one line, so the editor wraps it to the pane. Headings, lists, tables, code, and explicit line breaks are untouched. See the “Reflow a hard-wrapped paragraph” card. Remappable as editor.reflowParagraph.' },

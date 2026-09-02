@@ -4,6 +4,7 @@ import type {
   CliInstallStatus,
   DeletedAsset,
   ExternalFileContent,
+  ExternalFileLink,
   FolderEntry,
   ImportedAsset,
   LinkMetadata,
@@ -370,6 +371,15 @@ export interface ZenBridge {
   writeExternalFile(body: string): Promise<void>
   /** Move the current standalone editor window's file into the active vault. */
   moveExternalFileToVault(): Promise<MoveExternalFileResult>
+  /**
+   * Follow a link from the current standalone editor window's file. The host
+   * resolves it against the file's directory (a relative href, or a wikilink
+   * by name within that directory's tree) and opens a markdown target the way
+   * Finder would (its vault, else another standalone window) or any other
+   * file with the OS. Resolves `ok: false` with a reason when nothing on disk
+   * matches. Desktop only.
+   */
+  followExternalFileLink(link: ExternalFileLink): Promise<{ ok: boolean; error?: string }>
   /**
    * Open a markdown file from an absolute OS path — as a note when it lives
    * inside a known vault, otherwise a standalone external-file window. The

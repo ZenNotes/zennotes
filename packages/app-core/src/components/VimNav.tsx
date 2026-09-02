@@ -46,7 +46,7 @@ import {
 import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { atlasHoldsKeyboard } from '../lib/atlas'
-import { SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
+import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
   isExcalidrawPath,
@@ -480,7 +480,7 @@ export function VimNav(): JSX.Element | null {
       if (
         sequenceTokenFromEvent(e) === leaderToken &&
         !leaderPending.current &&
-        target?.closest('[data-excalidraw-view]')
+        target?.closest(EXCALIDRAW_SURFACE)
       ) {
         if (!e.repeat) excalidrawSpaceDownAt.current = Date.now()
         return
@@ -644,7 +644,7 @@ export function VimNav(): JSX.Element | null {
         const gTabTokens = getSequenceTokens(overrides, 'vim.tabNext')
         const gPrevTokens = getSequenceTokens(overrides, 'vim.tabPrevious')
         const gTok = sequenceTokenFromEvent(e)
-        const inExcalidrawView = !!target?.closest('[data-excalidraw-view]')
+        const inExcalidrawView = !!target?.closest(EXCALIDRAW_SURFACE)
         if (gTabPending.current) {
           // Shift is delivered as its own keydown before `T`; keep the pending
           // `g` prefix alive so Excalidraw can complete Vim-style `gT`.
@@ -1157,6 +1157,17 @@ export function VimNav(): JSX.Element | null {
         }
       }
 
+      // ------- Excalidraw canvas -----------------------------------------
+      // A canvas holding DOM focus owns every key the global bindings above
+      // left alone: Escape leaves the current tool, letters pick tools, arrows
+      // nudge the selection, Delete removes it. The panel routing below would
+      // otherwise take whatever the canvas did not stop, and with the sidebar
+      // open that included Escape, so the Arrow tool could not be left (#721).
+      // Handing the keyboard to a panel blurs the canvas first (see
+      // releaseSelfKeyedSurfaceFocus), which is what makes DOM focus the
+      // right test here.
+      if (target?.closest(EXCALIDRAW_SURFACE)) return
+
       // ------- Sidebar navigation (explicit) -----------------------------
       // When focusedPanel is 'sidebar', always handle here — even if the
       // editor still holds stale DOM focus from a previous interaction.
@@ -1269,7 +1280,7 @@ export function VimNav(): JSX.Element | null {
       const downAt = excalidrawSpaceDownAt.current
       excalidrawSpaceDownAt.current = null
       const target = e.target instanceof HTMLElement ? e.target : null
-      if (!target?.closest('[data-excalidraw-view]')) return
+      if (!target?.closest(EXCALIDRAW_SURFACE)) return
       if (Date.now() - downAt < EXCALIDRAW_LEADER_TAP_MS) {
         armLeader('leader', false)
       }

@@ -54,6 +54,7 @@ import type {
   DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
+  ExternalFileLink,
   FolderEntry,
   ImportedAsset,
   LinkMetadata,
@@ -606,6 +607,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.APP_WRITE_EXTERNAL_FILE, body),
   moveExternalFileToVault: (): Promise<MoveExternalFileResult> =>
     ipcRenderer.invoke(IPC.APP_MOVE_EXTERNAL_FILE_TO_VAULT),
+  followExternalFileLink: (link: ExternalFileLink): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC.APP_FOLLOW_EXTERNAL_FILE_LINK, link),
   openMarkdownFile: (absPath: string): Promise<boolean> =>
     ipcRenderer.invoke(IPC.APP_OPEN_MARKDOWN_FILE, absPath),
   openFileDialog: (): Promise<boolean> => ipcRenderer.invoke(IPC.APP_OPEN_FILE_DIALOG),

@@ -340,6 +340,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().restoreActive()
     },
     {
+      id: 'note.delete-permanently',
+      title: 'Delete Note Permanently',
+      category: 'Note',
+      keywords: 'trash purge forever remove',
+      when: () => getState().activeNote?.folder === 'trash',
+      run: () => getState().deleteActivePermanently()
+    },
+    {
       id: 'note.copy-wikilink',
       title: 'Copy Note as Wikilink',
       category: 'Note',

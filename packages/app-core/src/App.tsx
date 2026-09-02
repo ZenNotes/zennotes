@@ -716,12 +716,6 @@ function App(): JSX.Element {
         void state.createAndOpen('quick', '', { title, focusTitle: true })
         return
       }
-      if (matchesShortcut(e, overrides, 'global.newNoteHere')) {
-        // ⌘N — new note in the current folder (#614)
-        e.preventDefault()
-        void state.createNoteInCurrentFolder()
-        return
-      }
       if (matchesShortcut(e, overrides, 'global.toggleWordWrap')) {
         // ⌥Z — toggle word wrap (matches VSCode/Sublime convention)
         e.preventDefault()
@@ -803,14 +797,6 @@ function App(): JSX.Element {
       if (matchesShortcut(e, overrides, 'global.toggleRecentNote')) {
         e.preventDefault()
         void state.toggleRecentNote()
-        return
-      }
-      if (matchesShortcut(e, overrides, 'global.searchNotes')) {
-        // ⌘P — note search
-        e.preventDefault()
-        setBufferPaletteOpen(false)
-        setVaultTextSearchOpen(false)
-        setSearchOpen(!state.searchOpen)
         return
       }
       if (matchesShortcut(e, overrides, 'global.closeActiveTab')) {
@@ -956,6 +942,25 @@ function App(): JSX.Element {
       // Settings keybinding recorder is open — the recorder also captures keys
       // in this phase, so a focusPane shortcut bound to e.g. Ctrl+H must not
       // intercept it. (#124)
+      const overrides = state.keymapOverrides
+      const modalOrMenuOpen =
+        !!document.querySelector('[data-ctx-menu]') ||
+        !!document.querySelector('[data-prompt-modal]') ||
+        !!document.querySelector('[data-confirm-modal]')
+      // Search Notes is a toggle: its own shortcut closes the palette it
+      // opened (#510 moved it here from the bubble handler, which had no
+      // overlay guard at all). A confirm on top of the palette, such as the
+      // Ctrl+D trash confirmation, keeps the key to itself.
+      if (
+        state.searchOpen &&
+        !modalOrMenuOpen &&
+        matchesShortcut(e, overrides, 'global.searchNotes')
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setSearchOpen(false)
+        return
+      }
       if (
         state.settingsOpen ||
         state.searchOpen ||
@@ -965,9 +970,7 @@ function App(): JSX.Element {
         state.templatePaletteOpen ||
         state.embedDrawingPaletteOpen ||
         state.outlinePaletteOpen ||
-        document.querySelector('[data-ctx-menu]') ||
-        document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]') ||
+        modalOrMenuOpen ||
         // An open autocomplete popup (slash menu, [[ links, the callout [! type
         // picker) owns the keyboard: its Ctrl+J/Ctrl+K/Ctrl+N/Ctrl+P navigation
         // must win over a focusPane shortcut a user remapped onto those chords,
@@ -977,7 +980,6 @@ function App(): JSX.Element {
       ) {
         return
       }
-      const overrides = state.keymapOverrides
       const paneDir = matchesShortcut(e, overrides, 'global.focusPaneLeft')
         ? 'h'
         : matchesShortcut(e, overrides, 'global.focusPaneDown')
@@ -1011,6 +1013,31 @@ function App(): JSX.Element {
         e.preventDefault()
         e.stopImmediatePropagation()
         requestPaneMode(paneMode)
+        return
+      }
+
+      // Search Notes (Mod+P) and New Note Here (Mod+N) live here for the same
+      // reason (#510). On Linux and Windows Mod is Ctrl, and codemirror-vim
+      // aliases <C-p>/<C-n> to k/j and stops propagation of every key it
+      // handles, so from a focused editor the bubble-phase handler never saw
+      // them: the note search palette could not be opened from the note being
+      // edited. The rule this settles, written down in the keymaps help: with
+      // Vim mode on, an app shortcut on a Ctrl chord wins over Vim's, except
+      // the chords Vim mode reserves on purpose, Ctrl+W (pane prefix), Ctrl+O
+      // and Ctrl+I (jumplist, #488) and Ctrl+D / Ctrl+U (half page).
+      if (matchesShortcut(e, overrides, 'global.searchNotes')) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setBufferPaletteOpen(false)
+        setVaultTextSearchOpen(false)
+        setSearchOpen(true)
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.newNoteHere')) {
+        // #614
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        void state.createNoteInCurrentFolder()
         return
       }
 

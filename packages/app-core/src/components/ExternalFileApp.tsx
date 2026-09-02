@@ -15,7 +15,7 @@ import { Annotation, Compartment, EditorState, type Transaction } from '@codemir
 import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
@@ -24,7 +24,6 @@ import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
-import { searchKeymap } from '@codemirror/search'
 import type { ExternalFileContent } from '@shared/ipc'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { headingFolding } from '../lib/cm-heading-fold'
@@ -37,6 +36,13 @@ import {
   paperHighlight
 } from './FloatingNoteApp'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { linkRangeAtCursor } from '../lib/internal-links'
+import { pointerOverRange } from '../lib/cm-pointer-range'
+import {
+  standaloneLinkForAnchor,
+  standaloneLinkForEditorTarget,
+  type StandaloneLinkAction
+} from '../lib/standalone-links'
 
 const SAVE_DEBOUNCE_MS = 350
 const programmatic = Annotation.define<boolean>()
@@ -52,6 +58,7 @@ export function ExternalFileApp(): JSX.Element {
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const [moving, setMoving] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [linkError, setLinkError] = useState<string | null>(null)
   const viewRef = useRef<EditorView | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Source of truth for the body: seeded on load and updated on every
@@ -98,6 +105,46 @@ export function ExternalFileApp(): JSX.Element {
     }
   }, [])
 
+  // Links have no vault to resolve against here, so the host resolves them
+  // from the file's own directory (#626). Web links stay in the browser.
+  const followLink = useCallback(async (decision: StandaloneLinkAction): Promise<boolean> => {
+    if (!decision) return false
+    if (decision.action === 'browser') {
+      window.open(decision.url, '_blank')
+      return true
+    }
+    setLinkError(null)
+    try {
+      const result = await window.zen.followExternalFileLink(decision.link)
+      if (!result.ok) setLinkError(result.error ?? 'Could not open that link.')
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not open that link.')
+    }
+    return true
+  }, [])
+  const followLinkRef = useRef(followLink)
+  followLinkRef.current = followLink
+
+  const linkAtPointer = useCallback(
+    (view: EditorView, event: MouseEvent): StandaloneLinkAction | 'edit' | null => {
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
+      if (pos == null) return null
+      const doc = view.state.doc.toString()
+      const link = linkRangeAtCursor(doc, pos)
+      if (!link || !pointerOverRange(view, link.from, link.to, event.clientX, event.clientY)) return null
+      // Same rule as the main editor (#201): Cmd/Ctrl-click always follows; a
+      // plain click follows a rendered link (selection outside it) in live
+      // preview and otherwise lands the cursor to edit.
+      if (!(event.metaKey || event.ctrlKey)) {
+        const sel = view.state.selection.main
+        const rendered = prefs.livePreview && (sel.to < link.from || sel.from > link.to)
+        if (!rendered) return 'edit'
+      }
+      return standaloneLinkForEditorTarget(doc.slice(link.from, link.to), link.target)
+    },
+    [prefs.livePreview]
+  )
+
   // Mount CodeMirror once content is loaded.
   const setContainerRef = useCallback(
     (el: HTMLDivElement | null) => {
@@ -134,8 +181,18 @@ export function ExternalFileApp(): JSX.Element {
             indentWithTab,
             ...vimAwareDefaultKeymap(prefs.vimMode),
             ...historyKeymap,
-            ...searchKeymap
+            ...vimAwareSearchKeymap(prefs.vimMode)
           ]),
+          EditorView.domEventHandlers({
+            mousedown: (event, view) => {
+              if (event.button !== 0 || event.altKey || event.shiftKey) return false
+              const decision = linkAtPointer(view, event)
+              if (!decision || decision === 'edit') return false
+              event.preventDefault()
+              void followLinkRef.current(decision)
+              return true
+            }
+          }),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return
@@ -160,7 +217,7 @@ export function ExternalFileApp(): JSX.Element {
       viewRef.current.focus()
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [persist, prefs.livePreview, prefs.vimMode]
+    [persist, prefs.livePreview, prefs.vimMode, linkAtPointer]
   )
 
   // Seed the live CM view the first time content arrives.
@@ -232,6 +289,14 @@ export function ExternalFileApp(): JSX.Element {
       await persist(currentBody())
     }
     externalFileHandlers.close = (): void => window.zen.windowClose()
+    externalFileHandlers.followLinkAtCursor = (): void => {
+      const view = viewRef.current
+      if (!view) return
+      const doc = view.state.doc.toString()
+      const link = linkRangeAtCursor(doc, view.state.selection.main.head)
+      if (!link) return
+      void followLinkRef.current(standaloneLinkForEditorTarget(doc.slice(link.from, link.to), link.target))
+    }
     registerExternalFileVimCommands()
     applyVimInsertEscape(prefs.vimInsertEscape)
   }, [persist, currentBody, prefs.vimInsertEscape])
@@ -299,9 +364,9 @@ export function ExternalFileApp(): JSX.Element {
         </div>
       </header>
 
-      {moveError && (
+      {(moveError || linkError) && (
         <div className="shrink-0 border-b border-paper-300/70 bg-rose-500/10 px-4 py-1.5 text-xs text-rose-600">
-          {moveError}
+          {moveError ?? linkError}
         </div>
       )}
 
@@ -309,7 +374,22 @@ export function ExternalFileApp(): JSX.Element {
         {mode === 'edit' ? (
           <div ref={setContainerRef} className="min-h-0 min-w-0 flex-1" />
         ) : content ? (
-          <div data-preview-scroll className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div
+            data-preview-scroll
+            className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+            // Capture phase, ahead of Preview's own click handler: that one
+            // resolves through the vault's note index and root, which this
+            // window does not have (#626).
+            onClickCapture={(event) => {
+              const anchor = (event.target as HTMLElement | null)?.closest('a')
+              if (!anchor) return
+              const decision = standaloneLinkForAnchor(anchor)
+              if (!decision) return
+              event.preventDefault()
+              event.stopPropagation()
+              void followLink(decision)
+            }}
+          >
             <Preview markdown={currentBody()} notePath={content.name} />
           </div>
         ) : (
@@ -325,7 +405,8 @@ export function ExternalFileApp(): JSX.Element {
 const externalFileHandlers: {
   persist: null | (() => Promise<void>)
   close: null | (() => void)
-} = { persist: null, close: null }
+  followLinkAtCursor: null | (() => void)
+} = { persist: null, close: null, followLinkAtCursor: null }
 
 let externalFileVimRegistered = false
 
@@ -349,4 +430,10 @@ function registerExternalFileVimCommands(): void {
   Vim.defineEx('x', 'x', () => {
     void externalFileHandlers.persist?.().then(deferredClose)
   })
+  // `gd` follows the link under the cursor, as in the main editor. This
+  // window has no keymap overrides to consult, so it is the default chord.
+  Vim.defineAction('zenStandaloneFollowLink', () => {
+    externalFileHandlers.followLinkAtCursor?.()
+  })
+  Vim.mapCommand('gd', 'action', 'zenStandaloneFollowLink', {}, { context: 'normal' })
 }

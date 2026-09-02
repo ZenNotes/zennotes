@@ -27,7 +27,7 @@ import {
 } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
@@ -39,7 +39,6 @@ import {
 } from '../lib/cm-markdown-list-indent'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
-import { searchKeymap } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
@@ -275,7 +274,7 @@ export function PinnedReferencePane(): JSX.Element | null {
             indentWithTab,
             ...vimAwareDefaultKeymap(s0.vimMode),
             ...historyKeymap,
-            ...searchKeymap,
+            ...vimAwareSearchKeymap(s0.vimMode),
             ...completionKeymapForEditor
           ]),
           EditorView.updateListener.of((upd) => {
