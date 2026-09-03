@@ -63,11 +63,12 @@ import { markerHopCommands } from '../lib/cm-marker-hop'
 import { isInMarkdownCode } from '../lib/cm-auto-pairs'
 import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
 import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
-import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { isVimAwaitingArgument } from '../lib/vim-nav'
 import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { followLinkTarget } from '../lib/follow-link'
+import { pointerOverRange } from '../lib/cm-pointer-range'
 import { setHoveredLink } from '../lib/hovered-link'
 import {
   setYankToClipboardEnabled,
@@ -93,7 +94,6 @@ import {
   unfoldHeadingAtCursor
 } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
-import { searchKeymap } from '@codemirror/search'
 import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
@@ -318,29 +318,6 @@ const LARGE_DOC_EDITOR_HYDRATE_DELAY_MS = 180
 // chords are stripped from `defaultKeymap` so Vim's `<C-d>` & co. work (see
 // cm-vim-default-keymap). Built behind a compartment and reconfigured on Vim
 // toggle or keymap-override changes.
-/**
- * Whether the pointer actually rests on the rendered glyphs of [from, to].
- * posAtCoords clamps coordinates in the blank space beside a line to the
- * nearest caret, and live preview hides a link's closing syntax, so that
- * caret lands inside a link that merely ends its line; without this check the
- * whole blank stretch after the line hovers and follows like the link (#587).
- */
-function pointerOverRange(
-  view: EditorView,
-  from: number,
-  to: number,
-  x: number,
-  y: number
-): boolean {
-  const start = view.coordsAtPos(from, 1)
-  const end = view.coordsAtPos(to, -1)
-  if (!start || !end) return false
-  if (y < start.top || y > end.bottom) return false
-  if (y <= start.bottom && x < start.left) return false
-  if (y >= end.top && x > end.right) return false
-  return true
-}
-
 // Straight quotes join the hop's markers exactly where they auto-pair: with the
 // prose setting on, or inside code, where auto-pair always closes them (#685).
 const markerHop = markerHopCommands({
@@ -428,7 +405,7 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
-    ...searchKeymap,
+    ...vimAwareSearchKeymap(vimMode),
     ...completionKeymapForEditor
   ])
 }
@@ -853,6 +830,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const updateNoteBody = useStore((s) => s.updateNoteBody)
   const persistNote = useStore((s) => s.persistNote)
   const trashActive = useStore((s) => s.trashActive)
+  const deleteActivePermanently = useStore((s) => s.deleteActivePermanently)
   const archiveActive = useStore((s) => s.archiveActive)
   const restoreActive = useStore((s) => s.restoreActive)
   const unarchiveActive = useStore((s) => s.unarchiveActive)
@@ -3400,9 +3378,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ArchiveIcon />
           </IconBtn>
         )}
-        <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
-          <TrashIcon />
-        </IconBtn>
+        {folder === 'trash' ? (
+          // A trashed note cannot be trashed again; here the bin icon means the
+          // only thing left that it can mean (#712).
+          <IconBtn title="Delete permanently" onClick={() => void deleteActivePermanently()}>
+            <TrashIcon />
+          </IconBtn>
+        ) : (
+          <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
+            <TrashIcon />
+          </IconBtn>
+        )}
       </div>
     )
   }, [
@@ -3420,6 +3406,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     calendarOpen,
     toggleCalendarPanel,
     trashActive,
+    deleteActivePermanently,
     archiveActive,
     restoreActive,
     unarchiveActive,

@@ -148,7 +148,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: "app",
     group: "global",
     title: "Search notes",
-    description: "Open the vault-wide note search palette.",
+    description:
+      "Open the vault-wide note search palette. Wins over Vim's Ctrl+P (cursor up) when Mod is Ctrl.",
     defaultBinding: "Mod+P",
   },
   {
@@ -186,7 +187,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "global",
     title: "New note in current folder",
     description:
-      "Create a note in the active note's folder (or the browsed folder when no note is open) and focus its title.",
+      "Create a note in the active note's folder (or the browsed folder when no note is open) and focus its title. Wins over Vim's Ctrl+N (cursor down) when Mod is Ctrl.",
     defaultBinding: "Mod+N",
   },
   {
@@ -331,7 +332,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: "app",
     group: "global",
     title: "Close active tab",
-    description: "Close the current note or virtual tab.",
+    description:
+      "Close the current note or virtual tab. With Vim mode on and Mod resolving to Ctrl, Ctrl+W stays Vim's pane prefix while a tab is open; close the tab with :q or :bd, or rebind this.",
     defaultBinding: "Mod+W",
   },
   {
@@ -674,7 +676,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     scope: "pane",
     group: "vim",
     title: "Pane command prefix",
-    description: "Start pane focus and split commands.",
+    description:
+      "Start pane focus and split commands. One of the chords Vim mode reserves for itself from a focused editor, with Ctrl+O / Ctrl+I (jumplist) and Ctrl+D / Ctrl+U (half page).",
     defaultBinding: "Ctrl+W",
     vimOnly: true,
     maxTokens: 1,

@@ -269,3 +269,47 @@ describe('New Note in Current Folder (#403)', () => {
     expect(createAndOpen).toHaveBeenCalledWith('inbox', '', { focusTitle: true })
   })
 })
+
+describe('note commands for a trashed note (#712)', () => {
+  const note = {
+    path: 'trash/Old idea.md',
+    title: 'Old idea',
+    folder: 'trash' as const,
+    siblingOrder: 0,
+    createdAt: 0,
+    updatedAt: 1,
+    size: 1,
+    tags: [],
+    wikilinks: [],
+    assetEmbeds: [],
+    hasAttachments: false,
+    excerpt: '',
+    body: ''
+  }
+
+  it('offers Restore and Delete Permanently, not Move to Trash, while the active note is in the Trash', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ selectedPath: note.path, activeNote: note })
+    const ids = buildCommands().map((cmd) => cmd.id)
+    expect(ids).toContain('note.restore')
+    expect(ids).toContain('note.delete-permanently')
+    expect(ids).not.toContain('note.trash')
+  })
+
+  it('offers Move to Trash, not Delete Permanently, for a note outside the Trash', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ selectedPath: 'inbox/Idea.md', activeNote: { ...note, path: 'inbox/Idea.md', folder: 'inbox' as const } })
+    const ids = buildCommands().map((cmd) => cmd.id)
+    expect(ids).toContain('note.trash')
+    expect(ids).not.toContain('note.delete-permanently')
+  })
+
+  it('runs the store action that deletes the active note for good', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const deleteActivePermanently = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ selectedPath: note.path, activeNote: note, deleteActivePermanently })
+    await buildCommands().find((cmd) => cmd.id === 'note.delete-permanently')?.run()
+    expect(deleteActivePermanently).toHaveBeenCalledTimes(1)
+  })
+})
+

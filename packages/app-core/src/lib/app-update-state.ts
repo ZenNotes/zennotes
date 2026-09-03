@@ -58,6 +58,9 @@ export function appUpdateNoticeLabel(state: AppUpdateState | null): string | nul
 }
 
 export function appUpdatePrimaryActionLabel(state: AppUpdateState | null): string | null {
+  // A package-manager install (AUR, a tarball) is only told that a version
+  // exists; there is nothing the app can download for it.
+  if (state && state.installable === false) return null
   switch (state?.phase) {
     case 'available':
       return 'Download'

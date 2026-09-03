@@ -4,7 +4,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from './cm-vim-default-keymap'
+import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from './cm-vim-default-keymap'
 
 // Regression guard for the macOS Vim `Ctrl-d` bug: defaultKeymap's emacs-style
 // mac chords used to shadow Vim's <C-d> (half-page down) and delete a char.
@@ -180,3 +180,27 @@ describe('vimAwareMarkdownKeymap (Enter in Vim normal mode acts as <CR>)', () =>
     expect(view.state.doc.toString()).toBe('- item\n- ')
   })
 })
+
+// #510: on Linux/Windows the search panel's Mod-f is Ctrl+F, which Vim wants
+// for page-forward; the keymap runs ahead of the Vim plugin, so the panel won.
+describe('vimAwareSearchKeymap', () => {
+  const keys = (bindings: readonly KeyBinding[]) => bindings.map((b) => b.key)
+
+  it('drops Mod-f in Vim mode where Mod is Ctrl, so Ctrl+F pages like Ctrl+B', () => {
+    expect(keys(vimAwareSearchKeymap(true, false))).not.toContain('Mod-f')
+  })
+
+  it('keeps the rest of the search keymap there (find next, replace, select matches)', () => {
+    const kept = keys(vimAwareSearchKeymap(true, false))
+    for (const key of ['F3', 'Mod-g', 'Escape', 'Mod-Shift-l', 'Mod-Alt-g', 'Mod-d']) {
+      expect(kept).toContain(key)
+    }
+  })
+
+  it('keeps Mod-f on macOS in Vim mode (Cmd+F never collided) and everywhere with Vim off', () => {
+    expect(keys(vimAwareSearchKeymap(true, true))).toContain('Mod-f')
+    expect(keys(vimAwareSearchKeymap(false, false))).toContain('Mod-f')
+    expect(keys(vimAwareSearchKeymap(false, true))).toContain('Mod-f')
+  })
+})
+

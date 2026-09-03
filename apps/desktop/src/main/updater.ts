@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { fetchLatestRelease, isNewerVersion } from './update-feed'
 import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import electronUpdater, {
@@ -18,6 +19,9 @@ const BACKGROUND_UPDATE_CHECK_DELAY_MS = 8000
 
 let initialized = false
 let updater: AppUpdater | null = null
+/** True when this install belongs to a package manager (AUR, a tarball): the
+ *  app checks the release feed itself and only reports, never installs. */
+let managedInstall = false
 let lastInfo: UpdateInfo | null = null
 let startupCheckTimer: NodeJS.Timeout | null = null
 let backgroundCheckScheduled = false
@@ -32,6 +36,7 @@ let updateState: AppUpdateState = makeState({
 function makeState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
   return {
     phase: 'idle',
+    installable: !managedInstall,
     currentVersion: app.getVersion(),
     availableVersion: null,
     releaseName: null,
@@ -167,7 +172,13 @@ export function initAppUpdater(): void {
   if (initialized) return
   initialized = true
 
-  if (!app.isPackaged) {
+  // A development or perf run may force the package-manager path so the
+  // notify-only check can be driven on any platform (with
+  // ZENNOTES_UPDATE_FEED_URL pointing at a served feed).
+  const forcedManaged =
+    process.env.ZENNOTES_UPDATER_FORMAT === 'managed' &&
+    (!app.isPackaged || process.env.ZEN_PERF === '1')
+  if (!app.isPackaged && !forcedManaged) {
     setUpdateState(
       makeState({
         phase: 'unsupported',
@@ -177,7 +188,26 @@ export function initAppUpdater(): void {
     return
   }
 
-  updater = process.platform === 'linux' ? linuxUpdater() : autoUpdater
+  const chosen = forcedManaged
+    ? 'managed'
+    : process.platform === 'linux'
+      ? linuxUpdater()
+      : autoUpdater
+  if (chosen === 'managed') {
+    // No updater can install here, and the one these installs used to fall
+    // into (AppImage) refused to run without an APPIMAGE marker and never
+    // said so: the About page sat on "Checking…" for good. Report only.
+    managedInstall = true
+    updater = null
+    setUpdateState(
+      makeState({
+        message:
+          'This copy of ZenNotes was installed by a package manager. Check GitHub for a newer version here and install it the way you installed ZenNotes.'
+      })
+    )
+    return
+  }
+  updater = chosen
   updater.autoDownload = false
   updater.autoInstallOnAppQuit = true
 
@@ -250,6 +280,7 @@ export function initAppUpdater(): void {
 
 export async function checkForAppUpdates(): Promise<AppUpdateState> {
   initAppUpdater()
+  if (managedInstall) return await checkManagedInstallForUpdates()
   if (!updater) return getAppUpdateState()
   if (updateState.phase === 'checking') return getAppUpdateState()
 
@@ -286,11 +317,80 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
   return getAppUpdateState()
 }
 
+/**
+ * The notify-only check for a package-manager install: read the release feed,
+ * compare, say the answer. The same retry policy as the real updaters, the
+ * same native notification once per version, and never a download.
+ */
+async function checkManagedInstallForUpdates(): Promise<AppUpdateState> {
+  if (updateState.phase === 'checking') return getAppUpdateState()
+  const current = app.getVersion()
+  setUpdateState(
+    makeState({
+      phase: 'checking',
+      availableVersion: updateState.availableVersion,
+      message: 'Checking GitHub releases for updates…'
+    })
+  )
+  for (let attempt = 1; attempt <= UPDATE_CHECK_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const latest = await fetchLatestRelease(undefined, managedFeedUrl())
+      if (isNewerVersion(latest.version, current)) {
+        setUpdateState(
+          makeState({
+            phase: 'available',
+            availableVersion: latest.version,
+            releaseDate: latest.releaseDate,
+            message: `ZenNotes ${latest.version} is available. This copy is managed by your package manager, so update it there (the AUR package updates with yay -Syu or paru -Syu).`
+          })
+        )
+        if (notifiedAvailableVersion !== latest.version) {
+          notifiedAvailableVersion = latest.version
+          showNativeUpdateNotification(
+            'ZenNotes Update Available',
+            `ZenNotes ${latest.version} is available. Update it with your package manager.`
+          )
+        }
+      } else {
+        setUpdateState(
+          makeState({
+            phase: 'not-available',
+            message: `You're already on ZenNotes ${current}.`
+          })
+        )
+      }
+      return getAppUpdateState()
+    } catch (error) {
+      if (isRetryableUpdateError(error) && attempt < UPDATE_CHECK_MAX_ATTEMPTS) {
+        setUpdateState(
+          makeState({
+            phase: 'checking',
+            message: `GitHub update check hit a temporary server error. Retrying (${attempt + 1}/${UPDATE_CHECK_MAX_ATTEMPTS})…`
+          })
+        )
+        await sleep(UPDATE_CHECK_RETRY_DELAY_MS)
+        continue
+      }
+      setUpdateState(makeState({ phase: 'error', message: humanizeUpdateError(error) }))
+      return getAppUpdateState()
+    }
+  }
+  return getAppUpdateState()
+}
+
+/** Development and perf runs may point the notify-only check at a local feed
+ *  (a served `latest-linux.yml`) to exercise every state without a release. */
+function managedFeedUrl(): string | undefined {
+  const override = process.env.ZENNOTES_UPDATE_FEED_URL?.trim()
+  if (override && (!app.isPackaged || process.env.ZEN_PERF === '1')) return override
+  return undefined
+}
+
 export function scheduleBackgroundAppUpdateCheck(
   delayMs: number = BACKGROUND_UPDATE_CHECK_DELAY_MS
 ): void {
   initAppUpdater()
-  if (!updater || backgroundCheckScheduled) return
+  if ((!updater && !managedInstall) || backgroundCheckScheduled) return
   backgroundCheckScheduled = true
   startupCheckTimer = setTimeout(() => {
     startupCheckTimer = null
@@ -339,7 +439,7 @@ export function installAppUpdate(): void {
   updater.quitAndInstall()
 }
 
-export type LinuxPackageFormat = 'appimage' | 'deb' | 'rpm' | 'pacman' | 'unknown'
+export type LinuxPackageFormat = 'appimage' | 'deb' | 'rpm' | 'pacman' | 'managed' | 'unknown'
 
 export function linuxPackageFormat(file: string | null): LinuxPackageFormat {
   if (!file) return 'unknown'
@@ -447,10 +547,12 @@ function defaultReadOsRelease(): string {
  * AUR repackages under `/opt/zennotes-bin`. The path check keeps those installs
  * owned by their package manager even when that race occurs.
  *
- * The AppImage updater is selected explicitly for non-system installs instead
- * of returning electron-updater's `autoUpdater`: that singleton has already
- * read the racing stamp by the time this module loads and may itself be a deb
- * or rpm updater.
+ * A non-system install that is not an AppImage (the AUR package, a tarball
+ * unpacked by hand) is `managed`: nothing here may write into it, so the app
+ * only reads the release feed and reports. Those installs used to be handed
+ * the AppImage updater, which refuses to run without an APPIMAGE marker and
+ * never reports that it refused, so their update check sat on "Checking…"
+ * forever (reported on Discord by unyanda, on the AUR package).
  */
 export function linuxUpdaterFormat(input: {
   isAppImage: boolean
@@ -458,7 +560,7 @@ export function linuxUpdaterFormat(input: {
   osRelease: string | null
 }): LinuxPackageFormat {
   if (input.isAppImage) return 'appimage'
-  if (!input.isOfficialSystemPackage) return 'appimage'
+  if (!input.isOfficialSystemPackage) return 'managed'
   return input.osRelease === null ? 'unknown' : linuxFormatFromOsRelease(input.osRelease)
 }
 
@@ -505,18 +607,18 @@ export function mismatchedUpdateMessage(
 
 /** The updater matching what this machine actually runs, rather than the one
  *  electron-updater chose from the stamp when the module was loaded. */
-function linuxUpdater(): AppUpdater {
+function linuxUpdater(): AppUpdater | 'managed' {
   try {
-    return linuxUpdaterForFormat(
-      linuxUpdaterFormat({
-        isAppImage: Boolean(process.env.APPIMAGE),
-        isOfficialSystemPackage: isOfficialLinuxSystemPackage(
-          process.resourcesPath,
-          existsSync(join(process.resourcesPath, 'package-type'))
-        ),
-        osRelease: readOsReleaseOrNull()
-      })
-    )
+    const format = linuxUpdaterFormat({
+      isAppImage: Boolean(process.env.APPIMAGE),
+      isOfficialSystemPackage: isOfficialLinuxSystemPackage(
+        process.resourcesPath,
+        existsSync(join(process.resourcesPath, 'package-type'))
+      ),
+      osRelease: readOsReleaseOrNull()
+    })
+    if (format === 'managed') return 'managed'
+    return linuxUpdaterForFormat(format)
   } catch {
     // Any surprise here means we know nothing extra; electron-updater's own
     // choice is no worse than it was before.
@@ -524,7 +626,7 @@ function linuxUpdater(): AppUpdater {
   }
 }
 
-export function linuxUpdaterForFormat(format: LinuxPackageFormat): AppUpdater {
+export function linuxUpdaterForFormat(format: Exclude<LinuxPackageFormat, 'managed'>): AppUpdater {
   switch (format) {
     case 'appimage':
       return new electronUpdater.AppImageUpdater()

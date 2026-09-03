@@ -236,6 +236,11 @@ import {
   installAppUpdate,
   scheduleBackgroundAppUpdateCheck,
 } from "./updater";
+import {
+  createInstalledBundleGuard,
+  replacedBundleDialog,
+  staleBundlePageHtml,
+} from "./installed-bundle";
 import type { McpClientId, McpInstructionsPayload } from "@shared/mcp-clients";
 import {
   instructionsFilePath,
@@ -256,6 +261,7 @@ import {
   candidatePathsFromArgv,
   resolveMarkdownOpenTarget,
 } from "./file-open";
+import { isStandaloneLink, resolveStandaloneLink } from "./standalone-links";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nodeRequire = createRequire(import.meta.url);
@@ -288,6 +294,16 @@ protocol.registerSchemesAsPrivileged([
   { scheme: EXCALIDRAW_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
   { scheme: TYPST_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
 ]);
+
+// The archive this process booted from, watched for a package manager
+// replacing it while ZenNotes runs. Captured here, before any window loads,
+// because what it defends is the header Electron cached at startup (see
+// installed-bundle.ts). Unpackaged runs get an inert guard.
+const installedBundle = createInstalledBundleGuard(
+  app.isPackaged && app.getAppPath().endsWith(".asar")
+    ? app.getAppPath()
+    : null,
+);
 
 let mainWindow: BrowserWindow | null = null;
 let mainWindowReadyForAppEvents = false;
@@ -925,15 +941,7 @@ function openExternalFileWindow(absPath: string): void {
   installFrameEscape(win);
   applyZoomFactor(win, currentZoomFactor);
 
-  const params = `?externalFile=${encodeURIComponent(resolved)}`;
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (devServerUrl) {
-    void win.loadURL(`${devServerUrl}${params}`);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"), {
-      search: params.slice(1),
-    });
-  }
+  void loadRenderer(win, `externalFile=${encodeURIComponent(resolved)}`);
 }
 
 function decodeLocalAssetRequestPath(url: string): string | null {
@@ -1026,6 +1034,155 @@ function installNavigationGuards(win: BrowserWindow): void {
     if (url.startsWith(`${THEME_ASSET_SCHEME}://`)) return;
     openAllowedExternalUrl(url);
   });
+}
+
+/**
+ * Every window is the same renderer entry with a query string saying what to
+ * be, and this is the one place it is loaded from. That makes it the place a
+ * load through a stale archive header is turned away: a packaged ZenNotes
+ * whose app.asar was replaced on disk (see installed-bundle.ts) would
+ * otherwise open a window on whatever bytes now sit at the old offsets, which
+ * is the 2.41.0 "white screen" on Arch. Resolves false when the load was
+ * refused; the window shows a plain explanation instead and the user is asked
+ * to restart.
+ */
+async function loadRenderer(
+  win: BrowserWindow,
+  query?: string,
+): Promise<boolean> {
+  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
+  if (devServerUrl) {
+    await win.loadURL(query ? `${devServerUrl}?${query}` : devServerUrl);
+    return true;
+  }
+  if (installedBundle.status() === "replaced") {
+    console.warn(
+      "[install] app.asar was replaced on disk; refusing to load the renderer through this process's stale header",
+    );
+    const page = staleBundlePageHtml(
+      app.getVersion(),
+      installedBundle.installedVersion(),
+    );
+    await win.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(page)}`,
+    );
+    if (win.isVisible()) void promptRestartForReplacedBundle(win);
+    else win.once("show", () => void promptRestartForReplacedBundle(win));
+    return false;
+  }
+  await win.loadFile(
+    path.join(__dirname, "../renderer/index.html"),
+    query ? { search: query } : undefined,
+  );
+  return true;
+}
+
+let replacedBundlePrompt: Promise<void> | null = null;
+let replacedBundlePromptDeclined = false;
+let replacedBundleRestartChosen = false;
+
+/**
+ * Asks to restart into the archive that replaced ours, as a sheet on a window
+ * the user can see. One dialog at a time, and once declined the passive
+ * checks (focus, the poll) stay quiet; only an action that would actually
+ * load through the stale header asks again.
+ *
+ * Never an app-level alert. With no parent, macOS runs the alert as a nested
+ * modal session, and anything that ends that session from outside comes back
+ * as NSModalResponseCancel, which is 0, which is the Restart button: observed
+ * relaunching the app with nobody at the keyboard. A sheet reports an outside
+ * dismissal as the cancel button instead. With no visible window there is
+ * nobody to ask anyway; the next window to open carries the same explanation
+ * on its page and asks then.
+ */
+function promptRestartForReplacedBundle(
+  parent: BrowserWindow | null | undefined,
+  options: { passive?: boolean } = {},
+): Promise<void> {
+  // Quitting closes windows and moves focus around, which would otherwise
+  // raise the question again on the way out.
+  if (replacedBundleRestartChosen) return Promise.resolve();
+  if (options.passive && replacedBundlePromptDeclined) return Promise.resolve();
+  if (replacedBundlePrompt) return replacedBundlePrompt;
+  const owner = visibleWindowFor(parent);
+  if (!owner) return Promise.resolve();
+  const copy = replacedBundleDialog(
+    app.getVersion(),
+    installedBundle.installedVersion(),
+  );
+  const dialogOptions: Electron.MessageBoxOptions = {
+    type: "info",
+    buttons: copy.buttons,
+    defaultId: 0,
+    cancelId: 1,
+    title: copy.title,
+    message: copy.message,
+    detail: copy.detail,
+  };
+  console.warn(`[install] ${copy.message} Asking to restart.`);
+  replacedBundlePrompt = dialog
+    .showMessageBox(owner, dialogOptions)
+    .then(({ response }) => {
+      if (response === 0) {
+        replacedBundleRestartChosen = true;
+        console.log("[install] restarting into the replaced app.asar");
+        app.relaunch();
+        app.quit();
+        return;
+      }
+      replacedBundlePromptDeclined = true;
+    })
+    .finally(() => {
+      replacedBundlePrompt = null;
+    });
+  return replacedBundlePrompt;
+}
+
+/** The preferred window when it can carry a sheet, else any window that can. */
+function visibleWindowFor(
+  preferred: BrowserWindow | null | undefined,
+): BrowserWindow | null {
+  if (preferred && !preferred.isDestroyed() && preferred.isVisible()) {
+    return preferred;
+  }
+  return (
+    BrowserWindow.getAllWindows().find(
+      (win) => !win.isDestroyed() && win.isVisible(),
+    ) ?? null
+  );
+}
+
+/** View > Reload. The stock roles reload straight through a stale archive
+ *  header (see loadRenderer), so the same question is asked first. */
+function reloadFocusedWindow(ignoringCache: boolean): void {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return;
+  if (installedBundle.status() === "replaced") {
+    void promptRestartForReplacedBundle(win);
+    return;
+  }
+  if (ignoringCache) win.webContents.reloadIgnoringCache();
+  else win.reload();
+}
+
+const INSTALLED_BUNDLE_POLL_MS = 30_000;
+
+/**
+ * Notices the replacement soon after it happens rather than at the next
+ * window: on focus, which is the user coming back from the terminal that ran
+ * the upgrade, and on a slow poll for a process left with no window to focus.
+ */
+function watchInstalledBundle(): void {
+  if (!app.isPackaged) return;
+  const check = () => {
+    if (installedBundle.status() !== "replaced") return;
+    void promptRestartForReplacedBundle(
+      BrowserWindow.getFocusedWindow() ?? mainWindow,
+      { passive: true },
+    );
+  };
+  app.on("browser-window-focus", check);
+  setInterval(check, INSTALLED_BUNDLE_POLL_MS).unref();
 }
 
 function mimeTypeForPath(absPath: string): string {
@@ -1444,12 +1601,7 @@ async function createWindow(
     }
   }
 
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (devServerUrl) {
-    void win.loadURL(devServerUrl);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
+  void loadRenderer(win);
 
   return win;
 }
@@ -2201,16 +2353,13 @@ async function exportNotePdf(
     }
     installNavigationGuards(exportWindow);
     applyZoomFactor(exportWindow, currentZoomFactor);
-    const params = `?exportNote=${encodeURIComponent(relPath)}`;
-    const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-    if (devServerUrl) {
-      await exportWindow.loadURL(`${devServerUrl}${params}`);
-    } else {
-      await exportWindow.loadFile(
-        path.join(__dirname, "../renderer/index.html"),
-        {
-          search: params.slice(1),
-        },
+    const loaded = await loadRenderer(
+      exportWindow,
+      `exportNote=${encodeURIComponent(relPath)}`,
+    );
+    if (!loaded) {
+      throw new Error(
+        "ZenNotes was updated on disk. Restart it to finish the update, then export again.",
       );
     }
 
@@ -4104,6 +4253,36 @@ function registerIpc(): void {
     },
   );
 
+  // A link followed inside a standalone window resolves against that
+  // window's own file, never against a path the renderer supplies (#626).
+  handle(
+    IPC.APP_FOLLOW_EXTERNAL_FILE_LINK,
+    async (event, link: unknown): Promise<{ ok: boolean; error?: string }> => {
+      const win = requireEventWindow(event);
+      const abs = externalFileWindows.get(win.id);
+      if (!abs || !isMarkdownFilePath(abs)) {
+        throw new Error("No markdown file is bound to this window.");
+      }
+      if (!isStandaloneLink(link)) return { ok: false, error: "Not a link." };
+      const target = await resolveStandaloneLink(abs, link);
+      if (!target) {
+        const named = link.kind === "wikilink" ? `[[${link.target}]]` : link.href;
+        return {
+          ok: false,
+          error: `Nothing named ${named} next to ${path.basename(abs)}.`,
+        };
+      }
+      if (target.kind === "markdown") {
+        const opened = await openMarkdownFileFromOS(target.absPath, false);
+        return opened
+          ? { ok: true }
+          : { ok: false, error: `Could not open ${target.absPath}.` };
+      }
+      const failure = await shell.openPath(target.absPath);
+      return failure ? { ok: false, error: failure } : { ok: true };
+    },
+  );
+
   handle(
     IPC.APP_MOVE_EXTERNAL_FILE_TO_VAULT,
     async (event): Promise<MoveExternalFileResult> => {
@@ -4426,15 +4605,7 @@ function openFloatingNoteWindow(relPath: string): void {
     inheritWindowWorkspaceSession(sourceWindow, win);
   }
 
-  const params = `?floating=1&note=${encodeURIComponent(relPath)}`;
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (devServerUrl) {
-    void win.loadURL(`${devServerUrl}${params}`);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"), {
-      search: params.slice(1),
-    });
-  }
+  void loadRenderer(win, `floating=1&note=${encodeURIComponent(relPath)}`);
 }
 
 /**
@@ -4532,15 +4703,7 @@ async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
     });
   }
 
-  const params = "?quickCapture=1";
-  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
-  if (devServerUrl) {
-    void win.loadURL(`${devServerUrl}${params}`);
-  } else {
-    void win.loadFile(path.join(__dirname, "../renderer/index.html"), {
-      search: params.slice(1),
-    });
-  }
+  void loadRenderer(win, "quickCapture=1");
 
   quickCaptureWindow = win;
   return win;
@@ -4723,8 +4886,16 @@ function installAppMenu(): void {
     {
       label: "View",
       submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
+        {
+          label: "Reload",
+          accelerator: "CmdOrCtrl+R",
+          click: () => reloadFocusedWindow(false),
+        },
+        {
+          label: "Force Reload",
+          accelerator: "CmdOrCtrl+Shift+R",
+          click: () => reloadFocusedWindow(true),
+        },
         ...(app.isPackaged
           ? []
           : ([
@@ -5173,6 +5344,7 @@ app.whenReady().then(async () => {
   installAppMenu();
   registerIpc();
   initAppUpdater();
+  watchInstalledBundle();
   registerAppDeepLinkProtocol();
   const startupDeepLinkResult = handleStartupDeepLinks(process.argv);
   void flushPendingCloudAuthCallbacks();

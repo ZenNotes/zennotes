@@ -186,14 +186,16 @@ describe('linuxUpdaterFormat', () => {
     ).toBe('appimage')
   })
 
-  it('forces the safe AppImage updater for AUR and tar installs even if the stamp leaked', () => {
+  it('marks AUR and tar installs as managed, even if the stamp leaked: report only, never install', () => {
+    // These used to get the AppImage updater, which refuses to run without an
+    // APPIMAGE marker and never says so; the About page sat on "Checking…".
     expect(
       linuxUpdaterFormat({
         isAppImage: false,
         isOfficialSystemPackage: false,
         osRelease: arch
       })
-    ).toBe('appimage')
+    ).toBe('managed')
   })
 
   it('stays with the default updater when the distro cannot be identified', () => {
@@ -248,3 +250,57 @@ describe('Linux updater build support', () => {
     expect(supportsAutoUpdate.call(Object.create(FpmTarget.prototype), 'pacman')).toBe(true)
   })
 })
+
+describe('checkForAppUpdates on a package-manager install', () => {
+  const FEED = (version: string) => `version: ${version}\nfiles: []\nreleaseDate: '2026-09-02T15:28:11.000Z'\n`
+  const original = { format: process.env.ZENNOTES_UPDATER_FORMAT, feed: process.env.ZENNOTES_UPDATE_FEED_URL }
+
+  async function loadManagedUpdater(feedBody: string | Error) {
+    vi.resetModules()
+    process.env.ZENNOTES_UPDATER_FORMAT = 'managed'
+    process.env.ZENNOTES_UPDATE_FEED_URL = 'http://127.0.0.1:1/latest-linux.yml'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        if (feedBody instanceof Error) throw feedBody
+        return { ok: true, status: 200, text: async () => feedBody }
+      })
+    )
+    return await import('./updater')
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (original.format === undefined) delete process.env.ZENNOTES_UPDATER_FORMAT
+    else process.env.ZENNOTES_UPDATER_FORMAT = original.format
+    if (original.feed === undefined) delete process.env.ZENNOTES_UPDATE_FEED_URL
+    else process.env.ZENNOTES_UPDATE_FEED_URL = original.feed
+  })
+
+  it('reports a newer version without offering to install it', async () => {
+    const mod = await loadManagedUpdater(FEED('2.0.3'))
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('available')
+    expect(state.availableVersion).toBe('2.0.3')
+    expect(state.installable).toBe(false)
+    expect(state.message).toMatch(/managed by your package manager/)
+    // Nothing to download: the install belongs to the package manager.
+    expect((await mod.downloadAppUpdate()).phase).toBe('available')
+  })
+
+  it('says so when the running version is the newest', async () => {
+    const mod = await loadManagedUpdater(FEED('2.0.2'))
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('not-available')
+    expect(state.message).toBe("You're already on ZenNotes 2.0.2.")
+    expect(state.installable).toBe(false)
+  })
+
+  it('surfaces a feed failure instead of staying on checking', async () => {
+    const mod = await loadManagedUpdater(new Error('getaddrinfo EAI_FAIL github.com'))
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('error')
+    expect(state.message).toMatch(/EAI_FAIL/)
+  })
+})
+

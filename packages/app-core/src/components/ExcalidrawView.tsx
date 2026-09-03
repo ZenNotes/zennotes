@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react'
 import { Excalidraw, serializeAsJSON } from '@excalidraw/excalidraw'
 import '@excalidraw/excalidraw/index.css'
 import { parseExcalidrawDocument } from '@shared/excalidraw'
+import { useStore } from '../store'
 
 type InitialData = ComponentProps<typeof Excalidraw>['initialData']
 type ExcalidrawProps = ComponentProps<typeof Excalidraw>
@@ -50,6 +51,7 @@ function readThemeMode(): 'light' | 'dark' {
  */
 export function ExcalidrawView({ path }: { path: string }): JSX.Element {
   const [initialData, setInitialData] = useState<InitialData | undefined>(undefined)
+  const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSaved = useRef<string>('')
   const latestScene = useRef<LatestScene | null>(null)
@@ -139,7 +141,18 @@ export function ExcalidrawView({ path }: { path: string }): JSX.Element {
   }
 
   return (
-    <div className="min-h-0 w-full flex-1" style={{ height: '100%' }} data-excalidraw-view>
+    // Clicking into the drawing claims the keyboard the same way the editor
+    // and the archive list do. Without the claim, focusedPanel stayed on the
+    // sidebar row that opened the drawing: the sidebar kept painting its
+    // cursor, and pane navigation (Ctrl+W h/l) measured from the wrong
+    // panel. VimNav yields to the canvas by DOM focus regardless (#721).
+    <div
+      className="min-h-0 w-full flex-1"
+      style={{ height: '100%' }}
+      data-excalidraw-view
+      onMouseDownCapture={() => setFocusedPanel('editor')}
+      onFocusCapture={() => setFocusedPanel('editor')}
+    >
       <Excalidraw
         initialData={initialData}
         theme={excalidrawTheme}

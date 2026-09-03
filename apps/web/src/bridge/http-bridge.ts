@@ -41,6 +41,7 @@ import type {
   DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
+  ExternalFileLink,
   FolderEntry,
   ImportedAsset,
   LinkMetadata,
@@ -1139,6 +1140,7 @@ const unsupportedUpdateState: AppUpdateState = {
   transferredBytes: null,
   totalBytes: null,
   bytesPerSecond: null,
+  installable: false,
   message: 'The web build updates automatically when you reload.'
 }
 
@@ -1196,6 +1198,10 @@ async function writeExternalFile(_body: string): Promise<void> {
 
 async function moveExternalFileToVault(): Promise<MoveExternalFileResult> {
   return notImplemented('moveExternalFileToVault')
+}
+
+async function followExternalFileLink(_link: ExternalFileLink): Promise<{ ok: boolean; error?: string }> {
+  return { ok: false, error: 'desktop-only' }
 }
 
 async function openMarkdownFile(_absPath: string): Promise<boolean> {
@@ -1529,6 +1535,7 @@ export const httpBridge: ZenBridge = {
   readExternalFile,
   writeExternalFile,
   moveExternalFileToVault,
+  followExternalFileLink,
   openMarkdownFile,
   openFileDialog,
   openFolderTemporary,

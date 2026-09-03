@@ -39,3 +39,22 @@ export async function moveNoteToTrash(
     return null
   }
 }
+
+/**
+ * Delete a note for good and say so when that could not happen, the same
+ * contract as moveNoteToTrash. Returns true when the file is gone.
+ */
+export async function deleteNotePermanently(path: string): Promise<boolean> {
+  try {
+    await window.zen.deleteNote(path)
+    return true
+  } catch (err) {
+    useToastStore
+      .getState()
+      .addToast(
+        `Could not delete: ${humanIpcError(err, 'the note could not be deleted.')}`,
+        'error'
+      )
+    return false
+  }
+}

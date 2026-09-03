@@ -32,15 +32,31 @@ export const SELF_KEYED_SURFACES = [
   '[data-atlas-view]'
 ].join(', ')
 
-/** Blur the active element when it sits inside a self-keyed surface, so keys
- *  follow the store's focused panel instead of the surface's own handler.
- *  An interactive control inside the surface (a cell editor mid-edit, a
- *  header button) keeps focus: blurring it commits or cancels the user's
- *  edit, the exact yank DatabaseTableView's claimFocus refuses in the other
- *  direction. The handoff only needs the surface's own grid element blurred. */
+/**
+ * The Excalidraw canvas is deliberately NOT in the list above. VimNav's global
+ * bindings are meant to work from inside a drawing: the leader on a Space tap
+ * (#309), gt/gT between buffers, the Ctrl+W pane prefix. So VimNav lets those
+ * run first and yields only afterwards, at the point where it would otherwise
+ * route the key into a panel (#721: with the sidebar open, Escape went to the
+ * sidebar's "back to editor" instead of leaving the Arrow tool). What the
+ * canvas shares with the list is the handoff rule below: giving the keyboard
+ * to the sidebar must take DOM focus away from it too.
+ */
+export const EXCALIDRAW_SURFACE = '[data-excalidraw-view]'
+
+/** Every surface that keeps the keys while it holds DOM focus. */
+const FOCUS_HANDOFF_SURFACES = `${SELF_KEYED_SURFACES}, ${EXCALIDRAW_SURFACE}`
+
+/** Blur the active element when it sits inside a surface that keeps its own
+ *  keys, so keys follow the store's focused panel instead of the surface's own
+ *  handler. An interactive control inside the surface (a cell editor mid-edit,
+ *  a header button, Excalidraw's text editor) keeps focus: blurring it commits
+ *  or cancels the user's edit, the exact yank DatabaseTableView's claimFocus
+ *  refuses in the other direction. The handoff only needs the surface's own
+ *  container blurred. */
 export function releaseSelfKeyedSurfaceFocus(): void {
   const active = document.activeElement
-  if (!(active instanceof HTMLElement) || !active.closest(SELF_KEYED_SURFACES)) return
+  if (!(active instanceof HTMLElement) || !active.closest(FOCUS_HANDOFF_SURFACES)) return
   if (active.closest('input, textarea, button, [contenteditable="true"]')) return
   active.blur()
 }

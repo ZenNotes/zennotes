@@ -9,6 +9,7 @@ import {
 function updateState(phase: AppUpdateState['phase'], overrides: Partial<AppUpdateState> = {}): AppUpdateState {
   return {
     phase,
+    installable: true,
     currentVersion: '1.3.9',
     availableVersion: null,
     releaseName: null,
@@ -30,6 +31,14 @@ describe('app update state labels', () => {
     expect(appUpdateBadgeLabel(state)).toBe('Update')
     expect(appUpdateNoticeLabel(state)).toBe('ZenNotes 1.3.10 is available')
     expect(appUpdatePrimaryActionLabel(state)).toBe('Download')
+  })
+
+  it('offers no action for a package-manager install, only the notice', () => {
+    const state = updateState('available', { availableVersion: '1.3.10', installable: false })
+
+    expect(appUpdateBadgeLabel(state)).toBe('Update')
+    expect(appUpdateNoticeLabel(state)).toBe('ZenNotes 1.3.10 is available')
+    expect(appUpdatePrimaryActionLabel(state)).toBeNull()
   })
 
   it('shows ready labels after an update downloads', () => {

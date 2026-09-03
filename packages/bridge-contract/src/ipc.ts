@@ -151,6 +151,7 @@ export const IPC = {
   APP_READ_EXTERNAL_FILE: 'app:read-external-file',
   APP_WRITE_EXTERNAL_FILE: 'app:write-external-file',
   APP_MOVE_EXTERNAL_FILE_TO_VAULT: 'app:move-external-file-to-vault',
+  APP_FOLLOW_EXTERNAL_FILE_LINK: 'app:follow-external-file-link',
   APP_OPEN_MARKDOWN_FILE: 'app:open-markdown-file',
   APP_OPEN_FILE_DIALOG: 'app:open-file-dialog',
   APP_OPEN_FOLDER_TEMPORARY: 'app:open-folder-temporary',
@@ -278,6 +279,13 @@ export interface RaycastExtensionStatus {
 
 export interface AppUpdateState {
   phase: AppUpdatePhase
+  /**
+   * Whether the host can download and install an update itself. False for
+   * installs a package manager owns (the AUR package, a tarball install):
+   * there the app only reports that a newer version exists, and the user
+   * installs it the way they installed ZenNotes.
+   */
+  installable: boolean
   currentVersion: string
   availableVersion: string | null
   releaseName: string | null
@@ -722,6 +730,15 @@ export interface MoveExternalFileResult {
   /** Vault-relative path of the moved note, POSIX-style. */
   relPath: string
 }
+
+/**
+ * A link clicked inside a standalone external-file window, for the host to
+ * resolve against that file's own directory (#626): a `[[wikilink]]` target
+ * (alias and anchors may still be attached) or a Markdown href.
+ */
+export type ExternalFileLink =
+  | { kind: 'wikilink'; target: string }
+  | { kind: 'href'; href: string }
 
 export interface LocalVaultEntry extends VaultInfo {
   lastOpenedAt: number

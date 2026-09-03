@@ -6,6 +6,7 @@ import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { confirmApp } from '../lib/confirm-requests'
+import { confirmDeletePermanently } from '../lib/confirm-trash'
 import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
@@ -100,13 +101,7 @@ export function TrashView(): JSX.Element {
 
   const deleteNoteForever = useCallback(
     async (note: NoteMeta) => {
-      const ok = await confirmApp({
-        title: `Delete "${note.title}" permanently?`,
-        description: 'This cannot be undone.',
-        confirmLabel: 'Delete permanently',
-        danger: true
-      })
-      if (!ok) return
+      if (!(await confirmDeletePermanently(note.title))) return
       await window.zen.deleteNote(note.path)
       await refreshNotes()
     },
