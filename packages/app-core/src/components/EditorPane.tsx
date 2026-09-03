@@ -292,6 +292,7 @@ import {
 } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { resolveNoteDirection } from '../lib/bidi-dir'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -877,6 +878,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const tabNavOverrides = useStore((s) => s.keymapOverrides)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
+  const rtlMode = useStore((s) => s.rtlMode)
   const cursorBlink = useStore((s) => s.cursorBlink)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
@@ -976,6 +978,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
+  const directionCompartmentRef = useRef<Compartment | null>(null)
   const scrolloffCompartmentRef = useRef<Compartment | null>(null)
   const drawSelectionCompartmentRef = useRef<Compartment | null>(null)
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
@@ -1713,6 +1716,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const livePreviewCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
+      const directionCompartment = new Compartment()
       const scrolloffCompartment = new Compartment()
       const drawSelectionCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
@@ -1724,6 +1728,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       livePreviewCompartmentRef.current = livePreviewCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       wordWrapCompartmentRef.current = wordWrapCompartment
+      directionCompartmentRef.current = directionCompartment
       scrolloffCompartmentRef.current = scrolloffCompartment
       drawSelectionCompartmentRef.current = drawSelectionCompartment
       tabSizeCompartmentRef.current = tabSizeCompartment
@@ -1762,6 +1767,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           vimClipboardPasteExtension,
           commentDecorationField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
+          directionCompartment.of(
+            EditorView.contentAttributes.of(
+              resolveNoteDirection(initialBody, s0.rtlMode) === 'rtl'
+                ? { dir: 'rtl' }
+                : { dir: 'ltr' }
+            )
+          ),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
           markdownCompartment.of(
             deferInitialRichMarkdown
@@ -2068,6 +2080,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const markdownCompartment = markdownCompartmentRef.current
     const markdownSyntaxCompartment = markdownSyntaxCompartmentRef.current
     const livePreviewCompartment = livePreviewCompartmentRef.current
+    const directionCompartment = directionCompartmentRef.current
     const livePreviewEnabled = useStore.getState().livePreview
     const deferRichMarkdown =
       pathChanged &&
@@ -2098,6 +2111,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (livePreviewEnabled && livePreviewCompartment) {
         effects.push(livePreviewCompartment.reconfigure(currentWysiwygExtensions(nextPath)))
       }
+    }
+    if (directionCompartment) {
+      effects.push(
+        directionCompartment.reconfigure(
+          EditorView.contentAttributes.of(
+            resolveNoteDirection(nextBody, useStore.getState().rtlMode) === 'rtl'
+              ? { dir: 'rtl' }
+              : { dir: 'ltr' }
+          )
+        )
+      )
     }
     const dispatchStartedAt = performance.now()
     view.dispatch({
@@ -2259,6 +2283,22 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       effects: comp.reconfigure(wordWrap ? EditorView.lineWrapping : [])
     })
   }, [wordWrap])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = directionCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({
+      effects: comp.reconfigure(
+        EditorView.contentAttributes.of(
+          resolveNoteDirection(content?.body ?? '', rtlMode) === 'rtl'
+            ? { dir: 'rtl' }
+            : { dir: 'ltr' }
+        )
+      )
+    })
+    // content?.body keeps auto-detection live while typing; cheap for note-
+    // sized documents. ponytail: if perf traces flag it, gate to pathChanged.
+  }, [rtlMode, content?.path, content?.body])
   useEffect(() => {
     const view = viewRef.current
     const comp = scrolloffCompartmentRef.current

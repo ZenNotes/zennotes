@@ -542,6 +542,8 @@ export function SettingsModal(): JSX.Element {
   const setPdfEmbedInEditMode = useStore((s) => s.setPdfEmbedInEditMode);
   const contentAlign = useStore((s) => s.contentAlign);
   const setContentAlign = useStore((s) => s.setContentAlign);
+  const rtlMode = useStore((s) => s.rtlMode);
+  const setRtlMode = useStore((s) => s.setRtlMode);
   const vault = useStore((s) => s.vault);
   const workspaceMode = useStore((s) => s.workspaceMode);
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
@@ -3087,6 +3089,18 @@ export function SettingsModal(): JSX.Element {
                 { value: "left", label: "Left" },
               ]}
               onChange={(next) => setContentAlign(next)}
+            />
+            <SegmentedRow
+              label="Text direction"
+              description="LTR forces left-to-right. Auto detects each note (a note-level dir: setting wins). RTL forces right-to-left."
+              value={rtlMode}
+              settingId="text-direction"
+              options={[
+                { value: "off", label: "LTR" },
+                { value: "auto", label: "Auto" },
+                { value: "on", label: "RTL" },
+              ]}
+              onChange={(next) => setRtlMode(next)}
             />
             <SegmentedRow
               label="Line numbers"

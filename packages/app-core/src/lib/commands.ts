@@ -27,6 +27,8 @@ import { resolveSystemFolderLabels } from './system-folder-labels'
 import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
+import { updateFrontmatterFields } from '@shared/frontmatter'
+import { detectRtl, noteRtlOverride } from './bidi-dir'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -420,6 +422,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const active = getState().activeNote
         if (!active) return
         window.zen.clipboardWriteText(active.path)
+      }
+    },
+    {
+      id: 'note.rtl-cycle',
+      title: 'Toggle Note Direction (RTL/LTR)',
+      category: 'Note',
+      keywords: 'rtl ltr direction bidi right-to-left',
+      when: () => !!getState().activeNote,
+      run: () => {
+        const note = getState().activeNote
+        if (!note) return
+        const body = note.body
+        const current = noteRtlOverride(body) ?? (detectRtl(body) ? 'rtl' : 'ltr')
+        const next = current === 'rtl' ? 'ltr' : 'rtl'
+        const updated = updateFrontmatterFields(body, { dir: next })
+        if (updated !== body) getState().updateNoteBody(note.path, updated)
       }
     },
     {
@@ -1213,6 +1231,24 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () =>
         getState().setContentAlign(
           getState().contentAlign === 'center' ? 'left' : 'center'
+        )
+    },
+    {
+      id: 'view.rtl-mode',
+      title: getState().rtlMode === 'off'
+        ? 'Text Direction: Auto'
+        : getState().rtlMode === 'auto'
+          ? 'Text Direction: RTL'
+          : 'Text Direction: Off',
+      category: 'View',
+      keywords: 'rtl ltr direction bidi right-to-left arabic hebrew',
+      run: () =>
+        getState().setRtlMode(
+          getState().rtlMode === 'off'
+            ? 'auto'
+            : getState().rtlMode === 'auto'
+              ? 'on'
+              : 'off'
         )
     },
     {
