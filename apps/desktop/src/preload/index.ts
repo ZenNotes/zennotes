@@ -521,6 +521,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_IMPORT_PASTED_IMAGE, input),
   readVaultAssetBase64: (assetPath: string): Promise<string> =>
     ipcRenderer.invoke(IPC.VAULT_READ_ASSET_BASE64, assetPath),
+  downloadAsset: (relPath: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_DOWNLOAD_ASSET, relPath),
   renameAsset: (relPath: string, nextName: string): Promise<AssetMeta> =>
     ipcRenderer.invoke(IPC.VAULT_RENAME_ASSET, relPath, nextName),
   moveAsset: (relPath: string, targetDir: string): Promise<AssetMeta> =>

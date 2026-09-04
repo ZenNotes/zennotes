@@ -3270,6 +3270,42 @@ function registerIpc(): void {
     return (await fsp.readFile(absolutePath(v.root, rel))).toString("base64");
   });
 
+  // Save an asset out of the vault (#716). Local vaults copy the file;
+  // remote/self-hosted vaults stream the server's raw-asset response so the
+  // bytes never need to land in the renderer first.
+  handle(IPC.VAULT_DOWNLOAD_ASSET, async (e, assetPath: string) => {
+    const rel = String(assetPath ?? "").trim();
+    if (!rel) throw new Error("Asset path is required.");
+    const suggestedName = path.basename(rel);
+
+    const parentWindow = BrowserWindow.fromWebContents(e.sender);
+    const saveDialogOptions = {
+      title: "Save Asset",
+      defaultPath: path.join(app.getPath("documents"), suggestedName),
+      buttonLabel: "Save",
+    };
+    const result = parentWindow
+      ? await dialog.showSaveDialog(parentWindow, saveDialogOptions)
+      : await dialog.showSaveDialog(saveDialogOptions);
+    if (result.canceled || !result.filePath) return;
+
+    if (isRemoteWorkspaceActive()) {
+      const response = await requireRemoteWorkspaceClient().fetchAssetResponse(rel);
+      if (!response.body) {
+        throw new Error("Remote asset response had no body.");
+      }
+      const { createWriteStream } = await import("node:fs");
+      const { Readable } = await import("node:stream");
+      const { pipeline } = await import("node:stream/promises");
+      const nodeStream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream);
+      await pipeline(nodeStream, createWriteStream(result.filePath));
+      return;
+    }
+
+    const v = requireVault();
+    await fsp.copyFile(absolutePath(v.root, rel), result.filePath);
+  });
+
   handle(IPC.VAULT_HAS_ASSETS_DIR, async () => {
     if (isRemoteWorkspaceActive())
       return await requireRemoteWorkspaceClient().hasAssetsDir();
