@@ -323,6 +323,11 @@ export interface ZenBridge {
   importPastedImage(input: PastedImageInput): Promise<ImportedAsset>
   /** Read an asset from the active vault without exposing a host filesystem path. */
   readVaultAssetBase64(assetPath: string): Promise<string>
+  /**
+   * Save an asset to a user-picked location via the native save dialog.
+   * Desktop only — web clients use the blob download path instead (#716).
+   */
+  downloadAsset?(relPath: string): Promise<void>
   renameAsset(relPath: string, nextName: string): Promise<AssetMeta>
   moveAsset(relPath: string, targetDir: string): Promise<AssetMeta>
   duplicateAsset(relPath: string): Promise<AssetMeta>

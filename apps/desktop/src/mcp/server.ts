@@ -28,6 +28,39 @@ interface ToolDef {
   handler: (args: Record<string, unknown>, backend: VaultBackend) => Promise<unknown>
 }
 
+/* ---------- Asset helpers (#716) -------------------------------------- */
+
+/** A base64 payload is ~1.37x the raw bytes and rides inside one JSON-RPC
+ *  message; past ~10 MB the round trip stops being useful for a model. */
+const MAX_MCP_ASSET_BYTES = 10 * 1024 * 1024
+
+const ASSET_MIME_BY_EXT: Record<string, string> = {
+  '.apng': 'image/apng',
+  '.avif': 'image/avif',
+  '.gif': 'image/gif',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.pdf': 'application/pdf',
+  '.aac': 'audio/aac',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.m4v': 'video/mp4',
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm'
+}
+
+function assetMimeType(rel: string): string {
+  const ext = rel.slice(rel.lastIndexOf('.')).toLowerCase()
+  return ASSET_MIME_BY_EXT[ext] ?? 'application/octet-stream'
+}
+
 /* ---------- Argument helpers ----------------------------------------- */
 
 function requireString(args: Record<string, unknown>, key: string): string {
@@ -202,6 +235,39 @@ const TOOLS: ToolDef[] = [
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, backend) => await backend.listAssets()
+  },
+  {
+    schema: {
+      name: 'get_asset',
+      description:
+        'Read one asset (image, PDF, audio, video, other binary) as base64, with its MIME type and byte size. Use the path verbatim from list_assets or from a note’s `![[…]]` embed. Assets larger than 10 MB are rejected — fetch those with `zn asset get <path>` instead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description:
+              'Vault-relative POSIX path exactly as another tool returned it (e.g. "assets/screenshot.png"). Pass it through unchanged.'
+          }
+        },
+        required: ['path']
+      }
+    },
+    handler: async (args, backend) => {
+      const rel = requireString(args, 'path')
+      const bytes = await backend.readAsset(rel)
+      if (bytes.byteLength > MAX_MCP_ASSET_BYTES) {
+        throw new Error(
+          `Asset is ${bytes.byteLength} bytes, over the ${MAX_MCP_ASSET_BYTES} tool limit. Use \`zn asset get ${rel}\` (CLI) for large files.`
+        )
+      }
+      return {
+        path: rel,
+        size: bytes.byteLength,
+        mimeType: assetMimeType(rel),
+        base64: Buffer.from(bytes).toString('base64')
+      }
+    }
   },
   {
     schema: {

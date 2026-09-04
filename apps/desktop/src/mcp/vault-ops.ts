@@ -898,6 +898,14 @@ export async function listAssets(root: string): Promise<
 
 /* ---------- Read / write / create ------------------------------------ */
 
+/** Read an asset's raw bytes. The remote half (server raw-asset fetch) lives
+ *  in the CLI's remote client; both halves back `zn asset get` and the MCP
+ *  `get_asset` tool. (#716) */
+export async function readAsset(root: string, rel: string): Promise<Uint8Array> {
+  const abs = resolveSafe(root, rel)
+  return new Uint8Array(await fs.readFile(abs))
+}
+
 export async function readNote(root: string, rel: string): Promise<NoteContent> {
   const abs = resolveSafe(root, rel)
   const folder = await folderOf(root, abs)

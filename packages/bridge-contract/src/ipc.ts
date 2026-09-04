@@ -66,6 +66,7 @@ export const IPC = {
   VAULT_IMPORT_FILES: 'vault:import-files',
   VAULT_IMPORT_PASTED_IMAGE: 'vault:import-pasted-image',
   VAULT_READ_ASSET_BASE64: 'vault:read-asset-base64',
+  VAULT_DOWNLOAD_ASSET: 'vault:download-asset',
   VAULT_RENAME_ASSET: 'vault:rename-asset',
   VAULT_MOVE_ASSET: 'vault:move-asset',
   VAULT_DUPLICATE_ASSET: 'vault:duplicate-asset',

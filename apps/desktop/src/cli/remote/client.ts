@@ -12,7 +12,12 @@
  * commands keep printing exactly the fields they print for a local vault.
  */
 
-import { remoteJsonRequest } from '../../main/remote/connection.js'
+import {
+  RemoteRequestError,
+  connectionErrorMessage,
+  remoteJsonRequest,
+  requestErrorMessage
+} from '../../main/remote/connection.js'
 import type {
   NoteContent,
   NoteFolder,
@@ -95,6 +100,32 @@ export class CliRemoteClient {
    *  lists them for the app's Assets view. */
   listAssets(): Promise<RemoteAssetMeta[]> {
     return this.get<RemoteAssetMeta[]>('/api/assets')
+  }
+
+  /** An asset's raw bytes (#716). Binary on purpose — no JSON envelope —
+   *  so `zn asset get` can stream exactly what the server serves. */
+  async readAsset(relPath: string): Promise<Uint8Array> {
+    const headers = new Headers()
+    if (this.authToken) {
+      headers.set('Authorization', `Bearer ${this.authToken}`)
+    }
+    let response: Response
+    try {
+      response = await fetch(
+        `${this.baseUrl}/api/assets/raw?path=${encodeURIComponent(relPath)}`,
+        { headers }
+      )
+    } catch (error) {
+      throw new Error(connectionErrorMessage(this.baseUrl, error))
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new RemoteRequestError(
+        requestErrorMessage(this.baseUrl, `/api/assets/raw?path=${relPath}`, response, text),
+        response.status
+      )
+    }
+    return new Uint8Array(await response.arrayBuffer())
   }
 
   scanTasksForPath(

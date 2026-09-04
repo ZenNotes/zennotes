@@ -3,8 +3,9 @@ import { downloadAsset } from './download-asset'
 
 // The helper talks to the DOM (`window.zen`, `document`, `URL.createObjectURL`)
 // and to `fetch`. Vitest here runs in a node environment, so each test stubs
-// exactly the surface the helper touches: resolve the embed URL, fetch it,
-// and click a hidden anchor carrying the asset's basename.
+// exactly the surface the helper touches: on desktop, the native
+// `window.zen.downloadAsset` bridge call; on web, the resolve→fetch→anchor
+// click path.
 describe('downloadAsset', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
@@ -12,7 +13,7 @@ describe('downloadAsset', () => {
     delete (URL as unknown as Record<string, unknown>).revokeObjectURL
   })
 
-  function stubDom(options: {
+  function stubWebDom(options: {
     resolve?: string | null
     fetchOk?: boolean
     fetchedUrl?: (url: string) => void
@@ -42,9 +43,19 @@ describe('downloadAsset', () => {
     return { anchors }
   }
 
-  it('fetches the resolved asset URL and clicks an anchor named after the asset', async () => {
+  it('uses the desktop bridge save-dialog path when available', async () => {
+    const downloadAssetBridge = vi.fn(async () => {})
+    vi.stubGlobal('window', { zen: { downloadAsset: downloadAssetBridge } })
+
+    await downloadAsset('/vault', 'assets/holiday pic.png')
+
+    expect(downloadAssetBridge).toHaveBeenCalledOnce()
+    expect(downloadAssetBridge).toHaveBeenCalledWith('assets/holiday pic.png')
+  })
+
+  it('web: fetches the resolved asset URL and clicks an anchor named after the asset', async () => {
     let fetched = ''
-    const { anchors } = stubDom({ fetchedUrl: (url) => (fetched = url) })
+    const { anchors } = stubWebDom({ fetchedUrl: (url) => (fetched = url) })
 
     await downloadAsset('/vault', 'assets/holiday pic.png')
 
@@ -54,13 +65,13 @@ describe('downloadAsset', () => {
     expect(anchors[0]?.click).toHaveBeenCalledOnce()
   })
 
-  it('throws when the bridge cannot resolve the path', async () => {
-    stubDom({ resolve: null })
+  it('web: throws when the bridge cannot resolve the path', async () => {
+    stubWebDom({ resolve: null })
     await expect(downloadAsset('/vault', '../escape.png')).rejects.toThrow('Asset path is invalid.')
   })
 
-  it('throws when the asset cannot be read', async () => {
-    stubDom({ fetchOk: false })
+  it('web: throws when the asset cannot be read', async () => {
+    stubWebDom({ fetchOk: false })
     await expect(downloadAsset('/vault', 'assets/missing.png')).rejects.toThrow('Asset could not be read.')
   })
 })
