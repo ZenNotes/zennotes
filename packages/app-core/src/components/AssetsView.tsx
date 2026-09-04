@@ -6,6 +6,7 @@ import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { promptApp } from '../lib/prompt-requests'
 import { naturalCompare } from '../lib/natural-sort'
 import { resolveAssetVaultRelativePath } from '../lib/local-assets'
+import { downloadAsset } from '../lib/download-asset'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { DocumentIcon, ImageIcon, PaperclipIcon, SearchIcon, TrashIcon } from './icons'
 
@@ -166,6 +167,12 @@ export function AssetsView(): JSX.Element {
     void navigator.clipboard?.writeText(`![[${asset.name}]]`)
   }
 
+  const triggerDownload = (asset: AssetMeta): void => {
+    downloadAsset(vaultRoot, asset.path).catch((err: unknown) => {
+      window.alert(err instanceof Error ? err.message : String(err))
+    })
+  }
+
   const renameAsset = async (asset: AssetMeta): Promise<void> => {
     if (typeof window.zen.renameAsset !== 'function') return
     const ext = asset.name.includes('.') ? asset.name.slice(asset.name.lastIndexOf('.')) : ''
@@ -190,6 +197,7 @@ export function AssetsView(): JSX.Element {
   const menuItems = (asset: AssetMeta): ContextMenuItem[] => [
     { label: 'Open', onSelect: () => void openNoteInTab(assetTabPath(asset.path)) },
     { label: 'Copy embed', onSelect: () => copyEmbed(asset) },
+    { label: 'Download', onSelect: () => void triggerDownload(asset) },
     { label: 'Reveal in file manager', onSelect: () => void window.zen.revealNote(asset.path) },
     { label: 'Rename…', onSelect: () => void renameAsset(asset) },
     {
@@ -272,6 +280,12 @@ export function AssetsView(): JSX.Element {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault()
                           open()
+                        }
+                        // Keyboard-first download (#716): `d` on a focused
+                        // row saves the asset, matching the context menu.
+                        if (e.key === 'd' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                          e.preventDefault()
+                          triggerDownload(asset)
                         }
                       }}
                       onContextMenu={(e) => {
