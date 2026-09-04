@@ -3,10 +3,12 @@ package httpserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -1026,6 +1028,13 @@ func (s *Server) rawAsset(w http.ResponseWriter, r *http.Request) {
 	if t := mime.TypeByExtension(ext); t != "" {
 		w.Header().Set("Content-Type", t)
 	}
+	// `?download=1` asks the browser to save the asset instead of rendering
+	// it (#716). The web Assets view uses this for its Download action, and it
+	// lets any client turn a plain GET into a file download.
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition",
+			fmt.Sprintf("attachment; filename*=UTF-8''%s", url.PathEscape(filepath.Base(abs))))
+	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeFile(w, r, abs)
 }
@@ -1245,7 +1254,14 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	}
 	f, err := s.Static.Open(urlPath)
 	if err != nil {
-		// SPA fallback: serve index.html for unknown paths.
+		// SPA fallback: serve index.html for unknown *app* paths. Paths that
+		// look like files (e.g. /files/assets/image.png) get a real 404, so a
+		// mistyped asset URL fails loudly instead of "downloading" an HTML
+		// file with HTTP 200. (#716)
+		if ext := strings.ToLower(filepath.Ext(urlPath)); ext != "" && ext != ".html" {
+			http.NotFound(w, r)
+			return
+		}
 		s.serveIndexHTML(w)
 		return
 	}
