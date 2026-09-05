@@ -68,6 +68,7 @@ function installZen(overrides: Record<string, unknown> = {}): void {
       listFolders: vi.fn().mockResolvedValue([]),
       listLocalVaults: vi.fn().mockResolvedValue([]),
       listAssets: vi.fn().mockResolvedValue([]),
+      listTemplates: vi.fn().mockResolvedValue([]),
       hasAssetsDir: vi.fn().mockResolvedValue(false),
       getRemoteWorkspaceInfo: vi.fn().mockResolvedValue(null),
       getVaultSettings: vi.fn().mockResolvedValue({}),
@@ -235,6 +236,26 @@ describe('tasks cache freshness', () => {
     })
     await useStore.getState().refreshTasks()
     expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+  })
+})
+
+describe('custom template live updates', () => {
+  it('reloads custom templates when the vault watcher reports a template change', async () => {
+    const listTemplates = vi.fn().mockResolvedValue([
+      { sourcePath: '.zennotes/templates/standup.md', raw: '---\nname: Standup\n---\n# Notes' }
+    ])
+    installZen({ listTemplates })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().applyChange({
+      kind: 'change',
+      path: '.zennotes/templates/standup.md',
+      folder: 'inbox',
+      scope: 'templates'
+    })
+
+    expect(listTemplates).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().customTemplates[0]?.name).toBe('Standup')
   })
 })
 

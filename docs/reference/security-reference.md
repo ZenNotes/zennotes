@@ -258,8 +258,8 @@ with another local user.
 
 ### Upload and note size limits
 
-- `ZENNOTES_MAX_NOTE_BYTES` — default 10 MiB. `POST /api/notes/write`
-  rejects bodies larger than this with `413`.
+- `ZENNOTES_MAX_NOTE_BYTES` — default 10 MiB. `POST /api/notes/write` and
+  `POST /api/templates/write` reject content larger than this with `413`.
 - `ZENNOTES_MAX_ASSET_BYTES` — default 50 MiB. `POST /api/assets/upload`
   rejects multipart uploads above this with `413`.
 

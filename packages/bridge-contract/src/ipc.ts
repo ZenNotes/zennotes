@@ -776,6 +776,8 @@ export interface ServerCapabilities {
   /** Server-side workflow file CRUD plus journalled apply/undo. Absent before
    *  2.29, where the web client must keep Workflows read-only. */
   supportsWorkflows?: boolean
+  /** Server-side custom-template CRUD. Absent on older servers. */
+  supportsCustomTemplates?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -856,6 +858,7 @@ export type VaultChangeScope =
   | 'comments'
   | 'database'
   | 'folder'
+  | 'templates'
   | 'resync'
 
 export interface VaultChangeEvent {

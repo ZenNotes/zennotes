@@ -124,3 +124,26 @@ describe('VaultWatcher atomic saves', () => {
     20_000
   )
 })
+
+describe('VaultWatcher custom templates', () => {
+  it(
+    'reports template changes from the hidden vault directory',
+    async () => {
+      const root = await makeVault()
+      const events: VaultChangeEvent[] = []
+      const watcher = new VaultWatcher()
+      watchers.push(watcher)
+      watcher.start(root, (event) => events.push(event))
+      await sleep(400)
+
+      const template = path.join(root, '.zennotes', 'templates', 'standup.md')
+      await mkdir(path.dirname(template), { recursive: true })
+      await writeFile(template, '# Standup\n')
+
+      const event = await waitForEvent(events)
+      expect(event?.path).toBe('.zennotes/templates/standup.md')
+      expect(event?.scope).toBe('templates')
+    },
+    20_000
+  )
+})

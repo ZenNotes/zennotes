@@ -238,6 +238,11 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Get("/workflows/runs", s.listWorkflowRuns)
 	r.Post("/workflows/runs/delete", s.deleteWorkflowRuns)
 
+	r.Get("/templates", s.listTemplates)
+	r.Get("/templates/read", s.readTemplate)
+	r.Post("/templates/write", s.writeTemplate)
+	r.Post("/templates/delete", s.deleteTemplate)
+
 	r.Get("/watch", s.watchWS)
 }
 
@@ -298,6 +303,10 @@ func writeError(w http.ResponseWriter, err error) {
 		return
 	}
 	if errors.Is(err, vault.ErrInvalidWorkflow) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if errors.Is(err, vault.ErrInvalidTemplate) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -415,6 +424,9 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		// prepared-run endpoint applies them under the same vault lock as note
 		// writes. Its presence lets bundled web clients enable authoring and Run.
 		"supportsWorkflows": true,
+		// Custom template files use the same mounted-vault ownership model as
+		// workflows; clients can safely enable authoring when this is present.
+		"supportsCustomTemplates": true,
 		// Says out loud that a missing file answers 404 rather than 500.
 		// Databases are composed from file reads where "absent" and "failed"
 		// mean opposite things (see remote-absence.ts), and a server that

@@ -20,6 +20,10 @@ import type {
   VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import type {
+  CustomTemplateFile,
+  WriteTemplateInput
+} from '@zennotes/bridge-contract/templates'
 import WebSocket from 'ws'
 import {
   connectionErrorMessage,
@@ -208,6 +212,28 @@ export class RemoteServerClient {
       method: 'POST',
       body: { workflowId }
     })
+  }
+
+  async listTemplates(): Promise<CustomTemplateFile[]> {
+    return this.jsonRequest<CustomTemplateFile[]>('/api/templates')
+  }
+
+  async readTemplate(sourcePath: string): Promise<string> {
+    const result = await this.jsonRequest<{ raw: string }>(
+      `/api/templates/read?path=${encodeURIComponent(sourcePath)}`
+    )
+    return result.raw
+  }
+
+  async writeTemplate(input: WriteTemplateInput): Promise<CustomTemplateFile> {
+    return this.jsonRequest<CustomTemplateFile>('/api/templates/write', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>
+    })
+  }
+
+  async deleteTemplate(sourcePath: string): Promise<void> {
+    await this.jsonRequest('/api/templates/delete', { method: 'POST', body: { sourcePath } })
   }
 
   async readNote(relPath: string): Promise<NoteContent> {

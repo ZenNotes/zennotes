@@ -17,6 +17,7 @@ const (
 	vaultSettingsFilePath = ".zennotes/vault.json"
 	noteCommentsPrefix    = ".zennotes/comments/"
 	noteCommentsSuffix    = ".comments.json"
+	templatesPrefix       = ".zennotes/templates/"
 )
 
 // Watcher recursively watches the vault root and fans out change
@@ -308,6 +309,15 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 			Folder: folder,
 			Scope:  "comments",
 		})
+		return
+	}
+	if strings.HasPrefix(relPosix, templatesPrefix) && strings.EqualFold(filepath.Ext(relPosix), ".md") {
+		kind := eventKind(ev, statErr == nil)
+		if kind != "" {
+			w.broadcast(vault.ChangeEvent{
+				Kind: kind, Path: relPosix, Folder: vault.FolderInbox, Scope: "templates",
+			})
+		}
 		return
 	}
 	if strings.HasPrefix(relPosix, ".") || strings.Contains(relPosix, "/.") {

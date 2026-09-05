@@ -6308,6 +6308,7 @@ export const useStore = create<Store>((set, get) => {
       await Promise.all([
         refreshNotesCoalesced(),
         get().refreshAssets(),
+        get().loadCustomTemplates(),
         window.zen
           .getVaultSettings()
           .then((settings) => {
@@ -6383,6 +6384,10 @@ export const useStore = create<Store>((set, get) => {
     }
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    if (ev.scope === 'templates') {
+      await get().loadCustomTemplates()
       return
     }
     if (ev.scope === 'database') {
