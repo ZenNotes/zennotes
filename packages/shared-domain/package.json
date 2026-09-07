@@ -17,6 +17,6 @@
     "lz-string": "^1.5.0"
   },
   "devDependencies": {
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }
