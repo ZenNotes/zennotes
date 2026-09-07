@@ -6,6 +6,7 @@
  * The store keeps per-path note content (`noteContents`) shared across
  * all panes, so the same note open in two panes stays in sync on edit.
  */
+import { createPortal } from 'react-dom'
 import {
   Fragment,
   useCallback,
@@ -98,7 +99,7 @@ import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
-import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
+import { findLeaf, allLeaves, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin, tableVimEntry } from '../lib/cm-table'
@@ -875,6 +876,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const textFont = useStore((s) => s.textFont)
   const tabsEnabled = useStore((s) => s.tabsEnabled)
   const wrapTabs = useStore((s) => s.wrapTabs)
+  const titlebarTabs = useStore((s) => s.titlebarTabs)
+  const isSinglePane = useStore((s) => allLeaves(s.paneLayout).length === 1)
   const jumpToPreviousNote = useStore((s) => s.jumpToPreviousNote)
   const jumpToNextNote = useStore((s) => s.jumpToNextNote)
   const canGoBack = useStore((s) => s.noteBackstack.length > 0)
@@ -3460,11 +3463,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     el?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
   }, [activeTab, hasTabs, wrapTabs, tabStripMeasureKey])
 
-  // Outer header holds the back/forward nav buttons + the (flex-1) tab strip.
-  const tabStripHeaderClass = [
-    'glass-header flex shrink-0 items-stretch border-b border-paper-300/70 pl-1',
-    wrapTabs ? 'min-h-[var(--z-tab-height)]' : 'h-[var(--z-tab-height)]'
-  ].join(' ')
+  const titlebarTabsActive = titlebarTabs && isSinglePane && hasTabs
+  const tabStripHeaderClass = titlebarTabsActive
+    ? 'titlebar-tab-strip flex shrink-0 items-stretch'
+    : [
+        'glass-header flex shrink-0 items-stretch border-b border-paper-300/70 pl-1',
+        wrapTabs ? 'min-h-[var(--z-tab-height)]' : 'h-[var(--z-tab-height)]'
+      ].join(' ')
   const tabStripClass = [
     'workspace-tab-strip flex min-w-0 flex-1 items-stretch gap-0',
     wrapTabs
@@ -3685,6 +3690,72 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     isActive ? '' : 'opacity-[0.98]'
   ].join(' ')
 
+  const tabStripHost =
+    typeof document !== 'undefined' ? document.getElementById('titlebar-tabs-host') : null
+  const tabStrip = (
+    <div className={tabStripHeaderClass}>
+      <div className="flex shrink-0 items-center gap-0.5 self-center">
+        {!titlebarTabsActive && !sidebarOpen && (
+          <IconBtn
+            title="Show sidebar (⌘1)"
+            onClick={toggleSidebar}
+            tooltipAlign="left"
+          >
+            <PanelLeftIcon width={16} height={16} />
+          </IconBtn>
+        )}
+        <IconBtn
+          title={`Go back (${getKeymapDisplay(
+            tabNavOverrides,
+            vimMode ? 'vim.historyBack' : 'global.historyBack'
+          )})`}
+          onClick={() => void jumpToPreviousNote()}
+          disabled={!canGoBack}
+          tooltipAlign="left"
+        >
+          <ArrowLeftIcon width={16} height={16} />
+        </IconBtn>
+        <IconBtn
+          title={`Go forward (${getKeymapDisplay(
+            tabNavOverrides,
+            vimMode ? 'vim.historyForward' : 'global.historyForward'
+          )})`}
+          onClick={() => void jumpToNextNote()}
+          disabled={!canGoForward}
+          tooltipAlign="left"
+        >
+          <ArrowRightIcon width={16} height={16} />
+        </IconBtn>
+      </div>
+      <div
+        ref={tabStripRef}
+        className={tabStripClass}
+        onDragOver={handleTabStripDragOver}
+        onDrop={handleTabStripDrop}
+      >
+        {tabItems.map((tab, i) => {
+          // Draw a subtle vertical separator between the last pinned
+          // tab and the first unpinned one (VSCode convention). The
+          // separator is a flex sibling, not a wrapper, so drag hit-
+          // detection on the tab itself is unchanged.
+          const prevPinned = i > 0 ? tabItems[i - 1].pinned : false
+          const needsSeparator = prevPinned && !tab.pinned
+          return (
+            <Fragment key={tab.path}>
+              {needsSeparator && (
+                <div
+                  aria-hidden
+                  className="mx-0.5 h-5 shrink-0 self-center border-l border-paper-300/70"
+                />
+              )}
+              {renderTab(tab)}
+            </Fragment>
+          )
+        })}
+      </div>
+    </div>
+  )
+
   return (
     <section
       ref={paneRootRef}
@@ -3712,69 +3783,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         setFocusedPanel('editor')
       }}
     >
-      {hasTabs && (
-        <div className={tabStripHeaderClass}>
-          <div className="flex shrink-0 items-center gap-0.5 self-center">
-            {!sidebarOpen && (
-              <IconBtn
-                title="Show sidebar (⌘1)"
-                onClick={toggleSidebar}
-                tooltipAlign="left"
-              >
-                <PanelLeftIcon width={16} height={16} />
-              </IconBtn>
-            )}
-            <IconBtn
-              title={`Go back (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyBack' : 'global.historyBack'
-              )})`}
-              onClick={() => void jumpToPreviousNote()}
-              disabled={!canGoBack}
-              tooltipAlign="left"
-            >
-              <ArrowLeftIcon width={16} height={16} />
-            </IconBtn>
-            <IconBtn
-              title={`Go forward (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyForward' : 'global.historyForward'
-              )})`}
-              onClick={() => void jumpToNextNote()}
-              disabled={!canGoForward}
-              tooltipAlign="left"
-            >
-              <ArrowRightIcon width={16} height={16} />
-            </IconBtn>
-          </div>
-          <div
-            ref={tabStripRef}
-            className={tabStripClass}
-            onDragOver={handleTabStripDragOver}
-            onDrop={handleTabStripDrop}
-          >
-            {tabItems.map((tab, i) => {
-            // Draw a subtle vertical separator between the last pinned
-            // tab and the first unpinned one (VSCode convention). The
-            // separator is a flex sibling, not a wrapper, so drag hit-
-            // detection on the tab itself is unchanged.
-            const prevPinned = i > 0 ? tabItems[i - 1].pinned : false
-            const needsSeparator = prevPinned && !tab.pinned
-            return (
-              <Fragment key={tab.path}>
-                {needsSeparator && (
-                  <div
-                    aria-hidden
-                    className="mx-0.5 h-5 shrink-0 self-center border-l border-paper-300/70"
-                  />
-                )}
-                {renderTab(tab)}
-              </Fragment>
-            )
-          })}
-          </div>
-        </div>
-      )}
+      {hasTabs && !titlebarTabsActive && tabStrip}
+      {hasTabs && titlebarTabsActive && tabStripHost && createPortal(tabStrip, tabStripHost)}
       {content && !zenMode && (
         <header className="glass-header flex h-12 shrink-0 items-center justify-between gap-3 px-4">
           <div className="flex min-w-0 flex-1 items-center gap-1">

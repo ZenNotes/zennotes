@@ -532,6 +532,8 @@ export function SettingsModal(): JSX.Element {
   const setHiddenWorkflowPresets = useStore((s) => s.setHiddenWorkflowPresets);
   const wrapTabs = useStore((s) => s.wrapTabs);
   const setWrapTabs = useStore((s) => s.setWrapTabs);
+  const titlebarTabs = useStore((s) => s.titlebarTabs);
+  const setTitlebarTabs = useStore((s) => s.setTitlebarTabs);
   const quickNoteDateTitle = useStore((s) => s.quickNoteDateTitle);
   const setQuickNoteDateTitle = useStore((s) => s.setQuickNoteDateTitle);
   const quickNoteTitlePrefix = useStore((s) => s.quickNoteTitlePrefix);
@@ -1343,6 +1345,13 @@ export function SettingsModal(): JSX.Element {
             "Show /-separated tags as a collapsible tree in the sidebar and Tags view instead of a flat list.",
           keywords: ["hierarchical", "tree", "tags", "nested", "hierarchy"],
         },
+        {
+          id: "tabs-in-title-bar",
+          title: "Tabs in title bar",
+          description:
+            "Move the sidebar toggle and note tabs into the title bar when only one pane is open.",
+          keywords: ["title bar", "tabs", "sidebar toggle"],
+        },
       ],
       content: (
         <div className="space-y-6">
@@ -1755,6 +1764,13 @@ export function SettingsModal(): JSX.Element {
               value={nestedTags}
               settingId="nested-tags"
               onChange={setNestedTags}
+            />
+            <ToggleRow
+              label="Tabs in title bar"
+              description="Move the sidebar toggle and note tabs into the title bar when only one pane is open. Hides the centered window title."
+              value={titlebarTabs}
+              settingId="tabs-in-title-bar"
+              onChange={setTitlebarTabs}
             />
           </Section>
 
