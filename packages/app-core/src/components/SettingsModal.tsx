@@ -132,6 +132,10 @@ import { promptApp } from "../lib/prompt-requests";
 import { isImeComposing } from "../lib/ime";
 import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
 import { Button } from "./ui/Button";
+import {
+  ignoredKeyTokenFromEvent,
+  setIgnoredKeysRecorderActive,
+} from "../lib/ignored-keys";
 import { CustomCodeLanguagesSettings } from "./CustomCodeLanguagesSettings";
 import { TextReplacementsSettings } from "./TextReplacementsSettings";
 import { CloudSettings } from "./CloudSettings";
@@ -2852,6 +2856,24 @@ export function SettingsModal(): JSX.Element {
       keywords: ["shortcuts", "bindings", "leader", "vim", "remap", "keyboard"],
       searchItems: [
         {
+          id: "ignored-keys",
+          title: "Ignored keys",
+          description:
+            "Keys the app never sees, such as the no-op a Kanata or QMK tap-hold layer sends with every keystroke.",
+          keywords: [
+            "ignore",
+            "ignored",
+            "no-op",
+            "noop",
+            "kanata",
+            "qmk",
+            "zmk",
+            "tap-hold",
+            "home row",
+            "kanamode",
+          ],
+        },
+        {
           id: "shortcut-editor",
           title: "Shortcut editor",
           description:
@@ -5451,7 +5473,8 @@ function KeymapSettings({
   const hasOverrides = Object.keys(overrides).length > 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <IgnoredKeysRow settingId="ignored-keys" />
       <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5626,6 +5649,90 @@ function KeymapSettings({
             setRecording(null);
           }}
         />
+      )}
+    </div>
+  );
+}
+
+function IgnoredKeysRow({ settingId }: { settingId?: string }): JSX.Element {
+  const ignoredKeys = useStore((s) => s.ignoredKeys);
+  const addIgnoredKey = useStore((s) => s.addIgnoredKey);
+  const removeIgnoredKey = useStore((s) => s.removeIgnoredKey);
+  const [recording, setRecording] = useState(false);
+
+  // Capture the next key. The window guard stands aside while this runs
+  // (setIgnoredKeysRecorderActive), since a key already on the list would
+  // otherwise never reach us; Escape cancels without recording anything.
+  useEffect(() => {
+    if (!recording) return;
+    setIgnoredKeysRecorderActive(true);
+    const onKey = (event: KeyboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setRecording(false);
+        return;
+      }
+      if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+      const token = ignoredKeyTokenFromEvent(event);
+      if (!token) return;
+      addIgnoredKey(token);
+      setRecording(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      setIgnoredKeysRecorderActive(false);
+    };
+  }, [recording, addIgnoredKey]);
+
+  return (
+    <div
+      className="rounded-3xl border border-paper-300/60 bg-paper-50/45 px-5 py-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink-900">Ignored keys</div>
+          <div className="mt-1 text-xs leading-5 text-ink-500">
+            Keys the app never sees. Remappers with tap-hold layers (Kanata,
+            QMK, ZMK) send a harmless extra key with every keystroke, on Linux
+            usually the Katakana/Hiragana key, which reads as KanaMode; each one
+            would otherwise reset a pending <code>jk</code>, <code>dd</code>,
+            leader chord or hint. Also <code>:ignorekey</code> in the editor, or{" "}
+            <code>ignored_keys</code> under <code>[editor]</code> in config.toml.
+          </div>
+        </div>
+        <Button
+          variant={recording ? "primary" : "secondary"}
+          size="sm"
+          data-ignored-keys-record
+          onClick={() => setRecording((r) => !r)}
+        >
+          {recording ? "Press the key… (Esc cancels)" : "Record a key"}
+        </Button>
+      </div>
+      {ignoredKeys.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5" data-ignored-keys>
+          {ignoredKeys.map((key) => (
+            <span
+              key={key}
+              data-ignored-key={key}
+              className="inline-flex items-center gap-1 rounded-full border border-paper-300/70 bg-paper-200/50 py-0.5 pl-2.5 pr-1 font-mono text-xs text-ink-800"
+            >
+              {key}
+              <button
+                type="button"
+                onClick={() => removeIgnoredKey(key)}
+                title={`Stop ignoring ${key}`}
+                aria-label={`Stop ignoring ${key}`}
+                className="rounded-full px-1 text-ink-400 transition-colors hover:bg-paper-300/70 hover:text-ink-800"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );

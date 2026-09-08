@@ -60,6 +60,13 @@ import {
 } from './lib/app-update-state'
 import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-sync'
 import { installHarperRuntime } from './lib/harper-runtime'
+import { installIgnoredKeysGuard } from './lib/ignored-keys'
+
+// The ignored-keys guard (#732) has to be on `window` before any component
+// registers a capture listener there, so it is installed at import time,
+// not from an effect: children's effects run before App's, and VimNav's
+// would otherwise see the stray key first. Reads the live list on each key.
+installIgnoredKeysGuard(() => useStore.getState().ignoredKeys)
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
 const EDITOR_MODULE_WARMUP_GRACE_MS = 40

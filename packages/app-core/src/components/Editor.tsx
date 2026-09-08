@@ -564,6 +564,26 @@ function registerVimCommands(): void {
       else state.setHarperEnabled(!state.harperEnabled);
     },
   );
+  // `:ignorekey <name>` (#732) adds a key the app should never see, the ex
+  // twin of Settings, Keymap, Ignored keys: a remapper's tap-hold no-op such
+  // as KanaMode. Bare, it opens that page, whose recorder names the key.
+  Vim.defineEx(
+    "ignorekey",
+    "ignorekey",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const arg = (params?.argString ?? "").trim();
+      const state = useStore.getState();
+      if (!arg) {
+        requestSettingsTarget("keymaps");
+        state.setSettingsOpen(true);
+        return;
+      }
+      state.addIgnoredKey(arg);
+      useToastStore
+        .getState()
+        .addToast(`Ignoring ${arg}: the app no longer reacts to it`, "success");
+    },
+  );
   // `:unbind <action.id>` removes an action's key entirely, the ex twin of
   // the Unbind button under Settings, Keymaps. Without an argument, or with
   // an id the catalog does not know, it opens that page, where every id is

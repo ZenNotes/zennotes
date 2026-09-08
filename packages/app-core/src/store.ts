@@ -234,6 +234,7 @@ import {
   withoutSavedTaskFilter,
   type SavedTaskFilters
 } from './lib/saved-task-filters'
+import { normalizeIgnoredKeys } from './lib/ignored-keys'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
 
@@ -508,6 +509,8 @@ interface Prefs {
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
    *  Empty disables it. */
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   /** When true, Vim yank/delete/change also copy to the system clipboard and
    *  `p` / `P` paste from it (like `set clipboard=unnamed`). */
   vimYankToClipboard: boolean
@@ -1022,6 +1025,7 @@ function persistVaultViewOverride(patch: VaultViewSettings): void {
 export const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
+  ignoredKeys: [],
   vimYankToClipboard: false,
   vimBlockImeInNormalMode: true,
   vimWrappedLineMotions: 'display',
@@ -1146,6 +1150,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimInsertEscape === 'string'
         ? p.vimInsertEscape.trim().slice(0, 5)
         : DEFAULT_PREFS.vimInsertEscape,
+    ignoredKeys: normalizeIgnoredKeys(p.ignoredKeys),
     vimYankToClipboard:
       typeof p.vimYankToClipboard === 'boolean'
         ? p.vimYankToClipboard
@@ -2237,6 +2242,8 @@ async function rewriteTagAcrossVault(
 function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   vimYankToClipboard: boolean
   vimBlockImeInNormalMode: boolean
   vimWrappedLineMotions: VimWrappedLineMotionMode
@@ -2338,6 +2345,7 @@ function collectPrefs(s: {
   return {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
+    ignoredKeys: s.ignoredKeys,
     vimYankToClipboard: s.vimYankToClipboard,
     vimBlockImeInNormalMode: s.vimBlockImeInNormalMode,
     vimWrappedLineMotions: s.vimWrappedLineMotions,
@@ -2857,6 +2865,8 @@ interface Store {
   vimMode: boolean
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
   vimYankToClipboard: boolean
   vimBlockImeInNormalMode: boolean
@@ -3373,6 +3383,11 @@ interface Store {
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
+  /** Replace the ignored-keys list (#732); persisted with the prefs and mirrored to config.toml. */
+  setIgnoredKeys: (keys: string[]) => void
+  /** Add one key to the ignored list, by the name Settings shows. */
+  addIgnoredKey: (key: string) => void
+  removeIgnoredKey: (key: string) => void
   setVimYankToClipboard: (on: boolean) => void
   setVimBlockImeInNormalMode: (on: boolean) => void
   setVimWrappedLineMotions: (mode: VimWrappedLineMotionMode) => void
@@ -4713,6 +4728,7 @@ export const useStore = create<Store>((set, get) => {
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
+  ignoredKeys: loadPrefs().ignoredKeys,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
   vimBlockImeInNormalMode: loadPrefs().vimBlockImeInNormalMode,
   vimWrappedLineMotions: loadPrefs().vimWrappedLineMotions,
@@ -7295,6 +7311,17 @@ export const useStore = create<Store>((set, get) => {
   setVimInsertEscape: (sequence) => {
     set({ vimInsertEscape: sequence.trim().slice(0, 5) })
     savePrefs(collectPrefs(get()))
+  },
+  setIgnoredKeys: (keys) => {
+    set({ ignoredKeys: normalizeIgnoredKeys(keys) })
+    savePrefs(collectPrefs(get()))
+  },
+  addIgnoredKey: (key) => {
+    get().setIgnoredKeys([...get().ignoredKeys, key])
+  },
+  removeIgnoredKey: (key) => {
+    const wanted = key.trim().toLowerCase()
+    get().setIgnoredKeys(get().ignoredKeys.filter((entry) => entry.toLowerCase() !== wanted))
   },
   setVimYankToClipboard: (on) => {
     set({ vimYankToClipboard: on })

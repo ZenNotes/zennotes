@@ -394,6 +394,12 @@ interface ListFieldMap {
 
 // List (ordered string[]) portable prefs → [section].key = ["a", "b"].
 const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
+  ignoredKeys: {
+    section: 'editor',
+    tomlKey: 'ignored_keys',
+    comment:
+      'keys the app ignores entirely, by DOM key or code, e.g. ["KanaMode"] for the no-op a Kanata/QMK tap-hold layer sends with every keystroke'
+  },
   kanbanStatuses: {
     section: 'view',
     tomlKey: 'kanban_statuses',

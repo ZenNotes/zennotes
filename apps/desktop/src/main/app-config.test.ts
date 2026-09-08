@@ -114,7 +114,8 @@ describe('TOML serialization', () => {
       systemFolderLabels: { inbox: 'In' },
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
-      kanbanFolderRoot: 'Projects'
+      kanbanFolderRoot: 'Projects',
+      ignoredKeys: ['KanaMode', 'F24']
     }
 
     const text = serializeConfig(portable)
@@ -142,6 +143,8 @@ describe('TOML serialization', () => {
     expect(text).toContain('kanban_folder_root = "Projects"')
     expect(round.kanbanGroupBy).toBe('folder')
     expect(round.kanbanFolderRoot).toBe('Projects')
+    expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
+    expect(round.ignoredKeys).toEqual(['KanaMode', 'F24'])
     expect(text).toContain('[saved_filters]')
     expect(text).toContain('"Project alpha" = "@project:alpha"')
     expect(Object.entries(round.savedTaskFilters as Record<string, string>)).toEqual([

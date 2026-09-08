@@ -742,6 +742,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Leave an action with no key at all, instead of parking it on some obscure chord: `:unbind global.zoomIn` takes Zoom in off its key until it is rebound or reset under Settings, Keymaps. Bare `:unbind` opens that page, which lists every action id. The unbind travels in `config.toml` as `\"global.zoomIn\" = \"\"`.'
   },
   {
+    command: ':ignorekey <key>',
+    summary: 'Ignore a key everywhere',
+    detail: 'Adds a key the app should never see, such as the KanaMode no-op a Kanata or QMK tap-hold layer sends with every keystroke, so it stops resetting `jk`, `dd`, leader chords and hints. Bare `:ignorekey` opens Settings, Keymap, where the recorder names the key. Same as `ignored_keys` under `[editor]` in config.toml.'
+  },
+  {
     command: ':filter <text or name>',
     summary: 'Filter the Tasks views',
     detail: 'In the Tasks view, narrows the list, the calendar, and the Kanban board to tasks matching the text; when the text is the name of a saved filter, that filter is applied instead. Bare `:filter` (or `:f`) clears it.'
@@ -1097,7 +1102,8 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Conflict detection', detail: 'When you record a global shortcut that another action already uses, the recorder names the clash and disables Save, so two actions can no longer silently share one key. Any existing clash shows a badge on the affected rows. Vim, navigation, and view keys that deliberately reuse a key by context are left alone.' },
       { label: 'Context-menu bindings', detail: 'The same keymap table controls the context-menu action used in the sidebar, note list, and preview-side active-tab menu, so mouse-free navigation stays configurable.' },
       { label: 'Unbind a key', detail: 'Unbind removes an action’s key entirely instead of parking it on some obscure chord: nothing triggers the action until you record a new key or reset it, the row reads “Unbound”, and the which-key hints, the command palette, and this manual stop advertising it. Unbind sits next to Change on every row and inside the recorder; `:unbind <action.id>` (for example `:unbind global.zoomIn`) does the same from the ex line, and in `config.toml` the entry is `"global.zoomIn" = ""`.' },
-      { label: 'Reset controls', detail: 'Clear an individual override, including an unbind, or reset the entire keymap table back to the shipped defaults.' }
+      { label: 'Reset controls', detail: 'Clear an individual override, including an unbind, or reset the entire keymap table back to the shipped defaults.' },
+      { label: 'Ignored keys', detail: 'Keys the app never sees. Keyboard remappers with tap-hold layers (Kanata, QMK, ZMK) send a harmless extra key with every keystroke, on Linux usually the Katakana/Hiragana key, which reads as KanaMode, and each one used to reset a pending `jk`, `dd`, leader chord or hint. Record the key here (or `:ignorekey KanaMode`, or `ignored_keys = ["KanaMode"]` under `[editor]` in config.toml) and it is swallowed before the editor or any panel reacts.' }
     ]
   },
   {

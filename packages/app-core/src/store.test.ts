@@ -2353,3 +2353,17 @@ describe('kanban folder root (#730)', () => {
     expect(useStore.getState().kanbanFolderRoot).toBe('')
   })
 })
+
+describe('ignored keys (#732)', () => {
+  it('normalizes the list and edits it by name', async () => {
+    const { useStore } = await import('./store')
+    useStore.getState().setIgnoredKeys([' KanaMode ', 'kanamode', 'F24'])
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'F24'])
+    useStore.getState().addIgnoredKey('Lang1')
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'F24', 'Lang1'])
+    useStore.getState().removeIgnoredKey('f24')
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'Lang1'])
+    useStore.getState().setIgnoredKeys([])
+    expect(useStore.getState().ignoredKeys).toEqual([])
+  })
+})
