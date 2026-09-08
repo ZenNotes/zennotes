@@ -42,8 +42,17 @@ const FONT_URLS = [newCMRegularUrl, newCMBoldUrl, newCMItalicUrl, newCMMathUrl]
 
 /** Text size we compile every formula at; SVG dimensions come back in points,
  *  and are converted to `em` relative to this so the rendered math scales with
- *  the reader's font size (the pt→px factor cancels: `heightEm = ptHeight / 11`). */
+ *  the reader's font size (the pt→px factor cancels: `heightEm = ptHeight / 11`,
+ *  times the KaTeX factor below). */
 const BASE_TEXT_PT = 11
+
+/** KaTeX draws Computer Modern at 1.21em of the surrounding text (its own
+ *  stylesheet: `.katex { font-size: 1.21em }`), because the family sits small
+ *  on its em square and a plain 1em reads undersized next to prose. New
+ *  Computer Modern shares those metrics, so a Typst formula sized at 1em came
+ *  out a fifth smaller than KaTeX's rendering of the same source (#746). Size
+ *  it the way KaTeX does, so switching engines does not change the size. */
+const KATEX_EM_SCALE = 1.21
 
 export type TypstRenderResult =
   | { ok: true; svg: string }
@@ -119,21 +128,26 @@ function buildDocument(source: string, display: boolean, preamble: string): stri
   ].join('\n')
 }
 
+/** Every spelling of black Typst's SVG export uses, on a fill or a stroke.
+ *  Glyphs arrive as `fill="#000000"`; the rules a formula draws as shapes (a
+ *  square root's bar, a fraction line) arrive as `stroke="#000"`, and a
+ *  recolor that only knew fills left those black on a dark theme (#746). */
+const BLACK_PAINT_RE = /\b(fill|stroke)="(?:#000000|#000|black|rgb\(0,\s*0,\s*0\))"/g
+
 /**
- * Post-process Typst's SVG so it drops into a note: recolor black glyph fills
- * to `currentColor` (theme-aware, no re-render on theme switch) and swap the
- * intrinsic pt width/height for `em` sizes that track the surrounding font.
+ * Post-process Typst's SVG so it drops into a note: recolor black paint, fills
+ * and strokes alike, to `currentColor` (theme-aware, no re-render on theme
+ * switch) and swap the intrinsic pt width/height for `em` sizes that track the
+ * surrounding font.
  */
-function styleSvg(rawSvg: string, display: boolean): string {
-  let svg = rawSvg
-    .replace(/fill="#000000"/g, 'fill="currentColor"')
-    .replace(/fill="#000"/g, 'fill="currentColor"')
+export function styleSvg(rawSvg: string, display: boolean): string {
+  let svg = rawSvg.replace(BLACK_PAINT_RE, '$1="currentColor"')
 
   const viewBox = svg.match(/viewBox="0 0 ([\d.]+) ([\d.]+)"/)
   const widthPt = viewBox ? Number.parseFloat(viewBox[1]) : 0
   const heightPt = viewBox ? Number.parseFloat(viewBox[2]) : 0
-  const widthEm = (widthPt / BASE_TEXT_PT).toFixed(4)
-  const heightEm = (heightPt / BASE_TEXT_PT).toFixed(4)
+  const widthEm = ((widthPt * KATEX_EM_SCALE) / BASE_TEXT_PT).toFixed(4)
+  const heightEm = ((heightPt * KATEX_EM_SCALE) / BASE_TEXT_PT).toFixed(4)
 
   // The app's CSS reset makes every `svg` display:block; override that so inline
   // math flows in the text (centered on the line, since the SVG carries no
