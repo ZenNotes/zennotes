@@ -7,6 +7,7 @@ import {
   createNote,
   insertAtLineInBody,
   listNotes,
+  readPrimaryNotesLocation,
   renameNote,
   replaceInBody,
   scanAllTasks,
@@ -240,5 +241,51 @@ describe('pure body edits shared with the remote backend (#688)', () => {
     expect(insertAtLineInBody('one\ntwo', 1, 'mid')).toBe('one\nmid\ntwo')
     expect(insertAtLineInBody('one\r\ntwo', 99, 'end\nmore')).toBe('one\ntwo\nend\nmore')
     expect(insertAtLineInBody('one', -5, 'top')).toBe('top\none')
+  })
+})
+
+// The app treats an explicit primaryNotesLocation as the answer and infers
+// from the layout only when vault.json leaves it unstated. The CLI and MCP
+// used to let the layout outrank the file, so a vault switched to root mode
+// whose old notes still sat in inbox/ kept getting new notes filed there
+// (#745). The seeded inbox/GitHub note is exactly that leftover.
+describe('primary notes location follows vault.json (#745)', () => {
+  it('files a new note at the root when vault.json says root, old inbox notes or not', async () => {
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'vault.json'),
+      JSON.stringify({ primaryNotesLocation: 'root' })
+    )
+    expect(await readPrimaryNotesLocation(root)).toBe('root')
+
+    const meta = await createNote(root, 'inbox', 'Test', '', 'test')
+    expect(meta.path).toBe('Test.md')
+    expect(meta.folder).toBe('inbox')
+    expect(await readFile(path.join(root, 'Test.md'), 'utf8')).toBe('test')
+  })
+
+  it('keeps filing into inbox/ when vault.json says inbox, whatever sits at the root', async () => {
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(
+      path.join(root, '.zennotes', 'vault.json'),
+      JSON.stringify({ primaryNotesLocation: 'inbox' })
+    )
+    await writeFile(path.join(root, 'Loose.md'), '# Loose\n')
+    expect(await readPrimaryNotesLocation(root)).toBe('inbox')
+
+    const meta = await createNote(root, 'inbox', 'Test')
+    expect(meta.path).toBe('inbox/Test.md')
+  })
+
+  it('infers from the layout only when vault.json leaves the question open', async () => {
+    // No vault.json and notes only in inbox/: a classic ZenNotes vault.
+    expect(await readPrimaryNotesLocation(root)).toBe('inbox')
+    // A loose root note flips the inference to a flat vault.
+    await writeFile(path.join(root, 'Loose.md'), '# Loose\n')
+    expect(await readPrimaryNotesLocation(root)).toBe('root')
+    // A vault.json that is silent about it changes nothing.
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(path.join(root, '.zennotes', 'vault.json'), JSON.stringify({ systemFolderPaths: {} }))
+    expect(await readPrimaryNotesLocation(root)).toBe('root')
   })
 })
