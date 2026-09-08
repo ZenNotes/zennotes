@@ -402,8 +402,14 @@ export class CloudSyncCoordinator {
     localConflicts.push(...initialPull.localConflicts)
 
     const localItems = await this.repository.scan()
+    const repositoryPendingPaths = (await this.repository.pendingConflictPaths?.()) ?? []
+    const reconciled = clearConvergedConflicts(state, localItems, repositoryPendingPaths)
+    if (reconciled !== state) {
+      state = reconciled
+      await this.states.save(state)
+    }
     const pendingPathKeys = new Set([
-      ...((await this.repository.pendingConflictPaths?.()) ?? []).map(cloudSyncPathKey),
+      ...repositoryPendingPaths.map(cloudSyncPathKey),
       ...pendingConflictPaths(state).map(cloudSyncPathKey)
     ])
     const mutationState =
@@ -1198,6 +1204,56 @@ function pendingConflictPaths(state: CloudSyncState): string[] {
       ...(conflict.paused_paths ?? [])
     ].filter((path): path is string => path !== null)
   )
+}
+
+function clearConvergedConflicts(
+  state: CloudSyncState,
+  localItems: CloudSyncLocalItem[],
+  repositoryPendingPaths: string[]
+): CloudSyncState {
+  const blocked = new Set(repositoryPendingPaths.map(cloudSyncPathKey))
+  const locals = new Map<string, CloudSyncLocalItem>()
+  for (const item of localItems) {
+    const key = cloudSyncPathKey(item.path)
+    if (locals.has(key)) blocked.add(key)
+    locals.set(key, item)
+  }
+  let next = state
+  for (const conflict of Object.values(state.pending_conflicts ?? {})) {
+    const cloud = conflict.cloud
+    const tracked = state.items[conflict.item_id]
+    if (
+      conflict.kind !== 'content' ||
+      (conflict.paused_paths?.length ?? 0) > 0 ||
+      cloud.path === null ||
+      cloud.path !== conflict.local.path ||
+      cloud.path !== conflict.base.path ||
+      !cloud.content ||
+      !tracked ||
+      tracked.item_id !== conflict.item_id ||
+      tracked.path !== cloud.path ||
+      tracked.revision !== cloud.revision ||
+      tracked.kind !== cloud.kind ||
+      tracked.sha256 !== cloud.content.sha256 ||
+      tracked.byte_length !== cloud.content.byte_length ||
+      blocked.has(cloudSyncPathKey(cloud.path))
+    ) continue
+
+    const local = locals.get(cloudSyncPathKey(cloud.path))
+    if (
+      !local ||
+      local.path !== cloud.path ||
+      local.kind !== cloud.kind ||
+      local.content.sha256 !== cloud.content.sha256 ||
+      local.content.byte_length !== cloud.content.byte_length ||
+      (conflict.draft_text !== undefined && conflict.draft_text !== inlineText(local.content))
+    ) continue
+
+    // The change feed already advanced the tracked revision. Agreement only
+    // removes the pause; it never rewrites either file or sends a new version.
+    next = withoutConflict(next, conflict.id)
+  }
+  return next
 }
 
 function withAdditionalPausedPaths(

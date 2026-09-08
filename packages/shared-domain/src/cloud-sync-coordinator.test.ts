@@ -18,6 +18,7 @@ import type {
   CloudSyncIdSource,
   CloudSyncLocalItem,
   CloudSyncState,
+  CloudSyncStoredConflict,
   CloudSyncTrackedItem
 } from './cloud-sync-engine'
 import {
@@ -1404,6 +1405,205 @@ function upsert(sequence: number, itemId: string, path: string, data: string): C
     content: realContent(data)
   }
 }
+
+describe('CloudSyncCoordinator: converged pending conflicts', () => {
+  const path = 'inbox/Plan.md'
+  const localText = '- [ ] Meet at 10.\n'
+  const cloudText = '- [ ] Meet at 11.\n'
+
+  function pendingState(): CloudSyncState & {
+    pending_conflicts: Record<string, CloudSyncStoredConflict>
+  } {
+    return {
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 2,
+      items: { plan: tracked('plan', path, 2, cloudText) },
+      pending_conflicts: {
+        plan: {
+          id: 'plan',
+          item_id: 'plan',
+          kind: 'content',
+          sequence: 2,
+          base: {
+            path,
+            revision: 1,
+            kind: 'text',
+            content: realContent('agreed')
+          },
+          local: {
+            path,
+            revision: null,
+            kind: 'text',
+            content: realContent(localText)
+          },
+          cloud: {
+            path,
+            revision: 2,
+            kind: 'text',
+            content: realContent(cloudText)
+          }
+        }
+      }
+    }
+  }
+
+  it.each(['local copy', 'remote update'] as const)(
+    'clears a pending conflict after a %s makes both versions identical and resumes later edits',
+    async (convergence) => {
+      const fs = memoryFileSystem({ [path]: localText })
+      const states = memoryState({
+        version: 1,
+        vault_id: 'vault-1',
+        cursor: 1,
+        items: { plan: tracked('plan', path, 1, 'agreed') }
+      })
+      const changes = [upsert(2, 'plan', path, cloudText)]
+      const server = remote({
+        changes,
+        mutate: (body) => ({
+          acknowledged: body.mutations.map((mutation) => ({
+            operation_id: mutation.operation_id,
+            item_id: mutation.item_id,
+            revision: 4,
+            sequence: 4
+          })),
+          conflicts: [],
+          cursor: 4
+        })
+      })
+      const repository = new PortableCloudSyncRepository(fs)
+      const coordinator = new CloudSyncCoordinator('vault-1', server, repository, states, ids())
+      const first = await coordinator.sync()
+      expect(first.pendingConflicts).toEqual([expect.objectContaining({ id: 'plan' })])
+
+      if (convergence === 'local copy') fs.files.set(path, cloudText)
+      else changes.push(upsert(3, 'plan', path, localText))
+
+      // Resume a persisted conflict, including after an app restart. The local
+      // copy case must work even when the server has no new change to deliver.
+      const resumed = new CloudSyncCoordinator('vault-1', server, repository, states, ids())
+      const result = await resumed.sync()
+      const agreedText = convergence === 'local copy' ? cloudText : localText
+      const agreedRevision = convergence === 'local copy' ? 2 : 3
+
+      expect(result.pendingConflicts).toEqual([])
+      expect(states.current?.pending_conflicts).toEqual({})
+      expect(result.state.items.plan).toMatchObject(
+        tracked('plan', path, agreedRevision, agreedText)
+      )
+      expect(fs.files.get(path)).toBe(agreedText)
+      expect(server.mutations).toEqual([])
+      await expect(resumed.getConflict('plan')).rejects.toThrow('no longer waiting')
+
+      fs.files.set(path, `${agreedText}- [ ] Next task.\n`)
+      const next = await resumed.sync()
+      expect(next.pendingConflicts).toEqual([])
+      expect(next.pushed).toBe(1)
+      expect(server.mutations.flatMap((request) => request.mutations)).toEqual([
+        expect.objectContaining({
+          type: 'upsert',
+          item_id: 'plan',
+          path,
+          base_revision: agreedRevision,
+          content: expect.objectContaining({
+            data: `${agreedText}- [ ] Next task.\n`
+          })
+        })
+      ])
+    }
+  )
+
+  it('preserves a saved merge draft when local and Cloud files independently converge', async () => {
+    const initial = pendingState()
+    initial.pending_conflicts.plan.draft_text = '- [ ] Meet at 10:30.\n'
+    const states = memoryState(initial)
+    const fs = memoryFileSystem({ [path]: cloudText })
+    const server = remote({})
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    const result = await coordinator.sync()
+
+    expect(result.pendingConflicts).toEqual([expect.objectContaining({ id: 'plan' })])
+    await expect(coordinator.getConflict('plan')).resolves.toMatchObject({
+      draft_text: '- [ ] Meet at 10:30.\n',
+      local: { text: cloudText },
+      cloud: { text: cloudText }
+    })
+    expect(fs.files.get(path)).toBe(cloudText)
+    expect(server.mutations).toEqual([])
+  })
+
+  it.each([
+    'different path',
+    'case-only path difference',
+    'different kind',
+    'different byte length',
+    'different hash',
+    'missing local file',
+    'missing tracked item',
+    'different tracked identity',
+    'stale Cloud snapshot',
+    'path conflict',
+    'move conflict',
+    'delete conflict',
+    'repository path conflict'
+  ])('keeps a pending conflict requiring review for %s', async (scenario) => {
+    const initial = pendingState()
+    const conflict = initial.pending_conflicts.plan
+    const local: CloudSyncLocalItem = {
+      path,
+      kind: 'text',
+      content: realContent(cloudText)
+    }
+    const repository = memoryRepository([local])
+
+    if (scenario === 'different path') local.path = 'archive/Plan.md'
+    if (scenario === 'case-only path difference') local.path = 'inbox/plan.md'
+    if (scenario === 'different kind') local.kind = 'binary'
+    if (scenario === 'different byte length') local.content.byte_length += 1
+    if (scenario === 'different hash') local.content.sha256 = realContent('different').sha256
+    if (scenario === 'missing local file') repository.items = []
+    if (scenario === 'missing tracked item') initial.items = {}
+    if (scenario === 'different tracked identity') {
+      initial.items = {
+        replacement: tracked('replacement', path, 2, cloudText)
+      }
+    }
+    if (scenario === 'stale Cloud snapshot') initial.items.plan = tracked('plan', path, 3, 'newer')
+    if (scenario === 'path conflict') {
+      conflict.kind = 'path'
+      conflict.paused_paths = ['archive/Plan.md']
+    }
+    if (scenario === 'move conflict') conflict.kind = 'move'
+    if (scenario === 'delete conflict') {
+      conflict.kind = 'delete'
+      conflict.cloud = { path: null, revision: 2, kind: 'text', content: null }
+      initial.items = {}
+    }
+    if (scenario === 'repository path conflict') {
+      repository.pendingConflictPaths = async () => [path]
+    }
+
+    const states = memoryState(initial)
+    const server = remote({})
+    const coordinator = new CloudSyncCoordinator('vault-1', server, repository, states, ids())
+    const result = await coordinator.sync()
+
+    expect(result.pendingConflicts).toEqual([expect.objectContaining({ id: 'plan' })])
+    expect(states.current?.pending_conflicts?.plan).toEqual(conflict)
+    expect(repository.items).toEqual(scenario === 'missing local file' ? [] : [local])
+    expect(server.mutations.flatMap((request) => request.mutations)).not.toContainEqual(
+      expect.objectContaining({ item_id: 'plan' })
+    )
+  })
+})
 
 describe('CloudSyncCoordinator: catching up on a file this device never touched', () => {
   const path = 'inbox/Plan.md'
