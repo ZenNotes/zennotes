@@ -6320,7 +6320,10 @@ export const useStore = create<Store>((set, get) => {
           .catch((err) => {
             console.error('resync vault settings failed', err)
           }),
-        tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve()
+        tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve(),
+        // Templates ride the feed too (scope 'templates'), so a gap may have
+        // swallowed a template saved on another device.
+        get().loadCustomTemplates()
       ])
       const stateAfter = get()
       const openTabs = [...new Set(allLeaves(stateAfter.paneLayout).flatMap((leaf) => leaf.tabs))]
@@ -6383,6 +6386,13 @@ export const useStore = create<Store>((set, get) => {
     }
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    if (ev.scope === 'templates') {
+      // A custom template changed on disk: another client on this vault, a
+      // synced dotfile, or this app's own save. Re-list the templates, not
+      // the note tree; a template is not a note.
+      await get().loadCustomTemplates()
       return
     }
     if (ev.scope === 'database') {
@@ -9128,7 +9138,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const remoteWorkspaceProfilesPromise = get().refreshRemoteWorkspaceProfiles()
       const localVaultsPromise = get().refreshLocalVaults()
-      const [remoteWorkspaceInfo, serverCapabilities] = await Promise.all([
+      const [bootWorkspaceInfo, serverCapabilities] = await Promise.all([
         get().refreshWorkspaceContext(),
         window.zen.getServerCapabilities().catch(() => null)
       ])
@@ -9136,8 +9146,8 @@ export const useStore = create<Store>((set, get) => {
         void remoteWorkspaceProfilesPromise
         void localVaultsPromise
         set({
-          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
-          remoteWorkspaceInfo,
+          workspaceMode: workspaceModeFrom(bootWorkspaceInfo),
+          remoteWorkspaceInfo: bootWorkspaceInfo,
           workspaceSetupError: null,
           workspaceRestored: true,
           vaultSettings: DEFAULT_VAULT_SETTINGS
@@ -9148,6 +9158,14 @@ export const useStore = create<Store>((set, get) => {
         return
       }
       const vault = await window.zen.getCurrentVault()
+      // getCurrentVault is what connects a configured remote workspace, so
+      // the info fetched above predates the connection: its capabilities and
+      // bootError are still null, and keeping it would leave Settings
+      // believing the server advertises nothing (#723). Ask again now that
+      // the answer exists.
+      const remoteWorkspaceInfo = bootWorkspaceInfo
+        ? await get().refreshWorkspaceContext()
+        : bootWorkspaceInfo
       void remoteWorkspaceProfilesPromise
       void localVaultsPromise
       if (vault) {

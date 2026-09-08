@@ -311,3 +311,93 @@ describe('a 404 for a path this app asked to change (#734)', () => {
     }
   })
 })
+
+describe('custom templates on a remote vault (#723)', () => {
+  interface TemplateServer {
+    port: number
+    close: () => Promise<void>
+    requests: Array<{ method: string; url: string; body: string }>
+  }
+
+  async function templateServer(capabilities: Record<string, unknown>): Promise<TemplateServer> {
+    const requests: TemplateServer['requests'] = []
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', (chunk) => (body += chunk))
+      req.on('end', () => {
+        requests.push({ method: req.method ?? '', url: req.url ?? '', body })
+        const send = (status: number, payload: unknown): void => {
+          res.writeHead(status, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(payload))
+        }
+        if (req.url === '/api/capabilities') return send(200, capabilities)
+        if (req.url === '/api/templates') {
+          return send(200, [{ sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: ADR\n---\n' }])
+        }
+        if (req.url?.startsWith('/api/templates/read?')) return send(200, { raw: '# raw body' })
+        if (req.url === '/api/templates/write') {
+          const input = JSON.parse(body) as { slug: string; raw: string }
+          return send(200, { sourcePath: `.zennotes/templates/${input.slug}.md`, raw: input.raw })
+        }
+        if (req.url === '/api/templates/delete') return send(200, { ok: true })
+        res.writeHead(404)
+        res.end('not found')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return { port, requests, close: () => new Promise((resolve) => server.close(() => resolve())) }
+  }
+
+  it('reads the capability flag, and its absence means an older server', async () => {
+    const supporting = await templateServer({ supportsCustomTemplates: true })
+    const older = await templateServer({ supportsWorkflows: true })
+    try {
+      const withRoutes = new RemoteServerClient({ baseUrl: `http://127.0.0.1:${supporting.port}` })
+      const without = new RemoteServerClient({ baseUrl: `http://127.0.0.1:${older.port}` })
+      expect(await withRoutes.supportsCustomTemplates()).toBe(true)
+      expect(await without.supportsCustomTemplates()).toBe(false)
+    } finally {
+      await supporting.close()
+      await older.close()
+    }
+  })
+
+  it('drives the four template routes with the bridge contract shapes', async () => {
+    const server = await templateServer({ supportsCustomTemplates: true })
+    try {
+      const client = new RemoteServerClient({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authToken: 'tok'
+      })
+      const listed = await client.listTemplates()
+      expect(listed).toEqual([{ sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: ADR\n---\n' }])
+
+      expect(await client.readTemplate('.zennotes/templates/adr.md')).toBe('# raw body')
+
+      const written = await client.writeTemplate({
+        slug: 'weekly',
+        raw: '# weekly',
+        previousSourcePath: '.zennotes/templates/adr.md'
+      })
+      expect(written).toEqual({ sourcePath: '.zennotes/templates/weekly.md', raw: '# weekly' })
+
+      await client.deleteTemplate('.zennotes/templates/weekly.md')
+
+      expect(server.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+        'GET /api/templates',
+        'GET /api/templates/read?path=.zennotes%2Ftemplates%2Fadr.md',
+        'POST /api/templates/write',
+        'POST /api/templates/delete'
+      ])
+      expect(JSON.parse(server.requests[2].body)).toEqual({
+        slug: 'weekly',
+        raw: '# weekly',
+        previousSourcePath: '.zennotes/templates/adr.md'
+      })
+      expect(JSON.parse(server.requests[3].body)).toEqual({ sourcePath: '.zennotes/templates/weekly.md' })
+    } finally {
+      await server.close()
+    }
+  })
+})

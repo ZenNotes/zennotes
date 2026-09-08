@@ -776,6 +776,11 @@ export interface ServerCapabilities {
   /** Server-side workflow file CRUD plus journalled apply/undo. Absent before
    *  2.29, where the web client must keep Workflows read-only. */
   supportsWorkflows?: boolean
+  /** Custom-template CRUD under `.zennotes/templates/` (the `/templates`
+   *  routes), the same files the desktop keeps for a local vault. Absent
+   *  before 2.46, which keeps Settings, Templates read-only on the web client
+   *  and on a desktop connected to that server (#723). */
+  supportsCustomTemplates?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -850,12 +855,16 @@ export type VaultChangeKind = 'add' | 'change' | 'unlink'
  *  watch socket that reconnected): anything may have happened while the feed
  *  was down, so the renderer re-pulls every surface the feed keeps fresh.
  *  Servers never emit it. */
+/** `templates` is a custom template under `.zennotes/templates/` changing on
+ *  disk; the path is that file's vault-relative path, and the client re-lists
+ *  templates rather than notes. */
 export type VaultChangeScope =
   | 'content'
   | 'vault-settings'
   | 'comments'
   | 'database'
   | 'folder'
+  | 'templates'
   | 'resync'
 
 export interface VaultChangeEvent {

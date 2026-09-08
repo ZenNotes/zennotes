@@ -597,9 +597,14 @@ export function SettingsModal(): JSX.Element {
       ),
     [customTemplates, hideBuiltinTemplates],
   );
+  // A local vault's templates are a host feature (the desktop has a disk, the
+  // web client asks its server); a remote vault's are the server's, advertised
+  // since 2.46 (#723). The store keeps remoteWorkspaceInfo fresh across
+  // connects and disconnects, so this re-renders with it.
   const supportsCustomTemplates =
-    zenBridge.getCapabilities().supportsCustomTemplates &&
-    workspaceMode !== "remote";
+    workspaceMode === "remote"
+      ? remoteWorkspaceInfo?.capabilities?.supportsCustomTemplates === true
+      : zenBridge.getCapabilities().supportsCustomTemplates === true;
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
   const [templateEditor, setTemplateEditor] = useState<{
@@ -4675,8 +4680,12 @@ export function SettingsModal(): JSX.Element {
               </div>
             ) : (
               <InlineNote>
-                Custom templates require a local vault. Built-in templates still
-                work here.
+                Custom templates need ZenNotes server 2.46 or later. Update the
+                server and{" "}
+                {workspaceMode === "remote"
+                  ? "reconnect this workspace"
+                  : "reload"}
+                ; built-in templates still work here.
               </InlineNote>
             )}
             <div className="flex items-center justify-between gap-4 border-t border-paper-300/40 px-5 py-4">

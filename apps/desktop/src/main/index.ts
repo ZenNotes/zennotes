@@ -3448,18 +3448,36 @@ function registerIpc(): void {
     return await deleteWorkflowRuns(v.root, workflowId);
   });
 
-  // Custom templates live on the local filesystem only; remote vaults fall
-  // back to built-in templates (renderer constants), so list returns empty and
-  // mutations are rejected.
+  // Custom templates are the vault's .zennotes/templates/ on both sides of
+  // the bridge: a local vault reads the disk, and a remote workspace asks the
+  // server, which serves the same files through its /templates routes since
+  // 2.46 (#723). An older server has no such routes: it lists nothing, keeps
+  // the built-in templates (renderer constants), and names the remedy on a
+  // write instead of answering a bare 404.
+  const requireRemoteTemplates = (action: string): RemoteServerClient => {
+    const client = requireRemoteWorkspaceClient();
+    if (!remoteServerCapabilities?.supportsCustomTemplates) {
+      throw new Error(
+        `${action} needs ZenNotes server 2.46 or later. Update the server and reconnect this workspace.`,
+      );
+    }
+    return client;
+  };
+
   handle(IPC.VAULT_LIST_TEMPLATES, async () => {
-    if (isRemoteWorkspaceActive()) return [];
+    if (isRemoteWorkspaceActive()) {
+      if (!remoteServerCapabilities?.supportsCustomTemplates) return [];
+      return await requireRemoteWorkspaceClient().listTemplates();
+    }
     const v = requireVault();
     return await listCustomTemplates(v.root);
   });
 
   handle(IPC.VAULT_READ_TEMPLATE, async (_e, sourcePath: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Editing a custom template").readTemplate(
+        sourcePath,
+      );
     }
     const v = requireVault();
     return await readCustomTemplate(v.root, sourcePath);
@@ -3467,7 +3485,9 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_WRITE_TEMPLATE, async (_e, input: WriteTemplateInput) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Saving a custom template").writeTemplate(
+        input,
+      );
     }
     const v = requireVault();
     return await writeCustomTemplate(v.root, input);
@@ -3475,7 +3495,9 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_DELETE_TEMPLATE, async (_e, sourcePath: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Deleting a custom template").deleteTemplate(
+        sourcePath,
+      );
     }
     const v = requireVault();
     return await deleteCustomTemplate(v.root, sourcePath);

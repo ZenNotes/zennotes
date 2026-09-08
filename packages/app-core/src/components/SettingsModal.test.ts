@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => {
       monoFont: null,
       previewMaxWidth: 760,
       quickNoteTitlePrefix: null,
-      remoteWorkspaceInfo: null,
+      remoteWorkspaceInfo: null as null | { mode: string; baseUrl: string | null; authConfigured: boolean; capabilities: Record<string, unknown> | null; profileId: string | null; bootError: string | null },
       remoteWorkspaceProfiles: [],
       ripgrepBinaryPath: null,
       setSettingsOpen: vi.fn(),
@@ -64,7 +64,7 @@ const mocks = vi.hoisted(() => {
       whichKeyHintMode: "timed",
       whichKeyHintTimeoutMs: 1200,
       whichKeyHints: true,
-      workspaceMode: "local",
+      workspaceMode: "local" as "local" | "remote",
     },
     {
       get(target, property: string) {
@@ -134,6 +134,8 @@ describe("SettingsModal date note directories", () => {
     mocks.state.vimMode = false;
     mocks.state.vimWrappedLineMotions = "logical";
     mocks.state.keymapOverrides = {};
+    mocks.state.workspaceMode = "local";
+    mocks.state.remoteWorkspaceInfo = null;
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -355,5 +357,52 @@ describe("SettingsModal date note directories", () => {
     await act(async () => rowButton(row, "Change…").click());
     const recorder = document.body.textContent ?? "";
     expect(recorder).toContain("Current: Unbound");
+  });
+  async function openTemplatesSection(): Promise<void> {
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+    const templatesButton = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Templates");
+    expect(templatesButton).toBeTruthy();
+    await act(async () => templatesButton!.click());
+  }
+
+  function newTemplateButton(): HTMLButtonElement | undefined {
+    return [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "New template",
+    );
+  }
+
+  it("offers custom templates on a remote vault whose server advertises them (#723)", async () => {
+    mocks.state.workspaceMode = "remote";
+    mocks.state.remoteWorkspaceInfo = {
+      mode: "remote",
+      baseUrl: "http://localhost:7878",
+      authConfigured: true,
+      capabilities: { supportsCustomTemplates: true },
+      profileId: null,
+      bootError: null,
+    };
+    await openTemplatesSection();
+    expect(newTemplateButton()).toBeTruthy();
+    expect(host.textContent).not.toContain("need ZenNotes server 2.46");
+  });
+
+  it("keeps templates read-only on a remote vault behind an older server", async () => {
+    mocks.state.workspaceMode = "remote";
+    mocks.state.remoteWorkspaceInfo = {
+      mode: "remote",
+      baseUrl: "http://localhost:7878",
+      authConfigured: true,
+      capabilities: { supportsWorkflows: true },
+      profileId: null,
+      bootError: null,
+    };
+    await openTemplatesSection();
+    expect(newTemplateButton()).toBeUndefined();
+    expect(host.textContent).toContain("need ZenNotes server 2.46 or later");
+    expect(host.textContent).toContain("reconnect this workspace");
   });
 });

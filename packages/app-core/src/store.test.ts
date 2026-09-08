@@ -2253,3 +2253,82 @@ describe('renaming the open note while the watcher reports the move (#713)', () 
     expect(JSON.stringify(useStore.getState().paneLayout)).not.toContain(OLD)
   })
 })
+
+describe('custom templates on the change feed (#723)', () => {
+  it('re-lists templates on a templates-scope event without touching the note tree', async () => {
+    const listTemplates = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: Decision Record\n---\n# {{title}}\n' }
+      ])
+    const listNotes = vi.fn().mockResolvedValue([makeNote('- [ ] old task')])
+    installZen({ listTemplates, listNotes })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().loadCustomTemplates()
+    expect(useStore.getState().customTemplates).toEqual([])
+    const notesListedBefore = listNotes.mock.calls.length
+
+    await useStore.getState().applyChange({
+      kind: 'change',
+      path: '.zennotes/templates/adr.md',
+      folder: 'inbox',
+      scope: 'templates'
+    })
+
+    expect(listTemplates).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().customTemplates.map((t) => [t.id, t.name])).toEqual([
+      ['custom:adr', 'Decision Record']
+    ])
+    expect(listNotes.mock.calls.length).toBe(notesListedBefore)
+  })
+
+  it('re-lists templates after a change-feed gap', async () => {
+    const listTemplates = vi.fn().mockResolvedValue([
+      { sourcePath: '.zennotes/templates/weekly.md', raw: '---\nname: Weekly\n---\n' }
+    ])
+    installZen({ listTemplates })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().applyChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
+
+    expect(listTemplates).toHaveBeenCalled()
+    expect(useStore.getState().customTemplates.map((t) => t.name)).toEqual(['Weekly'])
+  })
+})
+
+describe('remote workspace capabilities after boot (#723)', () => {
+  it('re-reads the workspace info once getCurrentVault has connected the server', async () => {
+    const base = {
+      mode: 'remote',
+      baseUrl: 'http://127.0.0.1:7878',
+      authConfigured: false,
+      profileId: null,
+      bootError: null
+    }
+    // The first read happens before the main process connects; capabilities
+    // are unknown then. Only the second read, after the connection, has them.
+    const getRemoteWorkspaceInfo = vi
+      .fn()
+      .mockResolvedValueOnce({ ...base, capabilities: null })
+      .mockResolvedValue({ ...base, capabilities: { supportsCustomTemplates: true, supportsWatch: true } })
+    installZen({
+      onVaultChange: vi.fn(() => vi.fn()),
+      getAppInfo: vi.fn().mockReturnValue({ runtime: 'desktop' }),
+      getServerCapabilities: vi.fn().mockResolvedValue({}),
+      getCurrentVault: vi.fn().mockResolvedValue({ root: '/srv/vault', name: 'vault' }),
+      getRemoteWorkspaceInfo
+    })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().init()
+
+    expect(getRemoteWorkspaceInfo).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().workspaceMode).toBe('remote')
+    expect(useStore.getState().remoteWorkspaceInfo?.capabilities).toEqual({
+      supportsCustomTemplates: true,
+      supportsWatch: true
+    })
+  })
+})

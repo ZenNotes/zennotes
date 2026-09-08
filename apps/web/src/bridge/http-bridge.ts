@@ -814,23 +814,48 @@ async function deleteWorkflowRuns(workflowId: string): Promise<number> {
   })
 }
 
-// Custom templates require local-filesystem CRUD, which the web app does not
-// have (supportsCustomTemplates is false). Built-in templates still work since
-// they are renderer constants. List is empty; mutations are rejected.
-function listTemplates(): Promise<CustomTemplateFile[]> {
-  return Promise.resolve([])
+// Custom templates live in the vault's .zennotes/templates/, the same files
+// the desktop keeps for a local vault, served by the /templates routes since
+// server 2.46 (#723). An older server has none: the list is empty, Settings,
+// Templates stays read-only, and the built-in templates (renderer constants)
+// keep working. The request gate and the UI gate (getCapabilities below)
+// read the same cached fact.
+async function serverSupportsCustomTemplates(): Promise<boolean> {
+  const capabilities = lastServerCapabilities ?? (await getServerCapabilities())
+  return capabilities?.supportsCustomTemplates === true
 }
 
-function readTemplate(_sourcePath: string): Promise<string> {
-  return Promise.reject(new Error('Custom templates are unavailable on the web'))
+async function requireServerTemplateSupport(): Promise<void> {
+  if (await serverSupportsCustomTemplates()) return
+  throw new Error(
+    'Custom templates need ZenNotes server 2.46 or later. Update the server and reload.'
+  )
 }
 
-function writeTemplate(_input: WriteTemplateInput): Promise<CustomTemplateFile> {
-  return Promise.reject(new Error('Custom templates are unavailable on the web'))
+async function listTemplates(): Promise<CustomTemplateFile[]> {
+  if (!(await serverSupportsCustomTemplates())) return []
+  return jsonRequest<CustomTemplateFile[]>('/templates')
 }
 
-function deleteTemplate(_sourcePath: string): Promise<void> {
-  return Promise.reject(new Error('Custom templates are unavailable on the web'))
+async function readTemplate(sourcePath: string): Promise<string> {
+  await requireServerTemplateSupport()
+  const result = await jsonRequest<{ raw: string }>(
+    `/templates/read?path=${encodeURIComponent(sourcePath)}`
+  )
+  return result.raw
+}
+
+async function writeTemplate(input: WriteTemplateInput): Promise<CustomTemplateFile> {
+  await requireServerTemplateSupport()
+  return jsonRequest<CustomTemplateFile>('/templates/write', {
+    method: 'POST',
+    body: input as unknown as Record<string, unknown>
+  })
+}
+
+async function deleteTemplate(sourcePath: string): Promise<void> {
+  await requireServerTemplateSupport()
+  await jsonRequest('/templates/delete', { method: 'POST', body: { sourcePath } })
 }
 
 // --------------------------------------------------------------------
@@ -1426,13 +1451,15 @@ function clipboardReadText(): string {
 // --------------------------------------------------------------------
 
 export const httpBridge: ZenBridge = {
-  // Workflows are the one capability the SERVER decides; derive it from the
-  // cached /capabilities response instead of mutating the const in place, so
-  // the UI gate (this) and the request gate (serverSupportsWorkflows) can
-  // never disagree about the same fact.
+  // Workflows and custom templates are the capabilities the SERVER decides;
+  // derive them from the cached /capabilities response instead of mutating
+  // the const in place, so the UI gate (this) and the request gates
+  // (serverSupportsWorkflows, serverSupportsCustomTemplates) can never
+  // disagree about the same fact.
   getCapabilities: (): ZenCapabilities => ({
     ...WEB_CAPABILITIES,
-    supportsWorkflows: lastServerCapabilities?.supportsWorkflows === true
+    supportsWorkflows: lastServerCapabilities?.supportsWorkflows === true,
+    supportsCustomTemplates: lastServerCapabilities?.supportsCustomTemplates === true
   }),
   getAppInfo: (): ZenAppInfo => WEB_APP_INFO,
   platform,
