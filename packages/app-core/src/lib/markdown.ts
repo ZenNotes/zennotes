@@ -898,7 +898,11 @@ function remarkCurrencyGuard() {
       const start = node.position?.start?.offset
       const end = node.position?.end?.offset
       if (start == null || end == null) return
-      const token = source.slice(start, end)
+      // The raw source between the node's offsets. Inside a blockquote the
+      // continuation lines still carry their `> ` markers here, which belong
+      // to the quote, not the formula: a span demoted inside a callout used
+      // to come back as `$ > x $` (#748).
+      const token = dropQuoteMarkersAfterFirstLine(source.slice(start, end))
       if (STRICT_INLINE_MATH_RE.test(token)) return
       // `$$…$$` in a table cell: genuine display math, not currency. The
       // editor's table widget renders it in display mode, so swap the node's
@@ -1105,6 +1109,28 @@ function escapeTableMathPipes(src: string): string {
   return changed ? out.join('\n') : src
 }
 
+/** The blockquote markers that open a line (`> `, `> > `) and what follows
+ *  them. A fence inside a callout carries the markers on every line, so the
+ *  normalizer looks past them and puts them back on whatever it emits. */
+const QUOTE_PREFIX_RE = /^((?:[ \t]{0,3}>[ \t]?)+)/
+
+function splitQuotePrefix(line: string): { prefix: string; depth: number; content: string } {
+  const match = line.match(QUOTE_PREFIX_RE)
+  if (!match) return { prefix: '', depth: 0, content: line }
+  const prefix = match[1]
+  return { prefix, depth: (prefix.match(/>/g) ?? []).length, content: line.slice(prefix.length) }
+}
+
+/** A raw source slice that starts mid-line: its first line has no marker
+ *  (that sits before the slice), the following lines do when the slice lives
+ *  in a blockquote. A paragraph line cannot start with `>` anywhere else, so
+ *  stripping markers from the continuation lines never touches prose. */
+function dropQuoteMarkersAfterFirstLine(text: string): string {
+  if (!text.includes('\n')) return text
+  const [first, ...rest] = text.split('\n')
+  return [first, ...rest.map((line) => splitQuotePrefix(line).content)].join('\n')
+}
+
 /**
  * remark-math only closes a `$$` block on a line containing nothing but the
  * closing fence, while the editor's live preview (cm-math-render) also accepts
@@ -1114,6 +1140,11 @@ function escapeTableMathPipes(src: string): string {
  * parses exactly what the editor renders. Fenced code is left untouched, and
  * anything the editor itself rejects (mid-line `$$`, empty or unclosed blocks)
  * passes through unchanged — canonical notes come back byte-identical.
+ *
+ * Fences inside a blockquote count as fences (#748): the quote markers are
+ * looked past when a line is read and put back on every line written, and a
+ * block only closes at its own quote depth, so a fence in a callout can never
+ * be paired with one outside it.
  */
 function normalizeBlockMathFences(src: string, loose = false): string {
   if (!src.includes('$$')) return src
@@ -1124,7 +1155,8 @@ function normalizeBlockMathFences(src: string, loose = false): string {
   let i = 0
   while (i < lines.length) {
     const raw = lines[i]
-    const trimmed = raw.trim()
+    const { prefix, depth, content } = splitQuotePrefix(raw)
+    const trimmed = content.trim()
     if (codeFence) {
       out.push(raw)
       if (trimmed.startsWith(codeFence)) codeFence = null
@@ -1143,12 +1175,12 @@ function normalizeBlockMathFences(src: string, loose = false): string {
     let indent: string | null = null
     let rest = ''
     let proseBefore = ''
-    const strictOpen = raw.match(/^( {0,3})\$\$(?!\$)(.*)$/)
+    const strictOpen = content.match(/^( {0,3})\$\$(?!\$)(.*)$/)
     if (strictOpen) {
       indent = strictOpen[1]
       rest = strictOpen[2]
     } else if (loose) {
-      const looseOpen = raw.match(/^( {0,3})(.+?)\s*\$\$(?!\$)\s*$/)
+      const looseOpen = content.match(/^( {0,3})(.+?)\s*\$\$(?!\$)\s*$/)
       if (looseOpen && !looseOpen[2].includes('$$')) {
         indent = looseOpen[1]
         proseBefore = looseOpen[2]
@@ -1166,7 +1198,7 @@ function normalizeBlockMathFences(src: string, loose = false): string {
       if (restTrimmed.endsWith('$$') && restTrimmed.indexOf('$$') === restTrimmed.length - 2) {
         const inner = restTrimmed.slice(0, -2)
         if (inner.trim() !== '') {
-          out.push(`${indent}$$`, inner, `${indent}$$`)
+          out.push(`${prefix}${indent}$$`, `${prefix}${inner}`, `${prefix}${indent}$$`)
           changed = true
           i++
           continue
@@ -1183,8 +1215,11 @@ function normalizeBlockMathFences(src: string, loose = false): string {
     let closeHasContent = false
     let closeTrailing = ''
     for (let k = i + 1; k < lines.length; k++) {
-      const t = lines[k].trim()
+      const line = splitQuotePrefix(lines[k])
+      const t = line.content.trim()
       if (!t.includes('$$')) continue
+      // A fence at another quote depth belongs to another block, or to none.
+      if (line.depth !== depth) break
       if (t === '$$') {
         close = k
       } else if (t.endsWith('$$') && t.indexOf('$$') === t.length - 2) {
@@ -1201,22 +1236,35 @@ function normalizeBlockMathFences(src: string, loose = false): string {
       }
       break
     }
-    const alreadyCanonical =
-      restTrimmed === '' && !closeHasContent && proseBefore === '' && closeTrailing === ''
-    if (close === -1 || alreadyCanonical) {
-      // Unclosed, editor-rejected, or already canonical: leave untouched.
+    if (close === -1) {
+      // Unclosed or editor-rejected: leave the line untouched.
       out.push(raw)
       i++
       continue
     }
+    const alreadyCanonical =
+      restTrimmed === '' && !closeHasContent && proseBefore === '' && closeTrailing === ''
+    if (alreadyCanonical) {
+      // Already the fence-on-its-own-line form: copy the block through and
+      // move past its closing fence. Re-scanning that fence as an opener
+      // paired it with the next `$$` in the note, and a callout's `> $$`
+      // then read as content hugging a fence: the rewrite left a bare `$$`
+      // outside the quote, and that block swallowed everything after it.
+      for (let k = i; k <= close; k++) out.push(lines[k])
+      i = close + 1
+      continue
+    }
+    // An empty quote line (`>`) keeps a blockquote open where a blank line
+    // would end it; outside a quote the prefix is empty and this is a blank.
+    const blank = prefix.trimEnd()
     if (proseBefore !== '') {
       // Prose leading the open fence becomes its own paragraph.
-      out.push(`${indent}${proseBefore}`, '')
+      out.push(`${prefix}${indent}${proseBefore}`, blank)
       changed = true
     }
-    out.push(`${indent}$$`)
+    out.push(`${prefix}${indent}$$`)
     if (restTrimmed !== '') {
-      out.push(rest)
+      out.push(`${prefix}${rest}`)
       changed = true
     }
     for (let k = i + 1; k < close; k++) out.push(lines[k])
@@ -1225,13 +1273,13 @@ function normalizeBlockMathFences(src: string, loose = false): string {
       const rawClose = lines[close]
       const idx = rawClose.lastIndexOf('$$')
       const beforeDollar = rawClose.slice(0, idx)
-      if (beforeDollar.trim() !== '') out.push(beforeDollar)
-      out.push(`${indent}$$`, '', `${indent}${closeTrailing}`)
+      if (splitQuotePrefix(beforeDollar).content.trim() !== '') out.push(beforeDollar)
+      out.push(`${prefix}${indent}$$`, blank, `${prefix}${indent}${closeTrailing}`)
       changed = true
     } else if (closeHasContent) {
       const rawClose = lines[close]
       const idx = rawClose.lastIndexOf('$$')
-      out.push(rawClose.slice(0, idx), `${indent}$$`)
+      out.push(rawClose.slice(0, idx), `${prefix}${indent}$$`)
       changed = true
     } else {
       out.push(lines[close])

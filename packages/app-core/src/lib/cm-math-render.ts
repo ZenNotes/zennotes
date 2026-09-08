@@ -21,6 +21,7 @@ import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemir
 import katex from 'katex'
 import type { MathRenderer } from '@shared/app-config'
 import { peekTypstMathSvg, renderTypstMathToSvg } from './typst-math-render'
+import { calloutGroupFor } from './callout-types'
 import { numberLatexEquationEnvironments } from './latex-equation-numbering'
 
 /** Which typesetter the live-preview widgets use. Supplied by
@@ -50,6 +51,57 @@ const typstPreambleFacet = Facet.define<string, string>({
 const INLINE_MATH_RE = /(?<![\\$])\$(?!\s)(?!\$)((?:\\.|[^$\\])+?)(?<!\s)\$(?!\$)/g
 // Block `$$…$$`, shortest match, may span lines.
 const BLOCK_MATH_RE = /\$\$(?!\$)([\s\S]+?)\$\$/g
+/** Blockquote markers at the start of a line: `> `, `> > `, ` >`. */
+const QUOTE_MARKERS_RE = /^(?:[ \t]{0,3}>[ \t]?)+/
+const CALLOUT_HEADER_RE = /^(?:[ \t]{0,3}>[ \t]?)+\[!(\w+)\]/
+
+/** How many blockquote markers `text` is made of: 0 for blank, null when it
+ *  holds anything else. What precedes a fence on its line must be one of
+ *  those two for the fence to own its line. */
+function quoteDepthOf(text: string): number | null {
+  if (text.trim() === '') return 0
+  const markers = text.match(QUOTE_MARKERS_RE)
+  if (!markers || text.slice(markers[0].length).trim() !== '') return null
+  return (markers[0].match(/>/g) ?? []).length
+}
+
+/** Drop up to `depth` blockquote markers from the start of every line. The
+ *  markers belong to the quote, not to the formula. */
+function stripQuoteMarkers(text: string, depth: number): string {
+  if (depth === 0) return text
+  return text
+    .split('\n')
+    .map((line) => {
+      let rest = line
+      for (let d = 0; d < depth; d++) {
+        const marker = rest.match(/^[ \t]{0,3}>[ \t]?/)
+        if (!marker) break
+        rest = rest.slice(marker[0].length)
+      }
+      return rest
+    })
+    .join('\n')
+}
+
+/** The classes that make a block widget part of the quote it sits in: the
+ *  callout card's body classes, or the plain quote's bar. cm-wysiwyg-blocks
+ *  draws the card line by line, and a widget replacing some of those lines
+ *  has to wear the same classes or the card breaks in two around the formula. */
+function quoteFrameClasses(state: EditorState, pos: number): string {
+  // The outermost quote is the one drawing the card, so keep climbing.
+  let node = syntaxTree(state).resolveInner(pos, 1)
+  let quoteFrom = -1
+  for (;;) {
+    if (node.name === 'Blockquote') quoteFrom = node.from
+    const parent = node.parent
+    if (!parent) break
+    node = parent
+  }
+  if (quoteFrom < 0) return ''
+  const header = state.doc.lineAt(quoteFrom).text.match(CALLOUT_HEADER_RE)
+  if (header) return `cm-callout cm-callout-${calloutGroupFor(header[1])}`
+  return 'cm-wq-quote'
+}
 
 function renderKatex(el: HTMLElement, latex: string, display: boolean): void {
   try {
@@ -138,7 +190,9 @@ class BlockMathWidget extends WidgetType {
   constructor(
     readonly latex: string,
     readonly renderer: MathRenderer,
-    readonly preamble = ''
+    readonly preamble = '',
+    /** Quote or callout classes when the block sits inside one (#748). */
+    readonly frame = ''
   ) {
     super()
   }
@@ -146,12 +200,13 @@ class BlockMathWidget extends WidgetType {
     return (
       other.latex === this.latex &&
       other.renderer === this.renderer &&
-      other.preamble === this.preamble
+      other.preamble === this.preamble &&
+      other.frame === this.frame
     )
   }
   toDOM(): HTMLElement {
     const el = document.createElement('div')
-    el.className = 'cm-math-block'
+    el.className = this.frame ? `cm-math-block ${this.frame}` : 'cm-math-block'
     renderMath(el, this.latex, true, this.renderer, this.preamble)
     return el
   }
@@ -214,16 +269,21 @@ function buildMathRender(state: EditorState): MathRenderValue {
     if (isInsideCode(state, rawFrom)) continue
     const openLine = doc.lineAt(rawFrom)
     const closeLine = doc.lineAt(rawTo)
-    // Only render when the fences own their lines (nothing but whitespace before
-    // the opening `$$` and after the closing `$$`), so the whole-line block
-    // replace can never swallow surrounding prose.
+    // Only render when the fences own their lines (nothing but whitespace, or
+    // a blockquote's markers, before the opening `$$` and nothing after the
+    // closing one), so the whole-line block replace can never swallow
+    // surrounding prose. A fence inside a callout is a fence too: its `> `
+    // used to read as prose and the block stayed raw there (#748).
     const before = openLine.text.slice(0, rawFrom - openLine.from)
     const after = closeLine.text.slice(rawTo - closeLine.from)
-    if (before.trim() !== '' || after.trim() !== '') continue
+    const depth = quoteDepthOf(before)
+    if (depth === null || after.trim() !== '') continue
+    const source = stripQuoteMarkers(inner, depth)
+    if (!source.trim()) continue
     const numbered =
       renderer === 'katex'
-        ? numberLatexEquationEnvironments(inner, equationNumber)
-        : { latex: inner, nextNumber: equationNumber }
+        ? numberLatexEquationEnvironments(source, equationNumber)
+        : { latex: source, nextNumber: equationNumber }
     equationNumber = numbered.nextNumber
     // Reserve the whole-line span so inline scanning skips inside it, whether the
     // block ends up rendered or revealed.
@@ -235,7 +295,12 @@ function buildMathRender(state: EditorState): MathRenderValue {
       to: closeLine.to,
       deco: Decoration.replace({
         block: true,
-        widget: new BlockMathWidget(numbered.latex, renderer, preamble)
+        widget: new BlockMathWidget(
+          numbered.latex,
+          renderer,
+          preamble,
+          depth > 0 ? quoteFrameClasses(state, openLine.from) : ''
+        )
       })
     })
   }
