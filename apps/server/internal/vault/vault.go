@@ -1628,7 +1628,19 @@ func normalizeComment(input NoteComment, notePath string) (NoteComment, bool) {
 		CreatedAt:   createdAt,
 		UpdatedAt:   updatedAt,
 		ResolvedAt:  input.ResolvedAt,
+		Author:      normalizeCommentAuthor(input.Author),
+		ParentID:    strings.TrimSpace(input.ParentID),
 	}, true
+}
+
+// normalizeCommentAuthor collapses whitespace and caps the name, mirroring
+// normalizeCommentAuthor in shared-domain/note-comments.ts.
+func normalizeCommentAuthor(raw string) string {
+	author := strings.Join(strings.Fields(raw), " ")
+	if len(author) > 80 {
+		author = author[:80]
+	}
+	return author
 }
 
 func normalizeComments(inputs []NoteComment, notePath string) []NoteComment {
@@ -1651,6 +1663,20 @@ func normalizeComments(inputs []NoteComment, notePath string) []NoteComment {
 		}
 		return out[i].CreatedAt < out[j].CreatedAt
 	})
+	// A reply whose parent is gone (or is itself) stays as a comment of its
+	// own rather than vanishing from the thread view.
+	ids := make(map[string]struct{}, len(out))
+	for _, comment := range out {
+		ids[comment.ID] = struct{}{}
+	}
+	for i := range out {
+		if out[i].ParentID == "" {
+			continue
+		}
+		if _, ok := ids[out[i].ParentID]; !ok || out[i].ParentID == out[i].ID {
+			out[i].ParentID = ""
+		}
+	}
 	return out
 }
 

@@ -352,6 +352,11 @@ type NoteComment struct {
 	CreatedAt   int64  `json:"createdAt"`
 	UpdatedAt   int64  `json:"updatedAt"`
 	ResolvedAt  *int64 `json:"resolvedAt"`
+	// Author is who wrote it: empty for the vault's owner, an assistant's
+	// name otherwise. ParentID threads a reply under a top-level comment.
+	// Both mirror shared-domain/note-comments.ts (#738).
+	Author   string `json:"author,omitempty"`
+	ParentID string `json:"parentId,omitempty"`
 }
 
 // FolderEntry — mirrors shared/ipc.ts FolderEntry.

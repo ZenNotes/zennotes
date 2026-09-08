@@ -53,6 +53,7 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
+import { normalizeNoteComments } from '@shared/note-comments'
 import { FRONTMATTER_BLOCK_RE, frontmatterTags } from '@shared/frontmatter'
 import { IMAGE_FILE_EXTENSIONS, pastedImageFilename } from '@shared/pasted-image'
 import {
@@ -3133,59 +3134,6 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
-}
-
-function normalizeNoteComment(input: NoteCommentInput, notePath: string): NoteComment | null {
-  const body = typeof input.body === 'string' ? input.body.trim() : ''
-  if (!body) return null
-  const now = Date.now()
-  const rawStart = Number.isFinite(input.anchorStart) ? Math.max(0, Math.floor(input.anchorStart)) : 0
-  const rawEnd = Number.isFinite(input.anchorEnd) ? Math.max(0, Math.floor(input.anchorEnd)) : rawStart
-  const anchorStart = Math.min(rawStart, rawEnd)
-  const anchorEnd = Math.max(rawStart, rawEnd)
-  const anchorText =
-    typeof input.anchorText === 'string'
-      ? input.anchorText.replace(/\s+/g, ' ').trim().slice(0, 500)
-      : ''
-  return {
-    id: typeof input.id === 'string' && input.id.trim() ? input.id.trim() : randomUUID(),
-    notePath,
-    anchorStart,
-    anchorEnd,
-    anchorText,
-    body,
-    createdAt:
-      typeof input.createdAt === 'number' && Number.isFinite(input.createdAt)
-        ? input.createdAt
-        : now,
-    updatedAt:
-      typeof input.updatedAt === 'number' && Number.isFinite(input.updatedAt)
-        ? input.updatedAt
-        : now,
-    resolvedAt:
-      typeof input.resolvedAt === 'number' && Number.isFinite(input.resolvedAt)
-        ? input.resolvedAt
-        : null
-  }
-}
-
-function normalizeNoteComments(raw: unknown, notePath: string): NoteComment[] {
-  const values = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { comments?: unknown }).comments)
-      ? (raw as { comments: unknown[] }).comments
-      : []
-  const seen = new Set<string>()
-  const comments: NoteComment[] = []
-  for (const value of values) {
-    if (!value || typeof value !== 'object') continue
-    const comment = normalizeNoteComment(value as NoteCommentInput, notePath)
-    if (!comment || seen.has(comment.id)) continue
-    seen.add(comment.id)
-    comments.push(comment)
-  }
-  comments.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  return comments
 }
 
 export async function readNoteComments(root: string, rel: string): Promise<NoteComment[]> {

@@ -13,6 +13,13 @@ import path from 'node:path'
 import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
+import {
+  NOTE_COMMENTS_DIR,
+  NOTE_COMMENTS_SUFFIX,
+  normalizeNoteComments
+} from '@shared/note-comments'
+import type { NoteComment, NoteCommentInput } from '@shared/ipc'
+export type { NoteComment, NoteCommentInput }
 import { noteTasksMode, type NoteTasksMode } from '@shared/tasks'
 import {
   isPathExcludedFromTasks,
@@ -1892,6 +1899,46 @@ export async function insertAtLine(
 }
 
 /* ---------- Backlinks ------------------------------------------------- */
+
+/* ---------- Note comments (#738) --------------------------------------- */
+
+/** The sidecar beside a note: `.zennotes/comments/<rel>.comments.json`, the
+ *  same path the desktop and the Go server use, validated against escapes. */
+function noteCommentsPath(root: string, rel: string): string {
+  const commentsRoot = path.join(root, INTERNAL_VAULT_DIR, NOTE_COMMENTS_DIR)
+  return resolveSafe(commentsRoot, `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
+}
+
+export async function readNoteComments(root: string, rel: string): Promise<NoteComment[]> {
+  const notePath = toPosix(rel)
+  try {
+    const raw = await fs.readFile(noteCommentsPath(root, notePath), 'utf8')
+    return normalizeNoteComments(JSON.parse(raw), notePath)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if (err instanceof SyntaxError) return []
+    throw err
+  }
+}
+
+/** Replace a note's comments. An empty list removes the sidecar, as the app
+ *  does, so a note with no comments leaves nothing behind. */
+export async function writeNoteComments(
+  root: string,
+  rel: string,
+  comments: NoteCommentInput[]
+): Promise<NoteComment[]> {
+  const notePath = toPosix(rel)
+  const normalized = normalizeNoteComments(comments, notePath)
+  const abs = noteCommentsPath(root, notePath)
+  if (normalized.length === 0) {
+    await fs.rm(abs, { force: true })
+    return []
+  }
+  await fs.mkdir(path.dirname(abs), { recursive: true })
+  await fs.writeFile(abs, JSON.stringify({ version: 1, comments: normalized }, null, 2), 'utf8')
+  return normalized
+}
 
 export async function backlinks(root: string, rel: string): Promise<NoteMeta[]> {
   const abs = resolveSafe(root, rel)

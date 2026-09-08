@@ -563,8 +563,10 @@ function buildCommentDecorations(
 ): DecorationSet {
   const lineMarkerCounts = new Map<number, number>()
   const decoratedLines = new Set<number>()
+  // Top-level comments only: a reply shares its thread's anchor (#738), so
+  // drawing it too would double every marker and highlight.
   const ranges = comments
-    .filter((comment) => comment.resolvedAt == null)
+    .filter((comment) => comment.resolvedAt == null && !comment.parentId)
     .flatMap((comment) => {
       const anchor = resolveCommentAnchor(comment, doc)
       if (anchor.to <= anchor.from) return []

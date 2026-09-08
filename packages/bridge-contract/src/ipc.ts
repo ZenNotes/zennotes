@@ -610,6 +610,11 @@ export interface NoteComment {
   createdAt: number
   updatedAt: number
   resolvedAt: number | null
+  /** Who wrote it. Absent for the vault's owner; an assistant's name (via the
+   *  MCP server or the CLI) otherwise, so a discussion reads like one. (#738) */
+  author?: string
+  /** Threads a reply under a top-level comment's id. Absent on top-level comments. */
+  parentId?: string | null
 }
 
 export interface NoteCommentInput {
@@ -622,6 +627,8 @@ export interface NoteCommentInput {
   createdAt?: number
   updatedAt?: number
   resolvedAt?: number | null
+  author?: string
+  parentId?: string | null
 }
 
 export type VaultTextSearchBackendPreference = 'auto' | 'builtin' | 'ripgrep' | 'fzf'

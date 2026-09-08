@@ -1754,6 +1754,7 @@ export function VimNav(): JSX.Element | null {
       key === 'o' ||
       key === 'e' ||
       key === 'r' ||
+      key === 'a' ||
       key === 'd' ||
       key === 'n' ||
       key === '+' ||
@@ -1833,6 +1834,12 @@ export function VimNav(): JSX.Element | null {
     }
     if (key === 'r') {
       clickCommentAction(current, 'resolve')
+      return
+    }
+    // `a` answers in the thread (#738); the composer inside the card takes
+    // focus, so the next keys type the reply.
+    if (key === 'a') {
+      clickCommentAction(current, 'reply')
       return
     }
     if (key === 'd' || key === 'Backspace' || key === 'Delete') {
