@@ -445,6 +445,15 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'text_replacements',
     comment: ['Text replacements expanded while typing, keyed by trigger.'],
     example: '"->" = "→"'
+  },
+  savedTaskFilters: {
+    table: 'saved_filters',
+    comment: [
+      'Saved Tasks filters: a name you pick = the filter query it stands for.',
+      'Recall one from the chips above the task list, the command palette,',
+      'or `:filter <name>` in the Tasks view; `:savefilter <name>` adds one.'
+    ],
+    example: '"Project alpha" = "@project:alpha"'
   }
 }
 

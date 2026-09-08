@@ -226,6 +226,14 @@ import {
   normalizeTextReplacements,
   type TextReplacements
 } from './lib/cm-text-replacements'
+import {
+  normalizeSavedTaskFilters,
+  renameSavedTaskFilter as renameSavedTaskFilterEntry,
+  savedTaskFilterQuery,
+  withSavedTaskFilter,
+  withoutSavedTaskFilter,
+  type SavedTaskFilters
+} from './lib/saved-task-filters'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
 
@@ -569,6 +577,8 @@ interface Prefs {
   textReplacementsEnabled: boolean
   /** Trigger to replacement mappings, such as `->` to `→`. */
   textReplacements: TextReplacements
+  /** Saved Tasks filters by name, the `[saved_filters]` table in config.toml (#731). */
+  savedTaskFilters: SavedTaskFilters
   /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. */
   autoPairs: boolean
   /** Also auto-insert matching quotes outside Markdown code spans and blocks. */
@@ -1012,6 +1022,7 @@ export const DEFAULT_PREFS: Prefs = {
   markdownSnippets: true,
   textReplacementsEnabled: true,
   textReplacements: { '->': '→' },
+  savedTaskFilters: {},
   autoPairs: true,
   autoPairQuotesInProse: false,
   hideBuiltinTemplates: false,
@@ -1203,6 +1214,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.textReplacementsEnabled,
     textReplacements: normalizeTextReplacements(
       p.textReplacements ?? DEFAULT_PREFS.textReplacements
+    ),
+    savedTaskFilters: normalizeSavedTaskFilters(
+      p.savedTaskFilters ?? DEFAULT_PREFS.savedTaskFilters
     ),
     autoPairs: typeof p.autoPairs === 'boolean' ? p.autoPairs : DEFAULT_PREFS.autoPairs,
     autoPairQuotesInProse:
@@ -2223,6 +2237,7 @@ function collectPrefs(s: {
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
   textReplacements: TextReplacements
+  savedTaskFilters: SavedTaskFilters
   autoPairs: boolean
   autoPairQuotesInProse: boolean
   hideBuiltinTemplates: boolean
@@ -2321,6 +2336,7 @@ function collectPrefs(s: {
     markdownSnippets: s.markdownSnippets,
     textReplacementsEnabled: s.textReplacementsEnabled,
     textReplacements: s.textReplacements,
+    savedTaskFilters: s.savedTaskFilters,
     autoPairs: s.autoPairs,
     autoPairQuotesInProse: s.autoPairQuotesInProse,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
@@ -2845,6 +2861,7 @@ interface Store {
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
   textReplacements: TextReplacements
+  savedTaskFilters: SavedTaskFilters
   /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. Persisted. */
   autoPairs: boolean
   /** Also auto-insert matching quotes outside Markdown code spans and blocks. Persisted. */
@@ -3352,6 +3369,13 @@ interface Store {
   setMarkdownSnippets: (on: boolean) => void
   setTextReplacementsEnabled: (on: boolean) => void
   setTextReplacements: (replacements: TextReplacements) => void
+  /** Saved Tasks filters (#731). Names match case-insensitively; edits keep the
+   *  chip order, and every change is mirrored to config.toml with the prefs. */
+  saveTaskFilter: (name: string, query: string) => void
+  renameSavedTaskFilter: (from: string, to: string) => void
+  deleteSavedTaskFilter: (name: string) => void
+  /** Set the Tasks filter to the query saved under `name`; false when unknown. */
+  applySavedTaskFilter: (name: string) => boolean
   setAutoPairs: (on: boolean) => void
   setAutoPairQuotesInProse: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
@@ -4683,6 +4707,7 @@ export const useStore = create<Store>((set, get) => {
   markdownSnippets: loadPrefs().markdownSnippets,
   textReplacementsEnabled: loadPrefs().textReplacementsEnabled,
   textReplacements: loadPrefs().textReplacements,
+  savedTaskFilters: loadPrefs().savedTaskFilters,
   autoPairs: loadPrefs().autoPairs,
   autoPairQuotesInProse: loadPrefs().autoPairQuotesInProse,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
@@ -7384,6 +7409,30 @@ export const useStore = create<Store>((set, get) => {
   setTextReplacements: (replacements) => {
     set({ textReplacements: normalizeTextReplacements(replacements) })
     savePrefs(collectPrefs(get()))
+  },
+  saveTaskFilter: (name, query) => {
+    const next = withSavedTaskFilter(get().savedTaskFilters, name, query)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  renameSavedTaskFilter: (from, to) => {
+    const next = renameSavedTaskFilterEntry(get().savedTaskFilters, from, to)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  deleteSavedTaskFilter: (name) => {
+    const next = withoutSavedTaskFilter(get().savedTaskFilters, name)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  applySavedTaskFilter: (name) => {
+    const query = savedTaskFilterQuery(get().savedTaskFilters, name)
+    if (query === null) return false
+    set({ tasksFilter: query, taskCursorIndex: 0 })
+    return true
   },
   setAutoPairs: (on) => {
     set({ autoPairs: on })

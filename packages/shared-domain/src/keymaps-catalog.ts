@@ -146,6 +146,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "nav.toggleTask", group: "view-actions", defaultBinding: "x", title: "Toggle task" },
   { id: "tasks.moveTaskUp", group: "view-actions", defaultBinding: "K", title: "Move task up" },
   { id: "tasks.moveTaskDown", group: "view-actions", defaultBinding: "J", title: "Move task down" },
+  { id: "tasks.savedFilters", group: "view-actions", defaultBinding: "F", title: "Pick a saved Tasks filter" },
   { id: "editor.hopMarkerForward", group: "view-actions", defaultBinding: "Alt+]", defaultBindingMac: "Ctrl+.", title: "Hop past next marker" },
   { id: "editor.hopMarkerBackward", group: "view-actions", defaultBinding: "Alt+[", defaultBindingMac: "Ctrl+,", title: "Hop before previous marker" },
   { id: "editor.foldHeading", group: "view-actions", defaultBinding: "Alt+Mod+F", title: "Fold heading" },

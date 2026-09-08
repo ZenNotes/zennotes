@@ -111,7 +111,8 @@ describe('TOML serialization', () => {
       quickNoteTitlePrefix: 'Quick Note',
       keymapOverrides: { 'global.searchNotes': 'Mod+P' },
       kanbanColumnTitles: { 'status:todo': 'To Do' },
-      systemFolderLabels: { inbox: 'In' }
+      systemFolderLabels: { inbox: 'In' },
+      savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' }
     }
 
     const text = serializeConfig(portable)
@@ -135,6 +136,13 @@ describe('TOML serialization', () => {
     expect(round.keymapOverrides).toEqual({ 'global.searchNotes': 'Mod+P' })
     expect(round.kanbanColumnTitles).toEqual({ 'status:todo': 'To Do' })
     expect(round.systemFolderLabels).toEqual({ inbox: 'In' })
+    // The [saved_filters] table keeps the order the chips show (#731).
+    expect(text).toContain('[saved_filters]')
+    expect(text).toContain('"Project alpha" = "@project:alpha"')
+    expect(Object.entries(round.savedTaskFilters as Record<string, string>)).toEqual([
+      ['Project alpha', '@project:alpha'],
+      ['Blocked', '@status:blocked']
+    ])
   })
 
   it('persists null as empty string and reads it back as null', () => {

@@ -144,7 +144,9 @@ export const PORTABLE_PREF_KEYS = [
   'showArchivedTasks',
   'kanbanGroupBy',
   'kanbanColumnTitles',
-  'kanbanStatuses'
+  'kanbanStatuses',
+  // tasks
+  'savedTaskFilters'
 ] as const
 
 export type PortablePrefKey = (typeof PORTABLE_PREF_KEYS)[number]
@@ -260,5 +262,6 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
   kanbanColumnTitles: {},
-  kanbanStatuses: []
+  kanbanStatuses: [],
+  savedTaskFilters: {}
 }

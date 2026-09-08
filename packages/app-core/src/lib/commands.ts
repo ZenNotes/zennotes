@@ -1340,6 +1340,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     }
   )
 
+  // Saved Tasks filters (#731): one palette entry per name, so a filter is a
+  // few keystrokes away from any note. Opening the view resets the filter, so
+  // the query is applied once the open has settled.
+  for (const [name, query] of Object.entries(getState().savedTaskFilters)) {
+    cmds.push({
+      id: `tasks.savedFilter.${name}`,
+      title: `${labels().tasks}: ${name}`,
+      category: 'View',
+      keywords: `saved filter tasks ${query}`,
+      run: async () => {
+        if (!isTasksViewActive(getState())) await getState().openTasksView()
+        getState().applySavedTaskFilter(name)
+      }
+    })
+  }
+
   /* ---------------- Editor preferences ---------------- */
   cmds.push(
     {

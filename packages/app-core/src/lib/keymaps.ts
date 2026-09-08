@@ -117,6 +117,7 @@ export type KeymapId =
   | "nav.unarchive"
   | "tasks.moveTaskUp"
   | "tasks.moveTaskDown"
+  | "tasks.savedFilters"
   | "editor.moveLineUp"
   | "editor.moveLineDown"
   | "editor.hopMarkerForward"
@@ -1185,6 +1186,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Move the selected task down within its group (Tasks list view). Works with Vim mode on or off.",
     defaultBinding: "J",
+    maxTokens: 1,
+  },
+  {
+    id: "tasks.savedFilters",
+    kind: "sequence",
+    scope: "views",
+    group: "view-actions",
+    title: "Pick a saved Tasks filter",
+    description:
+      "Open the picker of saved Tasks filters and apply one (Tasks view, Vim mode). Save the current filter with :savefilter <name>.",
+    defaultBinding: "F",
     maxTokens: 1,
   },
   {

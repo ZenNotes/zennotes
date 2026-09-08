@@ -292,7 +292,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Filter the Tasks views to one project',
     body:
-      'The filter box in the Tasks header narrows all three sub-views: the list, the calendar, and the Kanban board (where cards filter out but the columns stay put, so the board keeps its shape while you type). Press `/` to focus it (Vim mode), type in it directly, or run `:filter <text>` from the ex line; `Esc` or a bare `:filter` clears it, and the query survives switching views, so a filtered list stays filtered when you jump to the board. Matching is a simple substring check across the task text, the note title, tags (with the `#`, so `#project-beta` narrows to that tag), `!high`-style priorities, and `@key:value` fields. The fields are the project trick: tag tasks with `@project:alpha`, then filter `@project:alpha` while the board is grouped by status, and you have a one-project board; the header shows how many tasks match. A filtered board is still fully live: drag or `Shift+H`/`L` still move cards, and hand-arranged card order is preserved for the cards the filter is hiding.'
+      'The filter box in the Tasks header narrows all three sub-views: the list, the calendar, and the Kanban board (where cards filter out but the columns stay put, so the board keeps its shape while you type). Press `/` to focus it (Vim mode), type in it directly, or run `:filter <text>` from the ex line; `Esc` or a bare `:filter` clears it, and the query survives switching views, so a filtered list stays filtered when you jump to the board. Matching is a simple substring check across the task text, the note title, tags (with the `#`, so `#project-beta` narrows to that tag), `!high`-style priorities, and `@key:value` fields. The fields are the project trick: tag tasks with `@project:alpha`, then filter `@project:alpha` while the board is grouped by status, and you have a one-project board; the header shows how many tasks match. A filtered board is still fully live: drag or `Shift+H`/`L` still move cards, and hand-arranged card order is preserved for the cards the filter is hiding. A query worth typing twice is worth saving: press **Save filter…** in the row under the header (or run `:savefilter <name>`) and it becomes a chip there; click a chip, run `:filter <name>`, or press `F` (Vim mode) to pick one from a list, and the command palette lists every saved filter as "Tasks: name" so you can jump to it from any note. Right-click a chip to rename or delete it. Saved filters are kept in config.toml under `[saved_filters]`, one `"Name" = "query"` line each, so they travel with your dotfiles and a hand edit applies live.'
   },
   {
     title: 'Forward a task to another note',
@@ -656,6 +656,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'r', action: 'Restore trashed note', detail: 'Trash view only: restore the selected trashed note.' },
       { keys: 'x / d', action: 'Delete forever', detail: 'Trash view only: permanently delete the selected trashed note after confirmation.' },
       { keys: '/', action: 'Filter the view', detail: 'Focus the local filter box for tasks, tag matches, or trashed notes.' },
+      { keys: 'F', action: 'Pick a saved Tasks filter', detail: 'Tasks view: open the list of saved filters and apply one. Save the current query with the Save filter… chip or `:savefilter <name>`.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
       { keys: 'Esc', action: 'Clear the filter', detail: 'Clears an active filter. These views are tabs, so Esc no longer closes them — close with :q or the ✕ in the tab header.' }
     ]
@@ -738,6 +739,21 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':unbind action.id',
     summary: 'Remove an action’s key entirely',
     detail: 'Leave an action with no key at all, instead of parking it on some obscure chord: `:unbind global.zoomIn` takes Zoom in off its key until it is rebound or reset under Settings, Keymaps. Bare `:unbind` opens that page, which lists every action id. The unbind travels in `config.toml` as `\"global.zoomIn\" = \"\"`.'
+  },
+  {
+    command: ':filter <text or name>',
+    summary: 'Filter the Tasks views',
+    detail: 'In the Tasks view, narrows the list, the calendar, and the Kanban board to tasks matching the text; when the text is the name of a saved filter, that filter is applied instead. Bare `:filter` (or `:f`) clears it.'
+  },
+  {
+    command: ':savefilter <name>',
+    summary: 'Save the current Tasks filter under a name',
+    detail: 'Keeps the query in the Tasks filter box as a saved filter called `<name>` (bare `:savefilter`, or `:sf`, asks for the name). It shows up as a chip under the Tasks header, in the command palette as “Tasks: name”, and in config.toml under `[saved_filters]`.'
+  },
+  {
+    command: ':delfilter <name>',
+    summary: 'Delete a saved Tasks filter',
+    detail: 'Forgets the saved filter called `<name>` (`:df` for short). Deleting the line under `[saved_filters]` in config.toml does the same.'
   },
   {
     command: ':q',

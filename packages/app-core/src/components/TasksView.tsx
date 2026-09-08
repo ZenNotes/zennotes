@@ -13,6 +13,9 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { isImeComposing } from '../lib/ime'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+import { promptApp } from '../lib/prompt-requests'
+import { useToastStore } from '../lib/toast'
+import { findSavedTaskFilterName, savedTaskFilterNameForQuery } from '../lib/saved-task-filters'
 
 type GroupKey = 'today' | 'upcoming' | 'waiting' | 'forwarded' | 'done' | 'cancelled'
 
@@ -48,6 +51,11 @@ export function TasksView(): JSX.Element {
   const filter = useStore((s) => s.tasksFilter)
   const cursorIndex = useStore((s) => s.taskCursorIndex)
   const setFilter = useStore((s) => s.setTasksFilter)
+  const savedFilters = useStore((s) => s.savedTaskFilters)
+  const saveTaskFilter = useStore((s) => s.saveTaskFilter)
+  const renameSavedTaskFilter = useStore((s) => s.renameSavedTaskFilter)
+  const deleteSavedTaskFilter = useStore((s) => s.deleteSavedTaskFilter)
+  const applySavedTaskFilter = useStore((s) => s.applySavedTaskFilter)
   const setCursorIndex = useStore((s) => s.setTaskCursorIndex)
   const refreshTasks = useStore((s) => s.refreshTasks)
   const openTaskAt = useStore((s) => s.openTaskAt)
@@ -189,6 +197,107 @@ export function TasksView(): JSX.Element {
     [today, vimMode]
   )
 
+  // Saved filters (#731): named queries kept in the prefs and mirrored to
+  // config.toml as [saved_filters]. The chip row shows them in stored order;
+  // the chip whose query is the current filter reads as active.
+  const savedEntries = useMemo(() => Object.entries(savedFilters), [savedFilters])
+  const activeSavedName = useMemo(
+    () => savedTaskFilterNameForQuery(savedFilters, filter),
+    [savedFilters, filter]
+  )
+  const toast = useCallback((message: string, kind: 'info' | 'success' = 'info'): void => {
+    useToastStore.getState().addToast(message, kind)
+  }, [])
+  // The name prompt lists the existing names, so picking one overwrites it
+  // with the current query instead of creating a near-duplicate.
+  const saveCurrentFilter = useCallback(
+    async (name?: string): Promise<void> => {
+      const query = filter.trim()
+      if (!query) {
+        toast('Type a filter first, then save it')
+        return
+      }
+      let chosen = (name ?? '').trim()
+      if (!chosen) {
+        const names = Object.keys(savedFilters)
+        const answer = await promptApp({
+          title: 'Save filter',
+          description: `A name for "${query}". Saved filters live in config.toml under [saved_filters].`,
+          placeholder: 'Project alpha',
+          okLabel: 'Save',
+          suggestions: names.map((n) => ({ value: n, detail: savedFilters[n] })),
+          suggestionsHint: names.length > 0 ? 'Pick an existing name to overwrite it.' : undefined
+        })
+        if (answer === null) return
+        chosen = answer.trim()
+        if (!chosen) return
+      }
+      saveTaskFilter(chosen, query)
+      toast(`Saved filter "${chosen}"`, 'success')
+    },
+    [filter, savedFilters, saveTaskFilter, toast]
+  )
+  const pickSavedFilter = useCallback(async (): Promise<void> => {
+    const names = Object.keys(savedFilters)
+    if (names.length === 0) {
+      toast('No saved filters yet. Type a filter, then press Save filter (or :savefilter <name>)')
+      return
+    }
+    const answer = await promptApp({
+      title: 'Saved filters',
+      placeholder: 'Name',
+      okLabel: 'Apply',
+      suggestions: names.map((n) => ({ value: n, detail: savedFilters[n] })),
+      autoHighlightFirst: true,
+      suggestionsHint: 'Type to narrow · ↑↓ move · Enter applies'
+    })
+    if (answer === null) return
+    if (!applySavedTaskFilter(answer)) toast(`No saved filter called "${answer.trim()}"`)
+  }, [savedFilters, applySavedTaskFilter, toast])
+  const renameSavedFilter = useCallback(
+    async (name: string): Promise<void> => {
+      const answer = await promptApp({
+        title: 'Rename saved filter',
+        initialValue: name,
+        okLabel: 'Rename'
+      })
+      if (answer === null) return
+      const next = answer.trim()
+      if (!next || next === name) return
+      renameSavedTaskFilter(name, next)
+    },
+    [renameSavedTaskFilter]
+  )
+  const openSavedFilterMenu = useCallback(
+    (e: React.MouseEvent, name: string): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      setMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: 'Apply',
+            onSelect: () => {
+              applySavedTaskFilter(name)
+            }
+          },
+          { label: 'Rename…', onSelect: () => void renameSavedFilter(name) },
+          { kind: 'separator' },
+          {
+            label: 'Delete',
+            danger: true,
+            onSelect: () => {
+              deleteSavedTaskFilter(name)
+              toast(`Deleted saved filter "${name}"`)
+            }
+          }
+        ]
+      })
+    },
+    [applySavedTaskFilter, renameSavedFilter, deleteSavedTaskFilter, toast]
+  )
+
   // On first mount, pull fresh if we have nothing yet.
   useEffect(() => {
     if (tasks.length === 0 && !loading) void refreshTasks()
@@ -312,8 +421,32 @@ export function TasksView(): JSX.Element {
       // input so the query lands in the box as typed.
       const spaceIdx = input.indexOf(' ')
       const head = (spaceIdx === -1 ? input : input.slice(0, spaceIdx)).toLowerCase()
+      const arg = spaceIdx === -1 ? '' : input.slice(spaceIdx + 1).trim()
       if (head === 'filter' || head === 'f') {
-        setFilter(spaceIdx === -1 ? '' : input.slice(spaceIdx + 1).trim())
+        // A saved filter's name applies its query (#731); any other text is
+        // the query itself, as before.
+        if (arg && applySavedTaskFilter(arg)) return
+        setFilter(arg)
+        return
+      }
+      // `:savefilter <name>` keeps the current query under that name (bare, it
+      // asks for one); `:delfilter <name>` forgets it. (#731)
+      if (head === 'savefilter' || head === 'sf') {
+        void saveCurrentFilter(arg)
+        return
+      }
+      if (head === 'delfilter' || head === 'df') {
+        if (!arg) {
+          toast('Usage: :delfilter <name>')
+          return
+        }
+        const stored = findSavedTaskFilterName(savedFilters, arg)
+        if (!stored) {
+          toast(`No saved filter called "${arg}"`)
+          return
+        }
+        deleteSavedTaskFilter(stored)
+        toast(`Deleted saved filter "${stored}"`)
         return
       }
       const cmd = input.toLowerCase()
@@ -384,7 +517,17 @@ export function TasksView(): JSX.Element {
           return
       }
     },
-    [closeTasksView, refreshTasks, setFilter, setViewMode]
+    [
+      closeTasksView,
+      refreshTasks,
+      setFilter,
+      setViewMode,
+      applySavedTaskFilter,
+      saveCurrentFilter,
+      deleteSavedTaskFilter,
+      savedFilters,
+      toast
+    ]
   )
 
   // Window-level handler with two responsibilities:
@@ -474,6 +617,13 @@ export function TasksView(): JSX.Element {
         consume()
         filterRef.current?.focus()
         filterRef.current?.select()
+        return
+      }
+
+      // View-independent like the filter box it recalls into. (#731)
+      if (seq('tasks.savedFilters')) {
+        consume()
+        void pickSavedFilter()
         return
       }
 
@@ -582,7 +732,8 @@ export function TasksView(): JSX.Element {
     setFilter,
     viewMode,
     setViewMode,
-    newTaskFile
+    newTaskFile,
+    pickSavedFilter
   ])
 
   return (
@@ -680,6 +831,58 @@ export function TasksView(): JSX.Element {
           </button>
         </div>
       </div>
+
+      {/* Saved filters (#731): recall with a click, `:filter <name>`, or F.
+          The row appears once there is something to recall, or a query
+          worth keeping. */}
+      {(savedEntries.length > 0 || filter.trim()) && (
+        <div
+          data-saved-filters
+          className="flex flex-wrap items-center gap-1.5 border-b border-paper-300/45 px-4 py-1.5"
+        >
+          {savedEntries.length > 0 && (
+            <span className="text-2xs font-medium uppercase tracking-wide text-current/45">
+              Saved
+            </span>
+          )}
+          {savedEntries.map(([name, query]) => {
+            const active = name === activeSavedName
+            return (
+              <button
+                key={name}
+                type="button"
+                data-saved-filter={name}
+                data-active={active ? '' : undefined}
+                title={active ? `${query} (click to clear)` : query}
+                onClick={() => {
+                  if (active) setFilter('')
+                  else applySavedTaskFilter(name)
+                }}
+                onContextMenu={(e) => openSavedFilterMenu(e, name)}
+                className={[
+                  'rounded-full border px-2 py-0.5 text-xs transition-colors',
+                  active
+                    ? 'border-accent/50 bg-accent/15 text-accent'
+                    : 'border-paper-300/70 bg-paper-200/50 text-current/70 hover:bg-paper-200 hover:text-current/90'
+                ].join(' ')}
+              >
+                {name}
+              </button>
+            )
+          })}
+          {filter.trim() && !activeSavedName && (
+            <button
+              type="button"
+              data-save-filter
+              onClick={() => void saveCurrentFilter()}
+              title={vimMode ? 'Keep this query under a name (:savefilter <name>)' : 'Keep this query under a name'}
+              className="rounded-full border border-dashed border-paper-400/60 px-2 py-0.5 text-xs text-current/60 transition-colors hover:border-accent/50 hover:text-accent"
+            >
+              + Save filter…
+            </button>
+          )}
+        </div>
+      )}
 
       {viewMode === 'list' && (
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -801,14 +1004,14 @@ export function TasksView(): JSX.Element {
         <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
           {viewMode === 'list'
             ? vimMode
-              ? 'j/k move · J/K reorder · Enter/o open · x toggle · i start · c cancel · right-click actions · :q close'
+              ? 'j/k move · J/K reorder · Enter/o open · x toggle · i start · c cancel · F saved filters · right-click actions · :q close'
               : '↑/↓ move · Shift+J/K reorder · Enter open · right-click actions'
             : viewMode === 'calendar'
               ? vimMode
-                ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · drag to move · right-click actions · :q'
+                ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · F saved filters · drag to move · right-click actions · :q'
                 : 'h/j/k/l day · [ ] month · Tab pick · x toggle · drag to move · right-click actions'
               : vimMode
-                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · right-click actions · :q close'
+                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · F saved filters · right-click actions · :q close'
                 : 'h/l column · j/k card · x toggle · Enter open · right-click actions'}
         </div>
       )}

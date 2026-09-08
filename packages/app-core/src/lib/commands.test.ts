@@ -350,3 +350,22 @@ describe('note commands for a trashed note (#712)', () => {
   })
 })
 
+
+describe('saved Tasks filters (#731)', () => {
+  it('lists one palette entry per saved filter, which opens Tasks and applies it', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    expect(buildCommands().some((c) => c.id.startsWith('tasks.savedFilter.'))).toBe(false)
+
+    useStore.getState().saveTaskFilter('Blocked', '@status:blocked')
+    useStore.getState().saveTaskFilter('Project alpha', '@project:alpha')
+    const entries = buildCommands().filter((c) => c.id.startsWith('tasks.savedFilter.'))
+    expect(entries.map((c) => c.title)).toEqual(['Tasks: Blocked', 'Tasks: Project alpha'])
+    expect(entries[1].keywords).toContain('@project:alpha')
+
+    const openTasksView = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ openTasksView })
+    await entries[1].run()
+    expect(openTasksView).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().tasksFilter).toBe('@project:alpha')
+  })
+})
