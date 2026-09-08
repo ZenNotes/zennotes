@@ -65,8 +65,11 @@ import {
   getKeymapDefinitionsByGroup,
   getKeymapDisplay,
   isMacPlatform,
+  isUnboundBinding,
   sequenceTokenFromEvent,
   shortcutBindingFromEvent,
+  UNBOUND_BINDING,
+  UNBOUND_LABEL,
 } from "../lib/keymaps";
 import {
   resolveAuto,
@@ -5396,10 +5399,12 @@ function KeymapSettings({
             // before turning Vim mode back on, but still let the filter work.
           }
           if (!q) return true;
+          const display =
+            getKeymapDisplay(overrides, definition.id) || UNBOUND_LABEL;
           return (
             definition.title.toLowerCase().includes(q) ||
             definition.description.toLowerCase().includes(q) ||
-            getKeymapDisplay(overrides, definition.id).toLowerCase().includes(q)
+            display.toLowerCase().includes(q)
           );
         });
         return items.length > 0 ? { ...group, items } : null;
@@ -5425,8 +5430,9 @@ function KeymapSettings({
               </div>
               <div className="mt-1 text-xs leading-5 text-ink-500">
                 Record a new key or sequence for the app’s keyboard-first
-                actions. Standard accessibility fallbacks like arrows, Enter,
-                and Escape still work.
+                actions, or unbind one so no key triggers it. Standard
+                accessibility fallbacks like arrows, Enter, and Escape still
+                work.
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -5462,7 +5468,8 @@ function KeymapSettings({
               <div className="pb-4">
                 {group.items.map((definition) => {
                   const current = getKeymapBinding(overrides, definition.id);
-                  const custom = !!overrides[definition.id];
+                  const custom = overrides[definition.id] !== undefined;
+                  const unbound = isUnboundBinding(current);
                   const conflict = findKeymapConflict(
                     overrides,
                     definition.id,
@@ -5505,8 +5512,17 @@ function KeymapSettings({
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="rounded-xl border border-paper-300/70 bg-paper-100/85 px-3 py-1.5 text-xs font-medium text-ink-900">
-                          {formatKeymapBinding(current, definition.kind)}
+                        <span
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-medium",
+                            unbound
+                              ? "border-dashed border-paper-300/70 bg-paper-100/45 text-ink-500"
+                              : "border-paper-300/70 bg-paper-100/85 text-ink-900",
+                          ].join(" ")}
+                        >
+                          {unbound
+                            ? UNBOUND_LABEL
+                            : formatKeymapBinding(current, definition.kind)}
                         </span>
                         <button
                           type="button"
@@ -5514,6 +5530,22 @@ function KeymapSettings({
                           className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                         >
                           Change…
+                        </button>
+                        <button
+                          type="button"
+                          disabled={unbound}
+                          onClick={() =>
+                            onSetBinding(definition.id, UNBOUND_BINDING)
+                          }
+                          title="Remove the key entirely. Nothing triggers this action until it is rebound or reset."
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
+                            unbound
+                              ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
+                              : "border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200",
+                          ].join(" ")}
+                        >
+                          Unbind
                         </button>
                         <button
                           type="button"
@@ -5558,6 +5590,10 @@ function KeymapSettings({
             );
             setRecording(null);
           }}
+          onUnbind={() => {
+            onSetBinding(recording.id, UNBOUND_BINDING);
+            setRecording(null);
+          }}
         />
       )}
     </div>
@@ -5570,12 +5606,14 @@ function KeymapRecorderModal({
   currentBinding,
   onClose,
   onSave,
+  onUnbind,
 }: {
   definition: KeymapDefinition;
   overrides: KeymapOverrides;
   currentBinding: string;
   onClose: () => void;
   onSave: (binding: string) => void;
+  onUnbind: () => void;
 }): JSX.Element {
   const [binding, setBinding] = useState(currentBinding);
   const mac = isMacPlatform();
@@ -5660,8 +5698,8 @@ function KeymapRecorderModal({
             </div>
             <div className="mt-2 text-xs leading-5 text-ink-500">
               {definition.kind === "shortcut"
-                ? `Press the shortcut you want. ${mac ? "Command" : "Ctrl"}-style chords are saved in the app’s cross-platform format.`
-                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? "" : "s"}.`}
+                ? `Press the shortcut you want; Backspace clears it. ${mac ? "Command" : "Ctrl"}-style chords are saved in the app’s cross-platform format. Unbind leaves the action with no key at all.`
+                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? "" : "s"}. Unbind leaves the action with no key at all.`}
             </div>
           </div>
           {conflict && (
@@ -5676,7 +5714,10 @@ function KeymapRecorderModal({
             </div>
           )}
           <div className="mt-3 text-xs text-ink-500">
-            Current: {formatKeymapBinding(currentBinding, definition.kind)}
+            Current:{" "}
+            {isUnboundBinding(currentBinding)
+              ? UNBOUND_LABEL
+              : formatKeymapBinding(currentBinding, definition.kind)}
           </div>
           <div className="mt-1 text-xs text-ink-500">
             Default:{" "}
@@ -5689,10 +5730,17 @@ function KeymapRecorderModal({
         <div className="flex items-center justify-between gap-3 border-t border-paper-300/60 px-5 py-3">
           <button
             type="button"
-            onClick={() => setBinding("")}
-            className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
+            onClick={onUnbind}
+            disabled={isUnboundBinding(currentBinding)}
+            title="Save this action with no key at all."
+            className={[
+              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+              isUnboundBinding(currentBinding)
+                ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
+                : "border-paper-300 bg-paper-100 text-ink-700 hover:bg-paper-200",
+            ].join(" ")}
           >
-            Clear
+            Unbind
           </button>
           <div className="flex items-center gap-2">
             <button

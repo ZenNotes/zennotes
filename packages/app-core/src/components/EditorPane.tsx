@@ -65,7 +65,7 @@ import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
 import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { isVimAwaitingArgument } from '../lib/vim-nav'
-import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
+import { keyBindingsFor, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { followLinkTarget } from '../lib/follow-link'
 import { pointerOverRange } from '../lib/cm-pointer-range'
@@ -289,6 +289,7 @@ import {
   formatKeyToken,
   getKeymapBinding,
   getKeymapDisplay,
+  labelWithShortcut,
   type KeymapId,
   type KeymapOverrides
 } from '../lib/keymaps'
@@ -345,44 +346,20 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // Move the current line (or selection) up/down — reorders the markdown so
     // it persists in the file. Listed before defaultKeymap so the configured
     // binding wins; works in Vim normal/insert and non-Vim alike.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineUp')),
-      run: moveLineUp
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
-      run: moveLineDown
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.moveLineUp'), moveLineUp),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.moveLineDown'), moveLineDown),
     // Obsidian-style checkbox toggle: line -> `- [ ]` -> `[x]` and back.
     // Mode-agnostic like the line moves.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.toggleCheckbox')),
-      run: toggleCheckbox
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.toggleCheckbox'), toggleCheckbox),
     // Join a hard-wrapped paragraph back into one line so the pane wraps it
     // (#676). Mode-agnostic like the line moves; Vim mode also has `gq`.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.reflowParagraph')),
-      run: reflowParagraph
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.reflowParagraph'), reflowParagraph),
     // Step across inline markers, so a formatted word can be finished without
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerForward')),
-      run: markerHop.forward
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerBackward')),
-      run: markerHop.backward
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.foldHeading')),
-      run: foldHeadingAtCursor
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.unfoldHeading')),
-      run: unfoldHeadingAtCursor
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerForward'), markerHop.forward),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerBackward'), markerHop.backward),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.foldHeading'), foldHeadingAtCursor),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.unfoldHeading'), unfoldHeadingAtCursor),
     // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
     // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
     // jumplist collision on Linux); in non-Vim mode that handler is disabled, so
@@ -3725,10 +3702,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               </IconBtn>
             )}
             <IconBtn
-              title={`Go back (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyBack' : 'global.historyBack'
-              )})`}
+              title={labelWithShortcut(
+                'Go back',
+                getKeymapDisplay(tabNavOverrides, vimMode ? 'vim.historyBack' : 'global.historyBack')
+              )}
               onClick={() => void jumpToPreviousNote()}
               disabled={!canGoBack}
               tooltipAlign="left"
@@ -3736,10 +3713,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <ArrowLeftIcon width={16} height={16} />
             </IconBtn>
             <IconBtn
-              title={`Go forward (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyForward' : 'global.historyForward'
-              )})`}
+              title={labelWithShortcut(
+                'Go forward',
+                getKeymapDisplay(tabNavOverrides, vimMode ? 'vim.historyForward' : 'global.historyForward')
+              )}
               onClick={() => void jumpToNextNote()}
               disabled={!canGoForward}
               tooltipAlign="left"
@@ -4365,13 +4342,16 @@ function ToggleGroup({
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
       {MODE_OPTIONS.map((option) => {
-        const shortcut = getKeymapDisplay(keymapOverrides, option.keymapId)
+        const label = labelWithShortcut(
+          option.tooltipLabel,
+          getKeymapDisplay(keymapOverrides, option.keymapId)
+        )
         return (
           <button
             key={option.mode}
             onClick={() => onChange(option.mode)}
-            title={`${option.tooltipLabel} (${shortcut})`}
-            aria-label={`${option.tooltipLabel} (${shortcut})`}
+            title={label}
+            aria-label={label}
             className={[
               'rounded px-2 py-1 transition-colors',
               mode === option.mode

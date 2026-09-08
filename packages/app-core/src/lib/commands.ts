@@ -81,15 +81,19 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   const pathLabel = (): string =>
     getState().workspaceMode === 'remote' ? 'Server Path' : 'Absolute Path'
   const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
-  const leaderShortcut = (id: KeymapId): string =>
-    `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
-  const paneShortcut = (id: KeymapId): string =>
-    `${shortcut('vim.panePrefix')} ${shortcut(id)}`
+  // A chord with an unbound step cannot be pressed, so the palette shows no
+  // key for it rather than half a sequence.
+  const chord = (...ids: KeymapId[]): string => {
+    const parts = ids.map(shortcut)
+    return parts.every(Boolean) ? parts.join(' ') : ''
+  }
+  const leaderShortcut = (id: KeymapId): string => chord('vim.leaderPrefix', id)
+  const paneShortcut = (id: KeymapId): string => chord('vim.panePrefix', id)
   const searchShortcut = (): string => {
     const state = getState()
     const primary = shortcut('global.searchNotes')
     if (state.vimMode) return primary
-    return `${primary} / ${shortcut('global.searchNotesNonVim')}`
+    return [primary, shortcut('global.searchNotesNonVim')].filter(Boolean).join(' / ')
   }
   const openExternal = (url: string): void => {
     window.open(url, '_blank')

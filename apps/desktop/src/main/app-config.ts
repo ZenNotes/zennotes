@@ -416,6 +416,7 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'keymaps',
     comment: [
       'Keymap overrides — only list the bindings you want to change.',
+      'Set a binding to "" to remove the key entirely.',
       'Find the full list of action IDs in Settings → Keymaps.'
     ],
     example: '"global.searchNotes" = "Mod+P"'
@@ -606,11 +607,14 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     '# Keymap overrides. Add or uncomment "<action.id>" = "<binding>" lines.',
     '# Binding syntax: "Mod+P" = Cmd/Ctrl+P, "Shift+Mod+K", "Ctrl+W", "Space",',
     '# or a two-key sequence like "g g". Uncomment a reference line to remap it.',
+    '# An empty binding ("") removes the key entirely: nothing triggers that',
+    '# action until you give it a key again or delete the line.',
     '[keymaps]'
   ]
 
   for (const [key, value] of Object.entries(overrides)) {
-    lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
+    const line = `${tomlKey(key)} = ${tomlValue(value)}`
+    lines.push(value === '' ? `${line}  # unbound` : line)
   }
 
   lines.push('', '# --- All actions (defaults shown; uncomment + edit to override) ---')

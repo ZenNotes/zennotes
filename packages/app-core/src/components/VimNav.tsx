@@ -35,6 +35,7 @@ import {
   getSequenceTokens,
   matchesSequenceToken,
   matchesShortcutBinding,
+  UNBOUND_BINDING,
   sequenceTokenFromEvent
 } from '../lib/keymaps'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
@@ -375,7 +376,8 @@ export function VimNav(): JSX.Element | null {
       })
     }
     return items
-  })()
+    // An unbound leader action has no key to press, so it leaves the hints.
+  })().filter((item) => !!item.keyLabel)
 
   useEffect(() => {
     if (vimMode) return
@@ -397,8 +399,12 @@ export function VimNav(): JSX.Element | null {
     const handler = (e: KeyboardEvent): void => {
       const state = useStore.getState()
       const overrides = state.keymapOverrides
-      const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? 'Space'
-      const panePrefixToken = getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? 'Ctrl+W'
+      // An unbound prefix has no token. The empty string never equals a token
+      // read off an event, so every comparison below stays false instead of
+      // quietly reviving the shipped default.
+      const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? UNBOUND_BINDING
+      const panePrefixToken =
+        getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? UNBOUND_BINDING
 
       // Skip when modals / overlays are open
       if (
@@ -1308,7 +1314,8 @@ export function VimNav(): JSX.Element | null {
     const onKeyUp = (e: KeyboardEvent): void => {
       if (excalidrawSpaceDownAt.current == null) return
       const leaderToken =
-        getSequenceTokens(useStore.getState().keymapOverrides, 'vim.leaderPrefix')[0] ?? 'Space'
+        getSequenceTokens(useStore.getState().keymapOverrides, 'vim.leaderPrefix')[0] ??
+        UNBOUND_BINDING
       if (sequenceTokenFromEvent(e) !== leaderToken) return
       const downAt = excalidrawSpaceDownAt.current
       excalidrawSpaceDownAt.current = null

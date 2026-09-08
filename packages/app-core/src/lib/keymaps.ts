@@ -128,6 +128,33 @@ export type KeymapId =
 
 export type KeymapOverrides = Partial<Record<KeymapId, string>>;
 
+/**
+ * The stored form of "this action has no key". An override equal to the empty
+ * string means the user removed the binding on purpose: nothing fires the
+ * action until it is rebound or reset, the which-key hints and the manual
+ * stop advertising it, and it never collides with anything. It is distinct
+ * from a missing override (the default applies) and from a recording that
+ * has not captured a key yet. TOML has no null, so config.toml carries it
+ * as `"action.id" = ""`.
+ */
+export const UNBOUND_BINDING = "";
+
+/** What the UI calls an unbound action wherever a key would otherwise show. */
+export const UNBOUND_LABEL = "Unbound";
+
+export function isUnboundBinding(
+  binding: string | null | undefined,
+): binding is typeof UNBOUND_BINDING {
+  return binding === UNBOUND_BINDING;
+}
+
+export function isKeymapUnbound(
+  overrides: KeymapOverrides | null | undefined,
+  id: KeymapId,
+): boolean {
+  return isUnboundBinding(overrides?.[id]);
+}
+
 export interface KeymapDefinition {
   id: KeymapId;
   kind: KeymapKind;
@@ -1333,7 +1360,9 @@ export function getKeymapBinding(
   id: KeymapId,
 ): string {
   const override = overrides?.[id];
-  return override || getDefaultKeymapBinding(id);
+  // A string override wins even when it is empty: that is an unbound action,
+  // not a missing override, and must not fall back to the default.
+  return typeof override === "string" ? override : getDefaultKeymapBinding(id);
 }
 
 export function getSequenceTokens(
@@ -1633,6 +1662,12 @@ export function normalizeKeymapOverrides(input: unknown): KeymapOverrides {
   for (const definition of KEYMAP_DEFINITIONS) {
     const raw = (input as Record<string, unknown>)[definition.id];
     if (typeof raw !== "string") continue;
+    // An empty (or blank) value is a deliberate unbind and survives as such;
+    // it is not a broken binding to be dropped in favor of the default.
+    if (raw.trim() === UNBOUND_BINDING) {
+      overrides[definition.id] = UNBOUND_BINDING;
+      continue;
+    }
     const normalized = normalizeKeymapBinding(definition.id, raw);
     // The platform's default, not the cross-platform one: a definition with a
     // `defaultBindingMac` has two defaults, and comparing against the wrong one
@@ -1709,6 +1744,7 @@ export function matchesShortcutBinding(
   event: KeyboardEvent,
   binding: string,
 ): boolean {
+  if (isUnboundBinding(binding)) return false;
   const normalized = shortcutBindingFromEvent(event);
   if (!!normalized && normalized === binding) return true;
   // Layouts with shifted digits (French AZERTY, Czech) type punctuation on
@@ -1749,6 +1785,7 @@ export function eventMatchesUserOverride(
   if (!overrides) return false;
   for (const [id, binding] of Object.entries(overrides)) {
     if (id === excludeId || typeof binding !== "string") continue;
+    if (isUnboundBinding(binding)) continue;
     const definition = KEYMAP_INDEX.get(id as KeymapId);
     if (!definition || definition.kind !== "shortcut") continue;
     if (definition.scope !== "app") continue;
@@ -1803,12 +1840,21 @@ export function formatKeymapBinding(binding: string, kind: KeymapKind): string {
     .join(" ");
 }
 
+/** The binding as the UI shows it, or the empty string for an unbound
+ *  action so a caller can leave the key column, chip or tooltip out
+ *  entirely. Surfaces that want a word instead use `UNBOUND_LABEL`. */
 export function getKeymapDisplay(
   overrides: KeymapOverrides | null | undefined,
   id: KeymapId,
 ): string {
   const definition = getKeymapDefinition(id);
   return formatKeymapBinding(getKeymapBinding(overrides, id), definition.kind);
+}
+
+/** `label (display)` while the action has a key, the bare label once it is
+ *  unbound: a tooltip must not read "Go back ()". */
+export function labelWithShortcut(label: string, display: string): string {
+  return display ? `${label} (${display})` : label;
 }
 
 export function describeCurrentBinding(

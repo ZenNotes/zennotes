@@ -1,7 +1,12 @@
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
-import { getKeymapDisplay, type KeymapId, type KeymapOverrides } from '../lib/keymaps'
+import {
+  getKeymapDisplay,
+  UNBOUND_LABEL,
+  type KeymapId,
+  type KeymapOverrides
+} from '../lib/keymaps'
 import {
   HELP_CLI,
   HELP_CORE_CONCEPTS,
@@ -26,16 +31,29 @@ interface CommandGroup {
   commands: Command[]
 }
 
+// The manual names an unbound action as such where the palette leaves the
+// key out: someone looking up "how do I open the outline" should learn that
+// the key was removed, not meet an empty cell.
 function shortcut(overrides: KeymapOverrides, id: KeymapId): string {
-  return getKeymapDisplay(overrides, id)
+  return getKeymapDisplay(overrides, id) || UNBOUND_LABEL
+}
+
+/** The steps of one chord; a single unbound step makes the chord unbound. */
+function chord(...steps: string[]): string {
+  return steps.includes(UNBOUND_LABEL) ? UNBOUND_LABEL : steps.join(' ')
+}
+
+/** Alternatives shown side by side; the unbound ones drop out. */
+function alternatives(keys: string[]): string {
+  return keys.filter((key) => key !== UNBOUND_LABEL).join(' / ') || UNBOUND_LABEL
 }
 
 function leaderShortcut(overrides: KeymapOverrides, id: KeymapId): string {
-  return `${shortcut(overrides, 'vim.leaderPrefix')} ${shortcut(overrides, id)}`
+  return chord(shortcut(overrides, 'vim.leaderPrefix'), shortcut(overrides, id))
 }
 
 function paneShortcut(overrides: KeymapOverrides, id: KeymapId): string {
-  return `${shortcut(overrides, 'vim.panePrefix')} ${shortcut(overrides, id)}`
+  return chord(shortcut(overrides, 'vim.panePrefix'), shortcut(overrides, id))
 }
 
 function resolveShortcutKeys(
@@ -62,19 +80,22 @@ function resolveShortcutKeys(
 
   if (sectionId === 'panel-motion') {
     if (action === 'Move focus') {
-      return [
+      return alternatives([
         paneShortcut(overrides, 'vim.paneFocusLeft'),
         paneShortcut(overrides, 'vim.paneFocusDown'),
         paneShortcut(overrides, 'vim.paneFocusUp'),
         paneShortcut(overrides, 'vim.paneFocusRight')
-      ].join(' / ')
+      ])
     }
     if (action === 'Split right') return paneShortcut(overrides, 'vim.paneSplitRight')
     if (action === 'Split down') return paneShortcut(overrides, 'vim.paneSplitDown')
     if (action === 'Open buffers') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
     if (action === 'Search notes') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
     if (action === 'Search vault text') {
-      return `${leaderShortcut(overrides, 'vim.leaderSearchGroup')} ${shortcut(overrides, 'vim.leaderSearchVaultText')}`
+      return chord(
+        leaderShortcut(overrides, 'vim.leaderSearchGroup'),
+        shortcut(overrides, 'vim.leaderSearchVaultText')
+      )
     }
     if (action === 'Toggle left sidebar') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
     if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
@@ -83,13 +104,16 @@ function resolveShortcutKeys(
     if (action === 'Review Cloud conflicts') {
       return leaderShortcut(overrides, 'vim.leaderCloudConflicts')
     }
-    if (action === 'Show leader hints') return `${shortcut(overrides, 'vim.leaderPrefix')}, then pause`
+    if (action === 'Show leader hints') {
+      const leader = shortcut(overrides, 'vim.leaderPrefix')
+      return leader === UNBOUND_LABEL ? leader : `${leader}, then pause`
+    }
     if (action === 'Toggle outline panel') return shortcut(overrides, 'global.toggleOutlinePanel')
     if (action === 'Fold / unfold heading') {
-      return `${shortcut(overrides, 'vim.foldCurrent')} / ${shortcut(overrides, 'vim.unfoldCurrent')}`
+      return alternatives([shortcut(overrides, 'vim.foldCurrent'), shortcut(overrides, 'vim.unfoldCurrent')])
     }
     if (action === 'Fold / unfold all') {
-      return `${shortcut(overrides, 'vim.foldAll')} / ${shortcut(overrides, 'vim.unfoldAll')}`
+      return alternatives([shortcut(overrides, 'vim.foldAll'), shortcut(overrides, 'vim.unfoldAll')])
     }
     if (action === 'Go back') return shortcut(overrides, 'vim.historyBack')
     if (action === 'Go forward') return shortcut(overrides, 'vim.historyForward')
@@ -98,12 +122,12 @@ function resolveShortcutKeys(
 
   if (sectionId === 'lists-and-sidebar') {
     if (action === 'Move selection') {
-      return `${shortcut(overrides, 'nav.moveDown')} / ${shortcut(overrides, 'nav.moveUp')}`
+      return alternatives([shortcut(overrides, 'nav.moveDown'), shortcut(overrides, 'nav.moveUp')])
     }
     if (action === 'Jump to top or bottom') {
-      return `${shortcut(overrides, 'nav.jumpTop')} / ${shortcut(overrides, 'nav.jumpBottom')}`
+      return alternatives([shortcut(overrides, 'nav.jumpTop'), shortcut(overrides, 'nav.jumpBottom')])
     }
-    if (action === 'Open item') return `Enter / ${shortcut(overrides, 'nav.openSideItem')}`
+    if (action === 'Open item') return alternatives(['Enter', shortcut(overrides, 'nav.openSideItem')])
     if (action === 'Collapse or move left') return shortcut(overrides, 'nav.back')
     if (action === 'Toggle folder') return shortcut(overrides, 'nav.toggleFolder')
     if (action === 'Search notes') return shortcut(overrides, 'nav.filter')
@@ -112,17 +136,17 @@ function resolveShortcutKeys(
 
   if (sectionId === 'preview-and-connections') {
     if (action === 'Scroll preview') {
-      return `${shortcut(overrides, 'nav.moveDown')} / ${shortcut(overrides, 'nav.moveUp')}`
+      return alternatives([shortcut(overrides, 'nav.moveDown'), shortcut(overrides, 'nav.moveUp')])
     }
     if (action === 'Half-page scroll') {
-      return `${shortcut(overrides, 'nav.halfPageDown')} / ${shortcut(overrides, 'nav.halfPageUp')}`
+      return alternatives([shortcut(overrides, 'nav.halfPageDown'), shortcut(overrides, 'nav.halfPageUp')])
     }
     if (action === 'Jump to top or bottom') {
-      return `${shortcut(overrides, 'nav.jumpTop')} / ${shortcut(overrides, 'nav.jumpBottom')}`
+      return alternatives([shortcut(overrides, 'nav.jumpTop'), shortcut(overrides, 'nav.jumpBottom')])
     }
     if (action === 'Search notes') return shortcut(overrides, 'nav.filter')
     if (action === 'Peek backlink') return shortcut(overrides, 'nav.peekPreview')
-    if (action === 'Back out') return `${shortcut(overrides, 'nav.back')} / Esc`
+    if (action === 'Back out') return alternatives([shortcut(overrides, 'nav.back'), 'Esc'])
   }
 
   return null
@@ -131,15 +155,22 @@ function resolveShortcutKeys(
 function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): string {
   if (command === 'gd') return shortcut(overrides, 'vim.goToDefinition')
   if (command === '<Space> l f') {
-    return `${leaderShortcut(overrides, 'vim.leaderNoteActions')} ${shortcut(overrides, 'vim.leaderFormatNote')}`
+    return chord(
+      leaderShortcut(overrides, 'vim.leaderNoteActions'),
+      shortcut(overrides, 'vim.leaderFormatNote')
+    )
   }
   if (command === '<Space> (pause)') {
-    return `${shortcut(overrides, 'vim.leaderPrefix')} (pause)`
+    const leader = shortcut(overrides, 'vim.leaderPrefix')
+    return leader === UNBOUND_LABEL ? leader : `${leader} (pause)`
   }
   if (command === '<Space> o') return leaderShortcut(overrides, 'vim.leaderOpenBuffers')
   if (command === '<Space> f') return leaderShortcut(overrides, 'vim.leaderSearchNotes')
   if (command === '<Space> s t') {
-    return `${leaderShortcut(overrides, 'vim.leaderSearchGroup')} ${shortcut(overrides, 'vim.leaderSearchVaultText')}`
+    return chord(
+      leaderShortcut(overrides, 'vim.leaderSearchGroup'),
+      shortcut(overrides, 'vim.leaderSearchVaultText')
+    )
   }
   if (command === '<Space> e') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
   if (command === '<Space> p') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
@@ -576,12 +607,20 @@ export function HelpView(): JSX.Element {
                     <CalloutCard
                       icon={<CheckSquareIcon width={16} height={16} className="text-accent" />}
                       title="Tasks and Tags have local ex prompts"
-                      body={`Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`}
+                      body={
+                        shortcut(keymapOverrides, 'nav.localEx') === UNBOUND_LABEL
+                          ? 'Inside Tasks or Tags, the local command line (nav.localEx) has no key right now; give it one under Settings, Keymaps to reach view-specific actions like close, split, refresh, and retagging.'
+                          : `Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`
+                      }
                     />
                     <CalloutCard
                       icon={<TagIcon width={16} height={16} className="text-accent" />}
                       title="Link following is context-aware"
-                      body={`\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`}
+                      body={
+                        shortcut(keymapOverrides, 'vim.goToDefinition') === UNBOUND_LABEL
+                          ? 'Following the link at the cursor (vim.goToDefinition) has no key right now; give it one under Settings, Keymaps. It opens existing notes, external links, or PDFs, and missing wikilinks can create new notes directly from the ex-aware workflow.'
+                          : `\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`
+                      }
                     />
                   </div>
                 </div>

@@ -7234,8 +7234,10 @@ export const useStore = create<Store>((set, get) => {
   setKeymapBinding: (id, binding) => {
     set((s) => {
       const nextOverrides = { ...s.keymapOverrides }
-      if (binding) nextOverrides[id] = binding
-      else delete nextOverrides[id]
+      // null clears the override so the default returns; the empty string is
+      // a stored unbind and has to stay.
+      if (binding === null) delete nextOverrides[id]
+      else nextOverrides[id] = binding
       return { keymapOverrides: nextOverrides }
     })
     savePrefs(collectPrefs(get()))

@@ -63,10 +63,15 @@ import { focusPaneInDirection, focusPaneOrEdgePanel } from "../lib/pane-nav";
 import { requestPaneMode } from "../lib/pane-mode";
 import {
   getKeymapBinding,
+  getKeymapDefinitions,
+  getKeymapDisplay,
   getSequenceTokens,
+  UNBOUND_BINDING,
   type KeymapId,
   type KeymapOverrides,
 } from "../lib/keymaps";
+import { requestSettingsTarget } from "../lib/settings-navigation";
+import { useToastStore } from "../lib/toast";
 import {
   navigateActiveBuffer,
   selectActiveBuffer,
@@ -557,6 +562,39 @@ function registerVimCommands(): void {
       if (arg === "on") state.setHarperEnabled(true);
       else if (arg === "off") state.setHarperEnabled(false);
       else state.setHarperEnabled(!state.harperEnabled);
+    },
+  );
+  // `:unbind <action.id>` removes an action's key entirely, the ex twin of
+  // the Unbind button under Settings, Keymaps. Without an argument, or with
+  // an id the catalog does not know, it opens that page, where every id is
+  // listed, instead of guessing.
+  Vim.defineEx(
+    "unbind",
+    "unbind",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const arg = (params?.argString ?? "").trim();
+      const state = useStore.getState();
+      const definition = getKeymapDefinitions().find((d) => d.id === arg);
+      if (!definition) {
+        if (arg) {
+          useToastStore
+            .getState()
+            .addToast(`No keymap action is called "${arg}"`, "info");
+        }
+        requestSettingsTarget("keymaps");
+        state.setSettingsOpen(true);
+        return;
+      }
+      const before = getKeymapDisplay(state.keymapOverrides, definition.id);
+      state.setKeymapBinding(definition.id, UNBOUND_BINDING);
+      useToastStore
+        .getState()
+        .addToast(
+          before
+            ? `Unbound ${definition.title} (was ${before})`
+            : `${definition.title} is already unbound`,
+          "success",
+        );
     },
   );
   Vim.defineEx("quit", "q", () => {
@@ -1174,6 +1212,7 @@ const MANUAL_EX_NAMES = new Set([
   "q",
   "wq",
   "format",
+  "unbind",
   "tasks",
   "tag",
   "template",

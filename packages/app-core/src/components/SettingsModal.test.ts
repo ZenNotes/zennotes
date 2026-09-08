@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => {
       hiddenWorkflowPresets: [],
       hideBuiltinTemplates: false,
       interfaceFont: null,
-      keymapOverrides: {},
+      keymapOverrides: {} as Record<string, string>,
       lineNumberMode: "off",
       monoFont: null,
       previewMaxWidth: 760,
@@ -60,6 +60,7 @@ const mocks = vi.hoisted(() => {
       vimMode: false,
       vimWrappedLineMotions: "logical",
       setVimWrappedLineMotions: vi.fn(),
+      setKeymapBinding: vi.fn(),
       whichKeyHintMode: "timed",
       whichKeyHintTimeoutMs: 1200,
       whichKeyHints: true,
@@ -132,6 +133,7 @@ describe("SettingsModal date note directories", () => {
     vi.clearAllMocks();
     mocks.state.vimMode = false;
     mocks.state.vimWrappedLineMotions = "logical";
+    mocks.state.keymapOverrides = {};
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -300,5 +302,58 @@ describe("SettingsModal date note directories", () => {
 
     expect(host.textContent).toContain("Keep your vault available everywhere");
     expect(host.textContent).toContain("Connect ZenNotes Cloud");
+  });
+  async function openKeymapRow(title: string): Promise<HTMLElement> {
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+    const keymapButton = [
+      ...host.querySelectorAll<HTMLButtonElement>("button"),
+    ].find((button) => button.textContent?.trim() === "Keymap");
+    expect(keymapButton).toBeTruthy();
+    await act(async () => keymapButton!.click());
+    const filter = host.querySelector<HTMLInputElement>(
+      'input[placeholder="Filter keymaps…"]',
+    );
+    expect(filter).toBeTruthy();
+    await act(async () => changeInput(filter!, title));
+    const label = [...host.querySelectorAll<HTMLSpanElement>("span")].find(
+      (span) => span.textContent === title,
+    );
+    expect(label).toBeTruthy();
+    const row = label!.closest<HTMLElement>(".justify-between");
+    expect(row).toBeTruthy();
+    return row!;
+  }
+
+  function rowButton(row: HTMLElement, text: string): HTMLButtonElement {
+    const button = [...row.querySelectorAll<HTMLButtonElement>("button")].find(
+      (candidate) => candidate.textContent?.trim() === text,
+    );
+    expect(button, `${text} button`).toBeTruthy();
+    return button!;
+  }
+
+  it("unbinds a keymap from its row with an empty-string override", async () => {
+    const row = await openKeymapRow("Zoom in");
+    const unbind = rowButton(row, "Unbind");
+    expect(unbind.disabled).toBe(false);
+    await act(async () => unbind.click());
+    expect(mocks.state.setKeymapBinding).toHaveBeenCalledWith(
+      "global.zoomIn",
+      "",
+    );
+  });
+
+  it("shows an unbound keymap as Unbound and only offers Reset or Change", async () => {
+    mocks.state.keymapOverrides = { "global.zoomIn": "" };
+    const row = await openKeymapRow("Zoom in");
+    expect(row.textContent).toContain("Unbound");
+    expect(rowButton(row, "Unbind").disabled).toBe(true);
+    expect(rowButton(row, "Reset").disabled).toBe(false);
+
+    await act(async () => rowButton(row, "Change…").click());
+    const recorder = document.body.textContent ?? "";
+    expect(recorder).toContain("Current: Unbound");
   });
 });

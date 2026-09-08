@@ -281,3 +281,17 @@ describe('file watching', () => {
     expect(changes.at(-1)?.editorFontSize).toBe(22)
   }, 10000)
 })
+
+describe('unbound keymaps in config.toml', () => {
+  it('writes an unbind as an empty binding, marks it, and reads it back as ""', () => {
+    const text = serializeConfig({ keymapOverrides: { 'global.zoomIn': '' } })
+    expect(text).toContain('"global.zoomIn" = ""  # unbound')
+    // The reference list explains the convention and no longer repeats the
+    // overridden action as a commented default.
+    expect(text).toContain('# An empty binding ("") removes the key entirely')
+    expect(text).not.toContain('# "global.zoomIn" = "Mod+="')
+
+    const { portable } = deserializeConfig(text)
+    expect(portable.keymapOverrides).toEqual({ 'global.zoomIn': '' })
+  })
+})
