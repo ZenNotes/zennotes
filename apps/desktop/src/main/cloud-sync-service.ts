@@ -66,6 +66,7 @@ export interface DesktopCloudSyncServiceDependencies {
   createClient(baseUrl: string, token: string): SyncClient
   fetchImplementation?: typeof fetch
   now?: () => Date
+  withWindowSync?(root: string, run: () => Promise<CloudSyncRunSummary>): Promise<CloudSyncRunSummary>
 }
 
 /** Main-process orchestration for linking one local vault to one cloud vault. */
@@ -295,7 +296,8 @@ export class DesktopCloudSyncService {
     const existing = this.runs.get(runKey)
     if (existing) return existing
 
-    const running = this.exclusive(runKey, () => this.run(localRoot)).finally(() => {
+    const run = () => this.exclusive(runKey, () => this.run(localRoot))
+    const running = (this.dependencies.withWindowSync?.(runKey, run) ?? run()).finally(() => {
       this.runs.delete(runKey)
     })
     this.runs.set(runKey, running)

@@ -10,7 +10,7 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CloudServiceRequestError } from './cloud-sync-client'
-import { DesktopCloudSyncService } from './cloud-sync-service'
+import { DesktopCloudSyncService, type DesktopCloudSyncServiceDependencies } from './cloud-sync-service'
 
 const temporaryDirectories: string[] = []
 
@@ -25,7 +25,8 @@ afterEach(async () => {
 async function setup(
   vaults: CloudSyncVault[] = [],
   fetchImplementation?: typeof fetch,
-  accountStatus?: () => Promise<CloudAccountStatus>
+  accountStatus?: () => Promise<CloudAccountStatus>,
+  withWindowSync?: DesktopCloudSyncServiceDependencies['withWindowSync']
 ) {
   const localRoot = await mkdtemp(path.join(os.tmpdir(), 'zennotes-local-vault-'))
   const storageDirectory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-cloud-state-'))
@@ -189,12 +190,43 @@ async function setup(
     getSecret: async () => 'secret-token',
     createClient: () => client,
     fetchImplementation,
+    withWindowSync,
     now: () => new Date('2026-08-10T12:00:00.000Z')
   })
   return { service, client, localRoot }
 }
 
 describe('DesktopCloudSyncService', () => {
+  it('prepares windows before taking the vault lock and coalesces preparation', async () => {
+    let prepared!: () => void
+    const gate = new Promise<void>((resolve) => { prepared = resolve })
+    let prepareWork = async (): Promise<void> => {}
+    const prepare = vi.fn<NonNullable<DesktopCloudSyncServiceDependencies['withWindowSync']>>(async (_root, run) => {
+      await gate
+      await prepareWork()
+      return await run()
+    })
+    const vault: CloudSyncVault = {
+      id: 'vault-1', name: 'Notes', cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z', updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([vault], undefined, undefined, prepare)
+    await service.link(localRoot, vault.id)
+    // getConflict uses the same exclusive queue as saveConflictDraft. If the
+    // sync takes that lock first, this awaited read would deadlock.
+    prepareWork = async () => {
+      await expect(service.getConflict(localRoot, 'not-pending')).rejects.toThrow()
+    }
+    const first = service.sync(localRoot)
+    const second = service.sync(localRoot)
+    expect(first).toBe(second)
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(client.manifest).not.toHaveBeenCalled()
+    prepared()
+    await Promise.all([first, second])
+    expect(client.manifest).toHaveBeenCalledOnce()
+  })
+
   // Settings differ between devices, so sync asks instead of picking. Doing
   // nothing keeps this device's settings, which are already in use.
   it('answers the settings question either way', async () => {

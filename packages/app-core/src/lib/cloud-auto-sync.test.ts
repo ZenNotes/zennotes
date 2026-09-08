@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   CloudAccountStatus,
   CloudSyncRunSummary,
+  CloudSyncWindowHandlers,
 } from "@zennotes/bridge-contract/cloud-sync";
 import type { VaultChangeEvent } from "@shared/ipc";
 import {
@@ -10,6 +11,7 @@ import {
   closeCloudConflictReview,
   connectCloudAccountFromStatusBar,
   openCloudConflictReview,
+  registerCloudConflictDraftFlusher,
   startCloudAutoSync,
   syncCloudVaultWithStatus,
   type CloudAutoSyncBridge,
@@ -152,6 +154,61 @@ describe("cloud auto sync host wiring", () => {
     vi.useRealTimers();
   });
 
+  it("flushes and locks a sibling window review, then closes it from the host's matching result", async () => {
+    const host = setup();
+    let handlers!: CloudSyncWindowHandlers;
+    const unsubscribe = vi.fn();
+    const runtime = startCloudAutoSync({
+      ...host.bridge,
+      onCloudSyncWindow(next) { handlers = next; return unsubscribe; },
+    }, host.environment);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    let saved!: () => void;
+    const unregister = registerCloudConflictDraftFlusher(
+      () => new Promise<void>((resolve) => { saved = resolve; }),
+    );
+    try {
+      useCloudSyncStatusStore.setState({ conflictReviewOpen: true });
+      let prepared = false;
+      const preparation = handlers.prepare().then(() => { prepared = true; });
+      expect(useCloudSyncStatusStore.getState().syncWindowLocked).toBe(true);
+      await flushPromises();
+      expect(prepared).toBe(false);
+      saved();
+      await preparation;
+      expect(useCloudSyncStatusStore.getState().syncWindowLocked).toBe(true);
+      const summary = await host.syncCloudVault();
+      handlers.finished(summary, null);
+      expect(useCloudSyncStatusStore.getState()).toMatchObject({
+        syncWindowLocked: false, phase: "ready", conflictReviewOpen: false,
+        lastSummary: summary,
+      });
+    } finally { unregister(); runtime.stop(); }
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it("unlocks a failed sibling sync without dismissing the review", async () => {
+    const host = setup();
+    let handlers!: CloudSyncWindowHandlers;
+    const runtime = startCloudAutoSync({
+      ...host.bridge,
+      onCloudSyncWindow(next) { handlers = next; return () => {}; },
+    }, host.environment);
+    const unregister = registerCloudConflictDraftFlusher(async () => {
+      throw new Error("Draft save failed");
+    });
+    try {
+      useCloudSyncStatusStore.setState({ conflictReviewOpen: true });
+      await expect(handlers.prepare()).rejects.toThrow("Draft save failed");
+      expect(useCloudSyncStatusStore.getState().syncWindowLocked).toBe(true);
+      handlers.finished(null, "Draft save failed");
+      expect(useCloudSyncStatusStore.getState()).toMatchObject({
+        syncWindowLocked: false, phase: "error", conflictReviewOpen: true,
+      });
+    } finally { unregister(); runtime.stop(); }
+  });
+
   it("syncs at startup and debounces syncable vault changes", async () => {
     const host = setup();
     const runtime = startCloudAutoSync(host.bridge, host.environment, {
@@ -230,6 +287,46 @@ describe("cloud auto sync host wiring", () => {
       error: null,
     });
     expect(useCloudSyncStatusStore.getState().lastSyncedAt).not.toBeNull();
+  });
+
+  it("persists a pending review draft before syncing can clear a converged conflict", async () => {
+    const host = setup();
+    let finishSave!: () => void;
+    const flush = vi.fn(
+      () => new Promise<void>((resolve) => { finishSave = resolve; }),
+    );
+    const unregister = registerCloudConflictDraftFlusher(flush);
+    try {
+      const run = syncCloudVaultWithStatus(host.bridge);
+      expect(flush).toHaveBeenCalledOnce();
+      expect(useCloudSyncStatusStore.getState().phase).toBe("syncing");
+      expect(host.syncCloudVault).not.toHaveBeenCalled();
+      finishSave();
+      await run;
+      expect(host.syncCloudVault).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not run sync or close the review if saving its draft fails", async () => {
+    const host = setup();
+    useCloudSyncStatusStore.setState({ conflictReviewOpen: true });
+    const unregister = registerCloudConflictDraftFlusher(async () => {
+      throw new Error("Draft could not be saved");
+    });
+    try {
+      await expect(syncCloudVaultWithStatus(host.bridge)).rejects.toThrow(
+        "Draft could not be saved",
+      );
+      expect(host.syncCloudVault).not.toHaveBeenCalled();
+      expect(useCloudSyncStatusStore.getState()).toMatchObject({
+        phase: "error",
+        conflictReviewOpen: true,
+      });
+    } finally {
+      unregister();
+    }
   });
 
   it("does not report a quota-conflicted sync as successful", async () => {

@@ -17,6 +17,7 @@ export type CloudAutoSyncBridge = Pick<
   | "logoutCloudAccount"
   | "getCloudVaultLink"
   | "syncCloudVault"
+  | "onCloudSyncWindow"
   | "onVaultChange"
   | "onCloudAccountChange"
 >;
@@ -55,6 +56,8 @@ interface CloudSyncStatusStore {
    *  status bar, so the command palette and the vim leader open the same
    *  queue the status bar's Review now opens. */
   conflictReviewOpen: boolean;
+  /** Remains locked even if this window's own controller refreshes its status. */
+  syncWindowLocked: boolean;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -64,6 +67,7 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   error: null,
   lastSummary: null,
   conflictReviewOpen: false,
+  syncWindowLocked: false,
 };
 
 export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
@@ -86,6 +90,17 @@ type CloudAutoSyncTimings = Pick<
 >;
 
 let installedRuntime: CloudAutoSyncRuntime | null = null;
+const conflictDraftFlushers = new Set<() => Promise<void>>();
+
+/** A review's edits must reach durable storage before sync can retire it. */
+export function registerCloudConflictDraftFlusher(
+  flush: () => Promise<void>,
+): () => void {
+  conflictDraftFlushers.add(flush);
+  return () => {
+    conflictDraftFlushers.delete(flush);
+  };
+}
 
 export function startCloudAutoSync(
   bridge: CloudAutoSyncBridge,
@@ -141,6 +156,17 @@ export function startCloudAutoSync(
   const unsubscribeVault = bridge.onVaultChange((event) => {
     if (isSyncableVaultChange(event)) controller.request("local-change");
   });
+  const unsubscribeSyncWindow = bridge.onCloudSyncWindow?.({
+    async prepare() {
+      useCloudSyncStatusStore.setState({ syncWindowLocked: true });
+      await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
+    },
+    finished(summary, error) {
+      if (summary) applyCloudSyncSummary(summary);
+      else if (error) useCloudSyncStatusStore.setState({ phase: "error", error });
+      useCloudSyncStatusStore.setState({ syncWindowLocked: false });
+    },
+  });
   const unsubscribeAccount = bridge.onCloudAccountChange((status) => {
     if (status.state === "connecting") markCloudSyncConnecting();
     if (status.state === "disconnected") markCloudSyncDisconnected();
@@ -160,6 +186,7 @@ export function startCloudAutoSync(
     stop() {
       controller.stop();
       unsubscribeVault();
+      unsubscribeSyncWindow?.();
       unsubscribeAccount();
       unsubscribeOnline();
       unsubscribeForeground();
@@ -200,31 +227,11 @@ export async function syncCloudVaultWithStatus(
   });
 
   try {
-    const summary = await bridge.syncCloudVault();
-    const attention = cloudSyncAttentionMessage(summary);
-    // An open queue stays open only while it still has something to decide;
-    // otherwise the flag would reopen it on the next unrelated conflict.
-    const conflictReviewOpen =
-      current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0;
-    if (attention !== null) {
-      useCloudSyncStatusStore.setState({
-        phase: "attention",
-        vaultName: nextVaultName,
-        lastSyncedAt: current.lastSyncedAt,
-        error: attention,
-        lastSummary: summary,
-        conflictReviewOpen,
-      });
-      return summary;
+    if (conflictDraftFlushers.size > 0) {
+      await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
     }
-    useCloudSyncStatusStore.setState({
-      phase: "ready",
-      vaultName: nextVaultName,
-      lastSyncedAt: Date.now(),
-      error: null,
-      lastSummary: summary,
-      conflictReviewOpen,
-    });
+    const summary = await bridge.syncCloudVault();
+    applyCloudSyncSummary(summary, nextVaultName);
     return summary;
   } catch (error) {
     useCloudSyncStatusStore.setState({
@@ -234,6 +241,20 @@ export async function syncCloudVaultWithStatus(
     });
     throw error;
   }
+}
+
+function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string | null): void {
+  const current = useCloudSyncStatusStore.getState();
+  const attention = cloudSyncAttentionMessage(summary);
+  useCloudSyncStatusStore.setState({
+    phase: attention === null ? "ready" : "attention",
+    vaultName: vaultName ?? current.vaultName,
+    lastSyncedAt: attention === null ? Date.now() : current.lastSyncedAt,
+    error: attention,
+    lastSummary: summary,
+    // Do not reopen a finished review on the next unrelated conflict.
+    conflictReviewOpen: current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0,
+  });
 }
 
 /** Conflicts the queue can actually resolve. Bootstrap conflicts are no longer

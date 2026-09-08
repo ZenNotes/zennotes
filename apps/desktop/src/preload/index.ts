@@ -28,6 +28,8 @@ import type {
   CloudSyncPendingConflictDetails,
   CloudSyncPendingConflictResolution,
   CloudSyncRunSummary,
+  CloudSyncWindowEvent,
+  CloudSyncWindowHandlers,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
   CloudSyncVault,
@@ -256,6 +258,29 @@ const api: ZenBridge = {
   unlinkCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_DELETE),
   deleteCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_DELETE),
   syncCloudVault: (): Promise<CloudSyncRunSummary> => ipcRenderer.invoke(IPC.CLOUD_VAULT_SYNC),
+  onCloudSyncWindow: (handlers: CloudSyncWindowHandlers): (() => void) => {
+    const active = new Set<string>()
+    const listener = (_event: Electron.IpcRendererEvent, event: CloudSyncWindowEvent): void => {
+      if (event.phase === 'finished') {
+        if (active.delete(event.requestId)) handlers.finished(event.summary, event.error)
+        return
+      }
+      active.add(event.requestId)
+      void Promise.resolve().then(() => handlers.prepare()).then(
+        () => ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, event.requestId, null),
+        () => ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, event.requestId,
+          'A review draft could not be saved in another window. Sync paused; try again.')
+      )
+    }
+    ipcRenderer.on(IPC.CLOUD_VAULT_SYNC_WINDOW, listener)
+    return () => {
+      for (const requestId of active) {
+        ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, requestId, 'The vault window changed during sync preparation.')
+      }
+      active.clear()
+      ipcRenderer.removeListener(IPC.CLOUD_VAULT_SYNC_WINDOW, listener)
+    }
+  },
   getCloudBootstrapConflict: (
     conflict: CloudSyncBootstrapConflict
   ): Promise<CloudSyncBootstrapConflictDetails> =>
@@ -264,8 +289,10 @@ const api: ZenBridge = {
     resolution: CloudSyncBootstrapConflictResolution
   ): Promise<void> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE, resolution),
-  getCloudConflict: (conflictId: string): Promise<CloudSyncPendingConflictDetails> =>
-    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_GET, conflictId),
+  getCloudConflict: (conflictId: string, reviewId?: string): Promise<CloudSyncPendingConflictDetails> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_GET, conflictId, reviewId),
+  releaseCloudConflictReview: (conflictId: string, reviewId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_REVIEW_RELEASE, conflictId, reviewId),
   saveCloudConflictDraft: (conflictId: string, draftText: string | null): Promise<void> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE, conflictId, draftText),
   resolveCloudConflict: (resolution: CloudSyncPendingConflictResolution): Promise<void> =>

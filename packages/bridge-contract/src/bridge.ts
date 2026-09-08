@@ -155,11 +155,14 @@ export interface ZenBridge {
   unlinkCloudVault(): Promise<void>
   deleteCloudVault(): Promise<void>
   syncCloudVault(): Promise<CloudSyncRunSummary>
+  /** Hosts with multiple workspace windows coordinate draft saves before sync. */
+  onCloudSyncWindow?(handlers: import('./cloud-sync').CloudSyncWindowHandlers): () => void
   getCloudBootstrapConflict(
     conflict: CloudSyncBootstrapConflict
   ): Promise<CloudSyncBootstrapConflictDetails>
   resolveCloudBootstrapConflict(resolution: CloudSyncBootstrapConflictResolution): Promise<void>
-  getCloudConflict(conflictId: string): Promise<CloudSyncPendingConflictDetails>
+  getCloudConflict(conflictId: string, reviewId?: string): Promise<CloudSyncPendingConflictDetails>
+  releaseCloudConflictReview?(conflictId: string, reviewId: string): Promise<void>
   saveCloudConflictDraft(conflictId: string, draftText: string | null): Promise<void>
   resolveCloudConflict(resolution: CloudSyncPendingConflictResolution): Promise<void>
   getCloudSettingsConflict(): Promise<CloudSyncSettingsConflict | null>

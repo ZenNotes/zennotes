@@ -9,9 +9,15 @@ import type {
   CloudSyncRunSummary,
 } from "@zennotes/bridge-contract/cloud-sync";
 import { CloudPendingConflictResolver } from "./CloudPendingConflictResolver";
+import {
+  clearCloudSyncStatus,
+  syncCloudVaultWithStatus,
+  useCloudSyncStatusStore,
+} from "../lib/cloud-auto-sync";
 
 const bridge = vi.hoisted(() => ({
   getCloudConflict: vi.fn(),
+  releaseCloudConflictReview: vi.fn(),
   saveCloudConflictDraft: vi.fn(),
   resolveCloudConflict: vi.fn(),
   syncCloudVault: vi.fn(),
@@ -67,13 +73,79 @@ const synced: CloudSyncRunSummary = {
 };
 
 beforeEach(() => {
+  clearCloudSyncStatus();
   bridge.getCloudConflict.mockReset().mockResolvedValue(details);
+  bridge.releaseCloudConflictReview.mockReset().mockResolvedValue(undefined);
   bridge.saveCloudConflictDraft.mockReset().mockResolvedValue(undefined);
   bridge.resolveCloudConflict.mockReset().mockResolvedValue(undefined);
   bridge.syncCloudVault.mockReset().mockResolvedValue(synced);
 });
 
 describe("CloudPendingConflictResolver", () => {
+  it("releases its own review session after unmount even if the final draft save fails", async () => {
+    const view = mount({});
+    await act(async () => Promise.resolve());
+    const reviewId = bridge.getCloudConflict.mock.calls[0][1];
+    expect(typeof reviewId).toBe("string");
+    await act(async () => button(view.host, "Use other device").click());
+    bridge.saveCloudConflictDraft.mockRejectedValue(new Error("Disk is full"));
+    view.unmount();
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(bridge.releaseCloudConflictReview).toHaveBeenCalledWith(conflict.id, reviewId);
+  });
+
+  it("flushes a freshly edited draft before background sync and locks editing until it finishes", async () => {
+    let finishSave!: () => void;
+    bridge.saveCloudConflictDraft.mockImplementationOnce(
+      () => new Promise<void>((resolve) => { finishSave = resolve; }),
+    );
+    const pending = { ...synced, pending_conflicts: [conflict] };
+    bridge.syncCloudVault.mockResolvedValue(pending);
+    useCloudSyncStatusStore.setState({ conflictReviewOpen: true });
+    const view = mount({});
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      const editor = textarea(view.host);
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")
+        ?.set?.call(editor, "An unfinished third version\n");
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(bridge.saveCloudConflictDraft).not.toHaveBeenCalled();
+
+    let run!: Promise<CloudSyncRunSummary>;
+    await act(async () => { run = syncCloudVaultWithStatus(bridge); });
+    expect(bridge.saveCloudConflictDraft).toHaveBeenCalledWith(
+      conflict.id, "An unfinished third version\n",
+    );
+    expect(bridge.syncCloudVault).not.toHaveBeenCalled();
+    expect(textarea(view.host).disabled).toBe(true);
+
+    await act(async () => { finishSave(); await run; });
+    expect(bridge.syncCloudVault).toHaveBeenCalledOnce();
+    expect(textarea(view.host).disabled).toBe(false);
+    expect(textarea(view.host).value).toBe("An unfinished third version\n");
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true);
+    view.unmount();
+  });
+
+  it("keeps an unsaved draft and the review open when its pre-sync save fails", async () => {
+    bridge.saveCloudConflictDraft.mockRejectedValue(new Error("Disk is full"));
+    useCloudSyncStatusStore.setState({ conflictReviewOpen: true });
+    const view = mount({});
+    await act(async () => Promise.resolve());
+    await act(async () => button(view.host, "Use other device").click());
+    await act(async () => {
+      await expect(syncCloudVaultWithStatus(bridge)).rejects.toThrow("Disk is full");
+    });
+    expect(bridge.syncCloudVault).not.toHaveBeenCalled();
+    expect(textarea(view.host).value).toBe("# Trip\nPack a rain coat.\n");
+    expect(textarea(view.host).disabled).toBe(false);
+    expect(view.host.textContent).toContain("Disk is full");
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true);
+    view.unmount();
+  });
+
   it("uses plain labels and requires an explicit choice for overlapping text", async () => {
     const onResolved = vi.fn();
     const view = mount({ onResolved });

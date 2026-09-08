@@ -193,6 +193,7 @@ import { shouldForceGnomeLibsecret } from "./linux-password-store";
 import { CloudAuthLoopbackServer } from "./cloud-auth-loopback";
 import { createCloudSyncClient } from "./cloud-sync-client";
 import { DesktopCloudSyncService } from "./cloud-sync-service";
+import { CloudSyncWindowBarrier } from "./cloud-sync-window-barrier";
 import { scanAllTasks, scanTasksForPath } from "./tasks";
 import {
   readDatabase,
@@ -428,6 +429,7 @@ function getCloudSyncService(): DesktopCloudSyncService {
     accountStatus: () => getCloudAuthManager().status(),
     getSecret: getCloudServiceSecret,
     createClient: createCloudSyncClient,
+    withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
   });
   return cloudSyncService;
 }
@@ -664,6 +666,21 @@ function flushWindowNoteOpens(win: BrowserWindow): void {
 // Finder "Open in ZenNotes" that lands in the hidden quick-capture
 // panel looks like the app opened a quick note instead of the file.
 const workspaceWindowIds = new Set<number>();
+
+const cloudSyncWindowBarrier = new CloudSyncWindowBarrier({
+  participants: (root) => BrowserWindow.getAllWindows()
+    .filter((win) => !win.isDestroyed() && isWorkspaceWindow(win) &&
+      windowVaults.vaultForWindow(win.id)?.root === root)
+    .map((win) => ({
+      id: win.webContents.id,
+      send(event) {
+        if (win.isDestroyed() || windowVaults.vaultForWindow(win.id)?.root !== root) {
+          throw new Error("The vault window closed or changed vaults.");
+        }
+        win.webContents.send(IPC.CLOUD_VAULT_SYNC_WINDOW, event);
+      },
+    })),
+});
 
 function isWorkspaceWindow(win: BrowserWindow): boolean {
   return workspaceWindowIds.has(win.id);
@@ -2909,6 +2926,11 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_SYNC, () =>
     getCloudSyncService().sync(requireLocalCloudVaultRoot()),
   );
+  on(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, (event, requestId: unknown, error: unknown) => {
+    if (typeof requestId !== "string" || requestId.length > 100 ||
+      (error !== null && (typeof error !== "string" || error.length > 2000))) return;
+    cloudSyncWindowBarrier.acknowledge(event.sender.id, requestId, error);
+  });
   handle(
     IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET,
     (_event, conflict: CloudSyncBootstrapConflict) =>
@@ -2925,9 +2947,32 @@ function registerIpc(): void {
         resolution,
       ),
   );
-  handle(IPC.CLOUD_VAULT_CONFLICT_GET, (_event, conflictId: string) =>
-    getCloudSyncService().getConflict(requireLocalCloudVaultRoot(), conflictId),
-  );
+  const reviewWindows = new Set<number>();
+  handle(IPC.CLOUD_VAULT_CONFLICT_GET, async (event, conflictId: string, reviewId = "legacy") => {
+    if (typeof conflictId !== "string" || conflictId.length > 200) throw new Error("Invalid conflict ID.");
+    if (typeof reviewId !== "string" || reviewId.length > 100) throw new Error("Invalid review ID.");
+    const owner = event.sender.id;
+    const root = requireLocalCloudVaultRoot();
+    cloudSyncWindowBarrier.claimReview(owner, root, conflictId, reviewId);
+    if (!reviewWindows.has(owner)) {
+      reviewWindows.add(owner);
+      event.sender.once("destroyed", () => {
+        cloudSyncWindowBarrier.releaseReview(owner);
+        reviewWindows.delete(owner);
+      });
+    }
+    try {
+      return await getCloudSyncService().getConflict(root, conflictId);
+    } catch (error) {
+      cloudSyncWindowBarrier.releaseReview(owner, conflictId, reviewId);
+      throw error;
+    }
+  });
+  handle(IPC.CLOUD_VAULT_CONFLICT_REVIEW_RELEASE, (event, conflictId: unknown, reviewId: unknown) => {
+    if (typeof conflictId !== "string" || conflictId.length > 200) return;
+    if (typeof reviewId !== "string" || reviewId.length > 100) return;
+    cloudSyncWindowBarrier.releaseReview(event.sender.id, conflictId, reviewId);
+  });
   handle(
     IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE,
     (_event, conflictId: string, draftText: string | null) =>
