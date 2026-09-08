@@ -2,6 +2,8 @@ import type { Completion, CompletionContext, CompletionResult } from '@codemirro
 import type { EditorView } from '@codemirror/view'
 import type { TimeFormat } from '@shared/app-config'
 import { useStore } from '../store'
+import { formatISODate } from './date-picker'
+import { promptDate } from './date-prompt-requests'
 
 interface DateShortcut {
   label: string
@@ -9,16 +11,14 @@ interface DateShortcut {
   insert: string
   /** When set, computed fresh at apply time (used for the current time). */
   dynamicInsert?: () => string
+  /** Opens the calendar instead of inserting `insert` (#743). */
+  pick?: boolean
   searchText: string
   icon: string
 }
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
-}
-
-function formatISODate(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
 /** Wall-clock time in the given format: `14:30` (24h) or `2:30 PM` (12h). */
@@ -80,7 +80,39 @@ function buildShortcuts(now = new Date()): DateShortcut[] {
     icon: '🕘'
   }
 
-  return [...dates, time]
+  // #743: any other day. Its detail names the outcome, since there is no
+  // date to preview until the calendar returns one.
+  const pick: DateShortcut = {
+    label: 'Date…',
+    detail: 'Pick any date',
+    insert: '',
+    pick: true,
+    searchText: 'date… date pick picker calendar choose any other day',
+    icon: '📅'
+  }
+
+  return [...dates, time, pick]
+}
+
+/**
+ * Trades the `@…` trigger for the calendar. The trigger goes first, so a
+ * dismissed picker leaves the text as if nothing was typed, and the picked
+ * date lands exactly where the `@` stood. The position is re-clamped at
+ * insert time: the modal blocks editing, but a note switched underneath it
+ * (a sync, a remote change) can still shorten the document.
+ */
+function pickDate(view: EditorView, from: number, to: number): void {
+  view.dispatch({ changes: { from, to, insert: '' }, selection: { anchor: from } })
+  void promptDate({ initialDate: formatISODate(new Date()) }).then((iso) => {
+    if (iso) {
+      const at = Math.min(from, view.state.doc.length)
+      view.dispatch({
+        changes: { from: at, insert: iso },
+        selection: { anchor: at + iso.length }
+      })
+    }
+    view.focus()
+  })
 }
 
 function dateShortcutMatch(context: CompletionContext): {
@@ -117,6 +149,10 @@ export function dateShortcutSource(context: CompletionContext): CompletionResult
         _kind: 'date',
         _icon: item.icon,
         apply: (view: EditorView, _completion: Completion, _from: number, to: number) => {
+          if (item.pick) {
+            pickDate(view, match.replaceFrom, to)
+            return
+          }
           const insert = item.dynamicInsert ? item.dynamicInsert() : item.insert
           view.dispatch({
             changes: { from: match.replaceFrom, to, insert },

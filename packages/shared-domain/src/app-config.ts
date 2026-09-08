@@ -69,6 +69,7 @@ export const PORTABLE_PREF_KEYS = [
   'whichKeyHintTimeoutMs',
   // keymaps (overrides only)
   'keymapOverrides',
+  'ignoredKeys',
   // search
   'vaultTextSearchBackend',
   'ripgrepBinaryPath',
@@ -81,6 +82,8 @@ export const PORTABLE_PREF_KEYS = [
   'completedTaskStyle',
   'mathRenderer',
   'typstTagPreambles',
+  'harperEnabled',
+  'harperDialect',
   'looseMathDelimiters',
   'keepViewModeAcrossNotes',
   'defaultPaneMode',
@@ -142,8 +145,11 @@ export const PORTABLE_PREF_KEYS = [
   'tasksViewMode',
   'showArchivedTasks',
   'kanbanGroupBy',
+  'kanbanFolderRoot',
   'kanbanColumnTitles',
-  'kanbanStatuses'
+  'kanbanStatuses',
+  // tasks
+  'savedTaskFilters'
 ] as const
 
 export type PortablePrefKey = (typeof PORTABLE_PREF_KEYS)[number]
@@ -190,6 +196,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   whichKeyHintMode: 'timed',
   whichKeyHintTimeoutMs: 900,
   keymapOverrides: {},
+  ignoredKeys: [],
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
@@ -200,6 +207,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   completedTaskStyle: 'none',
   mathRenderer: 'katex',
   typstTagPreambles: false,
+  harperEnabled: false,
+  harperDialect: 'american',
   looseMathDelimiters: false,
   keepViewModeAcrossNotes: false,
   defaultPaneMode: 'edit',
@@ -257,6 +266,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   tasksViewMode: 'list',
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
+  kanbanFolderRoot: '',
   kanbanColumnTitles: {},
-  kanbanStatuses: []
+  kanbanStatuses: [],
+  savedTaskFilters: {}
 }

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { defineConfig, type Plugin } from 'vitest/config'
+import { harperWasmAsset } from '../../tooling/vite/harper-wasm-asset'
 
 function onigurumaDataUrl(): Plugin {
   const virtualId = '\0zennotes:oniguruma-wasm-data-url'
@@ -25,7 +26,7 @@ function onigurumaDataUrl(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [onigurumaDataUrl()],
+  plugins: [onigurumaDataUrl(), harperWasmAsset()],
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, '../shared-domain/src'),

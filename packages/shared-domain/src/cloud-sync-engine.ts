@@ -23,11 +23,33 @@ export interface CloudSyncTrackedItem {
   media_type: string
 }
 
+export interface CloudSyncConflictSnapshot {
+  path: string | null
+  revision: number | null
+  kind: CloudSyncItemKind
+  content: CloudSyncContent | null
+}
+
+export interface CloudSyncStoredConflict {
+  id: string
+  item_id: string
+  kind: 'content' | 'delete' | 'move' | 'path'
+  sequence: number
+  base: CloudSyncConflictSnapshot
+  local: CloudSyncConflictSnapshot
+  cloud: CloudSyncConflictSnapshot
+  draft_text?: string
+  /** Additional paths involved in a rejected rename/path race. */
+  paused_paths?: string[]
+}
+
 export interface CloudSyncState {
   version: 1
   vault_id: string
   cursor: number
   items: Record<string, CloudSyncTrackedItem>
+  /** Optional for backward compatibility with state written before v2.44. */
+  pending_conflicts?: Record<string, CloudSyncStoredConflict>
 }
 
 export interface CloudSyncIdSource {
@@ -63,7 +85,10 @@ export function planCloudSyncMutations(
   for (const localItem of localItems) {
     if (!shouldSyncVaultPath(localItem.path)) continue
 
-    const normalizedItem = { ...localItem, path: normalizeCloudSyncPath(localItem.path) }
+    const normalizedItem = {
+      ...localItem,
+      path: normalizeCloudSyncPath(localItem.path)
+    }
     const key = cloudSyncPathKey(normalizedItem.path)
     if (localByPathKey.has(key)) {
       throw new Error(`Vault contains a portable path collision at ${normalizedItem.path}`)
@@ -167,7 +192,9 @@ export function resolveCloudSyncMutations(
   for (const acknowledgement of response.acknowledged) {
     const mutation = mutationByOperation.get(acknowledgement.operation_id)
     if (!mutation || mutation.item_id !== acknowledgement.item_id) {
-      throw new Error(`Server acknowledged an unknown sync operation ${acknowledgement.operation_id}`)
+      throw new Error(
+        `Server acknowledged an unknown sync operation ${acknowledgement.operation_id}`
+      )
     }
 
     if (mutation.type === 'delete') {

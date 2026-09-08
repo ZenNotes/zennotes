@@ -1,17 +1,30 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import type {
+  CloudSyncContent,
+  CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncVault
 } from '@zennotes/bridge-contract/cloud-sync'
 import type { CloudSyncRepository } from './cloud-sync-coordinator'
-import type { CloudSyncState } from './cloud-sync-engine'
+import type { CloudSyncLocalItem, CloudSyncState } from './cloud-sync-engine'
 import {
   CloudSyncHostService,
   type CloudSyncHostPersistence,
   type CloudSyncHostVault
 } from './cloud-sync-host-service'
 
-function setup(vaults: CloudSyncVault[] = []) {
+function textContent(data: string): CloudSyncContent {
+  return {
+    encoding: 'utf8',
+    data,
+    sha256: createHash('sha256').update(data).digest('hex'),
+    byte_length: Buffer.byteLength(data),
+    media_type: 'text/markdown'
+  }
+}
+
+function setup(vaults: CloudSyncVault[] = [], localItems: CloudSyncLocalItem[] = []) {
   let link: unknown = null
   let state: unknown = null
   const persistence: CloudSyncHostPersistence = {
@@ -33,7 +46,7 @@ function setup(vaults: CloudSyncVault[] = []) {
   }
   const repository: CloudSyncRepository = {
     async scan() {
-      return []
+      return localItems
     },
     async apply() {}
   }
@@ -70,8 +83,24 @@ function setup(vaults: CloudSyncVault[] = []) {
       }
     })),
     deleteVault: vi.fn(async () => undefined),
-    manifest: vi.fn(async () => ({ data: [], cursor: 0, next_page: null })),
+    manifest: vi.fn(
+      async (): Promise<CloudSyncManifestResponse> => ({
+        data: [],
+        cursor: 0,
+        next_page: null
+      })
+    ),
     changes: vi.fn(async () => ({ data: [], cursor: 0, has_more: false })),
+    revision: vi.fn(async (_vaultId: string, itemId: string, revision: number) => ({
+      data: {
+        item_id: itemId,
+        revision,
+        path: 'Notes/Launch.md',
+        kind: 'text' as const,
+        deleted: false,
+        content: textContent('Last synced copy')
+      }
+    })),
     mutate: vi.fn(async (_vaultId: string, body: CloudSyncMutationRequest) => ({
       acknowledged: body.mutations.map((mutation, index) => ({
         operation_id: mutation.operation_id,
@@ -192,7 +221,9 @@ describe('CloudSyncHostService', () => {
       vault_id: 'vault-1',
       vault_name: 'Notes'
     })
-    await expect(service.linkedVault(hostVault)).resolves.toMatchObject({ vault_id: 'vault-1' })
+    await expect(service.linkedVault(hostVault)).resolves.toMatchObject({
+      vault_id: 'vault-1'
+    })
   })
 
   it('creates, links, and coalesces sync runs for one local vault', async () => {
@@ -205,6 +236,184 @@ describe('CloudSyncHostService', () => {
     expect(client.manifest).toHaveBeenCalledTimes(1)
     expect(first).toEqual(second)
     expect(hostVault.refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes first-sync versions and lets mobile hosts choose the local one', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const local = textContent('latest local edit')
+    const cloud = textContent('older cloud edit')
+    const { client, hostVault, service } = setup(
+      [remoteVault],
+      [{ path: 'Note.md', kind: 'text', content: local }]
+    )
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloud.sha256,
+          byte_length: cloud.byte_length,
+          media_type: cloud.media_type,
+          content: cloud
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    await service.link(hostVault, remoteVault.id)
+
+    const first = await service.sync(hostVault)
+    const conflict = first.pending_conflicts![0]!
+    await expect(service.getConflict(hostVault, conflict.id)).resolves.toMatchObject({
+      local: { text: 'latest local edit' },
+      cloud: { text: 'older cloud edit' }
+    })
+
+    await service.resolveConflict(hostVault, {
+      conflict_id: conflict.id,
+      choice: 'local',
+      expected_local_sha256: local.sha256,
+      expected_cloud_revision: 3
+    })
+    expect(client.mutate).toHaveBeenCalledWith(
+      'vault-1',
+      expect.objectContaining({
+        mutations: [expect.objectContaining({ item_id: 'item-remote', base_revision: 3 })]
+      })
+    )
+  })
+
+  it('waits for an active sync before saving a conflict draft', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const local = textContent('latest local edit')
+    const cloud = textContent('older cloud edit')
+    const { client, hostVault, service } = setup(
+      [remoteVault],
+      [{ path: 'Note.md', kind: 'text', content: local }]
+    )
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloud.sha256,
+          byte_length: cloud.byte_length,
+          media_type: cloud.media_type,
+          content: cloud
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    await service.link(hostVault, remoteVault.id)
+    const conflict = (await service.sync(hostVault)).pending_conflicts![0]!
+
+    let releaseChanges!: (value: { data: []; cursor: number; has_more: false }) => void
+    client.changes.mockReset().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseChanges = resolve
+        })
+    )
+    const syncing = service.sync(hostVault)
+    await vi.waitFor(() => expect(client.changes).toHaveBeenCalledOnce())
+    let draftSaved = false
+    const saving = service.saveConflictDraft(hostVault, conflict.id, 'careful draft').then(() => {
+      draftSaved = true
+    })
+
+    await Promise.resolve()
+    expect(draftSaved).toBe(false)
+    releaseChanges({ data: [], cursor: 1, has_more: false })
+    await syncing
+    await saving
+
+    await expect(service.getConflict(hostVault, conflict.id)).resolves.toMatchObject({
+      draft_text: 'careful draft'
+    })
+  })
+
+  it('does not start a sync while a conflict decision is being saved', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const local = textContent('latest local edit')
+    const cloud = textContent('older cloud edit')
+    const { client, hostVault, service } = setup(
+      [remoteVault],
+      [{ path: 'Note.md', kind: 'text', content: local }]
+    )
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloud.sha256,
+          byte_length: cloud.byte_length,
+          media_type: cloud.media_type,
+          content: cloud
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    await service.link(hostVault, remoteVault.id)
+    const conflict = (await service.sync(hostVault)).pending_conflicts![0]!
+
+    let releaseMutation!: () => void
+    client.mutate.mockImplementationOnce(async (_vaultId, body) => {
+      await new Promise<void>((resolve) => {
+        releaseMutation = resolve
+      })
+      return {
+        acknowledged: body.mutations.map((mutation) => ({
+          operation_id: mutation.operation_id,
+          item_id: mutation.item_id,
+          revision: 4,
+          sequence: 2
+        })),
+        conflicts: [],
+        cursor: 2
+      }
+    })
+    const resolving = service.resolveConflict(hostVault, {
+      conflict_id: conflict.id,
+      choice: 'local',
+      expected_local_sha256: local.sha256,
+      expected_cloud_revision: 3
+    })
+    await vi.waitFor(() => expect(client.mutate).toHaveBeenCalledOnce())
+
+    client.changes.mockClear()
+    const syncing = service.sync(hostVault)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.changes).not.toHaveBeenCalled()
+
+    releaseMutation()
+    await resolving
+    await syncing
   })
 
   it('deletes the remote vault before dropping the link', async () => {
@@ -224,7 +433,9 @@ describe('CloudSyncHostService', () => {
     client.deleteVault.mockRejectedValueOnce(new Error('offline'))
 
     await expect(service.deleteLinkedVault(hostVault)).rejects.toThrow('offline')
-    await expect(service.linkedVault(hostVault)).resolves.toMatchObject({ vault_id: 'vault-created' })
+    await expect(service.linkedVault(hostVault)).resolves.toMatchObject({
+      vault_id: 'vault-created'
+    })
   })
 
   it('refuses to sync a link from a different cloud origin', async () => {
@@ -251,7 +462,9 @@ describe('CloudSyncHostService', () => {
     await service.link(hostVault, remoteVault.id)
 
     await expect(service.listBackups(hostVault)).resolves.toEqual([])
-    await expect(service.backupSchedule(hostVault)).resolves.toMatchObject({ enabled: false })
+    await expect(service.backupSchedule(hostVault)).resolves.toMatchObject({
+      enabled: false
+    })
     await expect(service.updateBackupSchedule(hostVault, true)).resolves.toMatchObject({
       enabled: true
     })
@@ -310,7 +523,8 @@ describe('CloudSyncHostService', () => {
           current_path: 'Note.md'
         }
       ],
-      bootstrap_conflicts: [], local_conflicts: []
+      bootstrap_conflicts: [],
+      local_conflicts: []
     })
 
     await expect(service.createBackup(hostVault)).rejects.toThrow('Resolve sync conflicts')

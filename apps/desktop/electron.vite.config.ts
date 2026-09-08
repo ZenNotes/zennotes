@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import type { Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { harperWasmAsset } from '../../tooling/vite/harper-wasm-asset'
 
 const INTERNAL_WORKSPACE_PACKAGES = [
   '@zennotes/app-core',
@@ -250,12 +251,15 @@ export default defineConfig({
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
     // Typst ships a WASM compiler loaded lazily via `?url` + dynamic import; keep
-    // it out of the esbuild dep pre-bundler so the wasm glue stays intact.
+    // it out of the esbuild dep pre-bundler so the wasm glue stays intact. The
+    // same goes for Harper, whose worker is an inline blob the pre-bundler
+    // would otherwise rewrite.
     optimizeDeps: {
       exclude: [
         '@myriaddreamin/typst.ts',
         '@myriaddreamin/typst-ts-web-compiler',
-        '@myriaddreamin/typst-ts-renderer'
+        '@myriaddreamin/typst-ts-renderer',
+        'harper.js'
       ]
     },
     build: {
@@ -281,6 +285,6 @@ export default defineConfig({
         '@bridge-contract': resolve(__dirname, '../../packages/bridge-contract/src')
       }
     },
-    plugins: [onigurumaDataUrl(), react()]
+    plugins: [onigurumaDataUrl(), harperWasmAsset(), react()]
   }
 })

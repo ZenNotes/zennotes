@@ -205,6 +205,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'typst_tag_preambles',
     comment: 'true | false — prepend Typst definitions from notes in a `typst` folder, chosen by a note\'s tags'
   },
+  harperEnabled: {
+    section: 'editor',
+    tomlKey: 'harper_enabled',
+    comment: 'true | false: grammar and spelling with Harper, checked on this device'
+  },
+  harperDialect: {
+    section: 'editor',
+    tomlKey: 'harper_dialect',
+    comment: 'american | british | australian | canadian | indian'
+  },
   looseMathDelimiters: {
     section: 'editor',
     tomlKey: 'loose_math_delimiters',
@@ -364,7 +374,13 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   kanbanGroupBy: {
     section: 'view',
     tomlKey: 'kanban_group_by',
-    comment: 'status | priority | folder'
+    comment: 'status | priority | folder (each note\'s own folder; see kanban_folder_root) | field:<key>'
+  },
+  kanbanFolderRoot: {
+    section: 'view',
+    tomlKey: 'kanban_folder_root',
+    comment:
+      'folder board: group by the children of this folder, e.g. "Projects" (deeper notes roll up, notes outside it share one column); "" = each note\'s own folder'
   }
 }
 
@@ -379,6 +395,12 @@ interface ListFieldMap {
 
 // List (ordered string[]) portable prefs → [section].key = ["a", "b"].
 const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
+  ignoredKeys: {
+    section: 'editor',
+    tomlKey: 'ignored_keys',
+    comment:
+      'keys the app ignores entirely, by DOM key or code, e.g. ["KanaMode"] for the no-op a Kanata/QMK tap-hold layer sends with every keystroke'
+  },
   kanbanStatuses: {
     section: 'view',
     tomlKey: 'kanban_statuses',
@@ -407,6 +429,7 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'keymaps',
     comment: [
       'Keymap overrides — only list the bindings you want to change.',
+      'Set a binding to "" to remove the key entirely.',
       'Find the full list of action IDs in Settings → Keymaps.'
     ],
     example: '"global.searchNotes" = "Mod+P"'
@@ -435,6 +458,15 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'text_replacements',
     comment: ['Text replacements expanded while typing, keyed by trigger.'],
     example: '"->" = "→"'
+  },
+  savedTaskFilters: {
+    table: 'saved_filters',
+    comment: [
+      'Saved Tasks filters: a name you pick = the filter query it stands for.',
+      'Recall one from the chips above the task list, the command palette,',
+      'or `:filter <name>` in the Tasks view; `:savefilter <name>` adds one.'
+    ],
+    example: '"Project alpha" = "@project:alpha"'
   }
 }
 
@@ -597,11 +629,14 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     '# Keymap overrides. Add or uncomment "<action.id>" = "<binding>" lines.',
     '# Binding syntax: "Mod+P" = Cmd/Ctrl+P, "Shift+Mod+K", "Ctrl+W", "Space",',
     '# or a two-key sequence like "g g". Uncomment a reference line to remap it.',
+    '# An empty binding ("") removes the key entirely: nothing triggers that',
+    '# action until you give it a key again or delete the line.',
     '[keymaps]'
   ]
 
   for (const [key, value] of Object.entries(overrides)) {
-    lines.push(`${tomlKey(key)} = ${tomlValue(value)}`)
+    const line = `${tomlKey(key)} = ${tomlValue(value)}`
+    lines.push(value === '' ? `${line}  # unbound` : line)
   }
 
   lines.push('', '# --- All actions (defaults shown; uncomment + edit to override) ---')

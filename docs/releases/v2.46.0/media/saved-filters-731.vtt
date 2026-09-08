@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00.000 --> 00:03.401
+Saved filters in the Tasks view. Two are already in config.toml under [saved_filters], so they show as chips under the header.
+
+00:03.401 --> 00:07.776
+Click a chip and its query lands in the filter box. Every sub-view narrows: the list, the calendar, the board.
+
+00:07.776 --> 00:13.535
+Keyboard: F opens the picker. Type to narrow, Enter applies. With :filter you can also type a saved name.
+
+00:13.535 --> 00:22.145
+A new query worth keeping: type it, then Save filter… (or :savefilter <name>). The chip appears, and config.toml gets the line.
+
+00:22.145 --> 00:30.282
+From any note, the command palette lists every saved filter as "Tasks: name". Pick one and the Tasks view opens already filtered.
+
+00:30.282 --> 00:33.925
+Right-click a chip to rename or delete it, or edit [saved_filters] in config.toml by hand: changes apply live and travel with your dotfiles.

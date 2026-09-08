@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cloudSyncConflictCopyPath,
+  cloudSyncLegacyConflictOriginalPath,
   cloudSyncPathKey,
   isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
@@ -36,6 +37,24 @@ describe('cloudSyncConflictCopyPath', () => {
 
   it('treats a leading dot as part of the name, not an extension', () => {
     expect(cloudSyncConflictCopyPath('.gitignore', 1)).toBe('.gitignore (cloud conflict)')
+  })
+})
+
+describe('cloudSyncLegacyConflictOriginalPath', () => {
+  it('recognizes old generated copies and reconstructs the likely original path', () => {
+    expect(cloudSyncLegacyConflictOriginalPath('inbox/Note (cloud conflict).md')).toBe(
+      'inbox/Note.md'
+    )
+    expect(cloudSyncLegacyConflictOriginalPath('Note (cloud conflict 3).md')).toBe('Note.md')
+    expect(cloudSyncLegacyConflictOriginalPath('Plan (cloud conflict).tar.gz')).toBe(
+      'Plan.tar.gz'
+    )
+    expect(cloudSyncLegacyConflictOriginalPath('.gitignore (cloud conflict)')).toBe('.gitignore')
+  })
+
+  it('does not label ordinary filenames as old conflict copies', () => {
+    expect(cloudSyncLegacyConflictOriginalPath('My cloud conflict notes.md')).toBeNull()
+    expect(cloudSyncLegacyConflictOriginalPath('Note (cloud conflict 1).md')).toBeNull()
   })
 })
 

@@ -823,3 +823,16 @@ describe('sidebarRevealTarget (auto-reveal, Kta 2.24)', () => {
     expect(sidebarRevealTarget('stray.md', inboxMode)).toBeNull()
   })
 })
+
+describe('normalizeVaultSettings: harper', () => {
+  it('keeps the vault dictionary and ignored suggestions, cleaned, and drops an empty block', () => {
+    const base = settings('Daily Notes', 'Weekly Notes')
+    const kept = normalizeVaultSettings({
+      ...base,
+      harper: { words: [' zennotes ', 'zennotes'], ignoredLints: ['9722060015410969502', 'nope'] }
+    })
+    expect(kept.harper).toEqual({ words: ['zennotes'], ignoredLints: ['9722060015410969502'] })
+    expect(normalizeVaultSettings({ ...base, harper: { words: [], ignoredLints: [] } }).harper).toBeUndefined()
+    expect(normalizeVaultSettings(base).harper).toBeUndefined()
+  })
+})

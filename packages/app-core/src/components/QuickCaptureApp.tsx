@@ -60,7 +60,7 @@ import {
   closeCompletion,
   completionStatus
 } from '@codemirror/autocomplete'
-import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { slashCommandRender, templateSlashCommandSource } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
 import type { NoteMeta } from '@shared/ipc'
@@ -499,6 +499,7 @@ export function QuickCaptureApp(): JSX.Element {
                 : 'slash-cmd-option'
           }),
           completionNavKeymap,
+          completionKeymapExtension,
           // Esc closes an open slash menu instead of bubbling to the window-level
           // Esc that saves + hides the capture window. Runs before everything,
           // and only when a completion is actually open.
@@ -516,7 +517,6 @@ export function QuickCaptureApp(): JSX.Element {
           ),
           keymap.of([
             indentWithTab,
-            ...completionKeymapForEditor,
             ...vimAwareDefaultKeymap(prefs.vimMode),
             ...historyKeymap,
             ...vimAwareSearchKeymap(prefs.vimMode)

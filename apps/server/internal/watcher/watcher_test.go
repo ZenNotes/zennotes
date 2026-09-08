@@ -315,3 +315,80 @@ func TestWatcherDoesNotReportAReplacedNoteAsDeleted(t *testing.T) {
 		t.Fatalf("deleted note event = %+v, want unlink", ev)
 	}
 }
+
+func TestWatcherSurfacesTemplateChangesWithOwnScope(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	dir := filepath.Join(root, internalVaultDir, "templates")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "adr.md")
+	if err := os.WriteFile(file, []byte("---\nname: ADR\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.handle(fsnotify.Event{Name: file, Op: fsnotify.Write})
+	ev := recvChange(t, ch)
+	if ev.Scope != "templates" || ev.Kind != "change" || ev.Path != ".zennotes/templates/adr.md" {
+		t.Fatalf("template write event = %+v", ev)
+	}
+
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	w.handle(fsnotify.Event{Name: file, Op: fsnotify.Remove})
+	ev = recvChange(t, ch)
+	if ev.Scope != "templates" || ev.Kind != "unlink" {
+		t.Fatalf("template remove event = %+v", ev)
+	}
+}
+
+func TestWatcherIgnoresNonTemplatesUnderTemplatesDir(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	ch, unsub := w.Subscribe()
+	defer unsub()
+
+	dir := filepath.Join(root, internalVaultDir, "templates")
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".draft.md", "notes.txt", filepath.Join("nested", "x.md")} {
+		file := filepath.Join(dir, name)
+		if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		w.handle(fsnotify.Event{Name: file, Op: fsnotify.Write})
+	}
+	select {
+	case ev := <-ch:
+		t.Fatalf("unexpected event for a non-template: %+v", ev)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: dotfiles, other extensions and nested paths are not templates.
+	}
+}
+
+func TestWatcherWatchesDirectoriesCreatedWithTheirParent(t *testing.T) {
+	root := t.TempDir()
+	w := newTestWatcher(t, root)
+	_, unsub := w.Subscribe()
+	defer unsub()
+
+	// .zennotes/ and .zennotes/templates/ arrive together (one MkdirAll); the
+	// watcher hears one Create for the parent.
+	internal := filepath.Join(root, internalVaultDir)
+	templates := filepath.Join(internal, "templates")
+	if err := os.MkdirAll(templates, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	w.handle(fsnotify.Event{Name: internal, Op: fsnotify.Create})
+	if _, ok := w.dirs[internal]; !ok {
+		t.Fatalf("parent directory not tracked")
+	}
+	if _, ok := w.dirs[templates]; !ok {
+		t.Fatalf("child directory created with its parent is not watched")
+	}
+}

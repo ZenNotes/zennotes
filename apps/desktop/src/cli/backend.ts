@@ -40,6 +40,7 @@ import {
   prependToNote,
   readDatabaseVaultLayout,
   readNote,
+  readNoteComments,
   readPrimaryNotesLocation,
   readVaultFileTextOrNull,
   renameFolder,
@@ -55,7 +56,10 @@ import {
   toggleTaskInBody,
   unarchiveNote,
   writeNote,
+  writeNoteComments,
   writeVaultFileText,
+  type NoteComment,
+  type NoteCommentInput,
   type NoteContent,
   type NoteFolder,
   type NoteMeta,
@@ -148,6 +152,9 @@ export interface VaultBackend {
   backlinks(rel: string): Promise<NoteMeta[]>
   scanAllTasks(opts?: { includeExcluded?: boolean }): Promise<VaultTask[]>
   toggleTask(taskId: string): Promise<VaultTask | null>
+  /** A note's comments as stored (#738); `writeComments` replaces the list. */
+  listComments(rel: string): Promise<NoteComment[]>
+  writeComments(rel: string, comments: NoteCommentInput[]): Promise<NoteComment[]>
   /** Database (`.base`) operations, composed from this backend's file IO via
    *  @shared/database-ops — the same composition the web and desktop remote
    *  clients use, so `zn base` writes the identical on-disk format. (#556) */
@@ -270,6 +277,9 @@ class LocalBackend implements VaultBackend {
   scanAllTasks = (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
     scanAllTasks(this.root, opts)
   toggleTask = (taskId: string): Promise<VaultTask | null> => toggleTask(this.root, taskId)
+  listComments = (rel: string): Promise<NoteComment[]> => readNoteComments(this.root, rel)
+  writeComments = (rel: string, comments: NoteCommentInput[]): Promise<NoteComment[]> =>
+    writeNoteComments(this.root, rel, comments)
 
   private dbOps: DatabaseOps | null = null
   databaseOps = (): DatabaseOps => {
@@ -416,6 +426,11 @@ class RemoteBackend implements VaultBackend {
 
   scanAllTasks = (opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> =>
     this.client.scanTasks(opts)
+
+  listComments = (rel: string): Promise<NoteComment[]> =>
+    this.client.readComments(normalizeRelPath(rel))
+  writeComments = (rel: string, comments: NoteCommentInput[]): Promise<NoteComment[]> =>
+    this.client.writeComments(normalizeRelPath(rel), comments)
 
   /** No task-toggle endpoint exists, so the note is read, the same transform a
    *  local toggle applies is applied here, and the server re-parses the result

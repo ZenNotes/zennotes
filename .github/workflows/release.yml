@@ -77,6 +77,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Carry the electron-builder keychain fix
+        if: matrix.name == 'macOS'
+        # electron-builder 26.15 and 26.16 hand `security set-key-partition-list`
+        # the certificate's import password instead of the temporary keychain's
+        # own password; the macOS 26.6 runner image verifies it and signing
+        # dies with "SecKeychainUnlock: The user name or passphrase you entered
+        # is not correct". The fix is merged upstream (electron-builder #10101)
+        # but no v26 release carries it yet, so apply it to the installed copy.
+        # The script is a no-op once the installed version has the fix.
+        run: node tooling/scripts/patch-electron-builder-keychain.mjs
+
       - name: Verify mac signing secrets
         if: matrix.name == 'macOS'
         shell: bash

@@ -7,6 +7,8 @@ import { useHoveredLinkStore } from "../lib/hovered-link";
 import {
   connectCloudAccountFromStatusBar,
   formatRelativeSyncTime,
+  openCloudConflictReview,
+  resolvableCloudConflictCount,
   syncCloudVaultWithStatus,
   type CloudSyncPhase,
   useCloudSyncStatusStore,
@@ -49,7 +51,7 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
 
   return (
     <div
-      className="flex h-8 shrink-0 items-center justify-between gap-5 px-6 text-xs text-ink-500"
+      className="flex h-8 shrink-0 items-center justify-between gap-2 px-3 text-xs text-ink-500 sm:gap-5 sm:px-6"
       style={{ borderTop: "1px solid var(--glass-stroke)" }}
     >
       <span
@@ -58,22 +60,24 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
       >
         {hoveredLink}
       </span>
-      <div className="flex shrink-0 items-center gap-5">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-5">
         <CloudSyncStatus separated={note !== null} />
         {note && (
           <>
-            <Stat>
+            <Stat className="hidden lg:inline">
               {backlinks} {backlinks === 1 ? "backlink" : "backlinks"}
             </Stat>
-            <Stat>
+            <Stat className="hidden lg:inline">
               {words.toLocaleString()} {words === 1 ? "word" : "words"}
             </Stat>
-            <Stat>{characters.toLocaleString()} characters</Stat>
-            <Stat>{minutes} min read</Stat>
+            <Stat className="hidden lg:inline">
+              {characters.toLocaleString()} characters
+            </Stat>
+            <Stat className="hidden lg:inline">{minutes} min read</Stat>
             {cursorPosition && (
               <span
                 data-editor-position
-                className="tabular-nums"
+                className="hidden tabular-nums lg:inline"
                 title={`Line ${cursorPosition.line}, column ${cursorPosition.column}`}
               >
                 Ln {cursorPosition.line}, Col {cursorPosition.column}
@@ -95,8 +99,11 @@ function CloudSyncStatus({
   const vaultName = useCloudSyncStatusStore((state) => state.vaultName);
   const lastSyncedAt = useCloudSyncStatusStore((state) => state.lastSyncedAt);
   const error = useCloudSyncStatusStore((state) => state.error);
+  const lastSummary = useCloudSyncStatusStore((state) => state.lastSummary);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
   const [now, setNow] = useState(() => Date.now());
+  const resolvableConflictCount = resolvableCloudConflictCount(lastSummary);
+  const hasResolvableConflict = resolvableConflictCount > 0;
 
   useEffect(() => {
     if (phase === "hidden" || lastSyncedAt === null) return undefined;
@@ -118,7 +125,9 @@ function CloudSyncStatus({
           : phase === "syncing"
             ? "Syncing…"
             : phase === "attention"
-              ? "Sync incomplete"
+              ? hasResolvableConflict
+                ? `${resolvableConflictCount} ${resolvableConflictCount === 1 ? "file needs" : "files need"} review`
+                : "Sync incomplete"
               : phase === "error"
                 ? "Sync failed"
                 : lastSyncedAt === null
@@ -148,6 +157,9 @@ function CloudSyncStatus({
           : phase === "disconnected"
             ? "text-ink-500"
             : "text-accent";
+  // Files waiting on a decision outrank every other action: the queue stays
+  // one click away even while the next run is in flight, because those runs
+  // cannot finish the waiting file anyway.
   const actionLabel =
     phase === "disconnected"
       ? error
@@ -155,11 +167,20 @@ function CloudSyncStatus({
         : "Connect"
       : phase === "unlinked"
         ? "Set up"
-        : phase === "attention"
-          ? "Review"
-          : phase === "error"
-            ? "Retry"
-            : "Sync now";
+        : hasResolvableConflict
+          ? "Review now"
+          : phase === "attention"
+            ? "Review"
+            : phase === "error"
+              ? "Retry"
+              : "Sync now";
+  const showAction =
+    hasResolvableConflict || (phase !== "syncing" && phase !== "connecting");
+
+  const openCloudSettings = (): void => {
+    requestSettingsTarget("cloud");
+    setSettingsOpen(true);
+  };
 
   const runCloudAction = (): void => {
     if (phase === "disconnected") {
@@ -167,13 +188,15 @@ function CloudSyncStatus({
       return;
     }
     if (phase === "unlinked") {
-      requestSettingsTarget("cloud");
-      setSettingsOpen(true);
+      openCloudSettings();
+      return;
+    }
+    if (hasResolvableConflict) {
+      openCloudConflictReview();
       return;
     }
     if (phase === "attention") {
-      requestSettingsTarget("cloud");
-      setSettingsOpen(true);
+      openCloudSettings();
       return;
     }
     void syncCloudVaultWithStatus().catch(() => undefined);
@@ -183,7 +206,10 @@ function CloudSyncStatus({
     <div
       className={[
         "inline-flex items-center gap-1.5 whitespace-nowrap",
-        separated ? "border-r border-paper-300/70 pr-5" : "",
+        hasResolvableConflict
+          ? "rounded-lg border border-warning/30 bg-warning/10 px-2 py-0.5"
+          : "",
+        separated ? "sm:border-r sm:border-paper-300/70 sm:pr-5" : "",
       ]
         .filter(Boolean)
         .join(" ")}
@@ -197,7 +223,7 @@ function CloudSyncStatus({
         <CloudStatusIcon phase={phase} />
         <span className="tabular-nums">{label}</span>
       </span>
-      {phase !== "syncing" && phase !== "connecting" && (
+      {showAction && (
         <>
           <span aria-hidden="true" className="text-ink-300">
             ·
@@ -299,6 +325,12 @@ function CloudStatusIcon({
   );
 }
 
-function Stat({ children }: { children: React.ReactNode }): JSX.Element {
-  return <span className="tabular-nums">{children}</span>;
+function Stat({
+  children,
+  className = "",
+}: {
+  children: React.ReactNode;
+  className?: string;
+}): JSX.Element {
+  return <span className={`tabular-nums ${className}`.trim()}>{children}</span>;
 }

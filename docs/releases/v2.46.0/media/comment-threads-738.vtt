@@ -1,0 +1,22 @@
+WEBVTT
+
+00:00.001 --> 00:06.479
+Discuss a note with your assistant through comments. Select a passage, press ⌘⌥M, and leave a comment anchored to it.
+
+00:06.479 --> 00:09.084
+Ask Claude Code (or any MCP client) to review the note. It reads the threads with list_comments and answers with reply_to_comment.
+
+00:09.084 --> 00:12.486
+The reply lands under your comment, live, signed with the assistant’s name. Its words and yours stay apart.
+
+00:12.486 --> 00:16.841
+It can raise points of its own: add_comment with a passage from the note anchors a new thread, and the editor marks the text.
+
+00:16.841 --> 00:23.481
+Answer from the panel: a opens a reply box under the selected thread, ⌘↵ sends it.
+
+00:23.481 --> 00:27.438
+resolve_comment (or r in the panel) closes a settled thread. It moves to Resolved and stays in the note’s history.
+
+00:27.438 --> 00:31.112
+Everything lives in the .comments.json beside the note, so zn comment, the web client and every MCP client see the same threads.

@@ -5,8 +5,18 @@ import {
   type EditorCursorPosition
 } from './lib/editor-cursor-position'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
+import {
+  DEFAULT_HARPER_DIALECT,
+  isHarperDialect,
+  normalizeHarperLintConfig,
+  type HarperDialect,
+  type HarperLintConfig,
+  type HarperVaultState
+} from '@shared/harper-settings'
 import { resolveFolderPath } from '@shared/system-folder-paths'
 import { normalizeTasksExcludedFolder } from '@shared/tasks-excluded-folders'
+import { cloudSyncPathKey } from '@zennotes/shared-domain/cloud-sync'
+import { useCloudSyncStatusStore } from './lib/cloud-auto-sync'
 import type {
   AssetMeta,
   DateNotePatternSettings,
@@ -216,6 +226,15 @@ import {
   normalizeTextReplacements,
   type TextReplacements
 } from './lib/cm-text-replacements'
+import {
+  normalizeSavedTaskFilters,
+  renameSavedTaskFilter as renameSavedTaskFilterEntry,
+  savedTaskFilterQuery,
+  withSavedTaskFilter,
+  withoutSavedTaskFilter,
+  type SavedTaskFilters
+} from './lib/saved-task-filters'
+import { normalizeIgnoredKeys } from './lib/ignored-keys'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
 
@@ -490,6 +509,8 @@ interface Prefs {
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk".
    *  Empty disables it. */
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   /** When true, Vim yank/delete/change also copy to the system clipboard and
    *  `p` / `P` paste from it (like `set clipboard=unnamed`). */
   vimYankToClipboard: boolean
@@ -532,6 +553,12 @@ interface Prefs {
   mathRenderer: MathRenderer
   /** Prepend Typst definitions to a note's formulas based on its tags (#486). */
   typstTagPreambles: boolean
+  /** Grammar and spelling with Harper, checked on this device. Off by default. */
+  harperEnabled: boolean
+  harperDialect: HarperDialect
+  /** Per-rule Harper overrides; empty means Harper's defaults. Kept on the
+   *  device (not in config.toml) until the rules have a settings surface. */
+  harperLintConfig: HarperLintConfig
   /** Relax `$$…$$` display math so prose before the open fence (`Note: $$…$$`)
    *  or after the close fence (`$$…$$ done`) still renders in the reading view.
    *  Off by default; the editor keeps showing source for those shapes. */
@@ -553,6 +580,8 @@ interface Prefs {
   textReplacementsEnabled: boolean
   /** Trigger to replacement mappings, such as `->` to `→`. */
   textReplacements: TextReplacements
+  /** Saved Tasks filters by name, the `[saved_filters]` table in config.toml (#731). */
+  savedTaskFilters: SavedTaskFilters
   /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. */
   autoPairs: boolean
   /** Also auto-insert matching quotes outside Markdown code spans and blocks. */
@@ -697,6 +726,7 @@ interface Prefs {
   /** Ordered status ids for the custom-status Kanban board (group-by "custom").
    *  Each id matches an inline `@status:<id>` task token. Config-driven. (#354) */
   kanbanStatuses: string[]
+  kanbanFolderRoot: string
   /** True once the user has dismissed the first-run onboarding wizard. */
   hasCompletedOnboarding: boolean
 }
@@ -765,6 +795,8 @@ function normalizeKanbanColumnTitle(title: string): string | null {
 // prefix would otherwise fail the value grammar and get silently dropped. (#389)
 const STATIC_COLUMN_TITLE_KEY_RE = /^[a-z-]+:[A-Za-z0-9_-]+$/
 const FIELD_COLUMN_TITLE_KEY_RE = /^field:[a-z][a-z0-9_-]*:(?:__none__|[\p{L}\d][\p{L}\d/_-]*)$/u
+// Folder columns are keyed by the note directory (#730): any printable path.
+const FOLDER_COLUMN_TITLE_KEY_RE = /^folder:(?:__none__|[^\u0000-\u001f]{1,256})$/u
 
 function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object') return {}
@@ -776,7 +808,8 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
       STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
       STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
     const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField) continue
+    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
+    if (!isStatic && !isField && !isFolder) continue
     const normalized = normalizeKanbanColumnTitle(value)
     if (normalized) out[key] = normalized
   }
@@ -784,6 +817,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 }
 
 const MAX_KANBAN_ORDERED_COLUMNS = 64
+const MAX_KANBAN_COLUMN_ID_LENGTH = 256
 
 // Manual column arrangement per board: `{ "<groupBy>": ["<columnId>", ...] }`.
 // Column ids are validated loosely (the same tag-like slugs the boards use);
@@ -797,7 +831,8 @@ function normalizeKanbanColumnOrder(raw: unknown): Record<string, string[]> {
     const seen = new Set<string>()
     for (const entry of value) {
       if (typeof entry !== 'string') continue
-      const id = entry.trim().slice(0, MAX_KANBAN_STATUS_ID_LENGTH)
+      // Folder columns are directory paths (#730), longer than a status slug.
+      const id = entry.trim().slice(0, MAX_KANBAN_COLUMN_ID_LENGTH)
       if (!id || seen.has(id)) continue
       seen.add(id)
       ids.push(id)
@@ -828,7 +863,8 @@ export function normalizeKanbanCardOrder(raw: unknown): Record<string, string[]>
       STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
       STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
     const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField) continue
+    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
+    if (!isStatic && !isField && !isFolder) continue
     const cards: string[] = []
     const seen = new Set<string>()
     for (const entry of value) {
@@ -877,6 +913,23 @@ export function normalizeHiddenWorkflowPresets(raw: unknown): string[] {
     if (out.length >= 64) break
   }
   return out
+}
+
+const MAX_KANBAN_FOLDER_ROOT_LENGTH = 200
+
+/** The folder board's root (#730): a folder path relative to the notes area,
+ *  posix, no slashes at the ends, '' for none. Backslashes are accepted from
+ *  Windows-minded hands. */
+export function normalizeKanbanFolderRoot(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  return raw
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part) => part.trim())
+    .filter((part) => part && part !== '.' && part !== '..')
+    .join('/')
+    .slice(0, MAX_KANBAN_FOLDER_ROOT_LENGTH)
 }
 
 export function normalizeKanbanStatuses(raw: unknown): string[] {
@@ -937,6 +990,9 @@ export function viewPrefsFromVault(settings: VaultSettings | null | undefined): 
   if (Array.isArray(v.kanbanStatuses)) {
     patch.kanbanStatuses = normalizeKanbanStatuses(v.kanbanStatuses)
   }
+  if (typeof v.kanbanFolderRoot === 'string') {
+    patch.kanbanFolderRoot = normalizeKanbanFolderRoot(v.kanbanFolderRoot)
+  }
   if (typeof v.autoReveal === 'boolean') patch.autoReveal = v.autoReveal
   if (v.systemFolderLabels && typeof v.systemFolderLabels === 'object') {
     patch.systemFolderLabels = normalizeSystemFolderLabels(v.systemFolderLabels)
@@ -972,6 +1028,7 @@ function persistVaultViewOverride(patch: VaultViewSettings): void {
 export const DEFAULT_PREFS: Prefs = {
   vimMode: true,
   vimInsertEscape: '',
+  ignoredKeys: [],
   vimYankToClipboard: false,
   vimBlockImeInNormalMode: true,
   vimWrappedLineMotions: 'display',
@@ -989,6 +1046,9 @@ export const DEFAULT_PREFS: Prefs = {
   completedTaskStyle: 'none',
   mathRenderer: 'katex',
   typstTagPreambles: false,
+  harperEnabled: false,
+  harperDialect: DEFAULT_HARPER_DIALECT,
+  harperLintConfig: {},
   looseMathDelimiters: false,
   keepViewModeAcrossNotes: false,
   defaultPaneMode: 'edit',
@@ -996,6 +1056,7 @@ export const DEFAULT_PREFS: Prefs = {
   markdownSnippets: true,
   textReplacementsEnabled: true,
   textReplacements: { '->': '→' },
+  savedTaskFilters: {},
   autoPairs: true,
   autoPairQuotesInProse: false,
   hideBuiltinTemplates: false,
@@ -1069,6 +1130,7 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanColumnOrder: {},
   kanbanCardOrder: {},
   kanbanStatuses: [],
+  kanbanFolderRoot: '',
   hasCompletedOnboarding: false
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
@@ -1092,6 +1154,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.vimInsertEscape === 'string'
         ? p.vimInsertEscape.trim().slice(0, 5)
         : DEFAULT_PREFS.vimInsertEscape,
+    ignoredKeys: normalizeIgnoredKeys(p.ignoredKeys),
     vimYankToClipboard:
       typeof p.vimYankToClipboard === 'boolean'
         ? p.vimYankToClipboard
@@ -1161,6 +1224,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.typstTagPreambles === 'boolean'
         ? p.typstTagPreambles
         : DEFAULT_PREFS.typstTagPreambles,
+    harperEnabled:
+      typeof p.harperEnabled === 'boolean' ? p.harperEnabled : DEFAULT_PREFS.harperEnabled,
+    harperDialect: isHarperDialect(p.harperDialect) ? p.harperDialect : DEFAULT_PREFS.harperDialect,
+    harperLintConfig: normalizeHarperLintConfig(p.harperLintConfig),
     looseMathDelimiters:
       typeof p.looseMathDelimiters === 'boolean'
         ? p.looseMathDelimiters
@@ -1184,6 +1251,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.textReplacementsEnabled,
     textReplacements: normalizeTextReplacements(
       p.textReplacements ?? DEFAULT_PREFS.textReplacements
+    ),
+    savedTaskFilters: normalizeSavedTaskFilters(
+      p.savedTaskFilters ?? DEFAULT_PREFS.savedTaskFilters
     ),
     autoPairs: typeof p.autoPairs === 'boolean' ? p.autoPairs : DEFAULT_PREFS.autoPairs,
     autoPairQuotesInProse:
@@ -1396,6 +1466,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanCardOrder: normalizeKanbanCardOrder(p.kanbanCardOrder),
     kanbanStatuses: normalizeKanbanStatuses(p.kanbanStatuses),
+    kanbanFolderRoot: normalizeKanbanFolderRoot(p.kanbanFolderRoot),
     hasCompletedOnboarding:
       typeof p.hasCompletedOnboarding === 'boolean'
         ? p.hasCompletedOnboarding
@@ -2179,6 +2250,8 @@ async function rewriteTagAcrossVault(
 function collectPrefs(s: {
   vimMode: boolean
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   vimYankToClipboard: boolean
   vimBlockImeInNormalMode: boolean
   vimWrappedLineMotions: VimWrappedLineMotionMode
@@ -2198,6 +2271,9 @@ function collectPrefs(s: {
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
   typstTagPreambles: boolean
+  harperEnabled: boolean
+  harperDialect: HarperDialect
+  harperLintConfig: HarperLintConfig
   looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
   defaultPaneMode: PaneMode
@@ -2205,6 +2281,7 @@ function collectPrefs(s: {
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
   textReplacements: TextReplacements
+  savedTaskFilters: SavedTaskFilters
   autoPairs: boolean
   autoPairQuotesInProse: boolean
   hideBuiltinTemplates: boolean
@@ -2270,11 +2347,14 @@ function collectPrefs(s: {
   kanbanColumnOrder: Record<string, string[]>
   kanbanCardOrder: Record<string, string[]>
   kanbanStatuses: string[]
+  /** Folder board root (#730): group by the children of this folder; '' = each note's own folder. */
+  kanbanFolderRoot: string
   hasCompletedOnboarding: boolean
 }): Prefs {
   return {
     vimMode: s.vimMode,
     vimInsertEscape: s.vimInsertEscape,
+    ignoredKeys: s.ignoredKeys,
     vimYankToClipboard: s.vimYankToClipboard,
     vimBlockImeInNormalMode: s.vimBlockImeInNormalMode,
     vimWrappedLineMotions: s.vimWrappedLineMotions,
@@ -2294,6 +2374,9 @@ function collectPrefs(s: {
     completedTaskStyle: s.completedTaskStyle,
     mathRenderer: s.mathRenderer,
     typstTagPreambles: s.typstTagPreambles,
+    harperEnabled: s.harperEnabled,
+    harperDialect: s.harperDialect,
+    harperLintConfig: s.harperLintConfig,
     looseMathDelimiters: s.looseMathDelimiters,
     keepViewModeAcrossNotes: s.keepViewModeAcrossNotes,
     defaultPaneMode: s.defaultPaneMode,
@@ -2301,6 +2384,7 @@ function collectPrefs(s: {
     markdownSnippets: s.markdownSnippets,
     textReplacementsEnabled: s.textReplacementsEnabled,
     textReplacements: s.textReplacements,
+    savedTaskFilters: s.savedTaskFilters,
     autoPairs: s.autoPairs,
     autoPairQuotesInProse: s.autoPairQuotesInProse,
     hideBuiltinTemplates: s.hideBuiltinTemplates,
@@ -2366,6 +2450,7 @@ function collectPrefs(s: {
     kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanCardOrder: s.kanbanCardOrder,
     kanbanStatuses: s.kanbanStatuses,
+    kanbanFolderRoot: s.kanbanFolderRoot,
     hasCompletedOnboarding: s.hasCompletedOnboarding
   }
 }
@@ -2660,6 +2745,17 @@ function tasksSurfaceVisible(state: { paneLayout: PaneLayout }): boolean {
   )
 }
 
+let isolatedCloudTaskPaths = new Set(
+  (useCloudSyncStatusStore.getState().lastSummary?.pending_conflicts ?? []).flatMap(
+    (conflict) => [conflict.path, conflict.cloud_path].filter((path): path is string => Boolean(path))
+  ).map(cloudSyncPathKey)
+)
+
+function withoutPendingCloudConflictTasks(tasks: VaultTask[]): VaultTask[] {
+  if (isolatedCloudTaskPaths.size === 0) return tasks
+  return tasks.filter((task) => !isolatedCloudTaskPaths.has(cloudSyncPathKey(task.sourcePath)))
+}
+
 /** True when the active pane's active tab is the vault-wide Tags view. */
 export function isTagsViewActive(state: {
   paneLayout: PaneLayout
@@ -2779,6 +2875,8 @@ interface Store {
   vimMode: boolean
   /** Key sequence that exits insert mode (maps to <Esc>), e.g. "jk". Persisted. */
   vimInsertEscape: string
+  /** Keys the app ignores entirely (#732): a remapper's tap-hold no-op, by DOM key or code. */
+  ignoredKeys: string[]
   /** When true, Vim yank/delete/change also copy to the system clipboard. Persisted. */
   vimYankToClipboard: boolean
   vimBlockImeInNormalMode: boolean
@@ -2802,6 +2900,9 @@ interface Store {
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
   typstTagPreambles: boolean
+  harperEnabled: boolean
+  harperDialect: HarperDialect
+  harperLintConfig: HarperLintConfig
   looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
   /** The mode a note opens in before it has a remembered one. Persisted. (#543) */
@@ -2812,6 +2913,7 @@ interface Store {
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
   textReplacements: TextReplacements
+  savedTaskFilters: SavedTaskFilters
   /** Auto-insert matching `[]`, `()`, and `{}` delimiters while typing. Persisted. */
   autoPairs: boolean
   /** Also auto-insert matching quotes outside Markdown code spans and blocks. Persisted. */
@@ -2990,6 +3092,7 @@ interface Store {
   kanbanCardOrder: Record<string, string[]>
   /** Ordered status ids for the custom-status Kanban board (config-driven). */
   kanbanStatuses: string[]
+  kanbanFolderRoot: string
   /** True once the user has finished or skipped the first-run onboarding. */
   hasCompletedOnboarding: boolean
   /** ISO YYYY-MM-DD currently selected in the Calendar view. null = today. */
@@ -3200,6 +3303,8 @@ interface Store {
   /** Replace the ordered custom-status list (from Settings). Normalized and
    *  written back to config.toml + the per-vault view override. (#354) */
   setKanbanStatuses: (statuses: string[]) => void
+  /** Folder board root (#730); '' groups by each note's own folder. Persisted per vault and portably. */
+  setKanbanFolderRoot: (root: string) => void
   setTasksCalendarSelectedDate: (iso: string | null) => void
   setTasksCalendarMonthAnchor: (iso: string | null) => void
   setTaskCursorIndex: (idx: number) => void
@@ -3293,6 +3398,11 @@ interface Store {
   setFocusMode: (focus: boolean) => void
   setVimMode: (on: boolean) => void
   setVimInsertEscape: (sequence: string) => void
+  /** Replace the ignored-keys list (#732); persisted with the prefs and mirrored to config.toml. */
+  setIgnoredKeys: (keys: string[]) => void
+  /** Add one key to the ignored list, by the name Settings shows. */
+  addIgnoredKey: (key: string) => void
+  removeIgnoredKey: (key: string) => void
   setVimYankToClipboard: (on: boolean) => void
   setVimBlockImeInNormalMode: (on: boolean) => void
   setVimWrappedLineMotions: (mode: VimWrappedLineMotionMode) => void
@@ -3311,6 +3421,12 @@ interface Store {
   setCompletedTaskStyle: (style: CompletedTaskStyle) => void
   setMathRenderer: (renderer: MathRenderer) => void
   setTypstTagPreambles: (on: boolean) => void
+  setHarperEnabled: (on: boolean) => void
+  setHarperDialect: (dialect: HarperDialect) => void
+  setHarperLintConfig: (config: HarperLintConfig) => void
+  /** Write the vault's Harper dictionary and ignored suggestions to vault.json
+   *  without the note rescan a full settings save does. */
+  saveHarperVaultState: (next: HarperVaultState) => Promise<void>
   setLooseMathDelimiters: (on: boolean) => void
   setKeepViewModeAcrossNotes: (on: boolean) => void
   setDefaultPaneMode: (mode: PaneMode) => void
@@ -3318,6 +3434,13 @@ interface Store {
   setMarkdownSnippets: (on: boolean) => void
   setTextReplacementsEnabled: (on: boolean) => void
   setTextReplacements: (replacements: TextReplacements) => void
+  /** Saved Tasks filters (#731). Names match case-insensitively; edits keep the
+   *  chip order, and every change is mirrored to config.toml with the prefs. */
+  saveTaskFilter: (name: string, query: string) => void
+  renameSavedTaskFilter: (from: string, to: string) => void
+  deleteSavedTaskFilter: (name: string) => void
+  /** Set the Tasks filter to the query saved under `name`; false when unknown. */
+  applySavedTaskFilter: (name: string) => boolean
   setAutoPairs: (on: boolean) => void
   setAutoPairQuotesInProse: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
@@ -4620,6 +4743,7 @@ export const useStore = create<Store>((set, get) => {
   zenRestoreState: null,
   vimMode: loadPrefs().vimMode,
   vimInsertEscape: loadPrefs().vimInsertEscape,
+  ignoredKeys: loadPrefs().ignoredKeys,
   vimYankToClipboard: loadPrefs().vimYankToClipboard,
   vimBlockImeInNormalMode: loadPrefs().vimBlockImeInNormalMode,
   vimWrappedLineMotions: loadPrefs().vimWrappedLineMotions,
@@ -4639,6 +4763,9 @@ export const useStore = create<Store>((set, get) => {
   completedTaskStyle: loadPrefs().completedTaskStyle,
   mathRenderer: loadPrefs().mathRenderer,
   typstTagPreambles: loadPrefs().typstTagPreambles,
+  harperEnabled: loadPrefs().harperEnabled,
+  harperDialect: loadPrefs().harperDialect,
+  harperLintConfig: loadPrefs().harperLintConfig,
   looseMathDelimiters: loadPrefs().looseMathDelimiters,
   keepViewModeAcrossNotes: loadPrefs().keepViewModeAcrossNotes,
   defaultPaneMode: loadPrefs().defaultPaneMode,
@@ -4646,6 +4773,7 @@ export const useStore = create<Store>((set, get) => {
   markdownSnippets: loadPrefs().markdownSnippets,
   textReplacementsEnabled: loadPrefs().textReplacementsEnabled,
   textReplacements: loadPrefs().textReplacements,
+  savedTaskFilters: loadPrefs().savedTaskFilters,
   autoPairs: loadPrefs().autoPairs,
   autoPairQuotesInProse: loadPrefs().autoPairQuotesInProse,
   hideBuiltinTemplates: loadPrefs().hideBuiltinTemplates,
@@ -4715,6 +4843,7 @@ export const useStore = create<Store>((set, get) => {
   kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanCardOrder: loadPrefs().kanbanCardOrder,
   kanbanStatuses: loadPrefs().kanbanStatuses,
+  kanbanFolderRoot: loadPrefs().kanbanFolderRoot,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
   vaultTasks: [],
   customThemes: [],
@@ -5333,7 +5462,7 @@ export const useStore = create<Store>((set, get) => {
     set({ tasksLoading: true })
     try {
       const tasks = await window.zen.scanTasks()
-      set({ vaultTasks: tasks, tasksLoading: false })
+      set({ vaultTasks: withoutPendingCloudConflictTasks(tasks), tasksLoading: false })
     } catch (err) {
       console.error('scanTasks failed', err)
       set({ tasksLoading: false })
@@ -5342,7 +5471,9 @@ export const useStore = create<Store>((set, get) => {
 
   rescanTasksForPath: async (relPath) => {
     try {
-      const fresh = await window.zen.scanTasksForPath(relPath)
+      const fresh = isolatedCloudTaskPaths.has(cloudSyncPathKey(relPath))
+        ? []
+        : await window.zen.scanTasksForPath(relPath)
       set((s) => ({
         vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== relPath).concat(fresh)
       }))
@@ -5753,12 +5884,14 @@ export const useStore = create<Store>((set, get) => {
       folder: target.folder
     })
     set((s) => ({
+      // Both rebuilt notes go back through the Cloud filter: a note waiting on
+      // a conflict decision must stay out of the task surfaces even when an
+      // edit to another note reindexes it.
       vaultTasks: [
         ...s.vaultTasks.filter(
           (t) => t.sourcePath !== task.sourcePath && t.sourcePath !== target.path
         ),
-        ...srcTasks,
-        ...tgtTasks
+        ...withoutPendingCloudConflictTasks([...srcTasks, ...tgtTasks])
       ]
     }))
   },
@@ -5831,12 +5964,13 @@ export const useStore = create<Store>((set, get) => {
       folder: targetMeta.folder
     })
     set((s) => ({
+      // Same filter as the move above: forwarding must not slip a withheld
+      // note's tasks back into the shared cache.
       vaultTasks: [
         ...s.vaultTasks.filter(
           (t) => t.sourcePath !== task.sourcePath && t.sourcePath !== targetPath
         ),
-        ...srcTasks,
-        ...tgtTasks
+        ...withoutPendingCloudConflictTasks([...srcTasks, ...tgtTasks])
       ]
     }))
   },
@@ -5920,6 +6054,12 @@ export const useStore = create<Store>((set, get) => {
     set({ kanbanStatuses: next })
     savePrefs(collectPrefs(get()))
     persistVaultViewOverride({ kanbanStatuses: next })
+  },
+  setKanbanFolderRoot: (root) => {
+    const next = normalizeKanbanFolderRoot(root)
+    set({ kanbanFolderRoot: next })
+    savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ kanbanFolderRoot: next })
   },
   setTasksCalendarSelectedDate: (iso) => set({ tasksCalendarSelectedDate: iso }),
   setTasksCalendarMonthAnchor: (iso) => set({ tasksCalendarMonthAnchor: iso }),
@@ -6279,7 +6419,10 @@ export const useStore = create<Store>((set, get) => {
           .catch((err) => {
             console.error('resync vault settings failed', err)
           }),
-        tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve()
+        tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve(),
+        // Templates ride the feed too (scope 'templates'), so a gap may have
+        // swallowed a template saved on another device.
+        get().loadCustomTemplates()
       ])
       const stateAfter = get()
       const openTabs = [...new Set(allLeaves(stateAfter.paneLayout).flatMap((leaf) => leaf.tabs))]
@@ -6342,6 +6485,13 @@ export const useStore = create<Store>((set, get) => {
     }
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    if (ev.scope === 'templates') {
+      // A custom template changed on disk: another client on this vault, a
+      // synced dotfile, or this app's own save. Re-list the templates, not
+      // the note tree; a template is not a note.
+      await get().loadCustomTemplates()
       return
     }
     if (ev.scope === 'database') {
@@ -7178,6 +7328,17 @@ export const useStore = create<Store>((set, get) => {
     set({ vimInsertEscape: sequence.trim().slice(0, 5) })
     savePrefs(collectPrefs(get()))
   },
+  setIgnoredKeys: (keys) => {
+    set({ ignoredKeys: normalizeIgnoredKeys(keys) })
+    savePrefs(collectPrefs(get()))
+  },
+  addIgnoredKey: (key) => {
+    get().setIgnoredKeys([...get().ignoredKeys, key])
+  },
+  removeIgnoredKey: (key) => {
+    const wanted = key.trim().toLowerCase()
+    get().setIgnoredKeys(get().ignoredKeys.filter((entry) => entry.toLowerCase() !== wanted))
+  },
   setVimYankToClipboard: (on) => {
     set({ vimYankToClipboard: on })
     savePrefs(collectPrefs(get()))
@@ -7193,8 +7354,10 @@ export const useStore = create<Store>((set, get) => {
   setKeymapBinding: (id, binding) => {
     set((s) => {
       const nextOverrides = { ...s.keymapOverrides }
-      if (binding) nextOverrides[id] = binding
-      else delete nextOverrides[id]
+      // null clears the override so the default returns; the empty string is
+      // a stored unbind and has to stay.
+      if (binding === null) delete nextOverrides[id]
+      else nextOverrides[id] = binding
       return { keymapOverrides: nextOverrides }
     })
     savePrefs(collectPrefs(get()))
@@ -7274,6 +7437,30 @@ export const useStore = create<Store>((set, get) => {
     set({ mathRenderer: renderer })
     savePrefs(collectPrefs(get()))
   },
+  setHarperEnabled: (on) => {
+    set({ harperEnabled: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setHarperDialect: (dialect) => {
+    set({ harperDialect: dialect })
+    savePrefs(collectPrefs(get()))
+  },
+  setHarperLintConfig: (config) => {
+    set({ harperLintConfig: normalizeHarperLintConfig(config) })
+    savePrefs(collectPrefs(get()))
+  },
+  saveHarperVaultState: async (next) => {
+    const settings = get().vaultSettings
+    const harper = next.words.length === 0 && next.ignoredLints.length === 0 ? undefined : next
+    try {
+      const saved = normalizeVaultSettings(
+        await window.zen.setVaultSettings({ ...settings, harper })
+      )
+      set({ vaultSettings: saved })
+    } catch (error) {
+      console.error('saveHarperVaultState failed', error)
+    }
+  },
   setTypstTagPreambles: (on) => {
     set({ typstTagPreambles: on })
     savePrefs(collectPrefs(get()))
@@ -7307,6 +7494,30 @@ export const useStore = create<Store>((set, get) => {
   setTextReplacements: (replacements) => {
     set({ textReplacements: normalizeTextReplacements(replacements) })
     savePrefs(collectPrefs(get()))
+  },
+  saveTaskFilter: (name, query) => {
+    const next = withSavedTaskFilter(get().savedTaskFilters, name, query)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  renameSavedTaskFilter: (from, to) => {
+    const next = renameSavedTaskFilterEntry(get().savedTaskFilters, from, to)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  deleteSavedTaskFilter: (name) => {
+    const next = withoutSavedTaskFilter(get().savedTaskFilters, name)
+    if (next === get().savedTaskFilters) return
+    set({ savedTaskFilters: next })
+    savePrefs(collectPrefs(get()))
+  },
+  applySavedTaskFilter: (name) => {
+    const query = savedTaskFilterQuery(get().savedTaskFilters, name)
+    if (query === null) return false
+    set({ tasksFilter: query, taskCursorIndex: 0 })
+    return true
   },
   setAutoPairs: (on) => {
     set({ autoPairs: on })
@@ -9066,7 +9277,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const remoteWorkspaceProfilesPromise = get().refreshRemoteWorkspaceProfiles()
       const localVaultsPromise = get().refreshLocalVaults()
-      const [remoteWorkspaceInfo, serverCapabilities] = await Promise.all([
+      const [bootWorkspaceInfo, serverCapabilities] = await Promise.all([
         get().refreshWorkspaceContext(),
         window.zen.getServerCapabilities().catch(() => null)
       ])
@@ -9074,8 +9285,8 @@ export const useStore = create<Store>((set, get) => {
         void remoteWorkspaceProfilesPromise
         void localVaultsPromise
         set({
-          workspaceMode: workspaceModeFrom(remoteWorkspaceInfo),
-          remoteWorkspaceInfo,
+          workspaceMode: workspaceModeFrom(bootWorkspaceInfo),
+          remoteWorkspaceInfo: bootWorkspaceInfo,
           workspaceSetupError: null,
           workspaceRestored: true,
           vaultSettings: DEFAULT_VAULT_SETTINGS
@@ -9086,6 +9297,14 @@ export const useStore = create<Store>((set, get) => {
         return
       }
       const vault = await window.zen.getCurrentVault()
+      // getCurrentVault is what connects a configured remote workspace, so
+      // the info fetched above predates the connection: its capabilities and
+      // bootError are still null, and keeping it would leave Settings
+      // believing the server advertises nothing (#723). Ask again now that
+      // the answer exists.
+      const remoteWorkspaceInfo = bootWorkspaceInfo
+        ? await get().refreshWorkspaceContext()
+        : bootWorkspaceInfo
       void remoteWorkspaceProfilesPromise
       void localVaultsPromise
       if (vault) {
@@ -10081,3 +10300,28 @@ export function initOverrides(): void {
     }
   }
 }
+
+useCloudSyncStatusStore.subscribe((state) => {
+  const nextPaths = new Set(
+    (state.lastSummary?.pending_conflicts ?? []).flatMap((conflict) =>
+      [conflict.path, conflict.cloud_path]
+        .filter((path): path is string => Boolean(path))
+        .map(cloudSyncPathKey)
+    )
+  )
+  if (
+    nextPaths.size === isolatedCloudTaskPaths.size &&
+    [...nextPaths].every((path) => isolatedCloudTaskPaths.has(path))
+  ) {
+    return
+  }
+
+  const restoredPath = [...isolatedCloudTaskPaths].some((path) => !nextPaths.has(path))
+  isolatedCloudTaskPaths = nextPaths
+  useStore.setState((current) => ({
+    vaultTasks: withoutPendingCloudConflictTasks(current.vaultTasks)
+  }))
+  if (restoredPath && tasksSurfaceVisible(useStore.getState())) {
+    void useStore.getState().refreshTasks()
+  }
+})

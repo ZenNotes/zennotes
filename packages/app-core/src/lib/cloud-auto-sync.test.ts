@@ -7,7 +7,9 @@ import type { VaultChangeEvent } from "@shared/ipc";
 import {
   clearCloudSyncStatus,
   cloudSyncAttentionItems,
+  closeCloudConflictReview,
   connectCloudAccountFromStatusBar,
+  openCloudConflictReview,
   startCloudAutoSync,
   syncCloudVaultWithStatus,
   type CloudAutoSyncBridge,
@@ -548,9 +550,10 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
       ["rejected", "inbox/Daily.md"],
       ["rejected", "inbox/Plan.md"],
     ]);
+    expect(items[0].detail).toContain("Compare");
     expect(items[1].conflictCopyPath).toBe("inbox/Plan (cloud conflict).md");
     expect(items[1].detail).toContain("Plan (cloud conflict).md");
-    expect(items[3].detail).toContain("Changed in Cloud");
+    expect(items[3].detail).toContain("Changed on another device");
     expect(items[4].detail).toContain("(inbox/plan.md)");
   });
 
@@ -597,5 +600,53 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
     expect(useCloudSyncStatusStore.getState().lastSummary).toEqual(summary);
     clearCloudSyncStatus();
     expect(useCloudSyncStatusStore.getState().lastSummary).toBeNull();
+  });
+
+  it("opens the review queue only for conflicts it can resolve, and closes it when they are gone", async () => {
+    clearCloudSyncStatus();
+    const pending = {
+      id: "item-1",
+      item_id: "item-1",
+      path: "Plans/Trip.md",
+      cloud_path: "Plans/Trip.md",
+      kind: "content" as const,
+      can_merge: true,
+      has_base: true,
+    };
+
+    // A rejected upload is not a decision the queue can take.
+    await syncCloudVaultWithStatus(
+      {
+        syncCloudVault: async () => ({
+          ...base,
+          conflicts: [
+            {
+              operation_id: "op",
+              item_id: "i",
+              code: "REVISION_CONFLICT",
+              current_revision: 2,
+              current_path: null,
+              path: "inbox/Daily.md",
+            },
+          ],
+        }),
+      },
+      "Notes",
+    );
+    openCloudConflictReview();
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(false);
+
+    await syncCloudVaultWithStatus(
+      { syncCloudVault: async () => ({ ...base, pending_conflicts: [pending] }) },
+      "Notes",
+    );
+    openCloudConflictReview();
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true);
+
+    // The next run resolves it: the flag must not survive to reopen the queue
+    // on an unrelated conflict later.
+    await syncCloudVaultWithStatus({ syncCloudVault: async () => base }, "Notes");
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(false);
+    closeCloudConflictReview();
   });
 });

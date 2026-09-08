@@ -69,6 +69,25 @@ class MemoryFileSystem implements PortableCloudSyncFileSystem {
   }
 }
 
+class FailingMemoryFileSystem extends MemoryFileSystem {
+  constructor(
+    initial: Record<string, string | Uint8Array>,
+    private readonly failedPath: string
+  ) {
+    super(initial)
+  }
+
+  override async writeText(path: string, value: string): Promise<void> {
+    if (path === this.failedPath) throw new Error(`Cannot write ${path}`)
+    await super.writeText(path, value)
+  }
+
+  override async writeBase64(path: string, value: string): Promise<void> {
+    if (path === this.failedPath) throw new Error(`Cannot write ${path}`)
+    await super.writeBase64(path, value)
+  }
+}
+
 describe('PortableCloudSyncRepository', () => {
   it('scans portable user files with text/binary encoding and excludes local state', async () => {
     const fs = new MemoryFileSystem({
@@ -142,7 +161,11 @@ describe('PortableCloudSyncRepository', () => {
     )
     expect(fs.text('inbox/Old.md')).toBe('two')
 
-    const updated = { ...tracked, revision: 2, sha256: (await textContent('two')).sha256 }
+    const updated = {
+      ...tracked,
+      revision: 2,
+      sha256: (await textContent('two')).sha256
+    }
     await repository.apply(
       {
         sequence: 3,
@@ -174,7 +197,7 @@ describe('PortableCloudSyncRepository', () => {
   // Neither version is thrown away: the local file stays put and the incoming
   // one lands beside it. Throwing here used to stop the run before the cursor
   // was saved, so every later run replayed the same change and stopped too.
-  it('keeps both versions instead of overwriting unsynced local edits', async () => {
+  it('returns both versions without writing a conflict copy into the vault', async () => {
     const fs = new MemoryFileSystem({ 'inbox/Plan.md': 'local edit' })
     const repository = new PortableCloudSyncRepository(fs)
 
@@ -199,13 +222,111 @@ describe('PortableCloudSyncRepository', () => {
       }
     )
 
-    expect(conflict).toEqual({
+    expect(conflict).toMatchObject({
       code: 'LOCAL_EDIT_CONFLICT',
       path: 'inbox/Plan.md',
-      conflict_copy_path: 'inbox/Plan (cloud conflict).md'
+      conflict_copy_path: null,
+      local: { path: 'inbox/Plan.md', content: { data: 'local edit' } }
     })
     expect(fs.text('inbox/Plan.md')).toBe('local edit')
-    expect(fs.text('inbox/Plan (cloud conflict).md')).toBe('remote edit')
+    expect(fs.files.has('inbox/Plan (cloud conflict).md')).toBe(false)
+  })
+
+  it('applies explicit Cloud, keep-both, and merged bootstrap decisions', async () => {
+    const local = await textContent('local edit')
+    const cloud = await textContent('cloud edit')
+    const conflict = {
+      code: 'BOOTSTRAP_CONTENT_CONFLICT' as const,
+      item_id: 'item-1',
+      path: 'inbox/Plan.md',
+      local_sha256: local.sha256,
+      remote_sha256: cloud.sha256
+    }
+
+    const cloudFs = new MemoryFileSystem({ 'inbox/Plan.md': 'local edit' })
+    await new PortableCloudSyncRepository(cloudFs).resolveBootstrapConflict({
+      path: conflict.path,
+      expectedLocalSha256: local.sha256,
+      cloudContent: cloud,
+      resolution: { conflict, choice: 'cloud' }
+    })
+    expect(cloudFs.text('inbox/Plan.md')).toBe('cloud edit')
+
+    const bothFs = new MemoryFileSystem({ 'inbox/Plan.md': 'local edit' })
+    await new PortableCloudSyncRepository(bothFs).resolveBootstrapConflict({
+      path: conflict.path,
+      expectedLocalSha256: local.sha256,
+      cloudContent: cloud,
+      resolution: {
+        conflict,
+        choice: 'both',
+        keep_both_path: 'inbox/Plan (this device).md'
+      }
+    })
+    expect(bothFs.text('inbox/Plan.md')).toBe('cloud edit')
+    expect(bothFs.text('inbox/Plan (this device).md')).toBe('local edit')
+
+    const mergedFs = new MemoryFileSystem({ 'inbox/Plan.md': 'local edit' })
+    await new PortableCloudSyncRepository(mergedFs).resolveBootstrapConflict({
+      path: conflict.path,
+      expectedLocalSha256: local.sha256,
+      cloudContent: cloud,
+      resolution: { conflict, choice: 'merged', merged_text: 'merged result' }
+    })
+    expect(mergedFs.text('inbox/Plan.md')).toBe('merged result')
+  })
+
+  it('materializes a complete conflict decision without overwriting another file', async () => {
+    const local = await textContent('local edit')
+    const cloud = await textContent('cloud edit')
+    const fs = new MemoryFileSystem({
+      'inbox/Plan.md': 'local edit',
+      'inbox/Existing.md': 'leave me alone'
+    })
+    const repository = new PortableCloudSyncRepository(fs)
+
+    await repository.applyConflictResolutionFiles({
+      expected_path: 'inbox/Plan.md',
+      expected_sha256: local.sha256,
+      files: [
+        { path: 'archive/Plan.md', content: cloud },
+        { path: 'inbox/Plan from phone.md', content: local }
+      ]
+    })
+
+    expect(fs.text('inbox/Plan.md')).toBeNull()
+    expect(fs.text('archive/Plan.md')).toBe('cloud edit')
+    expect(fs.text('inbox/Plan from phone.md')).toBe('local edit')
+    await expect(
+      repository.applyConflictResolutionFiles({
+        expected_path: 'archive/Plan.md',
+        expected_sha256: cloud.sha256,
+        files: [{ path: 'inbox/Existing.md', content: cloud }]
+      })
+    ).rejects.toThrow('already exists')
+    expect(fs.text('archive/Plan.md')).toBe('cloud edit')
+    expect(fs.text('inbox/Existing.md')).toBe('leave me alone')
+  })
+
+  it('removes newly created resolution files when a later write fails', async () => {
+    const local = await textContent('local edit')
+    const fs = new FailingMemoryFileSystem({ 'inbox/Plan.md': 'local edit' }, 'blocked/Plan.md')
+    const repository = new PortableCloudSyncRepository(fs)
+
+    await expect(
+      repository.applyConflictResolutionFiles({
+        expected_path: 'inbox/Plan.md',
+        expected_sha256: local.sha256,
+        files: [
+          { path: 'copy/Plan.md', content: await textContent('safe copy') },
+          { path: 'blocked/Plan.md', content: await textContent('fails') }
+        ]
+      })
+    ).rejects.toThrow('Cannot write blocked/Plan.md')
+
+    expect(fs.text('inbox/Plan.md')).toBe('local edit')
+    expect(fs.text('copy/Plan.md')).toBeNull()
+    expect(fs.text('blocked/Plan.md')).toBeNull()
   })
 
   it('reports a parked settings choice until its cloud copy is removed', async () => {
@@ -227,7 +348,7 @@ describe('PortableCloudSyncRepository', () => {
       undefined
     )
 
-    expect(conflict).toEqual({
+    expect(conflict).toMatchObject({
       code: 'SETTINGS_CONFLICT',
       path: '.zennotes/vault.json',
       conflict_copy_path: '.zennotes/vault.cloud-conflict.json'
@@ -238,7 +359,9 @@ describe('PortableCloudSyncRepository', () => {
   })
 
   it('adopts a file that already matches the incoming change', async () => {
-    const fs = new MemoryFileSystem({ '.zennotes/vault.json': '{"favorites":[]}' })
+    const fs = new MemoryFileSystem({
+      '.zennotes/vault.json': '{"favorites":[]}'
+    })
     const repository = new PortableCloudSyncRepository(fs)
 
     const conflict = await repository.apply(

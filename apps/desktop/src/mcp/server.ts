@@ -22,10 +22,43 @@ import { createBackend, type VaultBackend } from '../cli/backend.js'
 import { resolveDefaultTarget } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
+import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
 
 interface ToolDef {
   schema: Tool
   handler: (args: Record<string, unknown>, backend: VaultBackend) => Promise<unknown>
+}
+
+/* ---------- Comment authorship ---------------------------------------- */
+
+// The MCP client's name from the initialize handshake ("claude-code",
+// "claude-ai", "codex-cli"), read as a display name so a comment left by an
+// assistant says who left it. Set once the session is initialized; the
+// fallback covers direct callTool use and clients that send nothing.
+let connectedClientName: string | null = null
+
+const CLIENT_DISPLAY_NAMES: Record<string, string> = {
+  'claude-ai': 'Claude',
+  'claude-code': 'Claude Code',
+  'claude-desktop': 'Claude',
+  'codex-cli': 'Codex',
+  codex: 'Codex'
+}
+
+export function commentAuthorForClient(clientName: string | null | undefined): string {
+  const raw = (clientName ?? '').trim()
+  if (!raw) return 'Assistant'
+  const known = CLIENT_DISPLAY_NAMES[raw.toLowerCase()]
+  if (known) return known
+  return raw
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+function defaultCommentAuthor(): string {
+  return commentAuthorForClient(connectedClientName)
 }
 
 /* ---------- Argument helpers ----------------------------------------- */
@@ -50,6 +83,13 @@ function requireFolder(args: Record<string, unknown>, key: string): NoteFolder {
   if (value !== 'inbox' && value !== 'quick' && value !== 'archive' && value !== 'trash') {
     throw new Error(`${key} must be one of inbox, quick, archive, trash`)
   }
+  return value
+}
+
+function optionalBoolean(args: Record<string, unknown>, key: string): boolean | undefined {
+  const value = args[key]
+  if (value == null) return undefined
+  if (typeof value !== 'boolean') throw new Error(`${key} must be a boolean`)
   return value
 }
 
@@ -789,6 +829,104 @@ const TOOLS: ToolDef[] = [
       const occurrence = (optionalString(args, 'occurrence') as 'first' | 'all' | undefined) ?? 'first'
       return await backend.replaceInNote(rel, find, replace, occurrence)
     }
+  },
+  {
+    schema: {
+      name: 'list_comments',
+      description:
+        'The comment threads on a note: each top-level comment with the text it is anchored to, the line that text sits on now, who wrote it (author is null for the vault owner), and its replies in order. Read this before reviewing or answering a discussion; unresolved threads only unless include_resolved is true.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Vault-relative note path.' },
+          include_resolved: { type: 'boolean', description: 'Also list resolved threads. Default false.' }
+        },
+        required: ['path']
+      }
+    },
+    handler: async (args, backend) =>
+      await listCommentThreads(backend, requireString(args, 'path'), {
+        includeResolved: optionalBoolean(args, 'include_resolved') ?? false
+      })
+  },
+  {
+    schema: {
+      name: 'add_comment',
+      description:
+        'Start a new comment thread on a note, attributed to you. Pass anchor_text, a passage copied exactly from the note, to attach the comment to it (the app highlights it and jumps there); omit it for a note-level comment. Markdown is fine in the body. Returns the new thread.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Vault-relative note path.' },
+          body: { type: 'string', description: 'The comment, in Markdown.' },
+          anchor_text: {
+            type: 'string',
+            description: 'Text from the note the comment is about, verbatim. Omit for a note-level comment.'
+          },
+          author: {
+            type: 'string',
+            description: 'Display name to sign with. Defaults to the connected client (e.g. "Claude Code").'
+          }
+        },
+        required: ['path', 'body']
+      }
+    },
+    handler: async (args, backend) =>
+      await addComment(backend, {
+        path: requireString(args, 'path'),
+        body: requireString(args, 'body'),
+        anchorText: optionalString(args, 'anchor_text'),
+        author: optionalString(args, 'author') ?? defaultCommentAuthor()
+      })
+  },
+  {
+    schema: {
+      name: 'reply_to_comment',
+      description:
+        'Answer a comment in its thread, attributed to you. id is a thread id (or any reply id in it) from list_comments; the reply keeps the thread\u2019s anchor. Use this to respond to the user\u2019s comments the way you would on a pull request, instead of editing the note body. Returns the updated thread.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Vault-relative note path.' },
+          id: { type: 'string', description: 'A comment id from list_comments.' },
+          body: { type: 'string', description: 'The reply, in Markdown.' },
+          author: {
+            type: 'string',
+            description: 'Display name to sign with. Defaults to the connected client.'
+          }
+        },
+        required: ['path', 'id', 'body']
+      }
+    },
+    handler: async (args, backend) =>
+      await replyToComment(backend, {
+        path: requireString(args, 'path'),
+        id: requireString(args, 'id'),
+        body: requireString(args, 'body'),
+        author: optionalString(args, 'author') ?? defaultCommentAuthor()
+      })
+  },
+  {
+    schema: {
+      name: 'resolve_comment',
+      description:
+        'Mark a comment thread resolved (or reopen it with resolved: false). Resolve only when the discussion is settled or the user asks; the thread stays in the note\u2019s history and moves to the Resolved section of the app\u2019s Comments panel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Vault-relative note path.' },
+          id: { type: 'string', description: 'A comment id from list_comments.' },
+          resolved: { type: 'boolean', description: 'false reopens the thread. Default true.' }
+        },
+        required: ['path', 'id']
+      }
+    },
+    handler: async (args, backend) =>
+      await resolveComment(backend, {
+        path: requireString(args, 'path'),
+        id: requireString(args, 'id'),
+        resolved: optionalBoolean(args, 'resolved') ?? true
+      })
   }
 ]
 
@@ -852,6 +990,10 @@ export async function runMcpServer(): Promise<void> {
       instructions
     }
   )
+
+  server.oninitialized = () => {
+    connectedClientName = server.getClientVersion()?.name ?? null
+  }
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: TOOLS.map((t) => t.schema)

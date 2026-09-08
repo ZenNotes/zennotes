@@ -176,6 +176,66 @@ describe('tasks cache freshness', () => {
     expect(scanTasksForPath).toHaveBeenCalledWith('inbox/Note.md')
     expect(useStore.getState().vaultTasks).toEqual(freshTasks)
   })
+
+  it('isolates tasks from a note until its cloud conflict is resolved', async () => {
+    const conflicted = {
+      ...makeTask('choose this later'),
+      id: 'inbox/Conflict.md#0',
+      sourcePath: 'inbox/Conflict.md'
+    }
+    const unaffected = {
+      ...makeTask('keep showing this'),
+      id: 'inbox/Other.md#0',
+      sourcePath: 'inbox/Other.md'
+    }
+    const scanTasks = vi.fn().mockResolvedValue([conflicted, unaffected])
+    installZen({ scanTasks })
+
+    const { useStore } = await loadStore()
+    const { useCloudSyncStatusStore } = await import('./lib/cloud-auto-sync')
+    useStore.setState({ vaultTasks: [conflicted, unaffected] })
+
+    useCloudSyncStatusStore.setState({
+      phase: 'attention',
+      lastSummary: {
+        cursor: 2,
+        pulled: 1,
+        pushed: 0,
+        conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
+        pending_conflicts: [
+          {
+            id: 'item-1',
+            item_id: 'item-1',
+            path: 'inbox/Conflict.md',
+            cloud_path: 'inbox/Conflict.md',
+            kind: 'content',
+            can_merge: true,
+            has_base: true
+          }
+        ]
+      }
+    })
+
+    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+    await useStore.getState().refreshTasks()
+    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+
+    useCloudSyncStatusStore.setState({
+      lastSummary: {
+        cursor: 3,
+        pulled: 0,
+        pushed: 1,
+        conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [],
+        pending_conflicts: []
+      }
+    })
+    await useStore.getState().refreshTasks()
+    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+  })
 })
 
 describe('closed tab history', () => {
@@ -2194,3 +2254,116 @@ describe('renaming the open note while the watcher reports the move (#713)', () 
   })
 })
 
+describe('custom templates on the change feed (#723)', () => {
+  it('re-lists templates on a templates-scope event without touching the note tree', async () => {
+    const listTemplates = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: Decision Record\n---\n# {{title}}\n' }
+      ])
+    const listNotes = vi.fn().mockResolvedValue([makeNote('- [ ] old task')])
+    installZen({ listTemplates, listNotes })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().loadCustomTemplates()
+    expect(useStore.getState().customTemplates).toEqual([])
+    const notesListedBefore = listNotes.mock.calls.length
+
+    await useStore.getState().applyChange({
+      kind: 'change',
+      path: '.zennotes/templates/adr.md',
+      folder: 'inbox',
+      scope: 'templates'
+    })
+
+    expect(listTemplates).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().customTemplates.map((t) => [t.id, t.name])).toEqual([
+      ['custom:adr', 'Decision Record']
+    ])
+    expect(listNotes.mock.calls.length).toBe(notesListedBefore)
+  })
+
+  it('re-lists templates after a change-feed gap', async () => {
+    const listTemplates = vi.fn().mockResolvedValue([
+      { sourcePath: '.zennotes/templates/weekly.md', raw: '---\nname: Weekly\n---\n' }
+    ])
+    installZen({ listTemplates })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().applyChange({ kind: 'change', path: '', folder: 'inbox', scope: 'resync' })
+
+    expect(listTemplates).toHaveBeenCalled()
+    expect(useStore.getState().customTemplates.map((t) => t.name)).toEqual(['Weekly'])
+  })
+})
+
+describe('remote workspace capabilities after boot (#723)', () => {
+  it('re-reads the workspace info once getCurrentVault has connected the server', async () => {
+    const base = {
+      mode: 'remote',
+      baseUrl: 'http://127.0.0.1:7878',
+      authConfigured: false,
+      profileId: null,
+      bootError: null
+    }
+    // The first read happens before the main process connects; capabilities
+    // are unknown then. Only the second read, after the connection, has them.
+    const getRemoteWorkspaceInfo = vi
+      .fn()
+      .mockResolvedValueOnce({ ...base, capabilities: null })
+      .mockResolvedValue({ ...base, capabilities: { supportsCustomTemplates: true, supportsWatch: true } })
+    installZen({
+      onVaultChange: vi.fn(() => vi.fn()),
+      getAppInfo: vi.fn().mockReturnValue({ runtime: 'desktop' }),
+      getServerCapabilities: vi.fn().mockResolvedValue({}),
+      getCurrentVault: vi.fn().mockResolvedValue({ root: '/srv/vault', name: 'vault' }),
+      getRemoteWorkspaceInfo
+    })
+
+    const { useStore } = await loadStore()
+    await useStore.getState().init()
+
+    expect(getRemoteWorkspaceInfo).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().workspaceMode).toBe('remote')
+    expect(useStore.getState().remoteWorkspaceInfo?.capabilities).toEqual({
+      supportsCustomTemplates: true,
+      supportsWatch: true
+    })
+  })
+})
+
+describe('kanban folder root (#730)', () => {
+  it('normalizes a typed root to a clean posix path and clears junk', async () => {
+    const { normalizeKanbanFolderRoot, viewPrefsFromVault } = await import('./store')
+    expect(normalizeKanbanFolderRoot('  /Projects/  ')).toBe('Projects')
+    expect(normalizeKanbanFolderRoot('Projects\\Client work\\')).toBe('Projects/Client work')
+    expect(normalizeKanbanFolderRoot('./Projects/../x')).toBe('Projects/x')
+    expect(normalizeKanbanFolderRoot('')).toBe('')
+    expect(normalizeKanbanFolderRoot(42)).toBe('')
+    expect(viewPrefsFromVault({ view: { kanbanFolderRoot: ' Areas/ ' } } as never)).toMatchObject({ kanbanFolderRoot: 'Areas' })
+    expect(viewPrefsFromVault({ view: {} } as never)).not.toHaveProperty('kanbanFolderRoot')
+  })
+
+  it('setKanbanFolderRoot stores the normalized root', async () => {
+    const { useStore } = await import('./store')
+    useStore.getState().setKanbanFolderRoot('/Projects/')
+    expect(useStore.getState().kanbanFolderRoot).toBe('Projects')
+    useStore.getState().setKanbanFolderRoot('')
+    expect(useStore.getState().kanbanFolderRoot).toBe('')
+  })
+})
+
+describe('ignored keys (#732)', () => {
+  it('normalizes the list and edits it by name', async () => {
+    const { useStore } = await import('./store')
+    useStore.getState().setIgnoredKeys([' KanaMode ', 'kanamode', 'F24'])
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'F24'])
+    useStore.getState().addIgnoredKey('Lang1')
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'F24', 'Lang1'])
+    useStore.getState().removeIgnoredKey('f24')
+    expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'Lang1'])
+    useStore.getState().setIgnoredKeys([])
+    expect(useStore.getState().ignoredKeys).toEqual([])
+  })
+})

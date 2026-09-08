@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
@@ -52,6 +52,13 @@ export interface ModalProps {
   className?: string
   /** id of the element labelling the dialog, for aria-labelledby. */
   labelledBy?: string
+  /**
+   * Control to focus when the dialog opens. Without it the first focusable
+   * element in the panel takes focus, and the panel itself when there is
+   * none. Content that focuses itself (palettes focusing their input) keeps
+   * that focus: the shell never moves focus already inside the panel.
+   */
+  initialFocus?: RefObject<HTMLElement | null>
   /** data-* hooks set on the backdrop, preserved for existing selectors. */
   data?: Record<string, string>
   children: ReactNode
@@ -66,9 +73,36 @@ function ModalRoot({
   closeOnEsc = true,
   className = '',
   labelledBy,
+  initialFocus,
   data,
   children
 }: ModalProps): JSX.Element {
+  const panel = useRef<HTMLDivElement>(null)
+
+  // Focus, for every dialog at once. Opening one moves focus into the panel,
+  // Tab cycles inside it, and closing hands focus back to whatever opened it.
+  // Without this a modal leaves the keyboard on the page underneath, where
+  // global handlers keep firing behind the backdrop.
+  useEffect(() => {
+    const opener =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const target = panel.current
+    if (target && !target.contains(document.activeElement)) {
+      const focusTarget = initialFocus?.current ?? firstFocusable(target) ?? target
+      focusTarget.focus({ preventScroll: true })
+    }
+    return () => {
+      // Content that hands focus somewhere on close (a palette returning it to
+      // the editor) has already claimed it by the time this runs. Only focus
+      // left on <body> by the panel's removal comes back to the opener.
+      const active = document.activeElement
+      if (active !== null && active !== document.body) return
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+    // Focus is claimed once per dialog; a changed `initialFocus` ref does not
+    // re-open it.
+  }, [])
+
   useEffect(() => {
     if (!closeOnEsc) return
     const handler = (e: KeyboardEvent): void => {
@@ -92,17 +126,70 @@ function ModalRoot({
       role="presentation"
     >
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        className={`overflow-hidden rounded-2xl bg-paper-100 shadow-float ring-1 ring-paper-300 ${SIZE_CLASS[size]} ${className}`}
+        tabIndex={-1}
+        className={`overflow-hidden rounded-2xl bg-paper-100 shadow-float outline-none ring-1 ring-paper-300 ${SIZE_CLASS[size]} ${className}`}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => trapTab(e, panel.current)}
       >
         {children}
       </div>
     </div>,
     document.body
   )
+}
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  'summary',
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])'
+].join(',')
+
+function focusableWithin(panel: HTMLElement): HTMLElement[] {
+  return [...panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
+    (el) => el.getAttribute('aria-hidden') !== 'true' && !el.hasAttribute('inert')
+  )
+}
+
+function firstFocusable(panel: HTMLElement): HTMLElement | null {
+  return focusableWithin(panel)[0] ?? null
+}
+
+/**
+ * Keep Tab inside the panel. The panel itself is a tab stop only as a
+ * fallback (an empty dialog), so shift-tabbing off it wraps to the end.
+ */
+function trapTab(
+  e: ReactKeyboardEvent<HTMLDivElement>,
+  panel: HTMLElement | null
+): void {
+  if (e.key !== 'Tab' || !panel) return
+  const stops = focusableWithin(panel)
+  if (stops.length === 0) {
+    e.preventDefault()
+    panel.focus({ preventScroll: true })
+    return
+  }
+  const first = stops[0]
+  const last = stops[stops.length - 1]
+  const active = document.activeElement
+  if (e.shiftKey && (active === first || active === panel)) {
+    e.preventDefault()
+    last.focus({ preventScroll: true })
+    return
+  }
+  if (!e.shiftKey && active === last) {
+    e.preventDefault()
+    first.focus({ preventScroll: true })
+  }
 }
 
 function ModalHeader({

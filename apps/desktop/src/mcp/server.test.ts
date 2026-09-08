@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { VaultBackend } from '../cli/backend'
 import { RemoteRequestError } from '../main/remote/connection'
-import { callTool, describeToolError, listToolNames } from './server'
+import { callTool, commentAuthorForClient, describeToolError, listToolNames } from './server'
 
 // Only the members a given test reaches are implemented; the cast keeps the
 // stubs honest about being partial.
@@ -116,7 +116,11 @@ describe('tools run through the backend', () => {
       'append_to_note',
       'prepend_to_note',
       'insert_at_line',
-      'replace_in_note'
+      'replace_in_note',
+      'list_comments',
+      'add_comment',
+      'reply_to_comment',
+      'resolve_comment'
     ])
   })
 })
@@ -132,5 +136,57 @@ describe('describeToolError', () => {
   it('passes other errors through untouched', () => {
     expect(describeToolError(new Error('boom'))).toBe('boom')
     expect(describeToolError(new RemoteRequestError('nope', 500))).toBe('nope')
+  })
+})
+
+describe('comment tools (#738)', () => {
+  it('lists the four comment tools', () => {
+    const names = listToolNames()
+    for (const name of ['list_comments', 'add_comment', 'reply_to_comment', 'resolve_comment']) {
+      expect(names).toContain(name)
+    }
+  })
+
+  it('signs a comment with the connected client, readably', () => {
+    expect(commentAuthorForClient('claude-code')).toBe('Claude Code')
+    expect(commentAuthorForClient('claude-ai')).toBe('Claude')
+    expect(commentAuthorForClient('codex-cli')).toBe('Codex')
+    expect(commentAuthorForClient('my_custom-agent')).toBe('My Custom Agent')
+    expect(commentAuthorForClient(null)).toBe('Assistant')
+    expect(commentAuthorForClient('  ')).toBe('Assistant')
+  })
+
+  it('reply_to_comment threads under the top-level comment with the author', async () => {
+    let stored: Array<Record<string, unknown>> = [
+      {
+        id: 'c1',
+        notePath: 'inbox/Plan.md',
+        anchorStart: 8,
+        anchorEnd: 33,
+        anchorText: 'Ship the beta in October.',
+        body: 'Still realistic?',
+        createdAt: 1,
+        updatedAt: 1,
+        resolvedAt: null
+      }
+    ]
+    const result = (await callTool(
+      'reply_to_comment',
+      { path: 'inbox/Plan.md', id: 'c1', body: 'Yes, the blocker runs at night.' },
+      backend({
+        readNote: async () =>
+          ({ path: 'inbox/Plan.md', body: '# Plan\n\nShip the beta in October.\n' }) as never,
+        listComments: async () => stored as never,
+        writeComments: async (_rel, comments) => {
+          stored = comments.map((c, i) => ({ ...c, id: (c as { id?: string }).id ?? `c${i + 1}` }))
+          return stored as never
+        }
+      })
+    )) as { id: string; replies: Array<{ author: string | null; body: string }> }
+    expect(result.id).toBe('c1')
+    expect(result.replies).toEqual([
+      expect.objectContaining({ author: 'Assistant', body: 'Yes, the blocker runs at night.' })
+    ])
+    expect(stored[1]).toMatchObject({ parentId: 'c1', anchorText: 'Ship the beta in October.' })
   })
 })

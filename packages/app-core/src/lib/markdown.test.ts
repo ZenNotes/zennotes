@@ -535,3 +535,55 @@ describe('callout titles keep their inline markup (#549)', () => {
     expect(renderMarkdown('> [!note]x is not a marker')).not.toContain('callout')
   })
 })
+
+// A display block inside an Obsidian-style callout used to lose the reading
+// view entirely: the fence normalizer re-scanned the closing fence of the block
+// BEFORE the callout as an opener, took the callout's `> $$` for content
+// hugging a fence, and rewrote the note with a bare `$$` outside the quote
+// that swallowed everything after it (#748).
+describe('display math inside callouts (#748)', () => {
+  afterEach(() => setMarkdownMathRenderer('katex'))
+
+  it('renders a $$ block inside a callout, after a block outside it', () => {
+    const html = renderMarkdown(
+      ['$$', 'a', '$$', '', '> [!note]', '> $$', '> x_1 = 2', '> $$', '', 'After.'].join('\n')
+    )
+    expect(html.match(/katex-display/g)?.length).toBe(2)
+    expect(html).toMatch(/<div class="callout"[^>]*>[\s\S]*katex-display[\s\S]*<\/div>/)
+    expect(html).not.toContain('&gt;')
+    expect(html).toMatch(/<p[^>]*>After\.<\/p>/)
+  })
+
+  it('hands Typst the formula without the quote markers', () => {
+    setMarkdownMathRenderer('typst')
+    const html = renderMarkdown(['> [!tip]', '> $$', '> x_1 = frac(det W_1, det A)', '> $$'].join('\n'))
+    expect(html).toContain('data-typst-source="x_1 = frac(det W_1, det A)"')
+    expect(html).not.toContain('zen-typst-error')
+  })
+
+  it('expands a one-line $$x^2$$ inside a callout like it does outside', () => {
+    const html = renderMarkdown('> [!note]\n> $$x^2$$\n\nAfter.')
+    expect(html.match(/katex-display/g)?.length).toBe(1)
+    expect(html).toMatch(/<div class="callout"[^>]*>[\s\S]*katex-display[\s\S]*<\/div>/)
+    expect(html).toMatch(/<p[^>]*>After\.<\/p>/)
+  })
+
+  it('never pairs a block with a later line that merely ends in $$', () => {
+    const html = renderMarkdown(['$$', 'a', '$$', '', 'The fence is $$', '', 'After.'].join('\n'))
+    expect(html.match(/katex-display/g)?.length).toBe(1)
+    expect(html).toContain('The fence is $$')
+    expect(html).toMatch(/<p[^>]*>After\.<\/p>/)
+  })
+
+  it('keeps the quote markers out of a demoted $…$ span inside a callout', () => {
+    // Bare `$` lines are not a display block in ZenNotes; the currency guard
+    // demotes the span to text in both views. Inside a callout that text used
+    // to carry the `> ` of every continuation line.
+    const outside = renderMarkdown(['$', 'x_1 = 2', '$'].join('\n'))
+    const inside = renderMarkdown(['> [!note]', '> $', '> x_1 = 2', '> $'].join('\n'))
+    expect(outside).not.toContain('katex')
+    expect(inside).not.toContain('katex')
+    expect(inside).not.toContain('&gt;')
+    expect(inside).toMatch(/<div class="callout"[^>]*>[\s\S]*\$\nx_1 = 2\n\$[\s\S]*<\/div>/)
+  })
+})
