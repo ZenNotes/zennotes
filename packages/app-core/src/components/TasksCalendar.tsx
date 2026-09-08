@@ -23,6 +23,7 @@ import {
 import { useStore } from '../store'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
@@ -921,6 +922,7 @@ function CalendarTaskRow({
         )}
       </span>
       <span className="shrink-0 truncate text-xs text-current/45">{task.noteTitle}</span>
+      <CloudTaskConflictIndicator path={task.sourcePath} />
       {task.priority && (
         <span
           className={[

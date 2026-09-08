@@ -177,7 +177,7 @@ describe('tasks cache freshness', () => {
     expect(useStore.getState().vaultTasks).toEqual(freshTasks)
   })
 
-  it('isolates tasks from a note until its cloud conflict is resolved', async () => {
+  it('keeps local tasks visible and refreshable while their cloud conflict is pending', async () => {
     const conflicted = {
       ...makeTask('choose this later'),
       id: 'inbox/Conflict.md#0',
@@ -189,7 +189,9 @@ describe('tasks cache freshness', () => {
       sourcePath: 'inbox/Other.md'
     }
     const scanTasks = vi.fn().mockResolvedValue([conflicted, unaffected])
-    installZen({ scanTasks })
+    const edited = { ...conflicted, content: 'local task edited while waiting' }
+    const scanTasksForPath = vi.fn().mockResolvedValue([edited])
+    installZen({ scanTasks, scanTasksForPath })
 
     const { useStore } = await loadStore()
     const { useCloudSyncStatusStore } = await import('./lib/cloud-auto-sync')
@@ -218,10 +220,15 @@ describe('tasks cache freshness', () => {
       }
     })
 
-    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
     await useStore.getState().refreshTasks()
-    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+    await useStore.getState().rescanTasksForPath(conflicted.sourcePath)
+    expect(useStore.getState().vaultTasks).toEqual([unaffected, edited])
+    expect(scanTasksForPath).toHaveBeenCalledWith(conflicted.sourcePath)
 
+    const resolved = { ...conflicted, content: 'task from the resolved note' }
+    scanTasks.mockResolvedValue([resolved, unaffected])
     useCloudSyncStatusStore.setState({
       lastSummary: {
         cursor: 3,
@@ -234,7 +241,7 @@ describe('tasks cache freshness', () => {
       }
     })
     await useStore.getState().refreshTasks()
-    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([resolved, unaffected])
   })
 })
 

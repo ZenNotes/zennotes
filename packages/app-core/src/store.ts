@@ -2735,17 +2735,6 @@ function tasksSurfaceVisible(state: { paneLayout: PaneLayout }): boolean {
   )
 }
 
-let isolatedCloudTaskPaths = new Set(
-  (useCloudSyncStatusStore.getState().lastSummary?.pending_conflicts ?? []).flatMap(
-    (conflict) => [conflict.path, conflict.cloud_path].filter((path): path is string => Boolean(path))
-  ).map(cloudSyncPathKey)
-)
-
-function withoutPendingCloudConflictTasks(tasks: VaultTask[]): VaultTask[] {
-  if (isolatedCloudTaskPaths.size === 0) return tasks
-  return tasks.filter((task) => !isolatedCloudTaskPaths.has(cloudSyncPathKey(task.sourcePath)))
-}
-
 /** True when the active pane's active tab is the vault-wide Tags view. */
 export function isTagsViewActive(state: {
   paneLayout: PaneLayout
@@ -5446,7 +5435,7 @@ export const useStore = create<Store>((set, get) => {
     set({ tasksLoading: true })
     try {
       const tasks = await window.zen.scanTasks()
-      set({ vaultTasks: withoutPendingCloudConflictTasks(tasks), tasksLoading: false })
+      set({ vaultTasks: tasks, tasksLoading: false })
     } catch (err) {
       console.error('scanTasks failed', err)
       set({ tasksLoading: false })
@@ -5455,9 +5444,7 @@ export const useStore = create<Store>((set, get) => {
 
   rescanTasksForPath: async (relPath) => {
     try {
-      const fresh = isolatedCloudTaskPaths.has(cloudSyncPathKey(relPath))
-        ? []
-        : await window.zen.scanTasksForPath(relPath)
+      const fresh = await window.zen.scanTasksForPath(relPath)
       set((s) => ({
         vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== relPath).concat(fresh)
       }))
@@ -5868,14 +5855,12 @@ export const useStore = create<Store>((set, get) => {
       folder: target.folder
     })
     set((s) => ({
-      // Both rebuilt notes go back through the Cloud filter: a note waiting on
-      // a conflict decision must stay out of the task surfaces even when an
-      // edit to another note reindexes it.
       vaultTasks: [
         ...s.vaultTasks.filter(
           (t) => t.sourcePath !== task.sourcePath && t.sourcePath !== target.path
         ),
-        ...withoutPendingCloudConflictTasks([...srcTasks, ...tgtTasks])
+        ...srcTasks,
+        ...tgtTasks
       ]
     }))
   },
@@ -5948,13 +5933,12 @@ export const useStore = create<Store>((set, get) => {
       folder: targetMeta.folder
     })
     set((s) => ({
-      // Same filter as the move above: forwarding must not slip a withheld
-      // note's tasks back into the shared cache.
       vaultTasks: [
         ...s.vaultTasks.filter(
           (t) => t.sourcePath !== task.sourcePath && t.sourcePath !== targetPath
         ),
-        ...withoutPendingCloudConflictTasks([...srcTasks, ...tgtTasks])
+        ...srcTasks,
+        ...tgtTasks
       ]
     }))
   },
@@ -10280,7 +10264,7 @@ export function initOverrides(): void {
   }
 }
 
-useCloudSyncStatusStore.subscribe((state) => {
+useCloudSyncStatusStore.subscribe((state, previous) => {
   const nextPaths = new Set(
     (state.lastSummary?.pending_conflicts ?? []).flatMap((conflict) =>
       [conflict.path, conflict.cloud_path]
@@ -10288,18 +10272,13 @@ useCloudSyncStatusStore.subscribe((state) => {
         .map(cloudSyncPathKey)
     )
   )
-  if (
-    nextPaths.size === isolatedCloudTaskPaths.size &&
-    [...nextPaths].every((path) => isolatedCloudTaskPaths.has(path))
-  ) {
-    return
-  }
-
-  const restoredPath = [...isolatedCloudTaskPaths].some((path) => !nextPaths.has(path))
-  isolatedCloudTaskPaths = nextPaths
-  useStore.setState((current) => ({
-    vaultTasks: withoutPendingCloudConflictTasks(current.vaultTasks)
-  }))
+  const restoredPath = (previous.lastSummary?.pending_conflicts ?? []).some((conflict) =>
+    [conflict.path, conflict.cloud_path].some((path) =>
+      path && !nextPaths.has(cloudSyncPathKey(path))
+    )
+  )
+  // Task views always use the local note. A completed decision can replace
+  // that note, so refresh even when the filesystem watcher coalesces its write.
   if (restoredPath && tasksSurfaceVisible(useStore.getState())) {
     void useStore.getState().refreshTasks()
   }

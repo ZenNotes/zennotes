@@ -3,6 +3,7 @@ import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { TaskStateBox } from './TaskStateBox'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/dnd'
 
 interface Props {
@@ -146,6 +147,7 @@ export function TasksRow({
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-xs text-current/50">
           <span className="truncate">{task.noteTitle}</span>
+          <CloudTaskConflictIndicator path={task.sourcePath} />
           {task.waiting && (
             <span className="rounded bg-current/10 px-1.5 py-0.5 text-purple-300">
               @waiting

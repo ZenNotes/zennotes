@@ -33,6 +33,7 @@ import {
 import { getISOWeek, getISOWeekYear } from '../lib/template-render'
 import { countWords } from '../lib/word-count'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 import { confirmApp } from '../lib/confirm-requests'
@@ -853,6 +854,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
         {task.sourcePath !== (dailyByDate.get(dayIso)?.path ?? '') && (
           <span className="shrink-0 truncate text-2xs text-ink-400">{task.noteTitle}</span>
         )}
+        <CloudTaskConflictIndicator path={task.sourcePath} />
       </div>
     )
 

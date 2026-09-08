@@ -43,6 +43,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
 import { isImeComposing } from '../lib/ime'
 import {
@@ -2070,6 +2071,7 @@ function TaskCard({
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 text-xs text-current/50">
         <span className="max-w-full truncate">{task.noteTitle}</span>
+        <CloudTaskConflictIndicator path={task.sourcePath} />
         {task.priority && (
           <span
             className={[
