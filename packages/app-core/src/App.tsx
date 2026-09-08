@@ -20,6 +20,7 @@ import { NoteList } from './components/NoteList'
 import { TitleBar } from './components/TitleBar'
 import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
+import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
 import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
@@ -1123,6 +1124,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <DatePickerHost />
         <PublishNoteHost />
         <ToastHost />
         <ExcalidrawEmbedMenuHost />
@@ -1141,6 +1143,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <DatePickerHost />
         <PublishNoteHost />
         <ToastHost />
         <ExcalidrawEmbedMenuHost />
@@ -1214,6 +1217,7 @@ function App(): JSX.Element {
       )}
       <PromptHost />
       <ConfirmHost />
+      <DatePickerHost />
       <PublishNoteHost />
       <CloudConflictReviewHost />
       <ToastHost />

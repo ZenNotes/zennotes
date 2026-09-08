@@ -51,7 +51,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Insert structure while you type',
     body:
-      'Type `/` to insert headings, lists, callouts, code blocks, tables, links, images, and other markdown structures. Type `@` to insert date shortcuts like Today and Tomorrow as ISO dates, or `@time` / `@now` for the current time.'
+      'Type `/` to insert headings, lists, callouts, code blocks, tables, links, images, and other markdown structures. Type `@` to insert date shortcuts like Today and Tomorrow as ISO dates, `@time` / `@now` for the current time, or `@date` to pick any other day from a calendar.'
   },
   {
     title: 'Format a selection',
@@ -610,7 +610,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
         keys: '@',
         action: 'Open date/time shortcuts',
         detail:
-          'Show inline suggestions for Today, Yesterday, Tomorrow, and the current time (`@time` / `@now`) while writing so you can insert dates and times without leaving the keyboard.'
+          'Show inline suggestions for Today, Yesterday, Tomorrow, the current time (`@time` / `@now`), and Date…, a calendar for any other day (`@date`: arrows move, PageUp/PageDown change the month, Enter inserts), so you can insert dates and times without leaving the keyboard.'
       },
       {
         keys: 'Select text, then m',
