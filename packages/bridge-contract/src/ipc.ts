@@ -437,6 +437,9 @@ export interface VaultViewSettings {
   groupByKind?: boolean
   tasksViewMode?: string
   kanbanGroupBy?: string
+  /** Folder board: group by the children of this folder (relative to the
+   *  notes area); empty groups by each note's own folder. (#730) */
+  kanbanFolderRoot?: string
   kanbanColumnTitles?: Record<string, string>
   kanbanColumnOrder?: Record<string, string[]>
   kanbanCardOrder?: Record<string, string[]>

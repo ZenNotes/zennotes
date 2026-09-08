@@ -435,6 +435,22 @@ export function TasksView(): JSX.Element {
         void saveCurrentFilter(arg)
         return
       }
+      // `:folderroot <path>` groups the folder board by the folders inside
+      // <path>; bare `:folderroot` returns to each note's own folder. (#730)
+      if (head === 'folderroot' || head === 'fr') {
+        const store = useStore.getState()
+        store.setKanbanFolderRoot(arg)
+        if (store.kanbanGroupBy !== 'folder') store.setKanbanGroupBy('folder')
+        setViewMode('kanban')
+        // Read back after the set: the snapshot above predates it.
+        const applied = useStore.getState().kanbanFolderRoot
+        toast(
+          applied
+            ? `Folder board: columns are the folders inside ${applied}`
+            : 'Folder board: columns are each note’s own folder'
+        )
+        return
+      }
       if (head === 'delfilter' || head === 'df') {
         if (!arg) {
           toast('Usage: :delfilter <name>')

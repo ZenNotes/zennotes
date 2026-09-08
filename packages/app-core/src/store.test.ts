@@ -2332,3 +2332,24 @@ describe('remote workspace capabilities after boot (#723)', () => {
     })
   })
 })
+
+describe('kanban folder root (#730)', () => {
+  it('normalizes a typed root to a clean posix path and clears junk', async () => {
+    const { normalizeKanbanFolderRoot, viewPrefsFromVault } = await import('./store')
+    expect(normalizeKanbanFolderRoot('  /Projects/  ')).toBe('Projects')
+    expect(normalizeKanbanFolderRoot('Projects\\Client work\\')).toBe('Projects/Client work')
+    expect(normalizeKanbanFolderRoot('./Projects/../x')).toBe('Projects/x')
+    expect(normalizeKanbanFolderRoot('')).toBe('')
+    expect(normalizeKanbanFolderRoot(42)).toBe('')
+    expect(viewPrefsFromVault({ view: { kanbanFolderRoot: ' Areas/ ' } } as never)).toMatchObject({ kanbanFolderRoot: 'Areas' })
+    expect(viewPrefsFromVault({ view: {} } as never)).not.toHaveProperty('kanbanFolderRoot')
+  })
+
+  it('setKanbanFolderRoot stores the normalized root', async () => {
+    const { useStore } = await import('./store')
+    useStore.getState().setKanbanFolderRoot('/Projects/')
+    expect(useStore.getState().kanbanFolderRoot).toBe('Projects')
+    useStore.getState().setKanbanFolderRoot('')
+    expect(useStore.getState().kanbanFolderRoot).toBe('')
+  })
+})

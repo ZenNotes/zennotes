@@ -143,6 +143,7 @@ export const PORTABLE_PREF_KEYS = [
   'tasksViewMode',
   'showArchivedTasks',
   'kanbanGroupBy',
+  'kanbanFolderRoot',
   'kanbanColumnTitles',
   'kanbanStatuses',
   // tasks
@@ -261,6 +262,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   tasksViewMode: 'list',
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
+  kanbanFolderRoot: '',
   kanbanColumnTitles: {},
   kanbanStatuses: [],
   savedTaskFilters: {}

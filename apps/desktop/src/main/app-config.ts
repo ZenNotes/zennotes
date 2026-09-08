@@ -373,7 +373,13 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   kanbanGroupBy: {
     section: 'view',
     tomlKey: 'kanban_group_by',
-    comment: 'status | priority | folder'
+    comment: 'status | priority | folder (each note\'s own folder; see kanban_folder_root) | field:<key>'
+  },
+  kanbanFolderRoot: {
+    section: 'view',
+    tomlKey: 'kanban_folder_root',
+    comment:
+      'folder board: group by the children of this folder, e.g. "Projects" (deeper notes roll up, notes outside it share one column); "" = each note\'s own folder'
   }
 }
 

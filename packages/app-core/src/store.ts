@@ -720,6 +720,7 @@ interface Prefs {
   /** Ordered status ids for the custom-status Kanban board (group-by "custom").
    *  Each id matches an inline `@status:<id>` task token. Config-driven. (#354) */
   kanbanStatuses: string[]
+  kanbanFolderRoot: string
   /** True once the user has dismissed the first-run onboarding wizard. */
   hasCompletedOnboarding: boolean
 }
@@ -788,6 +789,8 @@ function normalizeKanbanColumnTitle(title: string): string | null {
 // prefix would otherwise fail the value grammar and get silently dropped. (#389)
 const STATIC_COLUMN_TITLE_KEY_RE = /^[a-z-]+:[A-Za-z0-9_-]+$/
 const FIELD_COLUMN_TITLE_KEY_RE = /^field:[a-z][a-z0-9_-]*:(?:__none__|[\p{L}\d][\p{L}\d/_-]*)$/u
+// Folder columns are keyed by the note directory (#730): any printable path.
+const FOLDER_COLUMN_TITLE_KEY_RE = /^folder:(?:__none__|[^\u0000-\u001f]{1,256})$/u
 
 function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object') return {}
@@ -799,7 +802,8 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
       STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
       STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
     const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField) continue
+    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
+    if (!isStatic && !isField && !isFolder) continue
     const normalized = normalizeKanbanColumnTitle(value)
     if (normalized) out[key] = normalized
   }
@@ -807,6 +811,7 @@ function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
 }
 
 const MAX_KANBAN_ORDERED_COLUMNS = 64
+const MAX_KANBAN_COLUMN_ID_LENGTH = 256
 
 // Manual column arrangement per board: `{ "<groupBy>": ["<columnId>", ...] }`.
 // Column ids are validated loosely (the same tag-like slugs the boards use);
@@ -820,7 +825,8 @@ function normalizeKanbanColumnOrder(raw: unknown): Record<string, string[]> {
     const seen = new Set<string>()
     for (const entry of value) {
       if (typeof entry !== 'string') continue
-      const id = entry.trim().slice(0, MAX_KANBAN_STATUS_ID_LENGTH)
+      // Folder columns are directory paths (#730), longer than a status slug.
+      const id = entry.trim().slice(0, MAX_KANBAN_COLUMN_ID_LENGTH)
       if (!id || seen.has(id)) continue
       seen.add(id)
       ids.push(id)
@@ -851,7 +857,8 @@ export function normalizeKanbanCardOrder(raw: unknown): Record<string, string[]>
       STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
       STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
     const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField) continue
+    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
+    if (!isStatic && !isField && !isFolder) continue
     const cards: string[] = []
     const seen = new Set<string>()
     for (const entry of value) {
@@ -900,6 +907,23 @@ export function normalizeHiddenWorkflowPresets(raw: unknown): string[] {
     if (out.length >= 64) break
   }
   return out
+}
+
+const MAX_KANBAN_FOLDER_ROOT_LENGTH = 200
+
+/** The folder board's root (#730): a folder path relative to the notes area,
+ *  posix, no slashes at the ends, '' for none. Backslashes are accepted from
+ *  Windows-minded hands. */
+export function normalizeKanbanFolderRoot(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  return raw
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part) => part.trim())
+    .filter((part) => part && part !== '.' && part !== '..')
+    .join('/')
+    .slice(0, MAX_KANBAN_FOLDER_ROOT_LENGTH)
 }
 
 export function normalizeKanbanStatuses(raw: unknown): string[] {
@@ -959,6 +983,9 @@ export function viewPrefsFromVault(settings: VaultSettings | null | undefined): 
   }
   if (Array.isArray(v.kanbanStatuses)) {
     patch.kanbanStatuses = normalizeKanbanStatuses(v.kanbanStatuses)
+  }
+  if (typeof v.kanbanFolderRoot === 'string') {
+    patch.kanbanFolderRoot = normalizeKanbanFolderRoot(v.kanbanFolderRoot)
   }
   if (typeof v.autoReveal === 'boolean') patch.autoReveal = v.autoReveal
   if (v.systemFolderLabels && typeof v.systemFolderLabels === 'object') {
@@ -1095,6 +1122,7 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanColumnOrder: {},
   kanbanCardOrder: {},
   kanbanStatuses: [],
+  kanbanFolderRoot: '',
   hasCompletedOnboarding: false
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
@@ -1425,6 +1453,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanCardOrder: normalizeKanbanCardOrder(p.kanbanCardOrder),
     kanbanStatuses: normalizeKanbanStatuses(p.kanbanStatuses),
+    kanbanFolderRoot: normalizeKanbanFolderRoot(p.kanbanFolderRoot),
     hasCompletedOnboarding:
       typeof p.hasCompletedOnboarding === 'boolean'
         ? p.hasCompletedOnboarding
@@ -2302,6 +2331,8 @@ function collectPrefs(s: {
   kanbanColumnOrder: Record<string, string[]>
   kanbanCardOrder: Record<string, string[]>
   kanbanStatuses: string[]
+  /** Folder board root (#730): group by the children of this folder; '' = each note's own folder. */
+  kanbanFolderRoot: string
   hasCompletedOnboarding: boolean
 }): Prefs {
   return {
@@ -2401,6 +2432,7 @@ function collectPrefs(s: {
     kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanCardOrder: s.kanbanCardOrder,
     kanbanStatuses: s.kanbanStatuses,
+    kanbanFolderRoot: s.kanbanFolderRoot,
     hasCompletedOnboarding: s.hasCompletedOnboarding
   }
 }
@@ -3035,6 +3067,7 @@ interface Store {
   kanbanCardOrder: Record<string, string[]>
   /** Ordered status ids for the custom-status Kanban board (config-driven). */
   kanbanStatuses: string[]
+  kanbanFolderRoot: string
   /** True once the user has finished or skipped the first-run onboarding. */
   hasCompletedOnboarding: boolean
   /** ISO YYYY-MM-DD currently selected in the Calendar view. null = today. */
@@ -3245,6 +3278,8 @@ interface Store {
   /** Replace the ordered custom-status list (from Settings). Normalized and
    *  written back to config.toml + the per-vault view override. (#354) */
   setKanbanStatuses: (statuses: string[]) => void
+  /** Folder board root (#730); '' groups by each note's own folder. Persisted per vault and portably. */
+  setKanbanFolderRoot: (root: string) => void
   setTasksCalendarSelectedDate: (iso: string | null) => void
   setTasksCalendarMonthAnchor: (iso: string | null) => void
   setTaskCursorIndex: (idx: number) => void
@@ -4776,6 +4811,7 @@ export const useStore = create<Store>((set, get) => {
   kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanCardOrder: loadPrefs().kanbanCardOrder,
   kanbanStatuses: loadPrefs().kanbanStatuses,
+  kanbanFolderRoot: loadPrefs().kanbanFolderRoot,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
   vaultTasks: [],
   customThemes: [],
@@ -5986,6 +6022,12 @@ export const useStore = create<Store>((set, get) => {
     set({ kanbanStatuses: next })
     savePrefs(collectPrefs(get()))
     persistVaultViewOverride({ kanbanStatuses: next })
+  },
+  setKanbanFolderRoot: (root) => {
+    const next = normalizeKanbanFolderRoot(root)
+    set({ kanbanFolderRoot: next })
+    savePrefs(collectPrefs(get()))
+    persistVaultViewOverride({ kanbanFolderRoot: next })
   },
   setTasksCalendarSelectedDate: (iso) => set({ tasksCalendarSelectedDate: iso }),
   setTasksCalendarMonthAnchor: (iso) => set({ tasksCalendarMonthAnchor: iso }),

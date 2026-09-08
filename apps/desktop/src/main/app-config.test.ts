@@ -112,7 +112,9 @@ describe('TOML serialization', () => {
       keymapOverrides: { 'global.searchNotes': 'Mod+P' },
       kanbanColumnTitles: { 'status:todo': 'To Do' },
       systemFolderLabels: { inbox: 'In' },
-      savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' }
+      savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
+      kanbanGroupBy: 'folder',
+      kanbanFolderRoot: 'Projects'
     }
 
     const text = serializeConfig(portable)
@@ -137,6 +139,9 @@ describe('TOML serialization', () => {
     expect(round.kanbanColumnTitles).toEqual({ 'status:todo': 'To Do' })
     expect(round.systemFolderLabels).toEqual({ inbox: 'In' })
     // The [saved_filters] table keeps the order the chips show (#731).
+    expect(text).toContain('kanban_folder_root = "Projects"')
+    expect(round.kanbanGroupBy).toBe('folder')
+    expect(round.kanbanFolderRoot).toBe('Projects')
     expect(text).toContain('[saved_filters]')
     expect(text).toContain('"Project alpha" = "@project:alpha"')
     expect(Object.entries(round.savedTaskFilters as Record<string, string>)).toEqual([

@@ -2913,6 +2913,22 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "kanban-folder-root",
+          title: "Folder board root",
+          description:
+            "Group the Tasks Kanban Folder board by the folders inside one folder, such as Projects, instead of each note's own folder.",
+          keywords: [
+            "kanban",
+            "folder",
+            "board",
+            "group",
+            "projects",
+            "root",
+            "column",
+            "directory",
+          ],
+        },
+        {
           id: "show-archived-tasks",
           title: "Show tasks from archived notes",
           description:
@@ -2951,6 +2967,12 @@ export function SettingsModal(): JSX.Element {
             description="Set up the columns for the Tasks Kanban Custom status board. Other @field boards (sprint, area, …) appear automatically as you tag tasks — no setup needed."
           >
             <KanbanStatusesRow settingId="kanban-statuses" />
+          </Section>
+          <Section
+            title="Folder board"
+            description="The Kanban Folder board gives every note folder its own column. Point it at one folder to make that folder's children the columns instead."
+          >
+            <KanbanFolderRootRow settingId="kanban-folder-root" />
           </Section>
           <Section
             title="Archived notes"
@@ -6972,6 +6994,54 @@ function slugifyStatus(name: string): string {
 /** Settings editor for the custom-status Kanban columns. Add, rename, reorder,
  *  and remove columns without touching config.toml by hand; changes are written
  *  straight back to the config file (and the per-vault view override). (#354) */
+function KanbanFolderRootRow({ settingId }: { settingId?: string }): JSX.Element {
+  const root = useStore((s) => s.kanbanFolderRoot);
+  const setKanbanFolderRoot = useStore((s) => s.setKanbanFolderRoot);
+  const [draft, setDraft] = useState(root);
+  useEffect(() => {
+    setDraft(root);
+  }, [root]);
+  const commit = (): void => {
+    setKanbanFolderRoot(draft);
+  };
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Group by the folders inside</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        A folder path relative to your notes, such as <code>Projects</code>: its
+        subfolders become the columns, deeper notes roll up to their subfolder,
+        and notes outside it share an “Other folders” column. Leave it empty for
+        one column per note folder. On the board, <code>:folderroot Projects</code>{" "}
+        does the same; <code>kanban_folder_root</code> in config.toml is the
+        file-level key.
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          placeholder="Projects"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          className="w-64 rounded-md border border-paper-300 bg-paper-50 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent"
+        />
+        {root && (
+          <Button variant="secondary" size="sm" onClick={() => setKanbanFolderRoot("")}>
+            Clear
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function KanbanStatusesRow({ settingId }: { settingId?: string }): JSX.Element {
   const statuses = useStore((s) => s.kanbanStatuses);
   const setKanbanStatuses = useStore((s) => s.setKanbanStatuses);
