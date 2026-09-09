@@ -7,10 +7,11 @@ import {
   extractMarkdownLinkHrefs,
   extractMentionSnippet,
   parseCreateNotePath,
-  resolveWikilinkTarget,
-  suggestCreateNotePath
+  resolveWikilinkTarget
 } from '../lib/wikilinks'
 import { resolveInternalNoteHref } from '../lib/internal-links'
+import { classifyOutgoingWikilinks, type AttachmentLink } from '../lib/connections-outgoing'
+import { assetTabPath } from '../lib/asset-tabs'
 import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
 import { promptApp } from '../lib/prompt-requests'
 import { usePanelResize } from '../lib/use-panel-resize'
@@ -36,6 +37,8 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const selectNote = useStore((s) => s.selectNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
+  const openNoteInTab = useStore((s) => s.openNoteInTab)
+  const assetFiles = useStore((s) => s.assetFiles)
   const panelWidth = useStore((s) => s.panelWidths.connections)
   const setPanelWidth = useStore((s) => s.setPanelWidth)
   const { startResize } = usePanelResize(panelWidth, (px) => setPanelWidth('connections', px))
@@ -86,32 +89,14 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
   }
 
   const outgoing = useMemo(() => {
-    const targets = extractWikilinkTargets(note.body)
-    const seen = new Set<string>()
-    const resolvedItems: NoteMeta[] = []
-    const missingItems: MissingLinkItem[] = []
-    for (const rawTarget of targets) {
-      const target = rawTarget.trim()
-      if (!target) continue
-      const dedupeKey = target.toLowerCase()
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
-      const resolved = resolveWikilinkTarget(notes, target)
-      if (!resolved) continue
-      if (resolved.folder === 'trash' || resolved.path === note.path) continue
-      resolvedItems.push(resolved)
-    }
-    for (const rawTarget of targets) {
-      const target = rawTarget.trim()
-      if (!target) continue
-      const resolved = resolveWikilinkTarget(notes, target)
-      if (resolved || target.toLowerCase() === note.title.toLowerCase()) continue
-      if (missingItems.some((item) => item.target.toLowerCase() === target.toLowerCase())) continue
-      missingItems.push({
-        target,
-        suggestedPath: suggestCreateNotePath(target)
-      })
-    }
+    const links = classifyOutgoingWikilinks({
+      body: note.body,
+      notePath: note.path,
+      noteTitle: note.title,
+      notes,
+      assets: assetFiles
+    })
+    const resolvedItems = links.resolved
     // #70dark: standard Markdown links [text](Note.md) also count as outgoing
     // connections — resolve each href the way `gd` does and add resolved notes.
     for (const href of extractMarkdownLinkHrefs(note.body)) {
@@ -121,11 +106,12 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
       const target = notes.find((n) => n.path === resolvedPath)
       if (target && target.folder !== 'trash') resolvedItems.push(target)
     }
-    return { resolvedItems, missingItems }
-  }, [note.body, note.path, notes])
+    return { resolvedItems, attachmentItems: links.attachments, missingItems: links.missing }
+  }, [assetFiles, note.body, note.path, note.title, notes])
 
   const totalRows =
     outgoing.resolvedItems.length +
+    outgoing.attachmentItems.length +
     outgoing.missingItems.length +
     backlinks.length +
     mentions.length
@@ -265,7 +251,12 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
             Connections
           </div>
           <div className="mt-2 flex items-center gap-2 text-xs text-ink-500">
-            <Pill>{outgoing.resolvedItems.length + outgoing.missingItems.length} out</Pill>
+            <Pill>
+              {outgoing.resolvedItems.length +
+                outgoing.attachmentItems.length +
+                outgoing.missingItems.length}{' '}
+              out
+            </Pill>
             <Pill>{backlinks.length} in</Pill>
             <Pill>{mentions.length} mentioned</Pill>
           </div>
@@ -286,7 +277,7 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onScroll={() => setConnectionPreview(null)}>
           <ConnectionSection
             title="Links From Here"
-            subtitle="Resolved notes and missing wikilinks from this page."
+            subtitle="Notes, files and missing wikilinks from this page."
             empty="No linked notes yet."
           >
             {outgoing.resolvedItems.map((item) => (
@@ -300,6 +291,15 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
                   setPreviewFromRect(item, rect)
                 }}
                 onLeave={scheduleClose}
+                active={isConnectionsFocused && connectionsCursorIndex === rowIndex}
+                rowIndex={rowIndex++}
+              />
+            ))}
+            {outgoing.attachmentItems.map((item) => (
+              <AttachmentConnectionRow
+                key={item.assetPath}
+                link={item}
+                onOpen={() => void openNoteInTab(assetTabPath(item.assetPath))}
                 active={isConnectionsFocused && connectionsCursorIndex === rowIndex}
                 rowIndex={rowIndex++}
               />
@@ -486,6 +486,67 @@ function ConnectionRow({
       {active && (
         <div className="mt-2 flex justify-end">
           <ConnectionKeyHint keyLabel="p" label="preview" active />
+        </div>
+      )}
+    </button>
+  )
+}
+
+/**
+ * A wikilink that reaches a file in the vault, an embedded image or a PDF.
+ * It is neither a note to hover nor a link to create: the row opens the file
+ * in its own tab. (#757)
+ */
+function AttachmentConnectionRow({
+  link,
+  onOpen,
+  active,
+  rowIndex
+}: {
+  link: AttachmentLink
+  onOpen: () => void
+  active: boolean
+  rowIndex: number
+}): JSX.Element {
+  const name = link.assetPath.split('/').pop() ?? link.assetPath
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-connections-idx={rowIndex}
+      data-connections-type="attachment"
+      data-connections-path={link.assetPath}
+      className={[
+        'group rounded-2xl border p-3 text-left transition-colors',
+        active
+          ? 'bg-accent text-white ring-2 ring-white/45'
+          : 'border-paper-300/65 bg-paper-50/80 hover:border-accent/35 hover:bg-paper-50'
+      ].join(' ')}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className={['truncate text-sm font-medium', active ? 'text-white' : 'text-ink-900'].join(' ')}>
+            {name}
+          </div>
+          <div className={['mt-0.5 truncate text-xs', active ? 'text-white/75' : 'text-ink-500'].join(' ')}>
+            {link.assetPath}
+          </div>
+        </div>
+        <span
+          className={[
+            'rounded-full px-2 py-1 text-2xs uppercase tracking-[0.14em]',
+            active ? 'bg-white/12 text-white/80' : 'bg-paper-200/80 text-ink-500'
+          ].join(' ')}
+        >
+          file
+        </span>
+      </div>
+      <div className={['mt-2 line-clamp-2 text-xs leading-5', active ? 'text-white/85' : 'text-ink-600'].join(' ')}>
+        A file in this vault, not a note. Click to open it.
+      </div>
+      {active && (
+        <div className="mt-2 flex justify-end">
+          <ConnectionKeyHint keyLabel="↵" label="open" active />
         </div>
       )}
     </button>

@@ -2,6 +2,7 @@ import { useStore } from '../store'
 import { offerCreateNoteFromLink } from './create-note-from-link'
 import { externalFileLink, openExternalFileLink } from './external-file-link'
 import { externalLinkUrl, resolveInternalNoteHref } from './internal-links'
+import { openWikilinkAttachment } from './open-wikilink-attachment'
 import { resolveWikilinkPath } from './wikilinks'
 import {
   openDatabaseFromWikilink,
@@ -45,6 +46,10 @@ export function followLinkTarget(target: string): boolean {
     focusSoon()
     return true
   }
+  // A wikilink at a file in the vault (`[[assets/diagram.png]]`, a PDF) opens
+  // that file in its own tab. Before #757 it fell through to the create offer
+  // below and proposed a note named `assets/diagram.png.md`.
+  if (openWikilinkAttachment(target)) return true
   // A link to a file outside the vault (`~/…`, `file://…`, an absolute path):
   // open it with the OS default app instead of treating it as a note. (#424)
   if (externalFileLink(target)) {

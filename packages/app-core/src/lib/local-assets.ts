@@ -2,6 +2,7 @@ import { useStore } from '../store'
 import { externalLinkUrl } from './internal-links'
 import { openVaultAssetExternally } from './external-file-link'
 import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
+import { resolveAssetPathAmong, stripQueryAndHash } from './asset-path-resolution'
 
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -19,44 +20,9 @@ const VIDEO_EXTENSIONS = new Set(['.m4v', '.mov', '.mp4', '.ogv', '.webm'])
 
 export type LocalAssetKind = 'image' | 'pdf' | 'audio' | 'video' | 'excalidraw' | 'file'
 
-function stripQueryAndHash(href: string): string {
-  return href.split('#')[0]?.split('?')[0] ?? href
-}
-
 export function hrefFragment(href: string): string {
   const hashIdx = href.indexOf('#')
   return hashIdx >= 0 ? href.slice(hashIdx) : ''
-}
-
-function decodeHrefPath(value: string): string {
-  const cleaned = stripQueryAndHash(value)
-  try {
-    return decodeURIComponent(cleaned)
-  } catch {
-    return cleaned
-  }
-}
-
-function posixJoin(a: string, b: string): string {
-  if (!a) return b
-  if (!b) return a
-  if (a.endsWith('/')) return `${a}${b}`
-  return `${a}/${b}`
-}
-
-function posixNormalize(input: string): string {
-  const parts = input.split('/')
-  const out: string[] = []
-  for (const part of parts) {
-    if (!part || part === '.') continue
-    if (part === '..') {
-      if (out.length === 0) return '..'
-      out.pop()
-    } else {
-      out.push(part)
-    }
-  }
-  return out.join('/')
 }
 
 function assetExtension(href: string): string {
@@ -109,57 +75,7 @@ export function resolveAssetVaultRelativePath(
   href: string
 ): string | null {
   if (!vaultRoot || !notePath) return null
-  const trimmed = href.trim()
-  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return null
-  if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)) return null
-
-  const noteDir = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
-  const decodedHref = decodeHrefPath(trimmed)
-  const isAbsolute = decodedHref.startsWith('/')
-  let target = isAbsolute
-    ? decodedHref.replace(/^\/+/, '')
-    : noteDir
-      ? posixJoin(noteDir, decodedHref)
-      : decodedHref
-  target = posixNormalize(target)
-  if (target.startsWith('../') || target === '..') return null
-
-  const assets = useStore.getState().assetFiles
-  if (assets.some((asset) => asset.path === target)) return target
-
-  // A wikilink embed (`![[assets/img.png]]`) — and any path written relative
-  // to the vault root — resolves from the root, not the note's folder, which
-  // is what Obsidian does with wikilinks. When the note-relative join above
-  // didn't hit an asset, try the path as vault-root-relative before the fuzzy
-  // basename search below. This is what makes a pasted `![[assets/img.png]]`
-  // render from a note in a subfolder (e.g. a daily note under
-  // `Daily Notes/`), and it's more precise than the basename fallback when
-  // several files share a name. (#459)
-  if (!isAbsolute && noteDir) {
-    const rootTarget = posixNormalize(decodedHref)
-    if (
-      rootTarget &&
-      rootTarget !== target &&
-      !rootTarget.startsWith('../') &&
-      rootTarget !== '..' &&
-      assets.some((asset) => asset.path === rootTarget)
-    ) {
-      return rootTarget
-    }
-  }
-
-  const targetBase = target.split('/').filter(Boolean).pop()?.toLowerCase()
-  if (!targetBase) return null
-
-  const basenameMatches = assets.filter((asset) => {
-    const assetBase = asset.path.split('/').filter(Boolean).pop()?.toLowerCase()
-    return assetBase === targetBase
-  })
-  if (basenameMatches.length === 1) {
-    return basenameMatches[0]!.path
-  }
-
-  return null
+  return resolveAssetPathAmong(useStore.getState().assetFiles, notePath, href)
 }
 
 function localAssetLabel(href: string, fallback: string): string {

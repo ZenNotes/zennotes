@@ -387,7 +387,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Reference and connections support research-heavy work',
     body:
-      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft. Connections count both `[[wikilinks]]` and standard Markdown links (`[text](Note.md)`), so incoming and outgoing associations show up even if you never use wikilinks.'
+      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft. Connections count both `[[wikilinks]]` and standard Markdown links (`[text](Note.md)`), so incoming and outgoing associations show up even if you never use wikilinks. A wikilink at a file in the vault, such as an embedded image or a PDF, is listed as a file and opens in its own tab; the panel only offers to create a note for a wikilink that reaches nothing.'
   },
   {
     title: 'Zen mode removes chrome',

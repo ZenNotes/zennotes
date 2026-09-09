@@ -2291,7 +2291,7 @@ export function VimNav(): JSX.Element | null {
       })
       return
     }
-    if (type === 'missing') {
+    if (type === 'missing' || type === 'attachment') {
       el.click()
     }
   }

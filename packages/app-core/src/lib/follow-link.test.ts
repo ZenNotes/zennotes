@@ -13,7 +13,9 @@ const state = vi.hoisted(() => ({
   ],
   setFocusedPanel: vi.fn(),
   editorViewRef: null,
-  selectNote: vi.fn()
+  selectNote: vi.fn(),
+  assetFiles: [{ path: 'assets/diagram.png' }],
+  openNoteInTab: vi.fn(() => Promise.resolve())
 }))
 
 const openWikilinkTarget = vi.hoisted(() => vi.fn(() => new Promise<void>(() => undefined)))
@@ -39,5 +41,27 @@ describe('followLinkTarget: same-note anchors (#601)', () => {
 
     expect(openWikilinkTarget).toHaveBeenCalledWith('inbox/Current.md', '^standalone')
     expect(offerCreateNoteFromLink).not.toHaveBeenCalled()
+  })
+})
+
+describe('followLinkTarget: wikilinks at vault files (#757)', () => {
+  it('opens the file in an asset tab instead of offering to create a note named after it', () => {
+    offerCreateNoteFromLink.mockClear()
+    state.openNoteInTab.mockClear()
+
+    expect(followLinkTarget('assets/diagram.png')).toBe(true)
+
+    expect(state.openNoteInTab).toHaveBeenCalledWith('zen://asset/assets%2Fdiagram.png')
+    expect(offerCreateNoteFromLink).not.toHaveBeenCalled()
+  })
+
+  it('still offers to create a note for a target no file answers', () => {
+    offerCreateNoteFromLink.mockClear()
+    state.openNoteInTab.mockClear()
+
+    expect(followLinkTarget('Nowhere')).toBe(true)
+
+    expect(state.openNoteInTab).not.toHaveBeenCalled()
+    expect(offerCreateNoteFromLink).toHaveBeenCalledWith('Nowhere')
   })
 })

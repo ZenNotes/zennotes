@@ -23,6 +23,7 @@ import { useStore } from '../store'
 import { isSameFileBlockLink, isSameFileHeadingLink, resolveWikilinkTarget } from './wikilinks'
 import { openDatabaseFromWikilink, openWikilinkTarget } from './wikilink-navigation'
 import { offerCreateNoteFromLink } from './create-note-from-link'
+import { openWikilinkAttachment } from './open-wikilink-attachment'
 
 // Same shape as the Preview pipeline (remarkWikilinks).
 const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g
@@ -155,6 +156,8 @@ function openWikilink(target: string): void {
     // Not a note — maybe a `.base` database; otherwise offer to create the note
     // (with confirmation) so a link to a not-yet-existing note isn't a dead end.
     if (openDatabaseFromWikilink(target)) return
+    // A file in the vault (an embedded image, a PDF) opens in its own tab. (#757)
+    if (openWikilinkAttachment(target)) return
     void offerCreateNoteFromLink(target)
     return
   }

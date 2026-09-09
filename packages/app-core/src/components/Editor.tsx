@@ -52,6 +52,7 @@ import {
 } from "../lib/move-note";
 import { promptApp } from "../lib/prompt-requests";
 import { offerCreateNoteFromLink } from "../lib/create-note-from-link";
+import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
 import {
   externalFileLink,
   openExternalFileLink,
@@ -849,6 +850,10 @@ function registerVimCommands(): void {
       requestAnimationFrame(() => useStore.getState().editorViewRef?.focus());
       return;
     }
+
+    // A file in the vault (an embedded image, a non-PDF attachment) opens in
+    // its own tab instead of becoming a create offer for `file.png.md`. (#757)
+    if (openWikilinkAttachment(target)) return;
 
     // A link to a file outside the vault: open it with the OS default app. (#424)
     if (externalFileLink(target)) {
