@@ -19,6 +19,8 @@ import {
   DEFAULT_MONTHLY_NOTES_DIRECTORY,
 } from "@shared/ipc";
 import type { VimWrappedLineMotionMode } from "@shared/app-config";
+import { HARPER_DIALECTS } from "@shared/harper-settings";
+import { harperSupported } from "../lib/harper-runtime";
 import type {
   AppUpdateState,
   CliInstallStatus,
@@ -63,8 +65,11 @@ import {
   getKeymapDefinitionsByGroup,
   getKeymapDisplay,
   isMacPlatform,
+  isUnboundBinding,
   sequenceTokenFromEvent,
   shortcutBindingFromEvent,
+  UNBOUND_BINDING,
+  UNBOUND_LABEL,
 } from "../lib/keymaps";
 import {
   resolveAuto,
@@ -127,6 +132,10 @@ import { promptApp } from "../lib/prompt-requests";
 import { isImeComposing } from "../lib/ime";
 import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
 import { Button } from "./ui/Button";
+import {
+  ignoredKeyTokenFromEvent,
+  setIgnoredKeysRecorderActive,
+} from "../lib/ignored-keys";
 import { CustomCodeLanguagesSettings } from "./CustomCodeLanguagesSettings";
 import { TextReplacementsSettings } from "./TextReplacementsSettings";
 import { CloudSettings } from "./CloudSettings";
@@ -483,6 +492,10 @@ export function SettingsModal(): JSX.Element {
   const setMathFontScale = useStore((s) => s.setMathFontScale);
   const typstTagPreambles = useStore((s) => s.typstTagPreambles);
   const setTypstTagPreambles = useStore((s) => s.setTypstTagPreambles);
+  const harperEnabled = useStore((s) => s.harperEnabled);
+  const setHarperEnabled = useStore((s) => s.setHarperEnabled);
+  const harperDialect = useStore((s) => s.harperDialect);
+  const setHarperDialect = useStore((s) => s.setHarperDialect);
   const setMathRenderer = useStore((s) => s.setMathRenderer);
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters);
   const setLooseMathDelimiters = useStore((s) => s.setLooseMathDelimiters);
@@ -588,9 +601,14 @@ export function SettingsModal(): JSX.Element {
       ),
     [customTemplates, hideBuiltinTemplates],
   );
+  // A local vault's templates are a host feature (the desktop has a disk, the
+  // web client asks its server); a remote vault's are the server's, advertised
+  // since 2.46 (#723). The store keeps remoteWorkspaceInfo fresh across
+  // connects and disconnects, so this re-renders with it.
   const supportsCustomTemplates =
-    zenBridge.getCapabilities().supportsCustomTemplates &&
-    workspaceMode !== "remote";
+    workspaceMode === "remote"
+      ? remoteWorkspaceInfo?.capabilities?.supportsCustomTemplates === true
+      : zenBridge.getCapabilities().supportsCustomTemplates === true;
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
   const [templateEditor, setTemplateEditor] = useState<{
@@ -1906,6 +1924,32 @@ export function SettingsModal(): JSX.Element {
             "typesetter",
           ],
         },
+        ...(harperSupported()
+          ? [
+              {
+                id: "harper-enabled",
+                title: "Grammar and spelling with Harper",
+                description:
+                  "Underline grammar and spelling problems as you write, checked on this device by Harper. Off by default.",
+                keywords: [
+                  "harper",
+                  "grammar",
+                  "spelling",
+                  "spell",
+                  "check",
+                  "lint",
+                  "proofread",
+                ],
+              },
+              {
+                id: "harper-dialect",
+                title: "Harper dialect",
+                description:
+                  "The English Harper checks against: American, British, Australian, Canadian, or Indian.",
+                keywords: ["harper", "dialect", "english", "british", "american"],
+              },
+            ]
+          : []),
         {
           id: "typst-tag-preambles",
           title: "Typst definitions from tags",
@@ -2355,6 +2399,8 @@ export function SettingsModal(): JSX.Element {
           searchIds: [
             "live-preview",
             "render-tables",
+            "harper-enabled",
+            "harper-dialect",
             "sync-title-heading-on-rename",
             "markdown-overrides",
             "heading-level-labels",
@@ -2438,6 +2484,28 @@ export function SettingsModal(): JSX.Element {
                 )}
                 {mathRenderer === "typst" && typstTagPreambles && (
                   <TypstPreambleFolderRow settingId="typst-preamble-folder" />
+                )}
+                {harperSupported() && (
+                <ToggleRow
+                  label="Grammar and spelling with Harper"
+                  description="Underline grammar and spelling problems as you write. Harper (writewithharper.com) runs on this device; no text leaves the app. Hover a mark or press z= in Vim mode for the fixes, ]s and [s jump between them, zg adds a word to this vault's dictionary. Off by default."
+                  value={harperEnabled}
+                  settingId="harper-enabled"
+                  onChange={setHarperEnabled}
+                />
+                )}
+                {harperSupported() && harperEnabled && (
+                  <SegmentedRow
+                    label="Harper dialect"
+                    description="The English Harper checks against."
+                    value={harperDialect}
+                    settingId="harper-dialect"
+                    options={HARPER_DIALECTS.map((dialect) => ({
+                      value: dialect.value,
+                      label: dialect.label,
+                    }))}
+                    onChange={setHarperDialect}
+                  />
                 )}
                 <ToggleRow
                   label="Relaxed $$ math delimiters"
@@ -2788,6 +2856,24 @@ export function SettingsModal(): JSX.Element {
       keywords: ["shortcuts", "bindings", "leader", "vim", "remap", "keyboard"],
       searchItems: [
         {
+          id: "ignored-keys",
+          title: "Ignored keys",
+          description:
+            "Keys the app never sees, such as the no-op a Kanata or QMK tap-hold layer sends with every keystroke.",
+          keywords: [
+            "ignore",
+            "ignored",
+            "no-op",
+            "noop",
+            "kanata",
+            "qmk",
+            "zmk",
+            "tap-hold",
+            "home row",
+            "kanamode",
+          ],
+        },
+        {
           id: "shortcut-editor",
           title: "Shortcut editor",
           description:
@@ -2849,6 +2935,22 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "kanban-folder-root",
+          title: "Folder board root",
+          description:
+            "Group the Tasks Kanban Folder board by the folders inside one folder, such as Projects, instead of each note's own folder.",
+          keywords: [
+            "kanban",
+            "folder",
+            "board",
+            "group",
+            "projects",
+            "root",
+            "column",
+            "directory",
+          ],
+        },
+        {
           id: "show-archived-tasks",
           title: "Show tasks from archived notes",
           description:
@@ -2887,6 +2989,12 @@ export function SettingsModal(): JSX.Element {
             description="Set up the columns for the Tasks Kanban Custom status board. Other @field boards (sprint, area, …) appear automatically as you tag tasks — no setup needed."
           >
             <KanbanStatusesRow settingId="kanban-statuses" />
+          </Section>
+          <Section
+            title="Folder board"
+            description="The Kanban Folder board gives every note folder its own column. Point it at one folder to make that folder's children the columns instead."
+          >
+            <KanbanFolderRootRow settingId="kanban-folder-root" />
           </Section>
           <Section
             title="Archived notes"
@@ -4616,8 +4724,12 @@ export function SettingsModal(): JSX.Element {
               </div>
             ) : (
               <InlineNote>
-                Custom templates require a local vault. Built-in templates still
-                work here.
+                Custom templates need ZenNotes server 2.46 or later. Update the
+                server and{" "}
+                {workspaceMode === "remote"
+                  ? "reconnect this workspace"
+                  : "reload"}
+                ; built-in templates still work here.
               </InlineNote>
             )}
             <div className="flex items-center justify-between gap-4 border-t border-paper-300/40 px-5 py-4">
@@ -5340,10 +5452,12 @@ function KeymapSettings({
             // before turning Vim mode back on, but still let the filter work.
           }
           if (!q) return true;
+          const display =
+            getKeymapDisplay(overrides, definition.id) || UNBOUND_LABEL;
           return (
             definition.title.toLowerCase().includes(q) ||
             definition.description.toLowerCase().includes(q) ||
-            getKeymapDisplay(overrides, definition.id).toLowerCase().includes(q)
+            display.toLowerCase().includes(q)
           );
         });
         return items.length > 0 ? { ...group, items } : null;
@@ -5359,7 +5473,8 @@ function KeymapSettings({
   const hasOverrides = Object.keys(overrides).length > 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col gap-4">
+      <IgnoredKeysRow settingId="ignored-keys" />
       <div className="flex min-h-0 flex-1 flex-col rounded-3xl border border-paper-300/60 bg-paper-50/45 shadow-[0_14px_36px_rgba(15,23,42,0.04)]">
         <div className="sticky top-0 z-10 rounded-t-[22px] border-b border-paper-300/55 bg-paper-50/95 px-5 py-4 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -5369,8 +5484,9 @@ function KeymapSettings({
               </div>
               <div className="mt-1 text-xs leading-5 text-ink-500">
                 Record a new key or sequence for the app’s keyboard-first
-                actions. Standard accessibility fallbacks like arrows, Enter,
-                and Escape still work.
+                actions, or unbind one so no key triggers it. Standard
+                accessibility fallbacks like arrows, Enter, and Escape still
+                work.
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -5406,7 +5522,8 @@ function KeymapSettings({
               <div className="pb-4">
                 {group.items.map((definition) => {
                   const current = getKeymapBinding(overrides, definition.id);
-                  const custom = !!overrides[definition.id];
+                  const custom = overrides[definition.id] !== undefined;
+                  const unbound = isUnboundBinding(current);
                   const conflict = findKeymapConflict(
                     overrides,
                     definition.id,
@@ -5449,8 +5566,17 @@ function KeymapSettings({
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <span className="rounded-xl border border-paper-300/70 bg-paper-100/85 px-3 py-1.5 text-xs font-medium text-ink-900">
-                          {formatKeymapBinding(current, definition.kind)}
+                        <span
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-medium",
+                            unbound
+                              ? "border-dashed border-paper-300/70 bg-paper-100/45 text-ink-500"
+                              : "border-paper-300/70 bg-paper-100/85 text-ink-900",
+                          ].join(" ")}
+                        >
+                          {unbound
+                            ? UNBOUND_LABEL
+                            : formatKeymapBinding(current, definition.kind)}
                         </span>
                         <button
                           type="button"
@@ -5458,6 +5584,22 @@ function KeymapSettings({
                           className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                         >
                           Change…
+                        </button>
+                        <button
+                          type="button"
+                          disabled={unbound}
+                          onClick={() =>
+                            onSetBinding(definition.id, UNBOUND_BINDING)
+                          }
+                          title="Remove the key entirely. Nothing triggers this action until it is rebound or reset."
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
+                            unbound
+                              ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
+                              : "border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200",
+                          ].join(" ")}
+                        >
+                          Unbind
                         </button>
                         <button
                           type="button"
@@ -5502,7 +5644,95 @@ function KeymapSettings({
             );
             setRecording(null);
           }}
+          onUnbind={() => {
+            onSetBinding(recording.id, UNBOUND_BINDING);
+            setRecording(null);
+          }}
         />
+      )}
+    </div>
+  );
+}
+
+function IgnoredKeysRow({ settingId }: { settingId?: string }): JSX.Element {
+  const ignoredKeys = useStore((s) => s.ignoredKeys);
+  const addIgnoredKey = useStore((s) => s.addIgnoredKey);
+  const removeIgnoredKey = useStore((s) => s.removeIgnoredKey);
+  const [recording, setRecording] = useState(false);
+
+  // Capture the next key. The window guard stands aside while this runs
+  // (setIgnoredKeysRecorderActive), since a key already on the list would
+  // otherwise never reach us; Escape cancels without recording anything.
+  useEffect(() => {
+    if (!recording) return;
+    setIgnoredKeysRecorderActive(true);
+    const onKey = (event: KeyboardEvent): void => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        setRecording(false);
+        return;
+      }
+      if (["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+      const token = ignoredKeyTokenFromEvent(event);
+      if (!token) return;
+      addIgnoredKey(token);
+      setRecording(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      setIgnoredKeysRecorderActive(false);
+    };
+  }, [recording, addIgnoredKey]);
+
+  return (
+    <div
+      className="rounded-3xl border border-paper-300/60 bg-paper-50/45 px-5 py-4 shadow-[0_14px_36px_rgba(15,23,42,0.04)]"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-ink-900">Ignored keys</div>
+          <div className="mt-1 text-xs leading-5 text-ink-500">
+            Keys the app never sees. Remappers with tap-hold layers (Kanata,
+            QMK, ZMK) send a harmless extra key with every keystroke, on Linux
+            usually the Katakana/Hiragana key, which reads as KanaMode; each one
+            would otherwise reset a pending <code>jk</code>, <code>dd</code>,
+            leader chord or hint. Also <code>:ignorekey</code> in the editor, or{" "}
+            <code>ignored_keys</code> under <code>[editor]</code> in config.toml.
+          </div>
+        </div>
+        <Button
+          variant={recording ? "primary" : "secondary"}
+          size="sm"
+          data-ignored-keys-record
+          onClick={() => setRecording((r) => !r)}
+        >
+          {recording ? "Press the key… (Esc cancels)" : "Record a key"}
+        </Button>
+      </div>
+      {ignoredKeys.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5" data-ignored-keys>
+          {ignoredKeys.map((key) => (
+            <span
+              key={key}
+              data-ignored-key={key}
+              className="inline-flex items-center gap-1 rounded-full border border-paper-300/70 bg-paper-200/50 py-0.5 pl-2.5 pr-1 font-mono text-xs text-ink-800"
+            >
+              {key}
+              <button
+                type="button"
+                onClick={() => removeIgnoredKey(key)}
+                title={`Stop ignoring ${key}`}
+                aria-label={`Stop ignoring ${key}`}
+                className="rounded-full px-1 text-ink-400 transition-colors hover:bg-paper-300/70 hover:text-ink-800"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -5514,12 +5744,14 @@ function KeymapRecorderModal({
   currentBinding,
   onClose,
   onSave,
+  onUnbind,
 }: {
   definition: KeymapDefinition;
   overrides: KeymapOverrides;
   currentBinding: string;
   onClose: () => void;
   onSave: (binding: string) => void;
+  onUnbind: () => void;
 }): JSX.Element {
   const [binding, setBinding] = useState(currentBinding);
   const mac = isMacPlatform();
@@ -5604,8 +5836,8 @@ function KeymapRecorderModal({
             </div>
             <div className="mt-2 text-xs leading-5 text-ink-500">
               {definition.kind === "shortcut"
-                ? `Press the shortcut you want. ${mac ? "Command" : "Ctrl"}-style chords are saved in the app’s cross-platform format.`
-                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? "" : "s"}.`}
+                ? `Press the shortcut you want; Backspace clears it. ${mac ? "Command" : "Ctrl"}-style chords are saved in the app’s cross-platform format. Unbind leaves the action with no key at all.`
+                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? "" : "s"}. Unbind leaves the action with no key at all.`}
             </div>
           </div>
           {conflict && (
@@ -5620,7 +5852,10 @@ function KeymapRecorderModal({
             </div>
           )}
           <div className="mt-3 text-xs text-ink-500">
-            Current: {formatKeymapBinding(currentBinding, definition.kind)}
+            Current:{" "}
+            {isUnboundBinding(currentBinding)
+              ? UNBOUND_LABEL
+              : formatKeymapBinding(currentBinding, definition.kind)}
           </div>
           <div className="mt-1 text-xs text-ink-500">
             Default:{" "}
@@ -5633,10 +5868,17 @@ function KeymapRecorderModal({
         <div className="flex items-center justify-between gap-3 border-t border-paper-300/60 px-5 py-3">
           <button
             type="button"
-            onClick={() => setBinding("")}
-            className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
+            onClick={onUnbind}
+            disabled={isUnboundBinding(currentBinding)}
+            title="Save this action with no key at all."
+            className={[
+              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+              isUnboundBinding(currentBinding)
+                ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
+                : "border-paper-300 bg-paper-100 text-ink-700 hover:bg-paper-200",
+            ].join(" ")}
           >
-            Clear
+            Unbind
           </button>
           <div className="flex items-center gap-2">
             <button
@@ -6859,6 +7101,54 @@ function slugifyStatus(name: string): string {
 /** Settings editor for the custom-status Kanban columns. Add, rename, reorder,
  *  and remove columns without touching config.toml by hand; changes are written
  *  straight back to the config file (and the per-vault view override). (#354) */
+function KanbanFolderRootRow({ settingId }: { settingId?: string }): JSX.Element {
+  const root = useStore((s) => s.kanbanFolderRoot);
+  const setKanbanFolderRoot = useStore((s) => s.setKanbanFolderRoot);
+  const [draft, setDraft] = useState(root);
+  useEffect(() => {
+    setDraft(root);
+  }, [root]);
+  const commit = (): void => {
+    setKanbanFolderRoot(draft);
+  };
+  return (
+    <div className="px-5 py-4" {...settingsSearchTargetProps(settingId)}>
+      <div className="text-sm font-medium text-ink-900">Group by the folders inside</div>
+      <div className="mt-1 text-xs leading-5 text-ink-500">
+        A folder path relative to your notes, such as <code>Projects</code>: its
+        subfolders become the columns, deeper notes roll up to their subfolder,
+        and notes outside it share an “Other folders” column. Leave it empty for
+        one column per note folder. On the board, <code>:folderroot Projects</code>{" "}
+        does the same; <code>kanban_folder_root</code> in config.toml is the
+        file-level key.
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          placeholder="Projects"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          className="w-64 rounded-md border border-paper-300 bg-paper-50 px-2.5 py-1.5 text-sm text-ink-900 outline-none focus:border-accent"
+        />
+        {root && (
+          <Button variant="secondary" size="sm" onClick={() => setKanbanFolderRoot("")}>
+            Clear
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function KanbanStatusesRow({ settingId }: { settingId?: string }): JSX.Element {
   const statuses = useStore((s) => s.kanbanStatuses);
   const setKanbanStatuses = useStore((s) => s.setKanbanStatuses);

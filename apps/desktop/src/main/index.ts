@@ -25,6 +25,9 @@ import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
 import type {
   CloudPublishNoteInput,
+  CloudSyncBootstrapConflict,
+  CloudSyncBootstrapConflictResolution,
+  CloudSyncPendingConflictResolution,
   CloudSyncSettingsChoice,
 } from "@zennotes/bridge-contract/cloud-sync";
 import type {
@@ -279,6 +282,8 @@ const EXCALIDRAW_ASSET_SCHEME = "zen-excalidraw";
 // through this scheme instead (added to connect-src in the renderer's
 // index.html). Web keeps fetching the same-origin http assets.
 const TYPST_ASSET_SCHEME = "zen-typst";
+// Harper's grammar checker fetches its wasm from a worker; same delivery as Typst.
+const HARPER_ASSET_SCHEME = "zen-harper";
 
 const PRIVILEGED_ASSET_PRIVILEGES = {
   standard: true,
@@ -293,6 +298,7 @@ protocol.registerSchemesAsPrivileged([
   { scheme: THEME_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
   { scheme: EXCALIDRAW_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
   { scheme: TYPST_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
+  { scheme: HARPER_ASSET_SCHEME, privileges: PRIVILEGED_ASSET_PRIVILEGES },
 ]);
 
 // The archive this process booted from, watched for a package manager
@@ -1829,6 +1835,16 @@ function stopRemoteWatch(): void {
   }
 }
 
+/** Tell every remote window to re-pull the vault: its list is behind the server. */
+function sendRemoteResync(): void {
+  windowVaults.sendRemoteVaultChange({
+    kind: "change",
+    path: "",
+    folder: "inbox",
+    scope: "resync",
+  });
+}
+
 function startRemoteWatch(
   client: RemoteServerClient,
   capabilities: ServerCapabilities,
@@ -1848,14 +1864,7 @@ function startRemoteWatch(
       windowVaults.sendRemoteVaultChange(ev);
     },
     {
-      onReconnect: () => {
-        windowVaults.sendRemoteVaultChange({
-          kind: "change",
-          path: "",
-          folder: "inbox",
-          scope: "resync",
-        });
-      },
+      onReconnect: () => sendRemoteResync(),
     },
   );
 }
@@ -2011,7 +2020,11 @@ async function setRemoteWorkspace(
     vaultPath?: string | null;
   } = {},
 ): Promise<{ vault: VaultInfo | null; capabilities: ServerCapabilities }> {
-  const client = new RemoteServerClient({ baseUrl, authToken });
+  const client = new RemoteServerClient({
+    baseUrl,
+    authToken,
+    onStalePath: () => sendRemoteResync(),
+  });
   let capabilities = await client.getCapabilities();
   remoteWorkspaceBootError = null;
   let vault = await client.getCurrentVault();
@@ -2896,6 +2909,42 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_SYNC, () =>
     getCloudSyncService().sync(requireLocalCloudVaultRoot()),
   );
+  handle(
+    IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET,
+    (_event, conflict: CloudSyncBootstrapConflict) =>
+      getCloudSyncService().getBootstrapConflict(
+        requireLocalCloudVaultRoot(),
+        conflict,
+      ),
+  );
+  handle(
+    IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE,
+    (_event, resolution: CloudSyncBootstrapConflictResolution) =>
+      getCloudSyncService().resolveBootstrapConflict(
+        requireLocalCloudVaultRoot(),
+        resolution,
+      ),
+  );
+  handle(IPC.CLOUD_VAULT_CONFLICT_GET, (_event, conflictId: string) =>
+    getCloudSyncService().getConflict(requireLocalCloudVaultRoot(), conflictId),
+  );
+  handle(
+    IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE,
+    (_event, conflictId: string, draftText: string | null) =>
+      getCloudSyncService().saveConflictDraft(
+        requireLocalCloudVaultRoot(),
+        conflictId,
+        draftText,
+      ),
+  );
+  handle(
+    IPC.CLOUD_VAULT_CONFLICT_RESOLVE,
+    (_event, resolution: CloudSyncPendingConflictResolution) =>
+      getCloudSyncService().resolveConflict(
+        requireLocalCloudVaultRoot(),
+        resolution,
+      ),
+  );
   handle(IPC.CLOUD_VAULT_SETTINGS_CONFLICT_GET, () =>
     getCloudSyncService().settingsConflict(requireLocalCloudVaultRoot()),
   );
@@ -3399,18 +3448,36 @@ function registerIpc(): void {
     return await deleteWorkflowRuns(v.root, workflowId);
   });
 
-  // Custom templates live on the local filesystem only; remote vaults fall
-  // back to built-in templates (renderer constants), so list returns empty and
-  // mutations are rejected.
+  // Custom templates are the vault's .zennotes/templates/ on both sides of
+  // the bridge: a local vault reads the disk, and a remote workspace asks the
+  // server, which serves the same files through its /templates routes since
+  // 2.46 (#723). An older server has no such routes: it lists nothing, keeps
+  // the built-in templates (renderer constants), and names the remedy on a
+  // write instead of answering a bare 404.
+  const requireRemoteTemplates = (action: string): RemoteServerClient => {
+    const client = requireRemoteWorkspaceClient();
+    if (!remoteServerCapabilities?.supportsCustomTemplates) {
+      throw new Error(
+        `${action} needs ZenNotes server 2.46 or later. Update the server and reconnect this workspace.`,
+      );
+    }
+    return client;
+  };
+
   handle(IPC.VAULT_LIST_TEMPLATES, async () => {
-    if (isRemoteWorkspaceActive()) return [];
+    if (isRemoteWorkspaceActive()) {
+      if (!remoteServerCapabilities?.supportsCustomTemplates) return [];
+      return await requireRemoteWorkspaceClient().listTemplates();
+    }
     const v = requireVault();
     return await listCustomTemplates(v.root);
   });
 
   handle(IPC.VAULT_READ_TEMPLATE, async (_e, sourcePath: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Editing a custom template").readTemplate(
+        sourcePath,
+      );
     }
     const v = requireVault();
     return await readCustomTemplate(v.root, sourcePath);
@@ -3418,7 +3485,9 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_WRITE_TEMPLATE, async (_e, input: WriteTemplateInput) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Saving a custom template").writeTemplate(
+        input,
+      );
     }
     const v = requireVault();
     return await writeCustomTemplate(v.root, input);
@@ -3426,7 +3495,9 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_DELETE_TEMPLATE, async (_e, sourcePath: string) => {
     if (isRemoteWorkspaceActive()) {
-      throw new Error("Custom templates are unavailable on remote vaults");
+      return await requireRemoteTemplates("Deleting a custom template").deleteTemplate(
+        sourcePath,
+      );
     }
     const v = requireVault();
     return await deleteCustomTemplate(v.root, sourcePath);
@@ -5223,11 +5294,12 @@ app.whenReady().then(async () => {
     });
   });
 
-  protocol.handle(TYPST_ASSET_SCHEME, async (request) => {
-    // zen-typst://asset/<file> -> out/renderer/assets/<file> (the renderer's own
-    // bundled assets, next to its JS chunks). The renderer only ever requests
-    // the hashed Typst wasm and .otf fonts it imported, so this is a fixed,
-    // read-only view of the build output, scoped to those two asset kinds.
+  // <scheme>://asset/<file> -> out/renderer/assets/<file> (the renderer's own
+  // bundled assets, next to its JS chunks). The renderer only ever requests
+  // the hashed wasm engines and .otf fonts it imported, so this is a fixed,
+  // read-only view of the build output, scoped to those two asset kinds. One
+  // handler serves every scheme so there is exactly one traversal check.
+  const serveRendererAsset = async (request: Request): Promise<Response> => {
     const rel = decodeURIComponent(new URL(request.url).pathname).replace(
       /^\/+/,
       "",
@@ -5235,7 +5307,7 @@ app.whenReady().then(async () => {
     const root = path.resolve(__dirname, "../renderer/assets");
     const abs = path.resolve(root, rel);
     if (abs !== root && !abs.startsWith(root + path.sep)) {
-      throw new Error(`Invalid Typst asset URL: ${request.url}`);
+      throw new Error(`Invalid renderer asset URL: ${request.url}`);
     }
     const contentType = /\.wasm$/i.test(abs)
       ? "application/wasm"
@@ -5243,7 +5315,7 @@ app.whenReady().then(async () => {
         ? "font/otf"
         : null;
     if (!contentType)
-      throw new Error(`Invalid Typst asset URL: ${request.url}`);
+      throw new Error(`Invalid renderer asset URL: ${request.url}`);
     const data = await fsp.readFile(abs);
     return new Response(data, {
       headers: {
@@ -5251,7 +5323,9 @@ app.whenReady().then(async () => {
         "cache-control": "public, max-age=31536000, immutable",
       },
     });
-  });
+  };
+  protocol.handle(TYPST_ASSET_SCHEME, serveRendererAsset);
+  protocol.handle(HARPER_ASSET_SCHEME, serveRendererAsset);
 
   // Permissions this app grants to its own renderer (deny everything else —
   // it's our app talking to our own vault, no third-party surface):

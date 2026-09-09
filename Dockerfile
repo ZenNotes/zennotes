@@ -28,6 +28,9 @@ RUN npm ci --no-audit --no-fund --loglevel=error
 
 COPY apps apps
 COPY packages packages
+# The renderer configs import shared Vite plugins from tooling/vite (the
+# Harper wasm asset resolver); without this copy the web build cannot resolve them.
+COPY tooling/vite tooling/vite
 
 RUN npm run build --workspace @zennotes/web
 

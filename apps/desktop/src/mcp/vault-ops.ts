@@ -13,6 +13,13 @@ import path from 'node:path'
 import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
+import {
+  NOTE_COMMENTS_DIR,
+  NOTE_COMMENTS_SUFFIX,
+  normalizeNoteComments
+} from '@shared/note-comments'
+import type { NoteComment, NoteCommentInput } from '@shared/ipc'
+export type { NoteComment, NoteCommentInput }
 import { noteTasksMode, type NoteTasksMode } from '@shared/tasks'
 import {
   isPathExcludedFromTasks,
@@ -188,61 +195,29 @@ async function countLooseRootContent(root: string, paths: SystemFolderPathsMap):
   return count
 }
 
-/** Recursively count .md files under a given directory. Used to see
- *  whether `<root>/inbox/` actually has content. */
-async function countMdFilesRecursively(dir: string): Promise<number> {
-  let entries: import('node:fs').Dirent[]
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
-  } catch {
-    return 0
-  }
-  let count = 0
-  for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) count += await countMdFilesRecursively(full)
-    else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) count += 1
-  }
-  return count
-}
-
-/** Decide whether this vault uses inbox-mode or root-mode for its
- *  primary notes area. The vault's on-disk layout is the strongest
- *  signal — the explicit `vault.json` setting is consulted only when
- *  the layout is genuinely ambiguous (a fresh, empty vault).
+/** Decide whether this vault keeps its primary notes in `inbox/` or at the
+ *  vault root. An explicit `primaryNotesLocation` in vault.json is the
+ *  answer, exactly as it is for the app (`getVaultSettings` in
+ *  main/vault.ts): the layout is consulted only when the file leaves the
+ *  question open, because it is missing, unreadable (a TCC-restricted child
+ *  process), or silent about it.
  *
- *  This deliberately ignores `vault.json` when it disagrees with the
- *  layout so that:
- *
- *  - A user who switched modes in Settings but whose vault hasn't
- *    been migrated yet still gets notes filed where their existing
- *    notes live.
- *  - A user whose `vault.json` was never created (or was deleted /
- *    restored from a sync) still gets correct behavior.
- *  - Sandboxed / TCC-restricted child processes that can't read
- *    `vault.json` still pick the right answer from `readdir` calls
- *    that succeeded.
+ *  This used to be the other way round, with the layout outranking the file
+ *  so that a vault switched to root mode but not yet migrated kept filing new
+ *  notes next to its old ones in inbox/. That put the CLI and MCP at odds
+ *  with the app on the very same vault: Settings said root, the app created
+ *  notes at the root, and `zn create` and `create_note` kept writing into
+ *  inbox/ while `vault_info` reported inbox (#745). The file wins now, on
+ *  every side of the bridge.
  */
 export async function readPrimaryNotesLocation(root: string): Promise<PrimaryNotesLocation> {
+  const explicit = await readExplicitPrimaryNotesLocation(root)
+  if (explicit) return explicit
+  // Loose .md files or user folders at the root mean a flat, Obsidian-style
+  // vault; anything else defaults to inbox, as a fresh ZenNotes vault does.
+  // Mirrors inferPrimaryNotesLocation in main/vault.ts.
   const paths = await readSystemFolderPaths(root)
-  const [rootContent, inboxNotes, explicit] = await Promise.all([
-    countLooseRootContent(root, paths),
-    countMdFilesRecursively(path.join(root, resolvedFolderDirName('inbox', paths))),
-    readExplicitPrimaryNotesLocation(root)
-  ])
-
-  // Strong layout signal — root has user-organized content (loose
-  // .md files, custom subfolders). The vault is laid out flat.
-  if (rootContent >= 1) return 'root'
-
-  // Strong layout signal — only inbox/ has notes, root is empty or
-  // just system folders. Classic ZenNotes lifecycle layout.
-  if (inboxNotes >= 1) return 'inbox'
-
-  // Ambiguous (empty vault). Trust the explicit setting if present,
-  // otherwise default to inbox (matches a fresh ZenNotes install).
-  return explicit ?? 'inbox'
+  return (await countLooseRootContent(root, paths)) >= 1 ? 'root' : 'inbox'
 }
 
 /** The absolute directory that holds notes for a given top-level
@@ -1924,6 +1899,46 @@ export async function insertAtLine(
 }
 
 /* ---------- Backlinks ------------------------------------------------- */
+
+/* ---------- Note comments (#738) --------------------------------------- */
+
+/** The sidecar beside a note: `.zennotes/comments/<rel>.comments.json`, the
+ *  same path the desktop and the Go server use, validated against escapes. */
+function noteCommentsPath(root: string, rel: string): string {
+  const commentsRoot = path.join(root, INTERNAL_VAULT_DIR, NOTE_COMMENTS_DIR)
+  return resolveSafe(commentsRoot, `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
+}
+
+export async function readNoteComments(root: string, rel: string): Promise<NoteComment[]> {
+  const notePath = toPosix(rel)
+  try {
+    const raw = await fs.readFile(noteCommentsPath(root, notePath), 'utf8')
+    return normalizeNoteComments(JSON.parse(raw), notePath)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if (err instanceof SyntaxError) return []
+    throw err
+  }
+}
+
+/** Replace a note's comments. An empty list removes the sidecar, as the app
+ *  does, so a note with no comments leaves nothing behind. */
+export async function writeNoteComments(
+  root: string,
+  rel: string,
+  comments: NoteCommentInput[]
+): Promise<NoteComment[]> {
+  const notePath = toPosix(rel)
+  const normalized = normalizeNoteComments(comments, notePath)
+  const abs = noteCommentsPath(root, notePath)
+  if (normalized.length === 0) {
+    await fs.rm(abs, { force: true })
+    return []
+  }
+  await fs.mkdir(path.dirname(abs), { recursive: true })
+  await fs.writeFile(abs, JSON.stringify({ version: 1, comments: normalized }, null, 2), 'utf8')
+  return normalized
+}
 
 export async function backlinks(root: string, rel: string): Promise<NoteMeta[]> {
   const abs = resolveSafe(root, rel)

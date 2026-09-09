@@ -124,3 +124,35 @@ describe('VaultWatcher atomic saves', () => {
     20_000
   )
 })
+
+describe('VaultWatcher custom templates (#723)', () => {
+  it(
+    'announces a template file under its own scope, and ignores what is not a template',
+    async () => {
+      const root = await makeVault()
+      const events: VaultChangeEvent[] = []
+      const watcher = new VaultWatcher(() => Promise.resolve(settingsWithArchiveRemap()))
+      watchers.push(watcher)
+      watcher.start(root, (ev) => events.push(ev))
+      await sleep(400)
+
+      const dir = path.join(root, '.zennotes', 'templates')
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, 'adr.md'), '---\nname: ADR\n---\n')
+      const event = await waitForEvent(events)
+      expect(event).toEqual({
+        kind: 'add',
+        path: '.zennotes/templates/adr.md',
+        folder: 'inbox',
+        scope: 'templates'
+      })
+
+      events.length = 0
+      await writeFile(path.join(dir, '.draft.md'), 'hidden')
+      await writeFile(path.join(dir, 'notes.txt'), 'text')
+      await sleep(600)
+      expect(events).toEqual([])
+    },
+    15_000
+  )
+})

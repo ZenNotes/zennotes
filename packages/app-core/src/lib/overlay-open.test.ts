@@ -24,4 +24,11 @@ describe('isAppOverlayOpen', () => {
     document.body.appendChild(el)
     expect(isAppOverlayOpen()).toBe(true)
   })
+
+  it('is true while the Cloud conflict queue is open', () => {
+    const el = document.createElement('div')
+    el.setAttribute('data-cloud-conflict-dialog', '')
+    document.body.appendChild(el)
+    expect(isAppOverlayOpen()).toBe(true)
+  })
 })

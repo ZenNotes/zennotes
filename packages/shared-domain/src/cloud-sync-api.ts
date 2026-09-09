@@ -15,6 +15,7 @@ import type {
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
+  CloudSyncRevisionResponse,
   CloudSyncUploadCompletionResponse,
   CloudSyncUploadInitiationResponse,
   CloudSyncUploadRequest,
@@ -46,7 +47,11 @@ export class CloudSyncApiClient {
   }
 
   async createVault(name: string): Promise<CloudSyncVaultResponse> {
-    return this.http.request({ method: 'POST', path: '/api/v1/vaults', body: { name } })
+    return this.http.request({
+      method: 'POST',
+      path: '/api/v1/vaults',
+      body: { name }
+    })
   }
 
   async deleteVault(vaultId: string): Promise<void> {
@@ -101,14 +106,21 @@ export class CloudSyncApiClient {
     })
   }
 
-  async changes(
-    vaultId: string,
-    after: number,
-    limit = 100
-  ): Promise<CloudSyncChangeResponse> {
+  async changes(vaultId: string, after: number, limit = 100): Promise<CloudSyncChangeResponse> {
     return this.http.request({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/changes${encodeQuery({ after, limit })}`
+    })
+  }
+
+  async revision(
+    vaultId: string,
+    itemId: string,
+    revision: number
+  ): Promise<CloudSyncRevisionResponse> {
+    return this.http.request({
+      method: 'GET',
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}`
     })
   }
 
@@ -254,16 +266,14 @@ export class CloudSyncApiClient {
 function publishedNoteBody(input: CloudPublishNoteInput): { payload: string } | FormData {
   const { assets = [], appearance, ...note } = input
   const brandLogo = appearance?.logo
-  const serializedAppearance = appearance === undefined
-    ? undefined
-    : {
-        theme: appearance.theme,
-        logo_action: appearance.logo === undefined
-          ? 'keep'
-          : appearance.logo === null
-            ? 'remove'
-            : 'replace'
-      }
+  const serializedAppearance =
+    appearance === undefined
+      ? undefined
+      : {
+          theme: appearance.theme,
+          logo_action:
+            appearance.logo === undefined ? 'keep' : appearance.logo === null ? 'remove' : 'replace'
+        }
   const payload = JSON.stringify({
     ...note,
     ...(serializedAppearance === undefined ? {} : { appearance: serializedAppearance }),

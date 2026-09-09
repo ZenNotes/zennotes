@@ -4,7 +4,8 @@
  * Columns are driven by the user's `kanbanGroupBy` choice:
  *   - 'status'  — Today / Upcoming / Waiting / Done   (mirrors list groups)
  *   - 'priority' — High / Med / Low / None
- *   - 'folder'  — Inbox / Quick / Archive            (read-only)
+ *   - 'folder'  one column per note folder (read-only); with a folder
+ *                root set, the children of that folder (#730)
  *
  * Drag-and-drop:
  *   - Status: drop changes `[ ]`/`[x]`, `@waiting`, and due-date tokens
@@ -27,9 +28,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { NoteFolder } from '@shared/ipc'
+import {
+  resolveFolderPath,
+  systemFolderForDirName,
+  type SystemFolderPaths
+} from '@shared/system-folder-paths'
+import { resolveSystemFolderLabels, type SystemFolderLabels } from '../lib/system-folder-labels'
+import { promptApp } from '../lib/prompt-requests'
 import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
-import { useStore, type KanbanGroupBy, type TaskMutation } from '../store'
+import { normalizeKanbanFolderRoot, useStore, type KanbanGroupBy, type TaskMutation } from '../store'
 import { filterTasks } from '../lib/tasks-filter'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
@@ -240,30 +248,126 @@ function priorityColumns(tasks: VaultTask[]): Column[] {
   ]
 }
 
-const FOLDER_ORDER: NoteFolder[] = ['inbox', 'quick', 'archive']
-const FOLDER_LABEL: Record<NoteFolder, string> = {
-  inbox: 'Inbox',
-  quick: 'Quick',
-  archive: 'Archive',
-  trash: 'Trash'
+const FOLDER_ORDER: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
+
+/** What the folder board needs to know about the vault to place a note. */
+export interface FolderBoardLayout {
+  /** vault.json `systemFolderPaths`: the on-disk names of the system folders. */
+  systemFolderPaths?: SystemFolderPaths | null
+  /** Display names for the system folders (Settings, Sidebar). */
+  systemFolderLabels?: SystemFolderLabels | null
+  /** `kanbanFolderRoot`: group by the children of this folder; '' = each
+   *  note's own folder. Relative to the notes area, posix, no slashes at
+   *  the ends. */
+  folderRoot: string
 }
 
-function folderColumns(tasks: VaultTask[], showArchived: boolean): Column[] {
-  const map = new Map<NoteFolder, VaultTask[]>()
+export const FOLDER_OTHER_LABEL = 'Other folders'
+
+/**
+ * Where a task's note lives, split into the system folder that owns it and
+ * the directory path under that folder ('' at its root). A note in the
+ * primary area of a root-mode vault has no system-folder prefix in its
+ * path, so the first segment is classified by name rather than assumed:
+ * `Projects/alpha/x.md` with noteFolder inbox is at `Projects/alpha` under
+ * the inbox, while `01 - Entry/Projects/x.md` in a vault whose inbox is
+ * remapped to `01 - Entry` strips that prefix first.
+ */
+export function noteLocationOf(
+  task: Pick<VaultTask, 'sourcePath' | 'noteFolder'>,
+  systemFolderPaths?: SystemFolderPaths | null
+): { folder: NoteFolder; dir: string; prefix: string } {
+  const segments = task.sourcePath.split('/')
+  segments.pop()
+  const first = segments[0]
+  const owner = first ? systemFolderForDirName(first, systemFolderPaths) : null
+  if (owner && owner === task.noteFolder) {
+    return { folder: task.noteFolder, dir: segments.slice(1).join('/'), prefix: first }
+  }
+  return { folder: task.noteFolder, dir: segments.join('/'), prefix: '' }
+}
+
+function folderColumnLabel(
+  folder: NoteFolder,
+  dir: string,
+  labels: Record<string, string>
+): string {
+  if (!dir) return labels[folder]
+  return folder === 'inbox' ? dir : `${labels[folder]} / ${dir}`
+}
+
+export function folderColumns(
+  tasks: VaultTask[],
+  showArchived: boolean,
+  layout: FolderBoardLayout
+): Column[] {
+  const labels = resolveSystemFolderLabels(layout.systemFolderLabels)
+  const root = normalizeKanbanFolderRoot(layout.folderRoot)
+  const rootLower = root.toLowerCase()
+  const byId = new Map<string, { label: string; folder: NoteFolder; dir: string; tasks: VaultTask[] }>()
+  const other: VaultTask[] = []
+  const place = (id: string, label: string, folder: NoteFolder, dir: string, task: VaultTask): void => {
+    const entry = byId.get(id)
+    if (entry) entry.tasks.push(task)
+    else byId.set(id, { label, folder, dir, tasks: [task] })
+  }
   for (const task of tasks) {
     if (task.checked) continue
-    const list = map.get(task.noteFolder)
-    if (list) list.push(task)
-    else map.set(task.noteFolder, [task])
+    if (task.noteFolder === 'archive' && !showArchived) continue
+    const location = noteLocationOf(task, layout.systemFolderPaths)
+    const vaultDir = [location.prefix, location.dir].filter(Boolean).join('/')
+    if (!root) {
+      // Each note's own folder: the system folder's root as its label, a
+      // subfolder as its path.
+      const id = vaultDir || resolveFolderPath(location.folder, layout.systemFolderPaths)
+      place(id, folderColumnLabel(location.folder, location.dir, labels), location.folder, location.dir, task)
+      continue
+    }
+    // A root narrows the board to the primary area: the root's direct
+    // children are the columns, deeper notes roll up to their child, notes
+    // in the root itself get the root's column, and everything else (other
+    // system folders, folders beside the root) shares one trailing column.
+    if (location.folder !== 'inbox') {
+      other.push(task)
+      continue
+    }
+    const dirLower = location.dir.toLowerCase()
+    if (dirLower === rootLower) {
+      const id = [location.prefix, location.dir].filter(Boolean).join('/')
+      place(id, location.dir.split('/').pop() ?? location.dir, 'inbox', location.dir, task)
+      continue
+    }
+    if (dirLower.startsWith(rootLower + '/')) {
+      const child = location.dir.slice(root.length + 1).split('/')[0]
+      const childDir = `${location.dir.slice(0, root.length)}/${child}`
+      const id = [location.prefix, childDir].filter(Boolean).join('/')
+      place(id, child, 'inbox', childDir, task)
+      continue
+    }
+    other.push(task)
   }
-  // With archived tasks hidden (#540) the Archive column would only ever be
-  // empty, so it leaves the board instead of standing as a hollow promise.
-  const order = showArchived ? FOLDER_ORDER : FOLDER_ORDER.filter((f) => f !== 'archive')
-  return order.map((folder) => ({
-    id: folder,
-    label: FOLDER_LABEL[folder],
-    tasks: map.get(folder) ?? []
-  }))
+
+  const sortByDue = (a: VaultTask, b: VaultTask): number => {
+    const ad = a.due ?? '9999-12-31'
+    const bd = b.due ?? '9999-12-31'
+    if (ad !== bd) return ad < bd ? -1 : 1
+    if (a.sourcePath !== b.sourcePath) return a.sourcePath < b.sourcePath ? -1 : 1
+    return a.taskIndex - b.taskIndex
+  }
+  const folderRank = (folder: NoteFolder): number => FOLDER_ORDER.indexOf(folder)
+  const columns: Column[] = [...byId.entries()]
+    .sort(([, a], [, b]) => {
+      // System folder order first, a folder's root before its subfolders,
+      // then subfolders alphabetically.
+      if (a.folder !== b.folder) return folderRank(a.folder) - folderRank(b.folder)
+      if (!a.dir !== !b.dir) return a.dir ? 1 : -1
+      return a.dir.localeCompare(b.dir, undefined, { sensitivity: 'base', numeric: true })
+    })
+    .map(([id, entry]) => ({ id, label: entry.label, tasks: entry.tasks.sort(sortByDue) }))
+  if (other.length > 0) {
+    columns.push({ id: NO_VALUE_COLUMN_ID, label: FOLDER_OTHER_LABEL, tasks: other.sort(sortByDue) })
+  }
+  return columns
 }
 
 /** Title-case a field value for its default column label; users can still
@@ -340,10 +444,11 @@ function buildColumns(
   tasks: VaultTask[],
   today: Date,
   statuses: string[],
-  showArchived: boolean
+  showArchived: boolean,
+  folderLayout: FolderBoardLayout
 ): Column[] {
   if (groupBy === 'priority') return priorityColumns(tasks)
-  if (groupBy === 'folder') return folderColumns(tasks, showArchived)
+  if (groupBy === 'folder') return folderColumns(tasks, showArchived, folderLayout)
   const fieldKey = fieldKeyOf(groupBy)
   if (fieldKey) {
     // The status field keeps its friendly `kanban_statuses` order; other fields
@@ -596,6 +701,14 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
   const setKanbanCardOrder = useStore((s) => s.setKanbanCardOrder)
   const kanbanStatuses = useStore((s) => s.kanbanStatuses)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
+  const kanbanFolderRoot = useStore((s) => s.kanbanFolderRoot)
+  const setKanbanFolderRoot = useStore((s) => s.setKanbanFolderRoot)
+  const systemFolderPaths = useStore((s) => s.vaultSettings.systemFolderPaths)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const folderLayout = useMemo<FolderBoardLayout>(
+    () => ({ systemFolderPaths, systemFolderLabels, folderRoot: kanbanFolderRoot }),
+    [systemFolderPaths, systemFolderLabels, kanbanFolderRoot]
+  )
   const applyTaskMutation = useStore((s) => s.applyTaskMutation)
   const startTaskFromList = useStore((s) => s.startTaskFromList)
   const cancelTaskFromList = useStore((s) => s.cancelTaskFromList)
@@ -686,7 +799,14 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
 
   const fullColumns = useMemo(
     () => {
-      const built = buildColumns(groupBy, displayTasks, today, kanbanStatuses, showArchivedTasks)
+      const built = buildColumns(
+        groupBy,
+        displayTasks,
+        today,
+        kanbanStatuses,
+        showArchivedTasks,
+        folderLayout
+      )
       const savedOrder = kanbanColumnOrder[groupBy] ?? []
       const orderedColumns = applyColumnOrder(
         groupBy,
@@ -714,6 +834,7 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
       kanbanColumnTitles,
       kanbanStatuses,
       showArchivedTasks,
+      folderLayout,
       today
     ]
   )
@@ -768,6 +889,32 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
   }, [tasks, groupBy])
 
   const dndEnabled = groupBy !== 'folder'
+
+  // The folder board's root (#730): a prompt listing the folders that hold
+  // tasks, so the choice is one Enter away; an empty answer goes back to
+  // grouping by each note's own folder.
+  const pickFolderRoot = useCallback(async (): Promise<void> => {
+    const dirs = new Set<string>()
+    for (const task of latestTasksRef.current) {
+      const location = noteLocationOf(task, folderLayout.systemFolderPaths)
+      if (location.folder !== 'inbox' || !location.dir) continue
+      const parts = location.dir.split('/')
+      for (let i = 1; i <= parts.length; i += 1) dirs.add(parts.slice(0, i).join('/'))
+    }
+    const answer = await promptApp({
+      title: 'Group the folder board by',
+      description:
+        'The folders inside this one become the columns; deeper notes roll up to their folder, and notes outside it share an Other folders column. Leave empty to group by each note’s own folder.',
+      initialValue: kanbanFolderRoot,
+      placeholder: 'Projects',
+      okLabel: 'Apply',
+      allowEmptySubmit: true,
+      suggestions: [...dirs].sort().map((dir) => ({ value: dir })),
+      suggestionsHint: '↑↓ pick a folder · Enter apply · empty clears'
+    })
+    if (answer === null) return
+    setKanbanFolderRoot(answer)
+  }, [folderLayout.systemFolderPaths, kanbanFolderRoot, setKanbanFolderRoot])
 
   const beginColumnRename = useCallback((column: Column) => {
     setEditingColumnId(column.id)
@@ -1569,6 +1716,21 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
               </option>
             ))}
           </select>
+          {groupBy === 'folder' && (
+            <button
+              type="button"
+              data-kanban-folder-root
+              onClick={() => void pickFolderRoot()}
+              title={
+                kanbanFolderRoot
+                  ? `Columns are the folders inside ${kanbanFolderRoot}. Click to change (:folderroot).`
+                  : 'Columns are each note’s own folder. Click to group by the folders inside one folder instead (:folderroot <path>).'
+              }
+              className="ml-1 rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-0.5 text-xs text-current/70 transition-colors hover:bg-paper-200 hover:text-current/90"
+            >
+              {kanbanFolderRoot ? `inside ${kanbanFolderRoot}` : 'each note’s folder'}
+            </button>
+          )}
         </div>
         <div className="text-xs text-current/40">
           {dndEnabled
@@ -1740,7 +1902,7 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
       </div>
       {!dndEnabled && (
         <div className="shrink-0 border-t border-paper-300/45 px-3 py-1.5 text-xs text-current/40">
-          Folder grouping is read-only — move a task across folders by moving its source note in
+          Folder grouping is read-only: move a task across folders by moving its source note in
           the sidebar.
         </div>
       )}

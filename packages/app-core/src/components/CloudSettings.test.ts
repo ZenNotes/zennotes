@@ -501,7 +501,7 @@ describe("CloudSettings", () => {
       expect(rows[0]).toContain("inbox/Plan.md");
       expect(rows[0]).toContain("Plan (cloud conflict).md");
       expect(rows[1]).toContain("inbox/Daily.md");
-      expect(rows[1]).toContain("Changed in Cloud");
+      expect(rows[1]).toContain("Changed on another device");
 
       const openCopy = [...list!.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === "Open copy",

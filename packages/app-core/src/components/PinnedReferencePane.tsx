@@ -55,7 +55,7 @@ import {
 } from '../lib/cm-wikilinks'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
-import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../lib/local-assets'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
@@ -261,6 +261,7 @@ export function PinnedReferencePane(): JSX.Element | null {
             }
           }),
           completionNavKeymap,
+          completionKeymapExtension,
           keymap.of([
             {
               key: 'Mod-f',
@@ -274,8 +275,7 @@ export function PinnedReferencePane(): JSX.Element | null {
             indentWithTab,
             ...vimAwareDefaultKeymap(s0.vimMode),
             ...historyKeymap,
-            ...vimAwareSearchKeymap(s0.vimMode),
-            ...completionKeymapForEditor
+            ...vimAwareSearchKeymap(s0.vimMode)
           ]),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return

@@ -48,6 +48,11 @@ import type {
   CloudPublishedNoteResult,
   CloudPublishNoteInput,
   CloudServiceAccount,
+  CloudSyncBootstrapConflict,
+  CloudSyncBootstrapConflictDetails,
+  CloudSyncBootstrapConflictResolution,
+  CloudSyncPendingConflictDetails,
+  CloudSyncPendingConflictResolution,
   CloudSyncRunSummary,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
@@ -100,6 +105,10 @@ export interface ZenCapabilities {
   /** Local desktop support, or a web client paired with a server that owns
    *  workflow files and journalled apply/undo. */
   supportsWorkflows?: boolean
+  /** Grammar and spelling with Harper: the host can serve the wasm to
+   *  Harper's worker and ships it. Absent on hosts that have not verified
+   *  that yet (the mobile shells), which hides the setting there. */
+  supportsHarper?: boolean
 }
 
 export interface ZenAppInfo {
@@ -146,6 +155,13 @@ export interface ZenBridge {
   unlinkCloudVault(): Promise<void>
   deleteCloudVault(): Promise<void>
   syncCloudVault(): Promise<CloudSyncRunSummary>
+  getCloudBootstrapConflict(
+    conflict: CloudSyncBootstrapConflict
+  ): Promise<CloudSyncBootstrapConflictDetails>
+  resolveCloudBootstrapConflict(resolution: CloudSyncBootstrapConflictResolution): Promise<void>
+  getCloudConflict(conflictId: string): Promise<CloudSyncPendingConflictDetails>
+  saveCloudConflictDraft(conflictId: string, draftText: string | null): Promise<void>
+  resolveCloudConflict(resolution: CloudSyncPendingConflictResolution): Promise<void>
   getCloudSettingsConflict(): Promise<CloudSyncSettingsConflict | null>
   resolveCloudSettingsConflict(choice: CloudSyncSettingsChoice): Promise<void>
   listCloudBackups(): Promise<CloudBackupSnapshot[]>

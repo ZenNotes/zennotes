@@ -85,6 +85,22 @@ describe('rootContentHiddenByInboxMode (#195)', () => {
 })
 
 describe('daily-notes task settings round-trip (#288)', () => {
+  it('persists the Harper dictionary and ignored suggestions through set/get', async () => {
+    const root = await makeTempDir('zennotes-vault-harper-')
+    await mkdir(root, { recursive: true })
+    const base = await getVaultSettings(root)
+    const returned = await setVaultSettings(root, {
+      ...base,
+      harper: { words: ['zennotes', ' zennotes '], ignoredLints: ['9722060015410969502', 'x'] }
+    })
+    // The renderer keeps the returned value, so it must carry the field too.
+    expect(returned.harper).toEqual({ words: ['zennotes'], ignoredLints: ['9722060015410969502'] })
+    const saved = await getVaultSettings(root)
+    expect(saved.harper).toEqual({ words: ['zennotes'], ignoredLints: ['9722060015410969502'] })
+    await setVaultSettings(root, { ...saved, harper: { words: [], ignoredLints: [] } })
+    expect((await getVaultSettings(root)).harper).toBeUndefined()
+  })
+
   it('persists tasksDueOnNoteDate + rolloverUnfinishedTasks through set/get', async () => {
     const root = await makeTempDir('zennotes-vault-dailytasks-')
     await mkdir(root, { recursive: true })

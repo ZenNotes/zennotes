@@ -12,6 +12,11 @@ import type {
   CloudPublishedNoteResult,
   CloudPublishNoteInput,
   CloudServiceAccount,
+  CloudSyncBootstrapConflict,
+  CloudSyncBootstrapConflictDetails,
+  CloudSyncBootstrapConflictResolution,
+  CloudSyncPendingConflictDetails,
+  CloudSyncPendingConflictResolution,
   CloudSyncRunSummary,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
@@ -40,6 +45,7 @@ type SyncClient = Pick<
   | 'deleteVault'
   | 'manifest'
   | 'changes'
+  | 'revision'
   | 'mutate'
   | 'listBackups'
   | 'backupSchedule'
@@ -65,6 +71,7 @@ export interface DesktopCloudSyncServiceDependencies {
 /** Main-process orchestration for linking one local vault to one cloud vault. */
 export class DesktopCloudSyncService {
   private readonly runs = new Map<string, Promise<CloudSyncRunSummary>>()
+  private readonly operations = new Map<string, Promise<unknown>>()
   private readonly now: () => Date
   private readonly fetchImplementation: typeof fetch
 
@@ -288,7 +295,7 @@ export class DesktopCloudSyncService {
     const existing = this.runs.get(runKey)
     if (existing) return existing
 
-    const running = this.run(localRoot).finally(() => {
+    const running = this.exclusive(runKey, () => this.run(localRoot)).finally(() => {
       this.runs.delete(runKey)
     })
     this.runs.set(runKey, running)
@@ -321,8 +328,123 @@ export class DesktopCloudSyncService {
       pushed: result.pushed,
       conflicts: result.conflicts,
       bootstrap_conflicts: result.bootstrapConflicts,
-      local_conflicts: result.localConflicts
+      local_conflicts: result.localConflicts,
+      pending_conflicts: result.pendingConflicts,
+      legacy_conflict_copies: result.legacyConflictCopies
     }
+  }
+
+  async getBootstrapConflict(
+    localRoot: string,
+    conflict: CloudSyncBootstrapConflict
+  ): Promise<CloudSyncBootstrapConflictDetails> {
+    return await this.exclusive(path.resolve(localRoot), async () => {
+      const { account, client, link } = await this.linkedConnection(localRoot)
+      return await createDesktopCloudSyncCoordinator({
+        root: localRoot,
+        stateDirectory: path.join(
+          this.dependencies.storageDirectory,
+          'states',
+          rootFingerprint(localRoot),
+          fingerprint(account.base_url)
+        ),
+        vaultId: link.vault_id,
+        remote: client
+      }).getBootstrapConflict(conflict)
+    })
+  }
+
+  async resolveBootstrapConflict(
+    localRoot: string,
+    resolution: CloudSyncBootstrapConflictResolution
+  ): Promise<void> {
+    await this.exclusive(path.resolve(localRoot), async () => {
+      const { account, client, link } = await this.linkedConnection(localRoot)
+      await createDesktopCloudSyncCoordinator({
+        root: localRoot,
+        stateDirectory: path.join(
+          this.dependencies.storageDirectory,
+          'states',
+          rootFingerprint(localRoot),
+          fingerprint(account.base_url)
+        ),
+        vaultId: link.vault_id,
+        remote: client
+      }).resolveBootstrapConflict(resolution)
+    })
+  }
+
+  async getConflict(
+    localRoot: string,
+    conflictId: string
+  ): Promise<CloudSyncPendingConflictDetails> {
+    return await this.exclusive(path.resolve(localRoot), async () => {
+      const { account, client, link } = await this.linkedConnection(localRoot)
+      return await createDesktopCloudSyncCoordinator({
+        root: localRoot,
+        stateDirectory: path.join(
+          this.dependencies.storageDirectory,
+          'states',
+          rootFingerprint(localRoot),
+          fingerprint(account.base_url)
+        ),
+        vaultId: link.vault_id,
+        remote: client
+      }).getConflict(conflictId)
+    })
+  }
+
+  async saveConflictDraft(
+    localRoot: string,
+    conflictId: string,
+    draftText: string | null
+  ): Promise<void> {
+    await this.exclusive(path.resolve(localRoot), async () => {
+      const { account, client, link } = await this.linkedConnection(localRoot)
+      await createDesktopCloudSyncCoordinator({
+        root: localRoot,
+        stateDirectory: path.join(
+          this.dependencies.storageDirectory,
+          'states',
+          rootFingerprint(localRoot),
+          fingerprint(account.base_url)
+        ),
+        vaultId: link.vault_id,
+        remote: client
+      }).saveConflictDraft(conflictId, draftText)
+    })
+  }
+
+  async resolveConflict(
+    localRoot: string,
+    resolution: CloudSyncPendingConflictResolution
+  ): Promise<void> {
+    await this.exclusive(path.resolve(localRoot), async () => {
+      const { account, client, link } = await this.linkedConnection(localRoot)
+      await createDesktopCloudSyncCoordinator({
+        root: localRoot,
+        stateDirectory: path.join(
+          this.dependencies.storageDirectory,
+          'states',
+          rootFingerprint(localRoot),
+          fingerprint(account.base_url)
+        ),
+        vaultId: link.vault_id,
+        remote: client
+      }).resolveConflict(resolution)
+    })
+  }
+
+  private exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.operations.get(key)
+    let current!: Promise<T>
+    current = (previous ? previous.catch(() => undefined) : Promise.resolve())
+      .then(operation)
+      .finally(() => {
+        if (this.operations.get(key) === current) this.operations.delete(key)
+      })
+    this.operations.set(key, current)
+    return current
   }
 
   /** The pending settings question, if sync parked a cloud version. It lives
@@ -463,7 +585,11 @@ function isCloudVaultLink(value: unknown): value is CloudVaultLink {
 }
 
 function assertBackupReady(summary: CloudSyncRunSummary): void {
-  if (summary.conflicts.length > 0 || summary.bootstrap_conflicts.length > 0) {
+  if (
+    summary.conflicts.length > 0 ||
+    summary.bootstrap_conflicts.length > 0 ||
+    (summary.pending_conflicts?.length ?? 0) > 0
+  ) {
     throw new Error('Resolve sync conflicts before creating a cloud backup.')
   }
 }

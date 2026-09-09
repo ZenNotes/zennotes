@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import {
+  advanceSequence,
   eventMatchesUserOverride,
   findKeymapConflict,
   getDefaultKeymapBinding,
+  getKeymapBinding,
   getKeymapDefinition,
   getKeymapDefinitions,
+  getKeymapDisplay,
+  getSequenceTokens,
+  isKeymapUnbound,
+  labelWithShortcut,
+  matchesSequenceToken,
+  matchesShortcut,
   matchesShortcutBinding,
   normalizeKeymapOverrides,
   normalizeShortcutBinding,
@@ -385,5 +393,78 @@ describe('normalizeKeymapOverrides', () => {
         'editor.hopMarkerForward': 'Mod+.'
       })
     })
+  })
+})
+
+describe('unbound keymaps (an override of "")', () => {
+  it('keeps an empty or blank override as an unbind instead of dropping it', () => {
+    expect(normalizeKeymapOverrides({ 'global.zoomIn': '' })).toEqual({ 'global.zoomIn': '' })
+    expect(normalizeKeymapOverrides({ 'global.zoomIn': '   ' })).toEqual({ 'global.zoomIn': '' })
+    expect(normalizeKeymapOverrides({ 'vim.leaderPrefix': '' })).toEqual({
+      'vim.leaderPrefix': ''
+    })
+  })
+
+  it('resolves an unbound action to no binding, not to its default', () => {
+    const overrides = { 'global.zoomIn': '' }
+    expect(getKeymapBinding(overrides, 'global.zoomIn')).toBe('')
+    expect(isKeymapUnbound(overrides, 'global.zoomIn')).toBe(true)
+    expect(isKeymapUnbound(overrides, 'global.zoomOut')).toBe(false)
+    expect(getKeymapBinding(overrides, 'global.zoomOut')).toBe(
+      getDefaultKeymapBinding('global.zoomOut')
+    )
+    expect(getSequenceTokens({ 'vim.leaderPrefix': '' }, 'vim.leaderPrefix')).toEqual([])
+    expect(getKeymapDisplay(overrides, 'global.zoomIn')).toBe('')
+  })
+
+  it('never matches a key event against an unbound shortcut or sequence', () => {
+    withPlatform('darwin', () => {
+      const overrides = { 'global.zoomIn': '', 'nav.moveDown': '' }
+      const zoomIn = fakeEvent({ key: '=', code: 'Equal', metaKey: true })
+      expect(matchesShortcut(zoomIn, {}, 'global.zoomIn')).toBe(true)
+      expect(matchesShortcut(zoomIn, overrides, 'global.zoomIn')).toBe(false)
+      const j = fakeEvent({ key: 'j', code: 'KeyJ' })
+      expect(matchesSequenceToken(j, {}, 'nav.moveDown')).toBe(true)
+      expect(matchesSequenceToken(j, overrides, 'nav.moveDown')).toBe(false)
+      // A keydown with no key at all must not "match" the empty binding either.
+      expect(matchesShortcutBinding(fakeEvent({ key: '', code: '' }), '')).toBe(false)
+    })
+  })
+
+  it('does not advance a sequence for an unbound binding', () => {
+    const pending = { current: 0 }
+    const timer: { current?: ReturnType<typeof setTimeout> } = {}
+    let matched = 0
+    const consumed = advanceSequence(
+      fakeEvent({ key: 'g', code: 'KeyG' }),
+      '',
+      pending,
+      timer,
+      () => {
+        matched += 1
+      },
+      () => {}
+    )
+    expect(consumed).toBe(false)
+    expect(matched).toBe(0)
+    expect(pending.current).toBe(0)
+  })
+
+  it('takes an unbound action out of global-shortcut conflict checks both ways', () => {
+    expect(findKeymapConflict({ 'global.zoomIn': '' }, 'global.zoomIn', '')).toBeNull()
+    // Zoom out may take the key that zoom in used to hold.
+    expect(findKeymapConflict({ 'global.zoomIn': '' }, 'global.zoomOut', 'Mod+=')).toBeNull()
+    expect(findKeymapConflict({}, 'global.zoomOut', 'Mod+=')?.id).toBe('global.zoomIn')
+    withPlatform('darwin', () => {
+      const zoomIn = fakeEvent({ key: '=', code: 'Equal', metaKey: true })
+      expect(eventMatchesUserOverride(zoomIn, { 'global.zoomIn': '' }, 'global.zoomOut')).toBe(
+        false
+      )
+    })
+  })
+
+  it('labels a tooltip with the key only while there is one', () => {
+    expect(labelWithShortcut('Go back', '⌃O')).toBe('Go back (⌃O)')
+    expect(labelWithShortcut('Go back', '')).toBe('Go back')
   })
 })

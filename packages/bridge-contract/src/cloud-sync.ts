@@ -155,6 +155,19 @@ export interface CloudSyncChangeResponse {
   has_more: boolean;
 }
 
+export interface CloudSyncRevision {
+  item_id: string;
+  revision: number;
+  path: string;
+  kind: CloudSyncItemKind;
+  deleted: boolean;
+  content: CloudSyncContent | null;
+}
+
+export interface CloudSyncRevisionResponse {
+  data: CloudSyncRevision;
+}
+
 export interface CloudSyncVault {
   id: string;
   name: string;
@@ -422,6 +435,36 @@ export interface CloudSyncBootstrapConflict {
   remote_sha256: string;
 }
 
+export interface CloudSyncBootstrapConflictVersion {
+  sha256: string;
+  byte_length: number;
+  media_type: string;
+  /** UTF-8 contents for comparison. Binary and oversized files have no preview. */
+  text: string | null;
+}
+
+export interface CloudSyncBootstrapConflictDetails {
+  conflict: CloudSyncBootstrapConflict;
+  kind: CloudSyncItemKind;
+  local: CloudSyncBootstrapConflictVersion;
+  cloud: CloudSyncBootstrapConflictVersion;
+}
+
+export type CloudSyncBootstrapConflictChoice =
+  | "local"
+  | "cloud"
+  | "both"
+  | "merged";
+
+export interface CloudSyncBootstrapConflictResolution {
+  conflict: CloudSyncBootstrapConflict;
+  choice: CloudSyncBootstrapConflictChoice;
+  /** Vault-relative destination for this device's version when keeping both. */
+  keep_both_path?: string;
+  /** Complete UTF-8 result when resolving a text conflict by merging. */
+  merged_text?: string;
+}
+
 /**
  * A remote change that could not be applied because the local file was not
  * what sync last agreed on. The local file is always kept; `conflict_copy_path`
@@ -432,6 +475,71 @@ export interface CloudSyncLocalConflict {
   code: "LOCAL_EDIT_CONFLICT" | "SETTINGS_CONFLICT";
   path: string;
   conflict_copy_path: string | null;
+}
+
+export type CloudSyncPendingConflictKind = "content" | "delete" | "move" | "path";
+
+/** A durable conflict kept in private app storage, never as a vault note. */
+export interface CloudSyncPendingConflict {
+  id: string;
+  item_id: string;
+  path: string;
+  cloud_path: string | null;
+  kind: CloudSyncPendingConflictKind;
+  can_merge: boolean;
+  has_base: boolean;
+}
+
+export interface CloudSyncConflictVersion {
+  path: string | null;
+  revision: number | null;
+  sha256: string | null;
+  byte_length: number;
+  media_type: string | null;
+  text: string | null;
+  deleted: boolean;
+}
+
+export interface CloudSyncMergeChange {
+  id: string;
+  base_text: string;
+  local_text: string;
+  cloud_text: string;
+}
+
+export type CloudSyncMergePart =
+  | { type: "text"; text: string }
+  | { type: "change"; change_id: string };
+
+export interface CloudSyncPendingConflictDetails {
+  conflict: CloudSyncPendingConflict;
+  base: CloudSyncConflictVersion;
+  local: CloudSyncConflictVersion;
+  cloud: CloudSyncConflictVersion;
+  suggested_text: string | null;
+  draft_text: string | null;
+  changes: CloudSyncMergeChange[];
+  /** Ordered safe text and unresolved choices used to preview a combined note. */
+  parts: CloudSyncMergePart[];
+}
+
+export type CloudSyncPendingConflictChoice =
+  | "local"
+  | "cloud"
+  | "both"
+  | "merged"
+  | "changes";
+
+export interface CloudSyncPendingConflictResolution {
+  conflict_id: string;
+  choice: CloudSyncPendingConflictChoice;
+  expected_local_sha256: string | null;
+  expected_cloud_revision: number | null;
+  keep_both_path?: string;
+  /** Vault-relative destination when content and location are resolved together. */
+  resolved_path?: string;
+  merged_text?: string;
+  change_choices?: Record<string, "local" | "cloud" | "both">;
 }
 
 /**
@@ -453,4 +561,8 @@ export interface CloudSyncRunSummary {
   conflicts: CloudSyncConflict[];
   bootstrap_conflicts: CloudSyncBootstrapConflict[];
   local_conflicts: CloudSyncLocalConflict[];
+  /** Present on clients with the unified conflict resolver. */
+  pending_conflicts?: CloudSyncPendingConflict[];
+  /** Possible copies made by the pre-v2.44 conflict strategy. Never auto-deleted. */
+  legacy_conflict_copies?: Array<{ path: string; original_path: string }>;
 }

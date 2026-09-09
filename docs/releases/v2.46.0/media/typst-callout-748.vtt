@@ -1,0 +1,13 @@
+WEBVTT
+
+00:00.000 --> 00:04.000
+Before: with Typst selected, a $$ block inside a callout stayed raw in the editor while the one outside rendered.
+
+00:04.000 --> 00:08.500
+Before, reading view: the callout lost its body and a failing formula swallowed the rest of the note.
+
+00:08.500 --> 00:12.500
+After: the block inside the callout renders like the one outside, as part of the card.
+
+00:12.500 --> 00:16.500
+After, reading view: both render, inline math inside callouts included.

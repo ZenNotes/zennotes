@@ -1,0 +1,13 @@
+WEBVTT
+
+00:00.000 --> 00:04.000
+KaTeX draws Computer Modern at 1.21 times the text size, the way its own stylesheet asks.
+
+00:04.000 --> 00:09.000
+Before: the same formulas under Typst were a fifth smaller, and a square root bar stayed black on a dark theme.
+
+00:09.000 --> 00:13.500
+After: Typst formulas are sized the way KaTeX sizes them, and every rule follows the text color.
+
+00:13.500 --> 00:17.500
+The reading view too, display blocks included. The Math size setting still scales on top.

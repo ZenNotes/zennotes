@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import { ensureSyntaxTree } from '@codemirror/language'
 import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
@@ -97,10 +98,15 @@ describe('autoPairBackspaceTransaction', () => {
 describe('isInMarkdownCode', () => {
   it('identifies fenced and inline code but not Markdown prose', () => {
     const doc = 'Prose\n\n```ts\nconst fenced = \n```\n\nInline `const inline = `'
-    const current = EditorState.create({
+    const fresh = EditorState.create({
       doc,
       extensions: [markdown({ base: markdownLanguage, addKeymap: false })]
     })
+    // A new state parses only within a small time budget; a slow runner can
+    // hand `syntaxTree` a tree that stops before the fence. Finish the parse,
+    // then take the state that carries the finished tree.
+    ensureSyntaxTree(fresh, doc.length, 5_000)
+    const current = fresh.update({}).state
 
     expect(isInMarkdownCode(current, 2)).toBe(false)
     expect(isInMarkdownCode(current, doc.indexOf('const fenced') + 'const fenced = '.length)).toBe(true)

@@ -51,7 +51,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Insert structure while you type',
     body:
-      'Type `/` to insert headings, lists, callouts, code blocks, tables, links, images, and other markdown structures. Type `@` to insert date shortcuts like Today and Tomorrow as ISO dates, or `@time` / `@now` for the current time.'
+      'Type `/` to insert headings, lists, callouts, code blocks, tables, links, images, and other markdown structures. Type `@` to insert date shortcuts like Today and Tomorrow as ISO dates, `@time` / `@now` for the current time, or `@date` to pick any other day from a calendar.'
   },
   {
     title: 'Format a selection',
@@ -174,7 +174,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Connect the desktop app to a self-hosted server',
     body:
-      'Settings → Vault → Remote workspace takes the server URL and its token. **On macOS**, a server on your own network also needs the system Local Network permission: macOS asks the first time ZenNotes reaches a local address, and if you dismiss that prompt the connection fails with no packets sent and no further warning — it looks exactly like a server that is down. Turn it back on under System Settings → Privacy & Security → Local Network. A server reached over the public internet is unaffected.'
+      'Settings → Vault → Remote workspace takes the server URL and its token. **On macOS**, a server on your own network also needs the system Local Network permission: macOS asks the first time ZenNotes reaches a local address, and if you dismiss that prompt the connection fails with no packets sent and no further warning — it looks exactly like a server that is down. Turn it back on under System Settings → Privacy & Security → Local Network. A server reached over the public internet is unaffected. Live updates travel over a WebSocket at /api/watch. If a reverse proxy in front of the server does not pass WebSocket upgrades, the app refreshes on its own every 30 seconds instead, so a note renamed or trashed on another device can show its old name for up to half a minute; passing the upgrade through gives instant updates.'
   },
   {
     title: 'Customize the look: themes vs. overrides',
@@ -232,7 +232,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Comments attach to selected text',
     body:
-      'Select text in the editor and press `Mod+Alt+M` — or open the text menu with `m` — to start a comment, and toggle the Comments panel itself with `Mod+Shift+C`. ZenNotes stores note comments beside the note in vault metadata, then highlights the anchored text and line when the comment is active. In the panel, move with `j` / `k` and use `e` to edit, `r` to resolve, and `d` to delete.'
+      'Select text in the editor and press `Mod+Alt+M` (or open the text menu with `m`) to start a comment, and toggle the Comments panel itself with `Mod+Shift+C`. ZenNotes stores note comments beside the note in vault metadata, then highlights the anchored text and line when the comment is active. In the panel, move with `j` / `k` and use `a` to reply, `e` to edit, `r` to resolve, and `d` to delete. Comments thread: a reply sits under the comment it answers, and each one names who wrote it, so a note can be discussed the way a pull request is. An AI assistant connected through MCP can take part: `list_comments` reads the threads, `reply_to_comment` answers in one, `add_comment` starts a new thread anchored to a passage, and `resolve_comment` closes it, each signed with the assistant\'s name (Claude, Claude Code, Codex) so its replies stand apart from yours. `zn comment list|add|reply|resolve` does the same from a terminal.'
   },
   {
     title: 'The home view is where you land',
@@ -287,12 +287,12 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'The Tasks Kanban board, custom statuses, and any field',
     body:
-      'Switch Tasks to Kanban (button or `3`) for a column board. "Group by" offers Status (Today / Upcoming / In progress / Waiting / Done, derived from due dates, `[/]` and `@waiting`), Priority, Folder, Custom status, and one entry per inline `@field` you use. On the Status board a started task (`[/]`) sits in its own In progress column between Upcoming and Waiting: drop a card there (or send it with `Shift+L`) to mark it `[/]`, drop it back on Today or Upcoming to reopen it with that date, and a `@waiting` card keeps its `[/]` underneath so clearing the wait returns it to In progress. Any task field works: tag tasks with `@key:value` tokens like `@status:review`, `@sprint:24`, or `@area:backend`, and each key becomes its own board with a column per value (auto-discovered, so it appears the moment you use it). For the status field, define the columns under Settings → Tasks → Kanban statuses, or list them in order in `config.toml` under `[view]`, e.g. `kanban_statuses = ["backlog", "in_progress", "review", "done"]`; other fields sort their columns automatically. A note-level `status:` in frontmatter sets a default for that note’s tasks. A note tagged `task` is a card of its own: its frontmatter `status:` is its custom status, and without one it sits in the trailing No status column until you move it. Everything is keyboard-first: `h`/`l` move between columns, `j`/`k` between cards, `g` cycles the group-by, `Shift+H` / `Shift+L` send the focused card to the previous/next column (rewriting its `@field` token), `<` / `>` reorder the columns themselves (saved per board), and `Space`/`Enter` toggle/open. Drag does the same with the mouse — including dragging a column header to reorder, and dragging a card to a new spot inside its column to hand-prioritize it (that arrangement is saved per column and restored when you come back to the board). Renaming a column (click its title, or `[kanban_column_titles]` in `config.toml`) sets a display label only: the column still shows its underlying `@field:value` beneath the name, and moving a card in writes that value, not the label.'
+      'Switch Tasks to Kanban (button or `3`) for a column board. "Group by" offers Status (Today / Upcoming / In progress / Waiting / Done, derived from due dates, `[/]` and `@waiting`), Priority, Folder, Custom status, and one entry per inline `@field` you use. The Folder board gives every note folder its own column (`Projects/alpha`, `Areas`, the Inbox root, Quick Notes), so notes that live together group together with nothing to maintain; point it at one folder under Settings → Tasks → Folder board, with `:folderroot Projects` on the board, or with `kanban_folder_root = "Projects"` in config.toml, and that folder\'s children become the columns, deeper notes roll up to their child, and notes outside it share an Other folders column. Folder columns stay read-only: move a note to change its column. On the Status board a started task (`[/]`) sits in its own In progress column between Upcoming and Waiting: drop a card there (or send it with `Shift+L`) to mark it `[/]`, drop it back on Today or Upcoming to reopen it with that date, and a `@waiting` card keeps its `[/]` underneath so clearing the wait returns it to In progress. Any task field works: tag tasks with `@key:value` tokens like `@status:review`, `@sprint:24`, or `@area:backend`, and each key becomes its own board with a column per value (auto-discovered, so it appears the moment you use it). For the status field, define the columns under Settings → Tasks → Kanban statuses, or list them in order in `config.toml` under `[view]`, e.g. `kanban_statuses = ["backlog", "in_progress", "review", "done"]`; other fields sort their columns automatically. A note-level `status:` in frontmatter sets a default for that note’s tasks. A note tagged `task` is a card of its own: its frontmatter `status:` is its custom status, and without one it sits in the trailing No status column until you move it. Everything is keyboard-first: `h`/`l` move between columns, `j`/`k` between cards, `g` cycles the group-by, `Shift+H` / `Shift+L` send the focused card to the previous/next column (rewriting its `@field` token), `<` / `>` reorder the columns themselves (saved per board), and `Space`/`Enter` toggle/open. Drag does the same with the mouse, including dragging a column header to reorder, and dragging a card to a new spot inside its column to hand-prioritize it (that arrangement is saved per column and restored when you come back to the board). Renaming a column (click its title, or `[kanban_column_titles]` in `config.toml`) sets a display label only: the column still shows its underlying `@field:value` beneath the name, and moving a card in writes that value, not the label.'
   },
   {
     title: 'Filter the Tasks views to one project',
     body:
-      'The filter box in the Tasks header narrows all three sub-views: the list, the calendar, and the Kanban board (where cards filter out but the columns stay put, so the board keeps its shape while you type). Press `/` to focus it (Vim mode), type in it directly, or run `:filter <text>` from the ex line; `Esc` or a bare `:filter` clears it, and the query survives switching views, so a filtered list stays filtered when you jump to the board. Matching is a simple substring check across the task text, the note title, tags (with the `#`, so `#project-beta` narrows to that tag), `!high`-style priorities, and `@key:value` fields. The fields are the project trick: tag tasks with `@project:alpha`, then filter `@project:alpha` while the board is grouped by status, and you have a one-project board; the header shows how many tasks match. A filtered board is still fully live: drag or `Shift+H`/`L` still move cards, and hand-arranged card order is preserved for the cards the filter is hiding.'
+      'The filter box in the Tasks header narrows all three sub-views: the list, the calendar, and the Kanban board (where cards filter out but the columns stay put, so the board keeps its shape while you type). Press `/` to focus it (Vim mode), type in it directly, or run `:filter <text>` from the ex line; `Esc` or a bare `:filter` clears it, and the query survives switching views, so a filtered list stays filtered when you jump to the board. Matching is a simple substring check across the task text, the note title, tags (with the `#`, so `#project-beta` narrows to that tag), `!high`-style priorities, and `@key:value` fields. The fields are the project trick: tag tasks with `@project:alpha`, then filter `@project:alpha` while the board is grouped by status, and you have a one-project board; the header shows how many tasks match. A filtered board is still fully live: drag or `Shift+H`/`L` still move cards, and hand-arranged card order is preserved for the cards the filter is hiding. A query worth typing twice is worth saving: press **Save filter…** in the row under the header (or run `:savefilter <name>`) and it becomes a chip there; click a chip, run `:filter <name>`, or press `F` (Vim mode) to pick one from a list, and the command palette lists every saved filter as "Tasks: name" so you can jump to it from any note. Right-click a chip to rename or delete it. Saved filters are kept in config.toml under `[saved_filters]`, one `"Name" = "query"` line each, so they travel with your dotfiles and a hand edit applies live.'
   },
   {
     title: 'Forward a task to another note',
@@ -373,6 +373,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
     title: '@ inserts dates and links notes',
     body:
       'Typing `@` in normal text opens suggestions: the date shortcuts (Today, Yesterday, Tomorrow), the current time (Now — type `@time` or `@now`), plus any notes matching what you type. Choosing a date inserts an ISO date like `2026-04-15`; choosing Now inserts the current time in your configured 12-hour or 24-hour format (Settings → Editor → Time format); choosing a note inserts a `[[wikilink]]`, so `@` is a quick alternative to `[[`. A bare `@` leads with the dates and Now — start typing letters and matching notes appear.'
+  },
+  {
+    title: '[[ opens the wikilink picker',
+    body:
+      'Type `[[` and the wikilink picker lists matching notes, images, PDFs, SVGs, and CSV databases; keep typing to narrow it. ↑/↓ or Ctrl+J/K (Ctrl+N/P) move through the suggestions, Enter inserts the link, Tab inserts it and keeps the caret inside the brackets so you can add a `#heading`, and Esc closes the picker. Type `|` after the target to set the display text, or `/path/to/note` for an exact link; picking a database drops a `[[Database]]` link that opens its grid.'
   },
   {
     title: 'Templates scaffold new notes',
@@ -485,6 +490,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Mod+2', action: 'Toggle connections', detail: 'Toggle the connections panel for the active editor pane.' },
       { keys: 'Mod+Shift+C', action: 'Toggle comments panel', detail: 'Show or hide the Comments panel for the active pane.' },
       { keys: 'Mod+Alt+M', action: 'Add comment', detail: 'Start a comment on the selected text (or the current line) without reaching for the mouse.' },
+      { keys: 'a', action: 'Reply in a comment thread', detail: 'Comments panel: open a reply box under the selected comment; `Mod+Enter` sends it, `Esc` cancels.' },
       { keys: 'Alt+H / Alt+J / Alt+K / Alt+L', action: 'Focus pane left / down / up / right', detail: 'Always-on pane-focus motions — they work even with Vim mode off and skip the Ctrl+W prefix some Linux setups intercept. (Ctrl+W h/j/k/l still works in Vim mode.) Both walk the same cycle, in the order the panels appear on screen: sidebar → note list → editor → connections → comments → outline → calendar, and back again.' },
       { keys: '↑ / ↓ / Enter / Esc', action: 'Move inside a focused panel', detail: 'Once a panel has focus, the arrows move its row cursor, Home and End jump to the ends, Enter opens the row under the cursor, and Esc (or ←) returns focus to the editor. These work with Vim mode off; the single-key motions (j / k, gg / G) stay Vim-only.' },
       { keys: 'Mod+.', action: 'Toggle Zen mode', detail: 'Hide or restore the app chrome so only the active editor, preview, or split view stays on screen.' },
@@ -534,6 +540,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
+      { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open the Cloud sync conflict queue: the files two devices changed at once, one decision at a time. The binding and the command palette entry appear only while files are waiting, and open the same queue as Review now in the status bar.' },
       { keys: 'Space g', action: 'Open atlas', detail: 'Open the Atlas view: the whole vault drawn as a map of notes and links.' },
       { keys: 'Space q', action: 'Quick capture window', detail: 'Open the floating, always-on-top capture window, same as the global hotkey.' },
       { keys: 'Space i', action: 'Insert template into note', detail: 'Pick a template and insert it at the cursor of the active note, instead of creating a new note from it.' },
@@ -544,6 +551,10 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'zc / zo', action: 'Fold / unfold heading', detail: 'Collapse or expand the section below the heading at the cursor.' },
       { keys: 'Ctrl+Alt+F / U', action: 'Fold / unfold heading', detail: 'Collapse or expand the heading section at the cursor with Vim mode on or off. On macOS, use Cmd+Option+F / U.' },
       { keys: 'zM / zR', action: 'Fold / unfold all', detail: 'Collapse or expand every heading section in the note.' },
+      { keys: ']s / [s', action: 'Next / previous Harper suggestion', detail: 'With Grammar and spelling with Harper on, jump the cursor to the next or previous underlined problem, the way Vim walks misspellings.' },
+      { keys: 'z=', action: 'Harper suggestions', detail: 'Open the fixes for the problem under the cursor (or the first one on its line). A digit or Enter applies one, j/k move, Esc closes.' },
+      { keys: 'zg', action: 'Add word to Harper dictionary', detail: 'Teach this vault\'s dictionary the word under the cursor. Stored in vault.json, so it travels and syncs with the vault.' },
+      { keys: 'zG', action: 'Ignore Harper suggestion', detail: 'Hide this one suggestion here from now on without teaching the dictionary a word, the temporary sibling of zg as in Vim.' },
       { keys: 'Ctrl-o', action: 'Go back', detail: 'Jump to the previous note location in history.' },
       { keys: 'Ctrl-i', action: 'Go forward', detail: 'Jump forward in note history.' },
       { keys: 'Space h', action: 'Hint mode', detail: 'Show jump labels over clickable targets — links, buttons, sidebar rows, tabs — so you can activate any of them from the keyboard. Works outside insert mode, including in the Tasks and Tags views. Home-row-mod keyboards work too: a bare modifier tap or an uppercase label no longer cancels the hints.' }
@@ -553,7 +564,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     id: 'palettes-and-pickers',
     title: 'Palettes and pickers',
     description:
-      'These apply once a palette, search overlay, or picker already has focus — the command palette, note search, vault text search, outline, buffer switcher, the [[ reference picker, the / slash menu, and the date and template pickers.',
+      'These apply once a palette, search overlay, or picker already has focus — the command palette, note search, vault text search, outline, buffer switcher, the [[ wikilink picker, the / slash menu, and the date and template pickers.',
     items: [
       { keys: 'ArrowDown / Ctrl+N / Ctrl+J', action: 'Next result', detail: 'Move the selection down. Ctrl+J / Ctrl+K behave the same in every picker, so they no longer collide with the global Search-notes shortcut on Windows and Linux.' },
       { keys: 'ArrowUp / Ctrl+P / Ctrl+K', action: 'Previous result', detail: 'Move the selection up.' },
@@ -600,7 +611,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
         keys: '@',
         action: 'Open date/time shortcuts',
         detail:
-          'Show inline suggestions for Today, Yesterday, Tomorrow, and the current time (`@time` / `@now`) while writing so you can insert dates and times without leaving the keyboard.'
+          'Show inline suggestions for Today, Yesterday, Tomorrow, the current time (`@time` / `@now`), and Date…, a calendar for any other day (`@date`: arrows move, PageUp/PageDown change the month, Enter inserts), so you can insert dates and times without leaving the keyboard.'
       },
       {
         keys: 'Select text, then m',
@@ -646,6 +657,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'r', action: 'Restore trashed note', detail: 'Trash view only: restore the selected trashed note.' },
       { keys: 'x / d', action: 'Delete forever', detail: 'Trash view only: permanently delete the selected trashed note after confirmation.' },
       { keys: '/', action: 'Filter the view', detail: 'Focus the local filter box for tasks, tag matches, or trashed notes.' },
+      { keys: 'F', action: 'Pick a saved Tasks filter', detail: 'Tasks view: open the list of saved filters and apply one. Save the current query with the Save filter… chip or `:savefilter <name>`.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
       { keys: 'Esc', action: 'Clear the filter', detail: 'Clears an active filter. These views are tabs, so Esc no longer closes them — close with :q or the ✕ in the tab header.' }
     ]
@@ -718,6 +730,36 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':w',
     summary: 'Save the active note',
     detail: 'Flush the current buffer to disk immediately.'
+  },
+  {
+    command: ':harper [on|off]',
+    summary: 'Grammar and spelling with Harper',
+    detail: 'Turn Harper on or off for the editor, or toggle it with no argument. The same switch as Settings, Editor, Grammar and spelling with Harper.'
+  },
+  {
+    command: ':unbind action.id',
+    summary: 'Remove an action’s key entirely',
+    detail: 'Leave an action with no key at all, instead of parking it on some obscure chord: `:unbind global.zoomIn` takes Zoom in off its key until it is rebound or reset under Settings, Keymaps. Bare `:unbind` opens that page, which lists every action id. The unbind travels in `config.toml` as `\"global.zoomIn\" = \"\"`.'
+  },
+  {
+    command: ':ignorekey <key>',
+    summary: 'Ignore a key everywhere',
+    detail: 'Adds a key the app should never see, such as the KanaMode no-op a Kanata or QMK tap-hold layer sends with every keystroke, so it stops resetting `jk`, `dd`, leader chords and hints. Bare `:ignorekey` opens Settings, Keymap, where the recorder names the key. Same as `ignored_keys` under `[editor]` in config.toml.'
+  },
+  {
+    command: ':filter <text or name>',
+    summary: 'Filter the Tasks views',
+    detail: 'In the Tasks view, narrows the list, the calendar, and the Kanban board to tasks matching the text; when the text is the name of a saved filter, that filter is applied instead. Bare `:filter` (or `:f`) clears it.'
+  },
+  {
+    command: ':savefilter <name>',
+    summary: 'Save the current Tasks filter under a name',
+    detail: 'Keeps the query in the Tasks filter box as a saved filter called `<name>` (bare `:savefilter`, or `:sf`, asks for the name). It shows up as a chip under the Tasks header, in the command palette as “Tasks: name”, and in config.toml under `[saved_filters]`.'
+  },
+  {
+    command: ':delfilter <name>',
+    summary: 'Delete a saved Tasks filter',
+    detail: 'Forgets the saved filter called `<name>` (`:df` for short). Deleting the line under `[saved_filters]` in config.toml does the same.'
   },
   {
     command: ':q',
@@ -1028,6 +1070,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Math size', detail: 'Scales inline `$…$` and block `$$…$$` math relative to the surrounding text, 50 to 200 percent, in the editor and the reading view, for both KaTeX and Typst; `math_font_scale` under `[editor]` in `config.toml`.' },
       { label: 'Render tables in live preview', detail: 'Show Markdown tables as interactive WYSIWYG widgets (edit cells, drag, right-click/`m` menu). Turn it off to keep tables as plain markdown text so you can edit them with the keyboard and Vim motions like any other line. When widgets are on, Arrow keys (and h/j/k/l) navigate cells; Shift+V then Shift+J/Shift+K move whole lines in the raw source. In Vim mode the cell cursor speaks the editor\'s language: motions (w/b/e, f/t, 0/$), operators (d/c/y with motions and text objects), visual selections, and yank/paste (y/p/P) through the same registers as the rest of the note, so you can yank in a cell and paste in the body, or the other way around.' },
       { label: 'Sync title heading on rename', detail: 'On by default. A new note is created as `# <title>`, and with this on a rename carries that heading along — rename `Untitled` to `Groceries` and line one becomes `# Groceries`, from the breadcrumb, the sidebar, or the note list alike. Only an existing top-level `#` heading is rewritten and one is never invented, so a note that opens with prose, a list, or a `##` heading is untouched; deleting the `#` line opts that note out permanently. The heading is found after any frontmatter, and the rest of the note is left byte for byte as it was.' },
+      { label: 'Grammar and spelling with Harper', detail: 'Off by default. Turn it on to underline grammar and spelling problems as you write, checked on this device by Harper (writewithharper.com); no text leaves the app. Hover a mark for the fixes, or in Vim mode press z= at the problem, ]s and [s to move between problems, zg to add a word to this vault\'s dictionary and zG to ignore one suggestion. Choose the English dialect below the toggle. Code, links and frontmatter are never checked, and notes past 120,000 characters are skipped.' },
       { label: 'Heading level labels', detail: 'Show H1 through H6 badges before headings. Heading fold arrows stay available whether labels are on or off.' },
       { label: 'Tab size', detail: 'Choose how many spaces a tab occupies when rendered and when indenting in every Markdown editor surface. Nested list levels also render this many columns deep, whatever the note’s source spacing, so levels stay tellable apart on any monitor.' },
       { label: 'Indent guides', detail: 'Draw a vertical guide line at each nested list level in the editor, at the Tab size columns. On by default; the raw markup is never changed either way.' },
@@ -1058,7 +1101,9 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Recorded sequences', detail: 'Capture single shortcuts or multi-step sequences such as Leader flows, pane prefixes, `g g`, `g d`, or fold motions without editing raw config files.' },
       { label: 'Conflict detection', detail: 'When you record a global shortcut that another action already uses, the recorder names the clash and disables Save, so two actions can no longer silently share one key. Any existing clash shows a badge on the affected rows. Vim, navigation, and view keys that deliberately reuse a key by context are left alone.' },
       { label: 'Context-menu bindings', detail: 'The same keymap table controls the context-menu action used in the sidebar, note list, and preview-side active-tab menu, so mouse-free navigation stays configurable.' },
-      { label: 'Reset controls', detail: 'Clear an individual override or reset the entire keymap table back to the shipped defaults.' }
+      { label: 'Unbind a key', detail: 'Unbind removes an action’s key entirely instead of parking it on some obscure chord: nothing triggers the action until you record a new key or reset it, the row reads “Unbound”, and the which-key hints, the command palette, and this manual stop advertising it. Unbind sits next to Change on every row and inside the recorder; `:unbind <action.id>` (for example `:unbind global.zoomIn`) does the same from the ex line, and in `config.toml` the entry is `"global.zoomIn" = ""`.' },
+      { label: 'Reset controls', detail: 'Clear an individual override, including an unbind, or reset the entire keymap table back to the shipped defaults.' },
+      { label: 'Ignored keys', detail: 'Keys the app never sees. Keyboard remappers with tap-hold layers (Kanata, QMK, ZMK) send a harmless extra key with every keystroke, on Linux usually the Katakana/Hiragana key, which reads as KanaMode, and each one used to reset a pending `jk`, `dd`, leader chord or hint. Record the key here (or `:ignorekey KanaMode`, or `ignored_keys = ["KanaMode"]` under `[editor]` in config.toml) and it is swallowed before the editor or any panel reacts.' }
     ]
   },
   {
@@ -1082,7 +1127,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Create a custom template', detail: 'Author a new template as markdown with optional frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and variables like `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}`. It is saved as a `.md` file in `.zennotes/templates/`.' },
       { label: 'Edit or reset built-ins', detail: 'Press Edit on a built-in to fork an editable copy that shadows the original everywhere; Reset removes the copy and restores the built-in. Custom templates can be edited or deleted directly.' },
       { label: 'Remove or restore built-ins', detail: 'Hide all the shipped templates with “Remove Built-in Templates” (a button here, or the command palette; it asks first), and bring them back with “Restore Built-in Templates”. Your custom templates, and anything already pointing at a built-in by id, keep working.' },
-      { label: 'Where templates appear', detail: 'Use a template via the picker (`Space t` / `:template` / “New Note from Template…”), from a folder’s right-click “New from template”, or as the assigned daily/weekly note template. Custom templates require a local vault; built-ins work everywhere.' }
+      { label: 'Where templates appear', detail: 'Use a template via the picker (`Space t` / `:template` / “New Note from Template…”), from a folder’s right-click “New from template”, or as the assigned daily/weekly note template. Custom templates work on a local vault, in the self-hosted web client, and on a remote vault served by ZenNotes server 2.46 or later; they are `.md` files in the vault’s `.zennotes/templates/`, so one saved in any client shows up in the others. Built-ins work everywhere.' }
     ]
   },
   {
@@ -1120,7 +1165,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a short description of the app as a keyboard-first markdown workflow with Vim motions and plain local files.' },
       { label: 'Updates and releases', detail: 'Check for updates, download a newer build, install and relaunch, or jump straight to the latest GitHub release from inside the app. AUR and tarball installs get the check and the notice only; the package manager does the install.' },
       { label: 'Website, community, and issue links', detail: 'The app now exposes direct links to the ZenNotes website, Discord, GitHub repository, and issue tracker so support paths stay discoverable.' },
-      { label: 'Configuration file', detail: 'Your preferences — theme, editor, Vim, keymaps, fonts, search backend, and more — are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out — uncomment a line and edit it to remap), so you can discover and change anything without opening the app. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file — by hand or via a synced dotfile — apply live without a restart. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
+      { label: 'Configuration file', detail: 'Your preferences (theme, editor, Vim, keymaps, fonts, search backend, and more) are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out: uncomment a line and edit it to remap, or set it to `""` to remove the key entirely), so you can discover and change anything without opening the app. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file, by hand or via a synced dotfile, apply live without a restart. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
       { label: 'Lumary Labs', detail: 'The About section links to Lumary Labs at lumarylabs.com so company details stay easy to find from inside the app.' }
     ]
   }
@@ -1180,6 +1225,6 @@ export const HELP_CLI: HelpCard[] = [
   {
     title: 'MCP for AI agents',
     body:
-      '`zn mcp` starts the ZenNotes MCP server in stdio mode — the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. A server that requires a token needs it in the MCP client\'s environment as `ZENNOTES_REMOTE_TOKEN` (the app keeps its own copy in the OS secret store, which `zn` cannot read); `ZENNOTES_SERVER` or `ZENNOTES_VAULT` in that environment point the MCP at another vault instead.'
+      '`zn mcp` starts the ZenNotes MCP server in stdio mode, the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. A server that requires a token needs it in the MCP client\'s environment as `ZENNOTES_REMOTE_TOKEN` (the app keeps its own copy in the OS secret store, which `zn` cannot read); `ZENNOTES_SERVER` or `ZENNOTES_VAULT` in that environment point the MCP at another vault instead. Beyond reading and writing notes, the server can hold a review with you through comments: ask the assistant to read a note\'s comments and answer them, and its replies land in the Comments panel under yours, signed with its name (`list_comments`, `add_comment`, `reply_to_comment`, `resolve_comment`).'
   }
 ]

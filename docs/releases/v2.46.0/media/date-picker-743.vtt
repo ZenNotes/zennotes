@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00.000 --> 00:04.051
+Type @ in a note. Today, Yesterday, Tomorrow and Now are still there. New at the end of the list: Date…
+
+00:04.051 --> 00:07.420
+Type "date" (or arrow down to the row) and press Enter.
+
+00:07.420 --> 00:12.297
+A calendar opens on today, already focused. Arrows move a day or a week, PageDown the month, Shift+PageUp a year back.
+
+00:12.297 --> 00:15.533
+Enter inserts the ISO date where the @ stood, and focus returns to the note.
+
+00:15.533 --> 00:22.956
+Or type the date outright: a digit jumps to the field, and the grid follows as you type.
+
+00:22.956 --> 00:30.751
+Escape leaves the text exactly as it was. With Vim mode on, h j k l move and t jumps back to today.

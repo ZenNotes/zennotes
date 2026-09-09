@@ -130,6 +130,23 @@ export function cloudSyncConflictCopyPath(path: string, attempt: number): string
   return `${directory}${stem} ${suffix}${extension}`
 }
 
+/** Recognize copies created by pre-v2.44 sync without treating them as safe
+ * to delete. The returned original path is only a review hint. */
+export function cloudSyncLegacyConflictOriginalPath(value: string): string | null {
+  let normalized: string
+  try {
+    normalized = normalizeCloudSyncPath(value)
+  } catch {
+    return null
+  }
+  const slash = normalized.lastIndexOf('/')
+  const directory = slash === -1 ? '' : normalized.slice(0, slash + 1)
+  const name = normalized.slice(slash + 1)
+  const match = /^(.*) \(cloud conflict(?: (?:[2-9]|[1-9]\d+))?\)((?:\.[^.]*)*)$/.exec(name)
+  if (!match?.[1]) return null
+  return `${directory}${match[1]}${match[2] ?? ''}`
+}
+
 /** Skip large device-local trees before reading their contents. */
 export function shouldTraverseCloudSyncDirectory(path: string): boolean {
   let normalized: string

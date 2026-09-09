@@ -1,0 +1,13 @@
+WEBVTT
+
+00:00.000 --> 00:03.866
+Kanata, QMK and ZMK tap-hold layers send a no-op key (KanaMode on Linux) with every keystroke. Watch it break jk: j, no-op, k.
+
+00:03.866 --> 00:07.800
+Still in insert mode, with a stray jk typed. The no-op reset the sequence; dd, leader chords and hints suffer the same way.
+
+00:07.800 --> 00:14.284
+Settings, Keymap, Ignored keys: press Record a key, then the no-op. It is listed by name and saved to config.toml as ignored_keys.
+
+00:14.284 --> 00:21.362
+Now the app never sees it: j, no-op, k leaves insert mode, and d, no-op, d deletes the line. :ignorekey <key> does the same from the ex line.

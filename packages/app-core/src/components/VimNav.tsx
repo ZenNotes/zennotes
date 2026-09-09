@@ -35,6 +35,7 @@ import {
   getSequenceTokens,
   matchesSequenceToken,
   matchesShortcutBinding,
+  UNBOUND_BINDING,
   sequenceTokenFromEvent
 } from '../lib/keymaps'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
@@ -46,6 +47,12 @@ import {
 import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { atlasHoldsKeyboard } from '../lib/atlas'
+import {
+  hasResolvableCloudConflicts,
+  openCloudConflictReview,
+  resolvableCloudConflictCount,
+  useCloudSyncStatusStore
+} from '../lib/cloud-auto-sync'
 import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
@@ -200,6 +207,9 @@ export function VimNav(): JSX.Element | null {
   const calendarToggleAvailable = useStore((s) =>
     isCalendarToggleAvailable(s.vaultSettings, s.activeNote)
   )
+  const cloudConflictsWaiting = useCloudSyncStatusStore(
+    (s) => resolvableCloudConflictCount(s.lastSummary) > 0
+  )
   const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
@@ -267,6 +277,15 @@ export function VimNav(): JSX.Element | null {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderAtlas'),
               label: 'Open atlas',
               detail: 'See the vault as a map of notes and links.'
+            }
+          ]
+        : []),
+      ...(cloudConflictsWaiting
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCloudConflicts'),
+              label: 'Review Cloud conflicts',
+              detail: 'Open the queue of files waiting on a sync decision.'
             }
           ]
         : []),
@@ -357,7 +376,8 @@ export function VimNav(): JSX.Element | null {
       })
     }
     return items
-  })()
+    // An unbound leader action has no key to press, so it leaves the hints.
+  })().filter((item) => !!item.keyLabel)
 
   useEffect(() => {
     if (vimMode) return
@@ -379,8 +399,12 @@ export function VimNav(): JSX.Element | null {
     const handler = (e: KeyboardEvent): void => {
       const state = useStore.getState()
       const overrides = state.keymapOverrides
-      const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? 'Space'
-      const panePrefixToken = getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? 'Ctrl+W'
+      // An unbound prefix has no token. The empty string never equals a token
+      // read off an event, so every comparison below stays false instead of
+      // quietly reviving the shipped default.
+      const leaderToken = getSequenceTokens(overrides, 'vim.leaderPrefix')[0] ?? UNBOUND_BINDING
+      const panePrefixToken =
+        getSequenceTokens(overrides, 'vim.panePrefix')[0] ?? UNBOUND_BINDING
 
       // Skip when modals / overlays are open
       if (
@@ -394,6 +418,9 @@ export function VimNav(): JSX.Element | null {
         document.querySelector('[data-ctx-menu]') ||
         document.querySelector('[data-prompt-modal]') ||
         document.querySelector('[data-confirm-modal]') ||
+        // The Cloud conflict queue is a review surface with its own buttons and
+        // textarea: leader chords must not fire at the notes underneath it.
+        document.querySelector('[data-cloud-conflict-dialog]') ||
         // The workflow import review focuses a BUTTON, not a text field, so
         // the INPUT/TEXTAREA escape below does not cover it: without this
         // marker, Space armed the leader instead of pressing the focused
@@ -912,6 +939,18 @@ export function VimNav(): JSX.Element | null {
           void state.openWorkflowsView()
           return
         }
+        // Skipped with an empty queue so the key falls through as an unbound
+        // leader press rather than opening an empty dialog.
+        if (
+          hasResolvableCloudConflicts() &&
+          matchesSequenceToken(e, overrides, 'vim.leaderCloudConflicts')
+        ) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          openCloudConflictReview()
+          return
+        }
         if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {
           e.preventDefault()
           e.stopImmediatePropagation()
@@ -1275,7 +1314,8 @@ export function VimNav(): JSX.Element | null {
     const onKeyUp = (e: KeyboardEvent): void => {
       if (excalidrawSpaceDownAt.current == null) return
       const leaderToken =
-        getSequenceTokens(useStore.getState().keymapOverrides, 'vim.leaderPrefix')[0] ?? 'Space'
+        getSequenceTokens(useStore.getState().keymapOverrides, 'vim.leaderPrefix')[0] ??
+        UNBOUND_BINDING
       if (sequenceTokenFromEvent(e) !== leaderToken) return
       const downAt = excalidrawSpaceDownAt.current
       excalidrawSpaceDownAt.current = null
@@ -1714,6 +1754,7 @@ export function VimNav(): JSX.Element | null {
       key === 'o' ||
       key === 'e' ||
       key === 'r' ||
+      key === 'a' ||
       key === 'd' ||
       key === 'n' ||
       key === '+' ||
@@ -1793,6 +1834,12 @@ export function VimNav(): JSX.Element | null {
     }
     if (key === 'r') {
       clickCommentAction(current, 'resolve')
+      return
+    }
+    // `a` answers in the thread (#738); the composer inside the card takes
+    // focus, so the next keys type the reply.
+    if (key === 'a') {
+      clickCommentAction(current, 'reply')
       return
     }
     if (key === 'd' || key === 'Backspace' || key === 'Delete') {

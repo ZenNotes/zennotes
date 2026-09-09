@@ -62,10 +62,10 @@ import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { markerHopCommands } from '../lib/cm-marker-hop'
 import { isInMarkdownCode } from '../lib/cm-auto-pairs'
 import { toggleCheckbox } from '../lib/cm-toggle-checkbox'
-import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { isVimAwaitingArgument } from '../lib/vim-nav'
-import { toCodeMirrorKey, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
+import { keyBindingsFor, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { followLinkTarget } from '../lib/follow-link'
 import { pointerOverRange } from '../lib/cm-pointer-range'
@@ -119,6 +119,8 @@ import {
 } from '../lib/use-diagram-theme-mode'
 import { embedRenderExtension } from '../lib/cm-embed-render'
 import { urlPasteMenuExtension } from '../lib/cm-url-paste-menu'
+import { harperExtensions, harperRefresh } from '../lib/cm-harper'
+import { harperEditorConfig, harperSeenVaultState, harperSupported } from '../lib/harper-runtime'
 import { mathBlockArrowKeymap } from '../lib/cm-math-nav'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
@@ -287,6 +289,7 @@ import {
   formatKeyToken,
   getKeymapBinding,
   getKeymapDisplay,
+  labelWithShortcut,
   type KeymapId,
   type KeymapOverrides
 } from '../lib/keymaps'
@@ -343,44 +346,20 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // Move the current line (or selection) up/down — reorders the markdown so
     // it persists in the file. Listed before defaultKeymap so the configured
     // binding wins; works in Vim normal/insert and non-Vim alike.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineUp')),
-      run: moveLineUp
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.moveLineDown')),
-      run: moveLineDown
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.moveLineUp'), moveLineUp),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.moveLineDown'), moveLineDown),
     // Obsidian-style checkbox toggle: line -> `- [ ]` -> `[x]` and back.
     // Mode-agnostic like the line moves.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.toggleCheckbox')),
-      run: toggleCheckbox
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.toggleCheckbox'), toggleCheckbox),
     // Join a hard-wrapped paragraph back into one line so the pane wraps it
     // (#676). Mode-agnostic like the line moves; Vim mode also has `gq`.
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.reflowParagraph')),
-      run: reflowParagraph
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.reflowParagraph'), reflowParagraph),
     // Step across inline markers, so a formatted word can be finished without
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerForward')),
-      run: markerHop.forward
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.hopMarkerBackward')),
-      run: markerHop.backward
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.foldHeading')),
-      run: foldHeadingAtCursor
-    },
-    {
-      key: toCodeMirrorKey(getKeymapBinding(overrides, 'editor.unfoldHeading')),
-      run: unfoldHeadingAtCursor
-    },
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerForward'), markerHop.forward),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerBackward'), markerHop.backward),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.foldHeading'), foldHeadingAtCursor),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.unfoldHeading'), unfoldHeadingAtCursor),
     // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
     // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
     // jumplist collision on Linux); in non-Vim mode that handler is disabled, so
@@ -404,8 +383,7 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     indentWithTab,
     ...vimAwareDefaultKeymap(vimMode),
     ...historyKeymap,
-    ...vimAwareSearchKeymap(vimMode),
-    ...completionKeymapForEditor
+    ...vimAwareSearchKeymap(vimMode)
   ])
 }
 
@@ -585,8 +563,10 @@ function buildCommentDecorations(
 ): DecorationSet {
   const lineMarkerCounts = new Map<number, number>()
   const decoratedLines = new Set<number>()
+  // Top-level comments only: a reply shares its thread's anchor (#738), so
+  // drawing it too would double every marker and highlight.
   const ranges = comments
-    .filter((comment) => comment.resolvedAt == null)
+    .filter((comment) => comment.resolvedAt == null && !comment.parentId)
     .flatMap((comment) => {
       const anchor = resolveCommentAnchor(comment, doc)
       if (anchor.to <= anchor.from) return []
@@ -855,6 +835,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const vimYankToClipboard = useStore((s) => s.vimYankToClipboard)
   const livePreview = useStore((s) => s.livePreview)
+  const harperEnabled = useStore((s) => s.harperEnabled)
+  const harperDialect = useStore((s) => s.harperDialect)
+  const harperLintConfig = useStore((s) => s.harperLintConfig)
+  const harperVaultState = useStore((s) => s.vaultSettings.harper)
   const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
   const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
   // Diagrams carry their palette inside the SVG, so a theme switch has to
@@ -974,6 +958,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const markdownCompartmentRef = useRef<Compartment | null>(null)
   const markdownSyntaxCompartmentRef = useRef<Compartment | null>(null)
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
+  const harperCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const wordWrapCompartmentRef = useRef<Compartment | null>(null)
   const scrolloffCompartmentRef = useRef<Compartment | null>(null)
@@ -1711,6 +1696,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const markdownCompartment = new Compartment()
       const markdownSyntaxCompartment = new Compartment()
       const livePreviewCompartment = new Compartment()
+      const harperCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const wordWrapCompartment = new Compartment()
       const scrolloffCompartment = new Compartment()
@@ -1718,6 +1704,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const tabSizeCompartment = new Compartment()
       const historyCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
+      harperCompartmentRef.current = harperCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
       markdownCompartmentRef.current = markdownCompartment
       markdownSyntaxCompartmentRef.current = markdownSyntaxCompartment
@@ -1782,12 +1769,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               : []
           ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
+          harperCompartment.of(
+            s0.harperEnabled && harperSupported() ? harperExtensions(harperEditorConfig()) : []
+          ),
           tooltips({ parent: document.body }),
           autocompletion({
             // Don't install @codemirror/autocomplete's stock keymap — it binds
             // mac-only `Alt-`` / `Alt-i` to completion and swallows the char
             // those combos type on AltGr-style layouts (#429). Our filtered
-            // `completionKeymapForEditor` (in buildEditorKeymap) covers the rest.
+            // `completionKeymapExtension` (mounted below) covers the rest.
             defaultKeymap: false,
             override: [
               slashCommandSource,
@@ -1812,6 +1802,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             }
           }),
           completionNavKeymap,
+          completionKeymapExtension,
           editorKeymapCompartment.of(buildEditorKeymap(s0.vimMode, s0.keymapOverrides)),
           EditorView.domEventHandlers({
             mousedown: (event, view) => {
@@ -2199,6 +2190,29 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (keymapComp) effects.push(keymapComp.reconfigure(buildEditorKeymap(vimMode, tabNavOverrides)))
     view.dispatch({ effects })
   }, [vimMode, tabNavOverrides])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = harperCompartmentRef.current
+    if (!view || !comp) return
+    // Off is an empty compartment, so a disabled Harper costs the editor
+    // nothing. A dialect or rule change rebuilds the extension, which runs the
+    // linter again against the reconfigured session.
+    view.dispatch({
+      effects: comp.reconfigure(
+        harperEnabled && harperSupported() ? harperExtensions(harperEditorConfig()) : []
+      )
+    })
+  }, [harperEnabled, harperDialect, harperLintConfig])
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view || !harperEnabled) return
+    // A dictionary or ignore change that arrived from outside this device
+    // (Cloud sync, a vault switch) must show up without waiting for an edit.
+    // The echo of this device's own `zg` is already in the session.
+    const json = JSON.stringify(harperVaultState ?? { words: [], ignoredLints: [] })
+    if (json === harperSeenVaultState()) return
+    view.dispatch({ effects: harperRefresh.of() })
+  }, [harperEnabled, harperVaultState])
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current
@@ -3690,10 +3704,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               </IconBtn>
             )}
             <IconBtn
-              title={`Go back (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyBack' : 'global.historyBack'
-              )})`}
+              title={labelWithShortcut(
+                'Go back',
+                getKeymapDisplay(tabNavOverrides, vimMode ? 'vim.historyBack' : 'global.historyBack')
+              )}
               onClick={() => void jumpToPreviousNote()}
               disabled={!canGoBack}
               tooltipAlign="left"
@@ -3701,10 +3715,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <ArrowLeftIcon width={16} height={16} />
             </IconBtn>
             <IconBtn
-              title={`Go forward (${getKeymapDisplay(
-                tabNavOverrides,
-                vimMode ? 'vim.historyForward' : 'global.historyForward'
-              )})`}
+              title={labelWithShortcut(
+                'Go forward',
+                getKeymapDisplay(tabNavOverrides, vimMode ? 'vim.historyForward' : 'global.historyForward')
+              )}
               onClick={() => void jumpToNextNote()}
               disabled={!canGoForward}
               tooltipAlign="left"
@@ -4330,13 +4344,16 @@ function ToggleGroup({
   return (
     <div className="flex items-center gap-1 rounded-md bg-paper-200/70 p-0.5 text-xs">
       {MODE_OPTIONS.map((option) => {
-        const shortcut = getKeymapDisplay(keymapOverrides, option.keymapId)
+        const label = labelWithShortcut(
+          option.tooltipLabel,
+          getKeymapDisplay(keymapOverrides, option.keymapId)
+        )
         return (
           <button
             key={option.mode}
             onClick={() => onChange(option.mode)}
-            title={`${option.tooltipLabel} (${shortcut})`}
-            aria-label={`${option.tooltipLabel} (${shortcut})`}
+            title={label}
+            aria-label={label}
             className={[
               'rounded px-2 py-1 transition-colors',
               mode === option.mode

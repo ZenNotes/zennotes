@@ -291,6 +291,18 @@ type VaultSettings struct {
 	// VaultSettings.typstPreambles; a first-class field for the same round-trip
 	// reason as Tasks above.
 	TypstPreambles *TypstPreambleSettings `json:"typstPreambles,omitempty"`
+	// Harper grammar-checker data that belongs to the vault (dictionary words
+	// and ignored-suggestion hashes). Mirrors shared/ipc.ts VaultSettings.harper;
+	// a first-class field for the same round-trip reason as Tasks above.
+	Harper *HarperSettings `json:"harper,omitempty"`
+}
+
+// HarperSettings mirrors shared/ipc.ts VaultSettings.harper. IgnoredLints are
+// Harper's unsigned 64-bit context hashes carried as digit strings, because
+// the browser clients cannot hold them as numbers without rounding.
+type HarperSettings struct {
+	Words        []string `json:"words"`
+	IgnoredLints []string `json:"ignoredLints"`
 }
 
 // TasksSettings mirrors shared/ipc.ts VaultSettings.tasks (#458).
@@ -340,6 +352,11 @@ type NoteComment struct {
 	CreatedAt   int64  `json:"createdAt"`
 	UpdatedAt   int64  `json:"updatedAt"`
 	ResolvedAt  *int64 `json:"resolvedAt"`
+	// Author is who wrote it: empty for the vault's owner, an assistant's
+	// name otherwise. ParentID threads a reply under a top-level comment.
+	// Both mirror shared-domain/note-comments.ts (#738).
+	Author   string `json:"author,omitempty"`
+	ParentID string `json:"parentId,omitempty"`
 }
 
 // FolderEntry — mirrors shared/ipc.ts FolderEntry.

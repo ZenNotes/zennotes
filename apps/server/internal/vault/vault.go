@@ -342,6 +342,20 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 		copy(excluded, settings.Tasks.ExcludedFolders)
 		tasks = &TasksSettings{ExcludedFolders: excluded}
 	}
+	// The same rule for the two later pointer fields: a caller reading the
+	// value SetSettings hands back must see what was written, not nil.
+	var typstPreambles *TypstPreambleSettings
+	if settings.TypstPreambles != nil {
+		typstPreambles = &TypstPreambleSettings{Folder: settings.TypstPreambles.Folder}
+	}
+	var harper *HarperSettings
+	if settings.Harper != nil {
+		words := make([]string, len(settings.Harper.Words))
+		copy(words, settings.Harper.Words)
+		ignored := make([]string, len(settings.Harper.IgnoredLints))
+		copy(ignored, settings.Harper.IgnoredLints)
+		harper = &HarperSettings{Words: words, IgnoredLints: ignored}
+	}
 	dailyLegacyPatterns := make([]DateNotePatternSettings, len(settings.DailyNotes.LegacyPatterns))
 	copy(dailyLegacyPatterns, settings.DailyNotes.LegacyPatterns)
 	weeklyLegacyPatterns := make([]DateNotePatternSettings, len(settings.WeeklyNotes.LegacyPatterns))
@@ -384,6 +398,8 @@ func cloneSettings(settings VaultSettings) VaultSettings {
 		Favorites:         favorites,
 		SystemFolderPaths: systemFolderPaths,
 		Tasks:             tasks,
+		TypstPreambles:    typstPreambles,
+		Harper:            harper,
 	}
 }
 
@@ -586,7 +602,49 @@ func normalizeVaultSettings(value VaultSettings, fallbackPrimary PrimaryNotesLoc
 		SystemFolderPaths: normalizeSystemFolderPaths(value.SystemFolderPaths),
 		Tasks:             normalizeTasksSettings(value.Tasks),
 		TypstPreambles:    normalizeTypstPreambleSettings(value.TypstPreambles),
+		Harper:            normalizeHarperSettings(value.Harper),
 	}
+}
+
+// normalizeHarperSettings mirrors shared-domain's normalizeHarperVaultState:
+// trimmed, de-duplicated words; ignored lints kept only when they are digit
+// strings; nil when nothing is left so vault.json carries no empty block.
+func normalizeHarperSettings(value *HarperSettings) *HarperSettings {
+	if value == nil {
+		return nil
+	}
+	words := uniqueTrimmedStrings(value.Words, func(string) bool { return true })
+	ignored := uniqueTrimmedStrings(value.IgnoredLints, isDigitString)
+	if len(words) == 0 && len(ignored) == 0 {
+		return nil
+	}
+	return &HarperSettings{Words: words, IgnoredLints: ignored}
+}
+
+func uniqueTrimmedStrings(values []string, keep func(string) bool) []string {
+	seen := map[string]struct{}{}
+	result := []string{}
+	for _, entry := range values {
+		cleaned := strings.TrimSpace(entry)
+		if cleaned == "" || !keep(cleaned) {
+			continue
+		}
+		if _, dup := seen[cleaned]; dup {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		result = append(result, cleaned)
+	}
+	return result
+}
+
+func isDigitString(value string) bool {
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // normalizeFileLocation mirrors app-core's normalizeFileLocation: validate the
@@ -1570,7 +1628,19 @@ func normalizeComment(input NoteComment, notePath string) (NoteComment, bool) {
 		CreatedAt:   createdAt,
 		UpdatedAt:   updatedAt,
 		ResolvedAt:  input.ResolvedAt,
+		Author:      normalizeCommentAuthor(input.Author),
+		ParentID:    strings.TrimSpace(input.ParentID),
 	}, true
+}
+
+// normalizeCommentAuthor collapses whitespace and caps the name, mirroring
+// normalizeCommentAuthor in shared-domain/note-comments.ts.
+func normalizeCommentAuthor(raw string) string {
+	author := strings.Join(strings.Fields(raw), " ")
+	if len(author) > 80 {
+		author = author[:80]
+	}
+	return author
 }
 
 func normalizeComments(inputs []NoteComment, notePath string) []NoteComment {
@@ -1593,6 +1663,20 @@ func normalizeComments(inputs []NoteComment, notePath string) []NoteComment {
 		}
 		return out[i].CreatedAt < out[j].CreatedAt
 	})
+	// A reply whose parent is gone (or is itself) stays as a comment of its
+	// own rather than vanishing from the thread view.
+	ids := make(map[string]struct{}, len(out))
+	for _, comment := range out {
+		ids[comment.ID] = struct{}{}
+	}
+	for i := range out {
+		if out[i].ParentID == "" {
+			continue
+		}
+		if _, ok := ids[out[i].ParentID]; !ok || out[i].ParentID == out[i].ID {
+			out[i].ParentID = ""
+		}
+	}
 	return out
 }
 
