@@ -1,22 +1,19 @@
 import type {
+  CloudSyncBootstrapConflictResolution,
   CloudSyncChange,
-  CloudSyncContent,
-  CloudSyncLocalConflict
+  CloudSyncContent
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
   CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
   CLOUD_SYNC_VAULT_SETTINGS_PATH,
-  cloudSyncConflictCopyPath,
+  cloudSyncPathKey,
   isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
   shouldSyncVaultPath,
   shouldTraverseCloudSyncDirectory
 } from './cloud-sync'
-import type { CloudSyncRepository } from './cloud-sync-coordinator'
-import type {
-  CloudSyncLocalItem,
-  CloudSyncTrackedItem
-} from './cloud-sync-engine'
+import type { CloudSyncRepository, CloudSyncRepositoryConflict } from './cloud-sync-coordinator'
+import type { CloudSyncLocalItem, CloudSyncTrackedItem } from './cloud-sync-engine'
 
 const TEXT_EXTENSIONS = new Set([
   '.base',
@@ -94,8 +91,11 @@ function vouchedFor(
   return Boolean(previous) && current.content.sha256 === previous?.sha256
 }
 
-function localConflict(path: string, conflictCopyPath: string | null): CloudSyncLocalConflict {
-  return { code: 'LOCAL_EDIT_CONFLICT', path, conflict_copy_path: conflictCopyPath }
+function localConflict(
+  path: string,
+  local: CloudSyncLocalItem | null
+): CloudSyncRepositoryConflict {
+  return { code: 'LOCAL_EDIT_CONFLICT', path, conflict_copy_path: null, local }
 }
 
 /** Web-API implementation shared by iOS and Android Capacitor filesystems. */
@@ -117,7 +117,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
   async apply(
     change: CloudSyncChange,
     previous: CloudSyncTrackedItem | undefined
-  ): Promise<CloudSyncLocalConflict | void> {
+  ): Promise<CloudSyncRepositoryConflict | void> {
     const affectedPaths = [change.path, change.previous_path, previous?.path].filter(
       (path): path is string => typeof path === 'string'
     )
@@ -129,7 +129,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       if (!current) return
       // Nothing arrives with a delete to keep beside it, so the local file
       // itself is the version being preserved. The next push re-uploads it.
-      if (!vouchedFor(current, previous)) return localConflict(previousPath, null)
+      if (!vouchedFor(current, previous)) return localConflict(previousPath, current)
       await this.fs.deleteFile(previousPath)
       return
     }
@@ -148,8 +148,8 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
         // Nothing here to move; the next scan reconciles it.
         return
       }
-      if (!vouchedFor(source, previous)) return localConflict(previousPath, null)
-      if (destination) return localConflict(nextPath, null)
+      if (!vouchedFor(source, previous)) return localConflict(previousPath, source)
+      if (destination) return localConflict(nextPath, destination)
       await this.fs.rename(previousPath, nextPath)
       return
     }
@@ -161,31 +161,159 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     const [source, destination] =
       previousPath === nextPath
         ? [await this.readItemOrNull(previousPath), null]
-        : await Promise.all([
-            this.readItemOrNull(previousPath),
-            this.readItemOrNull(nextPath)
-          ])
+        : await Promise.all([this.readItemOrNull(previousPath), this.readItemOrNull(nextPath)])
     const currentAtTarget = previousPath === nextPath ? source : destination
 
     if (currentAtTarget?.content.sha256 === change.content.sha256) {
       if (previousPath !== nextPath && source) {
-        if (!vouchedFor(source, previous)) return localConflict(previousPath, null)
+        if (!vouchedFor(source, previous)) return localConflict(previousPath, source)
         await this.fs.deleteFile(previousPath)
       }
       return
     }
 
-    if (source && !vouchedFor(source, previous)) return await this.keepBoth(nextPath, change.content)
-    if (destination) return await this.keepBoth(nextPath, change.content)
+    if (source && !vouchedFor(source, previous)) {
+      if (isCloudSyncVaultSettingsPath(nextPath))
+        return await this.keepBoth(nextPath, change.content)
+      return localConflict(previousPath, source)
+    }
+    if (destination) {
+      if (isCloudSyncVaultSettingsPath(nextPath))
+        return await this.keepBoth(nextPath, change.content)
+      return localConflict(nextPath, destination)
+    }
     await this.write(nextPath, change.content)
     if (previousPath !== nextPath && source) await this.fs.deleteFile(previousPath)
+  }
+
+  async resolveBootstrapConflict(input: {
+    path: string
+    expectedLocalSha256: string
+    cloudContent: CloudSyncContent
+    resolution: CloudSyncBootstrapConflictResolution
+  }): Promise<void> {
+    const originalPath = this.path(input.path)
+    const current = await this.readItemOrNull(originalPath)
+    if (!current || current.content.sha256 !== input.expectedLocalSha256) {
+      throw new Error(
+        'This file changed on this device. Sync again to compare the latest versions.'
+      )
+    }
+
+    if (input.resolution.choice === 'cloud') {
+      await this.write(originalPath, input.cloudContent)
+      return
+    }
+
+    if (input.resolution.choice === 'merged') {
+      if (input.cloudContent.encoding !== 'utf8' || input.resolution.merged_text === undefined) {
+        throw new Error('Only text conflicts can be merged.')
+      }
+      await this.fs.writeText(originalPath, input.resolution.merged_text)
+      return
+    }
+
+    if (input.resolution.choice !== 'both') return
+    if (!input.resolution.keep_both_path) {
+      throw new Error('Choose a filename for this device’s version.')
+    }
+
+    const localCopyPath = this.path(input.resolution.keep_both_path)
+    if (
+      !shouldSyncVaultPath(localCopyPath) ||
+      cloudSyncPathKey(localCopyPath) === cloudSyncPathKey(originalPath)
+    ) {
+      throw new Error('Choose a different filename inside the synced vault.')
+    }
+    if ((await this.fs.stat(localCopyPath)) !== null) {
+      throw new Error(`${localCopyPath} already exists.`)
+    }
+
+    await this.fs.rename(originalPath, localCopyPath)
+    try {
+      await this.write(originalPath, input.cloudContent)
+    } catch (error) {
+      await this.fs.rename(localCopyPath, originalPath).catch(() => undefined)
+      throw error
+    }
+  }
+
+  async replaceConflictFile(input: {
+    path: string
+    expectedSha256: string | null
+    content: CloudSyncContent | null
+  }): Promise<void> {
+    const path = this.path(input.path)
+    const current = await this.readItemOrNull(path)
+    if ((current?.content.sha256 ?? null) !== input.expectedSha256) {
+      throw new Error(
+        'This file changed on this device. Review the latest changes before continuing.'
+      )
+    }
+    if (input.content === null) {
+      if (current) await this.fs.deleteFile(path)
+      return
+    }
+    await this.write(path, input.content)
+  }
+
+  async applyConflictResolutionFiles(input: {
+    expected_path: string | null
+    expected_sha256: string | null
+    files: Array<{ path: string; content: CloudSyncContent }>
+  }): Promise<void> {
+    const expectedPath = input.expected_path ? this.path(input.expected_path) : null
+    const current = expectedPath ? await this.readItemOrNull(expectedPath) : null
+    if ((current?.content.sha256 ?? null) !== input.expected_sha256) {
+      throw new Error(
+        'This file changed on this device. Review the latest changes before continuing.'
+      )
+    }
+
+    const files = normalizedResolutionFiles(input.files)
+    const expectedKey = expectedPath ? cloudSyncPathKey(expectedPath) : null
+    for (const file of files) {
+      if (cloudSyncPathKey(file.path) === expectedKey) continue
+      if ((await this.fs.stat(file.path)) !== null) {
+        throw new Error(`${file.path} already exists. Choose another filename.`)
+      }
+    }
+
+    const ordered = [...files].sort((left, right) =>
+      cloudSyncPathKey(left.path) === expectedKey
+        ? 1
+        : cloudSyncPathKey(right.path) === expectedKey
+          ? -1
+          : 0
+    )
+    const newPaths: string[] = []
+    let replacingExpected = false
+    try {
+      for (const file of ordered) {
+        if (cloudSyncPathKey(file.path) === expectedKey) replacingExpected = true
+        else newPaths.push(file.path)
+        await this.write(file.path, file.content)
+      }
+      if (expectedPath && !files.some((file) => cloudSyncPathKey(file.path) === expectedKey)) {
+        await this.fs.deleteFile(expectedPath)
+      }
+    } catch (error) {
+      for (const createdPath of newPaths.reverse()) {
+        await this.fs.deleteFile(createdPath).catch(() => undefined)
+      }
+      if (expectedPath && replacingExpected) {
+        if (current) await this.write(expectedPath, current.content).catch(() => undefined)
+        else await this.fs.deleteFile(expectedPath).catch(() => undefined)
+      }
+      throw error
+    }
   }
 
   /** Park the incoming version beside the local file rather than over it. */
   private async keepBoth(
     relPath: string,
     content: CloudSyncContent
-  ): Promise<CloudSyncLocalConflict> {
+  ): Promise<CloudSyncRepositoryConflict> {
     // Settings are answered, not merged: the newest cloud version replaces any
     // older pending one at a fixed path, and the app asks which side to keep.
     if (isCloudSyncVaultSettingsPath(relPath)) {
@@ -193,18 +321,11 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       return {
         code: 'SETTINGS_CONFLICT',
         path: relPath,
-        conflict_copy_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH
+        conflict_copy_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+        local: await this.readItemOrNull(relPath)
       }
     }
-    for (let attempt = 1; attempt <= 100; attempt++) {
-      const candidate = cloudSyncConflictCopyPath(relPath, attempt)
-      if ((await this.fs.stat(candidate)) !== null) continue
-      await this.write(candidate, content)
-      return localConflict(relPath, candidate)
-    }
-    // A hundred conflict copies of one file means something is looping. Keep
-    // the local file and report it rather than filling the vault.
-    return localConflict(relPath, null)
+    return localConflict(relPath, await this.readItemOrNull(relPath))
   }
 
   private async walk(directory: string, items: CloudSyncLocalItem[]): Promise<void> {
@@ -259,6 +380,25 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
   }
 }
 
+function normalizedResolutionFiles(
+  files: Array<{ path: string; content: CloudSyncContent }>
+): Array<{ path: string; content: CloudSyncContent }> {
+  const normalized = files.map((file) => ({
+    ...file,
+    path: normalizeCloudSyncPath(file.path)
+  }))
+  const keys = new Set<string>()
+  for (const file of normalized) {
+    if (!shouldSyncVaultPath(file.path)) {
+      throw new Error('Choose a filename inside the synced vault.')
+    }
+    const key = cloudSyncPathKey(file.path)
+    if (keys.has(key)) throw new Error('Choose a different filename for each version.')
+    keys.add(key)
+  }
+  return normalized
+}
+
 function decodeText(path: string, bytes: Uint8Array): string | null {
   if (!TEXT_EXTENSIONS.has(extension(path))) return null
   try {
@@ -281,9 +421,7 @@ function mediaType(path: string, text: boolean): string {
 async function sha256(bytes: Uint8Array): Promise<string> {
   const input = Uint8Array.from(bytes).buffer
   const digest = await crypto.subtle.digest('SHA-256', input)
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 function base64ToBytes(value: string): Uint8Array {

@@ -19,6 +19,8 @@ import {
   requestErrorMessage
 } from '../../main/remote/connection.js'
 import type {
+  NoteComment,
+  NoteCommentInput,
   NoteContent,
   NoteFolder,
   NoteMeta,
@@ -88,6 +90,16 @@ export class CliRemoteClient {
   searchText(query: string): Promise<VaultTextSearchMatch[]> {
     const params = new URLSearchParams({ q: query, backend: 'auto' })
     return this.get<VaultTextSearchMatch[]>(`/api/search/text?${params.toString()}`)
+  }
+
+  /** A note's comment sidecar, through the same two routes the desktop
+   *  remote client and the web client use (#738). */
+  readComments(relPath: string): Promise<NoteComment[]> {
+    return this.get<NoteComment[]>(`/api/comments/read?path=${encodeURIComponent(relPath)}`)
+  }
+
+  writeComments(relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]> {
+    return this.post<NoteComment[]>('/api/comments/write', { path: relPath, comments })
   }
 
   scanTasks(opts?: { includeExcluded?: boolean }): Promise<VaultTask[]> {

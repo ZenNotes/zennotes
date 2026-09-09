@@ -1,0 +1,22 @@
+WEBVTT
+
+00:00.000 --> 00:03.530
+The desktop app on a remote vault: a self-hosted ZenNotes server, not a local folder.
+
+00:03.530 --> 00:06.355
+Settings, Templates now offers New template here (server 2.46 or later).
+
+00:06.355 --> 00:12.259
+Write the template in the editor and save it.
+
+00:12.259 --> 00:15.060
+Saved on the server as .zennotes/templates/team-retro.md, the same file a local vault keeps.
+
+00:15.060 --> 00:18.941
+A template saved by another client shows up on its own: the server’s change feed carries it.
+
+00:18.941 --> 00:23.120
+Both are in the picker like any template: Space t, or :template.
+
+00:23.120 --> 00:28.334
+Delete removes it from the server, and the editor edits it in place.

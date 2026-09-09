@@ -20,7 +20,9 @@ import { NoteList } from './components/NoteList'
 import { TitleBar } from './components/TitleBar'
 import { PromptHost } from './components/PromptHost'
 import { ConfirmHost } from './components/ConfirmHost'
+import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
+import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
 import { ToastHost } from './components/ui'
 import { ExcalidrawEmbedMenuHost } from './components/ExcalidrawEmbedMenuHost'
@@ -57,6 +59,14 @@ import {
   useAppUpdateState
 } from './lib/app-update-state'
 import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-sync'
+import { installHarperRuntime } from './lib/harper-runtime'
+import { installIgnoredKeysGuard } from './lib/ignored-keys'
+
+// The ignored-keys guard (#732) has to be on `window` before any component
+// registers a capture listener there, so it is installed at import time,
+// not from an effect: children's effects run before App's, and VimNav's
+// would otherwise see the stray key first. Reads the live list on each key.
+installIgnoredKeysGuard(() => useStore.getState().ignoredKeys)
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
 const EDITOR_MODULE_WARMUP_GRACE_MS = 40
@@ -396,6 +406,7 @@ function App(): JSX.Element {
     ensureCloudAutoSyncStarted()
     return stopCloudAutoSync
   }, [vault?.root])
+  useEffect(() => installHarperRuntime(), [])
 
   useEffect(() => {
     if (!vault) return undefined
@@ -738,7 +749,8 @@ function App(): JSX.Element {
         state.outlinePaletteOpen ||
         document.querySelector('[data-ctx-menu]') ||
         document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]')
+        document.querySelector('[data-confirm-modal]') ||
+        document.querySelector('[data-cloud-conflict-dialog]')
       if (!tabSelectBlocked) {
         for (let i = 0; i < TAB_SELECT_KEYMAP_IDS.length; i += 1) {
           const id = TAB_SELECT_KEYMAP_IDS[i]
@@ -946,7 +958,8 @@ function App(): JSX.Element {
       const modalOrMenuOpen =
         !!document.querySelector('[data-ctx-menu]') ||
         !!document.querySelector('[data-prompt-modal]') ||
-        !!document.querySelector('[data-confirm-modal]')
+        !!document.querySelector('[data-confirm-modal]') ||
+        !!document.querySelector('[data-cloud-conflict-dialog]')
       // Search Notes is a toggle: its own shortcut closes the palette it
       // opened (#510 moved it here from the bubble handler, which had no
       // overlay guard at all). A confirm on top of the palette, such as the
@@ -1118,6 +1131,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <DatePickerHost />
         <PublishNoteHost />
         <ToastHost />
         <ExcalidrawEmbedMenuHost />
@@ -1136,6 +1150,7 @@ function App(): JSX.Element {
         </Suspense>
         <PromptHost />
         <ConfirmHost />
+        <DatePickerHost />
         <PublishNoteHost />
         <ToastHost />
         <ExcalidrawEmbedMenuHost />
@@ -1209,7 +1224,9 @@ function App(): JSX.Element {
       )}
       <PromptHost />
       <ConfirmHost />
+      <DatePickerHost />
       <PublishNoteHost />
+      <CloudConflictReviewHost />
       <ToastHost />
       <ExcalidrawEmbedMenuHost />
       <ServerDirectoryPickerHost />

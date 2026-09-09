@@ -146,6 +146,15 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
     ]
   },
   {
+    heading: 'COMMENTS',
+    rows: [
+      { name: 'comment list <path>', description: 'Comment threads on a note, with anchors and replies', flags: '--all  --json' },
+      { name: 'comment add <path> "<body>"', description: 'Start a thread, optionally anchored to text from the note', flags: '--anchor <text>  --author <name>  --json' },
+      { name: 'comment reply <path> <id> "<body>"', description: 'Answer in a thread', flags: '--author <name>  --json' },
+      { name: 'comment resolve <path> <id>', description: 'Resolve a thread (or reopen it)', flags: '--reopen  --json' }
+    ]
+  },
+  {
     heading: 'VAULT',
     rows: [
       { name: 'vault info', description: 'Vault path (or server) + per-folder counts', flags: '--json' },
@@ -210,6 +219,8 @@ const EXAMPLES: string[] = [
   'zn list --server home                # a self-hosted ZenNotes server',
   'zn capture "from CI" --server https://notes.example.com',
   'zn task list --unchecked --tag work',
+  'zn comment list inbox/Plan.md',
+  'zn comment reply inbox/Plan.md <id> "Agreed, fixed in the second paragraph." --author Claude',
   'zn open ~/Downloads/notes.md',
   'zn open ~/code/project/docs   # focus a folder as a session'
 ]

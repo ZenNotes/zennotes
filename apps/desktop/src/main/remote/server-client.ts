@@ -20,6 +20,7 @@ import type {
   VaultTextSearchToolPaths
 } from '@shared/ipc'
 import type { VaultTask } from '@shared/tasks'
+import type { CustomTemplateFile, WriteTemplateInput } from '@zennotes/bridge-contract/templates'
 import WebSocket from 'ws'
 import {
   connectionErrorMessage,
@@ -30,6 +31,12 @@ import {
 export interface RemoteServerClientOptions {
   baseUrl: string
   authToken?: string | null
+  /**
+   * Called with the vault-relative path when the server answers 404 to a
+   * request about it. The list this app shows is behind the server, so the
+   * host re-pulls it (see `stalePathMessage`).
+   */
+  onStalePath?: (path: string) => void
 }
 
 type JsonRequestInit = Omit<RequestInit, 'body'> & { body?: unknown }
@@ -48,6 +55,7 @@ import type {
   WriteWorkflowInput
 } from '@zennotes/bridge-contract/workflows'
 import { prepareWorkflowRun } from '@shared/workflows/prepare-run'
+import { REMOTE_CHANGE_POLL_MS, stalePathMessage } from '@shared/remote-workspace-messages'
 
 export class RemoteConnectionError extends Error {}
 
@@ -65,10 +73,12 @@ export class RemoteRequestError extends Error {
 export class RemoteServerClient {
   readonly baseUrl: string
   readonly authToken: string | null
+  private readonly onStalePath: ((path: string) => void) | null
 
   constructor(options: RemoteServerClientOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl)
     this.authToken = options.authToken?.trim() || null
+    this.onStalePath = options.onStalePath ?? null
   }
 
   async getCapabilities(): Promise<ServerCapabilities> {
@@ -161,6 +171,36 @@ export class RemoteServerClient {
 
   async deleteWorkflow(sourcePath: string): Promise<void> {
     await this.jsonRequest('/api/workflows/delete', { method: 'POST', body: { sourcePath } })
+  }
+
+  /** True when the connected server advertises the custom-template routes
+   *  from 2.46 (#723). An older server keeps Settings, Templates read-only,
+   *  exactly like the web client against it. */
+  async supportsCustomTemplates(): Promise<boolean> {
+    const caps = await this.getCapabilities()
+    return caps?.supportsCustomTemplates === true
+  }
+
+  async listTemplates(): Promise<CustomTemplateFile[]> {
+    return this.jsonRequest<CustomTemplateFile[]>('/api/templates')
+  }
+
+  async readTemplate(sourcePath: string): Promise<string> {
+    const result = await this.jsonRequest<{ raw: string }>(
+      `/api/templates/read?path=${encodeURIComponent(sourcePath)}`
+    )
+    return result.raw
+  }
+
+  async writeTemplate(input: WriteTemplateInput): Promise<CustomTemplateFile> {
+    return this.jsonRequest<CustomTemplateFile>('/api/templates/write', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>
+    })
+  }
+
+  async deleteTemplate(sourcePath: string): Promise<void> {
+    await this.jsonRequest('/api/templates/delete', { method: 'POST', body: { sourcePath } })
   }
 
   /** Prepare on this side (reads through the server), apply transactionally on
@@ -452,7 +492,7 @@ export class RemoteServerClient {
 
   watchVaultChanges(
     onEvent: (event: VaultChangeEvent) => void,
-    options: { onReconnect?: () => void; stableAfterMs?: number } = {}
+    options: { onReconnect?: () => void; stableAfterMs?: number; pollWhileDownMs?: number } = {}
   ): () => void {
     const url = new URL('/api/watch', `${this.baseUrl}/`)
     const headers: Record<string, string> = {}
@@ -473,6 +513,35 @@ export class RemoteServerClient {
     let failedAttempts = 0
     // How long a socket must stay up before it counts as a real session.
     const stableAfterMs = options.stableAfterMs ?? 15_000
+    // Some hosts never let the socket through at all: a reverse proxy that
+    // does not forward the Upgrade handshake answers every attempt with a
+    // plain HTTP error, so the feed is not "briefly down", it is unavailable.
+    // Left alone, this app then shows a vault frozen at connect time, and a
+    // note another device renamed or trashed still lists under its old path
+    // until an operation on it comes back 404 (#734). While the socket is
+    // down, re-pull the vault on a timer instead; each tick is a gap the
+    // caller closes the same way it closes a reconnect.
+    const pollWhileDownMs = options.pollWhileDownMs ?? REMOTE_CHANGE_POLL_MS
+    let pollTimer: NodeJS.Timeout | null = null
+    let warnedAboutPolling = false
+    const startPolling = (): void => {
+      if (pollTimer || stopped) return
+      if (!warnedAboutPolling) {
+        warnedAboutPolling = true
+        console.warn(
+          `[remote] ${this.baseUrl}: the change feed at /api/watch is not staying connected (a proxy without WebSocket support?); refreshing every ${Math.round(pollWhileDownMs / 1000)}s instead`
+        )
+      }
+      pollTimer = setInterval(() => {
+        if (!stopped) options.onReconnect?.()
+      }, pollWhileDownMs)
+    }
+    const stopPolling = (): void => {
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = null
+      }
+    }
 
     const connect = (): void => {
       if (stopped) return
@@ -484,6 +553,7 @@ export class RemoteServerClient {
         // caller re-pulls everything instead of trusting the resumed feed.
         // Only the very first attempt connecting cleanly has no gap.
         const hadGap = failedAttempts > 0
+        stopPolling()
         // The failure counter resets only after the socket has stayed up for
         // a while, not on the handshake: a peer that accepts the upgrade and
         // immediately drops it (a misconfigured proxy, a crash-looping
@@ -527,6 +597,7 @@ export class RemoteServerClient {
         ws = null
         const delay = Math.min(30_000, 1_000 * 2 ** failedAttempts)
         failedAttempts += 1
+        startPolling()
         reconnectTimer = setTimeout(connect, delay)
       })
     }
@@ -535,6 +606,7 @@ export class RemoteServerClient {
 
     return () => {
       stopped = true
+      stopPolling()
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
         reconnectTimer = null
@@ -573,6 +645,17 @@ export class RemoteServerClient {
     }
     if (!response.ok) {
       const text = await response.text().catch(() => '')
+      // A 404 for a path this app asked to change means the list is behind
+      // the server, not that the server is broken: another device moved,
+      // renamed, or trashed the note and the change never arrived here
+      // (#734). Say which path is gone and have the host re-pull the list.
+      // Reads keep the plain answer: a 404 on `?path=` is how remote
+      // databases learn a file is absent (#556), and that is not staleness.
+      const stalePath = response.status === 404 ? requestedPath(init?.body) : null
+      if (stalePath !== null) {
+        this.onStalePath?.(stalePath)
+        throw new RemoteRequestError(stalePathMessage(stalePath), response.status)
+      }
       throw new RemoteRequestError(
         requestErrorMessage(this.baseUrl, path, response, text),
         response.status
@@ -581,4 +664,11 @@ export class RemoteServerClient {
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
   }
+}
+
+/** The vault-relative path a JSON request body names, when it names one. */
+function requestedPath(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null
+  const path = (body as { path?: unknown }).path
+  return typeof path === 'string' && path.length > 0 ? path : null
 }

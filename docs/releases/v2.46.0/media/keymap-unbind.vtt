@@ -1,0 +1,22 @@
+WEBVTT
+
+00:00.000 --> 00:04.401
+Every row in Settings, Keymap now has an Unbind button.
+
+00:04.401 --> 00:07.728
+The row reads Unbound. Nothing fires the action until it gets a key again.
+
+00:07.728 --> 00:10.552
+⇧⌘P used to open the command palette. Now it does nothing.
+
+00:10.552 --> 00:16.209
+Vim users: :unbind takes a key away from the ex line.
+
+00:16.209 --> 00:20.588
+The leader hints drop the unbound action: no more o for open buffers.
+
+00:20.588 --> 00:23.989
+It travels with your dotfiles: "vim.leaderOpenBuffers" = "" under [keymaps] in config.toml.
+
+00:23.989 --> 00:30.161
+Reset brings the shipped default back.

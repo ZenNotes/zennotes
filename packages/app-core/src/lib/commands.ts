@@ -18,6 +18,15 @@ import { resolveQuickNoteTitle } from './quick-note-title'
 import { forwardTaskWithPicker, taskAtEditorCursor } from './forward-task'
 import { canManageWorkflows } from './workflow-workspace'
 import { toggleCheckbox } from './cm-toggle-checkbox'
+import {
+  harperAddWordAtCursor,
+  harperApplyFirstSuggestion,
+  harperIgnoreAtCursor,
+  harperNextSuggestion,
+  harperOpenSuggestions,
+  harperPreviousSuggestion
+} from './cm-harper'
+import { harperEditorConfig, harperSupported } from './harper-runtime'
 import { reflowParagraph } from './cm-reflow'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
@@ -27,6 +36,10 @@ import { resolveSystemFolderLabels } from './system-folder-labels'
 import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
+import {
+  hasResolvableCloudConflicts,
+  openCloudConflictReview
+} from './cloud-auto-sync'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
@@ -68,15 +81,19 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   const pathLabel = (): string =>
     getState().workspaceMode === 'remote' ? 'Server Path' : 'Absolute Path'
   const shortcut = (id: KeymapId): string => getKeymapDisplay(getState().keymapOverrides, id)
-  const leaderShortcut = (id: KeymapId): string =>
-    `${shortcut('vim.leaderPrefix')} ${shortcut(id)}`
-  const paneShortcut = (id: KeymapId): string =>
-    `${shortcut('vim.panePrefix')} ${shortcut(id)}`
+  // A chord with an unbound step cannot be pressed, so the palette shows no
+  // key for it rather than half a sequence.
+  const chord = (...ids: KeymapId[]): string => {
+    const parts = ids.map(shortcut)
+    return parts.every(Boolean) ? parts.join(' ') : ''
+  }
+  const leaderShortcut = (id: KeymapId): string => chord('vim.leaderPrefix', id)
+  const paneShortcut = (id: KeymapId): string => chord('vim.panePrefix', id)
   const searchShortcut = (): string => {
     const state = getState()
     const primary = shortcut('global.searchNotes')
     if (state.vimMode) return primary
-    return `${primary} / ${shortcut('global.searchNotesNonVim')}`
+    return [primary, shortcut('global.searchNotesNonVim')].filter(Boolean).join(' / ')
   }
   const openExternal = (url: string): void => {
     window.open(url, '_blank')
@@ -1323,6 +1340,22 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     }
   )
 
+  // Saved Tasks filters (#731): one palette entry per name, so a filter is a
+  // few keystrokes away from any note. Opening the view resets the filter, so
+  // the query is applied once the open has settled.
+  for (const [name, query] of Object.entries(getState().savedTaskFilters)) {
+    cmds.push({
+      id: `tasks.savedFilter.${name}`,
+      title: `${labels().tasks}: ${name}`,
+      category: 'View',
+      keywords: `saved filter tasks ${query}`,
+      run: async () => {
+        if (!isTasksViewActive(getState())) await getState().openTasksView()
+        getState().applySavedTaskFilter(name)
+      }
+    })
+  }
+
   /* ---------------- Editor preferences ---------------- */
   cmds.push(
     {
@@ -1375,6 +1408,82 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Editor',
       keywords: 'decoration inline',
       run: () => getState().setLivePreview(!getState().livePreview)
+    },
+    {
+      id: 'editor.harper.toggle',
+      title: getState().harperEnabled
+        ? 'Disable Grammar and Spelling with Harper'
+        : 'Enable Grammar and Spelling with Harper',
+      category: 'Editor',
+      keywords: 'harper grammar spelling spell check lint',
+      when: () => harperSupported(),
+      run: () => getState().setHarperEnabled(!getState().harperEnabled)
+    },
+    {
+      id: 'editor.harper.next',
+      title: 'Harper: Next Suggestion',
+      category: 'Editor',
+      keywords: 'harper grammar spelling',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperNextSuggestion(view)
+      }
+    },
+    {
+      id: 'editor.harper.previous',
+      title: 'Harper: Previous Suggestion',
+      category: 'Editor',
+      keywords: 'harper grammar spelling',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperPreviousSuggestion(view)
+      }
+    },
+    {
+      id: 'editor.harper.suggest',
+      title: 'Harper: Show Suggestions at Cursor',
+      category: 'Editor',
+      keywords: 'harper grammar spelling fix',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperOpenSuggestions(view)
+      }
+    },
+    {
+      id: 'editor.harper.apply',
+      title: 'Harper: Apply First Suggestion',
+      category: 'Editor',
+      keywords: 'harper grammar spelling fix',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperApplyFirstSuggestion(view)
+      }
+    },
+    {
+      id: 'editor.harper.addWord',
+      title: 'Harper: Add Word to Dictionary',
+      category: 'Editor',
+      keywords: 'harper spelling dictionary',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperAddWordAtCursor(view, harperEditorConfig())
+      }
+    },
+    {
+      id: 'editor.harper.ignore',
+      title: 'Harper: Ignore Suggestion',
+      category: 'Editor',
+      keywords: 'harper grammar spelling',
+      when: () => harperSupported() && getState().harperEnabled && !!getState().editorViewRef,
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) harperIgnoreAtCursor(view, harperEditorConfig())
+      }
     },
     {
       id: 'editor.tabs.toggle',
@@ -1676,6 +1785,17 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         getState().workspaceMode !== 'remote' &&
         !!getState().vault,
       run: () => getState().closeVault()
+    },
+    {
+      id: 'app.cloud.reviewConflicts',
+      title: 'Review Cloud Sync Conflicts',
+      category: 'Vault',
+      keywords: 'cloud sync conflict merge review resolve queue two devices differ',
+      shortcut: leaderShortcut('vim.leaderCloudConflicts'),
+      // Hidden with an empty queue: the same dialog the status bar's Review
+      // now opens, and there is nothing to review without it.
+      when: () => hasResolvableCloudConflicts(),
+      run: () => openCloudConflictReview()
     },
     {
       id: 'app.vault.switch',

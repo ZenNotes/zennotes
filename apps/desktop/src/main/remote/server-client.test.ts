@@ -1,12 +1,12 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer } from 'ws'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
-  connectionErrorMessage,
   RemoteConnectionError,
   RemoteRequestError,
-  RemoteServerClient
+  RemoteServerClient,
+  connectionErrorMessage
 } from './server-client'
 
 describe('connectionErrorMessage (#481)', () => {
@@ -214,6 +214,41 @@ describe('watchVaultChanges reconnect', () => {
     }
   }, 15_000)
 
+  it('a proxy that refuses the upgrade falls back to polling, and stop ends the polling (#734)', async () => {
+    // A reverse proxy without WebSocket support answers the handshake with a
+    // plain HTTP error every time. The feed is not briefly down, it is
+    // unavailable, and the old client left the vault frozen at connect time.
+    const server = http.createServer((_req, res) => {
+      res.writeHead(404)
+      res.end('not found')
+    })
+    server.on('upgrade', (_req, socket) => {
+      socket.end('HTTP/1.1 404 Not Found\r\nContent-Length: 9\r\n\r\nnot found')
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const client = new RemoteServerClient({ baseUrl: `http://127.0.0.1:${port}` })
+
+    let resyncs = 0
+    const stop = client.watchVaultChanges(() => {}, {
+      onReconnect: () => (resyncs += 1),
+      pollWhileDownMs: 100
+    })
+    try {
+      await waitFor(() => resyncs >= 3, 5_000, 'polling resyncs')
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(String(warn.mock.calls[0][0])).toContain('/api/watch')
+    } finally {
+      stop()
+      warn.mockRestore()
+    }
+    const afterStop = resyncs
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    expect(resyncs).toBe(afterStop)
+    await new Promise((resolve) => server.close(resolve))
+  }, 10_000)
+
   it('an unreachable server neither throws nor crashes, and stop cancels the retry loop', async () => {
     // Port 1 is never listening. The connection error must stay inside the
     // client (an unhandled ws 'error' event would crash the process, which
@@ -224,4 +259,145 @@ describe('watchVaultChanges reconnect', () => {
     stop()
     await new Promise((resolve) => setTimeout(resolve, 100))
   }, 10_000)
+})
+
+
+describe('a 404 for a path this app asked to change (#734)', () => {
+  async function serverAnswering(status: number, body: string): Promise<{ port: number; close: () => Promise<void>; requests: string[] }> {
+    const requests: string[] = []
+    const server = http.createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`)
+      res.writeHead(status)
+      res.end(body)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return { port, requests, close: () => new Promise((resolve) => server.close(() => resolve())) }
+  }
+
+  it('names the path, keeps the 404 status, and asks the host to re-pull the list', async () => {
+    const { port, close } = await serverAnswering(404, 'not found')
+    const stale: string[] = []
+    const client = new RemoteServerClient({
+      baseUrl: `http://127.0.0.1:${port}`,
+      onStalePath: (path) => stale.push(path)
+    })
+    try {
+      const error = await client.moveToTrash('inbox/Renamed elsewhere.md').catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(RemoteRequestError)
+      expect((error as RemoteRequestError).status).toBe(404)
+      expect((error as Error).message).toContain('nothing at inbox/Renamed elsewhere.md any more')
+      expect((error as Error).message).toContain('refreshed')
+      expect(stale).toEqual(['inbox/Renamed elsewhere.md'])
+    } finally {
+      await close()
+    }
+  })
+
+  it('leaves a 404 on a read alone: absent is a valid answer there (#556)', async () => {
+    const { port, close } = await serverAnswering(404, 'not found')
+    const stale: string[] = []
+    const client = new RemoteServerClient({
+      baseUrl: `http://127.0.0.1:${port}`,
+      onStalePath: (path) => stale.push(path)
+    })
+    try {
+      const error = await client.readNote('inbox/Absent.md').catch((e: unknown) => e)
+      expect((error as RemoteRequestError).status).toBe(404)
+      expect((error as Error).message).toContain('404')
+      expect(stale).toEqual([])
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('custom templates on a remote vault (#723)', () => {
+  interface TemplateServer {
+    port: number
+    close: () => Promise<void>
+    requests: Array<{ method: string; url: string; body: string }>
+  }
+
+  async function templateServer(capabilities: Record<string, unknown>): Promise<TemplateServer> {
+    const requests: TemplateServer['requests'] = []
+    const server = http.createServer((req, res) => {
+      let body = ''
+      req.on('data', (chunk) => (body += chunk))
+      req.on('end', () => {
+        requests.push({ method: req.method ?? '', url: req.url ?? '', body })
+        const send = (status: number, payload: unknown): void => {
+          res.writeHead(status, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(payload))
+        }
+        if (req.url === '/api/capabilities') return send(200, capabilities)
+        if (req.url === '/api/templates') {
+          return send(200, [{ sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: ADR\n---\n' }])
+        }
+        if (req.url?.startsWith('/api/templates/read?')) return send(200, { raw: '# raw body' })
+        if (req.url === '/api/templates/write') {
+          const input = JSON.parse(body) as { slug: string; raw: string }
+          return send(200, { sourcePath: `.zennotes/templates/${input.slug}.md`, raw: input.raw })
+        }
+        if (req.url === '/api/templates/delete') return send(200, { ok: true })
+        res.writeHead(404)
+        res.end('not found')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return { port, requests, close: () => new Promise((resolve) => server.close(() => resolve())) }
+  }
+
+  it('reads the capability flag, and its absence means an older server', async () => {
+    const supporting = await templateServer({ supportsCustomTemplates: true })
+    const older = await templateServer({ supportsWorkflows: true })
+    try {
+      const withRoutes = new RemoteServerClient({ baseUrl: `http://127.0.0.1:${supporting.port}` })
+      const without = new RemoteServerClient({ baseUrl: `http://127.0.0.1:${older.port}` })
+      expect(await withRoutes.supportsCustomTemplates()).toBe(true)
+      expect(await without.supportsCustomTemplates()).toBe(false)
+    } finally {
+      await supporting.close()
+      await older.close()
+    }
+  })
+
+  it('drives the four template routes with the bridge contract shapes', async () => {
+    const server = await templateServer({ supportsCustomTemplates: true })
+    try {
+      const client = new RemoteServerClient({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authToken: 'tok'
+      })
+      const listed = await client.listTemplates()
+      expect(listed).toEqual([{ sourcePath: '.zennotes/templates/adr.md', raw: '---\nname: ADR\n---\n' }])
+
+      expect(await client.readTemplate('.zennotes/templates/adr.md')).toBe('# raw body')
+
+      const written = await client.writeTemplate({
+        slug: 'weekly',
+        raw: '# weekly',
+        previousSourcePath: '.zennotes/templates/adr.md'
+      })
+      expect(written).toEqual({ sourcePath: '.zennotes/templates/weekly.md', raw: '# weekly' })
+
+      await client.deleteTemplate('.zennotes/templates/weekly.md')
+
+      expect(server.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+        'GET /api/templates',
+        'GET /api/templates/read?path=.zennotes%2Ftemplates%2Fadr.md',
+        'POST /api/templates/write',
+        'POST /api/templates/delete'
+      ])
+      expect(JSON.parse(server.requests[2].body)).toEqual({
+        slug: 'weekly',
+        raw: '# weekly',
+        previousSourcePath: '.zennotes/templates/adr.md'
+      })
+      expect(JSON.parse(server.requests[3].body)).toEqual({ sourcePath: '.zennotes/templates/weekly.md' })
+    } finally {
+      await server.close()
+    }
+  })
 })

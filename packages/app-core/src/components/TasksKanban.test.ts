@@ -12,7 +12,10 @@ import {
   NO_VALUE_COLUMN_ID,
   statusColumns,
   taskIdentityKey,
-  type Column
+  type Column,
+  folderColumns,
+  noteLocationOf,
+  FOLDER_OTHER_LABEL
 } from './TasksKanban'
 
 function col(id: string): Column {
@@ -345,6 +348,112 @@ describe('completeStatusOrder (#677)', () => {
       IN_PROGRESS_COLUMN_ID,
       'waiting',
       'done'
+    ])
+  })
+})
+
+describe('folder board (#730)', () => {
+  const task = (sourcePath: string, noteFolder: VaultTask['noteFolder'], extra: Partial<VaultTask> = {}): VaultTask =>
+    ({
+      id: `${sourcePath}#0`,
+      sourcePath,
+      noteTitle: sourcePath.split('/').pop()!.replace(/\.md$/, ''),
+      noteFolder,
+      lineNumber: 0,
+      taskIndex: 0,
+      rawText: '- [ ] x',
+      content: 'x',
+      checked: false,
+      forwarded: false,
+      cancelled: false,
+      inProgress: false,
+      waiting: false,
+      tags: [],
+      ...extra
+    }) as VaultTask
+  const layout = (folderRoot = '', systemFolderPaths?: Record<string, string>) => ({
+    folderRoot,
+    systemFolderPaths: systemFolderPaths ?? null,
+    systemFolderLabels: null
+  })
+
+  it('locates a note under its system folder in inbox mode, root mode, and with a remapped folder', () => {
+    expect(noteLocationOf(task('inbox/Projects/alpha/plan.md', 'inbox'))).toEqual({ folder: 'inbox', dir: 'Projects/alpha', prefix: 'inbox' })
+    expect(noteLocationOf(task('inbox/plan.md', 'inbox'))).toEqual({ folder: 'inbox', dir: '', prefix: 'inbox' })
+    // Root mode: no prefix, so the first segment is a user folder.
+    expect(noteLocationOf(task('Projects/alpha/plan.md', 'inbox'))).toEqual({ folder: 'inbox', dir: 'Projects/alpha', prefix: '' })
+    expect(noteLocationOf(task('plan.md', 'inbox'))).toEqual({ folder: 'inbox', dir: '', prefix: '' })
+    // A vault whose inbox lives in `01 - Entry`: that prefix is the inbox, and a
+    // directory literally called inbox is a user folder.
+    const remapped = { inbox: '01 - Entry' }
+    expect(noteLocationOf(task('01 - Entry/Projects/plan.md', 'inbox'), remapped)).toEqual({ folder: 'inbox', dir: 'Projects', prefix: '01 - Entry' })
+    expect(noteLocationOf(task('inbox/plan.md', 'inbox'), remapped)).toEqual({ folder: 'inbox', dir: 'inbox', prefix: '' })
+    expect(noteLocationOf(task('quick/2026/plan.md', 'quick'))).toEqual({ folder: 'quick', dir: '2026', prefix: 'quick' })
+  })
+
+  it('gives every note folder its own column, system roots first, subfolders alphabetically', () => {
+    const columns = folderColumns(
+      [
+        task('inbox/Projects/beta/b.md', 'inbox'),
+        task('inbox/plan.md', 'inbox'),
+        task('inbox/Projects/alpha/a.md', 'inbox'),
+        task('inbox/Projects/alpha/deep/d.md', 'inbox'),
+        task('quick/q.md', 'quick'),
+        task('inbox/Areas/home.md', 'inbox'),
+        task('inbox/Projects/alpha/done.md', 'inbox', { checked: true })
+      ],
+      false,
+      layout()
+    )
+    expect(columns.map((c) => [c.id, c.label, c.tasks.length])).toEqual([
+      ['inbox', 'Inbox', 1],
+      ['inbox/Areas', 'Areas', 1],
+      ['inbox/Projects/alpha', 'Projects/alpha', 1],
+      ['inbox/Projects/alpha/deep', 'Projects/alpha/deep', 1],
+      ['inbox/Projects/beta', 'Projects/beta', 1],
+      ['quick', 'Quick Notes', 1]
+    ])
+  })
+
+  it('labels root-mode notes by their folder and the vault root by the inbox label', () => {
+    const columns = folderColumns([task('Projects/alpha/a.md', 'inbox'), task('plan.md', 'inbox')], false, layout())
+    expect(columns.map((c) => [c.id, c.label])).toEqual([
+      ['inbox', 'Inbox'],
+      ['Projects/alpha', 'Projects/alpha']
+    ])
+  })
+
+  it('with a root, groups by its children, rolls deeper notes up, and parks the rest in Other folders', () => {
+    const columns = folderColumns(
+      [
+        task('inbox/Projects/beta/b.md', 'inbox'),
+        task('inbox/Projects/alpha/a.md', 'inbox'),
+        task('inbox/Projects/alpha/deep/d.md', 'inbox'),
+        task('inbox/Projects/overview.md', 'inbox'),
+        task('inbox/Areas/home.md', 'inbox'),
+        task('inbox/plan.md', 'inbox'),
+        task('quick/q.md', 'quick')
+      ],
+      false,
+      layout('projects/')
+    )
+    expect(columns.map((c) => [c.id, c.label, c.tasks.length])).toEqual([
+      ['inbox/Projects', 'Projects', 1],
+      ['inbox/Projects/alpha', 'alpha', 2],
+      ['inbox/Projects/beta', 'beta', 1],
+      [NO_VALUE_COLUMN_ID, FOLDER_OTHER_LABEL, 3]
+    ])
+    // Root mode: same shape without the prefix.
+    const rootMode = folderColumns([task('Projects/alpha/a.md', 'inbox'), task('Notes/n.md', 'inbox')], false, layout('Projects'))
+    expect(rootMode.map((c) => c.id)).toEqual(['Projects/alpha', NO_VALUE_COLUMN_ID])
+  })
+
+  it('hides archived notes unless asked, and shows their column with the archive label when shown', () => {
+    const tasks = [task('inbox/a.md', 'inbox'), task('archive/old/o.md', 'archive')]
+    expect(folderColumns(tasks, false, layout()).map((c) => c.id)).toEqual(['inbox'])
+    expect(folderColumns(tasks, true, layout()).map((c) => [c.id, c.label])).toEqual([
+      ['inbox', 'Inbox'],
+      ['archive/old', 'Archive / old']
     ])
   })
 })

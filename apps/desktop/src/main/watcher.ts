@@ -9,6 +9,7 @@ const INTERNAL_VAULT_DIR = '.zennotes'
 const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
+const TEMPLATES_PREFIX = `${INTERNAL_VAULT_DIR}/templates/`
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -34,6 +35,19 @@ function commentsNotePath(root: string, abs: string): string | null {
   const rel = relativeVaultPath(root, abs)
   if (!rel.startsWith(NOTE_COMMENTS_PREFIX) || !rel.endsWith(NOTE_COMMENTS_SUFFIX)) return null
   return rel.slice(NOTE_COMMENTS_PREFIX.length, -NOTE_COMMENTS_SUFFIX.length)
+}
+
+/** A custom template: a `.md` file directly inside `.zennotes/templates/`,
+ *  the flat directory the template module serves. Dotfiles and nested paths
+ *  are not templates there either. Mirrors templatePath in the Go watcher. */
+function templatePath(root: string, abs: string): string | null {
+  const rel = relativeVaultPath(root, abs)
+  if (!rel.startsWith(TEMPLATES_PREFIX)) return null
+  const name = rel.slice(TEMPLATES_PREFIX.length)
+  if (!name || name.includes('/') || name.startsWith('.') || !name.toLowerCase().endsWith('.md')) {
+    return null
+  }
+  return rel
 }
 
 export class VaultWatcher {
@@ -127,6 +141,14 @@ export class VaultWatcher {
             scope: 'comments'
           })
         )
+        return
+      }
+      // A template is not a note: its own scope has the renderer re-list
+      // templates instead of the note tree (#723). Another window on this
+      // vault, or a synced dotfile, is how one changes behind the app's back.
+      const templateSourcePath = templatePath(this.root, absPath)
+      if (templateSourcePath) {
+        onEvent({ kind, path: templateSourcePath, folder: 'inbox', scope: 'templates' })
         return
       }
       // Any database file — `<Name>.base/data.csv` or `schema.json` (or a legacy

@@ -17,6 +17,7 @@ const (
 	vaultSettingsFilePath = ".zennotes/vault.json"
 	noteCommentsPrefix    = ".zennotes/comments/"
 	noteCommentsSuffix    = ".comments.json"
+	templatesPrefix       = ".zennotes/templates/"
 )
 
 // Watcher recursively watches the vault root and fans out change
@@ -242,6 +243,47 @@ func (w *Watcher) commentsNotePath(absPath string) (string, bool) {
 	return strings.TrimSuffix(strings.TrimPrefix(rel, noteCommentsPrefix), noteCommentsSuffix), true
 }
 
+// templatePath reports whether the path is a custom template: a `.md` file
+// directly inside .zennotes/templates/, the flat directory the template
+// routes serve. Dotfiles and nested paths are not templates there either.
+func (w *Watcher) templatePath(absPath string) (string, bool) {
+	rel := w.relativePath(absPath)
+	if !strings.HasPrefix(rel, templatesPrefix) {
+		return "", false
+	}
+	name := strings.TrimPrefix(rel, templatesPrefix)
+	if name == "" || strings.Contains(name, "/") || strings.HasPrefix(name, ".") || !strings.EqualFold(filepath.Ext(name), ".md") {
+		return "", false
+	}
+	return rel, true
+}
+
+// watchSubdirs adds the directories already inside a directory that just
+// appeared. A tree that arrives in one go (mkdir -p, or a template write
+// creating .zennotes/templates/ in a vault that had no .zennotes/ yet) raises
+// one Create for the top; its children were created before that watch
+// existed, so without this walk they would stay unwatched until a restart.
+func (w *Watcher) watchSubdirs(dir string) {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || path == dir || !d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".") && name != internalVaultDir {
+			return filepath.SkipDir
+		}
+		if _, ok := w.dirs[path]; ok {
+			return nil
+		}
+		if addErr := w.fs.Add(path); addErr != nil {
+			log.Printf("watcher: cannot watch new directory %s: %v", path, addErr)
+		}
+		w.dirs[path] = struct{}{}
+		w.broadcastFolder(path, "add")
+		return nil
+	})
+}
+
 func (w *Watcher) handle(ev fsnotify.Event) {
 	base := filepath.Base(ev.Name)
 	// The scratch file every atomic write renames from. Its create/write/rename
@@ -263,6 +305,7 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 			// An empty folder produces no note event, so clients would never
 			// learn about it until a manual refresh. Surface it explicitly.
 			w.broadcastFolder(ev.Name, "add")
+			w.watchSubdirs(ev.Name)
 		}
 		return
 	}
@@ -307,6 +350,21 @@ func (w *Watcher) handle(ev fsnotify.Event) {
 			Path:   notePath,
 			Folder: folder,
 			Scope:  "comments",
+		})
+		return
+	}
+	if templatePath, ok := w.templatePath(ev.Name); ok {
+		kind := eventKind(ev, statErr == nil)
+		if kind == "" {
+			return
+		}
+		// A template is not a note: its own scope keeps clients from
+		// re-listing the note tree and rescanning tasks for every save.
+		w.broadcast(vault.ChangeEvent{
+			Kind:   kind,
+			Path:   templatePath,
+			Folder: vault.FolderInbox,
+			Scope:  "templates",
 		})
 		return
 	}

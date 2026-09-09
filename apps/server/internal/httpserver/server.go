@@ -223,6 +223,11 @@ func (s *Server) registerProtectedRoutes(r chi.Router) {
 	r.Post("/folders/delete", s.deleteFolder)
 	r.Post("/folders/duplicate", s.duplicateFolder)
 
+	r.Get("/templates", s.listTemplates)
+	r.Get("/templates/read", s.readTemplate)
+	r.Post("/templates/write", s.writeTemplate)
+	r.Post("/templates/delete", s.deleteTemplate)
+
 	r.Get("/search/capabilities", s.searchCapabilities)
 	r.Get("/search/text", s.searchText)
 
@@ -299,7 +304,7 @@ func writeError(w http.ResponseWriter, err error) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if errors.Is(err, vault.ErrInvalidWorkflow) {
+	if errors.Is(err, vault.ErrInvalidWorkflow) || errors.Is(err, vault.ErrInvalidTemplate) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -417,6 +422,11 @@ func (s *Server) capabilities(w http.ResponseWriter, _ *http.Request) {
 		// prepared-run endpoint applies them under the same vault lock as note
 		// writes. Its presence lets bundled web clients enable authoring and Run.
 		"supportsWorkflows": true,
+		// Custom-template CRUD under .zennotes/templates/ (the /templates
+		// routes), the same files the desktop keeps for a local vault. Absent
+		// before 2.46: the web client and a desktop on a remote vault hide New
+		// template and Edit there and say the server needs an update.
+		"supportsCustomTemplates": true,
 		// Says out loud that a missing file answers 404 rather than 500.
 		// Databases are composed from file reads where "absent" and "failed"
 		// mean opposite things (see remote-absence.ts), and a server that

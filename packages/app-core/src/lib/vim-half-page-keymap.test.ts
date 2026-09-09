@@ -6,7 +6,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
 import type { KeymapOverrides } from './keymaps'
-import { vimHalfPageKeymap } from './vim-half-page-keymap'
+import { keyBindingsFor, vimHalfPageKeymap } from './vim-half-page-keymap'
 
 describe('vimHalfPageKeymap', () => {
   const views: EditorView[] = []
@@ -81,5 +81,15 @@ describe('vimHalfPageKeymap', () => {
 
     expect(calls).toBe(0)
     expect(vimHalfPageKeymap(false, {})).toEqual([])
+  })
+
+  it('binds nothing for an unbound action', () => {
+    // An override of "" is a deliberate unbind: the keymap must not carry an
+    // empty key name that CodeMirror could match against a keyless keydown.
+    expect(vimHalfPageKeymap(true, { 'nav.halfPageDown': '' }).map((b) => b.key)).toEqual([
+      'Ctrl-u'
+    ])
+    expect(keyBindingsFor('', () => true)).toEqual([])
+    expect(keyBindingsFor('Mod+L', () => true).map((b) => b.key)).toEqual(['Mod-l'])
   })
 })

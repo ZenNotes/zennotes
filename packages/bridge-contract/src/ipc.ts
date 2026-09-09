@@ -126,6 +126,11 @@ export const IPC = {
   CLOUD_VAULT_LINK_DELETE: 'cloud-vault-link:delete',
   CLOUD_VAULT_DELETE: 'cloud-vault:delete',
   CLOUD_VAULT_SYNC: 'cloud-vault:sync',
+  CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET: 'cloud-vault-bootstrap-conflict:get',
+  CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE: 'cloud-vault-bootstrap-conflict:resolve',
+  CLOUD_VAULT_CONFLICT_GET: 'cloud-vault-conflict:get',
+  CLOUD_VAULT_CONFLICT_DRAFT_SAVE: 'cloud-vault-conflict-draft:save',
+  CLOUD_VAULT_CONFLICT_RESOLVE: 'cloud-vault-conflict:resolve',
   CLOUD_VAULT_SETTINGS_CONFLICT_GET: 'cloud-vault-settings-conflict:get',
   CLOUD_VAULT_SETTINGS_CONFLICT_RESOLVE: 'cloud-vault-settings-conflict:resolve',
   CLOUD_BACKUPS_LIST: 'cloud-backups:list',
@@ -433,6 +438,9 @@ export interface VaultViewSettings {
   groupByKind?: boolean
   tasksViewMode?: string
   kanbanGroupBy?: string
+  /** Folder board: group by the children of this folder (relative to the
+   *  notes area); empty groups by each note's own folder. (#730) */
+  kanbanFolderRoot?: string
   kanbanColumnTitles?: Record<string, string>
   kanbanColumnOrder?: Record<string, string[]>
   kanbanCardOrder?: Record<string, string[]>
@@ -495,6 +503,13 @@ export interface VaultSettings {
    * string so later preamble settings land beside it without another migration.
    */
   typstPreambles?: { folder?: string }
+  /**
+   * Harper grammar checker data that belongs to the vault: the words added to
+   * its dictionary and the context hashes of ignored suggestions (digit
+   * strings; see shared-domain harper-settings). Absent means nothing yet.
+   * Every runtime preserves it on a settings round-trip.
+   */
+  harper?: { words: string[]; ignoredLints: string[] }
 }
 
 export const DEFAULT_DAILY_NOTES_DIRECTORY = 'Daily Notes'
@@ -599,6 +614,11 @@ export interface NoteComment {
   createdAt: number
   updatedAt: number
   resolvedAt: number | null
+  /** Who wrote it. Absent for the vault's owner; an assistant's name (via the
+   *  MCP server or the CLI) otherwise, so a discussion reads like one. (#738) */
+  author?: string
+  /** Threads a reply under a top-level comment's id. Absent on top-level comments. */
+  parentId?: string | null
 }
 
 export interface NoteCommentInput {
@@ -611,6 +631,8 @@ export interface NoteCommentInput {
   createdAt?: number
   updatedAt?: number
   resolvedAt?: number | null
+  author?: string
+  parentId?: string | null
 }
 
 export type VaultTextSearchBackendPreference = 'auto' | 'builtin' | 'ripgrep' | 'fzf'
@@ -765,6 +787,11 @@ export interface ServerCapabilities {
   /** Server-side workflow file CRUD plus journalled apply/undo. Absent before
    *  2.29, where the web client must keep Workflows read-only. */
   supportsWorkflows?: boolean
+  /** Custom-template CRUD under `.zennotes/templates/` (the `/templates`
+   *  routes), the same files the desktop keeps for a local vault. Absent
+   *  before 2.46, which keeps Settings, Templates read-only on the web client
+   *  and on a desktop connected to that server (#723). */
+  supportsCustomTemplates?: boolean
 }
 
 export interface ServerSessionStatus {
@@ -839,12 +866,16 @@ export type VaultChangeKind = 'add' | 'change' | 'unlink'
  *  watch socket that reconnected): anything may have happened while the feed
  *  was down, so the renderer re-pulls every surface the feed keeps fresh.
  *  Servers never emit it. */
+/** `templates` is a custom template under `.zennotes/templates/` changing on
+ *  disk; the path is that file's vault-relative path, and the client re-lists
+ *  templates rather than notes. */
 export type VaultChangeScope =
   | 'content'
   | 'vault-settings'
   | 'comments'
   | 'database'
   | 'folder'
+  | 'templates'
   | 'resync'
 
 export interface VaultChangeEvent {

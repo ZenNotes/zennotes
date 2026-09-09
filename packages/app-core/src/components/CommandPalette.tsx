@@ -25,6 +25,7 @@ import {
 import { runWorkflowById } from '../lib/workflow-trigger'
 import type { WorkflowIndexEntry } from '../lib/workflow-index'
 import { focusEditorNormalMode } from '../lib/editor-focus'
+import { useCloudSyncStatusStore } from '../lib/cloud-auto-sync'
 import { Modal } from './ui/Modal'
 
 type Mode = 'main' | 'theme' | 'vault' | 'workflow'
@@ -303,14 +304,16 @@ export function CommandPalette(): JSX.Element {
       // explorer), and the editor's own focus-on-`focusedPanel` effect is a
       // single, no-retry `view.focus()` that races the palette unmount. Mirror
       // closePalette's focus restore; the retry wins that race. Skipped when the
-      // command opened the Settings modal so we don't pull focus behind it.
+      // command opened the Settings modal so we don't pull focus behind it, and
+      // likewise for the Cloud conflict queue, whose dialog claims focus itself.
       const s = useStore.getState()
       if (
         s.focusedPanel === 'editor' &&
         !s.settingsOpen &&
         !s.embedDrawingPaletteOpen &&
         !s.templatePaletteOpen &&
-        !s.bufferPaletteOpen
+        !s.bufferPaletteOpen &&
+        !useCloudSyncStatusStore.getState().conflictReviewOpen
       )
         focusEditorNormalMode()
     } catch (err) {

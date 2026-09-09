@@ -7,6 +7,9 @@ import { app, shell } from 'electron'
 import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
 import { isEphemeralRoot } from './ephemeral-vaults'
+import { atomicWriteTarget, renameWithRetry } from './atomic-write'
+
+export { renameWithRetry }
 import {
   resolveWikilinkTarget,
   rewriteWikilinksForRename,
@@ -50,6 +53,7 @@ import {
   VaultInfo
 } from '@shared/ipc'
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
+import { normalizeNoteComments } from '@shared/note-comments'
 import { FRONTMATTER_BLOCK_RE, frontmatterTags } from '@shared/frontmatter'
 import { IMAGE_FILE_EXTENSIONS, pastedImageFilename } from '@shared/pasted-image'
 import {
@@ -84,6 +88,7 @@ import {
   normalizeTypstPreambleSettings,
   resolveTypstPreambleFolder
 } from '@shared/typst-preamble-folder'
+import { normalizeHarperVaultState } from '@shared/harper-settings'
 
 const CONFIG_FILE = 'zennotes.config.json'
 const FOLDERS: NoteFolder[] = ['inbox', 'quick', 'archive', 'trash']
@@ -666,53 +671,9 @@ export function isAtomicWriteTempPath(p: string): boolean {
   return ATOMIC_WRITE_TEMP_PATTERN.test(path.basename(p))
 }
 
-const ATOMIC_RENAME_ATTEMPTS = 20
-
-function transientRenameError(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | null)?.code
-  return code === 'EACCES' || code === 'EPERM' || code === 'EBUSY'
-}
-
-/** Wait out a reader that temporarily denies replacing the destination. */
-export async function renameWithRetry(
-  from: string,
-  to: string,
-  rename: (from: string, to: string) => Promise<void> = fs.rename,
-  pause: (delayMs: number) => Promise<void> = (delayMs) =>
-    new Promise<void>((resolve) => setTimeout(resolve, delayMs))
-): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await rename(from, to)
-      return
-    } catch (error) {
-      if (attempt >= ATOMIC_RENAME_ATTEMPTS || !transientRenameError(error)) throw error
-      await pause(Math.min(2 ** (attempt - 1), 25))
-    }
-  }
-}
-
 /** Same millisecond, same path, two writers: the stamp alone would name one
  *  temp file for both and let them interleave into it. */
 let atomicWriteSequence = 0
-
-/** Follow a symlink to the file it points at, so an atomic write lands on the
- *  target instead of replacing the link. A dangling link resolves to the path
- *  it names, which is where a plain write would have created the file. */
-async function atomicWriteTarget(absPath: string): Promise<string> {
-  let stats
-  try {
-    stats = await fs.lstat(absPath)
-  } catch {
-    return absPath
-  }
-  if (!stats.isSymbolicLink()) return absPath
-  try {
-    return await fs.realpath(absPath)
-  } catch {
-    return path.resolve(path.dirname(absPath), await fs.readlink(absPath))
-  }
-}
 
 /**
  * Atomically write a file: temp file + fsync + rename. The rename is atomic, so
@@ -875,6 +836,31 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
       : {}),
     ...(settings.databasesLocation
       ? { databasesLocation: { ...settings.databasesLocation } }
+      : {}),
+    // The value handed back is what the renderer keeps until its next full
+    // reload, so every optional field that was written has to come back too.
+    ...(settings.tasksLocation ? { tasksLocation: { ...settings.tasksLocation } } : {}),
+    ...(settings.systemFolderPaths
+      ? { systemFolderPaths: { ...settings.systemFolderPaths } }
+      : {}),
+    ...(settings.tasks
+      ? {
+          tasks: {
+            ...settings.tasks,
+            ...(settings.tasks.excludedFolders
+              ? { excludedFolders: [...settings.tasks.excludedFolders] }
+              : {})
+          }
+        }
+      : {}),
+    ...(settings.typstPreambles ? { typstPreambles: { ...settings.typstPreambles } } : {}),
+    ...(settings.harper
+      ? {
+          harper: {
+            words: [...settings.harper.words],
+            ignoredLints: [...settings.harper.ignoredLints]
+          }
+        }
       : {})
   }
 }
@@ -1118,6 +1104,7 @@ function normalizeVaultSettings(
     systemFolderPaths?: unknown
     tasks?: unknown
     typstPreambles?: unknown
+    harper?: unknown
   }
   const folderIcons: Record<string, FolderIconId> = {}
   if (candidate.folderIcons && typeof candidate.folderIcons === 'object') {
@@ -1174,7 +1161,8 @@ function normalizeVaultSettings(
     view: normalizeVaultViewSettings(candidate.view),
     systemFolderPaths: normalizeSystemFolderPaths(candidate.systemFolderPaths),
     tasks: normalizeTasksSettings(candidate.tasks),
-    typstPreambles: normalizeTypstPreambleSettings(candidate.typstPreambles)
+    typstPreambles: normalizeTypstPreambleSettings(candidate.typstPreambles),
+    harper: normalizeHarperVaultState(candidate.harper)
   }
 }
 
@@ -3146,59 +3134,6 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
-}
-
-function normalizeNoteComment(input: NoteCommentInput, notePath: string): NoteComment | null {
-  const body = typeof input.body === 'string' ? input.body.trim() : ''
-  if (!body) return null
-  const now = Date.now()
-  const rawStart = Number.isFinite(input.anchorStart) ? Math.max(0, Math.floor(input.anchorStart)) : 0
-  const rawEnd = Number.isFinite(input.anchorEnd) ? Math.max(0, Math.floor(input.anchorEnd)) : rawStart
-  const anchorStart = Math.min(rawStart, rawEnd)
-  const anchorEnd = Math.max(rawStart, rawEnd)
-  const anchorText =
-    typeof input.anchorText === 'string'
-      ? input.anchorText.replace(/\s+/g, ' ').trim().slice(0, 500)
-      : ''
-  return {
-    id: typeof input.id === 'string' && input.id.trim() ? input.id.trim() : randomUUID(),
-    notePath,
-    anchorStart,
-    anchorEnd,
-    anchorText,
-    body,
-    createdAt:
-      typeof input.createdAt === 'number' && Number.isFinite(input.createdAt)
-        ? input.createdAt
-        : now,
-    updatedAt:
-      typeof input.updatedAt === 'number' && Number.isFinite(input.updatedAt)
-        ? input.updatedAt
-        : now,
-    resolvedAt:
-      typeof input.resolvedAt === 'number' && Number.isFinite(input.resolvedAt)
-        ? input.resolvedAt
-        : null
-  }
-}
-
-function normalizeNoteComments(raw: unknown, notePath: string): NoteComment[] {
-  const values = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === 'object' && Array.isArray((raw as { comments?: unknown }).comments)
-      ? (raw as { comments: unknown[] }).comments
-      : []
-  const seen = new Set<string>()
-  const comments: NoteComment[] = []
-  for (const value of values) {
-    if (!value || typeof value !== 'object') continue
-    const comment = normalizeNoteComment(value as NoteCommentInput, notePath)
-    if (!comment || seen.has(comment.id)) continue
-    seen.add(comment.id)
-    comments.push(comment)
-  }
-  comments.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
-  return comments
 }
 
 export async function readNoteComments(root: string, rel: string): Promise<NoteComment[]> {

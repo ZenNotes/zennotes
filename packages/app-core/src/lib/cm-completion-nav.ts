@@ -6,7 +6,7 @@ import {
   selectedCompletion
 } from '@codemirror/autocomplete'
 import { Prec } from '@codemirror/state'
-import { EditorView, type KeyBinding } from '@codemirror/view'
+import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
 
 /**
  * macOS AltGr-style keyboard layouts (custom Ukelele `.keylayout` files, a
@@ -24,6 +24,16 @@ import { EditorView, type KeyBinding } from '@codemirror/view'
 const MAC_TEXT_ENTRY_CHORDS = new Set(['Alt-`', 'Alt-i'])
 export const completionKeymapForEditor: readonly KeyBinding[] = completionKeymap.filter(
   (binding) => !(typeof binding.mac === 'string' && MAC_TEXT_ENTRY_CHORDS.has(binding.mac))
+)
+
+/**
+ * Mount this instead of spreading the bindings into an editor's general
+ * `keymap.of([...])`, where they lose to anything listed earlier — the arrows
+ * then move the caret, which closes the popup. `Prec.highest` is what
+ * `@codemirror/autocomplete` gives its own keymap.
+ */
+export const completionKeymapExtension = Prec.highest(
+  keymap.of([...completionKeymapForEditor])
 )
 
 /**

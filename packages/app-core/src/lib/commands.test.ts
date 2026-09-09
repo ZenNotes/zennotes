@@ -137,6 +137,43 @@ describe('Workflows feature switch', () => {
     useStore.setState({ workflowsEnabled: false })
     expect(buildCommands().some((c) => c.id === 'view.workflows')).toBe(false)
   })
+
+  it('offers the Cloud conflict queue only while files are waiting', async () => {
+    const { buildCommands } = await loadCommands()
+    const { useCloudSyncStatusStore } = await import('./cloud-auto-sync')
+    const summary = {
+      cursor: 3,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+      pending_conflicts: [
+        {
+          id: 'item-1',
+          item_id: 'item-1',
+          path: 'Plans/Trip.md',
+          cloud_path: 'Plans/Trip.md',
+          kind: 'content' as const,
+          can_merge: true,
+          has_base: true
+        }
+      ]
+    }
+
+    useCloudSyncStatusStore.setState({ lastSummary: summary })
+    const command = buildCommands().find((c) => c.id === 'app.cloud.reviewConflicts')
+    expect(command?.title).toBe('Review Cloud Sync Conflicts')
+
+    command?.run()
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true)
+
+    useCloudSyncStatusStore.setState({
+      lastSummary: { ...summary, pending_conflicts: [] },
+      conflictReviewOpen: false
+    })
+    expect(buildCommands().some((c) => c.id === 'app.cloud.reviewConflicts')).toBe(false)
+  })
 })
 
 describe('Workflow run entries', () => {
@@ -313,3 +350,22 @@ describe('note commands for a trashed note (#712)', () => {
   })
 })
 
+
+describe('saved Tasks filters (#731)', () => {
+  it('lists one palette entry per saved filter, which opens Tasks and applies it', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    expect(buildCommands().some((c) => c.id.startsWith('tasks.savedFilter.'))).toBe(false)
+
+    useStore.getState().saveTaskFilter('Blocked', '@status:blocked')
+    useStore.getState().saveTaskFilter('Project alpha', '@project:alpha')
+    const entries = buildCommands().filter((c) => c.id.startsWith('tasks.savedFilter.'))
+    expect(entries.map((c) => c.title)).toEqual(['Tasks: Blocked', 'Tasks: Project alpha'])
+    expect(entries[1].keywords).toContain('@project:alpha')
+
+    const openTasksView = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ openTasksView })
+    await entries[1].run()
+    expect(openTasksView).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().tasksFilter).toBe('@project:alpha')
+  })
+})

@@ -1,0 +1,13 @@
+WEBVTT
+
+00:00.000 --> 00:07.127
+A vault with notes in inbox/. In Settings, Vault, switch the primary notes location to Vault root.
+
+00:07.127 --> 00:12.335
+In a terminal: zn create --title "From the CLI". It follows the vault the app has open, and the old notes are still in inbox/.
+
+00:12.335 --> 00:16.177
+Before: it landed in inbox/. Now: at the vault root, where the app files its own notes, and the app lists it right away.
+
+00:16.177 --> 00:20.181
+The MCP create_note tool does the same, and vault_info now reports primaryNotesLocation: root.

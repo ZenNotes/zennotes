@@ -6,6 +6,11 @@ import type {
   CloudBackupSnapshot,
   CloudBackupSnapshotItem,
   CloudServiceAccount,
+  CloudSyncBootstrapConflict,
+  CloudSyncBootstrapConflictDetails,
+  CloudSyncBootstrapConflictResolution,
+  CloudSyncPendingConflictDetails,
+  CloudSyncPendingConflictResolution,
   CloudSyncRunSummary,
   CloudSyncVault,
   CloudVaultLink
@@ -28,6 +33,7 @@ type SyncClient = Pick<
   | 'deleteVault'
   | 'manifest'
   | 'changes'
+  | 'revision'
   | 'mutate'
   | 'listBackups'
   | 'backupSchedule'
@@ -66,6 +72,7 @@ export interface CloudSyncHostServiceDependencies {
 /** Account/link orchestration shared by the iOS and Android host adapters. */
 export class CloudSyncHostService {
   private readonly runs = new Map<string, Promise<CloudSyncRunSummary>>()
+  private readonly operations = new Map<string, Promise<unknown>>()
   private readonly now: () => Date
   private readonly ids: CloudSyncIdSource
 
@@ -159,10 +166,7 @@ export class CloudSyncHostService {
     return (await client.listBackupItems(link.vault_id, backupId)).data
   }
 
-  async createBackup(
-    vault: CloudSyncHostVault,
-    label?: string
-  ): Promise<CloudBackupSnapshot> {
+  async createBackup(vault: CloudSyncHostVault, label?: string): Promise<CloudBackupSnapshot> {
     const summary = await this.sync(vault)
     assertBackupReady(summary)
     const { client, link } = await this.linkedConnection(vault)
@@ -211,7 +215,7 @@ export class CloudSyncHostService {
     const existing = this.runs.get(vault.key)
     if (existing) return existing
 
-    const running = this.run(vault).finally(() => {
+    const running = this.exclusive(vault.key, () => this.run(vault)).finally(() => {
       this.runs.delete(vault.key)
     })
     this.runs.set(vault.key, running)
@@ -243,11 +247,108 @@ export class CloudSyncHostService {
         pushed: result.pushed,
         conflicts: result.conflicts,
         bootstrap_conflicts: result.bootstrapConflicts,
-        local_conflicts: result.localConflicts
+        local_conflicts: result.localConflicts,
+        pending_conflicts: result.pendingConflicts,
+        legacy_conflict_copies: result.legacyConflictCopies
       }
     } finally {
       await vault.refresh()
     }
+  }
+
+  async getBootstrapConflict(
+    vault: CloudSyncHostVault,
+    conflict: CloudSyncBootstrapConflict
+  ): Promise<CloudSyncBootstrapConflictDetails> {
+    return await this.exclusive(vault.key, async () => {
+      const { account, client, link } = await this.linkedConnection(vault)
+      return await new CloudSyncCoordinator(
+        link.vault_id,
+        client,
+        vault.repository,
+        this.stateStore(vault.key, account.base_url, link.vault_id),
+        this.ids
+      ).getBootstrapConflict(conflict)
+    })
+  }
+
+  async resolveBootstrapConflict(
+    vault: CloudSyncHostVault,
+    resolution: CloudSyncBootstrapConflictResolution
+  ): Promise<void> {
+    await this.exclusive(vault.key, async () => {
+      const { account, client, link } = await this.linkedConnection(vault)
+      await new CloudSyncCoordinator(
+        link.vault_id,
+        client,
+        vault.repository,
+        this.stateStore(vault.key, account.base_url, link.vault_id),
+        this.ids
+      ).resolveBootstrapConflict(resolution)
+      await vault.refresh()
+    })
+  }
+
+  async getConflict(
+    vault: CloudSyncHostVault,
+    conflictId: string
+  ): Promise<CloudSyncPendingConflictDetails> {
+    return await this.exclusive(vault.key, async () => {
+      const { account, client, link } = await this.linkedConnection(vault)
+      return await new CloudSyncCoordinator(
+        link.vault_id,
+        client,
+        vault.repository,
+        this.stateStore(vault.key, account.base_url, link.vault_id),
+        this.ids
+      ).getConflict(conflictId)
+    })
+  }
+
+  async saveConflictDraft(
+    vault: CloudSyncHostVault,
+    conflictId: string,
+    draftText: string | null
+  ): Promise<void> {
+    await this.exclusive(vault.key, async () => {
+      const { account, client, link } = await this.linkedConnection(vault)
+      await new CloudSyncCoordinator(
+        link.vault_id,
+        client,
+        vault.repository,
+        this.stateStore(vault.key, account.base_url, link.vault_id),
+        this.ids
+      ).saveConflictDraft(conflictId, draftText)
+    })
+  }
+
+  async resolveConflict(
+    vault: CloudSyncHostVault,
+    resolution: CloudSyncPendingConflictResolution
+  ): Promise<void> {
+    await this.exclusive(vault.key, async () => {
+      const { account, client, link } = await this.linkedConnection(vault)
+      await new CloudSyncCoordinator(
+        link.vault_id,
+        client,
+        vault.repository,
+        this.stateStore(vault.key, account.base_url, link.vault_id),
+        this.ids
+      ).resolveConflict(resolution)
+      await vault.refresh()
+    })
+  }
+
+  private exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.operations.get(key)
+    let current!: Promise<T>
+    current = (previous ? previous.catch(() => undefined) : Promise.resolve())
+      .then(operation)
+      .finally(() => {
+        if (this.operations.get(key) === current) this.operations.delete(key)
+      })
+    this.operations.set(key, current)
+    return current
   }
 
   private async connection(): Promise<{
@@ -258,7 +359,10 @@ export class CloudSyncHostService {
     if (status.state !== 'connected' || !status.account) {
       throw new Error('Connect ZenNotes Cloud before using sync.')
     }
-    return { account: status.account, client: await this.dependencies.createClient() }
+    return {
+      account: status.account,
+      client: await this.dependencies.createClient()
+    }
   }
 
   private async linkedConnection(vault: CloudSyncHostVault): Promise<{
@@ -351,7 +455,11 @@ function isTrackedItem(itemId: string, value: unknown): boolean {
 }
 
 function assertBackupReady(summary: CloudSyncRunSummary): void {
-  if (summary.conflicts.length > 0 || summary.bootstrap_conflicts.length > 0) {
+  if (
+    summary.conflicts.length > 0 ||
+    summary.bootstrap_conflicts.length > 0 ||
+    (summary.pending_conflicts?.length ?? 0) > 0
+  ) {
     throw new Error('Resolve sync conflicts before creating a cloud backup.')
   }
 }

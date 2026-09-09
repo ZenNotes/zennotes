@@ -1,8 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import type {
   CloudAccountStatus,
+  CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncVault
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -14,9 +16,9 @@ const temporaryDirectories: string[] = []
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true })
-    )
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true }))
   )
 })
 
@@ -68,8 +70,33 @@ async function setup(
       }
     })),
     deleteVault: vi.fn(async () => {}),
-    manifest: vi.fn(async () => ({ data: [], cursor: 0, next_page: null })),
+    manifest: vi.fn(
+      async (): Promise<CloudSyncManifestResponse> => ({
+        data: [],
+        cursor: 0,
+        next_page: null
+      })
+    ),
     changes: vi.fn(async () => ({ data: [], cursor: 0, has_more: false })),
+    revision: vi.fn(async (_vaultId: string, itemId: string, revision: number) => {
+      const data = 'Last synced copy'
+      return {
+        data: {
+          item_id: itemId,
+          revision,
+          path: 'note.md',
+          kind: 'text' as const,
+          deleted: false,
+          content: {
+            encoding: 'utf8' as const,
+            data,
+            sha256: createHash('sha256').update(data).digest('hex'),
+            byte_length: Buffer.byteLength(data),
+            media_type: 'text/markdown'
+          }
+        }
+      }
+    }),
     mutate: vi.fn(async (_vaultId: string, body: CloudSyncMutationRequest) => ({
       acknowledged: body.mutations.map((mutation, index) => ({
         operation_id: mutation.operation_id,
@@ -296,6 +323,63 @@ describe('DesktopCloudSyncService', () => {
     expect(result).toMatchObject({ pulled: 0, pushed: 1, conflicts: [] })
   })
 
+  it('inspects and resolves a same-path first-sync conflict through the host service', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+    await writeFile(path.join(localRoot, 'Note.md'), 'latest local edit')
+    const cloudText = 'older cloud edit'
+    const cloudHash = createHash('sha256').update(cloudText).digest('hex')
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloudHash,
+          byte_length: Buffer.byteLength(cloudText),
+          media_type: 'text/markdown',
+          content: {
+            encoding: 'utf8',
+            data: cloudText,
+            sha256: cloudHash,
+            byte_length: Buffer.byteLength(cloudText),
+            media_type: 'text/markdown'
+          }
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+
+    const summary = await service.sync(localRoot)
+    const conflict = summary.pending_conflicts![0]!
+    await expect(service.getConflict(localRoot, conflict.id)).resolves.toMatchObject({
+      local: { text: 'latest local edit' },
+      cloud: { text: cloudText }
+    })
+
+    await service.resolveConflict(localRoot, {
+      conflict_id: conflict.id,
+      choice: 'cloud',
+      expected_local_sha256: createHash('sha256').update('latest local edit').digest('hex'),
+      expected_cloud_revision: 3
+    })
+    expect(await readFile(path.join(localRoot, 'Note.md'), 'utf8')).toBe(cloudText)
+    await expect(service.sync(localRoot)).resolves.toMatchObject({
+      bootstrap_conflicts: [],
+      pending_conflicts: [],
+      pushed: 0
+    })
+  })
+
   it('deletes the remote vault before removing the local device link', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',
@@ -329,6 +413,139 @@ describe('DesktopCloudSyncService', () => {
     expect(client.manifest).toHaveBeenCalledTimes(1)
   })
 
+  it('waits for an active sync before saving a conflict draft', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+    await writeFile(path.join(localRoot, 'Note.md'), 'latest local edit')
+    const cloudText = 'older cloud edit'
+    const cloudHash = createHash('sha256').update(cloudText).digest('hex')
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloudHash,
+          byte_length: Buffer.byteLength(cloudText),
+          media_type: 'text/markdown',
+          content: {
+            encoding: 'utf8',
+            data: cloudText,
+            sha256: cloudHash,
+            byte_length: Buffer.byteLength(cloudText),
+            media_type: 'text/markdown'
+          }
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    const conflict = (await service.sync(localRoot)).pending_conflicts![0]!
+
+    let releaseChanges!: (value: { data: []; cursor: number; has_more: false }) => void
+    client.changes.mockReset().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseChanges = resolve
+        })
+    )
+    const syncing = service.sync(localRoot)
+    await vi.waitFor(() => expect(client.changes).toHaveBeenCalledOnce())
+    let draftSaved = false
+    const saving = service.saveConflictDraft(localRoot, conflict.id, 'careful draft').then(() => {
+      draftSaved = true
+    })
+
+    await Promise.resolve()
+    expect(draftSaved).toBe(false)
+    releaseChanges({ data: [], cursor: 1, has_more: false })
+    await syncing
+    await saving
+
+    await expect(service.getConflict(localRoot, conflict.id)).resolves.toMatchObject({
+      draft_text: 'careful draft'
+    })
+  })
+
+  it('does not start a sync while a conflict decision is being saved', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+    await writeFile(path.join(localRoot, 'Note.md'), 'latest local edit')
+    const cloudText = 'older cloud edit'
+    const cloudHash = createHash('sha256').update(cloudText).digest('hex')
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloudHash,
+          byte_length: Buffer.byteLength(cloudText),
+          media_type: 'text/markdown',
+          content: {
+            encoding: 'utf8',
+            data: cloudText,
+            sha256: cloudHash,
+            byte_length: Buffer.byteLength(cloudText),
+            media_type: 'text/markdown'
+          }
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    const conflict = (await service.sync(localRoot)).pending_conflicts![0]!
+
+    let releaseMutation!: () => void
+    client.mutate.mockImplementationOnce(async (_vaultId, body) => {
+      await new Promise<void>((resolve) => {
+        releaseMutation = resolve
+      })
+      return {
+        acknowledged: body.mutations.map((mutation) => ({
+          operation_id: mutation.operation_id,
+          item_id: mutation.item_id,
+          revision: 4,
+          sequence: 2
+        })),
+        conflicts: [],
+        cursor: 2
+      }
+    })
+    const resolving = service.resolveConflict(localRoot, {
+      conflict_id: conflict.id,
+      choice: 'local',
+      expected_local_sha256: createHash('sha256').update('latest local edit').digest('hex'),
+      expected_cloud_revision: 3
+    })
+    await vi.waitFor(() => expect(client.mutate).toHaveBeenCalledOnce())
+
+    client.changes.mockClear()
+    const syncing = service.sync(localRoot)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(client.changes).not.toHaveBeenCalled()
+
+    releaseMutation()
+    await resolving
+    await syncing
+  })
+
   it('manages backups only through the linked cloud vault', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',
@@ -341,7 +558,9 @@ describe('DesktopCloudSyncService', () => {
     await service.link(localRoot, remoteVault.id)
 
     await expect(service.listBackups(localRoot)).resolves.toEqual([])
-    await expect(service.backupSchedule(localRoot)).resolves.toMatchObject({ enabled: false })
+    await expect(service.backupSchedule(localRoot)).resolves.toMatchObject({
+      enabled: false
+    })
     await expect(service.updateBackupSchedule(localRoot, true)).resolves.toMatchObject({
       enabled: true
     })
@@ -380,11 +599,12 @@ describe('DesktopCloudSyncService', () => {
       created_at: '2026-08-10T12:00:00.000Z',
       updated_at: '2026-08-10T12:00:00.000Z'
     }
-    const fetchImplementation = vi.fn<typeof fetch>(async () =>
-      new Response(new Uint8Array([31, 139, 8, 0]), {
-        status: 200,
-        headers: { 'Content-Type': 'application/gzip' }
-      })
+    const fetchImplementation = vi.fn<typeof fetch>(
+      async () =>
+        new Response(new Uint8Array([31, 139, 8, 0]), {
+          status: 200,
+          headers: { 'Content-Type': 'application/gzip' }
+        })
     )
     const { service, localRoot } = await setup([remoteVault], fetchImplementation)
     const destination = path.join(localRoot, 'backup.json.gz')
@@ -392,11 +612,13 @@ describe('DesktopCloudSyncService', () => {
 
     await service.downloadBackup(localRoot, 'backup-1', destination)
 
-    expect([...await readFile(destination)]).toEqual([31, 139, 8, 0])
+    expect([...(await readFile(destination))]).toEqual([31, 139, 8, 0])
     expect(fetchImplementation).toHaveBeenCalledWith(
       'https://zennotes.org/api/v1/vaults/vault-1/backups/backup-1/download',
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: 'Bearer secret-token' })
+        headers: expect.objectContaining({
+          Authorization: 'Bearer secret-token'
+        })
       })
     )
   })
@@ -424,7 +646,8 @@ describe('DesktopCloudSyncService', () => {
           local_sha256: 'a'.repeat(64),
           remote_sha256: 'b'.repeat(64)
         }
-      ], local_conflicts: []
+      ],
+      local_conflicts: []
     })
 
     await expect(service.createBackup(localRoot)).rejects.toThrow('Resolve sync conflicts')

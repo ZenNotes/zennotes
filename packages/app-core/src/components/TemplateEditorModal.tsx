@@ -29,7 +29,7 @@ import { editorTabSize } from '../lib/editor-tab-size'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
-import { completionKeymapForEditor, completionNavKeymap } from '../lib/cm-completion-nav'
+import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -158,9 +158,9 @@ export function TemplateEditorModal({
               : 'slash-cmd-option'
         }),
         completionNavKeymap,
+        completionKeymapExtension,
         keymap.of([
           indentWithTab,
-          ...completionKeymapForEditor,
           ...vimAwareDefaultKeymap(vimModeRef.current),
           ...historyKeymap
         ]),

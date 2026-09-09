@@ -38,6 +38,32 @@ describe('mathRenderExtension', () => {
     view.destroy()
   })
 
+  it('renders a $$ block inside a callout, without the quote markers, as part of the card (#748)', () => {
+    const view = mount('start\n\n> [!note]\n> $$\n> a+b\n> $$\n\nend')
+    const blocks = view.dom.querySelectorAll('.cm-math-block')
+    expect(blocks.length).toBe(1)
+    expect(blocks[0].textContent).not.toContain('>')
+    expect(blocks[0].textContent).toContain('a')
+    expect(blocks[0].classList.contains('cm-callout')).toBe(true)
+    expect(blocks[0].classList.contains('cm-callout-note')).toBe(true)
+    view.destroy()
+  })
+
+  it('renders a $$ block inside a plain blockquote with the quote bar (#748)', () => {
+    const view = mount('start\n\n> $$\n> a+b\n> $$\n\nend')
+    const block = view.dom.querySelector('.cm-math-block')
+    expect(block).not.toBeNull()
+    expect(block?.classList.contains('cm-wq-quote')).toBe(true)
+    expect(block?.classList.contains('cm-callout')).toBe(false)
+    view.destroy()
+  })
+
+  it('still leaves a $$ with prose before it literal', () => {
+    const view = mount('start\n\nsee $$\na+b\n$$\n\nend')
+    expect(view.dom.querySelectorAll('.cm-math-block').length).toBe(0)
+    view.destroy()
+  })
+
   it('numbers equation environments in document order', () => {
     const view = mount(
       [

@@ -13,6 +13,14 @@ import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
 import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
 import { registerReflowOperator } from "../lib/cm-vim-reflow";
+import {
+  harperAddWordAtCursor,
+  harperIgnoreAtCursor,
+  harperNextSuggestion,
+  harperOpenSuggestions,
+  harperPreviousSuggestion,
+} from "../lib/cm-harper";
+import { harperEditorConfig } from "../lib/harper-runtime";
 import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { foldAll, unfoldAll, foldCode, unfoldCode } from "@codemirror/language";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
@@ -55,10 +63,15 @@ import { focusPaneInDirection, focusPaneOrEdgePanel } from "../lib/pane-nav";
 import { requestPaneMode } from "../lib/pane-mode";
 import {
   getKeymapBinding,
+  getKeymapDefinitions,
+  getKeymapDisplay,
   getSequenceTokens,
+  UNBOUND_BINDING,
   type KeymapId,
   type KeymapOverrides,
 } from "../lib/keymaps";
+import { requestSettingsTarget } from "../lib/settings-navigation";
+import { useToastStore } from "../lib/toast";
 import {
   navigateActiveBuffer,
   selectActiveBuffer,
@@ -165,6 +178,41 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
     // mapped in visual context here as well.
     contexts?: Array<"normal" | "visual">;
   }> = [
+      {
+        id: "vim.harperNext",
+        action: "zenHarperNext",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.harperNext")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.harperPrevious",
+        action: "zenHarperPrevious",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.harperPrevious")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.harperSuggest",
+        action: "zenHarperSuggest",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.harperSuggest")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.harperAddWord",
+        action: "zenHarperAddWord",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.harperAddWord")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.harperIgnore",
+        action: "zenHarperIgnore",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.harperIgnore")),
+        ].filter((binding): binding is string => !!binding),
+      },
       {
         id: "vim.goToDefinition",
         action: "goToDefinition",
@@ -369,6 +417,32 @@ function registerVimCommands(): void {
     if (view) copyLinkAtCursor(view);
   });
   Vim.mapCommand("gy", "action", "zenCopyLink", {}, { context: "normal" });
+  // Harper, Vim's spelling keys: `]s` / `[s` walk the problems, `z=` lists the
+  // fixes, `zg` teaches the dictionary a word and `zG`, its temporary sibling
+  // in Vim, ignores this one suggestion without teaching anything. All five
+  // are silent while Harper is off (the extension is not installed).
+  const harperView = (cm: ReturnType<typeof getCM>): EditorView | null =>
+    (cm as unknown as { cm6?: EditorView }).cm6 ?? null;
+  Vim.defineAction("zenHarperNext", (cm: ReturnType<typeof getCM>) => {
+    const view = harperView(cm);
+    if (view) harperNextSuggestion(view);
+  });
+  Vim.defineAction("zenHarperPrevious", (cm: ReturnType<typeof getCM>) => {
+    const view = harperView(cm);
+    if (view) harperPreviousSuggestion(view);
+  });
+  Vim.defineAction("zenHarperSuggest", (cm: ReturnType<typeof getCM>) => {
+    const view = harperView(cm);
+    if (view) harperOpenSuggestions(view);
+  });
+  Vim.defineAction("zenHarperAddWord", (cm: ReturnType<typeof getCM>) => {
+    const view = harperView(cm);
+    if (view) harperAddWordAtCursor(view, harperEditorConfig());
+  });
+  Vim.defineAction("zenHarperIgnore", (cm: ReturnType<typeof getCM>) => {
+    const view = harperView(cm);
+    if (view) harperIgnoreAtCursor(view, harperEditorConfig());
+  });
   Vim.mapCommand(
     "K",
     "action",
@@ -475,6 +549,72 @@ function registerVimCommands(): void {
         return;
       }
       setImageWidthFromInput(view, arg);
+    },
+  );
+  // `:harper on|off` (or bare `:harper` to toggle) is the ex twin of the
+  // Settings toggle "Grammar and spelling with Harper".
+  Vim.defineEx(
+    "harper",
+    "harper",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const state = useStore.getState();
+      const arg = (params?.argString ?? "").trim().toLowerCase();
+      if (arg === "on") state.setHarperEnabled(true);
+      else if (arg === "off") state.setHarperEnabled(false);
+      else state.setHarperEnabled(!state.harperEnabled);
+    },
+  );
+  // `:ignorekey <name>` (#732) adds a key the app should never see, the ex
+  // twin of Settings, Keymap, Ignored keys: a remapper's tap-hold no-op such
+  // as KanaMode. Bare, it opens that page, whose recorder names the key.
+  Vim.defineEx(
+    "ignorekey",
+    "ignorekey",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const arg = (params?.argString ?? "").trim();
+      const state = useStore.getState();
+      if (!arg) {
+        requestSettingsTarget("keymaps");
+        state.setSettingsOpen(true);
+        return;
+      }
+      state.addIgnoredKey(arg);
+      useToastStore
+        .getState()
+        .addToast(`Ignoring ${arg}: the app no longer reacts to it`, "success");
+    },
+  );
+  // `:unbind <action.id>` removes an action's key entirely, the ex twin of
+  // the Unbind button under Settings, Keymaps. Without an argument, or with
+  // an id the catalog does not know, it opens that page, where every id is
+  // listed, instead of guessing.
+  Vim.defineEx(
+    "unbind",
+    "unbind",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const arg = (params?.argString ?? "").trim();
+      const state = useStore.getState();
+      const definition = getKeymapDefinitions().find((d) => d.id === arg);
+      if (!definition) {
+        if (arg) {
+          useToastStore
+            .getState()
+            .addToast(`No keymap action is called "${arg}"`, "info");
+        }
+        requestSettingsTarget("keymaps");
+        state.setSettingsOpen(true);
+        return;
+      }
+      const before = getKeymapDisplay(state.keymapOverrides, definition.id);
+      state.setKeymapBinding(definition.id, UNBOUND_BINDING);
+      useToastStore
+        .getState()
+        .addToast(
+          before
+            ? `Unbound ${definition.title} (was ${before})`
+            : `${definition.title} is already unbound`,
+          "success",
+        );
     },
   );
   Vim.defineEx("quit", "q", () => {
@@ -1092,6 +1232,7 @@ const MANUAL_EX_NAMES = new Set([
   "q",
   "wq",
   "format",
+  "unbind",
   "tasks",
   "tag",
   "template",

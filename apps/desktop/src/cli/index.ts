@@ -46,6 +46,12 @@ import {
   cmdFolderRename
 } from './commands/folders.js'
 import { cmdTaskList, cmdTaskToggle } from './commands/tasks.js'
+import {
+  cmdCommentAdd,
+  cmdCommentList,
+  cmdCommentReply,
+  cmdCommentResolve
+} from './commands/comments.js'
 import { cmdTagFind, cmdTagList } from './commands/tags.js'
 import { cmdVaultInfo, cmdVaultList } from './commands/vault.js'
 import { cmdCapture } from './commands/capture.js'
@@ -135,6 +141,10 @@ async function main(argv: string[]): Promise<number> {
     'tag find': cmdTagFind,
     'task list': cmdTaskList,
     'task toggle': cmdTaskToggle,
+    'comment list': cmdCommentList,
+    'comment add': cmdCommentAdd,
+    'comment reply': cmdCommentReply,
+    'comment resolve': cmdCommentResolve,
     'vault info': cmdVaultInfo,
     'base list': cmdBaseList,
     'base create': cmdBaseCreate,
@@ -167,6 +177,7 @@ function peelSubcommand(
     asset: ['list', 'get'],
     tag: ['list', 'find'],
     task: ['list', 'toggle'],
+    comment: ['list', 'add', 'reply', 'resolve'],
     vault: ['info', 'list'],
     base: ['list', 'create', 'rows', 'get', 'add', 'set']
   }

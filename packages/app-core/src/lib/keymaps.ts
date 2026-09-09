@@ -51,6 +51,7 @@ export type KeymapId =
   | "vim.leaderPrefix"
   | "vim.leaderOpenBuffers"
   | "vim.leaderWorkflows"
+  | "vim.leaderCloudConflicts"
   | "vim.leaderAtlas"
   | "vim.leaderSearchNotes"
   | "vim.leaderSearchGroup"
@@ -88,6 +89,11 @@ export type KeymapId =
   | "vim.unfoldCurrent"
   | "vim.foldAll"
   | "vim.unfoldAll"
+  | "vim.harperNext"
+  | "vim.harperPrevious"
+  | "vim.harperSuggest"
+  | "vim.harperAddWord"
+  | "vim.harperIgnore"
   | "nav.moveDown"
   | "nav.moveUp"
   | "nav.moveLeft"
@@ -111,6 +117,7 @@ export type KeymapId =
   | "nav.unarchive"
   | "tasks.moveTaskUp"
   | "tasks.moveTaskDown"
+  | "tasks.savedFilters"
   | "editor.moveLineUp"
   | "editor.moveLineDown"
   | "editor.hopMarkerForward"
@@ -121,6 +128,33 @@ export type KeymapId =
   | "editor.reflowParagraph";
 
 export type KeymapOverrides = Partial<Record<KeymapId, string>>;
+
+/**
+ * The stored form of "this action has no key". An override equal to the empty
+ * string means the user removed the binding on purpose: nothing fires the
+ * action until it is rebound or reset, the which-key hints and the manual
+ * stop advertising it, and it never collides with anything. It is distinct
+ * from a missing override (the default applies) and from a recording that
+ * has not captured a key yet. TOML has no null, so config.toml carries it
+ * as `"action.id" = ""`.
+ */
+export const UNBOUND_BINDING = "";
+
+/** What the UI calls an unbound action wherever a key would otherwise show. */
+export const UNBOUND_LABEL = "Unbound";
+
+export function isUnboundBinding(
+  binding: string | null | undefined,
+): binding is typeof UNBOUND_BINDING {
+  return binding === UNBOUND_BINDING;
+}
+
+export function isKeymapUnbound(
+  overrides: KeymapOverrides | null | undefined,
+  id: KeymapId,
+): boolean {
+  return isUnboundBinding(overrides?.[id]);
+}
 
 export interface KeymapDefinition {
   id: KeymapId;
@@ -480,6 +514,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     // `w` already belongs to the weekly note, so this takes `a` for automation.
     description: "Open the Workflows canvas.",
     defaultBinding: "a",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCloudConflicts",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: review Cloud conflicts",
+    // `c` is the calendar and `s` the search group, so review takes `r`.
+    description:
+      "Open the Cloud sync conflict queue. Available while files are waiting on a decision.",
+    defaultBinding: "r",
     vimOnly: true,
     maxTokens: 1,
   },
@@ -881,6 +928,61 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 2,
   },
   {
+    id: "vim.harperNext",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Next Harper suggestion",
+    description: "Jump to the next grammar or spelling problem Harper found. Needs Grammar and spelling with Harper on.",
+    defaultBinding: "] s",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.harperPrevious",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Previous Harper suggestion",
+    description: "Jump to the previous grammar or spelling problem Harper found.",
+    defaultBinding: "[ s",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.harperSuggest",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Harper suggestions at cursor",
+    description: "Open the list of fixes for the problem under the cursor; a digit or Enter applies one.",
+    defaultBinding: "z =",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.harperAddWord",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Add word to Harper dictionary",
+    description: "Teach the vault's dictionary the word under the cursor so Harper stops flagging it.",
+    defaultBinding: "z g",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.harperIgnore",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Ignore Harper suggestion",
+    description: "Hide this one suggestion here from now on without teaching the dictionary a word.",
+    defaultBinding: "z G",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
     id: "nav.moveDown",
     kind: "sequence",
     scope: "lists",
@@ -1087,6 +1189,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 1,
   },
   {
+    id: "tasks.savedFilters",
+    kind: "sequence",
+    scope: "views",
+    group: "view-actions",
+    title: "Pick a saved Tasks filter",
+    description:
+      "Open the picker of saved Tasks filters and apply one (Tasks view, Vim mode). Save the current filter with :savefilter <name>.",
+    defaultBinding: "F",
+    maxTokens: 1,
+  },
+  {
     id: "editor.hopMarkerForward",
     kind: "shortcut",
     scope: "vim-editor",
@@ -1259,7 +1372,9 @@ export function getKeymapBinding(
   id: KeymapId,
 ): string {
   const override = overrides?.[id];
-  return override || getDefaultKeymapBinding(id);
+  // A string override wins even when it is empty: that is an unbound action,
+  // not a missing override, and must not fall back to the default.
+  return typeof override === "string" ? override : getDefaultKeymapBinding(id);
 }
 
 export function getSequenceTokens(
@@ -1559,6 +1674,12 @@ export function normalizeKeymapOverrides(input: unknown): KeymapOverrides {
   for (const definition of KEYMAP_DEFINITIONS) {
     const raw = (input as Record<string, unknown>)[definition.id];
     if (typeof raw !== "string") continue;
+    // An empty (or blank) value is a deliberate unbind and survives as such;
+    // it is not a broken binding to be dropped in favor of the default.
+    if (raw.trim() === UNBOUND_BINDING) {
+      overrides[definition.id] = UNBOUND_BINDING;
+      continue;
+    }
     const normalized = normalizeKeymapBinding(definition.id, raw);
     // The platform's default, not the cross-platform one: a definition with a
     // `defaultBindingMac` has two defaults, and comparing against the wrong one
@@ -1635,6 +1756,7 @@ export function matchesShortcutBinding(
   event: KeyboardEvent,
   binding: string,
 ): boolean {
+  if (isUnboundBinding(binding)) return false;
   const normalized = shortcutBindingFromEvent(event);
   if (!!normalized && normalized === binding) return true;
   // Layouts with shifted digits (French AZERTY, Czech) type punctuation on
@@ -1675,6 +1797,7 @@ export function eventMatchesUserOverride(
   if (!overrides) return false;
   for (const [id, binding] of Object.entries(overrides)) {
     if (id === excludeId || typeof binding !== "string") continue;
+    if (isUnboundBinding(binding)) continue;
     const definition = KEYMAP_INDEX.get(id as KeymapId);
     if (!definition || definition.kind !== "shortcut") continue;
     if (definition.scope !== "app") continue;
@@ -1729,12 +1852,21 @@ export function formatKeymapBinding(binding: string, kind: KeymapKind): string {
     .join(" ");
 }
 
+/** The binding as the UI shows it, or the empty string for an unbound
+ *  action so a caller can leave the key column, chip or tooltip out
+ *  entirely. Surfaces that want a word instead use `UNBOUND_LABEL`. */
 export function getKeymapDisplay(
   overrides: KeymapOverrides | null | undefined,
   id: KeymapId,
 ): string {
   const definition = getKeymapDefinition(id);
   return formatKeymapBinding(getKeymapBinding(overrides, id), definition.kind);
+}
+
+/** `label (display)` while the action has a key, the bare label once it is
+ *  unbound: a tooltip must not read "Go back ()". */
+export function labelWithShortcut(label: string, display: string): string {
+  return display ? `${label} (${display})` : label;
 }
 
 export function describeCurrentBinding(

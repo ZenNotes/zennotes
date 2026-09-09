@@ -111,7 +111,11 @@ describe('TOML serialization', () => {
       quickNoteTitlePrefix: 'Quick Note',
       keymapOverrides: { 'global.searchNotes': 'Mod+P' },
       kanbanColumnTitles: { 'status:todo': 'To Do' },
-      systemFolderLabels: { inbox: 'In' }
+      systemFolderLabels: { inbox: 'In' },
+      savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
+      kanbanGroupBy: 'folder',
+      kanbanFolderRoot: 'Projects',
+      ignoredKeys: ['KanaMode', 'F24']
     }
 
     const text = serializeConfig(portable)
@@ -135,6 +139,18 @@ describe('TOML serialization', () => {
     expect(round.keymapOverrides).toEqual({ 'global.searchNotes': 'Mod+P' })
     expect(round.kanbanColumnTitles).toEqual({ 'status:todo': 'To Do' })
     expect(round.systemFolderLabels).toEqual({ inbox: 'In' })
+    // The [saved_filters] table keeps the order the chips show (#731).
+    expect(text).toContain('kanban_folder_root = "Projects"')
+    expect(round.kanbanGroupBy).toBe('folder')
+    expect(round.kanbanFolderRoot).toBe('Projects')
+    expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
+    expect(round.ignoredKeys).toEqual(['KanaMode', 'F24'])
+    expect(text).toContain('[saved_filters]')
+    expect(text).toContain('"Project alpha" = "@project:alpha"')
+    expect(Object.entries(round.savedTaskFilters as Record<string, string>)).toEqual([
+      ['Project alpha', '@project:alpha'],
+      ['Blocked', '@status:blocked']
+    ])
   })
 
   it('persists null as empty string and reads it back as null', () => {
@@ -280,4 +296,18 @@ describe('file watching', () => {
     await waitFor(() => changes.length > 0, 3000)
     expect(changes.at(-1)?.editorFontSize).toBe(22)
   }, 10000)
+})
+
+describe('unbound keymaps in config.toml', () => {
+  it('writes an unbind as an empty binding, marks it, and reads it back as ""', () => {
+    const text = serializeConfig({ keymapOverrides: { 'global.zoomIn': '' } })
+    expect(text).toContain('"global.zoomIn" = ""  # unbound')
+    // The reference list explains the convention and no longer repeats the
+    // overridden action as a commented default.
+    expect(text).toContain('# An empty binding ("") removes the key entirely')
+    expect(text).not.toContain('# "global.zoomIn" = "Mod+="')
+
+    const { portable } = deserializeConfig(text)
+    expect(portable.keymapOverrides).toEqual({ 'global.zoomIn': '' })
+  })
 })

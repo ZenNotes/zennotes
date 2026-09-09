@@ -1,0 +1,16 @@
+WEBVTT
+
+00:00.000 --> 00:04.210
+The Kanban Folder board now gives every note folder its own column: Projects/alpha, Projects/beta, Areas, the Inbox root, Quick Notes.
+
+00:04.210 --> 00:08.954
+Notes organised as Projects/<name>? Point the board at that folder: :folderroot Projects (or Settings, Tasks, Folder board).
+
+00:08.954 --> 00:13.156
+Its children are the columns. Deeper notes roll up to their project, and notes outside it share one Other folders column.
+
+00:13.156 --> 00:17.171
+The chip in the header shows the root; click it to pick another folder from the ones that hold tasks.
+
+00:17.171 --> 00:23.502
+It travels in config.toml as kanban_folder_root, per vault. Bare :folderroot goes back to one column per folder.

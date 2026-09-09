@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+  mkdir
+} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import {
-  DesktopCloudSyncRepository,
-  DesktopCloudSyncStateStore
-} from './cloud-sync-filesystem'
+import { DesktopCloudSyncRepository, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
 import {
   CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES,
   cloudSyncUploadSource
@@ -65,7 +73,9 @@ describe('DesktopCloudSyncRepository', () => {
     const root = await temporaryRoot()
     await mkdir(path.join(root, '.zennotes', 'sync'), { recursive: true })
     await mkdir(path.join(root, '.git'), { recursive: true })
-    await mkdir(path.join(root, 'node_modules', 'package'), { recursive: true })
+    await mkdir(path.join(root, 'node_modules', 'package'), {
+      recursive: true
+    })
     await writeFile(path.join(root, 'note.md'), '# Note')
     await writeFile(path.join(root, 'image.png'), Buffer.from([0, 1, 2, 3]))
     await writeFile(path.join(root, '.zennotes', 'sync', 'state.json'), '{}')
@@ -185,11 +195,7 @@ describe('DesktopCloudSyncRepository', () => {
     })
   })
 
-  // The local file is never overwritten, and the incoming version is never
-  // thrown away: it lands beside it. Sync used to throw here instead, which
-  // stopped the whole run and, because the cursor never advanced, stopped
-  // every run after it too (#585 follow-up, reported on Discord).
-  it('keeps both versions when a remote change meets a local edit', async () => {
+  it('returns both versions without writing a conflict note into the vault', async () => {
     const root = await temporaryRoot()
     await writeFile(path.join(root, 'note.md'), 'local edit')
     const repository = new DesktopCloudSyncRepository(root)
@@ -199,13 +205,162 @@ describe('DesktopCloudSyncRepository', () => {
       tracked('note.md', 'old contents')
     )
 
-    expect(conflict).toEqual({
+    expect(conflict).toMatchObject({
       code: 'LOCAL_EDIT_CONFLICT',
       path: 'note.md',
-      conflict_copy_path: 'note (cloud conflict).md'
+      conflict_copy_path: null,
+      local: { path: 'note.md', content: { data: 'local edit' } }
     })
     expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('local edit')
-    expect(await readFile(path.join(root, 'note (cloud conflict).md'), 'utf8')).toBe('remote edit')
+    expect(await readdir(root)).toEqual(['note.md'])
+  })
+
+  it('applies an explicit Cloud choice only while the local version is unchanged', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'local edit')
+    const repository = new DesktopCloudSyncRepository(root)
+    const conflict = {
+      code: 'BOOTSTRAP_CONTENT_CONFLICT' as const,
+      item_id: 'item-remote',
+      path: 'note.md',
+      local_sha256: hash('local edit'),
+      remote_sha256: hash('cloud edit')
+    }
+
+    await repository.resolveBootstrapConflict({
+      path: 'note.md',
+      expectedLocalSha256: conflict.local_sha256,
+      cloudContent: upsert('note.md', 'cloud edit').content!,
+      resolution: { conflict, choice: 'cloud' }
+    })
+
+    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('cloud edit')
+    await expect(
+      repository.resolveBootstrapConflict({
+        path: 'note.md',
+        expectedLocalSha256: conflict.local_sha256,
+        cloudContent: upsert('note.md', 'cloud edit').content!,
+        resolution: { conflict, choice: 'cloud' }
+      })
+    ).rejects.toThrow('changed on this device')
+  })
+
+  it('keeps both bootstrap versions under explicit paths', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'local edit')
+    const repository = new DesktopCloudSyncRepository(root)
+    const conflict = {
+      code: 'BOOTSTRAP_CONTENT_CONFLICT' as const,
+      item_id: 'item-remote',
+      path: 'note.md',
+      local_sha256: hash('local edit'),
+      remote_sha256: hash('cloud edit')
+    }
+
+    await repository.resolveBootstrapConflict({
+      path: 'note.md',
+      expectedLocalSha256: conflict.local_sha256,
+      cloudContent: upsert('note.md', 'cloud edit').content!,
+      resolution: {
+        conflict,
+        choice: 'both',
+        keep_both_path: 'note (this device).md'
+      }
+    })
+
+    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('cloud edit')
+    expect(await readFile(path.join(root, 'note (this device).md'), 'utf8')).toBe('local edit')
+  })
+
+  it('writes an explicit merged bootstrap result', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'local edit')
+    const repository = new DesktopCloudSyncRepository(root)
+    const conflict = {
+      code: 'BOOTSTRAP_CONTENT_CONFLICT' as const,
+      item_id: 'item-remote',
+      path: 'note.md',
+      local_sha256: hash('local edit'),
+      remote_sha256: hash('cloud edit')
+    }
+
+    await repository.resolveBootstrapConflict({
+      path: 'note.md',
+      expectedLocalSha256: conflict.local_sha256,
+      cloudContent: upsert('note.md', 'cloud edit').content!,
+      resolution: { conflict, choice: 'merged', merged_text: 'merged result' }
+    })
+
+    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('merged result')
+  })
+
+  it('materializes moved and keep-both decisions without overwriting another file', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'local edit')
+    await writeFile(path.join(root, 'existing.md'), 'leave me alone')
+    const repository = new DesktopCloudSyncRepository(root)
+
+    await repository.applyConflictResolutionFiles({
+      expected_path: 'note.md',
+      expected_sha256: hash('local edit'),
+      files: [
+        {
+          path: 'archive/note.md',
+          content: upsert('archive/note.md', 'cloud edit').content!
+        },
+        {
+          path: 'note from Mac.md',
+          content: upsert('note from Mac.md', 'local edit').content!
+        }
+      ]
+    })
+
+    await expect(readFile(path.join(root, 'note.md'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    expect(await readFile(path.join(root, 'archive', 'note.md'), 'utf8')).toBe('cloud edit')
+    expect(await readFile(path.join(root, 'note from Mac.md'), 'utf8')).toBe('local edit')
+    await expect(
+      repository.applyConflictResolutionFiles({
+        expected_path: 'archive/note.md',
+        expected_sha256: hash('cloud edit'),
+        files: [
+          {
+            path: 'existing.md',
+            content: upsert('existing.md', 'cloud edit').content!
+          }
+        ]
+      })
+    ).rejects.toThrow('already exists')
+    expect(await readFile(path.join(root, 'archive', 'note.md'), 'utf8')).toBe('cloud edit')
+    expect(await readFile(path.join(root, 'existing.md'), 'utf8')).toBe('leave me alone')
+  })
+
+  it('removes newly created resolution files when a later write fails', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'local edit')
+    await writeFile(path.join(root, 'blocked'), 'not a directory')
+    const repository = new DesktopCloudSyncRepository(root)
+
+    await expect(
+      repository.applyConflictResolutionFiles({
+        expected_path: 'note.md',
+        expected_sha256: hash('local edit'),
+        files: [
+          { path: 'copy.md', content: upsert('copy.md', 'safe copy').content! },
+          {
+            path: 'blocked/note.md',
+            content: upsert('blocked/note.md', 'fails').content!
+          }
+        ]
+      })
+    ).rejects.toThrow()
+
+    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('local edit')
+    expect(await readFile(path.join(root, 'blocked'), 'utf8')).toBe('not a directory')
+    await expect(readFile(path.join(root, 'copy.md'))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   // What wedged the reporter: the change feed carried a file this device had
@@ -229,7 +384,7 @@ describe('DesktopCloudSyncRepository', () => {
     expect(await readdir(path.join(root, '.zennotes'))).toEqual(['vault.json'])
   })
 
-  it('numbers conflict copies instead of overwriting an earlier one', async () => {
+  it('leaves an existing legacy conflict copy untouched and creates no new one', async () => {
     const root = await temporaryRoot()
     await writeFile(path.join(root, 'note.md'), 'local edit')
     await writeFile(path.join(root, 'note (cloud conflict).md'), 'an earlier conflict')
@@ -237,11 +392,11 @@ describe('DesktopCloudSyncRepository', () => {
 
     const conflict = await repository.apply(upsert('note.md', 'remote edit'), undefined)
 
-    expect(conflict?.conflict_copy_path).toBe('note (cloud conflict 2).md')
+    expect(conflict?.conflict_copy_path).toBeNull()
     expect(await readFile(path.join(root, 'note (cloud conflict).md'), 'utf8')).toBe(
       'an earlier conflict'
     )
-    expect(await readFile(path.join(root, 'note (cloud conflict 2).md'), 'utf8')).toBe('remote edit')
+    expect((await readdir(root)).sort()).toEqual(['note (cloud conflict).md', 'note.md'])
   })
 
   // Settings are a question, not a merge: a numbered copy inside a hidden
@@ -257,7 +412,7 @@ describe('DesktopCloudSyncRepository', () => {
       upsert('.zennotes/vault.json', '{"favorites":["b"]}'),
       undefined
     )
-    expect(first).toEqual({
+    expect(first).toMatchObject({
       code: 'SETTINGS_CONFLICT',
       path: '.zennotes/vault.json',
       conflict_copy_path: '.zennotes/vault.cloud-conflict.json'
@@ -270,9 +425,9 @@ describe('DesktopCloudSyncRepository', () => {
 
     // A newer cloud version replaces the pending one instead of piling up.
     await repository.apply(upsert('.zennotes/vault.json', '{"favorites":["c"]}'), undefined)
-    expect(
-      await readFile(path.join(root, '.zennotes', 'vault.cloud-conflict.json'), 'utf8')
-    ).toBe('{"favorites":["c"]}')
+    expect(await readFile(path.join(root, '.zennotes', 'vault.cloud-conflict.json'), 'utf8')).toBe(
+      '{"favorites":["c"]}'
+    )
     expect((await readdir(path.join(root, '.zennotes'))).sort()).toEqual([
       'vault.cloud-conflict.json',
       'vault.json'
@@ -296,10 +451,11 @@ describe('DesktopCloudSyncRepository', () => {
       tracked('note.md', 'old contents')
     )
 
-    expect(conflict).toEqual({
+    expect(conflict).toMatchObject({
       code: 'LOCAL_EDIT_CONFLICT',
       path: 'note.md',
-      conflict_copy_path: null
+      conflict_copy_path: null,
+      local: { content: { data: 'local edit' } }
     })
     expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('local edit')
   })
@@ -329,11 +485,100 @@ describe('DesktopCloudSyncStateStore', () => {
     const root = await temporaryRoot()
     const stateDirectory = path.join(root, 'user-data', 'cloud-sync')
     const store = new DesktopCloudSyncStateStore(stateDirectory)
-    const state = { version: 1 as const, vault_id: 'vault-1', cursor: 7, items: {} }
+    const state = {
+      version: 1 as const,
+      vault_id: 'vault-1',
+      cursor: 7,
+      items: {}
+    }
 
     await store.save(state)
 
     expect(await store.load('vault-1')).toEqual(state)
     expect(await store.load('another-vault')).toBeNull()
+  })
+})
+
+describe('DesktopCloudSyncRepository: decisions and writes', () => {
+  it('copies a file above the inline limit from disk when keeping both versions', async () => {
+    const root = await temporaryRoot()
+    const bytes = Buffer.alloc(CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES + 1, 7)
+    await writeFile(path.join(root, 'Deck.pdf'), bytes)
+    const repository = new DesktopCloudSyncRepository(root)
+    const [local] = await repository.scan()
+    expect(local.content.data).toBe('')
+
+    await repository.applyConflictResolutionFiles({
+      expected_path: 'Deck.pdf',
+      expected_sha256: local.content.sha256,
+      files: [
+        { path: 'Deck.pdf', content: upsert('Deck.pdf', 'cloud bytes').content! },
+        { path: 'Deck (this device).pdf', content: local.content }
+      ]
+    })
+
+    expect((await readFile(path.join(root, 'Deck (this device).pdf'))).equals(bytes)).toBe(true)
+    expect(await readFile(path.join(root, 'Deck.pdf'), 'utf8')).toBe('cloud bytes')
+  }, 20_000)
+
+  it('refuses to write a snapshot that carries no bytes and no source', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'Deck.pdf'), 'agreed')
+    const repository = new DesktopCloudSyncRepository(root)
+
+    await expect(
+      repository.replaceConflictFile({
+        path: 'Deck.pdf',
+        expectedSha256: hash('agreed'),
+        content: {
+          encoding: 'base64',
+          data: '',
+          sha256: 'missing',
+          byte_length: 10,
+          media_type: 'application/pdf'
+        }
+      })
+    ).rejects.toThrow('too large to copy')
+    expect(await readFile(path.join(root, 'Deck.pdf'), 'utf8')).toBe('agreed')
+  })
+
+  it('writes through a symlinked note instead of replacing the link', async () => {
+    const root = await temporaryRoot()
+    const elsewhere = await temporaryRoot()
+    const target = path.join(elsewhere, 'linked.md')
+    await writeFile(target, 'agreed')
+    try {
+      await symlink(target, path.join(root, 'linked.md'))
+    } catch {
+      // Creating symlinks can require privileges (e.g. Windows); skip there.
+      return
+    }
+    const repository = new DesktopCloudSyncRepository(root)
+
+    await repository.replaceConflictFile({
+      path: 'linked.md',
+      expectedSha256: hash('agreed'),
+      content: upsert('linked.md', 'from cloud').content!
+    })
+
+    expect((await lstat(path.join(root, 'linked.md'))).isSymbolicLink()).toBe(true)
+    expect(await readFile(target, 'utf8')).toBe('from cloud')
+  })
+
+  it('leaves an existing note its own permissions', async () => {
+    // Windows has no POSIX mode bits to keep.
+    if (process.platform === 'win32') return
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'private.md'), 'agreed')
+    await chmod(path.join(root, 'private.md'), 0o600)
+    const repository = new DesktopCloudSyncRepository(root)
+
+    await repository.replaceConflictFile({
+      path: 'private.md',
+      expectedSha256: hash('agreed'),
+      content: upsert('private.md', 'from cloud').content!
+    })
+
+    expect((await stat(path.join(root, 'private.md'))).mode & 0o777).toBe(0o600)
   })
 })

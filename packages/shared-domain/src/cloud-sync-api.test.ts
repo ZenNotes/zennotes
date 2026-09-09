@@ -11,8 +11,13 @@ describe('CloudSyncApiClient', () => {
       }
     })
 
-    await client.manifest('vault/one', { includeContent: true, page: 2, perPage: 50 })
+    await client.manifest('vault/one', {
+      includeContent: true,
+      page: 2,
+      perPage: 50
+    })
     await client.changes('vault/one', 41, 25)
+    await client.revision('vault/one', 'item/one', 3)
     await client.account()
 
     expect(requests).toEqual([
@@ -23,6 +28,10 @@ describe('CloudSyncApiClient', () => {
       {
         method: 'GET',
         path: '/api/v1/vaults/vault%2Fone/changes?after=41&limit=25'
+      },
+      {
+        method: 'GET',
+        path: '/api/v1/vaults/vault%2Fone/items/item%2Fone/revisions/3'
       },
       {
         method: 'GET',
@@ -242,12 +251,14 @@ describe('CloudSyncApiClient', () => {
       note_path: 'inbox/Photo.md',
       title: 'Photo',
       markdown: '![Photo](photo.png)',
-      assets: [{
-        ref: 'photo.png',
-        name: 'photo.png',
-        mime: 'image/png',
-        base64: 'AQID'
-      }]
+      assets: [
+        {
+          ref: 'photo.png',
+          name: 'photo.png',
+          mime: 'image/png',
+          base64: 'AQID'
+        }
+      ]
     })
 
     const form = requests[0]?.body
