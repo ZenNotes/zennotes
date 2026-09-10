@@ -91,6 +91,7 @@ export function CloudConflictDialog({
           {selected && (
             <CloudPendingConflictResolver
               key={selected.id}
+              summary={summary}
               conflict={selected}
               vaultName={vaultName}
               onClose={onClose}

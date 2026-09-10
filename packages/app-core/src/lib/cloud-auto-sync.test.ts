@@ -6,6 +6,7 @@ import type {
 } from "@zennotes/bridge-contract/cloud-sync";
 import type { VaultChangeEvent } from "@shared/ipc";
 import {
+  acknowledgeCloudConflictResolution,
   clearCloudSyncStatus,
   cloudSyncAttentionItems,
   closeCloudConflictReview,
@@ -152,6 +153,47 @@ describe("cloud auto sync host wiring", () => {
   afterEach(() => {
     clearCloudSyncStatus();
     vi.useRealTimers();
+  });
+
+  it("keeps the rest of a newly linked review queue when the shared summary is older", () => {
+    const oldSummary: CloudSyncRunSummary = {
+      cursor: 1, pulled: 0, pushed: 0, conflicts: [], bootstrap_conflicts: [], local_conflicts: [],
+      pending_conflicts: [],
+    };
+    const conflict = {
+      id: "saved-note", item_id: "saved-note", path: "Note.md", cloud_path: "Note.md",
+      kind: "content" as const, can_merge: true, has_base: true,
+    };
+    const other = { ...conflict, id: "other-note", item_id: "other-note", path: "Other.md" };
+    useCloudSyncStatusStore.setState({ lastSummary: oldSummary });
+    const next = acknowledgeCloudConflictResolution("saved-note", {
+      ...oldSummary, cursor: 2, pending_conflicts: [conflict, other],
+    });
+    expect(next.pending_conflicts).toEqual([other]);
+  });
+
+  it("preserves the saved-note context when another sync listener reports the same failure", async () => {
+    const host = setup();
+    let handlers!: CloudSyncWindowHandlers;
+    const runtime = startCloudAutoSync({
+      ...host.bridge,
+      onCloudSyncWindow(next) { handlers = next; return () => {}; },
+    }, host.environment);
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    const summary = useCloudSyncStatusStore.getState().lastSummary!;
+    acknowledgeCloudConflictResolution("saved-note", summary);
+    host.syncCloudVault.mockRejectedValueOnce(new Error("Connection timed out"));
+    try {
+      await expect(syncCloudVaultWithStatus(host.bridge)).rejects.toThrow("Connection timed out");
+      handlers.finished(null, "Connection timed out");
+      expect(useCloudSyncStatusStore.getState().error).toBe(
+        "Note saved. Remaining vault sync failed: Connection timed out",
+      );
+      handlers.finished(summary, null);
+      handlers.finished(null, "A later unrelated error");
+      expect(useCloudSyncStatusStore.getState().error).toBe("A later unrelated error");
+    } finally { runtime.stop(); }
   });
 
   it("flushes and locks a sibling window review, then closes it from the host's matching result", async () => {

@@ -8,6 +8,7 @@ import type {
 } from "@zennotes/bridge-contract/cloud-sync";
 import { getZenBridge } from "@zennotes/bridge-contract/bridge";
 import {
+  acknowledgeCloudConflictResolution,
   registerCloudConflictDraftFlusher,
   syncCloudVaultWithStatus,
   useCloudSyncStatusStore,
@@ -19,11 +20,13 @@ type WholeVersionChoice = "local" | "cloud";
 
 export function CloudPendingConflictResolver({
   conflict,
+  summary,
   vaultName,
   onResolved,
   onClose,
 }: {
   conflict: CloudSyncPendingConflict;
+  summary: CloudSyncRunSummary;
   vaultName: string;
   onResolved: (summary: CloudSyncRunSummary) => void;
   onClose: () => void;
@@ -57,6 +60,7 @@ export function CloudPendingConflictResolver({
   const [resolvedPath, setResolvedPath] = useState(conflict.path);
   const loadedDraft = useRef<string | null>(null);
   const latestDraft = useRef("");
+  const resolved = useRef(false);
   const reviewId = useRef(crypto.randomUUID());
   const reviewGeneration = useRef(0);
   const finishLaterButton = useRef<HTMLButtonElement>(null);
@@ -106,6 +110,7 @@ export function CloudPendingConflictResolver({
   }, [bridge, conflict.id, reload]);
 
   async function flushDraft(): Promise<void> {
+    if (resolved.current) return;
     const value = latestDraft.current;
     if (loadedDraft.current === null || value === loadedDraft.current) return;
     setSaveState("saving");
@@ -173,7 +178,7 @@ export function CloudPendingConflictResolver({
   );
 
   const chooseChange = (changeId: string, choice: ChangeChoice): void => {
-    if (!details) return;
+    if (!details || resolved.current) return;
     setWholeVersionChoice(null);
     const nextChoices = { ...choices, [changeId]: choice };
     setChoices(nextChoices);
@@ -202,7 +207,7 @@ export function CloudPendingConflictResolver({
       "choice" | "keep_both_path" | "merged_text" | "resolved_path"
     >,
   ): Promise<void> => {
-    if (!details) return;
+    if (!details || resolved.current) return;
     setBusy(true);
     setError(null);
     try {
@@ -213,7 +218,12 @@ export function CloudPendingConflictResolver({
         expected_cloud_revision: details.cloud.revision,
         ...resolution,
       });
-      onResolved(await syncCloudVaultWithStatus(bridge, vaultName));
+      resolved.current = true;
+      const remaining = acknowledgeCloudConflictResolution(conflict.id, summary);
+      // Saving this note already succeeded. A slow or failed follow-up run
+      // must not keep its decision open or invite a duplicate save.
+      void syncCloudVaultWithStatus(bridge, vaultName).catch(() => {});
+      onResolved(remaining);
     } catch (cause) {
       setError(message(cause));
       setReload((current) => ({ nonce: current.nonce + 1, keepError: true }));

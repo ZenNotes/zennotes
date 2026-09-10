@@ -1605,6 +1605,230 @@ describe('CloudSyncCoordinator: converged pending conflicts', () => {
   })
 })
 
+describe('CloudSyncCoordinator: safely merging queued conflicts', () => {
+  const path = 'inbox/Daily.md'
+  const baseText = '# Daily\nDate: 2026-09-09\n\nExisting notes.\n'
+  const localText = `${baseText}\nNew desktop content.\n`
+  const cloudText = baseText.replace('2026-09-09', '2026-09-10')
+  const mergedText = `${cloudText}\nNew desktop content.\n`
+
+  function pendingState(): CloudSyncState & {
+    pending_conflicts: Record<string, CloudSyncStoredConflict>
+  } {
+    return {
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 2,
+      items: { daily: tracked('daily', path, 2, cloudText) },
+      pending_conflicts: {
+        daily: {
+          id: 'daily',
+          item_id: 'daily',
+          kind: 'content',
+          sequence: 2,
+          base: {
+            path,
+            revision: 1,
+            kind: 'text',
+            content: realContent(baseText)
+          },
+          local: {
+            path,
+            revision: null,
+            kind: 'text',
+            content: realContent(localText)
+          },
+          cloud: {
+            path,
+            revision: 2,
+            kind: 'text',
+            content: realContent(cloudText)
+          }
+        }
+      }
+    }
+  }
+
+  function acceptingRemote(changes: CloudSyncChange[] = []) {
+    return remote({
+      changes,
+      mutate: (body) => ({
+        acknowledged: body.mutations.map((mutation) => ({
+          operation_id: mutation.operation_id,
+          item_id: mutation.item_id,
+          revision: 4,
+          sequence: 4
+        })),
+        conflicts: [],
+        cursor: 4
+      })
+    })
+  }
+
+  it('reconsiders a persisted conflict and uploads safe top and bottom edits without a new remote change', async () => {
+    const fs = memoryFileSystem({ [path]: localText })
+    const states = memoryState(pendingState())
+    const server = acceptingRemote()
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    const result = await coordinator.sync()
+
+    expect(result.pendingConflicts).toEqual([])
+    expect(result.pushed).toBe(1)
+    expect(fs.files.get(path)).toBe(mergedText)
+    expect([...fs.files.keys()]).toEqual([path])
+    expect(states.current?.pending_conflicts).toEqual({})
+    expect(states.current?.items.daily).toMatchObject(tracked('daily', path, 4, mergedText))
+    expect(server.mutations.flatMap((request) => request.mutations)).toEqual([
+      expect.objectContaining({
+        type: 'upsert',
+        item_id: 'daily',
+        path,
+        base_revision: 2,
+        content: expect.objectContaining({ data: mergedText })
+      })
+    ])
+    await expect(coordinator.getConflict('daily')).rejects.toThrow('no longer waiting')
+  })
+
+  it('rechecks a queued conflict after a new Cloud revision makes its edits non-overlapping', async () => {
+    const initial = pendingState()
+    const overlappingText = `${baseText}\nDifferent mobile content.\n`
+    initial.items.daily = tracked('daily', path, 2, overlappingText)
+    initial.pending_conflicts.daily.cloud.content = realContent(overlappingText)
+    const states = memoryState(initial)
+    const fs = memoryFileSystem({ [path]: localText })
+    const server = acceptingRemote([upsert(3, 'daily', path, cloudText)])
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    ).sync()
+
+    expect(result.pendingConflicts).toEqual([])
+    expect(result.pushed).toBe(1)
+    expect(fs.files.get(path)).toBe(mergedText)
+    expect(states.current?.pending_conflicts).toEqual({})
+    expect(server.mutations.flatMap((request) => request.mutations)).toEqual([
+      expect.objectContaining({
+        type: 'upsert',
+        item_id: 'daily',
+        base_revision: 3,
+        content: expect.objectContaining({ data: mergedText })
+      })
+    ])
+  })
+
+  it('uses the current local file rather than a queued snapshot when combining safe edits', async () => {
+    const latestLocalText = `${localText}Another desktop task.\n`
+    const latestMergedText = `${mergedText}Another desktop task.\n`
+    const fs = memoryFileSystem({ [path]: latestLocalText })
+    const states = memoryState(pendingState())
+    const server = acceptingRemote()
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    ).sync()
+
+    expect(result.pendingConflicts).toEqual([])
+    expect(fs.files.get(path)).toBe(latestMergedText)
+    expect(server.mutations.flatMap((request) => request.mutations)).toEqual([
+      expect.objectContaining({
+        content: expect.objectContaining({ data: latestMergedText })
+      })
+    ])
+  })
+
+  it('preserves a user-written resolution draft even when the queued edits can now merge safely', async () => {
+    const initial = pendingState()
+    const draftText = `${mergedText}My carefully edited resolution.\n`
+    initial.pending_conflicts.daily.draft_text = draftText
+    const fs = memoryFileSystem({ [path]: localText })
+    const states = memoryState(initial)
+    const server = acceptingRemote()
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    const result = await coordinator.sync()
+
+    expect(result.pendingConflicts).toEqual([expect.objectContaining({ id: 'daily' })])
+    expect(states.current?.pending_conflicts?.daily.draft_text).toBe(draftText)
+    await expect(coordinator.getConflict('daily')).resolves.toMatchObject({
+      draft_text: draftText,
+      suggested_text: mergedText,
+      changes: []
+    })
+    expect(fs.files.get(path)).toBe(localText)
+    expect(server.mutations).toEqual([])
+  })
+
+  it('keeps genuinely overlapping edits queued for a user decision', async () => {
+    const initial = pendingState()
+    const overlappingLocalText = baseText.replace('2026-09-09', '2026-09-11')
+    initial.pending_conflicts.daily.local.content = realContent(overlappingLocalText)
+    const fs = memoryFileSystem({ [path]: overlappingLocalText })
+    const states = memoryState(initial)
+    const server = acceptingRemote()
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    const result = await coordinator.sync()
+
+    expect(result.pendingConflicts).toEqual([expect.objectContaining({ id: 'daily' })])
+    expect((await coordinator.getConflict('daily')).changes.length).toBeGreaterThan(0)
+    expect(fs.files.get(path)).toBe(overlappingLocalText)
+    expect(server.mutations).toEqual([])
+  })
+
+  it('preserves an edit racing the queued automatic merge and keeps the conflict pending', async () => {
+    const latestLocalText = `${localText}Typed while sync was running.\n`
+    const repository = memoryRepository([{ path, kind: 'text', content: realContent(localText) }])
+    const replace = repository.replaceConflictFile!.bind(repository)
+    repository.replaceConflictFile = async (input) => {
+      repository.items[0]!.content = realContent(latestLocalText)
+      await replace(input)
+    }
+    const states = memoryState(pendingState())
+    const server = acceptingRemote()
+
+    const result = await new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      repository,
+      states,
+      ids()
+    ).sync()
+
+    expect(repository.items[0]!.content.data).toBe(latestLocalText)
+    expect(result.pendingConflicts).toEqual([expect.objectContaining({ id: 'daily' })])
+    expect(states.current?.pending_conflicts?.daily).toBeDefined()
+    expect(server.mutations).toEqual([])
+  })
+})
+
 describe('CloudSyncCoordinator: catching up on a file this device never touched', () => {
   const path = 'inbox/Plan.md'
 

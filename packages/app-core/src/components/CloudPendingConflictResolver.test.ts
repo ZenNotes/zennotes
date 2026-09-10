@@ -82,6 +82,48 @@ beforeEach(() => {
 });
 
 describe("CloudPendingConflictResolver", () => {
+  it("finishes the saved decision before the remaining vault sync completes", async () => {
+    let finishSync!: (summary: CloudSyncRunSummary) => void;
+    bridge.syncCloudVault.mockImplementationOnce(() => new Promise((resolve) => {
+      finishSync = resolve;
+    }));
+    const onResolved = vi.fn();
+    const pending = { ...synced, pending_conflicts: [conflict] };
+    useCloudSyncStatusStore.setState({ lastSummary: pending, lastSyncedAt: 123 });
+    const view = mount({ onResolved });
+    await act(async () => Promise.resolve());
+    await act(async () => button(view.host, "Use other device").click());
+    await act(async () => button(view.host, "Save combined note").click());
+
+    expect(onResolved).toHaveBeenCalledWith(synced);
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "syncing", lastSyncedAt: 123, lastSummary: synced,
+    });
+    view.unmount();
+    await act(async () => finishSync(synced));
+  });
+
+  it("does not reopen a saved conflict when follow-up sync times out", async () => {
+    bridge.syncCloudVault.mockRejectedValueOnce(new Error("Request timed out"));
+    const onResolved = vi.fn();
+    useCloudSyncStatusStore.setState({
+      lastSummary: { ...synced, pending_conflicts: [conflict] },
+      lastSyncedAt: 123,
+    });
+    const view = mount({ onResolved });
+    await act(async () => Promise.resolve());
+    await act(async () => button(view.host, "Use other device").click());
+    await act(async () => button(view.host, "Save combined note").click());
+
+    expect(onResolved).toHaveBeenCalledWith(synced);
+    expect(bridge.getCloudConflict).toHaveBeenCalledTimes(1);
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "error", lastSyncedAt: 123, lastSummary: synced,
+      error: "Note saved. Remaining vault sync failed: Request timed out",
+    });
+    view.unmount();
+  });
+
   it("releases its own review session after unmount even if the final draft save fails", async () => {
     const view = mount({});
     await act(async () => Promise.resolve());
@@ -494,6 +536,7 @@ function mount(overrides: {
     root.render(
       createElement(CloudPendingConflictResolver, {
         conflict: overrides.conflict ?? conflict,
+        summary: { ...synced, pending_conflicts: [overrides.conflict ?? conflict] },
         vaultName: "Cloud Notes",
         onResolved: overrides.onResolved ?? vi.fn(),
         onClose: overrides.onClose ?? vi.fn(),

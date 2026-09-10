@@ -199,21 +199,19 @@ export class CloudSyncCoordinator {
     if (stored.cloud.revision !== resolution.expected_cloud_revision) {
       throw new Error('The Cloud version changed. Sync again before choosing a version.')
     }
-    const manifest = await this.stableManifest()
-    assertCloudSnapshotIsCurrent(stored, manifest)
-
-    if (resolution.choice === 'cloud') {
-      await this.applyCloudChoice(await this.withCloudBytes(stored, manifest), local)
-      await this.saveWithoutConflict(state, stored.id)
-      return
-    }
-
-    if (resolution.choice === 'both') {
-      await this.applyKeepBothChoice(
-        await this.withCloudBytes(stored, manifest),
-        local,
-        resolution.keep_both_path
-      )
+    if (resolution.choice === 'cloud' || resolution.choice === 'both') {
+      // These choices consume Cloud bytes locally rather than writing a
+      // revision. Check freshness using metadata, fetching only this file's
+      // retained bytes when they are not already in the conflict snapshot.
+      // Older hosts without a revision reader still need the content manifest.
+      const needsContentFallback =
+        !this.remote.revision && stored.cloud.content !== null &&
+        !hasInlineData(stored.cloud.content)
+      const manifest = await this.stableManifest(needsContentFallback)
+      assertCloudSnapshotIsCurrent(stored, manifest)
+      const current = await this.withCloudBytes(stored, manifest)
+      if (resolution.choice === 'cloud') await this.applyCloudChoice(current, local)
+      else await this.applyKeepBothChoice(current, local, resolution.keep_both_path)
       await this.saveWithoutConflict(state, stored.id)
       return
     }
@@ -264,6 +262,9 @@ export class CloudSyncCoordinator {
       throw new Error('The resolved file path is no longer available.')
     }
     const request = { mutations: [mutation] }
+    // The server atomically checks base_revision and destination ownership.
+    // A full-vault content download cannot strengthen that check and makes
+    // resolving one small note depend on every unrelated asset in the vault.
     const response = await this.remote.mutate(this.vaultId, request)
     const conflict = response.conflicts.find((item) => item.operation_id === operationId)
     if (conflict) {
@@ -401,12 +402,19 @@ export class CloudSyncCoordinator {
     pulled += initialPull.pulled
     localConflicts.push(...initialPull.localConflicts)
 
-    const localItems = await this.repository.scan()
+    let localItems = await this.repository.scan()
     const repositoryPendingPaths = (await this.repository.pendingConflictPaths?.()) ?? []
     const reconciled = clearConvergedConflicts(state, localItems, repositoryPendingPaths)
     if (reconciled !== state) {
       state = reconciled
       await this.states.save(state)
+    }
+    const merged = await this.retryPendingMerges(state, localItems, repositoryPendingPaths)
+    if (merged !== state) {
+      state = merged
+      await this.states.save(state)
+      // Plan from the merged bytes, never from the scan preceding the write.
+      localItems = await this.repository.scan()
     }
     const pendingPathKeys = new Set([
       ...repositoryPendingPaths.map(cloudSyncPathKey),
@@ -605,6 +613,72 @@ export class CloudSyncCoordinator {
     if (changes.length > 0) await this.states.save(state)
 
     return { state, pulled, localConflicts }
+  }
+
+  private async retryPendingMerges(
+    initialState: CloudSyncState,
+    localItems: CloudSyncLocalItem[],
+    repositoryPendingPaths: string[]
+  ): Promise<CloudSyncState> {
+    let state = initialState
+    const blocked = new Set(repositoryPendingPaths.map(cloudSyncPathKey))
+    const locals = new Map<string, CloudSyncLocalItem>()
+    for (const item of localItems) {
+      const key = cloudSyncPathKey(item.path)
+      if (locals.has(key)) blocked.add(key)
+      locals.set(key, item)
+    }
+    const pendingPaths = new Set<string>()
+    for (const conflict of Object.values(state.pending_conflicts ?? {})) {
+      const keys = new Set(
+        pendingConflictPaths({
+          ...state,
+          pending_conflicts: { [conflict.id]: conflict }
+        }).map(cloudSyncPathKey)
+      )
+      for (const key of keys) {
+        if (pendingPaths.has(key)) blocked.add(key)
+        pendingPaths.add(key)
+      }
+    }
+    for (const conflict of Object.values(state.pending_conflicts ?? {})) {
+      const cloud = conflict.cloud
+      const tracked = state.items[conflict.item_id]
+      if (
+        conflict.kind !== 'content' ||
+        conflict.draft_text !== undefined ||
+        (conflict.paused_paths?.length ?? 0) > 0 ||
+        cloud.path === null ||
+        cloud.path !== conflict.local.path ||
+        cloud.path !== conflict.base.path ||
+        cloud.kind !== 'text' ||
+        !cloud.content ||
+        !tracked ||
+        tracked.item_id !== conflict.item_id ||
+        tracked.path !== cloud.path ||
+        tracked.revision !== cloud.revision ||
+        tracked.kind !== cloud.kind ||
+        tracked.sha256 !== cloud.content.sha256 ||
+        tracked.byte_length !== cloud.content.byte_length
+      ) {
+        continue
+      }
+      const key = cloudSyncPathKey(cloud.path)
+      if (blocked.has(key)) continue
+      const local = locals.get(key)
+      if (!local || local.path !== cloud.path || local.kind !== 'text') continue
+      // Identical bytes have their own stricter convergence checks above.
+      if (inlineText(local.content) === inlineText(cloud.content)) continue
+      if (
+        await this.applyAutomaticMerge({
+          ...conflict,
+          local: { path: local.path, kind: local.kind, revision: null, content: local.content }
+        })
+      ) {
+        state = withoutConflict(state, conflict.id)
+      }
+    }
+    return state
   }
 
   private async applyAutomaticMerge(conflict: CloudSyncStoredConflict): Promise<boolean> {
@@ -955,7 +1029,7 @@ export class CloudSyncCoordinator {
     }
   }
 
-  private async stableManifest(): Promise<{
+  private async stableManifest(includeContent = true): Promise<{
     cursor: number
     items: CloudSyncManifestItem[]
   }> {
@@ -967,7 +1041,7 @@ export class CloudSyncCoordinator {
 
       for (;;) {
         const response = await this.remote.manifest(this.vaultId, {
-          includeContent: true,
+          includeContent,
           page,
           perPage: MANIFEST_PAGE_SIZE
         })

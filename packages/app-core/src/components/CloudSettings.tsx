@@ -86,6 +86,15 @@ export function CloudSettings({
   const [action, setAction] = useState<CloudAction>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    return useCloudSyncStatusStore.subscribe((next, previous) => {
+      // A saved decision updates this panel immediately, then the remaining
+      // vault sync may finish later. Adopt that result (or a vault reset), but
+      // keep explicit restore/manual summaries through unrelated status changes.
+      if (next.lastSummary !== previous.lastSummary) setSummary(next.lastSummary);
+    });
+  }, []);
+
   const loadStatus = useCallback(
     async (nextStatus?: CloudAccountStatus): Promise<void> => {
       const next = nextStatus ?? (await bridge.getCloudAccountStatus());
@@ -2023,6 +2032,7 @@ function CloudSyncSummary({
         ) && (
           <div className="mt-3 rounded-xl border border-paper-300/60 bg-paper-50 p-3">
             <CloudPendingConflictResolver
+              summary={summary}
               // Keyed by conflict: auto-advancing to the next file must not
               // inherit the previous one's copy name or resolved path, which
               // are seeded once from the conflict this resolver opened with.

@@ -58,6 +58,8 @@ interface CloudSyncStatusStore {
   conflictReviewOpen: boolean;
   /** Remains locked even if this window's own controller refreshes its status. */
   syncWindowLocked: boolean;
+  /** A note was saved, but the following whole-vault sync has not completed. */
+  resolutionSaved: boolean;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -68,6 +70,7 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   lastSummary: null,
   conflictReviewOpen: false,
   syncWindowLocked: false,
+  resolutionSaved: false,
 };
 
 export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
@@ -163,7 +166,12 @@ export function startCloudAutoSync(
     },
     finished(summary, error) {
       if (summary) applyCloudSyncSummary(summary);
-      else if (error) useCloudSyncStatusStore.setState({ phase: "error", error });
+      else if (error) {
+        useCloudSyncStatusStore.setState({
+          phase: "error",
+          error: syncFailureMessage(error),
+        });
+      }
       useCloudSyncStatusStore.setState({ syncWindowLocked: false });
     },
   });
@@ -237,10 +245,35 @@ export async function syncCloudVaultWithStatus(
     useCloudSyncStatusStore.setState({
       phase: "error",
       vaultName: nextVaultName,
-      error: cloudSyncErrorMessage(error),
+      error: syncFailureMessage(error),
     });
     throw error;
   }
+}
+
+/** Retire only the acknowledged decision, not the status of the whole vault. */
+export function acknowledgeCloudConflictResolution(
+  conflictId: string,
+  fallbackSummary: CloudSyncRunSummary,
+): CloudSyncRunSummary {
+  const current = useCloudSyncStatusStore.getState();
+  // Linking or restoring can present a new queue before the shared run status
+  // catches up. Never replace that queue with an older, unrelated summary.
+  const previous = current.lastSummary?.pending_conflicts?.some(
+    (item) => item.id === conflictId,
+  ) ? current.lastSummary : fallbackSummary;
+  const summary = {
+    ...previous,
+    pending_conflicts:
+      previous.pending_conflicts?.filter((item) => item.id !== conflictId) ?? [],
+  };
+  useCloudSyncStatusStore.setState({
+    lastSummary: summary,
+    resolutionSaved: true,
+    conflictReviewOpen:
+      current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0,
+  });
+  return summary;
 }
 
 function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string | null): void {
@@ -252,6 +285,7 @@ function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string 
     lastSyncedAt: attention === null ? Date.now() : current.lastSyncedAt,
     error: attention,
     lastSummary: summary,
+    resolutionSaved: false,
     // Do not reopen a finished review on the next unrelated conflict.
     conflictReviewOpen: current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0,
   });
@@ -314,6 +348,7 @@ function markCloudSyncReady(vaultName: string): void {
     phase: "ready",
     vaultName,
     lastSyncedAt: current.vaultName === vaultName ? current.lastSyncedAt : null,
+    resolutionSaved: current.vaultName === vaultName && current.resolutionSaved,
     error: null,
   });
 }
@@ -323,6 +358,7 @@ function markCloudSyncDisconnected(error: string | null = null): void {
     phase: "disconnected",
     vaultName: null,
     lastSyncedAt: null,
+    resolutionSaved: false,
     error,
   });
 }
@@ -332,6 +368,7 @@ function markCloudSyncConnecting(): void {
     phase: "connecting",
     vaultName: null,
     lastSyncedAt: null,
+    resolutionSaved: false,
     error: null,
   });
 }
@@ -341,6 +378,7 @@ function markCloudSyncUnlinked(): void {
     phase: "unlinked",
     vaultName: null,
     lastSyncedAt: null,
+    resolutionSaved: false,
     error: null,
   });
 }
@@ -386,6 +424,13 @@ function logAutomaticSyncError(error: unknown, retryInMs: number): void {
   console.warn(
     `[cloud-sync] Automatic sync failed; retrying in ${retryInMs}ms: ${message}`,
   );
+}
+
+function syncFailureMessage(error: unknown): string {
+  const prefix = useCloudSyncStatusStore.getState().resolutionSaved
+    ? "Note saved. Remaining vault sync failed: "
+    : "";
+  return prefix + cloudSyncErrorMessage(error);
 }
 
 function cloudSyncErrorMessage(error: unknown): string {
