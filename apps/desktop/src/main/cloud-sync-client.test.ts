@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import * as nodeFs from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -6,10 +7,13 @@ import type { CloudSyncUpsertMutation } from '@zennotes/bridge-contract/cloud-sy
 import { CloudServiceRequestError, createCloudSyncClient } from './cloud-sync-client'
 import { rememberCloudSyncUploadSource } from './cloud-sync-upload-source'
 
+vi.mock('node:fs', { spy: true })
+
 const INLINE_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024
 const temporaryDirectories: string[] = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -18,6 +22,51 @@ afterEach(async () => {
 })
 
 describe('createCloudSyncClient', () => {
+  it.each(['reject', 'early response'] as const)(
+    'closes the file source before releasing the reservation after an upload %s',
+    async (failure) => {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-upload-failure-'))
+      temporaryDirectories.push(directory)
+      const sourcePath = path.join(directory, 'image.jpg')
+      const bytes = Buffer.alloc(8_100_000, 7)
+      await writeFile(sourcePath, bytes)
+      const mutation = upsertMutation(bytes.length, '')
+      rememberCloudSyncUploadSource(mutation.content, sourcePath)
+      const openFile = vi.spyOn(nodeFs, 'createReadStream')
+      let destroyedBeforeAbort = false
+      const fetchImplementation = vi.fn<typeof fetch>(async (input, options) => {
+        const url = String(input)
+        if (url.endsWith('/uploads') && options?.method === 'POST') {
+          return jsonResponse({
+            data: {
+              id: 'interrupted',
+              operation_id: mutation.operation_id,
+              expected_bytes: bytes.length,
+              upload: { method: 'PUT', url: 'https://objects.example.test/image', headers: {} }
+            }
+          })
+        }
+        if (url === 'https://objects.example.test/image') {
+          if (failure === 'reject') throw new TypeError('fetch failed')
+          return new Response(null, { status: 503 })
+        }
+        if (options?.method === 'DELETE') {
+          destroyedBeforeAbort = openFile.mock.results[0]?.value.destroyed === true
+          return new Response(null, { status: 204 })
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+      try {
+        const client = createCloudSyncClient('https://zennotes.test', 'token', fetchImplementation)
+        await expect(client.mutate('vault', { mutations: [mutation] })).rejects.toThrow()
+        expect(destroyedBeforeAbort).toBe(true)
+      } finally {
+        // Keep the regression itself from leaking the old implementation's reader.
+        for (const result of openFile.mock.results) result.value?.destroy()
+      }
+    }
+  )
+
   it('authenticates requests without exposing the token in the URL', async () => {
     const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(JSON.stringify({ data: [] }), {
@@ -212,7 +261,9 @@ describe('createCloudSyncClient', () => {
         )
       }
       if (url.startsWith('https://objects.example.test/')) {
-        uploadedBodies.push(Buffer.from(await new Response(options?.body).arrayBuffer()))
+        const chunks: Uint8Array[] = []
+        for await (const chunk of options?.body as AsyncIterable<Uint8Array>) chunks.push(chunk)
+        uploadedBodies.push(Buffer.concat(chunks))
         return new Response(null, { status: 200 })
       }
       if (url.endsWith('/complete')) {

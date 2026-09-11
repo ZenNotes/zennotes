@@ -254,9 +254,13 @@ export function CloudSettings({
     try {
       await operation();
     } catch (cause) {
-      setError(
-        errorMessage(cause, "ZenNotes Cloud could not complete that action."),
-      );
+      // Sync errors already live in the shared status store. Duplicating one
+      // here leaves it visible after a successful editor/background retry.
+      if (nextAction !== "sync") {
+        setError(
+          errorMessage(cause, "ZenNotes Cloud could not complete that action."),
+        );
+      }
     } finally {
       setAction(null);
     }
@@ -1034,6 +1038,12 @@ function CloudVaultPanel({
   onSummaryChange: (summary: CloudSyncRunSummary) => void;
 }): JSX.Element {
   const lastSummary = useCloudSyncStatusStore((s) => s.lastSummary);
+  const syncPhase = useCloudSyncStatusStore((s) => s.phase);
+  const syncError = useCloudSyncStatusStore((s) => s.error);
+  const syncing = syncPhase === "syncing" || action === "sync";
+  const syncFailed = syncPhase === "error";
+  const currentResult = !syncing && !syncFailed;
+  const displayedSummary = summary ?? lastSummary;
   if (!syncIncluded) {
     return (
       <CloudNotice>Sync is not included in this subscription.</CloudNotice>
@@ -1140,10 +1150,10 @@ function CloudVaultPanel({
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={action !== null}
+                  disabled={action !== null || syncing}
                   onClick={onSync}
                 >
-                  {action === "sync" ? "Syncing…" : "Sync now"}
+                  {syncing ? "Syncing…" : "Sync now"}
                 </Button>
               </div>
             </div>
@@ -1153,13 +1163,25 @@ function CloudVaultPanel({
                 onResolve={onResolveSettingsConflict}
               />
             )}
-            {(summary ?? lastSummary) && (
-              <CloudSyncSummary
-                summary={(summary ?? lastSummary)!}
-                vaultName={link.vault_name}
-                onSummaryChange={onSummaryChange}
-              />
+            {syncing && (
+              <div role="status" className="text-sm text-ink-500">
+                Syncing… Waiting for all changes to finish.
+              </div>
             )}
+            {syncFailed && !syncing && (
+              <div role="alert" className="text-sm text-danger">
+                {syncError ?? "Sync failed. Please try again."}
+              </div>
+            )}
+            {displayedSummary &&
+              (currentResult || cloudSyncAttentionMessage(displayedSummary)) && (
+                <CloudSyncSummary
+                  summary={displayedSummary}
+                  showStatus={currentResult}
+                  vaultName={link.vault_name}
+                  onSummaryChange={onSummaryChange}
+                />
+              )}
           </div>
         ) : (
           <CloudVaultDestinationOptions
@@ -1892,10 +1914,12 @@ function CloudSyncSummary({
   summary,
   vaultName,
   onSummaryChange,
+  showStatus = true,
 }: {
   summary: CloudSyncRunSummary;
   vaultName: string;
   onSummaryChange: (summary: CloudSyncRunSummary) => void;
+  showStatus?: boolean;
 }): JSX.Element {
   const [selectedPendingConflictId, setSelectedPendingConflictId] = useState<
     string | null
@@ -1927,16 +1951,20 @@ function CloudSyncSummary({
           : "rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700"
       }
     >
-      <div className="font-medium">
-        {attention
-          ? "Sync incomplete"
-          : summary.pulled === 0 && summary.pushed === 0
-            ? "Everything is up to date"
-            : `Downloaded ${summary.pulled} · Uploaded ${summary.pushed}`}
-      </div>
-      <div className="mt-1 text-xs text-ink-500">
-        {attention ?? "All changes are synced."}
-      </div>
+      {showStatus && (
+        <>
+          <div className="font-medium">
+            {attention
+              ? "Sync incomplete"
+              : summary.pulled === 0 && summary.pushed === 0
+                ? "Everything is up to date"
+                : `Downloaded ${summary.pulled} · Uploaded ${summary.pushed}`}
+          </div>
+          <div className="mt-1 text-xs text-ink-500">
+            {attention ?? "All changes are synced."}
+          </div>
+        </>
+      )}
       {capacityConflictCount > 0 && (
         <div className="mt-1 text-xs text-ink-500">
           {capacityConflictCount}{" "}

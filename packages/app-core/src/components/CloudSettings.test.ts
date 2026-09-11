@@ -127,7 +127,7 @@ describe("CloudSettings", () => {
   let host: HTMLDivElement;
   let root: Root;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     clearCloudSyncStatus();
     mocks.saveCloudConflictDraft.mockResolvedValue(undefined);
@@ -140,9 +140,8 @@ describe("CloudSettings", () => {
       next_backup_at: null,
       last_backup_at: null,
     });
-    mocks.syncCloudVaultWithStatus.mockImplementation(() =>
-      mocks.syncCloudVault(),
-    );
+    const actual = await vi.importActual<typeof import("../lib/cloud-auto-sync")>("../lib/cloud-auto-sync");
+    mocks.syncCloudVaultWithStatus.mockImplementation(actual.syncCloudVaultWithStatus);
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -609,6 +608,229 @@ describe("CloudSettings", () => {
     })));
     expect(host.textContent).toContain("Downloaded 1 · Uploaded 0");
     expect(host.textContent).not.toContain("Downloaded 2 · Uploaded 3");
+  });
+
+  describe("live sync status", () => {
+    let syncWithStatus: typeof import("../lib/cloud-auto-sync").syncCloudVaultWithStatus;
+    const completed: CloudSyncRunSummary = {
+      cursor: 7,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    };
+
+    beforeEach(async () => {
+      const actual = await vi.importActual<typeof import("../lib/cloud-auto-sync")>(
+        "../lib/cloud-auto-sync",
+      );
+      syncWithStatus = actual.syncCloudVaultWithStatus;
+      mocks.syncCloudVaultWithStatus.mockImplementation(syncWithStatus);
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+      mocks.listCloudVaults.mockResolvedValue([]);
+      mocks.getCloudVaultLink.mockResolvedValue({
+        base_url: "https://zennotes.org",
+        vault_id: "vault-1",
+        vault_name: "Cloud Notes",
+        linked_at: "2026-08-10T12:00:00.000Z",
+      });
+      mocks.getCloudSettingsConflict.mockResolvedValue(null);
+      mocks.syncCloudVault.mockResolvedValue(completed);
+      await act(async () => root.render(createElement(CloudSettings, {
+        localVaultAvailable: true,
+        localVaultName: "Notes",
+      })));
+    });
+
+    it.each(["Settings", "editor"] as const)(
+      "replaces an earlier successful result when a sync from %s fails",
+      async (source) => {
+        await act(async () => { await syncWithStatus(mocks, "Cloud Notes"); });
+        expect(host.textContent).toContain("All changes are synced.");
+        mocks.syncCloudVault.mockRejectedValueOnce(new Error("Cloud sync timed out."));
+
+        await act(async () => {
+          if (source === "Settings") {
+            [...host.querySelectorAll("button")]
+              .find((button) => button.textContent?.trim() === "Sync now")!.click();
+          } else {
+            await expect(syncWithStatus(mocks, "Cloud Notes"))
+              .rejects.toThrow("Cloud sync timed out.");
+          }
+        });
+
+        expect(useCloudSyncStatusStore.getState().phase).toBe("error");
+        expect(host.textContent).toContain("Cloud sync timed out.");
+        expect(host.textContent).not.toContain("Everything is up to date");
+        expect(host.textContent).not.toContain("All changes are synced.");
+      },
+    );
+
+    it("removes a Settings sync failure when a later editor retry succeeds", async () => {
+      mocks.syncCloudVault.mockRejectedValueOnce(new Error("Cloud sync timed out."));
+      await act(async () => {
+        [...host.querySelectorAll("button")]
+          .find((button) => button.textContent?.trim() === "Sync now")!.click();
+      });
+      expect(host.textContent).toContain("Cloud sync timed out.");
+
+      await act(async () => { await syncWithStatus(mocks, "Cloud Notes"); });
+
+      expect(useCloudSyncStatusStore.getState().phase).toBe("ready");
+      expect(host.textContent).toContain("Everything is up to date");
+      expect(host.textContent).not.toContain("Cloud sync timed out.");
+    });
+
+    it("does not claim all changes are synced while an editor retry is still uploading", async () => {
+      await act(async () => { await syncWithStatus(mocks, "Cloud Notes"); });
+      let finishUpload!: (summary: CloudSyncRunSummary) => void;
+      mocks.syncCloudVault.mockImplementationOnce(() => new Promise<CloudSyncRunSummary>((resolve) => {
+        finishUpload = resolve;
+      }));
+      let retry!: Promise<CloudSyncRunSummary>;
+      await act(async () => { retry = syncWithStatus(mocks, "Cloud Notes"); });
+      try {
+        expect(useCloudSyncStatusStore.getState().phase).toBe("syncing");
+        expect(host.textContent).not.toContain("Everything is up to date");
+        expect(host.textContent).not.toContain("All changes are synced.");
+        expect(host.textContent).toContain("Syncing");
+      } finally {
+        await act(async () => {
+          finishUpload({ ...completed, cursor: 8, pushed: 1 });
+          await retry;
+        });
+      }
+      expect(host.textContent).toContain("Downloaded 0 · Uploaded 1");
+      expect(host.textContent).toContain("All changes are synced.");
+    });
+
+    it.each(["publishing", "backup"] as const)(
+      "preserves an unrelated %s error when background sync fails and recovers",
+      async (operation) => {
+        const actionError = operation === "publishing"
+          ? "Could not load published notes."
+          : "Could not create the backup.";
+        if (operation === "backup") {
+          await act(async () => root.render(null));
+          mocks.getCloudServiceAccount.mockResolvedValue({
+            ...serviceAccount,
+            features: {
+              ...serviceAccount.features,
+              backup: { active: true, limits: { max_snapshots: 30 } },
+            },
+          });
+          mocks.listCloudBackups.mockResolvedValue([]);
+          mocks.createCloudBackup.mockRejectedValueOnce(new Error(actionError));
+          await act(async () => root.render(createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          })));
+        } else {
+          mocks.listCloudPublishedNotes.mockRejectedValueOnce(new Error(actionError));
+        }
+        await act(async () => {
+          [...host.querySelectorAll("button")]
+            .find((button) => button.textContent?.trim() === (
+              operation === "publishing" ? "Refresh" : "Create backup"
+            ))!.click();
+        });
+        expect(host.textContent).toContain(actionError);
+
+        mocks.syncCloudVault.mockRejectedValueOnce(new Error("Cloud sync timed out."));
+        await act(async () => {
+          await expect(syncWithStatus(mocks, "Cloud Notes"))
+            .rejects.toThrow("Cloud sync timed out.");
+        });
+        expect(host.textContent).toContain("Cloud sync timed out.");
+        expect(host.textContent).toContain(actionError);
+
+        await act(async () => { await syncWithStatus(mocks, "Cloud Notes"); });
+
+        expect(host.textContent).toContain("All changes are synced.");
+        expect(host.textContent).not.toContain("Cloud sync timed out.");
+        expect(host.textContent).toContain(actionError);
+      },
+    );
+
+    it("keeps an open conflict and its draft available during an upload and after a sync failure", async () => {
+      const conflict = {
+        id: "note-1",
+        item_id: "note-1",
+        path: "Daily.md",
+        cloud_path: "Daily.md",
+        kind: "content" as const,
+        can_merge: true,
+        has_base: true,
+      };
+      const pending: CloudSyncRunSummary = {
+        ...completed,
+        pending_conflicts: [conflict],
+      };
+      const version = {
+        path: "Daily.md",
+        revision: 7,
+        sha256: "local-version",
+        byte_length: 10,
+        media_type: "text/markdown",
+        text: "Local note",
+        deleted: false,
+      };
+      mocks.getCloudConflict.mockResolvedValue({
+        conflict,
+        base: { ...version, text: "Base note" },
+        local: version,
+        cloud: { ...version, sha256: "cloud-version", text: "Cloud note" },
+        suggested_text: "Combined note",
+        draft_text: null,
+        changes: [],
+        parts: [],
+      });
+      mocks.syncCloudVault.mockResolvedValueOnce(pending);
+      await act(async () => { await syncWithStatus(mocks, "Cloud Notes"); });
+      await act(async () => {
+        [...host.querySelectorAll("button")]
+          .find((button) => button.textContent?.trim() === "Resolve")!.click();
+      });
+      const draftSelector = '[data-cloud-pending-conflict="note-1"] textarea';
+      const draft = host.querySelector<HTMLTextAreaElement>(draftSelector)!;
+      const userDraft = "My unfinished conflict review";
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!
+          .set!.call(draft, userDraft);
+        draft.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(draft.value).toBe(userDraft);
+
+      let failUpload!: (cause: Error) => void;
+      mocks.syncCloudVault.mockImplementationOnce(() => new Promise<CloudSyncRunSummary>((_, reject) => {
+        failUpload = reject;
+      }));
+      let retry!: Promise<unknown>;
+      await act(async () => {
+        retry = syncWithStatus(mocks, "Cloud Notes").catch((cause: unknown) => cause);
+      });
+      try {
+        expect(host.textContent).toContain("Waiting for all changes to finish.");
+        expect(host.querySelector('[aria-label="Files that need attention"]')?.textContent)
+          .toContain("Daily.md");
+        expect(host.querySelector<HTMLTextAreaElement>(draftSelector)?.value).toBe(userDraft);
+        expect(host.querySelector<HTMLTextAreaElement>(draftSelector)?.disabled).toBe(true);
+      } finally {
+        await act(async () => {
+          failUpload(new Error("Cloud sync timed out."));
+          await retry;
+        });
+      }
+
+      expect(host.textContent).toContain("Cloud sync timed out.");
+      expect(host.querySelector('[aria-label="Files that need attention"]')?.textContent)
+        .toContain("Daily.md");
+      expect(host.querySelector<HTMLTextAreaElement>(draftSelector)?.value).toBe(userDraft);
+      expect(host.querySelector<HTMLTextAreaElement>(draftSelector)?.disabled).toBe(false);
+      expect(host.textContent).not.toContain("All changes are synced.");
+    });
   });
 
   it("clears a stale successful summary when a later manual sync times out", async () => {

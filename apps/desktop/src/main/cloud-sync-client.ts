@@ -3,9 +3,8 @@ import {
   type CloudSyncHttpRequest,
   type CloudSyncHttpTransport
 } from '@zennotes/shared-domain/cloud-sync-api'
-import { createReadStream } from 'node:fs'
+import { createReadStream, type ReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
-import { Readable } from 'node:stream'
 import type {
   CloudSyncCapacityConflict,
   CloudSyncConflict,
@@ -124,18 +123,25 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     let response: Response
 
     try {
-      response = await this.fetchImplementation(uploadUrl, {
-        method: upload.method,
-        headers: upload.headers,
-        body: uploadBody.createBody(),
-        signal: AbortSignal.timeout(DIRECT_UPLOAD_TIMEOUT_MS),
-        redirect: 'error',
-        ...(uploadBody.stream ? { duplex: 'half' } : {})
-      })
+      try {
+        response = await this.fetchImplementation(uploadUrl, {
+          method: upload.method,
+          headers: upload.headers,
+          body: uploadBody.createBody(),
+          signal: AbortSignal.timeout(DIRECT_UPLOAD_TIMEOUT_MS),
+          redirect: 'error',
+          ...(uploadBody.stream ? { duplex: 'half' } : {})
+        })
+      } finally {
+        // A server can reject the PUT before reading the file. Stop its reader
+        // before waiting for reservation cleanup (including on timeout/abort).
+        uploadBody.dispose()
+      }
     } catch (error) {
       await this.abortQuietly(vaultId, instruction.id)
       throw error
     }
+    await response.body?.cancel().catch(() => {})
 
     if (!response.ok) {
       await this.abortQuietly(vaultId, instruction.id)
@@ -296,22 +302,29 @@ function uploadRequest(mutation: CloudSyncUpsertMutation): CloudSyncUploadReques
 
 async function prepareDirectUploadBody(
   mutation: CloudSyncUpsertMutation
-): Promise<{ createBody(): FetchBody; stream: boolean }> {
+): Promise<{ createBody(): FetchBody; dispose(): void; stream: boolean }> {
   const sourcePath = cloudSyncUploadSource(mutation.content)
   if (sourcePath) {
     const sourceStats = await stat(sourcePath)
     if (!sourceStats.isFile() || sourceStats.size !== mutation.content.byte_length) {
       throw directUploadSizeMismatch()
     }
+    let reader: ReadStream | undefined
     return {
-      createBody: () => Readable.toWeb(createReadStream(sourcePath)) as unknown as FetchBody,
+      // Node fetch accepts async iterables directly. Avoid the event-based
+      // toWeb adapter: late file events after cancellation can enqueue into
+      // a closed WebStream controller outside the fetch promise's catch.
+      createBody: () => (reader = createReadStream(sourcePath)) as unknown as FetchBody,
+      dispose: () => {
+        reader?.destroy()
+      },
       stream: true
     }
   }
 
   const bytes = uploadBytes(mutation)
   if (bytes.byteLength !== mutation.content.byte_length) throw directUploadSizeMismatch()
-  return { createBody: () => bytes as FetchBody, stream: false }
+  return { createBody: () => bytes as FetchBody, dispose: () => {}, stream: false }
 }
 
 function uploadBytes(mutation: CloudSyncUpsertMutation): Uint8Array {
