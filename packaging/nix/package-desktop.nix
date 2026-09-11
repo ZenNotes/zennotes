@@ -35,7 +35,18 @@
   pango,
   systemd,
   wayland,
-  xorg,
+  libx11,
+  libxcomposite,
+  libxcursor,
+  libxdamage,
+  libxext,
+  libxfixes,
+  libxi,
+  libxrandr,
+  libxrender,
+  libxscrnsaver,
+  libxtst,
+  libxcb,
 
   commandLineArgs ? "",
 }:
@@ -86,18 +97,18 @@ stdenv.mkDerivation (finalAttrs: {
     nss
     pango
     stdenv.cc.cc # libstdc++
-    xorg.libX11
-    xorg.libXcomposite
-    xorg.libXcursor
-    xorg.libXdamage
-    xorg.libXext
-    xorg.libXfixes
-    xorg.libXi
-    xorg.libXrandr
-    xorg.libXrender
-    xorg.libXScrnSaver
-    xorg.libXtst
-    xorg.libxcb
+    libx11
+    libxcomposite
+    libxcursor
+    libxdamage
+    libxext
+    libxfixes
+    libxi
+    libxrandr
+    libxrender
+    libxscrnsaver
+    libxtst
+    libxcb
   ];
 
   # dlopen'd at runtime (not in DT_NEEDED), so keep them on the wrapper's path.
