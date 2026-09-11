@@ -60,6 +60,7 @@ import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../li
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { resolveNoteDirection } from '../lib/bidi-dir'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 
 const PINNED_REF_PANE_ID = 'pinned-ref'
@@ -166,6 +167,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const persistNote = useStore((s) => s.persistNote)
   const vimMode = useStore((s) => s.vimMode)
   const livePreview = useStore((s) => s.livePreview)
+  const rtlMode = useStore((s) => s.rtlMode)
   const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const editorTabSizeValue = useStore((s) => s.editorTabSize)
@@ -179,6 +181,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const viewPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
+  const directionCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const headingCompartmentRef = useRef<Compartment | null>(null)
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
@@ -197,11 +200,13 @@ export function PinnedReferencePane(): JSX.Element | null {
       if (viewRef.current) return
       const vimCompartment = new Compartment()
       const livePreviewCompartment = new Compartment()
+      const directionCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const headingCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
+      directionCompartmentRef.current = directionCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       headingCompartmentRef.current = headingCompartment
       tabSizeCompartmentRef.current = tabSizeCompartment
@@ -235,6 +240,13 @@ export function PinnedReferencePane(): JSX.Element | null {
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           livePreviewCompartment.of(s0.livePreview ? livePreviewPlugin : []),
+          directionCompartment.of(
+            EditorView.contentAttributes.of(
+              resolveNoteDirection(initialContent?.body ?? '', s0.rtlMode) === 'rtl'
+                ? { dir: 'rtl' }
+                : { dir: 'ltr' }
+            )
+          ),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),
           tooltips({ parent: document.body }),
           autocompletion({
@@ -354,6 +366,20 @@ export function PinnedReferencePane(): JSX.Element | null {
       ])
     })
   }, [editorTabSizeValue, listIndentGuidesOn])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = directionCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({
+      effects: comp.reconfigure(
+        EditorView.contentAttributes.of(
+          resolveNoteDirection(content?.body ?? '', rtlMode) === 'rtl'
+            ? { dir: 'rtl' }
+            : { dir: 'ltr' }
+        )
+      )
+    })
+  }, [rtlMode, content?.body])
 
   /* -------- Re-measure on font changes -------- */
   useEffect(() => {

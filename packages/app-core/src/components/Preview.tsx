@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
+import { resolveNoteDirection } from "../lib/bidi-dir";
 import {
   setMarkdownLooseMathDelimiters,
   setMarkdownMathRenderer,
@@ -188,6 +189,7 @@ export const Preview = memo(function Preview({
   const ref = useRef<HTMLDivElement | null>(null);
   const mathRenderer = useStore((s) => s.mathRenderer);
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters);
+  const rtlMode = useStore((s) => s.rtlMode);
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const folders = useStore((s) => s.folders);
@@ -1092,6 +1094,7 @@ export const Preview = memo(function Preview({
         data-preview-content
         ref={ref}
         className="prose-zen py-8"
+        dir={resolveNoteDirection(markdown, rtlMode)}
       />
       {hovered && (
         <NoteHoverPreview

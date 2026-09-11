@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { NoteContent, NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import { renderMarkdown } from '../lib/markdown'
+import { resolveNoteDirection } from '../lib/bidi-dir'
 import { enhanceLocalAssetNodes } from '../lib/local-assets'
 import { assetTabPath } from '../lib/asset-tabs'
 import {
@@ -34,6 +35,7 @@ export function NoteHoverPreview({
   const vault = useStore((s) => s.vault)
   const assetFiles = useStore((s) => s.assetFiles)
   const customCodeLanguagesRevision = useStore((s) => s.customCodeLanguagesRevision)
+  const rtlMode = useStore((s) => s.rtlMode)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const openNoteInTab = useStore((s) => s.openNoteInTab)
@@ -183,6 +185,7 @@ export function NoteHoverPreview({
           <article
             ref={articleRef}
             className="prose-zen prose-hover-preview"
+            dir={resolveNoteDirection(content?.body ?? '', rtlMode)}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
