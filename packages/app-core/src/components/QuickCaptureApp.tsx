@@ -21,7 +21,7 @@
  *   ⌘N  / Ctrl+N            — save the current note and start a new one.
  *   ⌘P  / Ctrl+P            — open the note picker.
  *   ⌘⇧P / Ctrl+Shift+P      — open the command palette.
- *   Esc                      — close the open overlay, else hide window.
+ *   Esc                      — cancel editor selection/mode or overlay, else hide window.
  *
  * Vim ex commands (when vim mode is on):
  *   :w           — save without closing.
@@ -591,6 +591,9 @@ export function QuickCaptureApp(): JSX.Element {
         return
       }
       if (e.key === 'Escape') {
+        // CodeMirror can consume Esc (e.g. collapsing a visual selection)
+        // without stopping propagation. Do not also save and hide. (#765)
+        if (e.defaultPrevented) return
         if (overlayRef.current !== 'none') {
           // Overlay open — first Esc just dismisses it. The overlay's
           // own input handler also stops propagation, so this branch
