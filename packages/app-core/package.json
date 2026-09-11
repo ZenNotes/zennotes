@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/app-core",
   "private": true,
-  "version": "2.47.0",
+  "version": "2.48.0",
   "type": "module",
   "exports": {
     "./main": "./src/main.tsx"
