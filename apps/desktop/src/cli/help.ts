@@ -125,6 +125,13 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
     ]
   },
   {
+    heading: 'ASSETS',
+    rows: [
+      { name: 'asset list', description: 'List images and attachments in the vault', flags: '--json' },
+      { name: 'asset get <path>', description: 'Fetch an asset: binary to stdout, or saved via --output', flags: '--output <file>  --quiet' }
+    ]
+  },
+  {
     heading: 'TAGS',
     rows: [
       { name: 'tag list', description: 'Every #tag with its note count', flags: '--json' },

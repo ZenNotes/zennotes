@@ -38,6 +38,7 @@ import {
   cmdWrite
 } from './commands/notes.js'
 import { cmdBacklinks, cmdSearch, cmdSearchTitle } from './commands/search.js'
+import { cmdAssetGet, cmdAssetList } from './commands/assets.js'
 import {
   cmdFolderCreate,
   cmdFolderDelete,
@@ -134,6 +135,8 @@ async function main(argv: string[]): Promise<number> {
     'folder create': cmdFolderCreate,
     'folder rename': cmdFolderRename,
     'folder delete': cmdFolderDelete,
+    'asset list': cmdAssetList,
+    'asset get': cmdAssetGet,
     'tag list': cmdTagList,
     'tag find': cmdTagFind,
     'task list': cmdTaskList,
@@ -171,6 +174,7 @@ function peelSubcommand(
 ): { subcommand: string | null; parsed: ParsedArgs } {
   const SUBCOMMANDS: Record<string, string[]> = {
     folder: ['list', 'create', 'rename', 'delete'],
+    asset: ['list', 'get'],
     tag: ['list', 'find'],
     task: ['list', 'toggle'],
     comment: ['list', 'add', 'reply', 'resolve'],

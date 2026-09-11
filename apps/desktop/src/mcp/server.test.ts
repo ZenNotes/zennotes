@@ -91,6 +91,7 @@ describe('tools run through the backend', () => {
       'list_notes',
       'list_folders',
       'list_assets',
+      'get_asset',
       'read_note',
       'write_note',
       'create_note',
