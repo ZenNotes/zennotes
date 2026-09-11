@@ -4960,7 +4960,19 @@ function installAppMenu(): void {
         { role: "hideOthers" },
         { role: "unhide" },
         { type: "separator" },
-        { role: "quit", label: "Quit ZenNotes" },
+        {
+          label: "Close Window",
+          accelerator: "CmdOrCtrl+Q",
+          click: () => {
+            const target = BrowserWindow.getFocusedWindow() ?? mainWindow;
+            target?.close();
+          },
+        },
+        { type: "separator" },
+        {
+          label: "Completely Quit ZenNotes",
+          click: () => app.quit(),
+        },
       ],
     },
     {
