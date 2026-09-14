@@ -14,6 +14,45 @@
  */
 export const EXPORT_IMAGE_SETTLE_TIMEOUT_MS = 8000
 
+/**
+ * Collapse the unused space around an object-fit: contain image before printing.
+ * A |WxH hint sets both dimensions inline. When max-width constrains a wide
+ * screenshot to the page, its fixed height survives: Chromium paginates that
+ * oversized box even though the picture inside it is much shorter.
+ * Keep the visible picture's size and let its height follow its aspect ratio,
+ * including if printing narrows the column further. When given the printable
+ * page height, leave room for the figure's caption and any preceding headings.
+ * Call after images and fonts settle, at the printable column width.
+ */
+export function fitExportImageBoxes(root: ParentNode, pageHeight = Infinity): void {
+  const margins = (element: Element): number => {
+    const style = getComputedStyle(element)
+    return (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0)
+  }
+  for (const img of Array.from(root.querySelectorAll<HTMLImageElement>('img'))) {
+    if (!img.naturalWidth || !img.naturalHeight) continue
+    const { width, height } = img.getBoundingClientRect()
+    if (width <= 0 || height <= 0) continue
+    let availableHeight = pageHeight
+    const figure = img.closest('figure')
+    if (figure) {
+      availableHeight -=
+        Math.max(0, figure.getBoundingClientRect().height - height) + margins(figure)
+      let previous = figure.previousElementSibling
+      while (previous?.matches('h1, h2, h3, h4, h5, h6')) {
+        availableHeight -= previous.getBoundingClientRect().height + margins(previous)
+        previous = previous.previousElementSibling
+      }
+    }
+    // An exceptionally long caption/heading cannot fit even without the image;
+    // leave that case to Chromium's fragmentation fallback instead of hiding it.
+    const fittedHeight = availableHeight > 0 ? Math.min(height, availableHeight) : height
+    const fittedWidth = Math.min(width, (fittedHeight * img.naturalWidth) / img.naturalHeight)
+    img.style.width = `${fittedWidth}px`
+    img.style.height = 'auto'
+  }
+}
+
 export function settleExportImages(
   root: ParentNode,
   timeoutMs = EXPORT_IMAGE_SETTLE_TIMEOUT_MS

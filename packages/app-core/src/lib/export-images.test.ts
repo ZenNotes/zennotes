@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { settleExportImages } from './export-images'
+import { fitExportImageBoxes, settleExportImages } from './export-images'
 
 // #769: the preview lazy-loads local images, so in the hidden export window an
 // image below the viewport never loaded and printed as an empty frame. The
@@ -62,5 +62,71 @@ describe('settleExportImages', () => {
     await vi.advanceTimersByTimeAsync(1)
     await done
     expect(settled).toBe(true)
+  })
+})
+
+describe('fitExportImageBoxes', () => {
+  function sizedImage(width: number, height: number, boxWidth: number, boxHeight: number) {
+    const img = image('zen-asset://v/screenshot.png')
+    Object.defineProperties(img, {
+      naturalWidth: { value: width },
+      naturalHeight: { value: height }
+    })
+    img.style.width = `${width}px`
+    img.style.height = `${height}px`
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      width: boxWidth,
+      height: boxHeight
+    } as DOMRect)
+    return img
+  }
+
+  it('removes empty vertical space when a sized screenshot is constrained to the page width', () => {
+    const img = sizedImage(1200, 750, 640, 750)
+    fitExportImageBoxes(document)
+    expect(img.style.width).toBe('640px')
+    // The browser must derive 400px from the aspect ratio, including if the
+    // printable column becomes narrower; the old 750px box wasted 350px.
+    expect(img.style.height).toBe('auto')
+  })
+
+  it('shrinks a portrait frame to the picture constrained by the page height', () => {
+    const img = sizedImage(800, 1600, 640, 864)
+    fitExportImageBoxes(document)
+    expect(img.style.width).toBe('432px')
+    expect(img.style.height).toBe('auto')
+  })
+
+  it('preserves small images and author-requested smaller sizes', () => {
+    const small = sizedImage(80, 40, 80, 40)
+    const resized = sizedImage(1200, 750, 320, 200)
+    fitExportImageBoxes(document)
+    expect(small.style.width).toBe('80px')
+    expect(resized.style.width).toBe('320px')
+  })
+
+  it('reserves room for a portrait caption and its preceding heading on the same page', () => {
+    const img = sizedImage(800, 1600, 640, 864)
+    const heading = document.createElement('h2')
+    heading.style.margin = '20px 0'
+    vi.spyOn(heading, 'getBoundingClientRect').mockReturnValue({ height: 50 } as DOMRect)
+    const figure = document.createElement('figure')
+    figure.style.margin = '10px 0'
+    // The caption and frame occupy another 40px beyond the image itself.
+    vi.spyOn(figure, 'getBoundingClientRect').mockReturnValue({ height: 904 } as DOMRect)
+    figure.append(img)
+    document.body.append(heading, figure)
+
+    fitExportImageBoxes(document, 920)
+    expect(img.style.width).toBe('385px')
+    expect(img.style.height).toBe('auto')
+  })
+
+  it('leaves failed and hidden images alone', () => {
+    const failed = sizedImage(0, 0, 100, 100)
+    const hidden = sizedImage(800, 400, 0, 0)
+    fitExportImageBoxes(document)
+    expect(failed.style.height).toBe('0px')
+    expect(hidden.style.height).toBe('400px')
   })
 })
