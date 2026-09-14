@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   useStore,
   initConfigSync,
@@ -24,7 +24,8 @@ import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
 import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
-import { ToastHost } from './components/ui'
+import { IconButton, ToastHost } from './components/ui'
+import { CloseIcon } from './components/icons'
 import { ExcalidrawEmbedMenuHost } from './components/ExcalidrawEmbedMenuHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { escapeEmbedFrame } from './lib/embed-renderers'
@@ -239,10 +240,14 @@ function AppUpdateNotice({
   hidden: boolean
 }): JSX.Element | null {
   const updateState = useAppUpdateState()
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null)
+  const noticeKey = updateState
+    ? `${updateState.availableVersion ?? ''}:${updateState.phase}`
+    : null
   const label = appUpdateNoticeLabel(updateState)
   const actionLabel = appUpdatePrimaryActionLabel(updateState)
 
-  if (hidden || !label) return null
+  if (hidden || !label || dismissedNotice === noticeKey) return null
 
   const runPrimaryAction = (): void => {
     if (updateState?.phase === 'available') {
@@ -276,6 +281,13 @@ function AppUpdateNotice({
           {actionLabel}
         </button>
       )}
+      <IconButton
+        size="sm"
+        aria-label="Dismiss update notification"
+        onClick={() => setDismissedNotice(noticeKey)}
+      >
+        <CloseIcon className="h-3.5 w-3.5" />
+      </IconButton>
     </div>
   )
 }
