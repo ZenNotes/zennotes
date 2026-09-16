@@ -42,6 +42,7 @@ import {
   readNote,
   readNoteComments,
   readPrimaryNotesLocation,
+  readAsset,
   readVaultFileTextOrNull,
   renameFolder,
   renameNote,
@@ -118,6 +119,8 @@ export interface VaultBackend {
   describe(): Promise<VaultDescription>
   listNotes(): Promise<NoteMeta[]>
   listAssets(): Promise<VaultAssetMeta[]>
+  /** An asset's raw bytes (#716). */
+  readAsset(rel: string): Promise<Uint8Array>
   listFolders(): Promise<{ folder: NoteFolder; subpath: string }[]>
   readNote(rel: string): Promise<NoteContent>
   writeNote(rel: string, body: string): Promise<NoteMeta>
@@ -229,6 +232,7 @@ class LocalBackend implements VaultBackend {
   })
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
+  readAsset = (rel: string): Promise<Uint8Array> => readAsset(this.root, rel)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
   readNote = (rel: string): Promise<NoteContent> => readNote(this.root, rel)
   writeNote = (rel: string, body: string): Promise<NoteMeta> => writeNote(this.root, rel, body)
@@ -338,6 +342,7 @@ class RemoteBackend implements VaultBackend {
       size: asset.size,
       updatedAt: asset.updatedAt
     }))
+  readAsset = (rel: string): Promise<Uint8Array> => this.client.readAsset(rel)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> =>
     this.client.listFolders()
   readNote = (rel: string): Promise<NoteContent> => this.client.readNote(rel)
