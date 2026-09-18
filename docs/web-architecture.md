@@ -1,5 +1,21 @@
 # ZenNotes Web Architecture
 
+> Historical self-hosted design. The Go-backed web client is implemented, while
+> Laravel in the separate private `ZenNotes/website` repository now owns Cloud.
+> The hosted-SaaS exclusions and proposed hosted-Go deployment below describe the
+> original design, not the current ecosystem direction. Follow the
+> [ecosystem boundaries plan](specs/ecosystem-boundaries-and-repository-plan.md)
+> for the active migration and future Cloud browser adapter.
+
+## Current boundary implementation
+
+The maintained browser shell still uses the Go adapter. `artifact:web` emits a
+verified immutable archive for Go-only server builds; `apps/share-viewer` emits a
+separate read-only public artifact for Laravel. Mobile shells now consume exact
+shared packages through public APIs. None of these adapters supplies authenticated
+Laravel Cloud browser editing yet. Local build/runtime evidence and approval-gated
+publication/cutover steps are in the ecosystem plan linked above.
+
 Target: turn ZenNotes into a progressive web app (PWA) that can also be
 self-hosted on a home server and driven entirely from a browser, without
 losing what makes ZenNotes ZenNotes — keyboard-first editing, vim

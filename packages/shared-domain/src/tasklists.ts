@@ -473,6 +473,12 @@ function taskBlockEnd(lines: string[], start: number, baseIndent: number): numbe
   return end
 }
 
+function isEmptyTaskPlaceholder(lines: string[], index: number): boolean {
+  const match = lines[index].match(TASK_LINE_RE)
+  return !!match && match[2] === ' ' && match[3].trim() === ']' &&
+    taskBlockEnd(lines, index, leadingIndentWidth(lines[index])) === index + 1
+}
+
 /**
  * Pull every OPEN task line — together with its indented continuation / child
  * lines — out of `markdown`. Used to roll unfinished tasks forward from past
@@ -524,6 +530,8 @@ export function extractOpenTaskBlocks(markdown: string): {
     const taskMatch = line.match(TASK_LINE_RE)
     if (!taskMatch) continue
     if (taskMatch[2] !== ' ' && taskMatch[2] !== '/') continue // only open tasks roll over
+    // Template checkboxes without text or children are prompts, not unfinished work.
+    if (isEmptyTaskPlaceholder(lines, i)) continue
 
     const baseIndent = leadingIndentWidth(line)
     moved.push(line)
@@ -570,10 +578,17 @@ const THEMATIC_BREAK_RE = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*
  * Both heading and rule lines inside fenced code blocks are ignored, so a
  * `## Tasks` or `---` in a code sample can't be mistaken for structure.
  */
-export function insertTasksUnderTasksHeading(body: string, taskLines: string[]): string {
+export function insertTasksUnderTasksHeading(
+  body: string,
+  taskLines: string[],
+  options?: { replaceEmptyPlaceholders?: boolean }
+): string {
   if (taskLines.length === 0) return body
 
   const lines = body.split('\n')
+  const placeholders = new Set(options?.replaceEmptyPlaceholders
+    ? taskLineNumbers(lines).filter((i) => isEmptyTaskPlaceholder(lines, i))
+    : [])
 
   // Locate the "Tasks" heading (outside fenced code) and its level.
   let inFence = false
@@ -606,7 +621,7 @@ export function insertTasksUnderTasksHeading(body: string, taskLines: string[]):
 
   // No Tasks heading — append to the end (unchanged behaviour).
   if (headingIdx === -1) {
-    const trimmed = body.replace(/\s+$/u, '')
+    const trimmed = lines.filter((_, i) => !placeholders.has(i)).join('\n').replace(/\s+$/u, '')
     return trimmed.length ? `${trimmed}\n${block}\n` : `${block}\n`
   }
 
@@ -637,6 +652,15 @@ export function insertTasksUnderTasksHeading(body: string, taskLines: string[]):
     if (THEMATIC_BREAK_RE.test(lines[i])) {
       sectionEnd = i
       break
+    }
+  }
+
+  // Rollover fills the template's task section with real work. Preserve empty
+  // checkboxes elsewhere and parents with children; both may carry structure.
+  for (let i = sectionEnd - 1; i > headingIdx; i--) {
+    if (placeholders.has(i)) {
+      lines.splice(i, 1)
+      sectionEnd--
     }
   }
 

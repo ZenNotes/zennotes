@@ -34,7 +34,7 @@ ZenNotes already runs three product modes over one product core (`packages/app-c
 ```text
 apps/desktop  → Electron shell   + Electron/IPC bridge   (runtime: 'desktop')
 apps/web      → Vite/PWA shell   + HTTP bridge → Go server (runtime: 'web')
-apps/server   → Go backend
+ZenNotes/znserver (separate repository) → Go backend
 apps/mobile   → Capacitor shell  + native bridge          (runtime: 'mobile')   ← NEW
 packages/app-core        → shared React UI + renderers (reused verbatim)
 packages/bridge-contract → the ZenBridge seam (extended with a 'mobile' runtime + capability flags)

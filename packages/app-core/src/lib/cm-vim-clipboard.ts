@@ -14,6 +14,7 @@
  *    on yank so the active view can flash the yanked range.
  */
 import { ViewPlugin, type EditorView } from '@codemirror/view'
+import type { Extension } from '@codemirror/state'
 import { Vim, getCM } from '@replit/codemirror-vim'
 
 interface PatchableRegisterController {
@@ -101,7 +102,7 @@ export function setPasteFromClipboardEnabled(on: boolean): void {
  * hand the key back to Vim so all of its paste behaviour (linewise handling,
  * counts, visual-mode replace) runs unchanged.
  */
-export const vimClipboardPasteExtension = ViewPlugin.fromClass(
+export const vimClipboardPasteExtension: Extension = ViewPlugin.fromClass(
   class {
     private readonly view: EditorView
     private readonly onKeyDown: (e: KeyboardEvent) => void

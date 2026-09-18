@@ -117,6 +117,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.tabNext", group: "vim", defaultBinding: "g t", title: "Next tab" },
   { id: "vim.hintMode", group: "vim", defaultBinding: "h", title: "Leader: hint mode" },
   { id: "vim.goToDefinition", group: "vim", defaultBinding: "g d", title: "Follow link at cursor" },
+  { id: "vim.createNoteFromLink", group: "vim", defaultBinding: "g D", title: "Create note for link at cursor" },
   { id: "vim.foldCurrent", group: "vim", defaultBinding: "z c", title: "Fold heading at cursor" },
   { id: "vim.unfoldCurrent", group: "vim", defaultBinding: "z o", title: "Unfold heading at cursor" },
   { id: "vim.foldAll", group: "vim", defaultBinding: "z M", title: "Fold all headings" },

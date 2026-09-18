@@ -1,8 +1,10 @@
 import { renderZenNotesApp } from '@zennotes/app-core/main'
 import { installBridge, webBasePath } from './bridge/http-bridge'
 import { renderExportNoteWindow } from './export-window'
+import { registerServiceWorker } from './register-service-worker'
 
 installBridge()
+registerServiceWorker()
 
 // Point Excalidraw's font loader at our same-origin, CSP-allowed path instead of
 // its default esm.sh CDN, which the server's `font-src 'self'` blocks so font

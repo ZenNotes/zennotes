@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { markdownLinkExtension } from './cm-markdown-links'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
@@ -32,12 +33,53 @@ function mountEditor(doc: string, anchor: number): EditorView {
     state: EditorState.create({
       doc,
       selection: { anchor },
-      extensions: [markdown({ base: markdownLanguage }), livePreviewPlugin]
+      extensions: [markdown({ base: markdownLanguage }), markdownLinkExtension, livePreviewPlugin]
     })
   })
 }
 
 describe('livePreviewPlugin', () => {
+  it.each(['[EE]', '[ordinary text]', '[label][missing]', '[missing][]'])(
+    'keeps undefined bracket text visible when the caret leaves it: %s',
+    (brackets) => {
+      const doc = `Use ${brackets} in this note.\n\nAnother paragraph.`
+      const view = mountEditor(doc, doc.indexOf(brackets) + 1)
+      try {
+        expect(view.dom.textContent).toContain(brackets)
+
+        view.dispatch({ selection: { anchor: doc.length } })
+
+        expect(view.dom.textContent).toContain(`Use ${brackets} in this note.`)
+        expect(view.dom.querySelector('.tok-link')).toBeNull()
+      } finally {
+        view.destroy()
+      }
+    }
+  )
+
+  it('keeps a bracketed abbreviation in task text without hiding the checkbox', () => {
+    const doc = 'Intro\n\n- [ ] Ask [EE] about the release.'
+    const view = mountEditor(doc, 0)
+    try {
+      expect(view.dom.querySelectorAll('input.cm-task-checkbox-input')).toHaveLength(1)
+      expect(view.dom.textContent).toContain('Ask [EE] about the release.')
+    } finally {
+      view.destroy()
+    }
+  })
+
+  it('preserves valid shortcut reference links when a matching definition exists', () => {
+    const doc = 'See [EE] for details.\n\n[EE]: https://example.com\n\nAnother paragraph.'
+    const view = mountEditor(doc, doc.length)
+    try {
+      expect(view.dom.querySelector('.cm-line')?.textContent).toBe('See EE for details.')
+      expect(view.dom.querySelector('.tok-link')?.textContent).toBe('EE')
+      expect(view.dom.textContent).toContain('[EE]: https://example.com')
+    } finally {
+      view.destroy()
+    }
+  })
+
   it('reveals link markdown only when the selection is inside the link', () => {
     const doc = 'Paragraph start with a [visible link](https://example.com) and trailing text.'
     const view = mountEditor(doc, 0)

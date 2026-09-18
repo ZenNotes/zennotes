@@ -1,5 +1,6 @@
 import { unified } from 'unified'
 import DOMPurify from 'dompurify'
+import { classifyApplicationLink } from '@shared/application-links'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -71,11 +72,19 @@ let sanitizerHooksInstalled = false
 
 function ensureSanitizerHooks(): void {
   if (sanitizerHooksInstalled) return
-  DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+  DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
     if (data.attrName !== 'href' && data.attrName !== 'src' && data.attrName !== 'xlink:href') {
       return
     }
     const value = data.attrValue?.trim()
+    // Application links remain clickable so the host can apply the user's
+    // enabled schemes. This exception is only for links, never resource URLs.
+    const application = value && node.nodeName === 'A' && data.attrName === 'href'
+      ? classifyApplicationLink(value) : null
+    if (application && !application.blocked) {
+      data.forceKeepAttr = true
+      return
+    }
     if (value && URI_SCHEME_RE.test(value) && !ALLOWED_RENDERED_URI_SCHEME_RE.test(value)) {
       data.keepAttr = false
     }

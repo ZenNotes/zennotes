@@ -30,6 +30,7 @@ import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import { mergeTemplates } from "@shared/template-files";
 import type { PaneLayout, PaneSplit } from "../lib/pane-layout";
 import { parseCreateNotePath, resolveWikilinkPath } from "../lib/wikilinks";
+import { followApplicationLink } from "../lib/application-link-open";
 import {
   openDatabaseFromWikilink,
   openWikilinkTarget,
@@ -52,6 +53,7 @@ import {
 } from "../lib/move-note";
 import { promptApp } from "../lib/prompt-requests";
 import { offerCreateNoteFromLink } from "../lib/create-note-from-link";
+import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
 import {
   externalFileLink,
   openExternalFileLink,
@@ -83,12 +85,14 @@ import { toVimSequence } from "../lib/vim-key-sequence";
 import { registerNoteMoveExCommands } from "../lib/vim-ex-commands";
 import { promptImageWidth, setImageWidthFromInput } from "../lib/image-resize";
 import { copyLinkAtCursor } from "../lib/link-copy";
+import { followLinkTarget } from "../lib/follow-link";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
 
 const DEFAULT_VIM_MAPPINGS_TO_CLEAR = [
   "gd",
+  "gD",
   "<C-w>h",
   "<C-w>j",
   "<C-w>k",
@@ -218,6 +222,13 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
         action: "goToDefinition",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.goToDefinition")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.createNoteFromLink",
+        action: "zenCreateNoteFromLink",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.createNoteFromLink")),
         ].filter((binding): binding is string => !!binding),
       },
       {
@@ -551,6 +562,22 @@ function registerVimCommands(): void {
       setImageWidthFromInput(view, arg);
     },
   );
+  // `:set undofile` / `:set noundofile` / `:set undofile?` (alias `udf`) is
+  // the ex twin of "Keep undo history after quitting", under the name Vim
+  // users already type. Only where the host can keep the files. (#793)
+  Vim.defineOption(
+    "undofile",
+    false,
+    "boolean",
+    ["udf"],
+    (value?: boolean) => {
+      const state = useStore.getState();
+      if (value === undefined) return state.persistUndoHistory;
+      if (!window.zen?.getCapabilities?.().supportsUndoFile) return undefined;
+      if (state.persistUndoHistory !== !!value) state.setPersistUndoHistory(!!value);
+      return undefined;
+    },
+  );
   // `:harper on|off` (or bare `:harper` to toggle) is the ex twin of the
   // Settings toggle "Grammar and spelling with Harper".
   Vim.defineEx(
@@ -778,6 +805,20 @@ function registerVimCommands(): void {
   Vim.defineEx("pane_focus_up", "pane_focus_up", () => focusDir("k"));
   Vim.defineEx("pane_focus_right", "pane_focus_right", () => focusDir("l"));
 
+  // `gd` without the question: follows the link under the cursor and, when it
+  // reaches nothing, creates the note at the suggested path right away (#768).
+  // The keyboard twin of a Cmd/Ctrl-click on a rendered wikilink.
+  Vim.defineAction("zenCreateNoteFromLink", (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6;
+    if (!view) return;
+    const target = extractLinkAtCursor(
+      view.state.doc.toString(),
+      view.state.selection.main.head,
+    );
+    if (!target) return;
+    followLinkTarget(target, { createWithoutAsking: true });
+  });
+
   Vim.defineAction("goToDefinition", (cm: ReturnType<typeof getCM>) => {
     const view = (cm as unknown as { cm6?: EditorView }).cm6;
     if (!view) return;
@@ -786,6 +827,7 @@ function registerVimCommands(): void {
     const target = extractLinkAtCursor(doc, pos);
     if (!target) return;
 
+    if (followApplicationLink(target)) return;
     const external = externalLinkUrl(target);
     if (external) {
       window.open(external, "_blank");
@@ -849,6 +891,10 @@ function registerVimCommands(): void {
       requestAnimationFrame(() => useStore.getState().editorViewRef?.focus());
       return;
     }
+
+    // A file in the vault (an embedded image, a non-PDF attachment) opens in
+    // its own tab instead of becoming a create offer for `file.png.md`. (#757)
+    if (openWikilinkAttachment(target)) return;
 
     // A link to a file outside the vault: open it with the OS default app. (#424)
     if (externalFileLink(target)) {

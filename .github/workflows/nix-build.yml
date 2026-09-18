@@ -1,8 +1,9 @@
 name: Nix build
 
-# Builds AND validates the flake packages on a Nix runner whenever the Nix
-# packaging changes, so the prebuilt-desktop wrapper and the server package are
-# verified in CI (the maintainers don't have a Nix machine to test on locally).
+# Builds AND validates the flake package on a Nix runner whenever the Nix
+# packaging changes, so the prebuilt-desktop wrapper is verified in CI (the
+# maintainers don't have a Nix machine to test on locally). The server's Nix
+# build lives in ZenNotes/znserver.
 
 on:
   push:
@@ -32,7 +33,6 @@ jobs:
       - name: Build packages
         run: |
           nix build --fallback --print-build-logs .#zennotes-desktop -o result-desktop
-          nix build --fallback --print-build-logs .#zennotes-server  -o result-server
 
       - name: Validate desktop package
         run: |

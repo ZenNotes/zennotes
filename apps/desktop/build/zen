@@ -1,22 +1,7 @@
 #!/bin/sh
-# zen — POSIX wrapper for the ZenNotes CLI.
-#
-# Installed by ZenNotes (Settings -> CLI -> Install) as a symlink at
-# /usr/local/bin/zen pointing at this file inside the .app bundle. When
-# invoked, we set ELECTRON_RUN_AS_NODE=1 and exec the packaged Electron
-# binary against the bundled cli.js, so the user does not need a system
-# Node install.
-#
-# Layout assumed (macOS .app bundle):
-#   <Bundle>/Contents/Resources/zen        (this script)
-#   <Bundle>/Contents/Resources/cli.js     (bundled JS, ESM)
-#   <Bundle>/Contents/MacOS/<Executable>   (Electron binary)
-#
-# On Linux AppImage / unpacked builds the layout differs slightly:
-#   <root>/resources/zen
-#   <root>/resources/cli.js
-#   <root>/<Executable>
-# We resolve relative to whichever pattern matches.
+# Stable compatibility path for existing desktop-installed zn shortcuts.
+# Use the persistent Go installation after desktop verifies and activates it.
+# Node remains available before activation and for explicit rollback.
 
 set -e
 
@@ -31,12 +16,6 @@ while [ -h "$SOURCE" ]; do
   esac
 done
 SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
-
-CLI_JS="$SCRIPT_DIR/cli.js"
-if [ ! -f "$CLI_JS" ]; then
-  echo "zen: cli.js not found next to wrapper at $CLI_JS" >&2
-  exit 2
-fi
 
 # Find the Electron executable. Try the macOS layout first (script lives
 # in Contents/Resources, executable in Contents/MacOS), then the Linux
@@ -60,8 +39,34 @@ if [ -z "$ELECTRON" ]; then
     fi
   done
 fi
+case "${ZENNOTES_CLI_ENGINE:-go}" in
+  go)
+    : "${ZENNOTES_WORKSPACE_SOURCE:=app}"
+    export ZENNOTES_WORKSPACE_SOURCE
+    if [ -d "$APP_BUNDLE/MacOS" ]; then
+      DEFAULT_USER_DATA="$HOME/Library/Application Support/ZenNotes"
+    else
+      DEFAULT_USER_DATA="${XDG_CONFIG_HOME:-$HOME/.config}/ZenNotes"
+    fi
+    USER_DATA="${ZENNOTES_USER_DATA_PATH:-${ZENNOTES_CONFIG_DIR:-$DEFAULT_USER_DATA}}"
+    if [ -z "${ZENNOTES_APP_PATH:-}" ] && [ -n "$ELECTRON" ]; then
+      ZENNOTES_APP_PATH="${APPIMAGE:-$ELECTRON}"
+      export ZENNOTES_APP_PATH
+    fi
+    if [ -x "$USER_DATA/cli/zn" ]; then exec "$USER_DATA/cli/zn" "$@"; fi
+    ;;
+  legacy) ;;
+  *) echo "zn: ZENNOTES_CLI_ENGINE must be go or legacy." >&2; exit 2 ;;
+esac
+
 if [ -z "$ELECTRON" ]; then
-  echo "zen: could not locate the ZenNotes Electron binary near $APP_BUNDLE" >&2
+  echo "zn: could not locate the ZenNotes Electron binary near $APP_BUNDLE" >&2
+  exit 2
+fi
+
+CLI_JS="$SCRIPT_DIR/cli.js"
+if [ ! -f "$CLI_JS" ]; then
+  echo "zn: cli.js not found next to wrapper at $CLI_JS" >&2
   exit 2
 fi
 

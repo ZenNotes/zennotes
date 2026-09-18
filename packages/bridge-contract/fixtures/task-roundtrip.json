@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "reschedule-in-progress-task-without-changing-other-content",
+      "note": { "path": "inbox/Release.md", "title": "Release", "folder": "inbox" },
+      "body": "---\ntitle: Release\n---\n# Release\n\nKeep these two spaces.  \n\n```md\n- [ ] Example due:2026-01-01\n```\n\n- [/] Ship release due:2026-09-15 !high #release\n- [ ] Next item\n",
+      "taskIndex": 0,
+      "due": "2026-09-16",
+      "expectedBefore": { "due": "2026-09-15", "inProgress": true },
+      "expectedBody": "---\ntitle: Release\n---\n# Release\n\nKeep these two spaces.  \n\n```md\n- [ ] Example due:2026-01-01\n```\n\n- [/] Ship release !high #release due:2026-09-16\n- [ ] Next item\n",
+      "expectedAfter": { "due": "2026-09-16", "inProgress": true, "checked": false, "priority": "high", "tags": ["release"] },
+      "expectedTaskCount": 2
+    },
+    {
+      "id": "assign-local-today-near-midnight",
+      "note": { "path": "inbox/Today.md", "title": "Today", "folder": "inbox" },
+      "body": "# Today\n\n- [ ] Review notes\n",
+      "taskIndex": 0,
+      "localNow": [2026, 9, 15, 0, 15],
+      "expectedBefore": { "checked": false },
+      "expectedBody": "# Today\n\n- [ ] Review notes due:2026-09-15\n",
+      "expectedAfter": { "due": "2026-09-15", "checked": false },
+      "expectedTaskCount": 1
+    },
+    {
+      "id": "assign-local-today-late-at-night",
+      "note": { "path": "inbox/Today.md", "title": "Today", "folder": "inbox" },
+      "body": "# Today\n\n- [/] Review notes\n",
+      "taskIndex": 0,
+      "localNow": [2026, 9, 15, 23, 45],
+      "expectedBefore": { "inProgress": true },
+      "expectedBody": "# Today\n\n- [/] Review notes due:2026-09-15\n",
+      "expectedAfter": { "due": "2026-09-15", "checked": false, "inProgress": true },
+      "expectedTaskCount": 1
+    }
+  ]
+}

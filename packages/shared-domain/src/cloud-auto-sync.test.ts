@@ -26,6 +26,66 @@ async function flushPromises(): Promise<void> {
 }
 
 describe('CloudAutoSyncController', () => {
+  it('checks for incoming edits every five seconds without running idle vault scans', async () => {
+    let incoming = false
+    const checkRemoteChanges = vi.fn(async () => incoming)
+    const sync = vi.fn(async () => { incoming = false })
+    const controller = new CloudAutoSyncController({ ready: () => true, sync, checkRemoteChanges })
+    controller.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(checkRemoteChanges).toHaveBeenCalledOnce()
+    expect(sync).toHaveBeenCalledOnce()
+    incoming = true
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(sync).toHaveBeenCalledTimes(2)
+    controller.stop()
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(checkRemoteChanges).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores a probe result from a stopped lifecycle after restart', async () => {
+    let finish!: (changed: boolean) => void
+    const pending = new Promise<boolean>((resolve) => { finish = resolve })
+    const sync = vi.fn(async () => {})
+    const controller = new CloudAutoSyncController({
+      ready: () => true, sync, checkRemoteChanges: vi.fn().mockReturnValueOnce(pending).mockResolvedValue(false)
+    })
+    controller.start()
+    await vi.advanceTimersByTimeAsync(5_001)
+    controller.stop()
+    controller.start()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sync).toHaveBeenCalledTimes(2)
+    finish(true)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sync).toHaveBeenCalledTimes(2)
+    controller.stop()
+  })
+
+  it('does not poll in the background, offline, or during failure backoff', async () => {
+    let active = false
+    let online = true
+    const checkRemoteChanges = vi.fn(async () => { throw new Error('offline') })
+    const controller = new CloudAutoSyncController({
+      ready: () => true, sync: async () => {}, checkRemoteChanges,
+      active: () => active, online: () => online, onError: vi.fn()
+    })
+    controller.start()
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(checkRemoteChanges).not.toHaveBeenCalled()
+    active = true
+    online = false
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(checkRemoteChanges).not.toHaveBeenCalled()
+    online = true
+    await vi.advanceTimersByTimeAsync(5_001)
+    expect(checkRemoteChanges).toHaveBeenCalledOnce()
+    await vi.advanceTimersByTimeAsync(4_000)
+    expect(checkRemoteChanges).toHaveBeenCalledOnce()
+    controller.stop()
+  })
+
   beforeEach(() => {
     vi.useFakeTimers()
   })

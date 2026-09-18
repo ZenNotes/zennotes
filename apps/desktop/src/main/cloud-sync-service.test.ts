@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,7 +10,7 @@ import type {
 } from '@zennotes/bridge-contract/cloud-sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CloudServiceRequestError } from './cloud-sync-client'
-import { DesktopCloudSyncService } from './cloud-sync-service'
+import { DesktopCloudSyncService, type DesktopCloudSyncServiceDependencies } from './cloud-sync-service'
 
 const temporaryDirectories: string[] = []
 
@@ -25,7 +25,8 @@ afterEach(async () => {
 async function setup(
   vaults: CloudSyncVault[] = [],
   fetchImplementation?: typeof fetch,
-  accountStatus?: () => Promise<CloudAccountStatus>
+  accountStatus?: () => Promise<CloudAccountStatus>,
+  withWindowSync?: DesktopCloudSyncServiceDependencies['withWindowSync']
 ) {
   const localRoot = await mkdtemp(path.join(os.tmpdir(), 'zennotes-local-vault-'))
   const storageDirectory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-cloud-state-'))
@@ -189,12 +190,61 @@ async function setup(
     getSecret: async () => 'secret-token',
     createClient: () => client,
     fetchImplementation,
+    withWindowSync,
     now: () => new Date('2026-08-10T12:00:00.000Z')
   })
-  return { service, client, localRoot }
+  return { service, client, localRoot, storageDirectory }
 }
 
 describe('DesktopCloudSyncService', () => {
+  it('probes incoming changes without locking windows or advancing the saved cursor', async () => {
+    const prepare = vi.fn(async (_root, run) => run())
+    const vault = { id: 'vault-1', name: 'Notes', cursor: 0, created_at: '2026-09-14T12:00:00Z', updated_at: '2026-09-14T12:00:00Z' }
+    const { service, client, localRoot } = await setup([vault], undefined, undefined, prepare)
+    await service.link(localRoot, vault.id)
+    expect(await service.hasRemoteChanges(localRoot)).toBe(true)
+    await service.sync(localRoot)
+    prepare.mockClear()
+    expect(await service.hasRemoteChanges(localRoot)).toBe(false)
+    client.manifest.mockResolvedValue({ data: [], cursor: 1, next_page: null })
+    expect(await service.hasRemoteChanges(localRoot)).toBe(true)
+    expect(await service.hasRemoteChanges(localRoot)).toBe(true)
+    expect(client.manifest).toHaveBeenLastCalledWith(vault.id, { includeContent: false, perPage: 1 })
+    expect(prepare).not.toHaveBeenCalled()
+    await service.unlink(localRoot)
+    expect(await service.hasRemoteChanges(localRoot)).toBe(false)
+  })
+
+  it('prepares windows before taking the vault lock and coalesces preparation', async () => {
+    let prepared!: () => void
+    const gate = new Promise<void>((resolve) => { prepared = resolve })
+    let prepareWork = async (): Promise<void> => {}
+    const prepare = vi.fn<NonNullable<DesktopCloudSyncServiceDependencies['withWindowSync']>>(async (_root, run) => {
+      await gate
+      await prepareWork()
+      return await run()
+    })
+    const vault: CloudSyncVault = {
+      id: 'vault-1', name: 'Notes', cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z', updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([vault], undefined, undefined, prepare)
+    await service.link(localRoot, vault.id)
+    // getConflict uses the same exclusive queue as saveConflictDraft. If the
+    // sync takes that lock first, this awaited read would deadlock.
+    prepareWork = async () => {
+      await expect(service.getConflict(localRoot, 'not-pending')).rejects.toThrow()
+    }
+    const first = service.sync(localRoot)
+    const second = service.sync(localRoot)
+    expect(first).toBe(second)
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(client.manifest).not.toHaveBeenCalled()
+    prepared()
+    await Promise.all([first, second])
+    expect(client.manifest).toHaveBeenCalledOnce()
+  })
+
   // Settings differ between devices, so sync asks instead of picking. Doing
   // nothing keeps this device's settings, which are already in use.
   it('answers the settings question either way', async () => {
@@ -652,5 +702,177 @@ describe('DesktopCloudSyncService', () => {
 
     await expect(service.createBackup(localRoot)).rejects.toThrow('Resolve sync conflicts')
     expect(client.createBackup).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('deleted Cloud vault recovery (#791)', () => {
+  const cloudVault = (id = 'vault-1'): CloudSyncVault => ({
+    id, name: id, cursor: 0,
+    created_at: '2026-09-16T12:00:00.000Z', updated_at: '2026-09-16T12:00:00.000Z'
+  })
+  const missing = () => new CloudServiceRequestError(
+    'The requested resource was not found.', 404, 'NOT_FOUND'
+  )
+  const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex')
+  const savedStatePath = (storage: string, root: string, id = 'vault-1') => path.join(
+    storage, 'states', fingerprint(path.resolve(root)), fingerprint('https://zennotes.org'),
+    `${fingerprint(id)}.json`
+  )
+
+  it('unlinks only the confirmed missing association and removes its sync state without touching local notes', async () => {
+    const { service, client, localRoot, storageDirectory } = await setup([cloudVault(), cloudVault('vault-2')])
+    await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    const otherRoot = await mkdtemp(path.join(os.tmpdir(), 'zennotes-other-vault-'))
+    temporaryDirectories.push(otherRoot)
+    const otherLink = await service.link(otherRoot, 'vault-2')
+    await service.sync(otherRoot)
+    const otherState = await readFile(savedStatePath(storageDirectory, otherRoot, 'vault-2'))
+    const note = Buffer.from('---\ntitle: Keep me\n---\r\nUnsent local edit 📝\r\n')
+    await writeFile(path.join(localRoot, 'note.md'), note)
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockRejectedValue(missing())
+
+    await expect(service.sync(localRoot)).rejects.toThrow()
+
+    expect(await service.linkedVault(localRoot)).toBeNull()
+    await expect(readFile(savedStatePath(storageDirectory, localRoot))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(path.join(localRoot, 'note.md'))).toEqual(note)
+    expect(await service.linkedVault(otherRoot)).toEqual(otherLink)
+    expect(await readFile(savedStatePath(storageDirectory, otherRoot, 'vault-2'))).toEqual(otherState)
+    expect((await service.serviceAccount()).user.email).toBe('ada@example.com')
+    expect(client.deleteVault).not.toHaveBeenCalled()
+  })
+
+  it('archives every byte of unresolved conflict drafts outside active sync state without overwriting earlier recoveries', async () => {
+    const { service, client, localRoot, storageDirectory } = await setup([cloudVault()])
+    const snapshots: Buffer[] = []
+    const draft = 'Unsent merge draft\r\nKeep every byte 📝\r\n'
+    await writeFile(path.join(localRoot, 'Note.md'), 'local version')
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const cloudText = 'cloud version'
+      const content = {
+        encoding: 'utf8' as const, data: cloudText,
+        sha256: createHash('sha256').update(cloudText).digest('hex'),
+        byte_length: Buffer.byteLength(cloudText), media_type: 'text/markdown'
+      }
+      client.changes.mockResolvedValue({ data: [], cursor: 1, has_more: false })
+      client.manifest.mockResolvedValue({
+        data: [{ item_id: 'item-1', path: 'Note.md', kind: 'text', revision: 2,
+          sha256: content.sha256, byte_length: content.byte_length, media_type: content.media_type, content }],
+        cursor: 1, next_page: null
+      })
+      await service.link(localRoot, 'vault-1')
+      const conflict = (await service.sync(localRoot)).pending_conflicts![0]!
+      await service.saveConflictDraft(localRoot, conflict.id, `${draft}${attempt}`)
+      snapshots.push(await readFile(savedStatePath(storageDirectory, localRoot)))
+      client.changes.mockRejectedValue(missing())
+      client.manifest.mockRejectedValue(missing())
+      await expect(service.sync(localRoot)).rejects.toThrow()
+      await expect(readFile(savedStatePath(storageDirectory, localRoot))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+    const recoveryFiles: string[] = []
+    const collect = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name)
+        if (file === path.join(storageDirectory, 'states')) continue
+        if (entry.isDirectory()) await collect(file)
+        else if (entry.isFile()) recoveryFiles.push(file)
+      }
+    }
+    await collect(storageDirectory)
+    const archivedBytes = await Promise.all(recoveryFiles.map((file) => readFile(file)))
+    for (const snapshot of snapshots) {
+      expect(archivedBytes.filter((bytes) => bytes.equals(snapshot))).toHaveLength(1)
+    }
+    expect(await readFile(path.join(localRoot, 'Note.md'), 'utf8')).toBe('local version')
+    expect(await service.linkedVault(localRoot)).toBeNull()
+  })
+
+  it('clears a deleted association discovered by the background metadata probe', async () => {
+    const { service, client, localRoot } = await setup([cloudVault()])
+    await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    client.manifest.mockRejectedValue(missing())
+
+    await service.hasRemoteChanges(localRoot).catch(() => undefined)
+
+    expect(await service.linkedVault(localRoot)).toBeNull()
+    client.manifest.mockClear()
+    expect(await service.hasRemoteChanges(localRoot)).toBe(false)
+    expect(client.manifest).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['offline', new Error('Network unavailable')],
+    ['unauthenticated', new CloudServiceRequestError('Sign in again', 401, 'UNAUTHENTICATED')],
+    ['forbidden', new CloudServiceRequestError('Access denied', 403, 'FORBIDDEN')],
+    ['server failure', new CloudServiceRequestError('Try later', 503, null)],
+    ['unstructured proxy 404', new CloudServiceRequestError('Not found', 404, null)]
+  ])('keeps the association and cursor after %s', async (_label, failure) => {
+    const { service, client, localRoot, storageDirectory } = await setup([cloudVault()])
+    const link = await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    const statePath = savedStatePath(storageDirectory, localRoot)
+    const state = await readFile(statePath)
+    client.changes.mockRejectedValue(failure)
+    client.manifest.mockRejectedValue(failure)
+
+    await expect(service.sync(localRoot)).rejects.toThrow()
+    await service.hasRemoteChanges(localRoot).catch(() => undefined)
+
+    expect(await service.linkedVault(localRoot)).toEqual(link)
+    expect(await readFile(statePath)).toEqual(state)
+  })
+
+  it('keeps a link when an individual resource is missing but its vault still exists', async () => {
+    const { service, client, localRoot } = await setup([cloudVault()])
+    const link = await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    await writeFile(path.join(localRoot, 'note.md'), 'Local note still exists')
+    client.mutate.mockRejectedValue(missing())
+    // The authenticated vault-level confirmation still succeeds. A missing
+    // item, revision or upload must not be mistaken for a deleted vault.
+    client.manifest.mockResolvedValue({ data: [], cursor: 0, next_page: null })
+
+    await expect(service.sync(localRoot)).rejects.toThrow()
+
+    expect(await service.linkedVault(localRoot)).toEqual(link)
+    expect(await readFile(path.join(localRoot, 'note.md'), 'utf8')).toBe('Local note still exists')
+  })
+
+  it('keeps the association if confirming a resource 404 fails due to authentication or network', async () => {
+    const { service, client, localRoot } = await setup([cloudVault()])
+    const link = await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockRejectedValue(new CloudServiceRequestError('Sign in again', 401, 'UNAUTHENTICATED'))
+
+    await expect(service.sync(localRoot)).rejects.toThrow()
+
+    expect(await service.linkedVault(localRoot)).toEqual(link)
+  })
+
+  it('does not unlink a replacement association when an older sync finally reports deletion', async () => {
+    const { service, client, localRoot } = await setup([cloudVault(), cloudVault('vault-2')])
+    await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    let begin!: () => void
+    let fail!: (error: Error) => void
+    const started = new Promise<void>((resolve) => { begin = resolve })
+    client.changes.mockImplementationOnce(async () => {
+      begin()
+      return await new Promise<never>((_resolve, reject) => { fail = reject })
+    })
+    client.manifest.mockRejectedValue(missing())
+    const pending = service.sync(localRoot)
+    const rejected = expect(pending).rejects.toThrow()
+    await started
+    const replacement = await service.link(localRoot, 'vault-2')
+    fail(missing())
+    await rejected
+
+    expect(await service.linkedVault(localRoot)).toEqual(replacement)
   })
 })

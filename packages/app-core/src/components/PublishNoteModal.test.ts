@@ -90,4 +90,30 @@ describe('PublishNoteModal', () => {
     })
     unsubscribe()
   })
+  it('shows a discovered public link after a lost response and retries as an update', async () => {
+    const published = { id: 42, slug: 'qa', url: 'https://zennotes.org/s/qa',
+      title: 'QA', note_path: 'QA.md', created_at: null, updated_at: null }
+    const create = vi.fn().mockRejectedValue(new Error('TimeoutError: operation timed out'))
+    const update = vi.fn().mockResolvedValue(published)
+    const onClose = vi.fn()
+    const bridge = {
+      listCloudPublishedNotes: vi.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValue([published]),
+      getCloudServiceAccount: vi.fn().mockResolvedValue({ features: { publish: { active: true } } }),
+      publishCloudNote: create, updateCloudPublishedNote: update, clipboardWriteText: vi.fn()
+    } as unknown as ZenBridge
+    await act(async () => root.render(createElement(PublishNoteModal, {
+      bridge, note: { path: 'QA.md', title: 'QA', body: 'Latest', assetEmbeds: [] }, onClose
+    })))
+    const button = (label: string) => [...document.body.querySelectorAll('button')].find(b => b.textContent?.trim() === label)!
+    await act(async () => button('Publish note').click())
+    expect(document.body.querySelector('[role="status"]')?.textContent).toContain('could not be confirmed')
+    expect(button('Open public note')).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.body.querySelector('[role="alert"]')).toBeNull()
+    await act(async () => button('Update note').click())
+    expect(create).toHaveBeenCalledOnce()
+    expect(update).toHaveBeenCalledWith(42, expect.objectContaining({ markdown: 'Latest' }))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
 })

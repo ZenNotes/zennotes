@@ -12,6 +12,10 @@
  *   {{cursor}}        removed from output; marks where the caret should land
  *
  * Unknown `{{tokens}}` are passed through unchanged so user braces survive.
+ * That is also how the live tokens work: `{{modified_date}}`,
+ * `{{modified_time}}` and `{{modified_datetime}}` stay in the note on purpose
+ * and are rendered from its modification time by the editor and reading view
+ * (see live-template-tokens.ts, #784).
  */
 
 export interface TemplateContext {
@@ -54,7 +58,7 @@ export function formatISODate(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 }
 
-function formatTime(date: Date): string {
+export function formatTime(date: Date): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
 }
 

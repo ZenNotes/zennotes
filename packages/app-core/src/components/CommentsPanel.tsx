@@ -31,6 +31,9 @@ export interface CommentDraft {
 }
 
 interface Props {
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
   note: NoteContent
   draft: CommentDraft | null
   onCaptureDraft: () => CommentDraft | null
@@ -60,7 +63,8 @@ export function CommentsPanel({
   draft,
   onCaptureDraft,
   onClearDraft,
-  onJump
+  onJump,
+  fitWidth
 }: Props): JSX.Element {
   const comments = useStore((s) => s.noteComments[note.path] ?? EMPTY_COMMENTS)
   const activeCommentId = useStore((s) => s.activeCommentId)
@@ -73,7 +77,9 @@ export function CommentsPanel({
   const focusedPanel = useStore((s) => s.focusedPanel)
   const panelWidth = useStore((s) => s.panelWidths.comments)
   const setPanelWidth = useStore((s) => s.setPanelWidth)
-  const { startResize } = usePanelResize(panelWidth, (px) => setPanelWidth('comments', px))
+  const { startResize } = usePanelResize(fitWidth ?? panelWidth, (px) =>
+    setPanelWidth('comments', px)
+  )
 
   const [body, setBody] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -220,7 +226,7 @@ export function CommentsPanel({
       tabIndex={-1}
       onMouseDownCapture={() => setFocusedPanel('comments')}
       onFocusCapture={() => setFocusedPanel('comments')}
-      style={{ width: panelWidth }}
+      style={{ width: fitWidth ?? panelWidth }}
       className={[
         'relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/24 shadow-[inset_1px_0_0_rgb(var(--z-bg)/0.25)] outline-none transition-shadow',
         commentsFocused ? 'ring-1 ring-inset ring-accent/18' : ''

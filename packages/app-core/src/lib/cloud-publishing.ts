@@ -3,6 +3,7 @@ import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import type {
   CloudPublishAppearanceInput,
   CloudPublishAssetInput,
+  CloudPublishedNote,
   CloudPublishedNoteResult,
   CloudPublishNoteInput
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -30,6 +31,18 @@ export interface CloudPublishOutcome extends CloudPublishedNoteResult {
   updated: boolean
 }
 
+export class CloudPublishUnconfirmedError extends Error {
+  constructor(readonly publicNote: CloudPublishedNote | null, cause: unknown) {
+    super(
+      publicNote
+        ? 'The publishing result could not be confirmed. Check the public note before retrying; its latest changes may already be available.'
+        : 'The publishing result could not be confirmed. Check Published notes in Settings → Cloud before retrying; the note may already be public.',
+      { cause }
+    )
+    this.name = 'CloudPublishUnconfirmedError'
+  }
+}
+
 export async function publishCloudNote(
   note: PublishableCloudNote,
   bridge: CloudPublishingBridge,
@@ -54,11 +67,28 @@ export async function publishCloudNote(
     ...(assets.length > 0 ? { assets } : {}),
     ...(appearance === undefined ? {} : { appearance })
   }
-  const result = existing
-    ? await bridge.updateCloudPublishedNote(existing.id, input)
-    : await bridge.publishCloudNote(input)
+  try {
+    const result = existing
+      ? await bridge.updateCloudPublishedNote(existing.id, input)
+      : await bridge.publishCloudNote(input)
+    return { ...result, updated: existing !== undefined }
+  } catch (error) {
+    if (!isUncertainPublishError(error)) throw error
 
-  return { ...result, updated: existing !== undefined }
+    // Finding a share proves that it is public, not that this request committed.
+    // Keep the result uncertain and expose the link for verification without
+    // issuing a duplicate POST or claiming that the latest content is live.
+    const published = await bridge.listCloudPublishedNotes().catch(() => [])
+    const publicNote = published.find((candidate) => candidate.note_path === note.path) ?? existing ?? null
+    throw new CloudPublishUnconfirmedError(publicNote, error)
+  }
+}
+
+function isUncertainPublishError(error: unknown): boolean {
+  return error instanceof Error && (
+    ['TimeoutError', 'AbortError'].includes(error.name) ||
+    /timeout|timed out|fetch failed|failed to fetch|network|socket|ECONNRESET/i.test(error.message)
+  )
 }
 
 export async function publishActiveCloudNote(

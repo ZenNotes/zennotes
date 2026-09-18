@@ -63,6 +63,35 @@ const note = {
 }
 
 describe('cloud publishing', () => {
+  it('exposes a discovered public copy without claiming the uncertain request committed', async () => {
+    const { bridge, createPublishedNote } = setup()
+    vi.mocked(bridge.listCloudPublishedNotes)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{
+        id: 42, slug: 'launch', url: 'https://zennotes.org/s/launch',
+        title: 'Launch', note_path: note.path, created_at: null, updated_at: null
+      }])
+    createPublishedNote.mockRejectedValueOnce(new DOMException('Timed out', 'TimeoutError'))
+    await expect(publishCloudNote(note, bridge)).rejects.toMatchObject({
+      name: 'CloudPublishUnconfirmedError', publicNote: { id: 42 }
+    })
+    expect(createPublishedNote).toHaveBeenCalledOnce()
+  })
+
+  it('does not mistake an existing public copy for a successful update after a timeout', async () => {
+    const { bridge, updateCloudPublishedNote } = setup(true)
+    updateCloudPublishedNote.mockRejectedValueOnce(new Error('TimeoutError: The operation was aborted due to timeout.'))
+    await expect(publishCloudNote(note, bridge)).rejects.toThrow('Check the public note')
+    expect(updateCloudPublishedNote).toHaveBeenCalledOnce()
+  })
+
+  it('explains an uncertain create without blindly submitting it again', async () => {
+    const { bridge, createPublishedNote } = setup()
+    createPublishedNote.mockRejectedValueOnce(new TypeError('fetch failed'))
+    await expect(publishCloudNote(note, bridge)).rejects.toThrow('could not be confirmed')
+    expect(createPublishedNote).toHaveBeenCalledOnce()
+  })
+
   it('publishes a note for the first time', async () => {
     const { bridge, createPublishedNote } = setup()
 

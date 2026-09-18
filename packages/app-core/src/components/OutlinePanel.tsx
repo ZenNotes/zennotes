@@ -20,6 +20,9 @@ import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 
 interface Props {
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
   note: NoteContent
   /** 1-based line of the heading the host wants visually marked. */
   activeLine?: number | null
@@ -27,7 +30,7 @@ interface Props {
   onJump: (line: number) => void
 }
 
-export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
+export function OutlinePanel({ note, activeLine, onJump, fitWidth }: Props): JSX.Element {
   const items = useMemo(() => parseOutline(note.body), [note.body])
   const [query, setQuery] = useState('')
   const activeItemRef = useRef<HTMLLIElement | null>(null)
@@ -36,7 +39,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
   const focusedPanel = useStore((s) => s.focusedPanel)
   const cursorIndex = useStore((s) => s.outlineCursorIndex)
   const setCursorIndex = useStore((s) => s.setOutlineCursorIndex)
-  const { startResize } = usePanelResize(width, (px) => setPanelWidth('outline', px))
+  const { startResize } = usePanelResize(fitWidth ?? width, (px) => setPanelWidth('outline', px))
   const isOutlineFocused = focusedPanel === 'outline'
 
   // Reset the filter when the note changes so the outline reflects the
@@ -68,7 +71,7 @@ export function OutlinePanel({ note, activeLine, onJump }: Props): JSX.Element {
     <section
       aria-label="Outline"
       data-outline-panel
-      style={{ width }}
+      style={{ width: fitWidth ?? width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
     >
       <PanelResizeHandle onStart={startResize} />

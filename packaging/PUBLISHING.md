@@ -13,8 +13,10 @@ There are **three** Linux channels (plus Docker, which is separate):
 | **Nix flake**                                     | `flake.nix` in this repo                  | Merge to `main`           | Bump `release-data.json` (3 hashes) |
 | **Homebrew** (`brew install --cask`, macOS)       | `packaging/homebrew/` → `ZenNotes/homebrew-tap` | You, manually       | Bump + sha256 + push to the tap     |
 
-> Docker (`adibhanna/zennotes`) is handled separately by `docker-publish.yml` —
-> not a Linux desktop package, not covered here.
+> Docker (`adibhanna/zennotes`) is published from the server's own repository,
+> [ZenNotes/znserver](https://github.com/ZenNotes/znserver), by its manual
+> publisher after each server release. It is not a Linux desktop package and is
+> not covered here.
 
 ---
 
@@ -134,13 +136,11 @@ github:ZenNotes/zennotes` reads the repo's default branch (`main`), so the
   | `version`     | `X.Y.Z`                                                         |
   | `hash`        | `nix-prefetch-github ZenNotes zennotes --rev vX.Y.Z`            |
   | `npmDepsHash` | `prefetch-npm-deps package-lock.json`                           |
-  | `vendorHash`  | run `nix build`, read the expected hash from the mismatch error |
 
   Then verify:
 
   ```sh
   nix build && ./result/bin/zennotes-desktop
-  nix build .#zennotes-server && ./result/bin/zennotes-server
   ```
 
 - **Needs Nix.** The flake targets darwin too, so you can do this on your Mac with
@@ -186,10 +186,10 @@ source) and is mirrored into the **`ZenNotes/homebrew-tap`** repo, which is what
    `.SRCINFO`, `git push origin main:master` (§2).
 7. **Nix:** bump `release-data.json`'s 3 hashes — on your Mac with Nix, or a
    contributor PR (§3).
-8. **Docker:** confirm `docker-publish.yml` ran and pushed `adibhanna/zennotes`.
+8. **Docker:** the image ships from ZenNotes/znserver on its own release cadence; nothing to do here.
 9. **Homebrew (macOS):** `packaging/homebrew/update-cask.sh X.Y.Z`, commit, then
    mirror `Casks/zennotes.rb` into `ZenNotes/homebrew-tap` and push (§4).
 
-**Fully automatic:** GitHub installers (incl. tar.gz once §0 lands), Docker.
+**Fully automatic:** GitHub installers (incl. tar.gz once §0 lands).
 **Needs you every release:** AUR push, Nix hash bump, Homebrew push.
 **One-time future setups:** nixpkgs submission, create the Homebrew tap.

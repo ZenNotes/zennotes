@@ -566,3 +566,17 @@ export interface CloudSyncRunSummary {
   /** Possible copies made by the pre-v2.44 conflict strategy. Never auto-deleted. */
   legacy_conflict_copies?: Array<{ path: string; original_path: string }>;
 }
+/** Desktop-wide sync handshake. Drafts must be durable before a run starts. */
+export type CloudSyncWindowEvent =
+  | { phase: 'prepare'; requestId: string }
+  | {
+      phase: 'finished'
+      requestId: string
+      summary: CloudSyncRunSummary | null
+      error: string | null
+    }
+
+export interface CloudSyncWindowHandlers {
+  prepare(): Promise<void>
+  finished(summary: CloudSyncRunSummary | null, error: string | null): void
+}

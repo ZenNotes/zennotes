@@ -358,7 +358,7 @@ function stringField(record: Record<string, unknown>, key: string): string | nul
  *
  * SYNCED COPIES: the same validator exists in @shared/workflows/prepare-run
  * (the web client's), and the Go server mirrors the field list in
- * requiredWorkflowOpFields (apps/server/internal/vault/workflows.go). A new
+ * requiredWorkflowOpFields (internal/vault/workflows.go in ZenNotes/znserver). A new
  * op kind or field lands in all three.
  */
 export function parseWorkflowOp(value: unknown): WorkflowOp | null {

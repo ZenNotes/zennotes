@@ -74,6 +74,7 @@ describe('shouldSyncVaultPath', () => {
     'assets/diagram.png',
     '.zennotes/vault.json',
     '.zennotes/comments/inbox/Note.md.comments.json',
+    '.zennotes/note-metadata/inbox/Note.md.metadata.json',
     '.zennotes/templates/meeting.md',
     '.zennotes/workflows/review.json'
   ])('includes user-authored vault file %s', (path) => {

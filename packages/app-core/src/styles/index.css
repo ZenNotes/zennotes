@@ -5606,6 +5606,37 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 .cm-wysiwyg .cm-editor .cm-wikilink:hover {
   text-decoration-color: rgb(var(--z-accent));
 }
+/* Unresolved target: muted with a dashed underline, the reading view's
+   `a.wikilink.broken` look, so a link that would create a note reads apart
+   from one that opens a note (#768). */
+.cm-wysiwyg .cm-editor .cm-wikilink.cm-wikilink-broken {
+  text-decoration-style: dashed;
+  text-decoration-color: theme("colors.ink.400");
+}
+/* The label's own highlight spans (the link token inside `[[ ]]`) carry the
+   accent color themselves, so the muted color has to reach them too; the
+   parent's value alone never wins over a child's own declaration. */
+.cm-wysiwyg .cm-editor .cm-wikilink.cm-wikilink-broken,
+.cm-wysiwyg .cm-editor .cm-wikilink.cm-wikilink-broken * {
+  color: theme("colors.ink.500");
+}
+.cm-wysiwyg .cm-editor .cm-wikilink.cm-wikilink-broken:hover {
+  text-decoration-color: theme("colors.ink.500");
+}
+/* Live template tokens (#784): `{{modified_date}}` and friends render as the
+   note's last-saved time. The dotted underline says "computed, not typed";
+   click or move the caret onto it to see and edit the token itself. */
+.cm-wysiwyg .cm-editor .cm-live-token {
+  color: theme("colors.ink.700");
+  text-decoration: underline dotted;
+  text-decoration-color: theme("colors.ink.400");
+  text-underline-offset: 2px;
+  cursor: text;
+}
+.dark .cm-wysiwyg .cm-editor .cm-live-token {
+  color: theme("colors.ink.300");
+  text-decoration-color: theme("colors.ink.600");
+}
 /* Revealed `[[ ]]` / `|` markers when editing a wikilink — quiet grey, upright,
    no underline (the inner brackets otherwise inherit the italic/underline link
    highlight, which left one bracket slanted). */

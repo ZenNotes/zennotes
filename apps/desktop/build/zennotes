@@ -1,0 +1,3 @@
+#!/bin/sh
+# Lowercase desktop launcher for official Linux packages.
+exec /opt/ZenNotes/ZenNotes "$@"

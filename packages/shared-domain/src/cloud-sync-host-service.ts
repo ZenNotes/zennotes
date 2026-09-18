@@ -18,6 +18,7 @@ import type {
 import type { CloudSyncApiClient } from './cloud-sync-api'
 import { restoreCloudBackup } from './cloud-backup'
 import { normalizeCloudSyncPath } from './cloud-sync'
+import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from './cloud-vault-availability'
 import {
   CloudSyncCoordinator,
   type CloudSyncRepository,
@@ -59,6 +60,8 @@ export interface CloudSyncHostPersistence {
   deleteLink(vaultKey: string): Promise<void>
   loadState(vaultKey: string, baseUrl: string, vaultId: string): Promise<unknown>
   saveState(vaultKey: string, baseUrl: string, state: CloudSyncState): Promise<void>
+  /** Preserve drafts in inactive storage before retiring the cursor. */
+  retireState(vaultKey: string, baseUrl: string, vaultId: string): Promise<void>
 }
 
 export interface CloudSyncHostServiceDependencies {
@@ -73,6 +76,7 @@ export interface CloudSyncHostServiceDependencies {
 export class CloudSyncHostService {
   private readonly runs = new Map<string, Promise<CloudSyncRunSummary>>()
   private readonly operations = new Map<string, Promise<unknown>>()
+  private readonly linkUpdates = new Map<string, Promise<unknown>>()
   private readonly now: () => Date
   private readonly ids: CloudSyncIdSource
 
@@ -104,7 +108,7 @@ export class CloudSyncHostService {
     }
 
     const link = this.linkValue(account.base_url, remoteVault)
-    await this.dependencies.persistence.saveLink(vault.key, link)
+    await this.exclusive(vault.key, () => this.dependencies.persistence.saveLink(vault.key, link), this.linkUpdates)
     return link
   }
 
@@ -115,7 +119,7 @@ export class CloudSyncHostService {
     const { account, client } = await this.connection()
     const remoteVault = (await client.createVault(normalizedName)).data
     const link = this.linkValue(account.base_url, remoteVault)
-    await this.dependencies.persistence.saveLink(vault.key, link)
+    await this.exclusive(vault.key, () => this.dependencies.persistence.saveLink(vault.key, link), this.linkUpdates)
     return link
   }
 
@@ -125,7 +129,7 @@ export class CloudSyncHostService {
   }
 
   async unlink(vault: CloudSyncHostVault): Promise<void> {
-    await this.dependencies.persistence.deleteLink(vault.key)
+    await this.exclusive(vault.key, () => this.dependencies.persistence.deleteLink(vault.key), this.linkUpdates)
   }
 
   /**
@@ -211,6 +215,37 @@ export class CloudSyncHostService {
     return { restore, sync }
   }
 
+  async hasRemoteChanges(vault: CloudSyncHostVault): Promise<boolean> {
+    if (this.runs.has(vault.key)) return false
+    return this.exclusive(vault.key, async () => {
+      const link = await this.linkedVault(vault)
+      if (!link) return false
+      const status = await this.dependencies.accountStatus()
+      if (status.state !== 'connected' || status.account?.base_url !== link.base_url) return false
+      const state = await this.stateStore(vault.key, link.base_url, link.vault_id).load(link.vault_id)
+      if (!state) return true
+      const client = await this.dependencies.createClient()
+      try {
+        const manifest = await client.manifest(link.vault_id, { includeContent: false, perPage: 1 })
+        return manifest.cursor !== state.cursor
+      } catch (error) {
+        if (isCloudResourceMissing(error) && await this.retireMissingLink(vault, link)) {
+          throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
+        }
+        throw error
+      }
+    })
+  }
+
+  private retireMissingLink(vault: CloudSyncHostVault, link: CloudVaultLink): Promise<boolean> {
+    return this.exclusive(vault.key, async () => {
+      if (!sameCloudVaultLink(await this.linkedVault(vault), link)) return false
+      await this.dependencies.persistence.retireState(vault.key, link.base_url, link.vault_id)
+      await this.dependencies.persistence.deleteLink(vault.key)
+      return true
+    }, this.linkUpdates)
+  }
+
   sync(vault: CloudSyncHostVault): Promise<CloudSyncRunSummary> {
     const existing = this.runs.get(vault.key)
     if (existing) return existing
@@ -251,6 +286,12 @@ export class CloudSyncHostService {
         pending_conflicts: result.pendingConflicts,
         legacy_conflict_copies: result.legacyConflictCopies
       }
+    } catch (error) {
+      if (await confirmCloudVaultMissing(client, link.vault_id, error) &&
+          await this.retireMissingLink(vault, link)) {
+        throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
+      }
+      throw error
     } finally {
       await vault.refresh()
     }
@@ -339,15 +380,15 @@ export class CloudSyncHostService {
     })
   }
 
-  private exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.operations.get(key)
+  private exclusive<T>(key: string, operation: () => Promise<T>, operations = this.operations): Promise<T> {
+    const previous = operations.get(key)
     let current!: Promise<T>
     current = (previous ? previous.catch(() => undefined) : Promise.resolve())
       .then(operation)
       .finally(() => {
-        if (this.operations.get(key) === current) this.operations.delete(key)
+        if (operations.get(key) === current) operations.delete(key)
       })
-    this.operations.set(key, current)
+    operations.set(key, current)
     return current
   }
 

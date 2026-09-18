@@ -151,6 +151,50 @@ describe('markdownSnippetTransaction', () => {
   })
 })
 
+// #770: Space with the cursor just inside the opening marker of existing markup
+// (`**|word**`) expanded the opener into a second empty pair, `**|**word**`,
+// and the Backspace that followed then removed the empty pair, four characters
+// for the two that were typed. An opener whose partner is already ahead on the
+// line is not a snippet trigger: Space inserts a space.
+describe('markdownSnippetTransaction at the front of existing markup (#770)', () => {
+  it('leaves the opener of an existing bold span alone', () => {
+    expect(applySnippet('**word**', 'Space', 2)).toBeNull()
+    expect(applySnippet('__word__', 'Space', 2)).toBeNull()
+  })
+
+  it('leaves the other symmetric pairs alone too', () => {
+    expect(applySnippet('`code`', 'Space', 1)).toBeNull()
+    expect(applySnippet('~~done~~', 'Space', 2)).toBeNull()
+    expect(applySnippet('==mark==', 'Space', 2)).toBeNull()
+    expect(applySnippet('%%note%%', 'Space', 2)).toBeNull()
+  })
+
+  it('leaves the opener of an existing wikilink alone', () => {
+    expect(applySnippet('[[Note]]', 'Space', 2)).toBeNull()
+    expect(applySnippet('see [[Note]] and [[Other]]', 'Space', 6)).toBeNull()
+  })
+
+  it('still expands an opener whose only closers ahead belong to a later pair', () => {
+    const state = applySnippet('** and **bold**', 'Space', 2)
+
+    expect(state?.doc.toString()).toBe('**** and **bold**')
+    expect(state?.selection.main.head).toBe(2)
+  })
+
+  it('still expands a wikilink opener ahead of a complete link', () => {
+    const state = applySnippet('[[ and [[Other]]', 'Space', 2)
+
+    expect(state?.doc.toString()).toBe('[[]] and [[Other]]')
+    expect(state?.selection.main.head).toBe(2)
+  })
+
+  it('ignores an escaped closer when deciding', () => {
+    const state = applySnippet('**word\\**', 'Space', 2)
+
+    expect(state?.doc.toString()).toBe('****word\\**')
+  })
+})
+
 // #405: a fenced/math block opened inside a bullet list must auto-close with the
 // content and closing fence indented to the fence column, not escape to col 0.
 describe('block snippets inside list items (#405)', () => {

@@ -10,6 +10,8 @@ import {
   writeDatabaseRows
 } from './databases'
 
+import { getVaultSettings, setVaultSettings, invalidateVaultSettingsCache, writeNoteComments, readNoteComments } from './vault'
+
 const tmpDirs: string[] = []
 async function makeVault(): Promise<string> {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'zennotes-db-'))
@@ -104,6 +106,26 @@ describe('renameDatabase', () => {
     ).resolves.toContain('# Rec')
     // The old folder is gone.
     await expect(readFile(path.join(root, 'inbox/Old.base/data.csv'), 'utf8')).rejects.toThrow()
+  })
+})
+
+
+describe('database rename comments', () => {
+  it.each(['inbox', 'root'] as const)('moves record comments with custom folder settings in %s mode', async (location) => {
+    const root = await makeVault()
+    await setVaultSettings(root, { ...await getVaultSettings(root), primaryNotesLocation: location, systemFolderPaths: { inbox: 'My Notes' }, folderIcons: { 'inbox:Work/People.base': 'book' }, folderColors: { 'inbox:Work/People.base': 'blue' } })
+    const doc = await createDatabase(root, 'inbox', 'Work', 'People')
+    const page = await createRecordPage(root, doc.path, 'Record', 'Record body.')
+    await writeNoteComments(root, page, [{ notePath: page, anchorStart: 0, anchorEnd: 6, anchorText: 'Record', body: 'Keep comment' }])
+    const renamed = await renameDatabase(root, doc.path, 'Customers')
+    const nextPage = renamed.replace('data.csv', 'Record.md')
+    expect(await readNoteComments(root, nextPage)).toMatchObject([{ notePath: nextPage, body: 'Keep comment' }])
+    expect(await readNoteComments(root, page)).toEqual([])
+    invalidateVaultSettingsCache(root)
+    const settings = await getVaultSettings(root)
+    expect(settings.folderIcons['inbox:Work/Customers.base']).toBe('book')
+    expect(settings.folderColors['inbox:Work/Customers.base']).toBe('blue')
+    expect(settings.folderIcons['inbox:Work/People.base']).toBeUndefined()
   })
 })
 

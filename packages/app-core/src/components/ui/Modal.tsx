@@ -78,30 +78,7 @@ function ModalRoot({
   children
 }: ModalProps): JSX.Element {
   const panel = useRef<HTMLDivElement>(null)
-
-  // Focus, for every dialog at once. Opening one moves focus into the panel,
-  // Tab cycles inside it, and closing hands focus back to whatever opened it.
-  // Without this a modal leaves the keyboard on the page underneath, where
-  // global handlers keep firing behind the backdrop.
-  useEffect(() => {
-    const opener =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const target = panel.current
-    if (target && !target.contains(document.activeElement)) {
-      const focusTarget = initialFocus?.current ?? firstFocusable(target) ?? target
-      focusTarget.focus({ preventScroll: true })
-    }
-    return () => {
-      // Content that hands focus somewhere on close (a palette returning it to
-      // the editor) has already claimed it by the time this runs. Only focus
-      // left on <body> by the panel's removal comes back to the opener.
-      const active = document.activeElement
-      if (active !== null && active !== document.body) return
-      if (opener?.isConnected) opener.focus({ preventScroll: true })
-    }
-    // Focus is claimed once per dialog; a changed `initialFocus` ref does not
-    // re-open it.
-  }, [])
+  useDialogFocus(panel, initialFocus)
 
   useEffect(() => {
     if (!closeOnEsc) return
@@ -133,13 +110,49 @@ function ModalRoot({
         tabIndex={-1}
         className={`overflow-hidden rounded-2xl bg-paper-100 shadow-float outline-none ring-1 ring-paper-300 ${SIZE_CLASS[size]} ${className}`}
         onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => trapTab(e, panel.current)}
+        onKeyDown={(e) => trapDialogTab(e, panel.current)}
       >
         {children}
       </div>
     </div>,
     document.body
   )
+}
+
+/**
+ * Focus, for every dialog at once. Opening one moves focus into the panel, and
+ * closing hands focus back to whatever opened it. Without this a dialog leaves
+ * the keyboard on the page underneath, where typing edits the note and global
+ * handlers keep firing behind the backdrop.
+ *
+ * Exported for the one dialog that draws its own backdrop and panel instead of
+ * sitting in this shell (Settings), so it shares this behavior rather than
+ * copying it. Such a panel also needs `tabIndex={-1}` to be focusable as the
+ * fallback target, and `trapDialogTab` on its onKeyDown.
+ */
+export function useDialogFocus(
+  panel: RefObject<HTMLElement | null>,
+  initialFocus?: RefObject<HTMLElement | null>
+): void {
+  useEffect(() => {
+    const opener =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const target = panel.current
+    if (target && !target.contains(document.activeElement)) {
+      const focusTarget = initialFocus?.current ?? firstFocusable(target) ?? target
+      focusTarget.focus({ preventScroll: true })
+    }
+    return () => {
+      // Content that hands focus somewhere on close (a palette returning it to
+      // the editor) has already claimed it by the time this runs. Only focus
+      // left on <body> by the panel's removal comes back to the opener.
+      const active = document.activeElement
+      if (active !== null && active !== document.body) return
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+    // Focus is claimed once per dialog; a changed `initialFocus` ref does not
+    // re-open it.
+  }, [])
 }
 
 const FOCUSABLE_SELECTOR = [
@@ -167,8 +180,8 @@ function firstFocusable(panel: HTMLElement): HTMLElement | null {
  * Keep Tab inside the panel. The panel itself is a tab stop only as a
  * fallback (an empty dialog), so shift-tabbing off it wraps to the end.
  */
-function trapTab(
-  e: ReactKeyboardEvent<HTMLDivElement>,
+export function trapDialogTab(
+  e: ReactKeyboardEvent<HTMLElement>,
   panel: HTMLElement | null
 ): void {
   if (e.key !== 'Tab' || !panel) return

@@ -85,6 +85,7 @@ export type KeymapId =
   | "vim.tabNext"
   | "vim.hintMode"
   | "vim.goToDefinition"
+  | "vim.createNoteFromLink"
   | "vim.foldCurrent"
   | "vim.unfoldCurrent"
   | "vim.foldAll"
@@ -880,6 +881,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Follow link at cursor",
     description: "Open the note, URL, or asset under the cursor.",
     defaultBinding: "g d",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.createNoteFromLink",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Create note for link at cursor",
+    description:
+      "Follow the link under the cursor; a note that does not exist yet is created at once, without the confirmation.",
+    defaultBinding: "g D",
     vimOnly: true,
     maxTokens: 2,
   },

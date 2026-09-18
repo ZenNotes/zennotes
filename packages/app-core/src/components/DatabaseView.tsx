@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@shared/databases'
 import { serializeRows } from '@shared/database-csv'
 import { useStore } from '../store'
+import { isNoteEditingLocked, subscribeNoteEditingLocks } from '../lib/note-lifecycle-lock'
 import {
   addField,
   addRow,
@@ -31,6 +32,9 @@ export function DatabaseView({
 }): JSX.Element {
   const csvPath = csvPathFromDatabaseTab(tabPath)
   const doc = useStore((s) => (csvPath ? s.databases[csvPath] : undefined))
+  const vault = useStore(s => s.vault)
+  const locked = useSyncExternalStore(subscribeNoteEditingLocks, () => isNoteEditingLocked(vault, csvPath))
+  const deletingRows = useStore((s) => !!(csvPath && s.databasesDeletingRows[csvPath]))
   const loading = useStore((s) => (csvPath ? !!s.databasesLoading[csvPath] : false))
   const loadDatabase = useStore((s) => s.loadDatabase)
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
@@ -45,9 +49,10 @@ export function DatabaseView({
   // Only `.base` databases rename by title (a legacy loose `.csv` doesn't).
   const canRenameTitle = !!csvPath && !!formDirFromCsvPath(csvPath)
 
+  const transitioning = useStore(s => s.workspaceTransitioning)
   useEffect(() => {
-    if (csvPath && !doc && !loading) void loadDatabase(csvPath)
-  }, [csvPath, doc, loading, loadDatabase])
+    if (csvPath && !doc && !loading && !transitioning) void loadDatabase(csvPath)
+  }, [csvPath, doc, loading, loadDatabase, transitioning])
 
   if (!csvPath) {
     return (
@@ -77,7 +82,7 @@ export function DatabaseView({
   ]
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
+    <div {...((deletingRows || locked) ? { inert: '' } : {})} aria-busy={deletingRows || locked} className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
       <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
         {editingTitle && canRenameTitle ? (

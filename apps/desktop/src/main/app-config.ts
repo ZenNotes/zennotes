@@ -225,6 +225,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'default_view_mode',
     comment: 'edit | split | preview — the mode a note opens in before it has a remembered one'
   },
+  keepViewModeAcrossNotes: {
+    section: 'editor',
+    tomlKey: 'keep_view_mode_across_notes',
+    comment: 'true = stay in the current Edit / Split / Preview mode when opening another note; false = each note reopens in its own last mode'
+  },
+  persistUndoHistory: {
+    section: 'editor',
+    tomlKey: 'persist_undo_history',
+    comment: "true = keep each note's undo history between launches, like Vim's undofile (stored with the app, never in the vault; holds deleted text; desktop only)"
+  },
   lineNumberMode: {
     section: 'editor',
     tomlKey: 'line_number_mode',
@@ -272,6 +282,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'appearance',
     tomlKey: 'dark_sidebar',
     comment: 'tint the sidebar darker than the canvas'
+  },
+  showWindowTitleBar: {
+    section: 'appearance',
+    tomlKey: 'show_window_title_bar',
+    comment: 'show the main window title bar and window controls'
   },
   showSidebarChevrons: {
     section: 'appearance',
@@ -355,6 +370,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'auto_calendar_panel',
     comment: 'auto-show the calendar for daily / weekly notes'
   },
+  keepPanelsAcrossNotes: {
+    section: 'view',
+    tomlKey: 'keep_panels_across_notes',
+    comment: 'true = Connections / Outline / Comments / Calendar stay as set while you switch notes; false = each note remembers its own panels (saved with the workspace, so they survive a restart)'
+  },
   calendarWeekStart: {
     section: 'view',
     tomlKey: 'calendar_week_start',
@@ -395,6 +415,11 @@ interface ListFieldMap {
 
 // List (ordered string[]) portable prefs → [section].key = ["a", "b"].
 const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
+  externalApplicationSchemes: {
+    section: 'editor',
+    tomlKey: 'external_application_schemes',
+    comment: 'application links enabled for opening, e.g. ["zotero", "obsidian", "vscode"]'
+  },
   ignoredKeys: {
     section: 'editor',
     tomlKey: 'ignored_keys',

@@ -8,10 +8,17 @@ import { withWebDistLock } from './web-dist-lock.mjs'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
 const webDist = resolve(repoRoot, 'apps/web/dist')
-const serverDist = resolve(repoRoot, 'apps/server/web/dist')
+// The server no longer lives here. The destination is a ZenNotes/znserver
+// checkout's web/dist, given as the first argument or through ZENNOTES_SERVER_DIR.
+const destinationArg = process.argv[2]?.trim()
+const checkout = process.env.ZENNOTES_SERVER_DIR?.trim()
+const serverDist = destinationArg ? resolve(destinationArg) : checkout ? resolve(checkout, 'web/dist') : null
+if (!serverDist) {
+  throw new Error('sync-web-dist needs a destination: pass <checkout>/web/dist or set ZENNOTES_SERVER_DIR to a ZenNotes/znserver checkout')
+}
 
-// `apps/server` runs `prepare-web` from BOTH `typecheck` and `test:run`, and
-// turbo schedules those two tasks concurrently. A plain `rm` followed by `cp`
+// Two producers can run this concurrently (a perf run and a manual sync, or
+// two turbo tasks in the checkout). A plain `rm` followed by `cp`
 // therefore races: the second process deletes the directory while the first is
 // still copying into it, and the first dies with ENOENT partway through. It
 // surfaces as `turbo run typecheck test:run` failing on a machine where each
@@ -109,8 +116,8 @@ async function main() {
   if (source === null) {
     throw new Error(`no web bundle at ${webDist}; run \`npm run build --workspace @zennotes/web\` first`)
   }
-  // Identical trees are the steady state across repeated turbo runs. Skipping
-  // the swap keeps `apps/server/web/dist` continuously present for go:embed.
+  // Identical trees are the steady state across repeated runs. Skipping the
+  // swap keeps the checkout's web/dist continuously present for go:embed.
   if (source === (await treeSignature(serverDist))) return
 
   const stage = `${serverDist}.stage-${process.pid}`

@@ -1,0 +1,34 @@
+name: Public share viewer artifact
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/share-viewer/**'
+      - 'packages/**'
+      - 'tooling/scripts/**'
+      - 'package*.json'
+      - 'tsconfig.base.json'
+      - 'LICENSE'
+      - '.github/workflows/share-viewer-artifact.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test tooling/scripts/pack-web-artifact.test.mjs
+      - run: npm run pack:share-viewer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: share-viewer-candidate
+          path: dist/viewer-artifacts/*
+          if-no-files-found: error

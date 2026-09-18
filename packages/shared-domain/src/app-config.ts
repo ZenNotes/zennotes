@@ -1,14 +1,11 @@
-// Portable application config — the subset of user preferences that travel
-// between machines via a plain-text config file (config.toml). This is the
-// single source of truth for *which* preference keys are portable; both the
-// renderer (to extract/apply the subset) and the desktop main process (to
-// read/write the file) import from here so the two never drift.
-//
-// Machine-local UI state (pane widths, collapsed folders, pinned reference,
-// onboarding flag, last-opened vault, window geometry) is deliberately NOT
-// listed here — it stays in localStorage / the runtime config so a synced
-// dotfile doesn't churn on every drag and never carries machine-specific
-// layout state.
+import type { PortablePrefKey, AppConfigPortable } from '@zennotes/bridge-contract/app-config'
+import { PORTABLE_PREF_KEYS } from '@zennotes/bridge-contract/app-config'
+export type { PortablePrefKey, AppConfigPortable } from '@zennotes/bridge-contract/app-config'
+export { PORTABLE_PREF_KEYS } from '@zennotes/bridge-contract/app-config'
+
+// Portable preferences are defined by the bridge contract and re-exported here
+// for existing consumers. This module owns normalization, defaults, and selection.
+// Machine-local layout and session state remain outside portable config.
 
 /** Bumped when the on-disk config layout changes in a way that needs a
  *  migration. Written as `config_version` at the top of the file. */
@@ -197,6 +194,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   whichKeyHintTimeoutMs: 900,
   keymapOverrides: {},
   ignoredKeys: [],
+  externalApplicationSchemes: [],
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
@@ -211,6 +209,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   harperDialect: 'american',
   looseMathDelimiters: false,
   keepViewModeAcrossNotes: false,
+  keepPanelsAcrossNotes: true,
+  persistUndoHistory: false,
   defaultPaneMode: 'edit',
   syncTitleHeadingOnRename: true,
   markdownSnippets: true,
@@ -242,6 +242,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   enabledOverrides: {},
   themeTweaks: {},
   darkSidebar: true,
+  showWindowTitleBar: true,
   showSidebarChevrons: true,
   contentAlign: 'center',
   rtlMode: 'auto',

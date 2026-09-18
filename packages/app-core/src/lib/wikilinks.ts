@@ -9,7 +9,7 @@ const INVALID_NOTE_PATH_CHARS = /[\\:*?"<>|#^\[\]]/
  * reads code as a link. Line-based and indentation-tolerant: a fence nested
  * under a list item is still a code block (#293). Mirrors `stripCodeContent` in
  * tags.ts, apps/desktop/src/main/vault.ts, apps/desktop/src/mcp/vault-ops.ts,
- * and apps/server/internal/vault/parse.go — keep all five in sync.
+ * and internal/vault/parse.go in ZenNotes/znserver — keep all five in sync.
  */
 function stripCodeContent(body: string): string {
   if (!body.includes('`') && !body.includes('~')) return body
@@ -54,6 +54,17 @@ function stripMdExtension(value: string): string {
 
 function normalizeForCompare(value: string): string {
   return value.trim().toLowerCase()
+}
+
+// Trim leading and trailing slashes with a linear scan. The equivalent
+// `/\/+$/` regex backtracks quadratically on a target made of many slashes,
+// and wikilink targets come straight from note text.
+function trimSlashes(value: string): string {
+  let start = 0
+  let end = value.length
+  while (start < end && value.charCodeAt(start) === 47) start++
+  while (end > start && value.charCodeAt(end - 1) === 47) end--
+  return value.slice(start, end)
 }
 
 export function isPathLikeWikilinkTarget(target: string): boolean {
@@ -147,7 +158,7 @@ function resolveExplicitPath(notes: NoteRef[], target: string): NoteRef | null {
   const normalized = normalizeSlashes(target.trim())
   if (!normalized) return null
 
-  const trimmed = stripMdExtension(normalized).replace(/^\/+/, '').replace(/\/+$/, '')
+  const trimmed = trimSlashes(stripMdExtension(normalized))
   if (!trimmed) return null
 
   let relPath: string | null = null
@@ -163,9 +174,7 @@ function resolveExplicitPath(notes: NoteRef[], target: string): NoteRef | null {
 }
 
 function resolvePathSuffix(notes: NoteRef[], target: string): NoteRef | null {
-  const trimmed = stripMdExtension(normalizeSlashes(target.trim()))
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
+  const trimmed = trimSlashes(stripMdExtension(normalizeSlashes(target.trim())))
   if (!trimmed) return null
 
   const suffix = normalizeForCompare(`/${trimmed}.md`)

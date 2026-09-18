@@ -26,6 +26,7 @@ import {
 } from "../lib/cloud-auto-sync";
 import { useToastStore } from "../lib/toast";
 import { notifyPublishedNoteChanged } from "../lib/published-note-events";
+import { requestPublishNote } from "../lib/publish-note-requests";
 import { Button } from "./ui/Button";
 import { useStore } from "../store";
 import { CloudPendingConflictResolver } from "./CloudPendingConflictResolver";
@@ -47,6 +48,7 @@ type CloudAction =
   | "backup-refresh"
   | "publish-refresh"
   | "publish-delete"
+  | "publish-update"
   | "settings-local"
   | "settings-cloud"
   | null;
@@ -59,6 +61,7 @@ export function CloudSettings({
   localVaultName: string;
 }): JSX.Element {
   const [bridge] = useState(() => getZenBridge());
+  const localNotes = useStore((state) => state.notes);
   const [status, setStatus] = useState<CloudAccountStatus | null>(null);
   const [serviceAccount, setServiceAccount] =
     useState<CloudServiceAccount | null>(null);
@@ -85,6 +88,35 @@ export function CloudSettings({
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [action, setAction] = useState<CloudAction>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const unsubscribe = useCloudSyncStatusStore.subscribe((next, previous) => {
+      // A saved decision updates this panel immediately, then the remaining
+      // vault sync may finish later. Adopt that result (or a vault reset), but
+      // keep explicit restore/manual summaries through unrelated status changes.
+      if (next.lastSummary !== previous.lastSummary) setSummary(next.lastSummary);
+      if (next.phase === "unlinked" && next.error) {
+        void bridge.getCloudVaultLink().then((currentLink) => {
+          if (!mounted || currentLink !== null) return;
+          setLink(null);
+          const remainingVaults = cloudVaults.filter((vault) => vault.id !== link?.vault_id);
+          setCloudVaults(remainingVaults);
+          setSelectedVaultId((selected) => remainingVaults.some((vault) => vault.id === selected)
+            ? selected : (remainingVaults[0]?.id ?? ""));
+          setSummary(null);
+          setSettingsConflict(null);
+          setBackups([]);
+          setBackupSchedule(null);
+          setExpandedBackupId(null);
+          setBackupItems([]);
+          setRestoreResult(null);
+          setError(next.error);
+        }).catch(() => {});
+      }
+    });
+    return () => { mounted = false; unsubscribe(); };
+  }, [bridge, link, cloudVaults]);
 
   const loadStatus = useCallback(
     async (nextStatus?: CloudAccountStatus): Promise<void> => {
@@ -245,9 +277,13 @@ export function CloudSettings({
     try {
       await operation();
     } catch (cause) {
-      setError(
-        errorMessage(cause, "ZenNotes Cloud could not complete that action."),
-      );
+      // Sync errors already live in the shared status store. Duplicating one
+      // here leaves it visible after a successful editor/background retry.
+      if (nextAction !== "sync") {
+        setError(
+          errorMessage(cause, "ZenNotes Cloud could not complete that action."),
+        );
+      }
     } finally {
       setAction(null);
     }
@@ -416,6 +452,21 @@ export function CloudSettings({
 
   const refreshPublishedNotes = (): Promise<void> =>
     runAction("publish-refresh", loadPublishedNotes);
+
+  const updatePublishedNote = (note: CloudPublishedNote): Promise<void> =>
+    runAction("publish-update", async () => {
+      if (!note.note_path || !localVaultAvailable) return;
+      const store = useStore.getState();
+      const diskOrBuffer = store.noteDirty[note.note_path] && store.noteContents[note.note_path]
+        ? store.noteContents[note.note_path]
+        : await bridge.readNote(note.note_path);
+      const current = useStore.getState();
+      const local = current.noteDirty[note.note_path] && current.noteContents[note.note_path]
+        ? current.noteContents[note.note_path]
+        : diskOrBuffer;
+      store.setSettingsOpen(false);
+      requestPublishNote(local);
+    });
 
   const copyPublishedLink = (note: CloudPublishedNote): void => {
     bridge.clipboardWriteText(note.url);
@@ -608,6 +659,8 @@ export function CloudSettings({
                 onOpen={(note) => window.open(note.url, "_blank")}
                 onRefresh={() => void refreshPublishedNotes()}
                 onUnpublish={(note) => void unpublishNote(note)}
+                onUpdate={(note) => void updatePublishedNote(note)}
+                canUpdate={(note) => localVaultAvailable && localNotes.some((local) => local.path === note.note_path)}
               />
               <CloudBackupPanel
                 action={action}
@@ -654,6 +707,8 @@ function CloudPublishedNotesPanel({
   onOpen,
   onRefresh,
   onUnpublish,
+  onUpdate,
+  canUpdate,
 }: {
   action: CloudAction;
   loading: boolean;
@@ -665,6 +720,8 @@ function CloudPublishedNotesPanel({
   onOpen: (note: CloudPublishedNote) => void;
   onRefresh: () => void;
   onUnpublish: (note: CloudPublishedNote) => void;
+  onUpdate: (note: CloudPublishedNote) => void;
+  canUpdate: (note: CloudPublishedNote) => boolean;
 }): JSX.Element {
   if (!publishIncluded) {
     return (
@@ -693,13 +750,16 @@ function CloudPublishedNotesPanel({
               ? `${pluralize(usage.notes, "published note")} · ${pluralize(usage.assets, "asset")} using ${formatBytes(publishedBytes ?? 0)}.`
               : "Anyone with a link can view a published note until you unpublish it."}
           </p>
+          <p className="mt-1 text-xs leading-5 text-ink-500">
+            Edits stay private until you choose Update note. Refresh list checks published status.
+          </p>
         </div>
         <Button
           variant="ghost"
           disabled={action !== null || loading}
           onClick={onRefresh}
         >
-          {action === "publish-refresh" || loading ? "Refreshing…" : "Refresh"}
+          {action === "publish-refresh" || loading ? "Refreshing…" : "Refresh list"}
         </Button>
       </div>
 
@@ -731,6 +791,14 @@ function CloudPublishedNotesPanel({
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    disabled={action !== null || !canUpdate(note)}
+                    title={canUpdate(note) ? "Review and publish the latest content from this vault" : "Open the vault containing this note to update it"}
+                    onClick={() => onUpdate(note)}
+                  >
+                    Update note
+                  </Button>
                   <Button
                     variant="ghost"
                     disabled={action !== null}
@@ -1025,6 +1093,12 @@ function CloudVaultPanel({
   onSummaryChange: (summary: CloudSyncRunSummary) => void;
 }): JSX.Element {
   const lastSummary = useCloudSyncStatusStore((s) => s.lastSummary);
+  const syncPhase = useCloudSyncStatusStore((s) => s.phase);
+  const syncError = useCloudSyncStatusStore((s) => s.error);
+  const syncing = syncPhase === "syncing" || action === "sync";
+  const syncFailed = syncPhase === "error";
+  const currentResult = !syncing && !syncFailed;
+  const displayedSummary = summary ?? lastSummary;
   if (!syncIncluded) {
     return (
       <CloudNotice>Sync is not included in this subscription.</CloudNotice>
@@ -1131,10 +1205,10 @@ function CloudVaultPanel({
                 </Button>
                 <Button
                   variant="primary"
-                  disabled={action !== null}
+                  disabled={action !== null || syncing}
                   onClick={onSync}
                 >
-                  {action === "sync" ? "Syncing…" : "Sync now"}
+                  {syncing ? "Syncing…" : "Sync now"}
                 </Button>
               </div>
             </div>
@@ -1144,13 +1218,25 @@ function CloudVaultPanel({
                 onResolve={onResolveSettingsConflict}
               />
             )}
-            {(summary ?? lastSummary) && (
-              <CloudSyncSummary
-                summary={(summary ?? lastSummary)!}
-                vaultName={link.vault_name}
-                onSummaryChange={onSummaryChange}
-              />
+            {syncing && (
+              <div role="status" className="text-sm text-ink-500">
+                Syncing… Waiting for all changes to finish.
+              </div>
             )}
+            {syncFailed && !syncing && (
+              <div role="alert" className="text-sm text-danger">
+                {syncError ?? "Sync failed. Please try again."}
+              </div>
+            )}
+            {displayedSummary &&
+              (currentResult || cloudSyncAttentionMessage(displayedSummary)) && (
+                <CloudSyncSummary
+                  summary={displayedSummary}
+                  showStatus={currentResult}
+                  vaultName={link.vault_name}
+                  onSummaryChange={onSummaryChange}
+                />
+              )}
           </div>
         ) : (
           <CloudVaultDestinationOptions
@@ -1883,10 +1969,12 @@ function CloudSyncSummary({
   summary,
   vaultName,
   onSummaryChange,
+  showStatus = true,
 }: {
   summary: CloudSyncRunSummary;
   vaultName: string;
   onSummaryChange: (summary: CloudSyncRunSummary) => void;
+  showStatus?: boolean;
 }): JSX.Element {
   const [selectedPendingConflictId, setSelectedPendingConflictId] = useState<
     string | null
@@ -1896,8 +1984,7 @@ function CloudSyncSummary({
     [
       "QUOTA_EXCEEDED",
       "CAPACITY_EXCEEDED",
-      "FILE_SIZE_LIMIT_EXCEEDED",
-    ].includes(conflict.code),
+    ].includes(conflict.code) && conflict.capacity?.dimension !== "sync_max_file_bytes",
   ).length;
   const items = cloudSyncAttentionItems(summary);
   // A note opens in the editor behind the modal; anything else (an asset, a
@@ -1918,16 +2005,20 @@ function CloudSyncSummary({
           : "rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700"
       }
     >
-      <div className="font-medium">
-        {attention
-          ? "Sync incomplete"
-          : summary.pulled === 0 && summary.pushed === 0
-            ? "Everything is up to date"
-            : `Downloaded ${summary.pulled} · Uploaded ${summary.pushed}`}
-      </div>
-      <div className="mt-1 text-xs text-ink-500">
-        {attention ?? "All changes are synced."}
-      </div>
+      {showStatus && (
+        <>
+          <div className="font-medium">
+            {attention
+              ? "Sync incomplete"
+              : summary.pulled === 0 && summary.pushed === 0
+                ? "Everything is up to date"
+                : `Downloaded ${summary.pulled} · Uploaded ${summary.pushed}`}
+          </div>
+          <div className="mt-1 text-xs text-ink-500">
+            {attention ?? "All changes are synced."}
+          </div>
+        </>
+      )}
       {capacityConflictCount > 0 && (
         <div className="mt-1 text-xs text-ink-500">
           {capacityConflictCount}{" "}
@@ -2023,6 +2114,7 @@ function CloudSyncSummary({
         ) && (
           <div className="mt-3 rounded-xl border border-paper-300/60 bg-paper-50 p-3">
             <CloudPendingConflictResolver
+              summary={summary}
               // Keyed by conflict: auto-advancing to the next file must not
               // inherit the previous one's copy name or resolved path, which
               // are seeded once from the conflict this resolver opened with.

@@ -27,7 +27,22 @@ export async function offerCreateNoteFromLink(target: string): Promise<void> {
     }
   })
   if (!value) return
+  await createNoteAtPath(value)
+}
 
+/**
+ * Create the note a dead link `target` points to without asking, at the path
+ * the prompt would have suggested: the link text as the file name, in Inbox
+ * unless the link names a top folder. The fast path behind a Cmd/Ctrl-click on
+ * an unresolved wikilink and the `gD` motion (#768): when the note belongs
+ * where the link already says, the confirmation only costs a keystroke. A
+ * note that already exists at that path is opened instead.
+ */
+export async function createNoteFromLinkNow(target: string): Promise<void> {
+  await createNoteAtPath(suggestCreateNotePath(target))
+}
+
+async function createNoteAtPath(value: string): Promise<void> {
   const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')
     requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())

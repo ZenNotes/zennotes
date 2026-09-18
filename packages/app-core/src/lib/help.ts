@@ -71,7 +71,7 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Keep supporting material nearby',
     body:
-      'Tabs, splits, floating windows, the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation.'
+      'Tabs, splits, floating windows, the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation. The Connections, Outline, Comments and Calendar panels stay as you set them while you move between notes. If you would rather each note kept its own, turn off Settings → Editor → Keep panels when switching notes (or run Remember Panels per Note from the command palette): a note then comes back with the panels you left it with, after a restart too (the memory is saved with your tabs and layout, never in the note), and a note you have not opened yet starts with none. With the automatic calendar on, a daily or weekly note whose calendar you closed stays closed when you return to it. The setting travels with your portable config as `keep_panels_across_notes` under `[view]`. The note always keeps a readable width: in a narrow pane (a split, a small window) the panels first shrink, and if they still do not fit, the ones you opened longest ago are tucked into a slim rail at the pane\'s right edge. They stay open; click one in the rail, or press its usual shortcut, to bring it forward.'
   },
   {
     title: 'Use files without leaving ZenNotes',
@@ -109,7 +109,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Make and edit your own templates',
     body:
-      'Open Settings → Templates. Press "New template" to author one: a template is just markdown with optional YAML frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and a body. Use the variables `{{title}}`, `{{date}}`, `{{date:FORMAT}}` (e.g. `{{date:YYYY-MM-DD}}`), `{{time}}`, `{{week}}`, and `{{cursor}}` (where the caret lands). The date format accepts the same tokens as the daily/weekly note directory and title patterns — `yyyy`/`yy`, `MMMM`/`MMM`/`MM`/`M`, `dd`/`d`, `EEEE`/`EEE` (weekday), `ww`/`w` (ISO week) — as well as moment-style `YYYY`/`DD`/`dddd`; wrap literal letters in `[brackets]`. Custom templates are saved as plain `.md` files under `.zennotes/templates/`. You can also fork a built-in by pressing Edit on it — that creates an editable copy that shadows the original, and Reset restores the built-in. From any note, the "Save Current Note as Template…" command captures it as a new template.'
+      'Open Settings → Templates. Press "New template" to author one: a template is just markdown with optional YAML frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and a body. Use the variables `{{title}}`, `{{date}}`, `{{date:FORMAT}}` (e.g. `{{date:YYYY-MM-DD}}`), `{{time}}`, `{{week}}`, and `{{cursor}}` (where the caret lands). Three more stay live instead of being substituted: `{{modified_date}}`, `{{modified_time}}` and `{{modified_datetime}}` are left in the note and always show when the file was last saved, so an `Updated:` line keeps itself current; `{{modified_date:FORMAT}}` takes the same date tokens. The date format accepts the same tokens as the daily/weekly note directory and title patterns — `yyyy`/`yy`, `MMMM`/`MMM`/`MM`/`M`, `dd`/`d`, `EEEE`/`EEE` (weekday), `ww`/`w` (ISO week) — as well as moment-style `YYYY`/`DD`/`dddd`; wrap literal letters in `[brackets]`. Custom templates are saved as plain `.md` files under `.zennotes/templates/`. You can also fork a built-in by pressing Edit on it — that creates an editable copy that shadows the original, and Reset restores the built-in. From any note, the "Save Current Note as Template…" command captures it as a new template.'
   },
   {
     title: 'Draw diagrams with Excalidraw',
@@ -159,12 +159,12 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Check for updates and install them',
     body:
-      'Use Check for Updates from the app menu, the command palette, or Settings → About. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files.'
+      'Use Check for Updates from the app menu, the command palette, or Settings → About. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
   },
   {
     title: 'Run the self-hosted web version with Docker',
     body:
-      'Prefer ZenNotes in a browser instead of the desktop app? Pull the prebuilt, multi-arch image from Docker Hub with `docker pull adibhanna/zennotes`, generate a login token and keep a copy (`openssl rand -hex 32`), then start the container with your vault mounted:\n`docker run -d -p 127.0.0.1:7878:7878 \\\n  -e ZENNOTES_AUTH_TOKEN=<your-token> \\\n  -v "$HOME/Documents/MyVault:/workspace" \\\n  -v "$HOME/zennotes-data:/data" \\\n  adibhanna/zennotes:latest`\nThe server binds to 0.0.0.0, so it will not start without that token — open http://localhost:7878 and paste the token on first connect. Your notes stay as ordinary .md files on the host, and the desktop app can point at the same server. The full walkthrough, including reverse-proxy and TLS hardening, lives at zennotes.org/docs.'
+      'Prefer ZenNotes in a browser instead of the desktop app? Pull the prebuilt, multi-arch image from Docker Hub with `docker pull adibhanna/zennotes`, generate a login token and keep a copy (`openssl rand -hex 32`), then start the container with your vault mounted:\n`docker run -d -p 127.0.0.1:7878:7878 \\\n  -e ZENNOTES_AUTH_TOKEN=<your-token> \\\n  -v "$HOME/Documents/MyVault:/workspace" \\\n  -v "$HOME/zennotes-data:/data" \\\n  adibhanna/zennotes:latest`\nThe server binds to 0.0.0.0, so it will not start without that token — open http://localhost:7878 and paste the token on first connect. Your notes stay as ordinary .md files on the host, and the desktop app can point at the same server. The full walkthrough, including reverse-proxy and TLS hardening, lives at zennotes.org/docs. The image is built from the server’s own repository, ZenNotes/znserver, whose releases also carry standalone `zennotes-server` binaries for running it without Docker.'
   },
   {
     title: 'Share Typst definitions across notes with tags',
@@ -207,7 +207,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Notes are real markdown files',
     body:
-      'ZenNotes edits markdown on disk. Rename, move, archive, restore, and floating-window operations all work on the underlying files, not an internal copy.'
+      'ZenNotes edits markdown on disk. Rename, move, archive, restore, and floating-window operations all work on the underlying files, not an internal copy. A note’s creation date is app-owned metadata kept beside it under `.zennotes/note-metadata`, moved, renamed and deleted with the note by the desktop, the CLI and MCP, so it survives syncs and filesystems that drop birth times; keep `.zennotes` with the vault in backups.'
   },
   {
     title: 'System folders are workflow buckets',
@@ -222,7 +222,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Tabs and splits are first-class',
     body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible without the mouse. If you disable Vim mode, use the command palette instead.'
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible without the mouse. If you disable Vim mode, use the command palette instead. Each note keeps its own undo history while the app is open: switch tabs, or close a note and open it again, and `u` / Mod+Z (and redo) still walk through the edits you made to it. Renaming or moving the note you are editing keeps its caret, scroll position and undo history too. If the note was changed somewhere else in the meantime (another pane, sync, an external editor), it starts a clean history, because the old undo steps would no longer fit the text. On the desktop app you can also keep undo history after quitting, the way Vim\'s `undofile` does: turn on Settings → Editor → Keep undo history after quitting (or `:set undofile` in Vim mode, or the command palette). It is off by default because the history contains text you deleted; it is stored with the app on this computer, never in your vault, histories nobody returns to expire after 90 days, and turning the setting off erases them all. It travels in `config.toml` as `persist_undo_history` under `[editor]`.'
   },
   {
     title: 'Context menus are part of the keyboard model',
@@ -377,17 +377,17 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: '[[ opens the wikilink picker',
     body:
-      'Type `[[` and the wikilink picker lists matching notes, images, PDFs, SVGs, and CSV databases; keep typing to narrow it. ↑/↓ or Ctrl+J/K (Ctrl+N/P) move through the suggestions, Enter inserts the link, Tab inserts it and keeps the caret inside the brackets so you can add a `#heading`, and Esc closes the picker. Type `|` after the target to set the display text, or `/path/to/note` for an exact link; picking a database drops a `[[Database]]` link that opens its grid.'
+      'Type `[[` and the wikilink picker lists matching notes, images, PDFs, SVGs, and CSV databases; keep typing to narrow it. ↑/↓ or Ctrl+J/K (Ctrl+N/P) move through the suggestions, Enter inserts the link, Tab inserts it and keeps the caret inside the brackets so you can add a `#heading`, and Esc closes the picker. Press `|` to take the highlighted suggestion and start its display text: you get `[[Note|]]` with the caret behind the `|` (to give display text to a name that is not in the list, press Esc first). Type `/path/to/note` for an exact link; picking a database drops a `[[Database]]` link that opens its grid.'
   },
   {
     title: 'Templates scaffold new notes',
     body:
-      'Templates turn a repeated note shape into one keystroke. ZenNotes ships built-in templates for engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do), and you can author your own under Settings → Templates. A template is plain markdown with optional frontmatter and variables — `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}` — substituted at creation time. Custom templates are stored as `.md` files in `.zennotes/templates/`, so they stay portable like everything else. Daily and weekly notes can each be assigned a template so dated notes start pre-filled.'
+      'Templates turn a repeated note shape into one keystroke. ZenNotes ships built-in templates for engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do), and you can author your own under Settings → Templates. A template is plain markdown with optional frontmatter and variables — `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}` — substituted at creation time, plus the live `{{modified_date}}`, `{{modified_time}}` and `{{modified_datetime}}`, which stay in the note and show its last-saved time. Custom templates are stored as `.md` files in `.zennotes/templates/`, so they stay portable like everything else. Daily and weekly notes can each be assigned a template so dated notes start pre-filled.'
   },
   {
     title: 'Reference and connections support research-heavy work',
     body:
-      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft. Connections count both `[[wikilinks]]` and standard Markdown links (`[text](Note.md)`), so incoming and outgoing associations show up even if you never use wikilinks.'
+      'Pin a companion note or PDF in the reference pane, then toggle the connections panel to inspect backlinks and unresolved links while you draft. Connections count both `[[wikilinks]]` and standard Markdown links (`[text](Note.md)`), so incoming and outgoing associations show up even if you never use wikilinks. A wikilink at a file in the vault, such as an embedded image or a PDF, is listed as a file and opens in its own tab; the panel only offers to create a note for a wikilink that reaches nothing.'
   },
   {
     title: 'Zen mode removes chrome',
@@ -397,7 +397,12 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Links are actionable',
     body:
-      'Use [[wikilinks]] or markdown links. Following a link — click it, Cmd/Ctrl-click it, or use the follow-link motion (`gd`) in normal mode — opens the note under the cursor and pins PDFs into the reference pane. If the note does not exist yet, following the link offers to create it (after you confirm) rather than leaving a dead link. Prefix a wikilink with `!` to embed rather than link: `![[Note]]` inlines the target note content in the reading view and PDF export — recursively, with cycle protection — so a master note can pull in sub-notes and export to PDF as one document. `![[image.png]]` embeds an image and `![[drawing.excalidraw]]` embeds an Excalidraw drawing as a PNG preview; both take optional `|width` or `|WxH` size hints (`![[image.png|300]]`, `![[image.png|600x400]]`), and the markdown form carries the same hint after the alt text (`![caption|300](image.png)`). In the editor, drag the handle on a picture\'s right edge to resize it; the width is written back as that hint, so the reading view, exports and Obsidian all show the same size. Resize Image… in the command palette (or `:imgwidth 480` in Vim mode, `:imgw auto` to reset) sets it by number for the image under the cursor. Right-click a web link or an email address, in the editor or the reading view, to open it or copy it (the address itself, without `mailto:`); `gy` in normal mode, or Copy Link Under Cursor in the palette, copies the one under the caret.'
+      'Use [[wikilinks]] or markdown links. Following a link — click it, Cmd/Ctrl-click it, or use the follow-link motion (`gd`) in normal mode — opens the note under the cursor and pins PDFs into the reference pane. If the note does not exist yet, following the link offers to create it (after you confirm) rather than leaving a dead link; hold Cmd (macOS) or Ctrl (Windows/Linux) while clicking the link, or use `gD` in normal mode, to create it at once at the suggested path: Inbox, named after the link text. A link at a note that does not exist yet is drawn muted with a dashed underline, in the editor and in the reading view, so you can tell live links from ones that would create a note. Prefix a wikilink with `!` to embed rather than link: `![[Note]]` inlines the target note content in the reading view and PDF export — recursively, with cycle protection — so a master note can pull in sub-notes and export to PDF as one document. `![[image.png]]` embeds an image and `![[drawing.excalidraw]]` embeds an Excalidraw drawing as a PNG preview; both take optional `|width` or `|WxH` size hints (`![[image.png|300]]`, `![[image.png|600x400]]`), and the markdown form carries the same hint after the alt text (`![caption|300](image.png)`). In the editor, drag the handle on a picture\'s right edge to resize it; the width is written back as that hint, so the reading view, exports and Obsidian all show the same size. Resize Image… in the command palette (or `:imgwidth 480` in Vim mode, `:imgw auto` to reset) sets it by number for the image under the cursor. Right-click a web link or an email address, in the editor or the reading view, to open it or copy it (the address itself, without `mailto:`); `gy` in normal mode, or Copy Link Under Cursor in the palette, copies the one under the caret.'
+  },
+  {
+    title: 'Open links in other applications',
+    body:
+      'On desktop, enable application prefixes such as zotero, obsidian, or vscode under Settings → Editor → Links → External application links. Separate prefixes with commas; they are saved in config.toml. Use ordinary Markdown, for example [Paper](zotero://open-pdf/library/items/W78FUE98). Editor clicks, Cmd/Ctrl-click, preview links, and Vim gd open enabled links in the installed application. A disabled application link offers Open settings, never note creation. If the application cannot open the link, ZenNotes shows an error.'
   },
   {
     title: 'Point at one block, not a whole note',
@@ -412,7 +417,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Files stay local',
     body:
-      'Drop files into a note to insert local files. ZenNotes copies them into the vault’s `assets/` folder — the same place pasted images land — so they stay together instead of cluttering your notes area, whether you keep notes in `inbox/` or at the vault root. It can reveal them from the app, and opens images, SVGs, PDFs, audio, video, and generic files inside ZenNotes tabs or reference panes where possible. In the sidebar you can drag an image, PDF, or any attachment onto a folder to move it, just like a note, or use its Move… context-menu entry.'
+      'Drop files into a note to insert local files. ZenNotes copies them into the vault’s `assets/` folder — the same place pasted images land — so they stay together instead of cluttering your notes area, whether you keep notes in `inbox/` or at the vault root. It can reveal them from the app, and opens images, SVGs, PDFs, audio, video, and generic files inside ZenNotes tabs or reference panes where possible. In the sidebar you can drag an image, PDF, or any attachment onto a folder to move it, just like a note, or use its Move… context-menu entry. Renaming or moving an asset (from the sidebar, the Assets view, a rendered image’s menu, or by dragging it onto a folder) rewrites every note that referenced it, `![[assets/old.png]]` embeds and `![](old.png)` links alike, in the style each link was written, the same way renaming a note updates its wikilinks.'
   },
   {
     title: 'Any CSV is a database',
@@ -485,7 +490,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Mod+N', action: 'New note in current folder', detail: 'Create a note in the active note\u2019s folder (or the browsed folder when no note is open) and focus its title. On Linux and Windows this wins over Vim\u2019s Ctrl+N (cursor down). Rebindable under Settings \u2192 Keymaps.' },
       { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note in the main window and focus its title.' },
       { keys: 'Shift+Mod+Space', action: 'Open quick capture window', detail: 'Open the floating, always-on-top capture window. Bound system-wide (CommandOrControl+Shift+Space by default) so it works over any app; change it under Settings → Editor.' },
-      { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
+      { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details. Settings opens on its search: type to filter, move through the results with ↑/↓ (or Ctrl+J / Ctrl+K), and press Enter to jump to the picked setting. From anywhere in Settings, Mod+F (or / in Vim mode) returns to the search.' },
       { keys: 'Mod+1', action: 'Toggle sidebar', detail: 'Hide or show the left sidebar.' },
       { keys: 'Mod+2', action: 'Toggle connections', detail: 'Toggle the connections panel for the active editor pane.' },
       { keys: 'Mod+Shift+C', action: 'Toggle comments panel', detail: 'Show or hide the Comments panel for the active pane.' },
@@ -537,6 +542,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: ']] / [[', action: 'Next / previous heading', detail: 'Jump the cursor to the next or previous markdown heading in the note, the way Vim’s section motions move between sections. It is a motion, so it composes: `d]]` deletes to the next heading, `v]]` selects to it, `3]]` skips three, and `Ctrl+O` jumps back. Headings inside code fences and frontmatter are skipped, matching the outline. With no heading left that way, the cursor goes to the end or start of the note.' },
       { keys: 'gq{motion} / gw{motion}', action: 'Reflow paragraph', detail: 'Vim’s format operator, tuned for an editor that wraps to the pane: `gqip` joins the hard-wrapped lines of the paragraph into one line, `gqj` joins two lines, `Vgq` a visual selection. `gq` lands on the first formatted line like Vim; `gw` keeps the cursor where it was. Headings, list markers, tables, code, math, and explicit line breaks are left alone.' },
+      { keys: 'Ctrl+V', action: 'Visual block', detail: 'Select a rectangle across rows; `I`, `A` and `c` apply the edit to every row of the block, short rows included.' },
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
@@ -897,6 +903,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Open wikilinks, open external links, create missing notes, or pin PDFs into the reference pane.'
   },
   {
+    command: 'gD',
+    summary: 'Create the note for the link under the cursor',
+    detail: 'Like `gd`, but a link at a note that does not exist yet creates it at once at the suggested path (Inbox, named after the link) instead of asking first. The keyboard twin of Cmd/Ctrl-clicking an unresolved wikilink.'
+  },
+  {
     command: 'gy',
     summary: 'Copy the link under the cursor',
     detail: 'Copies a web link\'s URL, or the address behind a `mailto:` link, to the clipboard. The same as right-clicking the link and choosing Copy link.'
@@ -1048,6 +1059,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Appearance',
     items: [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family — Apple, Gruvbox, Catppuccin, GitHub, Solarized, One, Nord, Tokyo Night, Kanagawa (Wave / Dragon / Paper Ink (Custom) / Lotus), Rosé Pine (Rosé Pine / Moon / Dawn), or the monochrome, true-black (OLED-friendly) Black Metal — plus light or dark mode and the active flavor or contrast where the theme supports it.' },
+      { label: 'Window title bar', detail: 'Under Settings → Appearance → Chrome, turn off Window title bar to remove the main window title and controls on macOS, Windows, and Linux, including tiling desktops such as Hyprland. The sidebar and editor stay visible, and the change applies to open vault windows without a restart. Drag blank space around the sidebar header to move the window, or use your window manager shortcuts. Press Cmd/Ctrl+, to restore the setting. The preference is saved as [appearance].show_window_title_bar in config.toml.' },
       { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
       { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' },
       { label: 'Use theme for PDF export', detail: 'Under Settings → Appearance → PDF export. Off by default, so exported PDFs use a clean light print theme. Turn it on to export in your current look instead: your theme (colors and dark/light, including custom themes), plus your enabled CSS snippets and color tweaks, as a full-bleed page. This toggle is the single switch for how the PDF looks; your CSS snippets style the export only while it is on, so you customize the PDF by editing your snippets, not with a separate print stylesheet.' }
@@ -1124,7 +1136,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Templates',
     items: [
       { label: 'Template library', detail: 'Browse every template — built-in and custom. Built-ins cover engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do).' },
-      { label: 'Create a custom template', detail: 'Author a new template as markdown with optional frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and variables like `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, and `{{cursor}}`. It is saved as a `.md` file in `.zennotes/templates/`.' },
+      { label: 'Create a custom template', detail: 'Author a new template as markdown with optional frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and variables like `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, `{{cursor}}`, and the live `{{modified_date}}` / `{{modified_time}}` / `{{modified_datetime}}` (rendered from the note’s last-saved time rather than substituted). It is saved as a `.md` file in `.zennotes/templates/`.' },
       { label: 'Edit or reset built-ins', detail: 'Press Edit on a built-in to fork an editable copy that shadows the original everywhere; Reset removes the copy and restores the built-in. Custom templates can be edited or deleted directly.' },
       { label: 'Remove or restore built-ins', detail: 'Hide all the shipped templates with “Remove Built-in Templates” (a button here, or the command palette; it asks first), and bring them back with “Restore Built-in Templates”. Your custom templates, and anything already pointing at a built-in by id, keep working.' },
       { label: 'Where templates appear', detail: 'Use a template via the picker (`Space t` / `:template` / “New Note from Template…”), from a folder’s right-click “New from template”, or as the assigned daily/weekly note template. Custom templates work on a local vault, in the self-hosted web client, and on a remote vault served by ZenNotes server 2.46 or later; they are `.md` files in the vault’s `.zennotes/templates/`, so one saved in any client shows up in the others. Built-ins work everywhere.' }
@@ -1133,7 +1145,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   {
     title: 'CLI',
     items: [
-      { label: 'Install Command-Line Tool', detail: 'Symlink the bundled `zn` wrapper into a usable PATH location so any terminal session can capture, search, and edit notes. ZenNotes prefers user-writable directories and only prompts for admin access when no writable PATH target is available. The CLI runtime stays packaged with the app, including the dependencies needed by `zn mcp`, so updates ship together.' },
+      { label: 'Install Command-Line Tool', detail: 'Symlink the bundled `zn` wrapper into a usable PATH location so any terminal session can capture, search, and edit notes. ZenNotes prefers user-writable directories and only prompts for admin access when no writable PATH target is available. The app carries the tested CLI runtime, so desktop-managed updates ship together. Builds with the terminal app install a persistent copy that also works after desktop closes.' },
       { label: 'Status, path, and quick reference', detail: 'Settings → CLI shows whether `zn` is installed, where the symlink lives, and a copy-able quick reference of the most useful commands. If the chosen directory is not on PATH yet, Settings shows the exact shell command to add it. An "External install" badge appears when something else owns `zn` so ZenNotes never clobbers an unmanaged binary.' },
       { label: 'Paths with spaces', detail: 'Quote note paths like `zn read "hellointerview/system design.md"` or pass them with `--path "hellointerview/system design.md"` so your shell keeps the path as one argument.' },
       { label: 'Raycast on macOS', detail: 'The Raycast extension requires `zn` and can be installed locally from this settings page. ZenNotes copies the bundled extension into app data, installs dependencies, builds it, and imports it into Raycast. It searches with `zn list --json`, then opens notes in ZenNotes through `zennotes://open` or `zennotes://open-window` and exposes archive, unarchive, trash, reveal, copy path, and copy wikilink actions from Raycast.' },
@@ -1181,6 +1193,11 @@ export const HELP_CLI: HelpCard[] = [
     title: 'Install it once from Settings',
     body:
       'Open Settings → CLI and click Install. ZenNotes symlinks the bundled wrapper into a usable PATH location, preferring user-writable directories and only asking for admin access when no writable PATH target is available. After that, `zn --help` works in any new terminal. You can also run the install from the command palette via "Install Command-Line Tool (zn)".'
+  },
+  {
+    title: 'The terminal app and existing installations',
+    body:
+      'Builds with the Go terminal tool include `zn tui`. Update and open ZenNotes once to upgrade an existing desktop-managed CLI; keep using the same `zn` commands. Settings shows the installed terminal version and offers Repair if an upgrade needs attention. Desktop-installed commands keep following the desktop vault, while the TUI remembers its own selection. Explicit `--vault` and `--server` flags still win. Set `ZENNOTES_WORKSPACE_SOURCE=terminal` to use the terminal default for a command, or `ZENNOTES_CLI_ENGINE=legacy` to run the previous CLI during the transition. Homebrew and manual installations stay managed by their own installer. A shortcut left behind by a moved Mac app or an old AppImage can be repaired from Settings: review the old target, replacement and backup path before choosing Repair shortcut. Note saves preserve creation dates in small files under `.zennotes/note-metadata` without changing Markdown; keep the `.zennotes` folder with vault backups. Explicit legacy rollback needs the original app resources to remain available.'
   },
   {
     title: 'No app required',

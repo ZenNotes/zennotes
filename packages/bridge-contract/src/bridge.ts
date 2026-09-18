@@ -1,7 +1,9 @@
+import type { ZenPlatform } from './platform.js'
 import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CliInstallRequest,
   DeletedAsset,
   ExternalFileContent,
   ExternalFileLink,
@@ -34,8 +36,8 @@ import type {
   VaultTextSearchCapabilities,
   VaultTextSearchMatch,
   VaultTextSearchToolPaths
-} from './ipc'
-import type { CustomTemplateFile, WriteTemplateInput } from './templates'
+} from './ipc.js'
+import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
@@ -58,7 +60,7 @@ import type {
   CloudSyncSettingsConflict,
   CloudSyncVault,
   CloudVaultLink
-} from './cloud-sync'
+} from './cloud-sync.js'
 import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
@@ -68,28 +70,29 @@ import type {
   WorkflowRunSummary,
   WorkflowUndoResult,
   WriteWorkflowInput
-} from './workflows'
-import type { VaultTask } from '@zennotes/shared-domain/tasks'
+} from './workflows.js'
+import type { VaultTask } from './tasks.js'
 import type {
   DatabaseDoc,
   DatabaseSidecar,
   DatabaseSummary,
   DbRow
-} from '@zennotes/shared-domain/databases'
+} from './databases.js'
 import type {
   McpClientId,
   McpClientStatus,
   McpInstructionsPayload,
   McpServerRuntime
-} from '@zennotes/shared-domain/mcp-clients'
-import type { AppConfigPortable } from '@zennotes/shared-domain/app-config'
-import type { CustomTheme } from '@zennotes/shared-domain/custom-themes'
-import type { Override } from '@zennotes/shared-domain/overrides'
+} from './mcp-clients.js'
+import type { AppConfigPortable } from './app-config.js'
+import type { ExternalUrlResult } from './application-links.js'
+import type { CustomTheme } from './custom-themes.js'
+import type { Override } from './overrides.js'
 import type {
   CustomCodeLanguage,
   CustomCodeLanguageInstallInput,
   CustomCodeLanguageUpdateInput
-} from '@zennotes/shared-domain/custom-code-languages'
+} from './custom-code-languages.js'
 
 export interface ZenCapabilities {
   supportsUpdater: boolean
@@ -109,6 +112,10 @@ export interface ZenCapabilities {
    *  Harper's worker and ships it. Absent on hosts that have not verified
    *  that yet (the mobile shells), which hides the setting there. */
   supportsHarper?: boolean
+  /** The host can keep per-note undo history between launches, somewhere
+   *  machine-local that is not the vault (`readNoteUndoHistory` and friends).
+   *  Absent everywhere but the desktop app, which hides the setting. (#793) */
+  supportsUndoFile?: boolean
 }
 
 export interface ZenAppInfo {
@@ -117,15 +124,17 @@ export interface ZenAppInfo {
   version: string
   description: string
   homepage?: string
+  /** Legacy renderer family. Use hostKind to distinguish native mobile shells. */
   runtime: 'desktop' | 'web'
+  hostKind?: 'desktop' | 'browser' | 'ios' | 'android'
 }
 
 export interface ZenBridge {
   getCapabilities(): ZenCapabilities
   getAppInfo(): ZenAppInfo
 
-  platform(): Promise<NodeJS.Platform>
-  platformSync(): NodeJS.Platform
+  platform(): Promise<ZenPlatform>
+  platformSync(): ZenPlatform
   listSystemFonts(): Promise<string[]>
   getAppIconDataUrl(): Promise<string | null>
   zoomInApp(): Promise<number>
@@ -155,11 +164,15 @@ export interface ZenBridge {
   unlinkCloudVault(): Promise<void>
   deleteCloudVault(): Promise<void>
   syncCloudVault(): Promise<CloudSyncRunSummary>
+  hasCloudVaultChanges?(): Promise<boolean>
+  /** Hosts with multiple workspace windows coordinate draft saves before sync. */
+  onCloudSyncWindow?(handlers: import('./cloud-sync.js').CloudSyncWindowHandlers): () => void
   getCloudBootstrapConflict(
     conflict: CloudSyncBootstrapConflict
   ): Promise<CloudSyncBootstrapConflictDetails>
   resolveCloudBootstrapConflict(resolution: CloudSyncBootstrapConflictResolution): Promise<void>
-  getCloudConflict(conflictId: string): Promise<CloudSyncPendingConflictDetails>
+  getCloudConflict(conflictId: string, reviewId?: string): Promise<CloudSyncPendingConflictDetails>
+  releaseCloudConflictReview?(conflictId: string, reviewId: string): Promise<void>
   saveCloudConflictDraft(conflictId: string, draftText: string | null): Promise<void>
   resolveCloudConflict(resolution: CloudSyncPendingConflictResolution): Promise<void>
   getCloudSettingsConflict(): Promise<CloudSyncSettingsConflict | null>
@@ -211,6 +224,14 @@ export interface ZenBridge {
   readWorkspaceState(): Promise<string | null>
   /** Write the current vault's `.zennotes/workspace.json` (raw JSON string). (#292) */
   writeWorkspaceState(json: string): Promise<void>
+  /** Undo history saved for a note of the current vault, or null. Opaque JSON
+   *  the renderer wrote earlier; it lives with the app, not in the vault, and
+   *  never syncs. Only on hosts with `supportsUndoFile`. (#793) */
+  readNoteUndoHistory?(path: string): Promise<string | null>
+  /** Save a note's undo history, or forget it with `null`. (#793) */
+  writeNoteUndoHistory?(path: string, json: string | null): Promise<void>
+  /** Forget every saved undo history, in every vault. (#793) */
+  clearNoteUndoHistories?(): Promise<void>
   /** True when the vault is in `inbox` mode but its root holds notes that only
    *  `root` mode would surface (drives the "Switch to Vault root" banner). */
   rootContentHiddenByInboxMode(): Promise<boolean>
@@ -320,6 +341,8 @@ export interface ZenBridge {
    * when the open fails, so callers can surface a message.
    */
   openExternalFile(href: string): Promise<{ ok: boolean; error?: string }>
+  /** Open a URL through the host after checking enabled application schemes. */
+  openExternalUrl(url: string): Promise<ExternalUrlResult>
   /**
    * Open a VAULT asset (vault-relative path) with the OS default app. Unlike
    * `openExternalFile` this resolves against the vault the host actually has:
@@ -426,7 +449,7 @@ export interface ZenBridge {
   mcpGetInstructions(): Promise<McpInstructionsPayload>
   mcpSetInstructions(next: string | null): Promise<McpInstructionsPayload>
   cliGetStatus(): Promise<CliInstallStatus>
-  cliInstall(): Promise<CliInstallStatus>
+  cliInstall(request?: CliInstallRequest): Promise<CliInstallStatus>
   cliUninstall(): Promise<CliInstallStatus>
   raycastGetStatus(): Promise<RaycastExtensionStatus>
   raycastInstall(): Promise<RaycastExtensionStatus>

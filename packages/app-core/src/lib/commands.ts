@@ -9,6 +9,7 @@
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
 import { confirmApp } from './confirm-requests'
 import { promptApp } from './prompt-requests'
+import { captureNavigationContext } from './navigation-context'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { focusSidebarPanel } from './sidebar-focus'
@@ -316,6 +317,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       when: () => !!getState().activeNote,
       run: async () => {
+        const isCurrent = captureNavigationContext()
         const active = getState().activeNote
         if (!active) return
         const next = await promptApp({
@@ -323,7 +325,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
           initialValue: active.title,
           okLabel: 'Rename'
         })
-        if (next && next !== active.title) await getState().renameActive(next)
+        if (next && next !== active.title && isCurrent() && getState().selectedPath === active.path)
+          await getState().renameActive(next)
       }
     },
     {
@@ -542,13 +545,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'move mv relocate folder archive inbox',
       when: () => !!getState().activeNote,
       run: async () => {
+        const isCurrent = captureNavigationContext()
         const state = getState()
         const active = state.activeNote
         if (!active) return
         const target = await promptApp(buildMoveNotePrompt(active, state.folders))
-        if (!target) return
+        if (!target || !isCurrent()) return
         const dest = parseMoveNoteTarget(target)
-        await state.moveNote(active.path, dest.folder, dest.subpath)
+        await state.moveNote(active.path, dest.folder, dest.subpath, isCurrent)
       }
     }
   )
@@ -1526,6 +1530,25 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: getState().tabsEnabled ? 'Disable Tabs' : 'Enable Tabs',
       category: 'Editor',
       run: () => getState().setTabsEnabled(!getState().tabsEnabled)
+    },
+    {
+      id: 'editor.keep-panels.toggle',
+      title: getState().keepPanelsAcrossNotes
+        ? 'Remember Panels per Note'
+        : 'Keep Panels When Switching Notes',
+      category: 'Editor',
+      keywords: 'panels connections outline comments calendar sticky per note remember switch',
+      run: () => getState().setKeepPanelsAcrossNotes(!getState().keepPanelsAcrossNotes)
+    },
+    {
+      id: 'editor.persist-undo-history.toggle',
+      title: getState().persistUndoHistory
+        ? 'Stop Keeping Undo History After Quitting'
+        : 'Keep Undo History After Quitting',
+      category: 'Editor',
+      keywords: 'undofile undo redo history persistent restart quit vim',
+      when: () => !!window.zen?.getCapabilities?.().supportsUndoFile,
+      run: () => getState().setPersistUndoHistory(!getState().persistUndoHistory)
     },
     {
       id: 'editor.word-wrap.toggle',

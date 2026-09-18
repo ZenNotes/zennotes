@@ -1,3 +1,4 @@
+import { dropMutationsFor } from '../lib/task-column-mutations'
 /**
  * Kanban view for the Tasks tab.
  *
@@ -43,6 +44,7 @@ import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
 import { isImeComposing } from '../lib/ime'
 import {
@@ -78,79 +80,7 @@ function columnAccent(id: string): string | null {
   return COLUMN_ACCENTS[hash % COLUMN_ACCENTS.length]
 }
 
-/** Map a (groupBy, columnId) drop target to the task-line mutations
- *  that should land. Returns `null` when the drop has no defined
- *  semantics (e.g. when group-by is 'folder'). Returns `[]` when the
- *  task is already in the target column — caller can short-circuit. */
-export function dropMutationsFor(
-  groupBy: KanbanGroupBy,
-  columnId: string,
-  task: VaultTask,
-  today: Date
-): TaskMutation[] | null {
-  if (groupBy === 'status') {
-    const todayIso = toIsoDateLocal(today)
-    switch (columnId) {
-      case 'today':
-        // "Live" columns — make sure neither @waiting, [x] nor [/] keep the
-        // task glued to a different bucket.
-        return [
-          { kind: 'set-checked', checked: false },
-          { kind: 'set-waiting', waiting: false },
-          { kind: 'set-in-progress', inProgress: false },
-          { kind: 'set-due', due: todayIso }
-        ]
-      case 'upcoming': {
-        const tomorrow = new Date(today)
-        tomorrow.setDate(tomorrow.getDate() + 1)
-        return [
-          { kind: 'set-checked', checked: false },
-          { kind: 'set-waiting', waiting: false },
-          { kind: 'set-in-progress', inProgress: false },
-          {
-            kind: 'set-due',
-            due: task.due && task.due > todayIso ? task.due : toIsoDateLocal(tomorrow)
-          }
-        ]
-      }
-      case IN_PROGRESS_COLUMN_ID:
-        // Started work: `[/]`. The due date is left alone, so a card dragged
-        // back to Today or Upcoming keeps the date it had.
-        return [
-          { kind: 'set-checked', checked: false },
-          { kind: 'set-waiting', waiting: false },
-          { kind: 'set-in-progress', inProgress: true }
-        ]
-      case 'waiting':
-        // `[/]` survives underneath on purpose: clearing the wait returns the
-        // card to In progress, where it came from.
-        return [
-          { kind: 'set-checked', checked: false },
-          { kind: 'set-waiting', waiting: true }
-        ]
-      case 'done':
-        return [{ kind: 'set-checked', checked: true }]
-      default:
-        return null
-    }
-  }
-  if (groupBy === 'priority') {
-    if (columnId === 'high') return [{ kind: 'set-priority', priority: 'high' }]
-    if (columnId === 'med') return [{ kind: 'set-priority', priority: 'med' }]
-    if (columnId === 'low') return [{ kind: 'set-priority', priority: 'low' }]
-    if (columnId === 'none') return [{ kind: 'set-priority', priority: null }]
-    return null
-  }
-  if (groupBy.startsWith('field:')) {
-    // Drop sets the `@<key>:<value>` token; the No-<key> column clears it.
-    const key = groupBy.slice('field:'.length)
-    return [{ kind: 'set-field', key, value: columnId === NO_VALUE_COLUMN_ID ? null : columnId }]
-  }
-  // Folder grouping is read-only — moving the task across folders
-  // means moving the source note, which the user does explicitly via
-  // the sidebar.
-  return null
-}
+export { dropMutationsFor } from '../lib/task-column-mutations'
 
 export interface Column {
   id: string
@@ -216,13 +146,24 @@ export function completeStatusOrder(saved: string[], builtIds: string[]): string
   return result
 }
 
-function priorityColumns(tasks: VaultTask[]): Column[] {
+/** A board shows work that is still live. Besides done cards, the two other
+ *  closed states stay off it: a `[>]` forwarded record is the trail a task left
+ *  behind when it moved to another note (its live copy is the card), and a
+ *  `[-]` cancelled task was abandoned on purpose. The Status board drops both
+ *  through `groupTasks`; the field boards skip them explicitly; these two
+ *  boards only skipped done cards, so a task forwarded across three notes read
+ *  as three cards (#786). */
+function isBoardCard(task: VaultTask): boolean {
+  return !task.checked && !task.forwarded && !task.cancelled
+}
+
+export function priorityColumns(tasks: VaultTask[]): Column[] {
   const high: VaultTask[] = []
   const med: VaultTask[] = []
   const low: VaultTask[] = []
   const none: VaultTask[] = []
   for (const task of tasks) {
-    if (task.checked) continue
+    if (!isBoardCard(task)) continue
     if (task.priority === 'high') high.push(task)
     else if (task.priority === 'med') med.push(task)
     else if (task.priority === 'low') low.push(task)
@@ -312,7 +253,7 @@ export function folderColumns(
     else byId.set(id, { label, folder, dir, tasks: [task] })
   }
   for (const task of tasks) {
-    if (task.checked) continue
+    if (!isBoardCard(task)) continue
     if (task.noteFolder === 'archive' && !showArchived) continue
     const location = noteLocationOf(task, layout.systemFolderPaths)
     const vaultDir = [location.prefix, location.dir].filter(Boolean).join('/')
@@ -390,7 +331,7 @@ function fieldColumns(tasks: VaultTask[], fieldKey: string, order: string[]): Co
   const byValue = new Map<string, VaultTask[]>()
   const noValue: VaultTask[] = []
   for (const task of tasks) {
-    if (task.checked || task.forwarded || task.cancelled) continue
+    if (!isBoardCard(task)) continue
     const value = task.fields?.[fieldKey]
     if (value) {
       const list = byValue.get(value)
@@ -2070,6 +2011,7 @@ function TaskCard({
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 text-xs text-current/50">
         <span className="max-w-full truncate">{task.noteTitle}</span>
+        <CloudTaskConflictIndicator path={task.sourcePath} />
         {task.priority && (
           <span
             className={[

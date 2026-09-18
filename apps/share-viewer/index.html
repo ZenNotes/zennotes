@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZenNotes Share Viewer; dev harness</title>
+    <!--
+      Production markup is rendered by the Laravel share page; this file
+      only exists so `npm run dev` has a payload to render against.
+    -->
+  </head>
+  <body>
+    <script type="application/json" id="zen-share-data">
+      {
+        "title": "Share viewer dev note",
+        "markdown": "# Share viewer dev note\n\nInline math $e^{i\\pi} + 1 = 0$ and block math:\n\n$$\\int_0^1 x^2\\,dx = \\tfrac{1}{3}$$\n\n```mermaid\ngraph TD\n  A[Edit note] --> B{Share?}\n  B -->|:share| C[Public page]\n```\n\n```function-plot\n{\n  \"data\": [{ \"fn\": \"sin(x)\" }]\n}\n```\n\n- [x] render markdown\n- [ ] neutralize [[Wikilinks]] and #tags\n\n> [!tip]\n> Callouts, `inline code`, and code blocks render with app styling.\n\n```ts\nconst answer: number = 42\n```\n",
+        "assets": {},
+        "tikz": {},
+        "published_at": "2026-06-05T12:00:00Z",
+        "updated_at": "2026-06-05T12:00:00Z"
+      }
+    </script>
+    <main id="zen-share-root"><div class="zen-share-fallback">Loading…</div></main>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

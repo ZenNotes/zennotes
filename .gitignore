@@ -8,8 +8,8 @@ apps/web/dist
 # The bare `dist` above does not cover these suffixed names.
 dist.stage-*
 dist.retired-*
-apps/server/web/.web-dist.lock
-apps/server/bin
+apps/web/.web-dist.lock
+dist/server-binaries
 .DS_Store
 *.log
 .env
@@ -28,3 +28,6 @@ result
 result-*
 # Release notes / launch copy are kept local only, never committed.
 docs/releases/
+# Verified native CLI artifacts; release pins are tracked separately.
+apps/desktop/build/terminal/
+apps/desktop/build/terminal.stage-*

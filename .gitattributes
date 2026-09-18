@@ -1,0 +1,4 @@
+# Contract fixtures are hashed byte for byte by the TypeScript, Go server, and
+# TUI consumers, so they must check out with LF on every platform, including
+# Windows runners whose Git defaults to CRLF conversion.
+packages/bridge-contract/fixtures/** text eol=lf

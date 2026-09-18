@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.46.0",
+  "version": "2.52.0",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -299,7 +299,14 @@
       "compression": "xz"
     },
     "pacman": {
-      "compression": "xz"
+      "compression": "xz",
+      "fpm": [
+        "--provides",
+        "zennotes",
+        "--conflicts",
+        "zennotes-bin",
+        "build/zennotes=/usr/bin/zennotes"
+      ]
     }
   }
 }

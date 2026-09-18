@@ -9,14 +9,15 @@ const repoRoot = resolve(scriptDir, '..', '..')
 
 // One lock serializes every process that produces the web bundle: the vite
 // build that fills apps/web/dist (it empties the directory first, so a reader
-// can otherwise stage a half-written tree) and the swap that moves that tree
-// into apps/server/web/dist (which briefly has no dist/ at all, and `go:embed
-// all:dist` cannot compile in that window). It lives next to the tree it
-// guards so a leftover lock is easy to spot and delete by hand.
-export const WEB_DIST_LOCK_DIR = resolve(repoRoot, 'apps/server/web/.web-dist.lock')
+// can otherwise stage a half-written tree), the artifact packer that reads it,
+// and the sync that moves that tree into an external server checkout's
+// web/dist (which briefly has no dist/ at all, and `go:embed all:dist` cannot
+// compile in that window). It lives next to the tree it guards so a leftover
+// lock is easy to spot and delete by hand.
+export const WEB_DIST_LOCK_DIR = resolve(repoRoot, 'apps/web/.web-dist.lock')
 const OWNER_FILE = resolve(WEB_DIST_LOCK_DIR, 'owner.json')
-// A holder still running after this long is presumed wedged; a vite build plus
-// a directory copy is a matter of seconds.
+// Only an ownerless lock can expire by age. A cold Go build may legitimately
+// hold the lock much longer while the compiler reads embedded browser assets.
 const STALE_MS = 10 * 60 * 1000
 const POLL_MS = 50
 // Handed to child processes so a locked script that shells out to another
@@ -64,9 +65,7 @@ async function lockIsStale() {
       return false
     }
   }
-  // A recycled pid can make a dead holder look alive, so age is also checked.
-  if (!pidIsAlive(owner.pid)) return true
-  return Date.now() - (owner.startedAt ?? 0) > STALE_MS
+  return !pidIsAlive(owner.pid)
 }
 
 async function releaseLock(token) {

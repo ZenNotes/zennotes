@@ -81,6 +81,7 @@ export function shouldSyncVaultPath(path: string): boolean {
   return (
     lower === '.zennotes/vault.json' ||
     lower.startsWith('.zennotes/comments/') ||
+    (lower.startsWith('.zennotes/note-metadata/') && lower.endsWith('.metadata.json')) ||
     lower.startsWith('.zennotes/templates/') ||
     lower.startsWith('.zennotes/workflows/')
   )

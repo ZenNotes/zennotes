@@ -11,10 +11,9 @@ For the desktop app:
 nix run github:ZenNotes/zennotes
 ```
 
-For the server:
-```sh
-nix run github:ZenNotes/zennotes#zennotes-server
-```
+The self-hosted server is packaged in its own repository,
+[ZenNotes/znserver](https://github.com/ZenNotes/znserver), which ships a
+`default.nix` (`nix-build` in a checkout).
 
 ## Installing on NixOS
 
@@ -41,7 +40,6 @@ And then you can add it to your system packages:
 {
   environment.systemPackages = [
     inputs.zennotes.packages.${pkgs.system}.zennotes-desktop
-    inputs.zennotes.packages.${pkgs.system}.zennotes-server
   ];
 }
 ```
@@ -52,14 +50,6 @@ If you don't use flakes you'll need to copy the `package-desktop.nix` file into 
 ```nix
 environment.systemPackages = [
   (pkgs.callPackage ./package-desktop.nix { })
-];
-```
-
-Same goes for the server package:
-
-```nix
-environment.systemPackages = [
-  (pkgs.callPackage ./package-server.nix { })
 ];
 ```
 
@@ -91,7 +81,7 @@ nix-prefetch-github ZenNotes zennotes --rev "vX.X.X"
 
 ```
 
-3. Update the npmDepsHash (if needed) and vendorHash (if needed)
+3. Update the npmDepsHash (if needed)
 To obtain a new npmDepsHash use this command in an updated project root:
 
 ```sh
@@ -101,8 +91,7 @@ prefetch-npm-deps package-lock.json
 ```json
 {
   // ...
-  "npmDepsHash": "sha256-7IpGnxVjaJvfSZyKjOylGMhFqa1bx8Ry5O1yqYfNnCE=",
-  "vendorHash": "sha256-wYBF7CjM6AvoWMWql9hFmIaj6pCmli4vOef6POyGkfU="
+  "npmDepsHash": "sha256-7IpGnxVjaJvfSZyKjOylGMhFqa1bx8Ry5O1yqYfNnCE="
 }
 ```
 
@@ -111,11 +100,6 @@ prefetch-npm-deps package-lock.json
 ```sh
 nix build
 ./result/bin/zennotes-desktop
-```
-
-```sh
-nix build .#server
-./result/bin/zennotes-server
 ```
 
 ## Notes & limitations

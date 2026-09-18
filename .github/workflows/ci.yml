@@ -52,21 +52,48 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          # Pin a modern Go instead of go.mod's `go 1.22`: the 1.22 macOS
-          # linker omits the LC_UUID load command, which the updated
-          # macos-latest dyld now rejects ("missing LC_UUID", abort trap) when
-          # launching `go test` binaries. go.mod stays at 1.22 (its real
-          # minimum), so Nix/release builds are unaffected.
-          go-version: stable
-          cache-dependency-path: apps/server/go.sum
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck and build app
+      - name: Verify terminal artifacts and legacy launchers
+        if: matrix.os != 'windows-latest'
+        run: node --test tooling/scripts/terminal-artifact.test.mjs tooling/scripts/terminal-launcher.test.mjs
+
+      - name: Verify standalone shared packages
+        run: npm run test:shared-packages
+
+      - name: Verify isolated editor package and assets
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:app-core-package
+
+      - name: Exercise the installed editor in Chrome
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:app-core-browser
+
+      - name: Verify the editor with the mobile Vite version
+        if: matrix.os == 'ubuntu-latest'
         env:
-          GOCACHE: ${{ runner.temp }}/go-build-cache
+          ZEN_CORE_VITE_VERSION: 8.2.2
+        run: npm run test:app-core-package
+
+      - name: Exercise the Vite 8 editor in Chrome
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:app-core-browser
+
+      - name: Collect browser evidence
+        if: always() && matrix.os == 'ubuntu-latest'
+        run: node tooling/scripts/collect-app-core-evidence.mjs "$RUNNER_TEMP/app-core-browser-evidence"
+
+      - name: Retain browser evidence
+        if: always() && matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-core-browser-evidence
+          path: ${{ runner.temp }}/app-core-browser-evidence
+          if-no-files-found: ignore
+
+      - name: Verify browser asset build lock
+        run: npm run test:web-dist-lock
+
+      - name: Typecheck and build app
         run: npm run build:prod

@@ -2,6 +2,7 @@
 
 import {
   autocompletion,
+  completionStatus,
   currentCompletions,
   selectedCompletionIndex,
   startCompletion,
@@ -112,6 +113,75 @@ describe('completion arrow navigation', () => {
 
     press(view, 'ArrowDown')
     expect(reached).toBe(1)
+
+    view.destroy()
+  })
+})
+
+// #803: this keymap runs ahead of the Vim plugin, so whatever it reports as
+// handled never reaches Vim. Only a popup the user can see may take Escape.
+describe('completion Escape', () => {
+  function mountWithEscapeProbe(): { view: EditorView; reached: () => number } {
+    let reached = 0
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: 'line one\n@',
+        selection: { anchor: 10 },
+        extensions: [
+          autocompletion({ defaultKeymap: false, override: [source] }),
+          completionNavKeymap,
+          completionKeymapExtension,
+          keymap.of([
+            {
+              key: 'Escape',
+              run: () => {
+                reached += 1
+                return true
+              }
+            }
+          ])
+        ]
+      }),
+      parent: document.body
+    })
+    return { view, reached: () => reached }
+  }
+
+  it('closes a visible popup and keeps the key', async () => {
+    const { view, reached } = mountWithEscapeProbe()
+    startCompletion(view)
+    await settle(view)
+
+    press(view, 'Escape')
+
+    expect(currentCompletions(view.state).length).toBe(0)
+    expect(reached()).toBe(0)
+
+    view.destroy()
+  })
+
+  it('cancels a query that is only pending and lets the key through', () => {
+    const { view, reached } = mountWithEscapeProbe()
+    // A typed character marks every source pending for the activateOnTyping
+    // debounce; nothing is on screen yet.
+    view.dispatch({ ...view.state.replaceSelection('x'), userEvent: 'input.type' })
+    expect(completionStatus(view.state)).toBe('pending')
+    expect(currentCompletions(view.state).length).toBe(0)
+
+    press(view, 'Escape')
+
+    expect(reached()).toBe(1)
+    expect(completionStatus(view.state)).toBe(null)
+
+    view.destroy()
+  })
+
+  it('lets the key through when nothing is pending or open', () => {
+    const { view, reached } = mountWithEscapeProbe()
+
+    press(view, 'Escape')
+
+    expect(reached()).toBe(1)
 
     view.destroy()
   })

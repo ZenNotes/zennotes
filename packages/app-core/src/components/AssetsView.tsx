@@ -114,6 +114,7 @@ export function AssetsView(): JSX.Element {
   const openNoteInTab = useStore((s) => s.openNoteInTab)
   const deleteAsset = useStore((s) => s.deleteAsset)
   const refreshAssets = useStore((s) => s.refreshAssets)
+  const renameAssetFile = useStore((s) => s.renameAsset)
   const notes = useStore((s) => s.notes)
   const vaultRoot = useStore((s) => s.vault?.root ?? null)
   const [filter, setFilter] = useState('')
@@ -180,8 +181,7 @@ export function AssetsView(): JSX.Element {
     const clean = next.trim()
     if (!clean || `${clean}${ext}` === asset.name) return
     try {
-      await window.zen.renameAsset(asset.path, `${clean}${ext}`)
-      await refreshAssets()
+      await renameAssetFile(asset.path, `${clean}${ext}`)
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err))
     }

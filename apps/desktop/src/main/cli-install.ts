@@ -4,8 +4,8 @@
  *
  * The wrapper script `build/zen` ships in the packaged app at
  * Contents/Resources/zen (macOS) or resources/zen (Linux). Installing
- * the CLI means creating a symlink to that wrapper somewhere on the
- * user's $PATH.
+ * the CLI uses a verified persistent Go runtime when the app includes one,
+ * retaining that resource path and the Node CLI for transition compatibility.
  *
  * We deliberately avoid a sudo / admin prompt by default. Most macOS
  * and Linux setups already have at least one user-writable directory
@@ -22,6 +22,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import os from 'node:os'
+import { randomUUID } from 'node:crypto'
+import { prepareTerminalRuntime, readActiveTerminalRuntime } from './terminal-runtime'
 import type { CliInstallStatus } from '@shared/ipc'
 import { resolveLoginShellPathDirs } from './login-shell-path'
 
@@ -42,6 +44,205 @@ const LEGACY_CLI_NAMES = ['zen']
 interface WrapperLocation {
   wrapperPath: string
   cliJsPath: string
+  legacyWrapperPaths?: string[]
+  runtime?: 'go' | 'node'
+  version?: string
+  runtimeError?: string
+}
+
+let migrationError: string | undefined
+
+interface InstallReceipt {
+  linkPath: string
+  linkTarget: string
+}
+
+interface RepairOffer {
+  token: string
+  linkPath: string
+  oldTarget: string
+  newTarget: string
+  backupPath: string
+  expiresAt: number
+}
+
+let repairOffer: RepairOffer | undefined
+
+function receiptPath(): string {
+  return path.join(app.getPath('userData'), 'cli', 'install-receipts.json')
+}
+
+async function readInstallReceipts(): Promise<InstallReceipt[]> {
+  try {
+    const data = JSON.parse(await fsp.readFile(receiptPath(), 'utf8'))
+    if (data?.schemaVersion !== 1 || !Array.isArray(data.links) || data.links.length > 128)
+      return []
+    return data.links.filter((item: unknown): item is InstallReceipt => {
+      if (!item || typeof item !== 'object') return false
+      const value = item as InstallReceipt
+      return (
+        typeof value.linkPath === 'string' &&
+        path.isAbsolute(value.linkPath) &&
+        [CLI_NAME, ...LEGACY_CLI_NAMES].includes(path.basename(value.linkPath)) &&
+        typeof value.linkTarget === 'string' &&
+        value.linkTarget.length > 0 &&
+        !value.linkTarget.includes('\0')
+      )
+    })
+  } catch {
+    return []
+  }
+}
+
+async function writeInstallReceipts(entries: InstallReceipt[]): Promise<void> {
+  const target = receiptPath()
+  await fsp.mkdir(path.dirname(target), { recursive: true })
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await fsp.writeFile(
+      temporary,
+      JSON.stringify({ schemaVersion: 1, links: entries.slice(-128) }),
+      { mode: 0o600 }
+    )
+    await fsp.rename(temporary, target)
+  } finally {
+    await fsp.rm(temporary, { force: true })
+  }
+}
+
+async function recordInstall(linkPath: string, linkTarget: string): Promise<void> {
+  if ((await fsp.readlink(linkPath)) !== linkTarget)
+    throw new Error(`${linkPath} changed during installation.`)
+  const entries = (await readInstallReceipts()).filter((entry) => entry.linkPath !== linkPath)
+  entries.push({ linkPath, linkTarget })
+  await writeInstallReceipts(entries)
+}
+
+async function forgetInstall(linkPath: string, linkTarget: string): Promise<void> {
+  const entries = await readInstallReceipts()
+  const retained = entries.filter(
+    (entry) => entry.linkPath !== linkPath || entry.linkTarget !== linkTarget
+  )
+  if (retained.length !== entries.length) await writeInstallReceipts(retained)
+}
+
+async function ownedInstall(
+  linkPath: string,
+  linkTarget: string,
+  wrapper: WrapperLocation | null,
+  receipts: InstallReceipt[]
+): Promise<boolean> {
+  const resolved = path.resolve(path.dirname(linkPath), linkTarget)
+  return (
+    (wrapper ? matchesWrapper(resolved, wrapper) : looksLikeOurInstall(resolved)) ||
+    receipts.some((entry) => entry.linkPath === linkPath && entry.linkTarget === linkTarget)
+  )
+}
+
+async function isMissingHistoricalTarget(linkPath: string, linkTarget: string): Promise<boolean> {
+  const resolved = path.resolve(path.dirname(linkPath), linkTarget)
+  // A recognizable name only permits a reviewed repair offer, never ownership.
+  const historical =
+    process.platform === 'linux'
+      ? /^\/(?:tmp|var\/tmp|run\/user\/\d+)\/\.mount_ZenNot[A-Za-z0-9]+\/resources\/zen$/i.test(
+          resolved
+        )
+      : process.platform === 'darwin' && /\/ZenNotes\.app\/Contents\/Resources\/zen$/.test(resolved)
+  if (!historical) return false
+  try {
+    await fsp.stat(linkPath)
+    return false
+  } catch (error) {
+    return ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')
+  }
+}
+
+async function offerRepair(
+  existing: ExistingInstall | null,
+  wrapper: WrapperLocation | null
+): Promise<CliInstallStatus['repair']> {
+  if (
+    !wrapper ||
+    wrapper.runtime !== 'go' ||
+    !existing?.linkTarget ||
+    existing.installedByThisApp ||
+    path.basename(existing.linkPath) !== CLI_NAME ||
+    !(await isMissingHistoricalTarget(existing.linkPath, existing.linkTarget))
+  )
+    return undefined
+  if (
+    !repairOffer ||
+    repairOffer.expiresAt < Date.now() ||
+    repairOffer.linkPath !== existing.linkPath ||
+    repairOffer.oldTarget !== existing.linkTarget ||
+    repairOffer.newTarget !== wrapper.wrapperPath
+  ) {
+    const token = randomUUID()
+    repairOffer = {
+      token,
+      linkPath: existing.linkPath,
+      oldTarget: existing.linkTarget,
+      newTarget: wrapper.wrapperPath,
+      expiresAt: Date.now() + 5 * 60_000,
+      backupPath: path.join(app.getPath('userData'), 'cli', 'link-backups', `${token}.json`)
+    }
+  }
+  const { token, oldTarget, newTarget, backupPath } = repairOffer
+  return { token, oldTarget, newTarget, backupPath }
+}
+
+function readRepairToken(request: unknown): string | undefined {
+  if (request === undefined) return undefined
+  if (!request || typeof request !== 'object' || Array.isArray(request))
+    throw new Error('Invalid CLI install request.')
+  const input = request as Record<string, unknown>
+  if (
+    Object.keys(input).length !== 1 ||
+    typeof input.repairToken !== 'string' ||
+    !/^[0-9a-f-]{36}$/.test(input.repairToken)
+  )
+    throw new Error('Invalid CLI repair request.')
+  return input.repairToken
+}
+
+async function reviewRepair(
+  token: string,
+  existing: ExistingInstall | null,
+  wrapper: WrapperLocation
+): Promise<RepairOffer> {
+  const offer = repairOffer
+  if (
+    !offer ||
+    offer.token !== token ||
+    offer.expiresAt < Date.now() ||
+    !existing ||
+    existing.linkPath !== offer.linkPath ||
+    existing.linkTarget !== offer.oldTarget ||
+    wrapper.wrapperPath !== offer.newTarget ||
+    wrapper.runtime !== 'go' ||
+    !(await isMissingHistoricalTarget(existing.linkPath, existing.linkTarget))
+  ) {
+    throw new Error(
+      'The CLI shortcut changed or the repair offer expired. Refresh Settings and review it again.'
+    )
+  }
+  repairOffer = undefined
+  await fsp.mkdir(path.dirname(offer.backupPath), { recursive: true })
+  await fsp.writeFile(
+    offer.backupPath,
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        linkPath: offer.linkPath,
+        linkTarget: offer.oldTarget,
+        savedAt: new Date().toISOString()
+      },
+      null,
+      2
+    ),
+    { mode: 0o600, flag: 'wx' }
+  )
+  return offer
 }
 
 async function locateWrapper(): Promise<WrapperLocation | null> {
@@ -67,7 +268,37 @@ async function locateWrapper(): Promise<WrapperLocation | null> {
         fsp.stat(c.wrapperPath),
         fsp.stat(c.cliJsPath)
       ])
-      if (wrapperStat.isFile() && cliStat.isFile()) return c
+      if (wrapperStat.isFile() && cliStat.isFile()) {
+        if (process.platform !== 'darwin' && process.platform !== 'linux') return c
+        const legacyWrapperPaths = candidates.map((candidate) => candidate.wrapperPath)
+        let runtimeError: string | undefined
+        let terminal
+        try {
+          terminal = await prepareTerminalRuntime({
+            bundleDir: app.isPackaged
+              ? path.join(process.resourcesPath, 'terminal')
+              : path.resolve(here, '../../build/terminal', `${process.platform}-${process.arch}`),
+            userData: app.getPath('userData'),
+            platform: process.platform,
+            arch: process.arch,
+            legacyCommand: [process.execPath, c.cliJsPath],
+            appPath: process.env.APPIMAGE || (app.isPackaged ? process.execPath : undefined)
+          })
+        } catch (error) {
+          runtimeError = (error as Error).message
+        }
+        terminal ??= await readActiveTerminalRuntime(app.getPath('userData'))
+        if (terminal)
+          return {
+            ...c,
+            wrapperPath: terminal.launcherPath,
+            legacyWrapperPaths,
+            runtime: 'go',
+            version: terminal.version,
+            runtimeError
+          }
+        return { ...c, legacyWrapperPaths, runtime: 'node', runtimeError }
+      }
     } catch {
       /* keep trying */
     }
@@ -83,7 +314,8 @@ async function ensureDevWrapper(cliJsPath: string): Promise<string> {
   const script = [
     '#!/bin/sh',
     '# Auto-generated dev wrapper for the ZenNotes CLI.',
-    `ELECTRON_RUN_AS_NODE=1 exec "${electronBinary}" "${cliJsPath}" "$@"`,
+    `if [ "${'${ZENNOTES_CLI_ENGINE:-go}'}" != legacy ] && [ -x ${shellQuote(path.join(dir, 'zn'))} ]; then exec ${shellQuote(path.join(dir, 'zn'))} "$@"; fi`,
+    `ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(electronBinary)} ${shellQuote(cliJsPath)} "$@"`,
     ''
   ].join('\n')
   await fsp.writeFile(target, script, { mode: 0o755 })
@@ -229,12 +461,16 @@ function pathExportSnippet(dir: string): string {
 /* ---------- Existing-install discovery --------------------------------- */
 
 function looksLikeOurInstall(linkTarget: string): boolean {
-  const userDataCli = path.join(app.getPath('userData'), 'cli')
-  return (
-    linkTarget.startsWith(userDataCli) ||
-    (process.resourcesPath && linkTarget.startsWith(process.resourcesPath)) ||
-    linkTarget.includes('/ZenNotes.app/') ||
-    linkTarget.includes('/zennotes/apps/desktop/')
+  return [
+    path.join(app.getPath('userData'), 'cli', 'zen'),
+    path.join(app.getPath('userData'), 'cli', 'zn'),
+    ...(process.resourcesPath ? [path.join(process.resourcesPath, WRAPPER_NAME)] : [])
+  ].some((candidate) => sameFile(candidate, linkTarget))
+}
+
+function matchesWrapper(target: string, wrapper: WrapperLocation): boolean {
+  return [wrapper.wrapperPath, ...(wrapper.legacyWrapperPaths ?? [])].some((candidate) =>
+    sameFile(target, candidate)
   )
 }
 
@@ -242,28 +478,38 @@ interface ExistingInstall {
   linkPath: string
   /** True when the symlink resolves to our wrapper for this build. */
   installedByThisApp: boolean
+  linkTarget?: string
 }
 
 async function findInstallByName(
   name: string,
   wrapper: WrapperLocation | null
 ): Promise<ExistingInstall | null> {
-  for (const dir of await candidateDirs()) {
+  const onPath = await pathDirsOnPath()
+  const receipts = await readInstallReceipts()
+  const dirs = [
+    ...new Set(
+      [
+        ...onPath,
+        ...(await candidateDirs()),
+        ...receipts.map((entry) => path.dirname(entry.linkPath))
+      ].map((dir) => path.resolve(dir))
+    )
+  ]
+  for (const dir of dirs) {
     const candidate = path.join(dir, name)
     try {
       const linkTarget = await fsp.readlink(candidate)
-      const resolved = path.isAbsolute(linkTarget)
-        ? linkTarget
-        : path.resolve(dir, linkTarget)
-      const byUs = wrapper ? sameFile(resolved, wrapper.wrapperPath) : looksLikeOurInstall(resolved)
-      return { linkPath: candidate, installedByThisApp: byUs }
+      const byUs = await ownedInstall(candidate, linkTarget, wrapper, receipts)
+      if (byUs || onPath.has(dir))
+        return { linkPath: candidate, installedByThisApp: byUs, linkTarget }
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'EINVAL') {
         // Real file, not a symlink. Treat as a foreign install we
         // refuse to manage.
         try {
           await fsp.access(candidate)
-          return { linkPath: candidate, installedByThisApp: false }
+          if (onPath.has(dir)) return { linkPath: candidate, installedByThisApp: false }
         } catch {
           /* fall through */
         }
@@ -324,6 +570,7 @@ export async function migrateLegacyCliLink(
     const linkPath = path.join(path.dirname(found.linkPath), CLI_NAME)
     try {
       await writeSymlink(wrapper.wrapperPath, linkPath)
+      await recordInstall(linkPath, wrapper.wrapperPath)
     } catch {
       // A read-only bin dir at launch is not worth a dialog; the explicit
       // Install path still exists and can elevate.
@@ -335,9 +582,36 @@ export async function migrateLegacyCliLink(
   return null
 }
 
-function sameFile(a: string, b: string): boolean {
+/** Update only an existing managed command. Startup never installs a new one. */
+export async function migrateInstalledCli(
+  wrapperOverride?: WrapperLocation | null
+): Promise<string | null> {
+  if (process.platform !== 'darwin' && process.platform !== 'linux') return null
+  const wrapper = wrapperOverride === undefined ? await locateWrapper() : wrapperOverride
+  if (!wrapper || wrapper.runtime !== 'go') return null
+  const existing = await findInstallByName(CLI_NAME, wrapper)
+  if (!existing?.installedByThisApp) return null
   try {
-    return path.resolve(a) === path.resolve(b)
+    if (existing.linkTarget === wrapper.wrapperPath) {
+      await recordInstall(existing.linkPath, wrapper.wrapperPath)
+      return null
+    }
+    await writeSymlink(wrapper.wrapperPath, existing.linkPath, existing.linkTarget)
+    await recordInstall(existing.linkPath, wrapper.wrapperPath)
+    migrationError = undefined
+    return existing.linkPath
+  } catch (error) {
+    migrationError = `The terminal upgrade needs repair: ${(error as Error).message}`
+    return null
+  }
+}
+
+function sameFile(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true
+  try {
+    // macOS aliases /tmp to /private/tmp; app folders can also be symlinked.
+    // Compare existing canonical paths without broadening stale-link ownership.
+    return fs.realpathSync(a) === fs.realpathSync(b)
   } catch {
     return false
   }
@@ -345,7 +619,9 @@ function sameFile(a: string, b: string): boolean {
 
 /* ---------- Status read ----------------------------------------------- */
 
-export async function getCliInstallStatus(): Promise<CliInstallStatus> {
+export async function getCliInstallStatus(
+  wrapperOverride?: WrapperLocation | null
+): Promise<CliInstallStatus> {
   const supportedPlatform = process.platform === 'darwin' || process.platform === 'linux'
   if (!supportedPlatform) {
     return {
@@ -361,12 +637,16 @@ export async function getCliInstallStatus(): Promise<CliInstallStatus> {
     }
   }
 
-  const wrapper = await locateWrapper()
+  const wrapper = wrapperOverride === undefined ? await locateWrapper() : wrapperOverride
   const target = await pickInstallTarget()
   const existing = await findExistingInstall(wrapper)
 
   return {
+    repair: await offerRepair(existing, wrapper),
     available: wrapper != null,
+    runtime: wrapper?.runtime,
+    runtimeVersion: wrapper?.version,
+    runtimeError: wrapper?.runtimeError ?? migrationError,
     reason: wrapper
       ? null
       : 'The CLI has not been built yet. Run `npm run build` (or use a packaged build) so Settings has a wrapper to install.',
@@ -391,23 +671,24 @@ export async function removeManagedLinks(
   wrapper: WrapperLocation | null
 ): Promise<string[]> {
   const removed: string[] = []
-  for (const dir of await candidateDirs()) {
+  const receipts = await readInstallReceipts()
+  const dirs = new Set([
+    ...(await candidateDirs()),
+    ...receipts.map((entry) => path.dirname(entry.linkPath))
+  ])
+  for (const dir of dirs) {
     for (const name of names) {
       const candidate = path.join(dir, name)
       try {
         const linkTarget = await fsp.readlink(candidate)
-        const resolved = path.isAbsolute(linkTarget)
-          ? linkTarget
-          : path.resolve(dir, linkTarget)
-        const byUs = wrapper
-          ? sameFile(resolved, wrapper.wrapperPath)
-          : looksLikeOurInstall(resolved)
-        if (byUs) {
-          await fsp.rm(candidate, { force: true })
+        if (await ownedInstall(candidate, linkTarget, wrapper, receipts)) {
+          if ((await fsp.readlink(candidate)) !== linkTarget) continue
+          await fsp.unlink(candidate)
+          await forgetInstall(candidate, linkTarget)
           removed.push(candidate)
         }
       } catch {
-        /* not a symlink / missing / unreadable — leave it alone */
+        /* not a symlink / missing / unreadable, leave it alone */
       }
     }
   }
@@ -416,11 +697,15 @@ export async function removeManagedLinks(
 
 /* ---------- Install --------------------------------------------------- */
 
-export async function installCli(): Promise<CliInstallStatus> {
+export async function installCli(
+  request?: unknown,
+  wrapperOverride?: WrapperLocation | null
+): Promise<CliInstallStatus> {
+  const repairToken = readRepairToken(request)
   if (process.platform === 'win32') {
     throw new Error('CLI install is not yet supported on Windows.')
   }
-  const wrapper = await locateWrapper()
+  const wrapper = wrapperOverride === undefined ? await locateWrapper() : wrapperOverride
   if (!wrapper) {
     throw new Error(
       'The CLI wrapper is not bundled with this build. Run `npm run build` (or launch from a packaged build) and try again.'
@@ -430,10 +715,11 @@ export async function installCli(): Promise<CliInstallStatus> {
   // If something is already installed at one of our candidates, prefer
   // overwriting it in place rather than creating a second copy on PATH.
   const existing = await findExistingInstall(wrapper)
+  const repair = repairToken ? await reviewRepair(repairToken, existing, wrapper) : undefined
   let target: InstallTarget
-  if (existing && existing.installedByThisApp) {
+  if (existing && (existing.installedByThisApp || repair)) {
     target = {
-      linkPath: existing.linkPath,
+      linkPath: path.join(path.dirname(existing.linkPath), CLI_NAME),
       onPath: (await pathDirsOnPath()).has(path.dirname(existing.linkPath)),
       requiresSudo: !(await isWritableDir(path.dirname(existing.linkPath))),
       pathHint: null
@@ -450,44 +736,94 @@ export async function installCli(): Promise<CliInstallStatus> {
   await fsp.mkdir(linkDir, { recursive: true }).catch(() => undefined)
 
   if (!target.requiresSudo) {
-    await writeSymlink(wrapper.wrapperPath, target.linkPath)
+    await writeSymlink(
+      wrapper.wrapperPath,
+      target.linkPath,
+      target.linkPath === existing?.linkPath ? existing.linkTarget : undefined,
+      Boolean(repair)
+    )
   } else {
     try {
-      await writeSymlink(wrapper.wrapperPath, target.linkPath)
+      await writeSymlink(
+        wrapper.wrapperPath,
+        target.linkPath,
+        target.linkPath === existing?.linkPath ? existing.linkTarget : undefined,
+        Boolean(repair)
+      )
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'EACCES' || code === 'EPERM' || code === 'EROFS') {
-        await elevateAndSymlink(wrapper.wrapperPath, target.linkPath)
+        await elevateAndSymlink(
+          wrapper.wrapperPath,
+          target.linkPath,
+          target.linkPath === existing?.linkPath ? existing.linkTarget : undefined,
+          Boolean(repair)
+        )
       } else {
         throw err
       }
     }
   }
 
+  await recordInstall(target.linkPath, wrapper.wrapperPath)
+
   // #126: migrate off the legacy `zen` name — drop any ZenNotes-managed `zen`
   // symlink now that `zn` is installed.
   await removeManagedLinks(LEGACY_CLI_NAMES, wrapper)
 
-  return await getCliInstallStatus()
+  migrationError = undefined
+  return await getCliInstallStatus(wrapperOverride)
 }
 
-async function writeSymlink(source: string, target: string): Promise<void> {
+async function writeSymlink(
+  source: string,
+  target: string,
+  expectedTarget?: string,
+  requireMissing = false
+): Promise<void> {
   try {
     await fsp.symlink(source, target)
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
-      await fsp.rm(target, { force: true })
-      await fsp.symlink(source, target)
-      return
+    return
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+  const current = await fsp.readlink(target).catch(() => null)
+  if (current === source) return
+  if (expectedTarget === undefined || current !== expectedTarget) {
+    throw new Error(`${target} changed or is not a managed symlink. It was left untouched.`)
+  }
+  const temporary = `${target}.${randomUUID()}.tmp`
+  try {
+    await fsp.symlink(source, temporary)
+    if (requireMissing && !(await isMissingHistoricalTarget(target, expectedTarget))) {
+      throw new Error(`${target} changed: the previous app target is no longer missing.`)
     }
-    throw err
+    if ((await fsp.readlink(target)) !== expectedTarget)
+      throw new Error(`${target} changed during installation.`)
+    await fsp.rename(temporary, target)
+  } finally {
+    await fsp.rm(temporary, { force: true })
   }
 }
 
-async function elevateAndSymlink(source: string, target: string): Promise<void> {
+async function elevateAndSymlink(
+  source: string,
+  target: string,
+  expectedTarget?: string,
+  requireMissing = false
+): Promise<void> {
+  const ownershipGuard =
+    expectedTarget === undefined
+      ? `[ ! -e ${shellQuote(target)} ] && [ ! -L ${shellQuote(target)} ]`
+      : `[ -L ${shellQuote(target)} ] && [ "$(readlink ${shellQuote(target)})" = ${shellQuote(expectedTarget)} ]`
+
+  const guard = requireMissing
+    ? `${ownershipGuard} && [ ! -e ${shellQuote(target)} ]`
+    : ownershipGuard
+
   if (process.platform === 'darwin') {
     const shellCmd =
-      `mkdir -p ${shellQuote(path.dirname(target))} && ` +
+      `mkdir -p ${shellQuote(path.dirname(target))} && ${guard} && ` +
       `ln -sf ${shellQuote(source)} ${shellQuote(target)}`
     const appleScript = `do shell script "${appleScriptEscape(shellCmd)}" with administrator privileges`
     try {
@@ -508,10 +844,13 @@ async function elevateAndSymlink(source: string, target: string): Promise<void> 
       await execFileAsync('pkexec', [
         'sh',
         '-c',
-        `mkdir -p ${shellQuote(path.dirname(target))} && ln -sf ${shellQuote(source)} ${shellQuote(target)}`
+        `mkdir -p ${shellQuote(path.dirname(target))} && ${guard} && ln -sf ${shellQuote(source)} ${shellQuote(target)}`
       ])
       return
     } catch {
+      if (requireMissing) {
+        throw new Error(`Could not repair ${target}. Administrator access was declined or the shortcut changed. Refresh Settings and review it again.`)
+      }
       throw new Error(
         `${target} is not writable and pkexec is unavailable. Run this manually:\n  sudo ln -sf "${source}" "${target}"`
       )
@@ -530,14 +869,16 @@ function appleScriptEscape(value: string): string {
 
 /* ---------- Uninstall ------------------------------------------------- */
 
-export async function uninstallCli(): Promise<CliInstallStatus> {
+export async function uninstallCli(
+  wrapperOverride?: WrapperLocation | null
+): Promise<CliInstallStatus> {
   if (process.platform === 'win32') {
     throw new Error('CLI install is not yet supported on Windows.')
   }
-  const wrapper = await locateWrapper()
+  const wrapper = wrapperOverride === undefined ? await locateWrapper() : wrapperOverride
   const existing = await findExistingInstall(wrapper)
   if (!existing) {
-    return await getCliInstallStatus()
+    return await getCliInstallStatus(wrapperOverride)
   }
   if (!existing.installedByThisApp) {
     throw new Error(
@@ -545,13 +886,21 @@ export async function uninstallCli(): Promise<CliInstallStatus> {
     )
   }
 
+  const expectedTarget = existing.linkTarget
+  if (
+    !expectedTarget ||
+    (await fsp.readlink(existing.linkPath).catch(() => null)) !== expectedTarget
+  ) {
+    throw new Error(`${existing.linkPath} changed and was left untouched.`)
+  }
+  const removalGuard = `[ -L ${shellQuote(existing.linkPath)} ] && [ "$(readlink ${shellQuote(existing.linkPath)})" = ${shellQuote(expectedTarget)} ]`
   try {
     await fsp.unlink(existing.linkPath)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'EACCES' || code === 'EPERM') {
       if (process.platform === 'darwin') {
-        const shellCmd = `rm -f ${shellQuote(existing.linkPath)}`
+        const shellCmd = `${removalGuard} && rm -f ${shellQuote(existing.linkPath)}`
         const appleScript = `do shell script "${appleScriptEscape(shellCmd)}" with administrator privileges`
         await execFileAsync('osascript', ['-e', appleScript]).catch((e) => {
           const stderr = (e as { stderr?: string }).stderr ?? ''
@@ -562,7 +911,11 @@ export async function uninstallCli(): Promise<CliInstallStatus> {
           )
         })
       } else {
-        await execFileAsync('pkexec', ['rm', '-f', existing.linkPath]).catch((e) => {
+        await execFileAsync('pkexec', [
+          'sh',
+          '-c',
+          `${removalGuard} && rm -f ${shellQuote(existing.linkPath)}`
+        ]).catch((e) => {
           throw new Error(
             `Could not remove ${existing.linkPath}. Run this manually:\n  sudo rm "${existing.linkPath}"\n(${(e as Error).message})`
           )
@@ -572,10 +925,11 @@ export async function uninstallCli(): Promise<CliInstallStatus> {
       throw err
     }
   }
+  await forgetInstall(existing.linkPath, expectedTarget)
   // #126: sweep any strays too — a legacy `zen` in another dir, or a second `zn`
   // — so uninstall fully removes ZenNotes-managed links.
   await removeManagedLinks([CLI_NAME, ...LEGACY_CLI_NAMES], wrapper)
-  return await getCliInstallStatus()
+  return await getCliInstallStatus(wrapperOverride)
 }
 
 /* ---------- Used by mcp-integrations.ts to prefer `zn mcp` ------------ */

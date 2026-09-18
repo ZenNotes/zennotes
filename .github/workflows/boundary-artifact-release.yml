@@ -1,0 +1,67 @@
+name: Prepare boundary artifact release
+on:
+  workflow_dispatch:
+    inputs:
+      artifact:
+        type: choice
+        options: [core, web, viewer]
+        required: true
+      source_commit:
+        description: Reviewed full source commit SHA
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: boundary-release-${{ inputs.artifact }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.prepare.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.source_commit }}
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:run
+      - run: npm run test:web-artifact
+      - if: inputs.artifact == 'core'
+        run: npm run test:app-core-package && npm run test:app-core-browser
+      - if: inputs.artifact == 'core'
+        env:
+          ZEN_CORE_VITE_VERSION: 8.2.2
+        run: npm run test:app-core-package && npm run test:app-core-browser
+      - id: prepare
+        env:
+          ARTIFACT: ${{ inputs.artifact }}
+          APPROVED_SOURCE: ${{ inputs.source_commit }}
+        run: node tooling/scripts/prepare-boundary-release.mjs "$ARTIFACT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boundary-release
+          path: ${{ steps.prepare.outputs.directory }}
+          if-no-files-found: error
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: boundary-artifacts
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: boundary-release
+          path: release
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.build.outputs.tag }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: gh release create "$TAG" release/* --target "$SOURCE_COMMIT" --title "$TAG" --draft --prerelease --notes "Immutable boundary artifacts. Validate consumer pins before publishing this draft."

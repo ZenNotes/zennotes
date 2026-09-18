@@ -23,6 +23,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
+import { openExternalUrl } from "./external-urls";
 import type {
   CloudPublishNoteInput,
   CloudSyncBootstrapConflict,
@@ -193,6 +194,7 @@ import { shouldForceGnomeLibsecret } from "./linux-password-store";
 import { CloudAuthLoopbackServer } from "./cloud-auth-loopback";
 import { createCloudSyncClient } from "./cloud-sync-client";
 import { DesktopCloudSyncService } from "./cloud-sync-service";
+import { CloudSyncWindowBarrier } from "./cloud-sync-window-barrier";
 import { scanAllTasks, scanTasksForPath } from "./tasks";
 import {
   readDatabase,
@@ -212,6 +214,12 @@ import type { DatabaseSidecar, DbRow } from "@shared/databases";
 import { VaultWatcher } from "./watcher";
 import { WindowVaultRegistry } from "./window-vaults";
 import { registerEphemeralRoot, isEphemeralRoot } from "./ephemeral-vaults";
+import {
+  clearUndoHistories,
+  pruneUndoHistories,
+  readUndoHistory,
+  writeUndoHistory,
+} from "./undo-history-store";
 import { renderTikz } from "./tikz";
 import { fetchLinkMetadata } from "./link-metadata";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
@@ -224,6 +232,7 @@ import {
 import {
   getCliInstallStatus,
   installCli,
+  migrateInstalledCli,
   migrateLegacyCliLink,
   uninstallCli,
 } from "./cli-install";
@@ -428,6 +437,7 @@ function getCloudSyncService(): DesktopCloudSyncService {
     accountStatus: () => getCloudAuthManager().status(),
     getSecret: getCloudServiceSecret,
     createClient: createCloudSyncClient,
+    withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
   });
   return cloudSyncService;
 }
@@ -502,9 +512,8 @@ function windowIconPath(): string {
 }
 
 function openAllowedExternalUrl(url: string): void {
-  if (/^(https?:|mailto:)/i.test(url)) {
-    shell.openExternal(url).catch(() => {});
-  }
+  void openExternalUrl(url, getPortableConfigSnapshot().externalApplicationSchemes,
+    (target) => shell.openExternal(target));
 }
 
 function registerAppDeepLinkProtocol(): void {
@@ -664,6 +673,21 @@ function flushWindowNoteOpens(win: BrowserWindow): void {
 // Finder "Open in ZenNotes" that lands in the hidden quick-capture
 // panel looks like the app opened a quick note instead of the file.
 const workspaceWindowIds = new Set<number>();
+
+const cloudSyncWindowBarrier = new CloudSyncWindowBarrier({
+  participants: (root) => BrowserWindow.getAllWindows()
+    .filter((win) => !win.isDestroyed() && isWorkspaceWindow(win) &&
+      windowVaults.vaultForWindow(win.id)?.root === root)
+    .map((win) => ({
+      id: win.webContents.id,
+      send(event) {
+        if (win.isDestroyed() || windowVaults.vaultForWindow(win.id)?.root !== root) {
+          throw new Error("The vault window closed or changed vaults.");
+        }
+        win.webContents.send(IPC.CLOUD_VAULT_SYNC_WINDOW, event);
+      },
+    })),
+});
 
 function isWorkspaceWindow(win: BrowserWindow): boolean {
   return workspaceWindowIds.has(win.id);
@@ -1510,6 +1534,10 @@ async function createWindow(
   });
 
   workspaceWindowIds.add(win.id);
+  applyWorkspaceWindowTitleBar(win);
+  // AppKit can restore traffic lights after a native fullscreen transition.
+  win.on("enter-full-screen", () => applyWorkspaceWindowTitleBar(win));
+  win.on("leave-full-screen", () => applyWorkspaceWindowTitleBar(win));
 
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = win;
@@ -2909,6 +2937,14 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_SYNC, () =>
     getCloudSyncService().sync(requireLocalCloudVaultRoot()),
   );
+  handle(IPC.CLOUD_VAULT_HAS_CHANGES, () =>
+    getCloudSyncService().hasRemoteChanges(requireLocalCloudVaultRoot()),
+  );
+  on(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, (event, requestId: unknown, error: unknown) => {
+    if (typeof requestId !== "string" || requestId.length > 100 ||
+      (error !== null && (typeof error !== "string" || error.length > 2000))) return;
+    cloudSyncWindowBarrier.acknowledge(event.sender.id, requestId, error);
+  });
   handle(
     IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET,
     (_event, conflict: CloudSyncBootstrapConflict) =>
@@ -2925,9 +2961,32 @@ function registerIpc(): void {
         resolution,
       ),
   );
-  handle(IPC.CLOUD_VAULT_CONFLICT_GET, (_event, conflictId: string) =>
-    getCloudSyncService().getConflict(requireLocalCloudVaultRoot(), conflictId),
-  );
+  const reviewWindows = new Set<number>();
+  handle(IPC.CLOUD_VAULT_CONFLICT_GET, async (event, conflictId: string, reviewId = "legacy") => {
+    if (typeof conflictId !== "string" || conflictId.length > 200) throw new Error("Invalid conflict ID.");
+    if (typeof reviewId !== "string" || reviewId.length > 100) throw new Error("Invalid review ID.");
+    const owner = event.sender.id;
+    const root = requireLocalCloudVaultRoot();
+    cloudSyncWindowBarrier.claimReview(owner, root, conflictId, reviewId);
+    if (!reviewWindows.has(owner)) {
+      reviewWindows.add(owner);
+      event.sender.once("destroyed", () => {
+        cloudSyncWindowBarrier.releaseReview(owner);
+        reviewWindows.delete(owner);
+      });
+    }
+    try {
+      return await getCloudSyncService().getConflict(root, conflictId);
+    } catch (error) {
+      cloudSyncWindowBarrier.releaseReview(owner, conflictId, reviewId);
+      throw error;
+    }
+  });
+  handle(IPC.CLOUD_VAULT_CONFLICT_REVIEW_RELEASE, (event, conflictId: unknown, reviewId: unknown) => {
+    if (typeof conflictId !== "string" || conflictId.length > 200) return;
+    if (typeof reviewId !== "string" || reviewId.length > 100) return;
+    cloudSyncWindowBarrier.releaseReview(event.sender.id, conflictId, reviewId);
+  });
   handle(
     IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE,
     (_event, conflictId: string, draftText: string | null) =>
@@ -3196,6 +3255,35 @@ function registerIpc(): void {
     const dir = path.join(v.root, ".zennotes");
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(path.join(dir, "workspace.json"), json, "utf8");
+  });
+
+  // Undo history between launches (#793). It is keyed by the vault of the
+  // calling window, taken from main-process state like every other handler,
+  // and the note path only ever feeds a hash, so nothing the renderer sends
+  // can steer a read or a write outside <userData>/undo-history.
+  const undoHistoryVault = (): string => {
+    const v = requireVault();
+    return isRemoteWorkspaceActive()
+      ? `remote:${currentRemoteWorkspaceProfileId ?? ""}:${v.root}`
+      : v.root;
+  };
+  handle(
+    IPC.UNDO_HISTORY_READ,
+    async (_e, notePath: unknown): Promise<string | null> =>
+      await readUndoHistory(app.getPath("userData"), undoHistoryVault(), notePath),
+  );
+  handle(
+    IPC.UNDO_HISTORY_WRITE,
+    async (_e, notePath: unknown, json: unknown): Promise<void> =>
+      await writeUndoHistory(
+        app.getPath("userData"),
+        undoHistoryVault(),
+        notePath,
+        json,
+      ),
+  );
+  handle(IPC.UNDO_HISTORY_CLEAR, async (): Promise<void> => {
+    await clearUndoHistories(app.getPath("userData"));
   });
 
   handle(IPC.VAULT_ROOT_CONTENT_HIDDEN, async () => {
@@ -3924,6 +4012,10 @@ function registerIpc(): void {
     shell.showItemInFolder(absPath);
   });
 
+  handle(IPC.APP_OPEN_EXTERNAL_URL, (_e, url: unknown) =>
+    openExternalUrl(url, getPortableConfigSnapshot().externalApplicationSchemes,
+      (target) => shell.openExternal(target)));
+
   // Open a file linked from a note but living outside the vault, with the OS
   // default app. The renderer confirms with the user first (this could launch
   // an app), so here we only resolve the href to an absolute path and open it.
@@ -4497,7 +4589,9 @@ function registerIpc(): void {
   );
 
   handle(IPC.CLI_GET_STATUS, async () => await getCliInstallStatus());
-  handle(IPC.CLI_INSTALL, async () => await installCli());
+  handle(IPC.CLI_INSTALL, async (_event, request: unknown) =>
+    await installCli(request),
+  );
   handle(IPC.CLI_UNINSTALL, async () => await uninstallCli());
   handle(IPC.RAYCAST_GET_STATUS, async () => await getRaycastExtensionStatus());
   handle(IPC.RAYCAST_INSTALL, async () => await installRaycastExtension());
@@ -4515,7 +4609,16 @@ function registerIpc(): void {
     }
   });
   handle(IPC.CONFIG_SET, async (_event, next: AppConfigPortable) => {
+    const previousTitleBar =
+      getPortableConfigSnapshot().showWindowTitleBar !== false;
     await setPortableConfig(next ?? {});
+    const showWindowTitleBar =
+      getPortableConfigSnapshot().showWindowTitleBar !== false;
+    if (showWindowTitleBar !== previousTitleBar) {
+      // Own writes bypass the file watcher. Keep other workspace windows and
+      // their native controls in step without replacing their unrelated prefs.
+      broadcastConfigChange({ showWindowTitleBar });
+    }
   });
   handle(IPC.CONFIG_GET_PATH, () => getConfigFilePath());
   handle(IPC.CONFIG_REVEAL, async () => {
@@ -4567,9 +4670,22 @@ function registerIpc(): void {
 /** Push an externally-changed config (synced dotfile / hand-edit) to every
  *  open renderer so live-reload applies it without a restart. */
 function broadcastConfigChange(next: AppConfigPortable): void {
+  const config = {
+    ...next,
+    showWindowTitleBar: next.showWindowTitleBar !== false,
+  };
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send(IPC.CONFIG_ON_CHANGE, next);
+    if (win.isDestroyed()) continue;
+    applyWorkspaceWindowTitleBar(win);
+    win.webContents.send(IPC.CONFIG_ON_CHANGE, config);
   }
+}
+
+function applyWorkspaceWindowTitleBar(win: BrowserWindow): void {
+  if (!isMac() || win.isDestroyed() || !workspaceWindowIds.has(win.id)) return;
+  win.setWindowButtonVisibility(
+    getPortableConfigSnapshot().showWindowTitleBar !== false,
+  );
 }
 
 /** Push the freshly-scanned custom themes to every renderer on a file change. */
@@ -4691,12 +4807,6 @@ let registeredQuickCaptureHotkey: string | null = null;
 /** When true, the quick-capture window stays pinned on top and does not
  *  auto-hide on blur. Mirrors PersistedConfig.quickCapturePinned. */
 let quickCapturePinned = false;
-/** True when the panel was summoned while ZenNotes was NOT the frontmost app
- *  (the global hotkey fired from another app). On dismiss we then hide the
- *  whole app so macOS hands focus back to that app instead of surfacing
- *  ZenNotes' main window — the Spotlight/Raycast feel. Recomputed on every
- *  show; consumed (reset to false) on the next dismiss. */
-let quickCaptureReturnFocus = false;
 
 async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
   if (quickCaptureWindow && !quickCaptureWindow.isDestroyed())
@@ -4711,6 +4821,9 @@ async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
     minWidth: 460,
     minHeight: 400,
     title: "ZenNotes Quick Capture",
+    // A macOS panel joins native fullscreen Spaces and takes keyboard focus
+    // without activating the main app or switching back to its desktop.
+    ...(mac ? { type: "panel" } : {}),
     show: false,
     frame: false,
     titleBarStyle: mac ? "hiddenInset" : "hidden",
@@ -4734,10 +4847,6 @@ async function ensureQuickCaptureWindow(): Promise<BrowserWindow> {
       backgroundThrottling: false,
     },
   });
-
-  if (mac) {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  }
 
   // Restore the persisted pin state for this freshly created window.
   void loadConfig().then((cfg) => {
@@ -4788,22 +4897,14 @@ function applyQuickCapturePinned(): void {
   win.setAlwaysOnTop(true, quickCapturePinned ? "screen-saver" : "floating");
 }
 
-/** Dismiss the quick-capture panel. When it was summoned from another app,
- *  hide the whole app (macOS) so focus returns to that app rather than
- *  surfacing ZenNotes' main window. */
+/** The macOS panel does not activate the app, so hiding just the panel returns
+ *  keyboard focus to the previous window and leaves the current Space intact. */
 function hideQuickCaptureWindow(win: BrowserWindow): void {
   if (win.isDestroyed()) return;
-  const returnFocus = quickCaptureReturnFocus;
-  quickCaptureReturnFocus = false;
   win.hide();
-  if (returnFocus && isMac()) app.hide();
 }
 
 async function showQuickCaptureWindow(): Promise<void> {
-  // Remember whether ZenNotes was already frontmost. If no ZenNotes window is
-  // focused, the panel was summoned from another app (global hotkey / deep
-  // link) — dismissing it should hand focus back to that app.
-  quickCaptureReturnFocus = !BrowserWindow.getFocusedWindow();
   const win = await ensureQuickCaptureWindow();
   const sourceWindow = BrowserWindow.getFocusedWindow() ?? mainWindow;
   if (
@@ -5185,16 +5286,22 @@ app.whenReady().then(async () => {
 
   await migrateLegacyRemoteWorkspaceSecrets();
 
-  // Fire-and-forget: heals the pre-2.10 `zen` symlink into `zn` for users who
-  // never re-ran the CLI installer. Must not delay or fail startup — a broken
-  // PATH probe is a log line, not a launch problem. (#126)
+  // Saved undo histories (#793) expire and are capped per vault. Off the boot
+  // path: a slow or failing sweep must never delay the first window.
+  void pruneUndoHistories(app.getPath("userData")).catch((err) =>
+    console.error("[undo-history] prune failed", err),
+  );
+
+  // Heal the legacy command name and upgrade existing desktop-owned shortcuts.
+  // A PATH or runtime staging failure must not delay or fail app startup.
   void migrateLegacyCliLink()
+    .then(() => migrateInstalledCli())
     .then((linkPath) => {
       if (linkPath)
-        console.log(`[cli] migrated legacy zen symlink to ${linkPath}`);
+        console.log(`[cli] updated managed CLI shortcut at ${linkPath}`);
     })
     .catch((err) =>
-      console.warn("[cli] legacy symlink migration failed:", err),
+      console.warn("[cli] managed CLI migration failed:", err),
     );
 
   protocol.handle(LOCAL_ASSET_SCHEME, async (request) => {

@@ -289,10 +289,11 @@ export function createDatabaseOps(io: DatabaseFileOps): DatabaseOps {
     const dirRel = vaultRelDir(folder, subpath, layout)
     const csvFor = (name: string): string =>
       csvPathForFormDir(joinSub(dirRel, `${name}${FORM_DIR_SUFFIX}`))
-    // Resolve a non-colliding <Name>.base under the directory.
+    // A partial database still owns its directory, even without data.csv.
+    const occupied = new Set((await io.listFolders()).map((entry) => vaultRelDir(entry.folder, entry.subpath, layout).toLowerCase()))
     let name = baseName
     let n = 2
-    while ((await io.readFileTextOrNull(csvFor(name))) !== null) name = `${baseName} ${n++}`
+    while (occupied.has(formDirFromCsvPath(csvFor(name))!.toLowerCase()) || (await io.readFileTextOrNull(csvFor(name))) !== null) name = `${baseName} ${n++}`
     const csvPath = csvFor(name)
     const folderSub = joinSub(subpath, `${name}${FORM_DIR_SUFFIX}`)
 
@@ -339,15 +340,16 @@ export function createDatabaseOps(io: DatabaseFileOps): DatabaseOps {
       parentRel ? `${parentRel}/${name}${FORM_DIR_SUFFIX}` : `${name}${FORM_DIR_SUFFIX}`
     let targetFormDir = makeFormDir(safeName)
     if (targetFormDir === oldFormDir) return csvPath
+    const layout = await io.vaultLayout()
+    const occupied = new Set((await io.listFolders()).map((entry) => vaultRelDir(entry.folder, entry.subpath, layout)))
     let n = 2
-    while ((await io.readFileTextOrNull(csvPathForFormDir(targetFormDir))) !== null) {
+    while (occupied.has(targetFormDir) || (await io.readFileTextOrNull(csvPathForFormDir(targetFormDir))) !== null) {
       targetFormDir = makeFormDir(`${safeName} ${n++}`)
     }
-    const layout = await io.vaultLayout()
     const { folder, subpath: oldSub } = splitVaultPath(oldFormDir, layout)
     const { subpath: newSub } = splitVaultPath(targetFormDir, layout)
-    await io.renameFolder(folder, oldSub, newSub)
-    return csvPathForFormDir(targetFormDir)
+    const canonical = await io.renameFolder(folder, oldSub, newSub)
+    return csvPathForFormDir(vaultRelDir(folder, canonical, layout))
   }
 
   async function listDatabases(): Promise<DatabaseSummary[]> {

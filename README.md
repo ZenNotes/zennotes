@@ -289,7 +289,6 @@ ZenNotes now uses a single monorepo.
 apps/
   desktop/   Electron shell, preload, updater, packaging
   web/       Vite/PWA shell and HTTP bridge
-  server/    Go server for self-hosted and hosted deployments
 packages/
   app-core/        Shared React application and renderer logic
   bridge-contract/ Typed runtime contract between UI and host
@@ -345,6 +344,13 @@ make web-dev
 
 ### Go server
 
+The server lives in its own repository,
+[ZenNotes/znserver](https://github.com/ZenNotes/znserver). For browser work
+you do not need it checked out: `npm run dev:server` downloads the release
+pinned in `tooling/server-release.json`, verifies its checksum, and runs it.
+To work on the server itself, point `ZENNOTES_SERVER_DIR` at a znserver
+checkout and the same command runs it with `go run`.
+
 ```bash
 npm run dev:server
 ```
@@ -371,7 +377,7 @@ Important dev note:
 
 - the browser app and the Go server are separate processes in dev mode
 - frontend-only changes usually need only the web dev server
-- backend changes need the Go server restarted
+- backend changes happen in ZenNotes/znserver and need that server restarted
 - if the web client is newer than the running server, ZenNotes now shows a clearer error instead of raw 404 noise for newer API flows like the vault picker
 
 ## Root scripts
@@ -405,25 +411,28 @@ The root `Makefile` provides a simpler interface:
 | `make install`       | Install workspace dependencies                          |
 | `make desktop`       | Run the Electron app in dev mode                        |
 | `make web-dev`       | Run the web client                                      |
-| `make server-dev`    | Run the Go server                                       |
+| `make server-dev`    | Run the pinned Go server release (or a checkout)        |
 | `make web-stack`     | Run web + server together                               |
 | `make build`         | Build the full monorepo                                 |
 | `make desktop-build` | Build the Electron app                                  |
 | `make web-build`     | Build `apps/web`                                        |
-| `make server-build`  | Build `apps/server` with the latest embedded web bundle |
-| `make up`            | Build and start the self-hosted Docker stack            |
+| `make up`            | Start the self-hosted Docker stack from the published image |
 | `make down`          | Stop the Docker stack                                   |
 | `make restart`       | Restart the Docker stack                                |
 | `make logs`          | Follow Docker logs                                      |
 | `make status`        | Show Docker status                                      |
 | `make open`          | Open the self-hosted app in a browser                   |
-| `make rebuild`       | Force a full Docker rebuild                             |
-| `make nuke`          | Remove local Docker image/build output                  |
-| `make clean`         | Remove local web/server build output                    |
+| `make rebuild`       | Pull the newest image and restart                       |
+| `make nuke`          | Remove the Docker image, data, and build output         |
+| `make clean`         | Remove web build output and downloaded server binaries  |
 
 Run `make help` to print the same summary.
 
 ## Self-hosting with Docker
+
+The image, `adibhanna/zennotes`, is built and published from the server's own
+repository, [ZenNotes/znserver](https://github.com/ZenNotes/znserver). This
+repository only ships the Compose file and Makefile that run it.
 
 ### Start the self-hosted app
 
@@ -481,7 +490,7 @@ Useful variables:
 - `CONTENT_ROOT`: host folder used as the live vault root
 - `DATA`: host directory used for persisted server config
 - `PORT`: published host port
-- `IMAGE`: Docker image tag
+- `IMAGE`: Docker image to run (default `adibhanna/zennotes:latest`; pin with `IMAGE=adibhanna/zennotes:2.50.5`)
 - `ALLOW_INSECURE_NOAUTH`: disable the default auth requirement
 
 ### Docker browse model

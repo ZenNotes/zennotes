@@ -10,6 +10,7 @@ import {
   kanbanGroupByKeyPlan,
   kanbanPendingGroupByPlan,
   NO_VALUE_COLUMN_ID,
+  priorityColumns,
   statusColumns,
   taskIdentityKey,
   type Column,
@@ -454,6 +455,46 @@ describe('folder board (#730)', () => {
     expect(folderColumns(tasks, true, layout()).map((c) => [c.id, c.label])).toEqual([
       ['inbox', 'Inbox'],
       ['archive/old', 'Archive / old']
+    ])
+  })
+})
+
+describe('forwarded and cancelled records stay off every board (#786)', () => {
+  // One task forwarded Note 1 → Note 2 → Note 3: two `[>]` trail records and
+  // one live copy. Plus a cancelled and a done task for the other closed states.
+  const chain: VaultTask[] = [
+    card({ content: 'Write the report', sourcePath: 'inbox/Note 1.md', forwarded: true, priority: 'high' }),
+    card({ content: 'Write the report', sourcePath: 'inbox/Note 2.md', forwarded: true, priority: 'high' }),
+    card({ content: 'Write the report', sourcePath: 'inbox/Note 3.md', priority: 'high' }),
+    card({ content: 'Old idea', sourcePath: 'inbox/Note 3.md', taskIndex: 1, cancelled: true }),
+    card({ content: 'Shipped', sourcePath: 'inbox/Note 3.md', taskIndex: 2, checked: true }),
+    card({ content: 'Still open', sourcePath: 'inbox/Note 3.md', taskIndex: 3 })
+  ].map((task) => ({ ...task, noteFolder: 'inbox' as const }))
+
+  const cards = (columns: Column[]): string[] =>
+    columns.flatMap((c) => c.tasks.map((t) => `${t.sourcePath} › ${t.content}`))
+
+  it('shows the forwarded task once on the Priority board, from the note it lives in now', () => {
+    const columns = priorityColumns(chain)
+    expect(columnIds(columns, 'high')).toEqual(['Write the report'])
+    expect(cards(columns)).toEqual(['inbox/Note 3.md › Write the report', 'inbox/Note 3.md › Still open'])
+  })
+
+  it('shows it once on the Folder board too', () => {
+    const columns = folderColumns(chain, false, {
+      folderRoot: '',
+      systemFolderPaths: null,
+      systemFolderLabels: null
+    })
+    expect(cards(columns)).toEqual(['inbox/Note 3.md › Write the report', 'inbox/Note 3.md › Still open'])
+  })
+
+  it('and the Status board keeps leaving the trail records out', () => {
+    const columns = statusColumns(chain, TODAY)
+    expect(cards(columns)).toEqual([
+      'inbox/Note 3.md › Write the report',
+      'inbox/Note 3.md › Still open',
+      'inbox/Note 3.md › Shipped'
     ])
   })
 })

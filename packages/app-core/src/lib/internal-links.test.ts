@@ -176,6 +176,16 @@ describe('externalLinkUrl', () => {
 })
 
 describe('markdownLinkAt', () => {
+  it.each(['[EE]', '[ordinary text]', '[label][missing]', '[missing][]'])(
+    'does not treat undefined bracket text as a click or keyboard link: %s',
+    (brackets) => {
+      const doc = `Ask ${brackets} for details.`
+      const pos = doc.indexOf(brackets) + 1
+      expect(markdownLinkAt(doc, pos)).toBeNull()
+      expect(linkRangeAtCursor(doc, pos)).toBeNull()
+    }
+  )
+
   it('returns the href and source range of the link under the cursor', () => {
     const doc = 'a [test](google.com) b'
     const at = markdownLinkAt(doc, doc.indexOf('test'))

@@ -1,9 +1,11 @@
+import { followApplicationLink } from "../lib/application-link-open";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { resolveNoteDirection } from "../lib/bidi-dir";
+import { substituteLiveTokens } from "../lib/live-template-tokens";
 import {
   setMarkdownLooseMathDelimiters,
   setMarkdownMathRenderer,
@@ -21,6 +23,8 @@ import {
 import {
   openWikilinkTarget,
 } from "../lib/wikilink-navigation";
+import { followLinkTarget } from "../lib/follow-link";
+import { resolveAssetPathAmong } from "../lib/asset-path-resolution";
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from "../lib/database-links";
 import { externalLinkUrl, resolveInternalNoteHref } from "../lib/internal-links";
 import { copyableLink, linkMenuItems, type CopyableLink } from "../lib/link-copy";
@@ -201,6 +205,8 @@ export const Preview = memo(function Preview({
   const assetFiles = useStore((s) => s.assetFiles);
   const customCodeLanguagesRevision = useStore((s) => s.customCodeLanguagesRevision);
   const refreshAssets = useStore((s) => s.refreshAssets);
+  const renameAsset = useStore((s) => s.renameAsset);
+  const moveAsset = useStore((s) => s.moveAsset);
   const deleteAssetAction = useStore((s) => s.deleteAsset);
   const diagramTheme = useDiagramTheme();
   const selectNote = useStore((s) => s.selectNote);
@@ -319,17 +325,25 @@ export const Preview = memo(function Preview({
   const embedsReadyRef = useRef(embedsReady);
   embedsReadyRef.current = embedsReady;
 
+  // The note's last-saved time drives the live `{{modified_date}}` tokens (#784).
+  const noteUpdatedAt = useMemo(
+    () => notes.find((note) => note.path === notePath)?.updatedAt ?? null,
+    [notes, notePath],
+  );
   const html = useMemo(() => {
     // Point the pipeline at the active engine before rendering, so a toggle
     // takes effect on the very next render without an effect-ordering race.
     setMarkdownMathRenderer(mathRenderer);
     setMarkdownLooseMathDelimiters(looseMathDelimiters);
-    return renderMarkdown(expandedForCurrent ?? markdown);
+    return renderMarkdown(
+      substituteLiveTokens(expandedForCurrent ?? markdown, noteUpdatedAt),
+    );
     // customCodeLanguagesRevision re-renders when a grammar is installed,
     // toggled, or removed; renderMarkdown keys its cache on it too.
   }, [
     expandedForCurrent,
     markdown,
+    noteUpdatedAt,
     mathRenderer,
     looseMathDelimiters,
     customCodeLanguagesRevision,
@@ -475,6 +489,13 @@ export const Preview = memo(function Preview({
           void openWikilinkTarget(path, anchor.dataset.wikilink ?? "");
         } else if (anchor.dataset.databaseCsv) {
           void useStore.getState().openDatabase(anchor.dataset.databaseCsv);
+        } else if (anchor.dataset.wikilink) {
+          // A link that reaches nothing used to be inert here while the editor
+          // offered to create the note. Same offer now, and with Cmd/Ctrl held
+          // the note is created at once at the suggested path (#768).
+          followLinkTarget(anchor.dataset.wikilink, {
+            createWithoutAsking: e.metaKey || e.ctrlKey,
+          });
         }
         return;
       }
@@ -491,6 +512,10 @@ export const Preview = memo(function Preview({
       // `data-local-asset-href`. (#201)
       const linkHref =
         anchor.dataset.localAssetHref || anchor.getAttribute("href") || "";
+      if (followApplicationLink(linkHref)) {
+        e.preventDefault();
+        return;
+      }
       const internalNote = resolveInternalNoteHref(
         notePathRef.current,
         linkHref,
@@ -721,6 +746,11 @@ export const Preview = memo(function Preview({
       if (db) {
         a.classList.remove("broken");
         a.dataset.databaseCsv = db.csvPath;
+      } else if (resolveAssetPathAmong(assetFiles, notePath ?? "", target)) {
+        // A wikilink at a file in the vault opens that file (#757); it is
+        // not a note waiting to be created, so it keeps the live-link look.
+        a.classList.remove("broken");
+        delete a.dataset.databaseCsv;
       } else {
         a.classList.add("broken");
         delete a.dataset.databaseCsv;
@@ -963,8 +993,7 @@ export const Preview = memo(function Preview({
             },
           });
           if (!next || next === asset.name) return;
-          await window.zen.renameAsset(vaultRel, next);
-          await refreshAssets();
+          await renameAsset(vaultRel, next);
         },
       });
       items.push({
@@ -987,8 +1016,7 @@ export const Preview = memo(function Preview({
             },
           });
           if (target === null || target === currentDir) return;
-          await window.zen.moveAsset(vaultRel, target);
-          await refreshAssets();
+          await moveAsset(vaultRel, target);
         },
       });
       items.push({

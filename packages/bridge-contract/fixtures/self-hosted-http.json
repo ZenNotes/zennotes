@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "protocol": "self-hosted-http-v1",
+  "mountPaths": [
+    "",
+    "/notes"
+  ],
+  "note": {
+    "path": "inbox/Contract.md",
+    "body": "# Contract\n\nUnicode café 日本語.  \n\n![[photo.png]]\n![](assets/document.pdf)\n",
+    "updatedBody": "# Contract\n\nUpdated café 日本語.  \n\n![Photo](<assets/photo%20two.png>)\n\n",
+    "assetEmbeds": [
+      "photo.png",
+      "assets/document.pdf"
+    ],
+    "updatedAssetEmbeds": [
+      "assets/photo two.png"
+    ]
+  },
+  "requiredNoteFields": [
+    "path",
+    "title",
+    "folder",
+    "siblingOrder",
+    "createdAt",
+    "updatedAt",
+    "size",
+    "tags",
+    "wikilinks",
+    "assetEmbeds",
+    "hasAttachments",
+    "excerpt"
+  ],
+  "requiredCapabilities": [
+    "version",
+    "platform",
+    "authRequired",
+    "supportsSessionLogin",
+    "browseRootsEnforced",
+    "supportsVaultSelection",
+    "supportsDirectoryBrowsing",
+    "supportsWatch",
+    "reportsMissingAsNotFound",
+    "supportsAssetOps",
+    "supportsWorkflows",
+    "supportsCustomTemplates"
+  ],
+  "errors": {
+    "unauthenticated": 401,
+    "challenge": "Bearer realm=\"ZenNotes\"",
+    "missingNote": 404,
+    "directoryAsNote": 400
+  },
+  "routePrefixes": [
+    "/api",
+    ""
+  ]
+}

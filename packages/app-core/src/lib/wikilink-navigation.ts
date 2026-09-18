@@ -1,3 +1,4 @@
+import { captureNavigationContext } from './navigation-context'
 import { useStore } from '../store'
 import { findBlockAnchor } from './block-anchors'
 import { parseOutline } from './outline'
@@ -27,8 +28,11 @@ export function openDatabaseFromWikilink(target: string): boolean {
  * when the heading isn't found. Shared by the editor's wikilink click and the
  * preview pane so `[[Doc#Heading]]` lands on the heading. (#196)
  */
-export async function openWikilinkHeading(path: string, headingAnchor: string): Promise<void> {
+export async function openWikilinkHeading(path: string, headingAnchor: string): Promise<boolean> {
+  const isCurrent = captureNavigationContext()
+  if (!isCurrent()) return false
   const body = await noteBody(path)
+  if (!isCurrent()) return false
   const needle = headingAnchor.trim().toLowerCase()
   const heading = parseOutline(body).find((h) => h.text.trim().toLowerCase() === needle)
   if (heading) {
@@ -36,6 +40,7 @@ export async function openWikilinkHeading(path: string, headingAnchor: string): 
   } else {
     await useStore.getState().selectNote(path)
   }
+  return isCurrent() && useStore.getState().selectedPath === path
 }
 
 /**
@@ -43,13 +48,17 @@ export async function openWikilinkHeading(path: string, headingAnchor: string): 
  * twin of {@link openWikilinkHeading}, with the same fallback: an id the note
  * no longer carries opens the note at the top rather than going nowhere. (#601)
  */
-export async function openWikilinkBlock(path: string, blockAnchor: string): Promise<void> {
+export async function openWikilinkBlock(path: string, blockAnchor: string): Promise<boolean> {
+  const isCurrent = captureNavigationContext()
+  if (!isCurrent()) return false
   const block = findBlockAnchor(await noteBody(path), blockAnchor)
+  if (!isCurrent()) return false
   if (block) {
     await useStore.getState().openNoteAtOffset(path, block.from, { scrollMode: 'start' })
   } else {
     await useStore.getState().selectNote(path)
   }
+  return isCurrent() && useStore.getState().selectedPath === path
 }
 
 /**
@@ -60,7 +69,9 @@ export async function openWikilinkBlock(path: string, blockAnchor: string): Prom
  * quietly opened the note and stopped there for as long as they did: adding an
  * anchor kind meant remembering six call sites. (#601)
  */
-export async function openWikilinkTarget(path: string, target: string): Promise<void> {
+export async function openWikilinkTarget(path: string, target: string): Promise<boolean> {
+  const isCurrent = captureNavigationContext()
+  if (!isCurrent()) return false
   const heading = wikilinkHeadingAnchor(target)
   if (heading) return openWikilinkHeading(path, heading)
 
@@ -68,6 +79,7 @@ export async function openWikilinkTarget(path: string, target: string): Promise<
   if (block) return openWikilinkBlock(path, block)
 
   await useStore.getState().selectNote(path)
+  return isCurrent() && useStore.getState().selectedPath === path
 }
 
 /** The note's body from the store, falling back to a read, then to empty. */

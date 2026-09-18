@@ -165,7 +165,7 @@ Use this if you do not want Docker and you are okay running both the frontend an
 
 - Node.js 22+
 - npm
-- Go 1.22+
+- Go, only if you want to run the server from a ZenNotes/znserver checkout instead of the pinned release binary
 
 ### Steps
 
@@ -175,7 +175,8 @@ Install dependencies:
 npm ci
 ```
 
-Run both the web client and Go server together:
+Run both the web client and the pinned Go server release together (the server
+binary is downloaded from ZenNotes/znserver and checksum-verified on first use):
 
 ```bash
 make web-stack
@@ -208,20 +209,25 @@ That means:
 
 ## 4. Run the self-hosted server without Docker
 
-If you want a built server binary instead of dev mode:
+The server is a single static binary released by
+[ZenNotes/znserver](https://github.com/ZenNotes/znserver). Download the asset
+for your platform from that repository's releases page, check it against the
+release's `SHA256SUMS`, and run it:
 
 ```bash
-npm ci
-make server-build
-./apps/server/bin/zennotes-server
+chmod +x zennotes-server-linux-amd64
+./zennotes-server-linux-amd64
 ```
+
+From a checkout of this repository, `npm run server:binary` downloads the
+pinned release, verifies its checksum, and prints the path of the binary.
 
 Then open:
 
 - [http://localhost:7878](http://localhost:7878)
 - or `http://YOUR_SERVER_IP:7878`
 
-The built server embeds the web app, so you do not need to run `dev:web` for this path.
+The released server embeds the web app, so you do not need to run `dev:web` for this path.
 
 ## 5. Choose a vault in the web version
 

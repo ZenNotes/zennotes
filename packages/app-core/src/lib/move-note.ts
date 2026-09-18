@@ -1,4 +1,5 @@
 import type { FolderEntry, NoteMeta } from '@shared/ipc'
+import { formDirContaining, formTitleFromDir } from '@shared/databases'
 import type { PromptOptions, PromptSuggestion } from '../components/PromptModal'
 
 export type MoveNoteDestination = {
@@ -23,17 +24,19 @@ function initialTargetFromPath(path: string): string {
   return 'inbox'
 }
 
-function buildMoveNoteSuggestions(folders: FolderEntry[]): PromptSuggestion[] {
+function buildMoveNoteSuggestions(
+  folders: FolderEntry[],
+  roots: readonly MoveNoteDestination['folder'][] = ['inbox', 'archive']
+): PromptSuggestion[] {
   const byValue = new Map<string, PromptSuggestion>()
   const push = (value: string, detail?: string): void => {
     if (!byValue.has(value)) byValue.set(value, { value, detail })
   }
 
-  push('inbox', 'Root')
-  push('archive', 'Root')
+  for (const root of roots) push(root, 'Root')
 
   for (const folder of folders) {
-    if (folder.folder !== 'inbox' && folder.folder !== 'archive') continue
+    if (!roots.some((root) => root === folder.folder)) continue
     const value = folder.subpath ? `${folder.folder}/${folder.subpath}` : folder.folder
     push(value, folder.subpath ? folder.folder : 'Root')
   }
@@ -159,5 +162,61 @@ export function buildMoveNotePrompt(
     autoHighlightFirst: true,
     suggestionsHint: '↑↓ or ⌃J/⌃K pick a folder · Enter to move',
     validate: validateMoveNoteTarget
+  }
+}
+
+/**
+ * Why `value` cannot receive the folder or database at `directory`, or null.
+ * Directories move within the notes area only, so the destination is an
+ * existing `inbox[/sub]` folder, written the way the move-note prompt writes
+ * it. `folders` is the live list: the prompt validates against what exists
+ * when the user submits, not when it opened.
+ */
+export function validateMoveDirectoryTarget(
+  directory: string,
+  value: string,
+  folders: FolderEntry[]
+): string | null {
+  const normalized = normalizeMoveTarget(value)
+  if (!normalized) return 'Folder path required'
+  const [top, ...rest] = normalized.split('/')
+  if (top !== 'inbox') return 'Folders and databases move within inbox'
+  const subpath = rest.join('/')
+  if (/[\u0000-\u001f]/.test(value) || rest.some((part) => part.startsWith('.')))
+    return 'Choose a folder without hidden names or parent-directory segments.'
+  if (subpath === directory || subpath.startsWith(`${directory}/`))
+    return 'A folder cannot move into itself.'
+  if (formDirContaining(subpath)) return 'Databases are not move destinations.'
+  const exists = (path: string): boolean =>
+    folders.some((entry) => entry.folder === 'inbox' && entry.subpath === path)
+  if (subpath && !exists(subpath)) return 'Choose an existing folder.'
+  const leaf = directory.split('/').pop()!
+  const moved = subpath ? `${subpath}/${leaf}` : leaf
+  if (moved !== directory && exists(moved))
+    return `"${formTitleFromDir(leaf)}" already exists in that folder.`
+  return null
+}
+
+/**
+ * Prompt for where a folder or database should move. The field starts empty:
+ * touch devices show the suggestion list instead of a keyboard, and a
+ * prefilled path would filter that list down to the folder it already is in.
+ * The folder itself, everything under it, and databases are never offered.
+ */
+export function buildMoveDirectoryPrompt(directory: string, folders: FolderEntry[]): PromptOptions {
+  const destinations = folders.filter(
+    (entry) =>
+      entry.subpath !== directory &&
+      !entry.subpath.startsWith(`${directory}/`) &&
+      !formDirContaining(entry.subpath)
+  )
+  return {
+    title: `Move "${formTitleFromDir(directory)}" to…`,
+    description: 'Pick a folder, or enter a path like inbox/Work/Research',
+    placeholder: 'inbox/Work',
+    okLabel: 'Move',
+    suggestions: buildMoveNoteSuggestions(destinations, ['inbox']),
+    autoHighlightFirst: true,
+    suggestionsHint: '↑↓ or ⌃J/⌃K pick a folder · Enter to move'
   }
 }

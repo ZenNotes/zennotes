@@ -2,7 +2,7 @@
 
 > **Status:** Proposed — not yet implemented.
 > **Last updated:** 2026-05-26
-> **Scope:** Turn the self-hosted Go server (`apps/server`) from a single-secret,
+> **Scope:** Turn the self-hosted Go server (now in ZenNotes/znserver) from a single-secret,
 > single-vault deployment into a multi-user, team-aware server that companies can
 > run themselves, while keeping notes as ordinary `.md` files on their own disk.
 

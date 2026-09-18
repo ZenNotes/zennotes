@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/shared-domain",
   "private": true,
-  "version": "2.46.0",
+  "version": "2.52.0",
   "type": "module",
   "exports": {
     "./*": "./src/*.ts"
@@ -17,6 +17,7 @@
     "lz-string": "^1.5.0"
   },
   "devDependencies": {
+    "typescript": "^5.7.2",
     "vitest": "^3.2.6"
   }
 }

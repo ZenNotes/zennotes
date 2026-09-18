@@ -130,8 +130,15 @@ import companyLogo from "../assets/lumary-labs-logo.svg";
 import { confirmApp } from "../lib/confirm-requests";
 import { promptApp } from "../lib/prompt-requests";
 import { isImeComposing } from "../lib/ime";
+import {
+  isSettingsFindKey,
+  settingsSearchFieldAction,
+  settingsSearchStep,
+} from "../lib/settings-search-keys";
 import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
 import { Button } from "./ui/Button";
+import { trapDialogTab, useDialogFocus } from "./ui/Modal";
+import { isTouchPrimaryDevice } from "../lib/cm-vim-ime-guard";
 import {
   ignoredKeyTokenFromEvent,
   setIgnoredKeysRecorderActive,
@@ -140,6 +147,7 @@ import { CustomCodeLanguagesSettings } from "./CustomCodeLanguagesSettings";
 import { TextReplacementsSettings } from "./TextReplacementsSettings";
 import { CloudSettings } from "./CloudSettings";
 import { consumeSettingsTarget } from "../lib/settings-navigation";
+import { normalizeApplicationSchemes } from "@shared/application-links";
 
 type SettingsCategoryId =
   | "appearance"
@@ -353,6 +361,8 @@ function formatUpdatePhaseLabel(phase: AppUpdateState["phase"]): string {
       return "Downloading";
     case "downloaded":
       return "Ready to install";
+    case "installing":
+      return "Installing";
     case "error":
       return "Update error";
     case "idle":
@@ -368,6 +378,7 @@ function updatePhaseBadgeClass(phase: AppUpdateState["phase"]): string {
       return "border-accent/30 bg-accent/10 text-accent";
     case "checking":
     case "downloading":
+    case "installing":
       return "border-paper-300/70 bg-paper-100/85 text-ink-700";
     case "error":
       return "border-red-400/25 bg-red-500/10 text-red-700";
@@ -475,6 +486,9 @@ export function SettingsModal(): JSX.Element {
   const setRipgrepBinaryPath = useStore((s) => s.setRipgrepBinaryPath);
   const fzfBinaryPath = useStore((s) => s.fzfBinaryPath);
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath);
+  const externalApplicationSchemes = useStore((s) => s.externalApplicationSchemes);
+  const setExternalApplicationSchemes = useStore((s) => s.setExternalApplicationSchemes);
+  const [externalApplicationIssue, setExternalApplicationIssue] = useState<string | null>(null);
   const livePreview = useStore((s) => s.livePreview);
   const setLivePreview = useStore((s) => s.setLivePreview);
   const renderTablesInLivePreview = useStore(
@@ -502,6 +516,10 @@ export function SettingsModal(): JSX.Element {
   const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes);
   const defaultPaneMode = useStore((s) => s.defaultPaneMode);
   const setDefaultPaneMode = useStore((s) => s.setDefaultPaneMode);
+  const keepPanelsAcrossNotes = useStore((s) => s.keepPanelsAcrossNotes);
+  const setKeepPanelsAcrossNotes = useStore((s) => s.setKeepPanelsAcrossNotes);
+  const persistUndoHistory = useStore((s) => s.persistUndoHistory);
+  const setPersistUndoHistory = useStore((s) => s.setPersistUndoHistory);
   const setKeepViewModeAcrossNotes = useStore(
     (s) => s.setKeepViewModeAcrossNotes,
   );
@@ -613,6 +631,9 @@ export function SettingsModal(): JSX.Element {
       : zenBridge.getCapabilities().supportsCustomTemplates === true;
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
+  // Undo history between launches needs somewhere machine-local that is not
+  // the vault, which only the desktop app has. (#793)
+  const supportsUndoFile = !!zenBridge.getCapabilities().supportsUndoFile;
   const [templateEditor, setTemplateEditor] = useState<{
     initialRaw?: string;
     sourcePath?: string;
@@ -709,6 +730,8 @@ export function SettingsModal(): JSX.Element {
   const systemFolderLabels = useStore((s) => s.systemFolderLabels);
   const setSystemFolderLabel = useStore((s) => s.setSystemFolderLabel);
   const darkSidebar = useStore((s) => s.darkSidebar);
+  const showWindowTitleBar = useStore((s) => s.showWindowTitleBar);
+  const setShowWindowTitleBar = useStore((s) => s.setShowWindowTitleBar);
   const setDarkSidebar = useStore((s) => s.setDarkSidebar);
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons);
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons);
@@ -1185,14 +1208,23 @@ export function SettingsModal(): JSX.Element {
   };
 
   const ref = useRef<HTMLDivElement | null>(null);
+  const navSearchRef = useRef<HTMLInputElement | null>(null);
+  // Settings draws its own backdrop and panel, so it never got the focus
+  // handling the shared Modal shell gives every other dialog: the keyboard
+  // stayed on the editor underneath and typing edited the note behind the
+  // open window. Opening lands on the settings search, the first thing a
+  // keyboard user reaches for. On a touch device a focused input would raise
+  // the on-screen keyboard over the panel, so the panel takes focus instead.
+  useDialogFocus(ref, isTouchPrimaryDevice() ? ref : navSearchRef);
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
+  const [initialSettingsTarget] = useState(consumeSettingsTarget);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
-    () => consumeSettingsTarget() ?? "appearance",
+    () => initialSettingsTarget === "external-links" ? "editor" : initialSettingsTarget ?? "appearance",
   );
   // Per-category active sub-tab (dense categories split their content into sub-tabs).
   const [activeSubTabByCategory, setActiveSubTabByCategory] = useState<
     Partial<Record<SettingsCategoryId, string>>
-  >({});
+  >(() => initialSettingsTarget === "external-links" ? { editor: "links" } : {});
   const [activeSearchResultId, setActiveSearchResultId] = useState<
     string | null
   >(null);
@@ -1342,6 +1374,13 @@ export function SettingsModal(): JSX.Element {
           title: "Dark sidebar",
           description:
             "Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface.",
+        },
+        {
+          id: "window-title-bar",
+          title: "Window title bar",
+          description: "Show the main window title and controls, or hide them to reclaim vertical space.",
+          keywords: ["decorations", "frameless", "traffic lights", "tiling", "hyprland", "linux"],
+          available: appInfo.runtime === "desktop",
         },
         {
           id: "sidebar-arrows",
@@ -1749,6 +1788,15 @@ export function SettingsModal(): JSX.Element {
             title="Chrome"
             description="Small visual adjustments that change how the shell feels."
           >
+            {appInfo.runtime === "desktop" && (
+              <ToggleRow
+                label="Window title bar"
+                description="Show the main window’s title and controls. Turn off to reclaim vertical space. Drag blank space around the sidebar header to move the window, or use your window manager’s shortcuts."
+                value={showWindowTitleBar}
+                settingId="window-title-bar"
+                onChange={setShowWindowTitleBar}
+              />
+            )}
             <ToggleRow
               label="Dark sidebar"
               description="Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface."
@@ -1812,6 +1860,13 @@ export function SettingsModal(): JSX.Element {
         "heading",
       ],
       searchItems: [
+        {
+          id: "external-application-links",
+          title: "External application links",
+          description: "Open links in enabled applications such as Zotero, Obsidian, and VS Code.",
+          keywords: ["uri", "scheme", "protocol", "zotero", "obsidian", "vscode", "external"],
+          available: appInfo.runtime === "desktop",
+        },
         {
           id: "vim-mode",
           title: "Vim mode",
@@ -2000,6 +2055,50 @@ export function SettingsModal(): JSX.Element {
             "loose",
           ],
         },
+        {
+          id: "keep-view-mode",
+          title: "Keep view mode when switching notes",
+          description:
+            "Stay in the current Edit / Split / Preview mode when you open another note.",
+          keywords: ["view mode", "edit", "split", "preview", "sticky", "switch", "per note"],
+        },
+        {
+          id: "keep-panels",
+          title: "Keep panels when switching notes",
+          description:
+            "Connections, Outline, Comments and Calendar stay as you set them, or each note remembers its own.",
+          keywords: [
+            "panels",
+            "connections",
+            "outline",
+            "comments",
+            "calendar",
+            "sticky",
+            "per note",
+            "remember",
+            "switch",
+          ],
+        },
+        ...(supportsUndoFile
+          ? [
+              {
+                id: "persist-undo-history",
+                title: "Keep undo history after quitting",
+                description:
+                  "Undo still works on a note after you quit and reopen ZenNotes, like Vim's undofile.",
+                keywords: [
+                  "undofile",
+                  "undo",
+                  "redo",
+                  "history",
+                  "persistent",
+                  "restart",
+                  "quit",
+                  "vim",
+                ],
+              },
+            ]
+          : []),
         {
           id: "sync-title-heading-on-rename",
           title: "Sync title heading on rename",
@@ -2395,6 +2494,34 @@ export function SettingsModal(): JSX.Element {
             </div>
           ),
         },
+        ...(appInfo.runtime === "desktop" ? [{
+          id: "links",
+          title: "Links",
+          searchIds: ["external-application-links"],
+          content: (
+            <Section title="Links" description="Open application links from your notes.">
+              <TextInputRow
+                label="External application links"
+                description="Enter application prefixes separated by commas, such as zotero, obsidian, or vscode. Enabled links open in the installed app. Saved in config.toml."
+                value={externalApplicationSchemes.join(", ")}
+                placeholder="zotero, obsidian, vscode"
+                settingId="external-application-links"
+                commitOnBlur
+                issue={externalApplicationIssue}
+                onChange={(value) => {
+                  const entries = (value ?? "").split(/[,\s]+/).filter(Boolean);
+                  const invalid = entries.find((entry) => normalizeApplicationSchemes([entry]).length === 0);
+                  if (invalid) {
+                    setExternalApplicationIssue(`“${invalid}” is not an available application prefix.`);
+                    return;
+                  }
+                  setExternalApplicationIssue(null);
+                  setExternalApplicationSchemes(normalizeApplicationSchemes(entries));
+                }}
+              />
+            </Section>
+          ),
+        }] : []),
         {
           id: "writing",
           title: "Writing",
@@ -2403,6 +2530,9 @@ export function SettingsModal(): JSX.Element {
             "render-tables",
             "harper-enabled",
             "harper-dialect",
+            "keep-view-mode",
+            "keep-panels",
+            "persist-undo-history",
             "sync-title-heading-on-rename",
             "markdown-overrides",
             "heading-level-labels",
@@ -2535,6 +2665,22 @@ export function SettingsModal(): JSX.Element {
                   settingId="keep-view-mode"
                   onChange={setKeepViewModeAcrossNotes}
                 />
+                <ToggleRow
+                  label="Keep panels when switching notes"
+                  description="Connections, Outline, Comments and Calendar stay as you set them while you move between notes. Turn off and each note remembers its own panels, across restarts too, so a note you have not opened yet starts with none."
+                  value={keepPanelsAcrossNotes}
+                  settingId="keep-panels"
+                  onChange={setKeepPanelsAcrossNotes}
+                />
+                {supportsUndoFile && (
+                  <ToggleRow
+                    label="Keep undo history after quitting"
+                    description="Each note already keeps its undo history while ZenNotes is open. Turn this on and it also survives quitting, like Vim's undofile: reopen a note tomorrow and u / Mod+Z still steps back through your edits, as long as the note was not changed elsewhere in the meantime. The history is stored with the app on this computer, never in your vault, and it contains text you deleted. Turning this off erases it."
+                    value={persistUndoHistory}
+                    settingId="persist-undo-history"
+                    onChange={setPersistUndoHistory}
+                  />
+                )}
                 <ToggleRow
                   label="Sync title heading on rename"
                   description="Renaming a note also rewrites its leading `# heading` to the new name, so the title line stops drifting from the filename. Only an existing top-level heading is rewritten — a note that opens with prose, a list, or a deeper heading is left alone, so deleting the `#` line opts that note out for good."
@@ -5033,12 +5179,14 @@ export function SettingsModal(): JSX.Element {
                           onClick={triggerUpdateCheck}
                           disabled={
                             appUpdateState?.phase === "checking" ||
-                            appUpdateState?.phase === "downloading"
+                            appUpdateState?.phase === "downloading" ||
+                            appUpdateState?.phase === "installing"
                           }
                           className={[
                             "rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors",
                             appUpdateState?.phase === "checking" ||
-                            appUpdateState?.phase === "downloading"
+                            appUpdateState?.phase === "downloading" ||
+                            appUpdateState?.phase === "installing"
                               ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
                               : "border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200",
                           ].join(" ")}
@@ -5166,6 +5314,40 @@ export function SettingsModal(): JSX.Element {
     null;
   const visibleCategory = visibleSearchResult?.category ?? null;
 
+  // What a click on a search result does, shared with the keyboard. (#108)
+  const openSearchResult = (result: (typeof searchResults)[number]): void => {
+    setActiveCategory(result.category.id);
+    setActiveSearchResultId(result.id);
+    if (result.type === "setting") {
+      // If the target lives on a sub-tab, open that sub-tab first
+      // so the element is mounted before we scroll to it.
+      const subTabId = result.category.subTabs?.find(
+        (tab) => tab.searchIds?.includes(result.targetId),
+      )?.id;
+      if (subTabId) {
+        setActiveSubTabByCategory((prev) => ({
+          ...prev,
+          [result.category.id]: subTabId,
+        }));
+      }
+      jumpToSettingsSearchTarget(result.targetId);
+    }
+  };
+  const onSearchFieldKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ): void => {
+    if (isImeComposing(e)) return;
+    const action = settingsSearchFieldAction(e);
+    if (!action) return;
+    const current = searchResults.findIndex(
+      (result) => result.id === visibleSearchResult?.id,
+    );
+    const target = searchResults[settingsSearchStep(action, current, searchResults.length)];
+    if (!target) return;
+    e.preventDefault();
+    openSearchResult(target);
+  };
+
   // When the visible search result is a setting that lives on a sub-tab, open
   // that sub-tab so the matched control is actually shown — not only when the
   // result is clicked, but also when search auto-selects it. Mirrors the
@@ -5188,6 +5370,14 @@ export function SettingsModal(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSettingResultId]);
 
+  // Walking the results from the search field can pick a row the list has
+  // scrolled away from; keep the picked row on screen.
+  const selectedResultRef = useRef<HTMLButtonElement>(null);
+  const selectedResultId = visibleSearchResult?.id ?? null;
+  useEffect(() => {
+    selectedResultRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedResultId]);
+
   // Header summary follows the active sub-tab so it describes what's actually on
   // screen, instead of always showing the category's first-sub-tab blurb.
   const activeSubTabForHeader = visibleCategory?.subTabs?.find(
@@ -5209,8 +5399,29 @@ export function SettingsModal(): JSX.Element {
       >
         <div
           ref={ref}
-          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Settings"
+          tabIndex={-1}
+          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float outline-none"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            trapDialogTab(e, ref.current);
+            // Handled here, not on the window: the shortcut recorders capture
+            // keys at the window and must win while they are recording.
+            const target = e.target as HTMLElement;
+            const typing =
+              target.isContentEditable ||
+              /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+            if (
+              !isSettingsFindKey(e, { vimMode, mac: isMacPlatform(), typing })
+            )
+              return;
+            e.preventDefault();
+            e.stopPropagation();
+            navSearchRef.current?.focus();
+            navSearchRef.current?.select();
+          }}
         >
           <aside className="flex min-h-0 flex-col border-r border-paper-300/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
             <div className="border-b border-paper-300/55 px-4 py-4">
@@ -5220,8 +5431,10 @@ export function SettingsModal(): JSX.Element {
               <div className="mt-3">
                 <label className="relative block">
                   <input
+                    ref={navSearchRef}
                     value={navQuery}
                     onChange={(e) => setNavQuery(e.target.value)}
+                    onKeyDown={onSearchFieldKeyDown}
                     placeholder="Search settings…"
                     className="w-full rounded-xl border border-paper-300/70 bg-paper-50/75 px-3 py-2.5 pl-9 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
                   />
@@ -5297,25 +5510,9 @@ export function SettingsModal(): JSX.Element {
                     return (
                       <button
                         key={result.id}
+                        ref={selected ? selectedResultRef : undefined}
                         type="button"
-                        onClick={() => {
-                          setActiveCategory(result.category.id);
-                          setActiveSearchResultId(result.id);
-                          if (result.type === "setting") {
-                            // If the target lives on a sub-tab, open that sub-tab first
-                            // so the element is mounted before we scroll to it.
-                            const subTabId = result.category.subTabs?.find(
-                              (tab) => tab.searchIds?.includes(result.targetId),
-                            )?.id;
-                            if (subTabId) {
-                              setActiveSubTabByCategory((prev) => ({
-                                ...prev,
-                                [result.category.id]: subTabId,
-                              }));
-                            }
-                            jumpToSettingsSearchTarget(result.targetId);
-                          }
-                        }}
+                        onClick={() => openSearchResult(result)}
                         className={[
                           "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
                           selected
@@ -5353,7 +5550,7 @@ export function SettingsModal(): JSX.Element {
             </div>
           </aside>
 
-          <div className="flex min-h-0 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-col">
             <div className="flex items-start justify-between gap-4 border-b border-paper-300/60 px-7 py-5">
               <div>
                 <div className="text-xs font-medium uppercase tracking-[0.22em] text-ink-500">
@@ -5959,11 +6156,20 @@ function CategorySubTabs({
   onSelect: (id: string) => void;
 }): JSX.Element {
   const active = tabs.find((tab) => tab.id === activeId) ?? tabs[0];
+  const tabListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    tabListRef.current
+      ?.querySelector<HTMLElement>('[aria-selected="true"]')
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [active.id]);
+
   return (
     <div className="space-y-6">
       <div
+        ref={tabListRef}
         role="tablist"
-        className="flex flex-wrap items-center gap-1 rounded-2xl border border-paper-300/60 bg-paper-50/45 p-1"
+        className="flex items-center justify-between gap-1 overflow-x-auto rounded-2xl border border-paper-300/60 bg-paper-50/45 p-1"
       >
         {tabs.map((tab) => {
           const selected = tab.id === active.id;
@@ -5975,7 +6181,7 @@ function CategorySubTabs({
               aria-selected={selected}
               onClick={() => onSelect(tab.id)}
               className={[
-                "rounded-xl px-3.5 py-1.5 text-sm font-medium transition-colors",
+                "shrink-0 whitespace-nowrap rounded-xl px-2 py-1.5 text-sm font-medium transition-colors",
                 selected
                   ? "bg-paper-200/90 text-ink-900 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
                   : "text-ink-500 hover:bg-paper-200/50 hover:text-ink-800",
@@ -7520,11 +7726,11 @@ function CliSettings(): JSX.Element {
     void refresh();
   }, [refresh]);
 
-  const onInstall = async (): Promise<void> => {
+  const onInstall = async (repairToken?: string): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
-      await window.zen.cliInstall();
+      await window.zen.cliInstall(repairToken ? { repairToken } : undefined);
       await refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -7582,11 +7788,13 @@ function CliSettings(): JSX.Element {
 
   const installed = status.installedAt != null;
   const ours = status.installedByThisApp;
-  const chip = installed
-    ? ours
-      ? { label: "Installed", tone: "ok" as const }
-      : { label: "External install", tone: "warn" as const }
-    : { label: "Not installed", tone: "off" as const };
+  const chip = status.repair
+    ? { label: "Needs repair", tone: "warn" as const }
+    : installed
+      ? ours
+        ? { label: "Installed", tone: "ok" as const }
+        : { label: "External install", tone: "warn" as const }
+      : { label: "Not installed", tone: "off" as const };
 
   const isUnavailable = !status.available;
 
@@ -7594,14 +7802,18 @@ function CliSettings(): JSX.Element {
     <div className="space-y-6">
       <Section
         title="Command-Line Tool"
-        description="The `zn` CLI talks to your vault directly from any terminal — perfect for scripts, cron jobs, editor plugins, shell pipelines, MCP, and launcher integrations like Raycast. Once installed, try `zn --help` or pipe text in: `pbpaste | zn capture`."
+        description={
+          status.runtime === "go"
+            ? "Use zn for scripts, note capture, and MCP. Run zn tui to open ZenNotes in your terminal. Your existing commands keep working."
+            : "Use zn to capture, search, and edit notes from your terminal, scripts, and MCP clients. Run zn --help to get started."
+        }
         settingId="zen-command-line-tool"
       >
         <div className="flex flex-col gap-3 px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="text-sm font-medium text-ink-900">zen</span>
+                <span className="text-sm font-medium text-ink-900">zn</span>
                 <span
                   className={[
                     "rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]",
@@ -7612,14 +7824,53 @@ function CliSettings(): JSX.Element {
                 </span>
               </div>
               <div className="mt-1 text-xs leading-5 text-ink-500">
-                {installed && ours
-                  ? `Active. Run \`zn --help\` from any terminal.`
-                  : installed && !ours
-                    ? `An unmanaged \`zen\` already exists at this path. Remove it before installing if you want ZenNotes to take over.`
-                    : status.requiresSudo
-                      ? `Symlinks ${status.defaultTarget} to ZenNotes' bundled wrapper. macOS will prompt for admin once because no user-writable directory was found on your PATH.`
-                      : `Symlinks ${status.defaultTarget} to ZenNotes' bundled wrapper.`}
+                {status.repair
+                  ? "This shortcut points to an app location that no longer exists. Review the replacement below, then repair it in place."
+                  : installed && ours
+                    ? status.runtime === "go"
+                      ? `Active. Run \`zn tui\` to open the terminal app, or \`zn --help\` for commands.`
+                      : `Active. Run \`zn --help\` from any terminal.`
+                    : installed && !ours
+                      ? `This installation is managed outside ZenNotes. Keep using its installer or package manager for updates.`
+                      : status.requiresSudo
+                        ? `Installs zn at ${status.defaultTarget}. Administrator access is needed because no user-writable directory was found on your PATH.`
+                        : `Installs zn at ${status.defaultTarget}.`}
               </div>
+              {status.repair && (
+                <div className="mt-2 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-ink-700">
+                  <div className="font-medium">Repair this shortcut</div>
+                  <div>
+                    Previous target:{" "}
+                    <code className="break-all font-mono">
+                      {status.repair.oldTarget}
+                    </code>
+                  </div>
+                  <div>
+                    New target:{" "}
+                    <code className="break-all font-mono">
+                      {status.repair.newTarget}
+                    </code>
+                  </div>
+                  <div className="text-ink-500">
+                    The previous target will be saved in{" "}
+                    <code className="break-all font-mono">
+                      {status.repair.backupPath}
+                    </code>
+                    .
+                  </div>
+                </div>
+              )}
+              {status.runtimeVersion && ours && (
+                <div className="mt-1 text-xs text-ink-500">
+                  Installed version: {status.runtimeVersion}
+                </div>
+              )}
+              {status.runtimeError && (
+                <div className="mt-1.5 text-xs leading-5 text-amber-500">
+                  {status.runtimeError}
+                  {installed ? " Your existing CLI remains available." : ""}
+                </div>
+              )}
               {status.reason && (
                 <div className="mt-1.5 text-xs leading-5 text-amber-500">
                   {status.reason}
@@ -7633,7 +7884,7 @@ function CliSettings(): JSX.Element {
                   </div>
                   <div className="mt-1 text-ink-500">
                     After install, run this once so your shell can find{" "}
-                    <code className="font-mono">zen</code>:
+                    <code className="font-mono">zn</code>:
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
                     <code className="min-w-0 flex-1 break-all rounded-md bg-paper-100/80 px-2 py-1 font-mono text-xs text-ink-900">
@@ -7651,7 +7902,25 @@ function CliSettings(): JSX.Element {
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {installed ? (
+              {status.repair && (
+                <Button
+                  size="sm"
+                  onClick={() => void onInstall(status.repair?.token)}
+                  disabled={busy || isUnavailable}
+                >
+                  {busy ? "Repairing…" : "Repair shortcut"}
+                </Button>
+              )}
+              {installed && ours && status.runtimeError && (
+                <Button
+                  size="sm"
+                  onClick={() => void onInstall()}
+                  disabled={busy}
+                >
+                  Repair
+                </Button>
+              )}
+              {installed && !status.repair ? (
                 <button
                   type="button"
                   onClick={() => void onUninstall()}
@@ -7665,7 +7934,7 @@ function CliSettings(): JSX.Element {
                 >
                   {busy ? "Working…" : "Uninstall"}
                 </button>
-              ) : (
+              ) : !installed ? (
                 <Button
                   variant="primary"
                   size="sm"
@@ -7674,9 +7943,14 @@ function CliSettings(): JSX.Element {
                 >
                   {busy ? "Installing…" : "Install"}
                 </Button>
-              )}
+              ) : null}
             </div>
           </div>
+          {error && (
+            <div role="alert" className="text-xs text-ink-900">
+              Something went wrong: {error}
+            </div>
+          )}
           <div className="flex items-center gap-2 border-t border-paper-300/45 pt-2 text-xs text-ink-500">
             <span className="text-2xs font-medium uppercase tracking-[0.14em] text-ink-400">
               Path
@@ -7698,7 +7972,7 @@ function CliSettings(): JSX.Element {
       </Section>
 
       <RaycastExtensionSettings
-        cliInstalled={installed}
+        cliInstalled={installed && !status.repair}
         copyToClipboard={copyToClipboard}
       />
 
@@ -7708,21 +7982,17 @@ function CliSettings(): JSX.Element {
         settingId="cli-quick-reference"
       >
         <div className="space-y-2 px-5 py-4 font-mono text-xs leading-6 text-ink-800">
-          <div>zen list --tag idea</div>
-          <div>zen read "inbox/Project.md"</div>
-          <div>zen read --path "hellointerview/system design.md"</div>
+          {status.runtime === "go" && <div>zn tui</div>}
+          <div>zn list --tag idea</div>
+          <div>zn read "inbox/Project.md"</div>
+          <div>zn read --path "hellointerview/system design.md"</div>
           <div>echo "hello" | zn capture</div>
-          <div>zen append daily.md --body "- talked to alice"</div>
-          <div>zen search "deadline" --json | jq .</div>
-          <div>zen mcp # used by Claude Code/Desktop/Codex</div>
+          <div>zn append daily.md --body "- talked to alice"</div>
+          <div>zn search "deadline" --json | jq .</div>
+          <div>zn mcp # used by Claude Code/Desktop/Codex</div>
         </div>
       </Section>
 
-      {error && (
-        <InlineNote>
-          <span className="text-ink-900">Something went wrong:</span> {error}
-        </InlineNote>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-IMAGE ?= zennotes-selfhosted:local
+IMAGE ?= adibhanna/zennotes:latest
 PORT ?= 7878
 CONTENT_ROOT ?= ./vault
 DATA ?= ./data
@@ -8,7 +8,7 @@ COMPOSE := $(shell docker compose version >/dev/null 2>&1 && echo "docker compos
 OPEN_BROWSER := $(shell command -v open 2>/dev/null || command -v xdg-open 2>/dev/null)
 
 .PHONY: help install dev desktop web-dev server-dev web-stack \
-	build desktop-build web-build server-build \
+	build desktop-build web-build \
 	up down restart logs status open rebuild nuke clean
 
 help:
@@ -19,30 +19,30 @@ help:
 	@echo "  Local development"
 	@echo "    make desktop      — run the Electron desktop app in dev mode"
 	@echo "    make web-dev      — run the Vite web client in dev mode"
-	@echo "    make server-dev   — run the Go server in dev mode"
+	@echo "    make server-dev   — run the pinned ZenNotes/znserver release (or a checkout via ZENNOTES_SERVER_DIR)"
 	@echo "    make web-stack    — run server + web dev together"
 	@echo ""
 	@echo "  Local builds"
 	@echo "    make build        — build the full monorepo"
 	@echo "    make desktop-build — build the Electron desktop app"
 	@echo "    make web-build    — build apps/web"
-	@echo "    make server-build — build apps/server with the latest embedded web bundle"
 	@echo ""
 	@echo "  Docker"
-	@echo "    make up       — build and start the self-hosted server"
+	@echo "    make up       — start the self-hosted server from the published image"
 	@echo "    make down     — stop the container"
 	@echo "    make restart  — restart the container"
 	@echo "    make logs     — follow logs"
 	@echo "    make status   — show compose status"
 	@echo "    make open     — open the app in your browser"
-	@echo "    make rebuild  — force a full rebuild"
-	@echo "    make nuke     — tear down and remove local image/build output"
-	@echo "    make clean    — remove local web/server build output"
+	@echo "    make rebuild  — pull the newest image and restart"
+	@echo "    make nuke     — tear down and remove the image, data, and build output"
+	@echo "    make clean    — remove local web build output and downloaded server binaries"
 	@echo ""
 	@echo "  Useful Docker vars"
 	@echo "    CONTENT_ROOT=~/iCloud Drive/Obsidian   — host folder used as the live vault root"
 	@echo "    PORT=7878                               — host port"
 	@echo "    ALLOW_INSECURE_NOAUTH=1                 — opt out of generated auth token (not recommended)"
+	@echo "    IMAGE=adibhanna/zennotes:2.50.5         — pin a published server image (default: latest)"
 	@echo ""
 
 install:
@@ -96,7 +96,7 @@ up:
 	ZENNOTES_HOST_DATA="$$ABS_DATA" \
 	ZENNOTES_CONTAINER_UID="$$(id -u)" \
 	ZENNOTES_CONTAINER_GID="$$(id -g)" \
-	$(COMPOSE) up --build -d
+	$(COMPOSE) up -d
 	@printf "\nZenNotes is running at $(APP_URL)\n\n"
 ifneq ($(ALLOW_INSECURE_NOAUTH),1)
 	@printf "Auth token: $(DATA)/auth-token\n\n"
@@ -149,15 +149,12 @@ rebuild:
 	ZENNOTES_HOST_DATA="$$ABS_DATA" \
 	ZENNOTES_CONTAINER_UID="$$(id -u)" \
 	ZENNOTES_CONTAINER_GID="$$(id -g)" \
-	$(COMPOSE) build --no-cache
+	$(COMPOSE) pull
 	@$(MAKE) --no-print-directory up
 
 nuke:
-	@$(COMPOSE) down --rmi local --volumes || true
-	@rm -rf apps/web/dist apps/server/bin apps/server/web/dist $(DATA)
-
-server-build: web-build
-	npm run build --workspace @zennotes/server
+	@$(COMPOSE) down --rmi all --volumes || true
+	@rm -rf apps/web/dist dist/server-binaries $(DATA)
 
 clean:
-	rm -rf apps/web/dist apps/server/bin apps/server/web/dist
+	rm -rf apps/web/dist dist/server-binaries

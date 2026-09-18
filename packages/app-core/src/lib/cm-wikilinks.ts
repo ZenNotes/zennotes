@@ -1,4 +1,5 @@
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
+import { syntaxTree } from '@codemirror/language'
 import type { EditorState, TransactionSpec } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
@@ -6,6 +7,7 @@ import { resolveWikilinkTarget } from './wikilinks'
 import { parseBlockAnchors } from './block-anchors'
 import { parseOutline } from './outline'
 import { linkCandidates, type LinkCandidate } from './link-candidates'
+import { closedLinkTail } from './cm-wikilink-tail'
 
 // Matching, scoring, and target derivation live in `link-candidates.ts` (pure,
 // store-free) so non-CodeMirror surfaces rank identically; this file owns only
@@ -16,18 +18,22 @@ function normalize(value: string): string {
 }
 
 /**
- * The rest of the wikilink the caret sits in, when that link is already closed
- * on this line: the text between the caret and its `]]`. Null while the link is
- * still being typed (no `]]` ahead, or another `[[` opens before it), which is
- * the case the completion has to close itself.
+ * True when `pos` sits inside a code span or code block. `[[` there is literal
+ * text (the renderer leaves it raw for the same reason, #248), so no picker
+ * should open for it. The check is anchored on the `[[` itself, not the caret:
+ * with Auto-close Markdown on, typing `[[` inside `` `…` `` and deleting the
+ * auto-inserted `]]` left an open `[[` in the code span, and every keystroke
+ * after the closing backtick re-opened the picker for it (#783).
  */
-function closedLinkTail(state: EditorState, pos: number): string | null {
-  const line = state.doc.lineAt(pos)
-  const after = state.doc.sliceString(pos, line.to)
-  const close = after.indexOf(']]')
-  if (close < 0) return null
-  const tail = after.slice(0, close)
-  return tail.includes('[[') ? null : tail
+function isInsideCode(state: EditorState, pos: number): boolean {
+  let node = syntaxTree(state).resolveInner(pos, 1)
+  while (node) {
+    const n = node.name
+    if (n === 'FencedCode' || n === 'CodeBlock' || n === 'InlineCode') return true
+    if (!node.parent) break
+    node = node.parent
+  }
+  return false
 }
 
 /**
@@ -74,6 +80,7 @@ function wikilinkMatch(context: CompletionContext): {
   const before = state.doc.sliceString(line.from, pos)
   const openIndex = before.lastIndexOf('[[')
   if (openIndex < 0) return null
+  if (isInsideCode(state, line.from + openIndex + 1)) return null
 
   const inside = before.slice(openIndex + 2)
   if (inside.includes(']]')) return null
@@ -231,6 +238,7 @@ function wikilinkAnchorMatch(
   const before = state.doc.sliceString(line.from, pos)
   const openIndex = before.lastIndexOf('[[')
   if (openIndex < 0) return null
+  if (isInsideCode(state, line.from + openIndex + 1)) return null
 
   const inside = before.slice(openIndex + 2)
   if (inside.includes(']]') || inside.includes('|')) return null

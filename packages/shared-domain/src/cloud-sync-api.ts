@@ -69,7 +69,8 @@ export class CloudSyncApiClient {
     return this.http.request({
       method: 'POST',
       path: '/api/v1/shares',
-      body: publishedNoteBody(input)
+      body: publishedNoteBody(input),
+      timeoutMs: 300_000
     })
   }
 
@@ -80,7 +81,8 @@ export class CloudSyncApiClient {
     return this.http.request({
       method: 'PUT',
       path: `/api/v1/shares/${encodeURIComponent(String(shareId))}`,
-      body: publishedNoteBody(input)
+      body: publishedNoteBody(input),
+      timeoutMs: 300_000
     })
   }
 

@@ -177,7 +177,7 @@ describe('tasks cache freshness', () => {
     expect(useStore.getState().vaultTasks).toEqual(freshTasks)
   })
 
-  it('isolates tasks from a note until its cloud conflict is resolved', async () => {
+  it('keeps local tasks visible and refreshable while their cloud conflict is pending', async () => {
     const conflicted = {
       ...makeTask('choose this later'),
       id: 'inbox/Conflict.md#0',
@@ -189,7 +189,9 @@ describe('tasks cache freshness', () => {
       sourcePath: 'inbox/Other.md'
     }
     const scanTasks = vi.fn().mockResolvedValue([conflicted, unaffected])
-    installZen({ scanTasks })
+    const edited = { ...conflicted, content: 'local task edited while waiting' }
+    const scanTasksForPath = vi.fn().mockResolvedValue([edited])
+    installZen({ scanTasks, scanTasksForPath })
 
     const { useStore } = await loadStore()
     const { useCloudSyncStatusStore } = await import('./lib/cloud-auto-sync')
@@ -218,10 +220,15 @@ describe('tasks cache freshness', () => {
       }
     })
 
-    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
     await useStore.getState().refreshTasks()
-    expect(useStore.getState().vaultTasks).toEqual([unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+    await useStore.getState().rescanTasksForPath(conflicted.sourcePath)
+    expect(useStore.getState().vaultTasks).toEqual([unaffected, edited])
+    expect(scanTasksForPath).toHaveBeenCalledWith(conflicted.sourcePath)
 
+    const resolved = { ...conflicted, content: 'task from the resolved note' }
+    scanTasks.mockResolvedValue([resolved, unaffected])
     useCloudSyncStatusStore.setState({
       lastSummary: {
         cursor: 3,
@@ -234,7 +241,7 @@ describe('tasks cache freshness', () => {
       }
     })
     await useStore.getState().refreshTasks()
-    expect(useStore.getState().vaultTasks).toEqual([conflicted, unaffected])
+    expect(useStore.getState().vaultTasks).toEqual([resolved, unaffected])
   })
 })
 
@@ -303,6 +310,52 @@ describe('daily note patterns', () => {
     await useStore.getState().openDailyNoteForDate(new Date(2026, 5, 9))
 
     expect(createNote).toHaveBeenCalledWith('inbox', '2026-06-09-Tue', '2026/06-Jun')
+  })
+})
+
+describe('daily task rollover', () => {
+  it.each([false, true])('replaces empty template tasks and preserves real work (open: %s)', async (open) => {
+    const iso = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')].join('-')
+    const now = new Date()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const sourcePath = `inbox/Daily Notes/${iso(yesterday)}.md`
+    const targetPath = `inbox/Daily Notes/${iso(now)}.md`
+    const files = new Map([[sourcePath, '## Tasks\n\n- [ ] Carry this task\n- [ ]\n- [x] Done\n']])
+    const notes = () => [...files].map(([path, body]) => makeNote(body, path))
+    const createNote = vi.fn(async () => {
+      files.set(targetPath, '')
+      return makeNote('', targetPath)
+    })
+    installZen({
+      createNote,
+      listNotes: vi.fn(async () => notes()),
+      readNote: vi.fn(async (path: string) => makeNote(files.get(path)!, path)),
+      writeNote: vi.fn(async (path: string, body: string) => {
+        files.set(path, body)
+        return makeNote(body, path)
+      })
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: notes(),
+      customTemplates: [{
+        id: 'custom:daily', name: 'Daily', description: '', category: 'Custom', builtin: false,
+        body: '## Tasks\n\n- [ ]\n- [ ] Existing template task\n- [ ]\n- [ ]\n\n## Notes\n'
+      }],
+      vaultSettings: {
+        ...useStore.getState().vaultSettings,
+        dailyNotes: { enabled: true, directory: 'Daily Notes', templateId: 'custom:daily' }
+      }
+    })
+
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday({ force: true, open })).toBe(1)
+    expect(createNote).toHaveBeenCalledOnce()
+    const body = useStore.getState().noteContents[targetPath]?.body ?? files.get(targetPath)
+    expect(body).toBe('## Tasks\n\n- [ ] Existing template task\n- [ ] Carry this task\n\n## Notes\n')
+    expect(files.get(sourcePath)).toBe('## Tasks\n\n- [ ]\n- [x] Done\n')
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday({ force: true, open })).toBe(0)
   })
 })
 
@@ -682,6 +735,88 @@ describe('local vault shortcuts', () => {
     expect(useStore.getState().localVaults).toEqual([
       { root: nextVault.root, name: nextVault.name, lastOpenedAt: 2 }
     ])
+  })
+})
+
+describe('per-note panels survive a restart (#794)', () => {
+  const vault = { root: '/Users/test/Notes', name: 'Notes' }
+  const WORKSPACE_KEY = 'zen:workspace:v1'
+
+  function installVault(paths: string[]): void {
+    installZen({
+      openLocalVault: vi.fn().mockResolvedValue(vault),
+      listNotes: vi.fn().mockResolvedValue(paths.map((path) => makeNote(path, path))),
+      readNote: vi.fn().mockImplementation((path: string) => Promise.resolve(makeNote(path, path)))
+    })
+  }
+
+  /** A fresh store module over the SAME localStorage: what a relaunch is. */
+  async function relaunch() {
+    vi.resetModules()
+    const mod = await import('./store')
+    lastLoadedStore = mod as unknown as typeof lastLoadedStore
+    return mod
+  }
+
+  function savedSnapshot(): { panePanels?: Record<string, Record<string, { outline?: boolean }>> } {
+    return JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? '{}')[vault.root] ?? {}
+  }
+
+  it('saves them with the workspace and brings them back on the next launch', async () => {
+    installVault(['inbox/A.md', 'inbox/B.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    const paneId = first.useStore.getState().activePaneId
+
+    // Toggling a panel is the only thing that changed, so it has to ask for
+    // the save itself: no tab or layout change is coming to do it.
+    first.useStore
+      .getState()
+      .updatePanePanelsForPath(paneId, 'inbox/A.md', (panels) => ({ ...panels, outline: true }))
+    expect(savedSnapshot().panePanels?.[paneId]?.['inbox/A.md']?.outline).toBe(true)
+
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    const restored = second.useStore.getState()
+    expect(restored.activePaneId).toBe(paneId)
+    expect(restored.panePanels[paneId]['inbox/A.md'].outline).toBe(true)
+    expect(restored.panePanels[paneId]['inbox/B.md']).toBeUndefined()
+  })
+
+  it('forgets a note that was deleted while the app was closed', async () => {
+    installVault(['inbox/A.md', 'inbox/B.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    const paneId = first.useStore.getState().activePaneId
+    for (const path of ['inbox/A.md', 'inbox/B.md']) {
+      first.useStore
+        .getState()
+        .updatePanePanelsForPath(paneId, path, (panels) => ({ ...panels, outline: true }))
+    }
+
+    installVault(['inbox/A.md'])
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    expect(Object.keys(second.useStore.getState().panePanels[paneId])).toEqual(['inbox/A.md'])
+  })
+
+  it('opens a snapshot written before 2.52, which has no panels in it', async () => {
+    installVault(['inbox/A.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    // In the app the workspace effect asks for this save after a tab change.
+    first.useStore.getState().persistWorkspace()
+    const all = JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? '{}')
+    delete all[vault.root].panePanels
+    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(all))
+
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    expect(second.useStore.getState().panePanels).toEqual({})
+    expect(second.useStore.getState().selectedPath).toBe('inbox/A.md')
   })
 })
 
@@ -1430,6 +1565,37 @@ describe('viewSettingsScope (#292 — global vs per-vault)', () => {
   })
 })
 
+describe('window title bar preference (#754)', () => {
+  it('defaults on, persists off, and stays off through Zen mode', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().showWindowTitleBar).toBe(true)
+    useStore.getState().setShowWindowTitleBar(false)
+    useStore.getState().setFocusMode(true)
+    useStore.getState().setFocusMode(false)
+    expect(useStore.getState().showWindowTitleBar).toBe(false)
+    expect(JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}').showWindowTitleBar).toBe(false)
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().showWindowTitleBar).toBe(false)
+  })
+
+  it('loads the portable value and applies another window changing it', async () => {
+    let onConfigChange: ((config: Record<string, unknown>) => void) | undefined
+    installZen({
+      getConfigSync: () => ({ showWindowTitleBar: false }),
+      onConfigChange: (listener: typeof onConfigChange) => { onConfigChange = listener }
+    })
+    const { useStore, initConfigSync } = await loadStore()
+    expect(useStore.getState().showWindowTitleBar).toBe(false)
+    initConfigSync()
+    onConfigChange?.({ showWindowTitleBar: true })
+    expect(useStore.getState().showWindowTitleBar).toBe(true)
+    onConfigChange?.({ showWindowTitleBar: 'false' })
+    expect(useStore.getState().showWindowTitleBar).toBe(true)
+  })
+})
+
 describe('pdfExportUseTheme — theme in PDF export', () => {
   it('defaults off and round-trips through persistence', async () => {
     installZen()
@@ -1614,15 +1780,17 @@ describe('deleteDatabaseRows (#391 — purge record-page schema mappings)', () =
   }
 
   it('purges the deleted row page mapping and trashes the note on confirm', async () => {
-    const moveToTrash = vi.fn().mockResolvedValue({})
+    const moveToTrash = vi.fn().mockResolvedValue({ ...makeNote('', 'trash/r1.md'), folder: 'trash' })
     installZen({
       moveToTrash,
+      writeNote: vi.fn().mockImplementation(async (path) => makeNote('', path)),
+      setVaultSettings: vi.fn().mockImplementation(async (settings) => settings),
       writeDatabaseSchema: vi.fn().mockResolvedValue(undefined),
       writeDatabaseRows: vi.fn().mockResolvedValue(undefined)
     })
     const { useStore } = await loadStore()
     const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
-    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, databases: { [CSV]: makeDbDoc() } })
 
     const p = useStore.getState().deleteDatabaseRows(CSV, ['r1'])
     const req = getConfirmRequest()
@@ -1638,15 +1806,17 @@ describe('deleteDatabaseRows (#391 — purge record-page schema mappings)', () =
   })
 
   it('keeps the note on cancel but still purges the stale mapping', async () => {
-    const moveToTrash = vi.fn().mockResolvedValue({})
+    const moveToTrash = vi.fn().mockResolvedValue({ ...makeNote('', 'trash/r1.md'), folder: 'trash' })
     installZen({
       moveToTrash,
+      writeNote: vi.fn().mockImplementation(async (path) => makeNote('', path)),
+      setVaultSettings: vi.fn().mockImplementation(async (settings) => settings),
       writeDatabaseSchema: vi.fn().mockResolvedValue(undefined),
       writeDatabaseRows: vi.fn().mockResolvedValue(undefined)
     })
     const { useStore } = await loadStore()
     const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
-    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, databases: { [CSV]: makeDbDoc() } })
 
     const p = useStore.getState().deleteDatabaseRows(CSV, ['r1'])
     settleConfirmRequest(getConfirmRequest()!, false) // "Keep note"
@@ -1665,7 +1835,7 @@ describe('deleteDatabaseRows (#391 — purge record-page schema mappings)', () =
     })
     const { useStore } = await loadStore()
     const { getConfirmRequest } = await import('./lib/confirm-requests')
-    useStore.setState({ databases: { [CSV]: makeDbDoc() } })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, databases: { [CSV]: makeDbDoc() } })
 
     await useStore.getState().deleteDatabaseRows(CSV, ['r2']) // r2 has no linked page
     expect(getConfirmRequest()).toBeNull() // no prompt
@@ -1703,6 +1873,36 @@ describe('renameNote heading sync (#455)', () => {
     })
     return { renameNote, writeNote, readNote }
   }
+
+  // The editor reads this to tell "my note has a new path" from "I am being
+  // shown another note", so it has to land with the path change itself.
+  it('logs the rename in the same update that rewrites the path', async () => {
+    installRename()
+    const { useStore } = await loadStore()
+    useStore.setState({ vault: { root: '/Users/test/Notes', name: 'Notes' } })
+    const seen: Array<{ tabHasNewPath: boolean; logged: boolean }> = []
+    const unsubscribe = useStore.subscribe((state) => {
+      const logged = state.recentPathRewrites.some(
+        (entry) => entry.from === 'inbox/Untitled.md' && entry.to === 'inbox/Groceries.md'
+      )
+      const tabHasNewPath = 'inbox/Groceries.md' in state.noteContents
+      if (logged || tabHasNewPath) seen.push({ tabHasNewPath, logged })
+    })
+    useStore.setState({
+      noteContents: { 'inbox/Untitled.md': { ...metaOf('inbox/Untitled.md', 'Untitled'), body: BODY } }
+    })
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+    unsubscribe()
+
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((update) => update.logged)).toBe(true)
+    expect(useStore.getState().recentPathRewrites.at(-1)).toMatchObject({
+      root: '/Users/test/Notes',
+      from: 'inbox/Untitled.md',
+      to: 'inbox/Groceries.md'
+    })
+  })
 
   it('retitles the heading of a note that is not open, straight on disk', async () => {
     const { writeNote, readNote } = installRename()
@@ -2109,7 +2309,7 @@ describe('deleteActivePermanently (#712)', () => {
     const { useStore } = await loadStore()
     const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
     const note = trashedNote()
-    useStore.setState({
+    useStore.setState({ vault: { root: '/test', name: 'Test' },
       notes: [note],
       selectedPath: TRASHED,
       activeNote: note,
@@ -2135,7 +2335,7 @@ describe('deleteActivePermanently (#712)', () => {
     const { useStore } = await loadStore()
     const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
     const note = trashedNote()
-    useStore.setState({ notes: [note], selectedPath: TRASHED, activeNote: note, noteContents: { [TRASHED]: note } })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, notes: [note], selectedPath: TRASHED, activeNote: note, noteContents: { [TRASHED]: note } })
 
     const p = useStore.getState().deleteActivePermanently()
     settleConfirmRequest(getConfirmRequest()!, false)
@@ -2153,7 +2353,7 @@ describe('deleteActivePermanently (#712)', () => {
     const { getConfirmRequest, settleConfirmRequest } = await import('./lib/confirm-requests')
     const { useToastStore } = await import('./lib/toast')
     const note = trashedNote()
-    useStore.setState({ notes: [note], selectedPath: TRASHED, activeNote: note, noteContents: { [TRASHED]: note } })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, notes: [note], selectedPath: TRASHED, activeNote: note, noteContents: { [TRASHED]: note } })
 
     const p = useStore.getState().deleteActivePermanently()
     settleConfirmRequest(getConfirmRequest()!, true)
@@ -2168,7 +2368,7 @@ describe('deleteActivePermanently (#712)', () => {
     const deleteNote = vi.fn().mockResolvedValue(undefined)
     installZen({ deleteNote })
     const { useStore } = await loadStore()
-    useStore.setState({ selectedPath: null, activeNote: null })
+    useStore.setState({ vault: { root: '/test', name: 'Test' }, selectedPath: null, activeNote: null })
     await useStore.getState().deleteActivePermanently()
     expect(deleteNote).not.toHaveBeenCalled()
   })
@@ -2365,5 +2565,29 @@ describe('ignored keys (#732)', () => {
     expect(useStore.getState().ignoredKeys).toEqual(['KanaMode', 'Lang1'])
     useStore.getState().setIgnoredKeys([])
     expect(useStore.getState().ignoredKeys).toEqual([])
+  })
+})
+
+
+describe('file-task lifecycle coordination', () => {
+  it('trashes a file task outside the inline-task queue and keeps it on failure', async () => {
+    const source = makeNote('---\ntags: [task]\n---\nDraft.\n')
+    const moveToTrash=vi.fn().mockRejectedValueOnce(new Error('permission denied')).mockResolvedValue({...source,path:'trash/Note.md',folder:'trash'})
+    installZen({moveToTrash,listNotes:vi.fn().mockResolvedValue([{...source,path:'trash/Note.md',folder:'trash'}])})
+    const {useStore}=await loadStore()
+    const {getConfirmRequest,settleConfirmRequest}=await import('./lib/confirm-requests')
+    const task:VaultTask={...makeTask('Note',-1),id:'inbox/Note.md#file',taskIndex:-1,kind:'file',rawText:''}
+    useStore.setState({vault:{root:'/test',name:'Test'},notes:[source],noteContents:{[source.path]:source},vaultTasks:[task]})
+    const failed=useStore.getState().deleteTaskFromList(task)
+    settleConfirmRequest(getConfirmRequest()!,true)
+    await failed
+    expect(moveToTrash).toHaveBeenCalledTimes(1)
+    expect(useStore.getState().vaultTasks).toEqual([task])
+    expect(useStore.getState().noteContents[source.path]).toBeDefined()
+    const deleting=useStore.getState().deleteTaskFromList(task)
+    settleConfirmRequest(getConfirmRequest()!,true)
+    await deleting
+    expect(moveToTrash).toHaveBeenCalledTimes(2)
+    expect(useStore.getState().noteContents[source.path]).toBeUndefined()
   })
 })

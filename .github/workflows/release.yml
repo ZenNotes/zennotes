@@ -4,31 +4,86 @@ on:
   push:
     tags:
       - "v*"
+  # Rebuild one platform of a release that already has its tag. A re-run of the
+  # tag's own run can only repeat every failed job with the workflow as it was
+  # at the tag; this runs the workflow from the branch it is dispatched on,
+  # against the tag's source, for the one platform that is missing.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build, for example v2.52.0"
+        required: true
+        type: string
+      platform:
+        description: "Platform to build"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - macOS
+          - Windows
+          - Linux x64
+          - Linux arm64
+      keep:
+        description: "Assets to leave as they are on the release (space separated globs, for example *.tar.gz)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}-${{ inputs.platform || 'all' }}
   cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   create-release:
     name: Create GitHub release
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            echo "Release ${GITHUB_REF_NAME} already exists."
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists."
           else
-            gh release create "${GITHUB_REF_NAME}" \
+            gh release create "${RELEASE_TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --title "ZenNotes ${GITHUB_REF_NAME}" \
+              --title "ZenNotes ${RELEASE_TAG}" \
               --notes "Download the installer for your platform from the assets below."
           fi
+
+      - name: Plan the platform jobs
+        id: plan
+        env:
+          PLATFORM: ${{ inputs.platform || 'all' }}
+        # "Linux arm64" is GitHub's free arm64 Linux runner for public repos:
+        # native aarch64 artifacts with no cross-compilation.
+        run: |
+          all='[
+            {"name":"macOS","os":"macos-latest","command":"npm run dist:mac"},
+            {"name":"Windows","os":"windows-latest","command":"npm run dist:win"},
+            {"name":"Linux x64","os":"ubuntu-latest","command":"npm run dist:linux"},
+            {"name":"Linux arm64","os":"ubuntu-24.04-arm","command":"npm run dist:linux"}
+          ]'
+          if [ "${PLATFORM}" = "all" ]; then
+            matrix=$(jq -c '.' <<<"${all}")
+          else
+            matrix=$(jq -c --arg name "${PLATFORM}" '[.[] | select(.name == $name)]' <<<"${all}")
+          fi
+          if [ "$(jq 'length' <<<"${matrix}")" -eq 0 ]; then
+            echo "Unknown platform: ${PLATFORM}" >&2
+            exit 1
+          fi
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
 
   build-and-upload:
     name: Release ${{ matrix.name }}
@@ -37,21 +92,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: macOS
-            os: macos-latest
-            command: npm run dist:mac
-          - name: Windows
-            os: windows-latest
-            command: npm run dist:win
-          - name: Linux x64
-            os: ubuntu-latest
-            command: npm run dist:linux
-          - name: Linux arm64
-            # GitHub's free arm64 Linux runner for public repos. This should 
-            # produce native aarch64 artifacts with no cross-compilation.
-            os: ubuntu-24.04-arm
-            command: npm run dist:linux
+        include: ${{ fromJSON(needs.create-release.outputs.matrix) }}
     env:
       NODE_OPTIONS: "--max-old-space-size=12288"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
@@ -67,6 +108,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -132,24 +175,81 @@ jobs:
       - name: Build release artifacts
         run: ${{ matrix.command }}
 
+      - name: Collect release artifacts
+        id: collect
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find dist -maxdepth 1 -type f \
+            \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.pacman' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'latest*.yml' -o -name 'latest*.yaml' \) \
+            -exec mv {} release-assets/ \;
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "No release artifacts found in dist/" >&2
+            exit 1
+          fi
+          ls -l release-assets
+
+      - name: Keep the build as a workflow artifact
+        # The release upload below is the step that fails when GitHub's upload
+        # endpoint has a bad day, and a platform build takes up to 40 minutes.
+        # With the build kept here, a failed upload is finished by hand from
+        # this artifact instead of being built again.
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
       - name: Upload assets to GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          KEEP: ${{ inputs.keep }}
         run: |
-          files=()
-          while IFS= read -r file; do
-            files+=("$file")
-          done < <(
-            find dist -maxdepth 1 -type f \
-              \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.pacman' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.blockmap' -o -name 'latest*.yml' -o -name 'latest*.yaml' \)
-          )
-          if [ "${#files[@]}" -eq 0 ]; then
-            echo "No release artifacts found in dist/" >&2
-            exit 1
-          fi
+          # Installers first, one at a time, each with its own retries: a
+          # single call for everything loses the whole job to one bad request.
+          # The update manifests (latest*.yml) go LAST, because the moment one
+          # is on the release every installed app is told an update exists, and
+          # the files it names have to be there already.
+          installers=()
+          manifests=()
+          # Split KEEP into its globs without letting the shell expand them
+          # against the working directory.
+          set -f
+          keep=(${KEEP})
+          set +f
+          for file in release-assets/*; do
+            name=$(basename "${file}")
+            kept=false
+            for glob in "${keep[@]}"; do
+              # shellcheck disable=SC2254
+              case "${name}" in ${glob}) kept=true ;; esac
+            done
+            if [ "${kept}" = true ]; then
+              echo "Leaving ${name} as it is on the release."
+              continue
+            fi
+            case "${name}" in
+              latest*.yml | latest*.yaml) manifests+=("${file}") ;;
+              *) installers+=("${file}") ;;
+            esac
+          done
 
-          gh release upload "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --clobber \
-            "${files[@]}"
+          upload() {
+            local file=$1 attempt
+            for attempt in 1 2 3 4 5; do
+              if gh release upload "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --clobber "${file}"; then
+                echo "Uploaded $(basename "${file}") on attempt ${attempt}."
+                return 0
+              fi
+              echo "Upload of $(basename "${file}") failed (attempt ${attempt} of 5)." >&2
+              sleep $((attempt * 20))
+            done
+            return 1
+          }
+
+          for file in "${installers[@]}" "${manifests[@]}"; do
+            upload "${file}"
+          done

@@ -11,6 +11,7 @@
 // package. Cheap — these are a handful of small PNGs plus a .desktop file.
 const fs = require('node:fs')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 
 async function rewriteAsFreshFiles(dir) {
   let entries
@@ -36,6 +37,18 @@ async function rewriteAsFreshFiles(dir) {
 }
 
 exports.default = async function afterPack(context) {
-  if (context.electronPlatformName !== 'linux') return
+  const platform = context.electronPlatformName
+  if (platform === 'darwin' || platform === 'linux') {
+    const arch = { 1: 'x64', 3: 'arm64' }[context.arch]
+    if (!arch) throw new Error(`Unsupported terminal package architecture: ${context.arch}`)
+    const localDirectory = process.env.ZENNOTES_TERMINAL_ARTIFACT_DIR
+    const allowLocal = process.env.ZENNOTES_ALLOW_LOCAL_TERMINAL === '1' && !process.env.CI
+    const { stageTerminalArtifact } = await import(pathToFileURL(path.resolve(__dirname, '../../../tooling/scripts/terminal-artifact.mjs')).href)
+    const resources = platform === 'darwin'
+      ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+      : path.join(context.appOutDir, 'resources')
+    await stageTerminalArtifact({ platform, arch, localDirectory, allowLocal, output: path.join(resources, 'terminal') })
+  }
+  if (platform !== 'linux') return
   await rewriteAsFreshFiles(path.join(context.appOutDir, 'resources', 'arch-extras'))
 }

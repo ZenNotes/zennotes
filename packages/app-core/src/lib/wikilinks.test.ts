@@ -244,3 +244,20 @@ describe('extractMarkdownLinkHrefs (#70dark)', () => {
     expect(extractMarkdownLinkHrefs(body)).toEqual(['Note.md', 'https://example.com'])
   })
 })
+
+describe('resolveWikilinkTarget trims slash runs without regex backtracking', () => {
+  it('resolves an explicit path wrapped in slashes', () => {
+    expect(resolveWikilinkTarget(notes, '/projects/Spec/')?.path).toBe('inbox/projects/Spec.md')
+    expect(resolveWikilinkTarget(notes, '///projects/Spec///')?.path).toBe('inbox/projects/Spec.md')
+  })
+
+  it('resolves a path suffix with trailing slashes', () => {
+    expect(resolveWikilinkTarget(notes, 'projects/Spec/')?.path).toBe('inbox/projects/Spec.md')
+    expect(resolveWikilinkTarget(notes, 'projects/Spec///')?.path).toBe('inbox/projects/Spec.md')
+  })
+
+  it('treats a target made only of slashes as unresolved', () => {
+    expect(resolveWikilinkTarget(notes, '///')).toBeNull()
+    expect(resolveWikilinkTarget(notes, '/'.repeat(20000))).toBeNull()
+  })
+})

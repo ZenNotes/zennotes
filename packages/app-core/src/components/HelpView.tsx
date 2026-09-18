@@ -154,6 +154,7 @@ function resolveShortcutKeys(
 
 function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): string {
   if (command === 'gd') return shortcut(overrides, 'vim.goToDefinition')
+  if (command === 'gD') return shortcut(overrides, 'vim.createNoteFromLink')
   if (command === '<Space> l f') {
     return chord(
       leaderShortcut(overrides, 'vim.leaderNoteActions'),

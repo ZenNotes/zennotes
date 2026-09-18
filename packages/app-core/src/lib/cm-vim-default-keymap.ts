@@ -110,17 +110,54 @@ function deferKeysToVim(
   })
 }
 
-/** Vim-mode keymap: emacs chords stripped, motion keys made Vim-aware (see above). */
-const vimModeKeymap: readonly KeyBinding[] = deferKeysToVim(
-  defaultKeymapWithoutMacEmacs,
-  VIM_MOTION_KEYS
+/**
+ * Escape belongs to Vim while Vim has a mode to leave (#803).
+ *
+ * `defaultKeymap` binds Escape to `simplifySelection`, which reports the key
+ * handled whenever there is more than one range or a non-empty one, and (like
+ * every binding here) runs ahead of the Vim plugin. Since block edits became
+ * real multi-cursors (#792), that is exactly the state Vim is in when Escape
+ * should end a block `I`/`A`/`c`: CodeMirror collapsed the cursors, Vim never
+ * saw the key, and the editor stayed in insert mode. Visual block needed two
+ * presses for the same reason, and a plain `v`/`V` selection was left through
+ * the selection listener with the cursor on CodeMirror's head instead of the
+ * character Vim keeps it on.
+ *
+ * This is the inverse of `deferKeysToVim`: Vim owns Escape in insert, replace
+ * and visual mode. Normal mode keeps the native command, because there Vim
+ * itself hands Escape back to the editor so stray extra cursors can collapse.
+ */
+function deferEscapeToVim(bindings: readonly KeyBinding[]): KeyBinding[] {
+  return bindings.map((binding) => {
+    if (binding.key !== 'Escape' || !binding.run) return binding
+    const native = binding.run
+    return {
+      ...binding,
+      // Same constraint as above: preventDefault would consume the key even
+      // when the command defers.
+      preventDefault: false,
+      run: (view: EditorView): boolean => {
+        const vim = (
+          getCM(view) as { state?: { vim?: { insertMode?: boolean; visualMode?: boolean } } } | null
+        )?.state?.vim
+        if (vim && (vim.insertMode || vim.visualMode)) return false
+        return native(view)
+      }
+    }
+  })
+}
+
+/** Vim-mode keymap: emacs chords stripped, motion keys and Escape made Vim-aware (see above). */
+const vimModeKeymap: readonly KeyBinding[] = deferEscapeToVim(
+  deferKeysToVim(defaultKeymapWithoutMacEmacs, VIM_MOTION_KEYS)
 )
 
 /**
  * CodeMirror's `defaultKeymap`, made Vim-aware: in Vim mode the macOS
  * emacs-style control chords are stripped so Vim's `<C-d>`/`<C-a>`/`<C-v>`/…
- * bindings work, and the arrow keys defer to Vim in normal/visual mode so they
- * move/extend like `hjkl`; with Vim off the full keymap is used unchanged.
+ * bindings work, the arrow keys defer to Vim in normal/visual mode so they
+ * move/extend like `hjkl`, and Escape defers to Vim in insert/visual mode so it
+ * leaves the mode; with Vim off the full keymap is used unchanged.
  */
 export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
   return vimMode ? vimModeKeymap : defaultKeymap

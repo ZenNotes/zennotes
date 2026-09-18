@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import type { AssetMeta, NoteContent, NoteMeta, VaultInfo } from '@shared/ipc'
 import { LazyPreview as Preview } from '@renderer/components/LazyPreview'
 import { useStore } from '@renderer/store'
+import { settleExportImages } from '@renderer/lib/export-images'
 import { withExportTitle } from '@shared/export-title'
 import '@renderer/styles/index.css'
 
@@ -158,6 +159,9 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
   const triggerPrint = async (): Promise<void> => {
     if (didTriggerPrint.current) return
     didTriggerPrint.current = true
+    // The preview defers images below the viewport; print only once every
+    // image has loaded or failed (#769).
+    await settleExportImages(document)
     try {
       if ('fonts' in document && document.fonts?.ready) {
         await document.fonts.ready

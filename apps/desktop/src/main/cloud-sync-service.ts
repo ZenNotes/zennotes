@@ -31,7 +31,8 @@ import {
 import { setVaultSettings } from './vault'
 import type { CloudSyncApiClient } from '@zennotes/shared-domain/cloud-sync-api'
 import { CloudServiceRequestError } from './cloud-sync-client'
-import { createDesktopCloudSyncCoordinator } from './cloud-sync-filesystem'
+import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from '@zennotes/shared-domain/cloud-vault-availability'
+import { createDesktopCloudSyncCoordinator, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
 
 type SyncClient = Pick<
   CloudSyncApiClient,
@@ -66,12 +67,14 @@ export interface DesktopCloudSyncServiceDependencies {
   createClient(baseUrl: string, token: string): SyncClient
   fetchImplementation?: typeof fetch
   now?: () => Date
+  withWindowSync?(root: string, run: () => Promise<CloudSyncRunSummary>): Promise<CloudSyncRunSummary>
 }
 
 /** Main-process orchestration for linking one local vault to one cloud vault. */
 export class DesktopCloudSyncService {
   private readonly runs = new Map<string, Promise<CloudSyncRunSummary>>()
   private readonly operations = new Map<string, Promise<unknown>>()
+  private readonly linkUpdates = new Map<string, Promise<unknown>>()
   private readonly now: () => Date
   private readonly fetchImplementation: typeof fetch
 
@@ -157,7 +160,7 @@ export class DesktopCloudSyncService {
   }
 
   async unlink(localRoot: string): Promise<void> {
-    await fs.rm(this.linkPath(localRoot), { force: true })
+    await this.exclusive(path.resolve(localRoot), () => fs.rm(this.linkPath(localRoot), { force: true }), this.linkUpdates)
   }
 
   async deleteLinkedVault(localRoot: string): Promise<void> {
@@ -290,12 +293,56 @@ export class DesktopCloudSyncService {
     return { restore, sync }
   }
 
+  async hasRemoteChanges(localRoot: string): Promise<boolean> {
+    const key = path.resolve(localRoot)
+    if (this.runs.has(key)) return false
+    return this.exclusive(key, async () => {
+      const link = await this.readLink(localRoot)
+      if (!link) return false
+      const connection = await this.optionalConnection()
+      if (!connection || link.base_url !== connection.account.base_url) return false
+      const states = this.stateStore(localRoot, link)
+      const state = await states.load(link.vault_id)
+      if (!state) return true
+      try {
+        const manifest = await connection.client.manifest(link.vault_id, {
+          includeContent: false,
+          perPage: 1
+        })
+        return manifest.cursor !== state.cursor
+      } catch (error) {
+        if (isCloudResourceMissing(error) && await this.retireMissingLink(localRoot, link)) {
+          throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
+        }
+        throw error
+      }
+    })
+  }
+
+  private stateStore(localRoot: string, link: CloudVaultLink): DesktopCloudSyncStateStore {
+    return new DesktopCloudSyncStateStore(path.join(
+      this.dependencies.storageDirectory, 'states', rootFingerprint(localRoot), fingerprint(link.base_url)
+    ))
+  }
+
+  private retireMissingLink(localRoot: string, link: CloudVaultLink): Promise<boolean> {
+    return this.exclusive(path.resolve(localRoot), async () => {
+      if (!sameCloudVaultLink(await this.readLink(localRoot), link)) return false
+      await this.stateStore(localRoot, link).retire(link.vault_id, path.join(
+        this.dependencies.storageDirectory, 'retired-states', rootFingerprint(localRoot), fingerprint(link.base_url)
+      ))
+      await fs.rm(this.linkPath(localRoot), { force: true })
+      return true
+    }, this.linkUpdates)
+  }
+
   sync(localRoot: string): Promise<CloudSyncRunSummary> {
     const runKey = path.resolve(localRoot)
     const existing = this.runs.get(runKey)
     if (existing) return existing
 
-    const running = this.exclusive(runKey, () => this.run(localRoot)).finally(() => {
+    const run = () => this.exclusive(runKey, () => this.run(localRoot))
+    const running = (this.dependencies.withWindowSync?.(runKey, run) ?? run()).finally(() => {
       this.runs.delete(runKey)
     })
     this.runs.set(runKey, running)
@@ -321,16 +368,24 @@ export class DesktopCloudSyncService {
       vaultId: link.vault_id,
       remote: client
     })
-    const result = await coordinator.sync()
-    return {
-      cursor: result.state.cursor,
-      pulled: result.pulled,
-      pushed: result.pushed,
-      conflicts: result.conflicts,
-      bootstrap_conflicts: result.bootstrapConflicts,
-      local_conflicts: result.localConflicts,
-      pending_conflicts: result.pendingConflicts,
-      legacy_conflict_copies: result.legacyConflictCopies
+    try {
+      const result = await coordinator.sync()
+      return {
+        cursor: result.state.cursor,
+        pulled: result.pulled,
+        pushed: result.pushed,
+        conflicts: result.conflicts,
+        bootstrap_conflicts: result.bootstrapConflicts,
+        local_conflicts: result.localConflicts,
+        pending_conflicts: result.pendingConflicts,
+        legacy_conflict_copies: result.legacyConflictCopies
+      }
+    } catch (error) {
+      if (await confirmCloudVaultMissing(client, link.vault_id, error) &&
+          await this.retireMissingLink(localRoot, link)) {
+        throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
+      }
+      throw error
     }
   }
 
@@ -435,15 +490,15 @@ export class DesktopCloudSyncService {
     })
   }
 
-  private exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
-    const previous = this.operations.get(key)
+  private exclusive<T>(key: string, operation: () => Promise<T>, operations = this.operations): Promise<T> {
+    const previous = operations.get(key)
     let current!: Promise<T>
     current = (previous ? previous.catch(() => undefined) : Promise.resolve())
       .then(operation)
       .finally(() => {
-        if (this.operations.get(key) === current) this.operations.delete(key)
+        if (operations.get(key) === current) operations.delete(key)
       })
-    this.operations.set(key, current)
+    operations.set(key, current)
     return current
   }
 
@@ -539,11 +594,13 @@ export class DesktopCloudSyncService {
   }
 
   private async writeLink(localRoot: string, link: CloudVaultLink): Promise<void> {
-    const target = this.linkPath(localRoot)
-    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
-    await fs.mkdir(path.dirname(target), { recursive: true })
-    await fs.writeFile(temporary, JSON.stringify(link, null, 2), { encoding: 'utf8', mode: 0o600 })
-    await fs.rename(temporary, target)
+    await this.exclusive(path.resolve(localRoot), async () => {
+      const target = this.linkPath(localRoot)
+      const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
+      await fs.mkdir(path.dirname(target), { recursive: true })
+      await fs.writeFile(temporary, JSON.stringify(link, null, 2), { encoding: 'utf8', mode: 0o600 })
+      await fs.rename(temporary, target)
+    }, this.linkUpdates)
   }
 
   private linkPath(localRoot: string): string {

@@ -7,7 +7,12 @@ import type {
   CloudSyncRunSummary,
 } from "@zennotes/bridge-contract/cloud-sync";
 import { getZenBridge } from "@zennotes/bridge-contract/bridge";
-import { syncCloudVaultWithStatus } from "../lib/cloud-auto-sync";
+import {
+  acknowledgeCloudConflictResolution,
+  registerCloudConflictDraftFlusher,
+  syncCloudVaultWithStatus,
+  useCloudSyncStatusStore,
+} from "../lib/cloud-auto-sync";
 import { Button } from "./ui/Button";
 
 type ChangeChoice = "local" | "cloud" | "both";
@@ -15,11 +20,13 @@ type WholeVersionChoice = "local" | "cloud";
 
 export function CloudPendingConflictResolver({
   conflict,
+  summary,
   vaultName,
   onResolved,
   onClose,
 }: {
   conflict: CloudSyncPendingConflict;
+  summary: CloudSyncRunSummary;
   vaultName: string;
   onResolved: (summary: CloudSyncRunSummary) => void;
   onClose: () => void;
@@ -33,7 +40,9 @@ export function CloudPendingConflictResolver({
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
-  const [busy, setBusy] = useState(false);
+  const [resolving, setBusy] = useState(false);
+  const syncing = useCloudSyncStatusStore((state) => state.phase === "syncing" || state.syncWindowLocked);
+  const busy = resolving || syncing;
   const [error, setError] = useState<string | null>(null);
   const [keepBothOpen, setKeepBothOpen] = useState(false);
   const [finishLaterOpen, setFinishLaterOpen] = useState(false);
@@ -50,6 +59,10 @@ export function CloudPendingConflictResolver({
   const [reloading, setReloading] = useState(false);
   const [resolvedPath, setResolvedPath] = useState(conflict.path);
   const loadedDraft = useRef<string | null>(null);
+  const latestDraft = useRef("");
+  const resolved = useRef(false);
+  const reviewId = useRef(crypto.randomUUID());
+  const reviewGeneration = useRef(0);
   const finishLaterButton = useRef<HTMLButtonElement>(null);
   const finishLaterDialog = useRef<HTMLDivElement>(null);
   const wholeVersionSource = useRef<HTMLElement | null>(null);
@@ -66,7 +79,7 @@ export function CloudPendingConflictResolver({
     setCombineOpen(false);
     setWholeVersionChoice(null);
     void bridge
-      .getCloudConflict(conflict.id)
+      .getCloudConflict(conflict.id, reviewId.current)
       .then((next) => {
         if (cancelled) return;
         setReloading(false);
@@ -79,6 +92,7 @@ export function CloudPendingConflictResolver({
               next.cloud.text ??
               ""));
         loadedDraft.current = initialDraft;
+        latestDraft.current = initialDraft;
         setDetails(next);
         setResolvedPath(next.local.path ?? next.cloud.path ?? conflict.path);
         setDraft(initialDraft);
@@ -95,6 +109,36 @@ export function CloudPendingConflictResolver({
     };
   }, [bridge, conflict.id, reload]);
 
+  async function flushDraft(): Promise<void> {
+    if (resolved.current) return;
+    const value = latestDraft.current;
+    if (loadedDraft.current === null || value === loadedDraft.current) return;
+    setSaveState("saving");
+    try {
+      await bridge.saveCloudConflictDraft(conflict.id, value);
+      loadedDraft.current = value;
+      setSaveState("saved");
+    } catch (cause) {
+      setSaveState("idle");
+      setError(message(cause));
+      throw cause;
+    }
+  }
+
+  useEffect(() => {
+    const generation = ++reviewGeneration.current;
+    const unregister = registerCloudConflictDraftFlusher(flushDraft);
+    return () => {
+      // A different window may review this file only after our final edit is saved.
+      void flushDraft().catch(() => {}).finally(() => {
+        if (reviewGeneration.current === generation) {
+          return bridge.releaseCloudConflictReview?.(conflict.id, reviewId.current);
+        }
+      }).catch(() => {});
+      unregister();
+    };
+  }, [bridge, conflict.id]);
+
   useEffect(() => {
     if (finishLaterOpen) finishLaterDialog.current?.focus();
   }, [finishLaterOpen]);
@@ -107,16 +151,7 @@ export function CloudPendingConflictResolver({
     if (!details || draft === loadedDraft.current) return undefined;
     setSaveState("saving");
     const timeout = window.setTimeout(() => {
-      void bridge
-        .saveCloudConflictDraft(conflict.id, draft)
-        .then(() => {
-          loadedDraft.current = draft;
-          setSaveState("saved");
-        })
-        .catch((cause) => {
-          setSaveState("idle");
-          setError(message(cause));
-        });
+      void flushDraft().catch(() => {});
     }, 500);
     return () => window.clearTimeout(timeout);
   }, [bridge, conflict.id, details, draft]);
@@ -143,11 +178,12 @@ export function CloudPendingConflictResolver({
   );
 
   const chooseChange = (changeId: string, choice: ChangeChoice): void => {
-    if (!details) return;
+    if (!details || resolved.current) return;
     setWholeVersionChoice(null);
     const nextChoices = { ...choices, [changeId]: choice };
     setChoices(nextChoices);
-    setDraft(combinedText(details, nextChoices));
+    latestDraft.current = combinedText(details, nextChoices);
+    setDraft(latestDraft.current);
     setManualDraft(false);
   };
 
@@ -171,17 +207,23 @@ export function CloudPendingConflictResolver({
       "choice" | "keep_both_path" | "merged_text" | "resolved_path"
     >,
   ): Promise<void> => {
-    if (!details) return;
+    if (!details || resolved.current) return;
     setBusy(true);
     setError(null);
     try {
+      await flushDraft();
       await bridge.resolveCloudConflict({
         conflict_id: conflict.id,
         expected_local_sha256: details.local.sha256,
         expected_cloud_revision: details.cloud.revision,
         ...resolution,
       });
-      onResolved(await syncCloudVaultWithStatus(bridge, vaultName));
+      resolved.current = true;
+      const remaining = acknowledgeCloudConflictResolution(conflict.id, summary);
+      // Saving this note already succeeded. A slow or failed follow-up run
+      // must not keep its decision open or invite a duplicate save.
+      void syncCloudVaultWithStatus(bridge, vaultName).catch(() => {});
+      onResolved(remaining);
     } catch (cause) {
       setError(message(cause));
       setReload((current) => ({ nonce: current.nonce + 1, keepError: true }));
@@ -192,10 +234,8 @@ export function CloudPendingConflictResolver({
 
   const finishLater = async (): Promise<void> => {
     if (details && draft !== loadedDraft.current) {
-      setSaveState("saving");
       try {
-        await bridge.saveCloudConflictDraft(conflict.id, draft);
-        loadedDraft.current = draft;
+        await flushDraft();
       } catch (cause) {
         setError(message(cause));
         setSaveState("idle");
@@ -398,6 +438,7 @@ export function CloudPendingConflictResolver({
                   value={draft}
                   disabled={busy}
                   onChange={(event) => {
+                    latestDraft.current = event.target.value;
                     setDraft(event.target.value);
                     setManualDraft(true);
                   }}

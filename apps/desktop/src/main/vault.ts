@@ -1,3 +1,4 @@
+import { noteMetadataPath, readNoteCreatedAt, prepareNoteCreation, removeNoteCreation } from './note-creation-metadata'
 import { promises as fs, type Dirent } from 'node:fs'
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -55,6 +56,8 @@ import {
 import { DEMO_TOUR_DIR } from '@shared/demo-tour'
 import { normalizeNoteComments } from '@shared/note-comments'
 import { FRONTMATTER_BLOCK_RE, frontmatterTags } from '@shared/frontmatter'
+import { rewriteAssetReferences } from '@shared/asset-link-rename'
+import { resolveAssetPathAmong } from '@shared/asset-path-resolution'
 import { IMAGE_FILE_EXTENSIONS, pastedImageFilename } from '@shared/pasted-image'
 import {
   DATABASE_SIDECAR_SUFFIX,
@@ -1891,7 +1894,7 @@ async function folderOf(root: string, absPath: string): Promise<NoteFolder | nul
  * so its contents (e.g. a C `#include` line) must not be scanned. A
  * column-0-anchored regex missed indented fences and leaked them as tags (#293).
  * Mirrors `stripCodeContent` in packages/app-core/src/lib/tags.ts and
- * apps/server/internal/vault/parse.go — keep the three in sync.
+ * internal/vault/parse.go in ZenNotes/znserver — keep the three in sync.
  */
 function stripCodeContent(body: string): string {
   if (!body.includes('`') && !body.includes('~')) return body
@@ -2829,6 +2832,7 @@ async function readMeta(
   const relPath = toPosix(path.relative(root, abs))
   const cacheKey = noteMetaCacheKey(root, abs)
   const cached = noteMetaCache.get(cacheKey)
+  const createdAt = await readNoteCreatedAt(root, relPath, stat.birthtimeMs || stat.ctimeMs)
   const resolvedSiblingOrder = siblingOrder ?? (await readSiblingOrder(abs))
   // stat() follows symlinks, so it can't tell us whether `abs` itself is a
   // link. The walk already knows from the readdir entry and passes it in;
@@ -2849,7 +2853,7 @@ async function readMeta(
     cached.meta.path === relPath &&
     cached.meta.folder === folder
   ) {
-    return { ...cached.meta, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
+    return { ...cached.meta, createdAt, siblingOrder: resolvedSiblingOrder, isSymlink: linked }
   }
 
   // Excalidraw drawings are JSON, not Markdown — don't parse their body for
@@ -2860,7 +2864,7 @@ async function readMeta(
       title: path.basename(abs, path.extname(abs)),
       folder,
       siblingOrder: resolvedSiblingOrder,
-      createdAt: stat.birthtimeMs || stat.ctimeMs,
+      createdAt,
       updatedAt: stat.mtimeMs,
       size: stat.size,
       tags: [],
@@ -2892,7 +2896,7 @@ async function readMeta(
     title: path.basename(abs, path.extname(abs)),
     folder,
     siblingOrder: resolvedSiblingOrder,
-    createdAt: stat.birthtimeMs || stat.ctimeMs,
+    createdAt,
     updatedAt: stat.mtimeMs,
     size: stat.size,
     tags: isPreamble ? [] : extractTags(body),
@@ -3128,6 +3132,7 @@ export async function writeNote(root: string, rel: string, body: string): Promis
   // The renderer then sees an empty "external change" and replaces the open
   // buffer with it, wiping the note. With temp-file + rename, no reader can
   // ever observe a half-written note.
+  if (!isEphemeralRoot(root)) await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await writeFileAtomic(abs, body)
   invalidateNoteMetaCache(root, rel)
   invalidateVaultTextSearchCache(root)
@@ -3418,6 +3423,7 @@ export async function createNote(
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
   const body = `# ${finalTitle}\n\n`
+  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, body, 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
   invalidateVaultTextSearchCache(root)
@@ -3448,6 +3454,7 @@ export async function createExcalidraw(
     }
   }
   const abs = path.join(dir, `${finalTitle}.excalidraw`)
+  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, JSON.stringify(emptyExcalidrawDocument(), null, 2), 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, abs)))
   return await readMeta(root, abs, folder)
@@ -3488,6 +3495,7 @@ export async function convertObsidianExcalidraw(root: string, rel: string): Prom
     }
   }
   const destAbs = path.join(dir, `${finalTitle}.excalidraw`)
+  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, JSON.stringify(scene, null, 2), 'utf8')
   invalidateNoteMetaCache(root, toPosix(path.relative(root, destAbs)))
   return await readMeta(root, destAbs, folder)
@@ -3506,6 +3514,7 @@ export async function importExternalNote(root: string, sourceAbsPath: string): P
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}.md`)
   const body = await fs.readFile(source, 'utf8')
+  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, 'utf8')
   await fs.rm(source, { force: true })
   const rel = toPosix(path.relative(root, destAbs))
@@ -3524,7 +3533,7 @@ export async function renameNote(
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   const dir = path.dirname(abs)
   const trimmed = sanitizeNoteTitle(nextTitle)
-  // Preserve the file's type on rename — a `.excalidraw` drawing must stay a
+  // Preserve the file's type on rename: a `.excalidraw` drawing must stay a
   // drawing, not get turned into a `.md` note (which would render its JSON).
   const ext = isExcalidrawPath(abs) ? '.excalidraw' : '.md'
   const target = path.join(dir, `${trimmed}${ext}`)
@@ -3532,28 +3541,12 @@ export async function renameNote(
   // Snapshot the vault before the rename so inbound [[wikilinks]] still
   // resolve to this note under its current name; we rewrite them afterwards.
   const notesBefore = willRename ? await listNotes(root) : []
-  if (willRename) {
-    // Check for conflicts, but allow case-only renames on case-insensitive FS
-    try {
-      await fs.access(target)
-      const [srcStat, dstStat] = await Promise.all([fs.stat(abs), fs.stat(target)])
-      if (srcStat.ino !== dstStat.ino) {
-        throw new Error(`A note named "${trimmed}" already exists in ${folder}`)
-      }
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-    }
-    // Two-step rename for case-only changes on case-insensitive filesystems
-    if (abs.toLowerCase() === target.toLowerCase() && abs !== target) {
-      const tmp = abs + '_rename_tmp_' + Date.now()
-      await fs.rename(abs, tmp)
-      await fs.rename(tmp, target)
-    } else {
-      await fs.rename(abs, target)
-    }
-  }
-  const meta = await readMeta(root, target, folder)
-  await moveNoteComments(root, rel, meta.path)
+  const nextRel = toPosix(path.relative(root, target))
+  let meta!: NoteMeta
+  await relocateFolderTrees(
+    [[abs, target], [noteCommentsPath(root, rel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, rel), await noteMetadataPath(root, nextRel)]],
+    async () => { meta = await readMeta(root, target, folder) }
+  )
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
@@ -3584,7 +3577,7 @@ async function updateInboundWikilinks(
     (n) =>
       n.path !== oldPath &&
       n.folder !== 'trash' &&
-      (n.wikilinks ?? []).some((t) => resolveWikilinkTarget(refs, t)?.path === oldPath)
+      (n.wikilinks ?? []).some((t) => resolveWikilinkTarget(refs, t.split(/[|#^]/, 1)[0])?.path === oldPath)
   )
   for (const candidate of candidates) {
     try {
@@ -3625,14 +3618,13 @@ async function moveBetweenFolders(
   const targetRoot = await folderRoot(root, target)
   const destDir = subpath ? resolveSafe(targetRoot, subpath) : targetRoot
   await fs.mkdir(destDir, { recursive: true })
-  const baseTitle = path.basename(filename, path.extname(filename))
-  const finalTitle = await uniqueTitle(destDir, baseTitle)
-  // Preserve the file type when moving (a `.excalidraw` drawing stays a drawing).
-  const ext = isExcalidrawPath(filename) ? '.excalidraw' : '.md'
-  const destAbs = path.join(destDir, `${finalTitle}${ext}`)
-  await fs.rename(abs, destAbs)
-  const meta = await readMeta(root, destAbs, target)
-  await moveNoteComments(root, rel, meta.path)
+  const destAbs = path.join(destDir, await uniqueFilename(destDir, filename))
+  const nextRel = toPosix(path.relative(root, destAbs))
+  let meta!: NoteMeta
+  await relocateFolderTrees(
+    [[abs, destAbs], [noteCommentsPath(root, rel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, rel), await noteMetadataPath(root, nextRel)]],
+    async () => { meta = await readMeta(root, destAbs, target) }
+  )
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
@@ -3654,7 +3646,18 @@ export async function trashNoteToSystem(root: string, rel: string): Promise<Note
   const abs = resolveSafe(root, rel)
   const folder = (await folderOf(root, abs)) ?? 'inbox'
   const meta = await readMeta(root, abs, folder)
-  await shell.trashItem(abs)
+  const comments = noteCommentsPath(root, rel)
+  const hasComments = await fs.stat(comments).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false
+    throw error
+  })
+  if (hasComments) {
+    const temporary = await fs.mkdtemp(path.join(root, INTERNAL_VAULT_DIR, 'note-delete-'))
+    await relocateFolderTrees([[comments, path.join(temporary, 'comments')]], () => shell.trashItem(abs))
+    await fs.rm(temporary, { recursive: true, force: true }).catch(error => console.warn('Note cleanup pending', error))
+  } else {
+    await shell.trashItem(abs)
+  }
   invalidateNoteMetaCache(root, rel)
   invalidateVaultTextSearchCache(root)
   return meta
@@ -3674,25 +3677,45 @@ export function unarchiveNote(root: string, rel: string): Promise<NoteMeta> {
 
 export async function emptyTrash(root: string): Promise<void> {
   const trashDir = await folderRoot(root, 'trash')
-  const settings = await getVaultSettings(root)
-  const trashRelPrefix = resolveFolderPath('trash', settings.systemFolderPaths)
-  try {
-    const entries = await fs.readdir(trashDir)
-    await Promise.all(entries.map((e) => removeNoteComments(root, `${trashRelPrefix}/${e}`)))
-    await Promise.all(
-      entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true }))
-    )
-    invalidateNoteMetaCache(root)
-    invalidateVaultTextSearchCache(root)
-  } catch {
-    /* no trash dir yet */
-  }
+  const trashRel = toPosix(path.relative(root, trashDir))
+  const comments = resolveSafe(noteCommentsRoot(root), trashRel)
+  await fs.mkdir(path.join(root, INTERNAL_VAULT_DIR), { recursive: true })
+  const temporary = await fs.mkdtemp(path.join(root, INTERNAL_VAULT_DIR, 'trash-delete-'))
+  await relocateFolderTrees([
+    [trashDir, path.join(temporary, 'content')],
+    [comments, path.join(temporary, 'comments')],
+    [await noteMetadataPath(root, trashRel, true), path.join(temporary, 'metadata')]
+  ], async () => {})
+  await fs.rm(temporary, { recursive: true, force: true }).catch(error => console.warn('Trash cleanup pending', error))
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
 }
 
 export async function deleteNote(root: string, rel: string): Promise<void> {
   const abs = resolveSafe(root, rel)
-  await fs.rm(abs, { force: true })
-  await removeNoteComments(root, rel)
+  const source = await fs.lstat(abs).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+    return null
+  })
+  if (source?.isDirectory()) throw new Error('Use the folder action to delete a directory.')
+  const comments = noteCommentsPath(root, rel)
+  const hasComments = await fs.stat(comments).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false
+    throw error
+  })
+  if (isEphemeralRoot(root) && !hasComments) {
+    await fs.rm(abs, { force: true })
+  } else {
+    await fs.mkdir(path.join(root, INTERNAL_VAULT_DIR), { recursive: true })
+    const temporary = await fs.mkdtemp(path.join(root, INTERNAL_VAULT_DIR, 'note-delete-'))
+    await relocateFolderTrees([
+      [abs, path.join(temporary, 'content')],
+      [comments, path.join(temporary, 'comments')],
+      [await noteMetadataPath(root, toPosix(path.relative(root, abs)), source?.isDirectory() ?? false), path.join(temporary, 'metadata')]
+    ], async () => {})
+    // Once detached, cleanup cannot attach the old discussion to a new note.
+    await fs.rm(temporary, { recursive: true, force: true }).catch(error => console.warn('Note cleanup pending', error))
+  }
   invalidateNoteMetaCache(root, rel)
   invalidateVaultTextSearchCache(root)
 }
@@ -3705,7 +3728,14 @@ export async function renameAsset(
   const source = await assertAssetFile(root, rel)
   const cleanName = cleanAssetFilename(nextName)
   const destAbs = path.join(path.dirname(source.abs), cleanName)
-  if (destAbs !== source.abs) {
+  const willRename = destAbs !== source.abs
+  // Snapshot the vault before the move so references still resolve to the
+  // asset under its current name; they are rewritten afterwards, the way a
+  // note rename handles its inbound wikilinks (#785).
+  const [assetsBefore, notesBefore] = willRename
+    ? await Promise.all([listAssets(root), listNotes(root)])
+    : [[], []]
+  if (willRename) {
     try {
       await fs.access(destAbs)
       const [srcStat, dstStat] = await Promise.all([fs.stat(source.abs), fs.stat(destAbs)])
@@ -3723,7 +3753,55 @@ export async function renameAsset(
       await fs.rename(source.abs, destAbs)
     }
   }
-  return await assetMetaForPath(root, destAbs)
+  const meta = await assetMetaForPath(root, destAbs)
+  if (willRename && meta.path !== source.rel) {
+    await updateAssetReferences(root, notesBefore, assetsBefore, source.rel, meta.path)
+  }
+  return meta
+}
+
+/**
+ * Rewrite every reference to a renamed or moved asset across the vault (#785): the
+ * `![[embed]]` / `[[link]]` wikilinks and `![](href)` / `[](href)` markdown
+ * destinations that resolve to it. Only notes that can hold one are read: the
+ * ones flagged `hasAttachments` or carrying `assetEmbeds` (both cover embeds
+ * and file links), plus any whose plain wikilinks name a file that resolves to
+ * the asset. `notesBefore` / `assetsBefore` are the pre-rename snapshots, so
+ * resolution sees the asset under its old name.
+ */
+async function updateAssetReferences(
+  root: string,
+  notesBefore: NoteMeta[],
+  assetsBefore: AssetMeta[],
+  oldRel: string,
+  newRel: string
+): Promise<void> {
+  const candidates = notesBefore.filter(
+    (n) =>
+      n.folder !== 'trash' &&
+      (n.hasAttachments ||
+        (n.assetEmbeds ?? []).length > 0 ||
+        (n.wikilinks ?? []).some(
+          (t) =>
+            localAssetTargetKind(t) !== null &&
+            resolveAssetPathAmong(assetsBefore, n.path, t) === oldRel
+        ))
+  )
+  for (const candidate of candidates) {
+    try {
+      const content = await readNote(root, candidate.path)
+      const { body, changed } = rewriteAssetReferences(
+        content.body,
+        assetsBefore,
+        candidate.path,
+        oldRel,
+        newRel
+      )
+      if (changed > 0) await writeNote(root, candidate.path, body)
+    } catch (err) {
+      console.error('updateAssetReferences: failed for', candidate.path, err)
+    }
+  }
 }
 
 export async function moveAsset(
@@ -3735,10 +3813,17 @@ export async function moveAsset(
   const destDir = cleanAssetTargetDir(root, targetDir)
   await fs.mkdir(destDir, { recursive: true })
   if (path.resolve(destDir) === path.dirname(source.abs)) return await assetMetaForPath(root, source.abs)
+  // Snapshot before the move so references still resolve to the asset where
+  // it currently is; they are rewritten to the new location afterwards (#785).
+  const [assetsBefore, notesBefore] = await Promise.all([listAssets(root), listNotes(root)])
   const finalName = await uniqueFilename(destDir, path.basename(source.abs))
   const destAbs = path.join(destDir, finalName)
   if (destAbs !== source.abs) await fs.rename(source.abs, destAbs)
-  return await assetMetaForPath(root, destAbs)
+  const meta = await assetMetaForPath(root, destAbs)
+  if (meta.path !== source.rel) {
+    await updateAssetReferences(root, notesBefore, assetsBefore, source.rel, meta.path)
+  }
+  return meta
 }
 
 export async function duplicateAsset(root: string, rel: string): Promise<AssetMeta> {
@@ -3874,9 +3959,96 @@ export async function createFolder(
   await fs.mkdir(abs, { recursive: true })
 }
 
+async function renameDirectory(from: string, to: string): Promise<void> {
+  if (from === to) return
+  if (from.toLowerCase() !== to.toLowerCase()) return fs.rename(from, to)
+  const temporary = `${from}_rename_tmp_${randomUUID()}`
+  await fs.rename(from, temporary)
+  try {
+    await fs.rename(temporary, to)
+  } catch (error) {
+    try {
+      await fs.rename(temporary, from)
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        'FOLDER_STATE_UNCERTAIN: Folder change could not be rolled back; reload the vault before editing'
+      )
+    }
+    throw error
+  }
+}
+
+/** Move content and its parallel comments together, retaining the originals on failure. */
+async function relocateFolderTrees(
+  moves: Array<[string, string]>,
+  persistSettings: () => Promise<unknown>
+): Promise<void> {
+  const present: Array<[string, string]> = []
+  for (const [from, to] of moves) {
+    let source
+    try {
+      source = await fs.stat(from)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    try {
+      const target = await fs.stat(to)
+      if (!source || source.ino !== target.ino || source.dev !== target.dev)
+        throw new Error('The destination folder or its comments already exist')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (source) present.push([from, to])
+  }
+  const moved: Array<[string, string]> = []
+  try {
+    for (const [from, to] of present) {
+      await fs.mkdir(path.dirname(to), { recursive: true })
+      await renameDirectory(from, to)
+      moved.push([from, to])
+    }
+    await persistSettings()
+  } catch (error) {
+    const failures: unknown[] = [error]
+    for (const [from, to] of moved.reverse()) {
+      try {
+        await renameDirectory(to, from)
+      } catch (rollbackError) {
+        failures.push(rollbackError)
+      }
+    }
+    if (failures.length > 1)
+      throw new AggregateError(
+        failures,
+        'FOLDER_STATE_UNCERTAIN: Folder change could not be rolled back; reload the vault before editing'
+      )
+    throw error
+  }
+}
+
+/** Shared local folder move for ordinary folders and database containers. */
+export async function renameFolderTrees(
+  root: string, oldRelative: string, newRelative: string,
+  persistSettings: () => Promise<unknown> = async () => {}
+): Promise<void> {
+  const oldAbs = resolveSafe(root, oldRelative)
+  const newAbs = resolveSafe(root, newRelative)
+  if (oldAbs === root || newAbs === root) throw new Error('Cannot rename the vault root')
+  await fs.stat(oldAbs)
+  if (oldAbs === newAbs) return
+  if ((newAbs + path.sep).startsWith(oldAbs + path.sep)) throw new Error('Cannot move a folder into itself')
+  const oldComments = resolveSafe(noteCommentsRoot(root), toPosix(path.relative(root, oldAbs)))
+  const newComments = resolveSafe(noteCommentsRoot(root), toPosix(path.relative(root, newAbs)))
+  await relocateFolderTrees([[oldAbs, newAbs], [oldComments, newComments],
+    [await noteMetadataPath(root, oldRelative, true), await noteMetadataPath(root, newRelative, true)]], persistSettings)
+  invalidateNoteMetaCache(root)
+  invalidateVaultTextSearchCache(root)
+}
+
 /**
  * Rename or move a subfolder. `newSubpath` is the full target path
- * relative to `{topFolder}` — e.g. rename `Work/Research` → `Projects/Research`
+ * relative to `{topFolder}`, for example rename `Work/Research` → `Projects/Research`
  * also moves it into `Projects`. Refuses to move into itself or a
  * descendant, and refuses to touch the top-level folder.
  */
@@ -3894,6 +4066,7 @@ export async function renameFolder(
   const topRoot = await folderRoot(root, topFolder)
   const oldAbs = resolveSafe(topRoot, oldClean)
   const newAbs = resolveSafe(topRoot, newClean)
+  await fs.stat(oldAbs)
   if (newAbs === oldAbs) return newClean
 
   const sep = path.sep
@@ -3915,35 +4088,13 @@ export async function renameFolder(
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
   }
 
-  await fs.mkdir(path.dirname(newAbs), { recursive: true })
-  // On case-insensitive filesystems, a direct rename('AI','ai') may
-  // not change the case. Use a two-step rename via a temp name.
-  if (oldAbs.toLowerCase() === newAbs.toLowerCase() && oldAbs !== newAbs) {
-    const tmpAbs = oldAbs + '_rename_tmp_' + Date.now()
-    await fs.rename(oldAbs, tmpAbs)
-    await fs.rename(tmpAbs, newAbs)
-  } else {
-    await fs.rename(oldAbs, newAbs)
-  }
   const settings = await getVaultSettings(root)
   const nextSettings: VaultSettings = {
     ...settings,
-    folderIcons: rewriteFolderIconsForRename(
-      settings.folderIcons,
-      topFolder,
-      oldClean,
-      newClean
-    ),
-    folderColors: rewriteFolderColorsForRename(
-      settings.folderColors,
-      topFolder,
-      oldClean,
-      newClean
-    )
+    folderIcons: rewriteFolderIconsForRename(settings.folderIcons, topFolder, oldClean, newClean),
+    folderColors: rewriteFolderColorsForRename(settings.folderColors, topFolder, oldClean, newClean)
   }
-  await setVaultSettings(root, nextSettings)
-  invalidateNoteMetaCache(root)
-  invalidateVaultTextSearchCache(root)
+  await renameFolderTrees(root, toPosix(path.relative(root, oldAbs)), toPosix(path.relative(root, newAbs)), () => setVaultSettings(root, nextSettings))
   return newClean
 }
 
@@ -3959,14 +4110,37 @@ export async function deleteFolder(
   const clean = subpath.replace(/^\/+|\/+$/g, '')
   if (!clean) throw new Error('Cannot delete the top-level folder')
   const abs = resolveSafe(await folderRoot(root, topFolder), clean)
-  await fs.rm(abs, { recursive: true, force: true })
+  const comments = resolveSafe(noteCommentsRoot(root), toPosix(path.relative(root, abs)))
+  const hasComments = await fs.stat(comments).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false
+    throw error
+  })
+  if (isEphemeralRoot(root) && !hasComments) {
+    await fs.rm(abs, { recursive: true, force: true })
+    invalidateNoteMetaCache(root)
+    invalidateVaultTextSearchCache(root)
+    return
+  }
   const settings = await getVaultSettings(root)
   const nextSettings: VaultSettings = {
     ...settings,
     folderIcons: removeFolderIcons(settings.folderIcons, topFolder, clean),
     folderColors: removeFolderColors(settings.folderColors, topFolder, clean)
   }
-  await setVaultSettings(root, nextSettings)
+  await fs.mkdir(path.join(root, INTERNAL_VAULT_DIR), { recursive: true })
+  const temporary = await fs.mkdtemp(path.join(root, INTERNAL_VAULT_DIR, 'folder-delete-'))
+  await relocateFolderTrees(
+    [
+      [abs, path.join(temporary, 'content')],
+      [comments, path.join(temporary, 'comments')],
+      [await noteMetadataPath(root, toPosix(path.relative(root, abs)), true), path.join(temporary, 'metadata')]
+    ],
+    () => setVaultSettings(root, nextSettings)
+  )
+  // Cleanup can be retried safely: neither tree remains at a live note path.
+  await fs
+    .rm(temporary, { recursive: true, force: true })
+    .catch((error) => console.warn('Folder cleanup pending', error))
   invalidateNoteMetaCache(root)
   invalidateVaultTextSearchCache(root)
 }
@@ -4182,13 +4356,14 @@ export async function moveNote(
   }
 
   await fs.mkdir(destDir, { recursive: true })
-  const ext = path.extname(filename)
-  const baseTitle = path.basename(filename, ext)
-  const finalTitle = await uniqueTitle(destDir, baseTitle)
-  const destAbs = path.join(destDir, `${finalTitle}${ext}`)
-  await fs.rename(oldAbs, destAbs)
-  const meta = await readMeta(root, destAbs, targetFolder)
-  await moveNoteComments(root, oldRel, meta.path)
+  const finalName = await uniqueFilename(destDir, filename)
+  const destAbs = path.join(destDir, finalName)
+  const nextRel = toPosix(path.relative(root, destAbs))
+  let meta!: NoteMeta
+  await relocateFolderTrees(
+    [[oldAbs, destAbs], [noteCommentsPath(root, oldRel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, oldRel), await noteMetadataPath(root, nextRel)]],
+    async () => { meta = await readMeta(root, destAbs, targetFolder) }
+  )
   invalidateNoteMetaCache(root, oldRel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
@@ -4205,6 +4380,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const copyTitle = await uniqueTitle(dir, `${baseTitle} copy`)
   const destAbs = path.join(dir, `${copyTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
+  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, 'utf8')
   const meta = await readMeta(root, destAbs, folder)
   await copyNoteComments(root, rel, meta.path)

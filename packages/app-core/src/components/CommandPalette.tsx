@@ -14,7 +14,10 @@ import {
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
-import { canReturnToCommandList } from '../lib/command-palette-mode'
+import {
+  canReturnToCommandList,
+  shouldRefocusEditorAfterCommand
+} from '../lib/command-palette-mode'
 import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
@@ -26,6 +29,7 @@ import { runWorkflowById } from '../lib/workflow-trigger'
 import type { WorkflowIndexEntry } from '../lib/workflow-index'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { useCloudSyncStatusStore } from '../lib/cloud-auto-sync'
+import { getPublishNoteRequest } from '../lib/publish-note-requests'
 import { Modal } from './ui/Modal'
 
 type Mode = 'main' | 'theme' | 'vault' | 'workflow'
@@ -304,16 +308,16 @@ export function CommandPalette(): JSX.Element {
       // explorer), and the editor's own focus-on-`focusedPanel` effect is a
       // single, no-retry `view.focus()` that races the palette unmount. Mirror
       // closePalette's focus restore; the retry wins that race. Skipped when the
-      // command opened the Settings modal so we don't pull focus behind it, and
-      // likewise for the Cloud conflict queue, whose dialog claims focus itself.
-      const s = useStore.getState()
+      // command opened Settings or another palette (search, vault text search,
+      // outline, …) so we don't pull focus behind it, and likewise for the Cloud
+      // conflict queue and the Publish Note dialog, which claim focus themselves
+      // and are tracked outside the store.
       if (
-        s.focusedPanel === 'editor' &&
-        !s.settingsOpen &&
-        !s.embedDrawingPaletteOpen &&
-        !s.templatePaletteOpen &&
-        !s.bufferPaletteOpen &&
-        !useCloudSyncStatusStore.getState().conflictReviewOpen
+        shouldRefocusEditorAfterCommand(
+          useStore.getState(),
+          useCloudSyncStatusStore.getState().conflictReviewOpen ||
+            getPublishNoteRequest() !== null
+        )
       )
         focusEditorNormalMode()
     } catch (err) {

@@ -37,6 +37,10 @@ export function appUpdateBadgeLabel(state: AppUpdateState | null): string | null
       return 'Update'
     case 'downloaded':
       return 'Ready'
+    case 'installing':
+      return 'Installing'
+    case 'error':
+      return 'Update error'
     case 'downloading':
       return `${Math.round(state.progressPercent ?? 0)}%`
     default:
@@ -50,6 +54,10 @@ export function appUpdateNoticeLabel(state: AppUpdateState | null): string | nul
       return `ZenNotes ${state.availableVersion ?? 'update'} is available`
     case 'downloaded':
       return `ZenNotes ${state.availableVersion ?? 'update'} is ready`
+    case 'installing':
+      return state.message
+    case 'error':
+      return 'ZenNotes update needs attention'
     case 'downloading':
       return `Downloading ZenNotes ${state.availableVersion ?? 'update'}`
     default:
@@ -66,6 +74,8 @@ export function appUpdatePrimaryActionLabel(state: AppUpdateState | null): strin
       return 'Download'
     case 'downloaded':
       return 'Relaunch'
+    case 'error':
+      return 'Details'
     default:
       return null
   }

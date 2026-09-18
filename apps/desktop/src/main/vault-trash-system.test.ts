@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,7 +13,7 @@ vi.mock('electron', () => ({
   shell: { trashItem: (abs: string) => trashItem(abs) }
 }))
 
-const { ensureVaultLayout, listNotes, trashNoteToSystem } = await import('./vault')
+const { ensureVaultLayout, listNotes, trashNoteToSystem, writeNoteComments, readNoteComments } = await import('./vault')
 
 const roots: string[] = []
 afterEach(async () => {
@@ -48,4 +48,21 @@ describe('trashNoteToSystem (temporary folder sessions, #650)', () => {
     await expect(trashNoteToSystem(root, '../outside.md')).rejects.toThrow()
     expect(trashItem).not.toHaveBeenCalled()
   })
+})
+
+
+it('restores comment paths if system Trash fails and detaches them on success',async()=>{
+  const root=await mkdtemp(path.join(os.tmpdir(),'zen-system-trash-comments-'))
+  roots.push(root)
+  await ensureVaultLayout(root)
+  await writeFile(path.join(root,'inbox/One.md'),'Keep café.  \n')
+  await writeNoteComments(root,'inbox/One.md',[{notePath:'inbox/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+  trashItem.mockRejectedValueOnce(new Error('OS refused'))
+  await expect(trashNoteToSystem(root,'inbox/One.md')).rejects.toThrow('OS refused')
+  expect(await readFile(path.join(root,'inbox/One.md'),'utf8')).toBe('Keep café.  \n')
+  expect(await readNoteComments(root,'inbox/One.md')).toHaveLength(1)
+  await trashNoteToSystem(root,'inbox/One.md')
+  await writeFile(path.join(root,'inbox/One.md'),'New note')
+  expect(await readNoteComments(root,'inbox/One.md')).toEqual([])
+  expect(await readFile(path.join(root,'inbox/One.md.in-system-trash'),'utf8')).toBe('Keep café.  \n')
 })

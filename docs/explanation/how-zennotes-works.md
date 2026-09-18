@@ -51,7 +51,7 @@ The current architecture is stricter:
 - `packages/app-core` is the shared product
 - `apps/desktop` is the Electron shell
 - `apps/web` is the browser shell
-- `apps/server` is the server runtime for browser and remote use
+- the Go server in ZenNotes/znserver is the server runtime for browser and remote use
 
 This is the real difference between:
 

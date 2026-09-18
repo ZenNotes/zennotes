@@ -1,12 +1,30 @@
 {
   "name": "@zennotes/app-core",
   "private": true,
-  "version": "2.46.0",
+  "version": "2.52.0",
   "type": "module",
   "exports": {
-    "./main": "./src/main.tsx"
+    "./main": "./src/main.tsx",
+    "./navigation": "./src/navigation.ts",
+    "./notes": "./src/notes.ts",
+    "./shell": "./src/shell.ts",
+    "./browse": "./src/browse.ts",
+    "./editor": "./src/editor.ts",
+    "./vite": {
+      "types": "./build/vite.d.ts",
+      "import": "./build/vite.mjs"
+    },
+    "./styles.css": "./src/styles/index.css",
+    "./tasks": "./src/tasks.ts",
+    "./workspace": "./src/workspace.ts",
+    "./settings": "./src/settings.ts",
+    "./commands": "./src/commands.ts",
+    "./dialogs": "./src/dialogs.ts",
+    "./host": "./src/host.ts"
   },
   "dependencies": {
+    "@zennotes/bridge-contract": "*",
+    "@zennotes/shared-domain": "*",
     "@codemirror/autocomplete": "^6.18.3",
     "@codemirror/commands": "^6.7.1",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -30,6 +48,7 @@
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.35.3",
     "@excalidraw/excalidraw": "^0.18.1",
+    "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.1",
     "@myriaddreamin/typst-ts-renderer": "^0.7.0",
     "@myriaddreamin/typst-ts-web-compiler": "^0.7.0",
@@ -66,7 +85,14 @@
   },
   "devDependencies": {
     "vite": "^6.4.3",
-    "vitest": "^3.2.6"
+    "vitest": "^3.2.6",
+    "typescript": "^5.7.2",
+    "postcss": "^8.5.10",
+    "tailwindcss": "^3.4.17",
+    "autoprefixer": "^10.4.20",
+    "vfile": "^6.0.3",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

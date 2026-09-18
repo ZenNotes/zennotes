@@ -1,9 +1,8 @@
+# The image is published from ZenNotes/znserver (the Go server's repository);
+# nothing here builds it. Pin a version with ZENNOTES_IMAGE or `make up IMAGE=...`.
 services:
   zennotes:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: "${ZENNOTES_IMAGE:-zennotes-selfhosted:local}"
+    image: "${ZENNOTES_IMAGE:-adibhanna/zennotes:latest}"
     container_name: zennotes-selfhosted
     restart: unless-stopped
     user: "${ZENNOTES_CONTAINER_UID:-1000}:${ZENNOTES_CONTAINER_GID:-1000}"

@@ -56,9 +56,11 @@ Important point:
 
 The web app does not reimplement the product UI. It mounts the shared UI from `packages/app-core`.
 
-## apps/server
+## The Go server (ZenNotes/znserver)
 
-`apps/server` is the Go backend for self-hosted and future hosted modes.
+The Go backend for self-hosted and future hosted modes lives in its own
+repository, [ZenNotes/znserver](https://github.com/ZenNotes/znserver). It
+embeds the browser artifact this repository publishes.
 
 Responsibilities:
 
@@ -70,10 +72,10 @@ Responsibilities:
 - security headers and CORS/origin checks
 - serving the embedded web bundle
 
-Important scripts:
+Important scripts here:
 
-- `npm run dev:server`
-- `npm run build --workspace @zennotes/server`
+- `npm run dev:server` runs the pinned release (or a checkout via `ZENNOTES_SERVER_DIR`)
+- `npm run server:binary` prints the resolved server binary path
 
 ## packages/app-core
 
@@ -166,7 +168,7 @@ As a rule:
 - runtime contract -> `packages/bridge-contract`
 - desktop-only shell concerns -> `apps/desktop`
 - browser-only bootstrapping -> `apps/web`
-- server-side vault/network/security behavior -> `apps/server`
+- server-side vault/network/security behavior -> ZenNotes/znserver
 
 ## Related docs
 

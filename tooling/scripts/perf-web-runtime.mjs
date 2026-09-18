@@ -10,10 +10,18 @@ import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 
 import { withGoEnv } from './go-env.mjs'
+import { webDistLockEnv, withWebDistLock } from './web-dist-lock.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
-const serverRoot = resolve(repoRoot, 'apps/server')
+// The Go server lives in ZenNotes/znserver. A perf run measures the local web
+// bundle, so it needs a server that embeds it: either a checkout in
+// ZENNOTES_SERVER_DIR (web dist synced in, then `go build -tags=embed_web`) or
+// a binary the caller built the same way. The pinned release binary embeds the
+// pinned artifact instead, so it is never picked up silently; pass it through
+// ZEN_PERF_WEB_SERVER_BINARY=$(npm run -s server:binary) to measure a release.
+const serverCheckout = process.env.ZENNOTES_SERVER_DIR?.trim()
+  ? resolve(process.env.ZENNOTES_SERVER_DIR.trim()) : null
 const webDistIndex = resolve(repoRoot, 'apps/web/dist/index.html')
 const syncWebDistScript = resolve(repoRoot, 'tooling/scripts/sync-web-dist.mjs')
 
@@ -21,6 +29,8 @@ const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const noteCount = parsePositiveInt(process.env.ZEN_PERF_WEB_NOTES, 5000)
 const enforceBudgets = process.env.ZEN_PERF_ENFORCE === '1'
 const skipWebBuild = process.env.ZEN_PERF_SKIP_WEB_BUILD === '1'
+const prebuiltServerEnv = process.env.ZEN_PERF_WEB_SERVER_BINARY?.trim() || process.env.ZENNOTES_SERVER_BINARY?.trim()
+const prebuiltServer = prebuiltServerEnv ? resolve(prebuiltServerEnv) : null
 const externalVaultRoot = externalVaultRootFromEnv('ZEN_PERF_WEB_VAULT_ROOT')
 const configuredTempRoot = process.env.ZEN_PERF_WEB_TEMP_ROOT?.trim()
   ? resolve(process.env.ZEN_PERF_WEB_TEMP_ROOT.trim())
@@ -251,17 +261,17 @@ function appendBounded(buffer, chunk, maxLength = 12000) {
   return next.length > maxLength ? next.slice(next.length - maxLength) : next
 }
 
-function startGoServer({ vaultRoot, bind, serverBinary, configPath, disablePersistedMetaCache }) {
+function startGoServer({ vaultRoot, bind, serverBinary, configPath, cwd, disablePersistedMetaCache }) {
   const env = {
     ...process.env,
     ZENNOTES_BIND: bind,
     ZENNOTES_CONFIG_PATH: configPath,
-    ZENNOTES_VAULT_PATH: vaultRoot,
+    ZENNOTES_DEFAULT_VAULT_PATH: vaultRoot,
     ZENNOTES_ALLOW_INSECURE_NOAUTH: '1',
     ...(disablePersistedMetaCache ? { ZEN_PERF_DISABLE_PERSISTED_META_CACHE: '1' } : {})
   }
   const child = spawn(serverBinary, [], {
-    cwd: serverRoot,
+    cwd,
     env,
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -444,19 +454,20 @@ async function waitForExpression(client, expression, timeoutMs, label) {
   throw new Error(`Timed out waiting for ${label}: ${lastError?.message ?? 'condition not met'}`)
 }
 
-async function prepareWebDist() {
+async function prepareWebDist(env) {
   if (!skipWebBuild || !(await fileExists(webDistIndex))) {
     await run(npmCommand, ['run', 'build:nocheck', '--workspace', '@zennotes/web'], {
-      shell: process.platform === 'win32'
+      shell: process.platform === 'win32',
+      env
     })
   }
-  await run(process.execPath, [syncWebDistScript])
+  await run(process.execPath, [syncWebDistScript, join(serverCheckout, 'web/dist')], { env })
 }
 
-async function buildGoServer(outputPath) {
-  await run('go', ['build', '-trimpath', '-o', outputPath, './cmd/zennotes-server'], {
-    cwd: serverRoot,
-    env: withGoEnv()
+async function buildGoServer(outputPath, env) {
+  await run('go', ['build', '-tags=embed_web', '-trimpath', '-o', outputPath, './cmd/zennotes-server'], {
+    cwd: serverCheckout,
+    env: withGoEnv(env)
   })
 }
 
@@ -586,13 +597,19 @@ async function stopChild(child) {
 }
 
 async function main() {
-  await prepareWebDist()
-
+  if (!prebuiltServer && !serverCheckout) {
+    throw new Error(
+      'perf:web-runtime needs a server that embeds the local web bundle: set ZENNOTES_SERVER_DIR to a ' +
+      'ZenNotes/znserver checkout, or ZEN_PERF_WEB_SERVER_BINARY to a server built with -tags=embed_web ' +
+      '(use $(npm run -s server:binary) to measure the pinned release instead)'
+    )
+  }
+  if (prebuiltServer && serverCheckout) throw new Error('Choose ZEN_PERF_WEB_SERVER_BINARY or ZENNOTES_SERVER_DIR, not both')
   const tempRoot = configuredTempRoot ?? await mkdtemp(join(tmpdir(), 'zennotes-web-perf-'))
   if (configuredTempRoot) await mkdir(tempRoot, { recursive: true })
   const vaultRoot = externalVaultRoot ?? join(tempRoot, 'vault')
   const chromeProfile = join(tempRoot, 'chrome-profile')
-  const serverBinary = join(
+  const serverBinary = prebuiltServer ?? join(
     tempRoot,
     process.platform === 'win32' ? 'zennotes-server.exe' : 'zennotes-server'
   )
@@ -614,12 +631,18 @@ async function main() {
     }
     const seedMs = round(performance.now() - seedStartedAt)
 
-    await buildGoServer(serverBinary)
+    if (prebuiltServer) await access(serverBinary, constants.X_OK)
+    else await withWebDistLock(async (lock) => {
+        const env = webDistLockEnv(lock)
+        await prepareWebDist(env)
+        await buildGoServer(serverBinary, env)
+      })
     server = startGoServer({
       vaultRoot,
       bind: `127.0.0.1:${serverPort}`,
       serverBinary,
       configPath: join(tempRoot, 'zennotes-perf-server.json'),
+      cwd: tempRoot,
       disablePersistedMetaCache: Boolean(externalVaultRoot)
     })
     await waitForHttpOk(`http://127.0.0.1:${serverPort}/healthz`, 20000)
@@ -707,6 +730,12 @@ async function main() {
       20000,
       'workspace ready'
     )
+
+    await waitForExpression(client, `(() => {
+      const skip = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Skip setup');
+      skip?.click();
+      return Boolean(document.querySelector('[data-sidebar-type], [data-notelist-path]'));
+    })()`, 10000, 'web navigation after first-run setup')
 
     const inboxExpansion = await evaluate(
       client,

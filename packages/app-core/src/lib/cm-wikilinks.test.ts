@@ -3,6 +3,7 @@
 import { CompletionContext } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { describe, expect, it, vi } from 'vitest'
 import {
   wikilinkSource,
@@ -359,5 +360,51 @@ describe('editing an existing link keeps its section and alias (#686)', () => {
     expect(view.state.doc.toString()).toBe('[[Zen Garden]]')
     expect(view.state.selection.main.head).toBe('[[Zen Garden'.length)
     done()
+  })
+})
+
+describe('wikilink pickers stay closed for `[[` inside code (#783)', () => {
+  // The markdown grammar is what tells a code span apart from prose; the other
+  // suites run without it, so their `[[` always counts as prose.
+  function markdownContext(doc: string, pos = doc.length): CompletionContext {
+    const state = EditorState.create({
+      doc,
+      extensions: [markdown({ base: markdownLanguage, addKeymap: false })]
+    })
+    return new CompletionContext(state, pos, true)
+  }
+
+  it('still completes a wikilink typed in prose', () => {
+    const result = wikilinkSource(markdownContext('[[zen'))
+    expect(result?.options.map((option) => option.label)).toEqual(
+      expect.arrayContaining(['Zen Garden'])
+    )
+  })
+
+  it('does not open while typing `[[` inside an inline code span', () => {
+    expect(wikilinkSource(markdownContext('`[[zen`', 6))).toBeNull()
+  })
+
+  it('stays closed after the caret leaves a code span holding an unclosed `[[`', () => {
+    // Auto-close left `[[` open inside the backticks; typing after the closing
+    // backtick used to re-open the picker on every keystroke.
+    expect(wikilinkSource(markdownContext('`[[` and then prose'))).toBeNull()
+    expect(wikilinkSource(markdownContext('Use `[[` to link, then type zen'))).toBeNull()
+  })
+
+  it('does not open for `[[` inside a fenced code block', () => {
+    expect(wikilinkSource(markdownContext('```\n[[zen\n```\n', 9))).toBeNull()
+  })
+
+  it('keeps the heading and block pickers out of code spans too', async () => {
+    expect(await wikilinkHeadingSource(markdownContext('`[[Zen Garden#` more'))).toBeNull()
+    expect(await wikilinkBlockSource(markdownContext('`[[Zen Garden^` more'))).toBeNull()
+  })
+
+  it('opens again for a fresh `[[` typed after the code span', () => {
+    const result = wikilinkSource(markdownContext('`[[` then [[zen'))
+    expect(result?.options.map((option) => option.label)).toEqual(
+      expect.arrayContaining(['Zen Garden'])
+    )
   })
 })

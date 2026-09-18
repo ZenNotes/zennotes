@@ -1,10 +1,10 @@
+import { runNoteLifecycleAction } from '../lib/note-lifecycle-actions'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ContextMenuItem } from './ContextMenu'
 import type { NoteMeta } from '@shared/ipc'
 import { isArchiveViewActive, useStore } from '../store'
 import { ArchiveIcon, ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
-import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { ContextMenu } from './ContextMenu'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { promptApp } from '../lib/prompt-requests'
@@ -108,17 +108,14 @@ export function ArchiveView(): JSX.Element {
 
   const unarchiveNote = useCallback(
     async (note: NoteMeta) => {
-      await window.zen.unarchiveNote(note.path)
-      await refreshNotes()
+      await runNoteLifecycleAction(note.path, 'restore')
     },
     [refreshNotes]
   )
 
   const moveNoteToTrash = useCallback(
     async (note: NoteMeta) => {
-      if (!(await confirmMoveToTrash(note.title))) return
-      await window.zen.moveToTrash(note.path)
-      await refreshNotes()
+      await runNoteLifecycleAction(note.path, 'trash')
     },
     [refreshNotes]
   )
@@ -233,9 +230,7 @@ export function ArchiveView(): JSX.Element {
       label: `Move to ${folderLabels.inbox}`,
       icon: <ArrowUpRightIcon />,
       onSelect: async () => {
-        const meta = await window.zen.unarchiveNote(note.path)
-        await refreshNotes()
-        if (selectedPath === note.path) await selectNote(meta.path)
+        await runNoteLifecycleAction(note.path, 'restore')
       }
     })
     items.push({
@@ -243,10 +238,7 @@ export function ArchiveView(): JSX.Element {
       icon: <TrashIcon />,
       danger: true,
       onSelect: async () => {
-        if (!(await confirmMoveToTrash(note.title))) return
-        await window.zen.moveToTrash(note.path)
-        await refreshNotes()
-        if (selectedPath === note.path) await selectNote(null)
+        await runNoteLifecycleAction(note.path, 'trash')
       }
     })
 

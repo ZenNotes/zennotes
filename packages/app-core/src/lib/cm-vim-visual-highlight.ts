@@ -9,7 +9,7 @@
  * painted with mark decorations instead, which hug the glyphs of every
  * wrapped row by construction. Inert with Vim off or outside visual mode.
  */
-import { RangeSetBuilder, type Text } from '@codemirror/state'
+import { EditorState, RangeSetBuilder, type Text } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -44,9 +44,9 @@ function vimInVisualMode(view: EditorView): boolean {
 }
 
 /**
- * CodeMirror-Vim keeps a block's full rectangle in `vim.sel`, but mirrors only
- * the head row into CM6's EditorSelection. Build one inclusive text range per
- * logical row so the custom highlighter paints the complete rectangle.
+ * CodeMirror-Vim keeps a block's full rectangle in `vim.sel`. Build one
+ * inclusive text range per logical row so the custom highlighter paints the
+ * complete rectangle, including when short rows clip the native selections.
  */
 export function visualBlockMarkRanges(
   doc: Text,
@@ -109,4 +109,10 @@ const visualClassAttribute = EditorView.editorAttributes.of((view) =>
   vimInVisualMode(view) ? { class: 'zen-vim-visual-active' } : null
 )
 
-export const vimVisualHighlightExtension = [visualSelectionPlugin, visualClassAttribute]
+export const vimVisualHighlightExtension = [
+  // Vim block edits use one CM6 selection per row. Without this facet, CM6
+  // silently keeps only the primary row even when we paint the full rectangle.
+  EditorState.allowMultipleSelections.of(true),
+  visualSelectionPlugin,
+  visualClassAttribute
+]

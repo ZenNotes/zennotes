@@ -14,6 +14,8 @@ import {
   resolveCustomThemeMode
 } from '@renderer/lib/custom-themes'
 import { withExportTitle } from '@shared/export-title'
+import { fitExportImageBoxes, settleExportImages } from '@renderer/lib/export-images'
+import { fitExportImagesToPages } from '@renderer/lib/export-pagination'
 import '@renderer/styles/index.css'
 
 const PREFS_KEY = 'zen:prefs:v2'
@@ -129,7 +131,12 @@ function loadExportPrefs(): ExportPrefs {
 // frozen-width content is clipped on the sides. (Prose text always reflows, so
 // only such fixed-width content was affected, and only when the reading width
 // exceeded the printable width.)
-const PDF_PRINTABLE_WIDTH = '7.1in'
+// Chromium rounds the 0.7in margin to 67 CSS pixels. Use that exact margin for
+// both print and pagination measurement so line wraps/page boundaries agree.
+const PDF_PAGE_MARGIN_PX = Math.round(0.7 * 96)
+const PDF_PRINTABLE_WIDTH_PX = 8.5 * 96 - 2 * PDF_PAGE_MARGIN_PX
+const PDF_PRINTABLE_HEIGHT_PX = 11 * 96 - 2 * PDF_PAGE_MARGIN_PX
+const PDF_PRINTABLE_WIDTH = `${PDF_PRINTABLE_WIDTH_PX}px`
 
 /** The clean default: a light theme on a white page, best for printing. */
 function applyLightExportTheme(): void {
@@ -241,14 +248,6 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
   // When exporting in the user's theme, the page follows the theme background;
   // otherwise it's the clean white print page.
   const pageBg = prefs.pdfExportUseTheme ? 'rgb(var(--z-bg))' : '#ffffff'
-  // A themed export goes full-bleed: with a non-zero @page margin, paged media
-  // leaves that margin frame unpainted and `color-scheme: dark` fills it with
-  // Chromium's default dark canvas (#121212) — a mismatched frame around the
-  // themed content. So drop the page margin and inset the content with padding
-  // instead, letting --z-bg cover the whole sheet. The light export keeps the
-  // classic per-page margin (white paper margins look correct there).
-  const pageMargin = prefs.pdfExportUseTheme ? '0' : '0.7in'
-  const contentInset = prefs.pdfExportUseTheme ? '0.7in' : '0'
 
   useEffect(() => {
     applyExportPrefs(prefs)
@@ -346,7 +345,12 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
     <>
       <style>{`
         @page {
-          margin: ${pageMargin};
+          size: Letter;
+          margin: ${PDF_PAGE_MARGIN_PX}px;
+          /* Paint the margins as well as the content. Document padding only
+             insets the first/last page, leaving continuation pages flush with
+             the paper edge; real page margins repeat on every sheet. */
+          background: ${pageBg};
         }
         html,
         body,
@@ -377,17 +381,31 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
           print-color-adjust: exact;
         }
         .export-note-shell .prose-zen {
-          padding: 32px 40px 48px;
+          /* Measure images and diagrams at the same column width as print. */
+          width: ${PDF_PRINTABLE_WIDTH};
+          max-width: ${PDF_PRINTABLE_WIDTH};
+          padding: 0;
+          margin: 0;
+          orphans: 2;
+          widows: 2;
+        }
+        .export-note-shell .prose-zen :is(h1, h2, h3, h4, h5, h6) {
+          break-inside: avoid;
+          break-after: avoid;
+        }
+        .export-note-shell .local-image-embed,
+        .export-note-shell img {
+          break-inside: avoid;
         }
         /* Keep tall (portrait) images within the printable page height so they
            scale down proportionally instead of overflowing the page and being
            clipped at the page boundary — a single <img> can't paginate (#231).
            Letter page height is 11in - 2 * 0.7in margins = 9.6in; cap a touch
-           under that so an image still fits below a heading/caption. */
+           under that to leave space for the image frame and caption. */
         .export-note-shell img {
           max-width: 100%;
           height: auto;
-          max-height: 9.3in;
+          max-height: 9in;
           object-fit: contain;
         }
         /* A standalone local image is rendered as a .local-image-embed figure
@@ -412,7 +430,7 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
           width: auto;
           height: auto;
           max-width: 100%;
-          max-height: 9.3in;
+          max-height: 9in;
         }
         @media print {
           html,
@@ -427,10 +445,7 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
             min-height: auto;
             overflow: visible;
             box-sizing: border-box;
-            /* With @page margin dropped for themed (full-bleed) exports, the
-               content inset comes from padding here instead — so the theme
-               background reaches the paper edge. 0 for the light export. */
-            padding: ${contentInset};
+            padding: 0;
           }
           .export-note-shell .prose-zen {
             max-width: none;
@@ -438,17 +453,28 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
             padding: 0;
             margin: 0;
           }
-          .export-note-shell img {
-            max-height: 9.3in;
-            break-inside: avoid;
-          }
         }
       `}</style>
       <main className="export-note-shell">
         <Preview
           markdown={withExportTitle(note.body, note.title).markdown}
           notePath={note.path}
-          onRendered={() => setExportState('ready')}
+          onRendered={() => {
+            // Images load after the DOM is in place, and the preview defers
+            // the ones below the viewport; print only once they have all
+            // settled (#769).
+            void Promise.all([settleExportImages(document), document.fonts.ready]).then(() => {
+              fitExportImageBoxes(document, PDF_PRINTABLE_HEIGHT_PX)
+              const article = document.querySelector<HTMLElement>('[data-preview-content]')
+              if (article) {
+                fitExportImagesToPages(article, {
+                  width: PDF_PRINTABLE_WIDTH_PX,
+                  height: PDF_PRINTABLE_HEIGHT_PX
+                })
+              }
+              setExportState('ready')
+            })
+          }}
         />
       </main>
     </>

@@ -454,6 +454,16 @@ export class DesktopCloudSyncStateStore implements CloudSyncStateStore {
     }
   }
 
+  async retire(vaultId: string, archiveDirectory: string): Promise<void> {
+    await fs.mkdir(archiveDirectory, { recursive: true })
+    const archived = path.join(archiveDirectory, `${sha256(Buffer.from(vaultId))}.${randomUUID()}.json`)
+    try {
+      await fs.rename(this.statePath(vaultId), archived)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+
   private statePath(vaultId: string): string {
     return path.join(this.directory, `${sha256(Buffer.from(vaultId))}.json`)
   }

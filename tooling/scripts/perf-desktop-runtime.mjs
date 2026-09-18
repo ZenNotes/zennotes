@@ -10,11 +10,10 @@ import { fileURLToPath } from 'node:url'
 
 import WebSocket from 'ws'
 
-const require = createRequire(import.meta.url)
-const electronPath = require('electron')
-
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
+const requireDesktop = createRequire(resolve(repoRoot, 'apps/desktop/package.json'))
+const electronPath = requireDesktop('electron')
 const desktopOutMain = resolve(repoRoot, 'apps/desktop/out/main/index.js')
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
@@ -301,6 +300,7 @@ function startDesktopRuntime({ debugPort, userDataRoot, disablePersistedMetaCach
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
       ZEN_PERF: '1',
       ZENNOTES_USER_DATA_PATH: userDataRoot,
+      ZENNOTES_CONFIG_DIR: join(userDataRoot, 'config'),
       ...(disablePersistedMetaCache ? { ZEN_PERF_DISABLE_PERSISTED_META_CACHE: '1' } : {})
     },
     stdio: ['ignore', 'pipe', 'pipe']
@@ -694,6 +694,12 @@ async function main() {
       'desktop workspace ready'
     )
 
+    await waitForExpression(client, `(() => {
+      const skip = [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Skip setup');
+      skip?.click();
+      return Boolean(document.querySelector('[data-sidebar-type], [data-notelist-path]'));
+    })()`, 10000, 'desktop navigation after first-run setup')
+
     const inboxExpansion = await evaluate(
       client,
       `(async () => {
@@ -1078,6 +1084,18 @@ async function main() {
         printMetric('metadata cache wait', cacheWaitMs)
       }
     }
+  } catch (error) {
+    if (client && keepTempRoot) {
+      try {
+        const page = await evaluate(client, 'document.body.innerText')
+        await writeFile(join(tempRoot, 'failure-page.txt'), page)
+        const screenshot = await client.send('Page.captureScreenshot', { format: 'png' })
+        await writeFile(join(tempRoot, 'failure-page.png'), Buffer.from(screenshot.data, 'base64'))
+      } catch (diagnosticError) {
+        console.error('Could not capture failure diagnostics:', diagnosticError)
+      }
+    }
+    throw error
   } finally {
     client?.close()
     await stopChild(electron?.child)

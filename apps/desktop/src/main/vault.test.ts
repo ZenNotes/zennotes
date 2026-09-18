@@ -9,8 +9,10 @@ import {
   appendToNote,
   archiveNote,
   deleteAsset,
+  deleteNote,
   duplicateAsset,
   emptyDeletedAssets,
+  emptyTrash,
   ensureVaultLayout,
   folderForRelativePath,
   forgetLocalVault,
@@ -25,11 +27,16 @@ import {
   listFolders,
   migrateLooseAssets,
   moveAsset,
+  moveNote,
+  renameNote,
   moveToTrash,
   rememberLocalVault,
   purgeDeletedAsset,
   renameAsset,
   renameFolder,
+  deleteFolder,
+  readNoteComments,
+  writeNoteComments,
   restoreDeletedAsset,
   restoreFromTrash,
   rootContentHiddenByInboxMode,
@@ -42,6 +49,8 @@ import {
   renameWithRetry,
   writeNote
 } from './vault'
+
+import { registerEphemeralRoot, unregisterEphemeralRoot } from './ephemeral-vaults'
 
 const tempDirs: string[] = []
 
@@ -556,6 +565,84 @@ describe('deleteAsset', () => {
     const duplicated = await duplicateAsset(root, moved.path)
     expect(duplicated.path).toBe('media/screenshots/Renamed copy.png')
     await expect(readFile(path.join(root, duplicated.path), 'utf8')).resolves.toBe('image-bytes')
+  })
+
+  it('rewrites every reference to a renamed asset, in the shapes people write them (#785)', async () => {
+    const root = await makeTempDir('zennotes-asset-rename-links-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await writeFile(path.join(root, 'assets', 'shot.png'), 'png', 'utf8')
+    await writeFile(path.join(root, 'assets', 'other.png'), 'png', 'utf8')
+    const embeds = [
+      '# Embeds',
+      '',
+      '![[assets/shot.png]]',
+      '![[assets/shot.png|300]]',
+      '![alt](assets/shot.png "Shot")',
+      '[[assets/shot.png|open it]]',
+      '[page two](/assets/shot.png#page=2)',
+      '`![[assets/shot.png]]` stays literal',
+      '![[assets/other.png]]',
+      ''
+    ]
+    await writeFile(path.join(root, 'inbox', 'Embeds.md'), embeds.join('\n'), 'utf8')
+    // Bare basenames resolve while unique in the vault; a plain file link is
+    // neither an embed nor a note wikilink, so it rides on `hasAttachments`.
+    await writeFile(
+      path.join(root, 'inbox', 'Bare.md'),
+      'See ![[shot.png]] and [the file](shot.png).\n',
+      'utf8'
+    )
+    await writeFile(path.join(root, 'inbox', 'Unrelated.md'), 'Nothing here, just [[Embeds]].\n', 'utf8')
+    const untouchedBefore = await stat(path.join(root, 'inbox', 'Unrelated.md'))
+
+    const renamed = await renameAsset(root, 'assets/shot.png', 'screenshot.png')
+    expect(renamed.path).toBe('assets/screenshot.png')
+
+    await expect(readFile(path.join(root, 'inbox', 'Embeds.md'), 'utf8')).resolves.toBe(
+      embeds
+        .join('\n')
+        .replace(/assets\/shot\.png/g, 'assets/screenshot.png')
+        .replace('`![[assets/screenshot.png]]`', '`![[assets/shot.png]]`')
+    )
+    await expect(readFile(path.join(root, 'inbox', 'Bare.md'), 'utf8')).resolves.toBe(
+      'See ![[screenshot.png]] and [the file](screenshot.png).\n'
+    )
+    const untouchedAfter = await stat(path.join(root, 'inbox', 'Unrelated.md'))
+    expect(untouchedAfter.mtimeMs).toBe(untouchedBefore.mtimeMs)
+  })
+
+  it('re-targets references when an asset moves to another folder, in the author\'s style (#785)', async () => {
+    const root = await makeTempDir('zennotes-asset-move-links-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    await mkdir(path.join(root, 'inbox', 'Daily'), { recursive: true })
+    await writeFile(path.join(root, 'assets', 'shot.png'), 'png', 'utf8')
+    await writeFile(
+      path.join(root, 'inbox', 'Rooted.md'),
+      '# Rooted\n\n![[assets/shot.png|300]]\n[page](/assets/shot.png#page=2)\n',
+      'utf8'
+    )
+    await writeFile(
+      path.join(root, 'inbox', 'Daily', '2026-09-15.md'),
+      '# Daily\n\n![shot](../../assets/shot.png "Shot")\n',
+      'utf8'
+    )
+    // A bare name keeps resolving by basename after the move, so it is left as written.
+    await writeFile(path.join(root, 'inbox', 'Bare.md'), 'See ![[shot.png]] and [the file](shot.png).\n', 'utf8')
+    const bareBefore = await stat(path.join(root, 'inbox', 'Bare.md'))
+
+    const moved = await moveAsset(root, 'assets/shot.png', 'media/screenshots')
+    expect(moved.path).toBe('media/screenshots/shot.png')
+
+    await expect(readFile(path.join(root, 'inbox', 'Rooted.md'), 'utf8')).resolves.toBe(
+      '# Rooted\n\n![[media/screenshots/shot.png|300]]\n[page](/media/screenshots/shot.png#page=2)\n'
+    )
+    await expect(readFile(path.join(root, 'inbox', 'Daily', '2026-09-15.md'), 'utf8')).resolves.toBe(
+      '# Daily\n\n![shot](../../media/screenshots/shot.png "Shot")\n'
+    )
+    const bareAfter = await stat(path.join(root, 'inbox', 'Bare.md'))
+    expect(bareAfter.mtimeMs).toBe(bareBefore.mtimeMs)
   })
 
   it('removes a non-markdown asset inside the vault and can restore it', async () => {
@@ -1311,5 +1398,270 @@ describe('writeNote atomic-save fidelity (#585)', () => {
     expect(isAtomicWriteTempPath('inbox/Note.md.4123.1786714355519000.tmp')).toBe(true)
     expect(isAtomicWriteTempPath('inbox/Note.md')).toBe(false)
     expect(isAtomicWriteTempPath('inbox/report.2024.01.tmp')).toBe(false)
+  })
+})
+
+
+describe('folder comment storage', () => {
+  it.each(['inbox', 'root'] as const)('moves and deletes nested comments in %s mode', async (location) => {
+    const root = await makeTempDir('zennotes-folder-comments-')
+    await ensureVaultLayout(root)
+    const settings = await getVaultSettings(root)
+    await setVaultSettings(root, { ...settings, primaryNotesLocation: location, systemFolderPaths: { inbox: 'My Notes' } })
+    const prefix = location === 'root' ? '' : 'My Notes/'
+    const original = `${prefix}Work/Nested/Note.md`
+    await writeNote(root, original, 'Body.\n')
+    await writeNoteComments(root, original, [{ notePath: 'inbox/Work/Note.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'comment', body: 'Keep this comment', createdAt: 1, updatedAt: 1 }])
+    await renameFolder(root, 'inbox', 'Work', 'Renamed')
+    const renamed = `${prefix}Renamed/Nested/Note.md`
+    expect(await readNoteComments(root, renamed)).toMatchObject([{ id: 'comment', body: 'Keep this comment', notePath: renamed }])
+    expect(await readNoteComments(root, original)).toEqual([])
+    await deleteFolder(root, 'inbox', 'Renamed')
+    await writeNote(root, renamed, 'New note.\n')
+    expect(await readNoteComments(root, renamed)).toEqual([])
+  })
+  it('rejects missing sources and comment collisions without moving notes', async () => {
+    const root = await makeTempDir('zennotes-folder-comments-collision-')
+    await ensureVaultLayout(root)
+    await expect(renameFolder(root, 'inbox', 'Missing', 'New')).rejects.toThrow()
+    await writeNote(root, 'inbox/Work/Note.md', 'Original')
+    await writeNoteComments(root, 'inbox/Renamed/Note.md', [{ notePath: 'inbox/Work/Note.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'orphan', body: 'Retain orphan', createdAt: 1, updatedAt: 1 }])
+    await expect(renameFolder(root, 'inbox', 'Work', 'Renamed')).rejects.toThrow('comments already exist')
+    expect(await readFile(path.join(root, 'inbox/Work/Note.md'), 'utf8')).toBe('Original')
+    expect(await readNoteComments(root, 'inbox/Renamed/Note.md')).toHaveLength(1)
+  })
+
+  it.each(['rename', 'delete'] as const)('rolls back content if the %s comment move fails', async (operation) => {
+    const root = await makeTempDir('zennotes-folder-comments-rollback-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/Work/Note.md', 'Original')
+    await writeNoteComments(root, 'inbox/Work/Note.md', [{ notePath: 'inbox/Work/Note.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'comment', body: 'Keep', createdAt: 1, updatedAt: 1 }])
+    const originalRename = fsPromises.rename
+    const spy = vi.spyOn(fsPromises, 'rename').mockImplementation(async (from, to) => {
+      if (String(from) === path.join(root, '.zennotes/comments/inbox/Work')) throw new Error('Comment move failed')
+      return originalRename(from, to)
+    })
+    try {
+      await expect(operation === 'rename' ? renameFolder(root, 'inbox', 'Work', 'Renamed') : deleteFolder(root, 'inbox', 'Work')).rejects.toThrow('Comment move failed')
+    } finally { spy.mockRestore() }
+    expect(await readFile(path.join(root, 'inbox/Work/Note.md'), 'utf8')).toBe('Original')
+    expect(await readNoteComments(root, 'inbox/Work/Note.md')).toHaveLength(1)
+  })
+
+  it('retains comments through a case-only folder rename', async () => {
+    const root = await makeTempDir('zennotes-folder-comments-case-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/Work/Note.md', 'Original')
+    await writeNoteComments(root, 'inbox/Work/Note.md', [{ notePath: 'inbox/Work/Note.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'comment', body: 'Keep', createdAt: 1, updatedAt: 1 }])
+    await renameFolder(root, 'inbox', 'Work', 'work')
+    expect(await readNoteComments(root, 'inbox/work/Note.md')).toMatchObject([{ notePath: 'inbox/work/Note.md' }])
+  })
+
+  it.each([false, true])('deletes temporary-session folders without creating state (existing comments: %s)', async (withComments) => {
+    const root = await makeTempDir('zennotes-folder-ephemeral-')
+    if (withComments) {
+      await ensureVaultLayout(root)
+      await writeNote(root, 'inbox/Work/Note.md', 'Original')
+      await writeNoteComments(root, 'inbox/Work/Note.md', [{ notePath: 'inbox/Work/Note.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'comment', body: 'Remove', createdAt: 1, updatedAt: 1 }])
+    } else {
+      await mkdir(path.join(root, 'inbox/Work'), { recursive: true })
+      await writeFile(path.join(root, 'inbox/Work/Note.md'), 'Original')
+    }
+    registerEphemeralRoot(root)
+    try {
+      await deleteFolder(root, 'inbox', 'Work')
+      await expect(stat(path.join(root, 'inbox/Work'))).rejects.toMatchObject({ code: 'ENOENT' })
+      if (withComments) expect(await readNoteComments(root, 'inbox/Work/Note.md')).toEqual([])
+      else await expect(stat(path.join(root, '.zennotes'))).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally { unregisterEphemeralRoot(root) }
+  })
+
+  it('deletes a folder from a fresh vault without private metadata', async () => {
+    const root = await makeTempDir('zennotes-folder-fresh-')
+    await mkdir(path.join(root, 'inbox/Work'), { recursive: true })
+    await writeFile(path.join(root, 'inbox/Work/Note.md'), 'Original')
+    await deleteFolder(root, 'inbox', 'Work')
+    await expect(stat(path.join(root, 'inbox/Work'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+})
+
+
+describe('note move transaction', () => {
+  it.each([false, true])('retains the source when destination comments already exist (source comments: %s)', async (withComments) => {
+    const root = await makeTempDir('zennotes-note-move-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original café.  \n')
+    if (withComments) await writeNoteComments(root, 'inbox/One.md', [{notePath:'inbox/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'source', body:'Source discussion', createdAt:1, updatedAt:1}])
+    await writeNoteComments(root, 'inbox/Work/One.md', [{notePath:'inbox/Work/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'destination', body:'Keep destination', createdAt:1, updatedAt:1}])
+    await expect(moveNote(root,'inbox/One.md','inbox','Work')).rejects.toThrow()
+    expect(await readFile(path.join(root,'inbox/One.md'),'utf8')).toBe('Original café.  \n')
+    await expect(stat(path.join(root,'inbox/Work/One.md'))).rejects.toMatchObject({code:'ENOENT'})
+    expect((await readNoteComments(root,'inbox/Work/One.md'))[0].body).toBe('Keep destination')
+    if (withComments) expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Source discussion')
+  })
+})
+
+it('numbers a moved drawing without replacing the existing drawing', async () => {
+  const root=await makeTempDir('zennotes-drawing-move-')
+  await ensureVaultLayout(root)
+  await mkdir(path.join(root,'inbox/Work'),{recursive:true})
+  await writeFile(path.join(root,'inbox/Sketch.excalidraw'),'source drawing','utf8')
+  await writeFile(path.join(root,'inbox/Work/Sketch.excalidraw'),'existing drawing','utf8')
+  const moved=await moveNote(root,'inbox/Sketch.excalidraw','inbox','Work')
+  expect(moved.path).toBe('inbox/Work/Sketch 2.excalidraw')
+  expect(await readFile(path.join(root,moved.path),'utf8')).toBe('source drawing')
+  expect(await readFile(path.join(root,'inbox/Work/Sketch.excalidraw'),'utf8')).toBe('existing drawing')
+})
+
+it('rolls a moved note back when moving its comment file fails', async () => {
+  const root=await makeTempDir('zennotes-note-rollback-')
+  await ensureVaultLayout(root)
+  await writeNote(root,'inbox/One.md','Keep source.\n')
+  await writeNoteComments(root,'inbox/One.md',[{notePath:'inbox/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+  const rename=fsPromises.rename
+  const spy=vi.spyOn(fsPromises,'rename').mockImplementation(async(from,to)=>{
+    if (String(from).endsWith('One.md.comments.json')) throw new Error('Comment move failed')
+    return rename(from,to)
+  })
+  try { await expect(moveNote(root,'inbox/One.md','inbox','Work')).rejects.toThrow('Comment move failed') }
+  finally { spy.mockRestore() }
+  expect(await readFile(path.join(root,'inbox/One.md'),'utf8')).toBe('Keep source.\n')
+  expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Keep discussion')
+  await expect(stat(path.join(root,'inbox/Work/One.md'))).rejects.toMatchObject({code:'ENOENT'})
+})
+
+describe('note rename transaction', () => {
+  it.each([false, true])('retains the source when destination comments already exist (source comments: %s)', async (withComments) => {
+    const root = await makeTempDir('zennotes-note-rename-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original café.  \n')
+    if (withComments) await writeNoteComments(root, 'inbox/One.md', [{notePath:'inbox/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'source', body:'Source discussion', createdAt:1, updatedAt:1}])
+    await writeNoteComments(root, 'inbox/Renamed.md', [{notePath:'inbox/Renamed.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'destination', body:'Keep destination', createdAt:1, updatedAt:1}])
+    await expect(renameNote(root,'inbox/One.md','Renamed')).rejects.toThrow()
+    expect(await readFile(path.join(root,'inbox/One.md'),'utf8')).toBe('Original café.  \n')
+    await expect(stat(path.join(root,'inbox/Renamed.md'))).rejects.toMatchObject({code:'ENOENT'})
+    expect((await readNoteComments(root,'inbox/Renamed.md'))[0].body).toBe('Keep destination')
+    if (withComments) expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Source discussion')
+  })
+})
+
+
+it('rolls a renamed note back when moving its comment file fails', async () => {
+  const root=await makeTempDir('zennotes-note-rollback-')
+  await ensureVaultLayout(root)
+  await writeNote(root,'inbox/One.md','Keep source.\n')
+  await writeNoteComments(root,'inbox/One.md',[{notePath:'inbox/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+  const rename=fsPromises.rename
+  const spy=vi.spyOn(fsPromises,'rename').mockImplementation(async(from,to)=>{
+    if (String(from).endsWith('One.md.comments.json')) throw new Error('Comment move failed')
+    return rename(from,to)
+  })
+  try { await expect(renameNote(root,'inbox/One.md','Renamed')).rejects.toThrow('Comment move failed') }
+  finally { spy.mockRestore() }
+  expect(await readFile(path.join(root,'inbox/One.md'),'utf8')).toBe('Keep source.\n')
+  expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Keep discussion')
+  await expect(stat(path.join(root,'inbox/Renamed.md'))).rejects.toMatchObject({code:'ENOENT'})
+})
+it('renames note comments and inbound links, including a case-only rename', async () => {
+  const root = await makeTempDir('zennotes-note-rename-links-')
+  await ensureVaultLayout(root)
+  await writeNote(root, 'inbox/One.md', 'Original café.  \n')
+  await writeNote(root, 'inbox/Links.md', 'See [[One#Heading|alias]] and `[[One]]`.\n')
+  await writeNoteComments(root, 'inbox/One.md', [{ notePath: 'inbox/One.md', anchorStart: 0, anchorEnd: 0, anchorText: '', id: 'comment', body: 'Keep discussion', createdAt: 1, updatedAt: 1 }])
+  const renamed = await renameNote(root, 'inbox/One.md', 'one')
+  expect(renamed.path).toBe('inbox/one.md')
+  expect(await readFile(path.join(root, renamed.path), 'utf8')).toBe('Original café.  \n')
+  expect(await readFile(path.join(root, 'inbox/Links.md'), 'utf8')).toBe('See [[one#Heading|alias]] and `[[One]]`.\n')
+  expect((await readNoteComments(root, renamed.path))[0]).toMatchObject({ notePath: renamed.path, body: 'Keep discussion' })
+})
+
+
+describe('note lifecycle transactions', () => {
+  it.each([
+    ['archive', archiveNote, 'inbox/One.md', 'archive/One.md'],
+    ['trash', moveToTrash, 'inbox/One.md', 'trash/One.md'],
+    ['unarchive', unarchiveNote, 'archive/One.md', 'inbox/One.md'],
+    ['restore', restoreFromTrash, 'trash/One.md', 'inbox/One.md']
+  ] as const)('rolls back %s when the comment move fails', async (_name, action, source, target) => {
+    const root=await makeTempDir('zennotes-lifecycle-')
+    await ensureVaultLayout(root)
+    await writeNote(root,source,'Keep café.  \n')
+    await writeNoteComments(root,source,[{notePath:source,anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+    const rename=fsPromises.rename
+    const spy=vi.spyOn(fsPromises,'rename').mockImplementation(async(from,to)=>{
+      if(String(from).endsWith('One.md.comments.json')) throw new Error('Comment move failed')
+      return rename(from,to)
+    })
+    try {await expect(action(root,source)).rejects.toThrow('Comment move failed')}
+    finally {spy.mockRestore()}
+    expect(await readFile(path.join(root,source),'utf8')).toBe('Keep café.  \n')
+    expect(await readNoteComments(root,source)).toHaveLength(1)
+    await expect(stat(path.join(root,target))).rejects.toMatchObject({code:'ENOENT'})
+  })
+
+  it('retains a permanently deleted note if detaching its comments fails', async () => {
+    const root=await makeTempDir('zennotes-lifecycle-delete-')
+    await ensureVaultLayout(root)
+    await writeNote(root,'trash/One.md','Keep source.\n')
+    await writeNoteComments(root,'trash/One.md',[{notePath:'trash/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+    const rename=fsPromises.rename
+    const spy=vi.spyOn(fsPromises,'rename').mockImplementation(async(from,to)=>{
+      if(String(from).endsWith('One.md.comments.json')) throw new Error('Comment move failed')
+      return rename(from,to)
+    })
+    try {await expect(deleteNote(root,'trash/One.md')).rejects.toThrow('Comment move failed')}
+    finally {spy.mockRestore()}
+    expect(await readFile(path.join(root,'trash/One.md'),'utf8')).toBe('Keep source.\n')
+    expect(await readNoteComments(root,'trash/One.md')).toHaveLength(1)
+    await deleteNote(root,'trash/One.md')
+    await writeNote(root,'trash/One.md','New note.\n')
+    expect(await readNoteComments(root,'trash/One.md')).toEqual([])
+  })
+})
+
+
+it.each([['archive', archiveNote], ['trash', moveToTrash]] as const)('preserves drawings with colliding %s filenames',async(folder,action)=>{
+  const root=await makeTempDir('zennotes-lifecycle-drawing-')
+  await ensureVaultLayout(root)
+  await writeFile(path.join(root,'inbox/Sketch.excalidraw'),'source drawing')
+  await writeFile(path.join(root,folder,'Sketch.excalidraw'),'existing drawing')
+  const meta=await action(root,'inbox/Sketch.excalidraw')
+  expect(meta.path).toBe(`${folder}/Sketch 2.excalidraw`)
+  expect(await readFile(path.join(root,meta.path),'utf8')).toBe('source drawing')
+  expect(await readFile(path.join(root,folder,'Sketch.excalidraw'),'utf8')).toBe('existing drawing')
+})
+
+
+describe('Empty Trash transaction',()=>{
+  it.each(['root','inbox'] as const)('clears the remapped Trash and nested comments in %s mode',async location=>{
+    const root=await makeTempDir('zennotes-empty-trash-')
+    await ensureVaultLayout(root)
+    const settings=await getVaultSettings(root)
+    await setVaultSettings(root,{...settings,primaryNotesLocation:location,systemFolderPaths:{trash:'Deleted files'}})
+    await writeNote(root,'Deleted files/Nested/One.md','Delete me')
+    await writeNoteComments(root,'Deleted files/Nested/One.md',[{notePath:'Deleted files/Nested/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Remove discussion',createdAt:1,updatedAt:1}])
+    await writeNote(root,'trash/Unrelated.md','Keep literal trash folder')
+    await emptyTrash(root)
+    await expect(stat(path.join(root,'Deleted files/Nested/One.md'))).rejects.toMatchObject({code:'ENOENT'})
+    expect(await readNoteComments(root,'Deleted files/Nested/One.md')).toEqual([])
+    expect(await readFile(path.join(root,'trash/Unrelated.md'),'utf8')).toBe('Keep literal trash folder')
+    await emptyTrash(root)
+  })
+  it('rolls back every trashed file if moving the comment tree fails',async()=>{
+    const root=await makeTempDir('zennotes-empty-trash-rollback-')
+    await ensureVaultLayout(root)
+    await writeNote(root,'trash/One.md','Keep me')
+    await writeNoteComments(root,'trash/One.md',[{notePath:'trash/One.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'comment',body:'Keep discussion',createdAt:1,updatedAt:1}])
+    const rename=fsPromises.rename
+    const spy=vi.spyOn(fsPromises,'rename').mockImplementation(async(from,to)=>{
+      // Windows joins with backslashes, so compare the normalized path.
+      if(String(from).replace(/\\/g,'/').endsWith('.zennotes/comments/trash'))throw new Error('Comment move refused')
+      return rename(from,to)
+    })
+    try {await expect(emptyTrash(root)).rejects.toThrow('Comment move refused')}
+    finally{spy.mockRestore()}
+    expect(await readFile(path.join(root,'trash/One.md'),'utf8')).toBe('Keep me')
+    expect(await readNoteComments(root,'trash/One.md')).toHaveLength(1)
   })
 })

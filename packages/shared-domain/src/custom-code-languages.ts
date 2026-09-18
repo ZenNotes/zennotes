@@ -1,3 +1,11 @@
+import type { CustomCodeLanguageManifest } from '@zennotes/bridge-contract/custom-code-languages'
+export type {
+  CustomCodeLanguageManifest,
+  CustomCodeLanguage,
+  CustomCodeLanguageInstallInput,
+  CustomCodeLanguageUpdateInput
+} from '@zennotes/bridge-contract/custom-code-languages'
+
 /** Shared contract and validation for user-installed TextMate code languages. */
 
 export const CUSTOM_CODE_LANGUAGE_SCHEMA_VERSION = 1;
@@ -278,38 +286,6 @@ let reservedTagSet: Set<string> | null = null;
 export function isReservedCodeFenceTag(tag: string): boolean {
   reservedTagSet ??= new Set<string>(RESERVED_CODE_FENCE_TAGS);
   return reservedTagSet.has(normalizeCodeFenceTag(tag));
-}
-
-export interface CustomCodeLanguageManifest {
-  schemaVersion: 1;
-  id: string;
-  name: string;
-  aliases: string[];
-  scopeName: string;
-  enabled: boolean;
-}
-
-/** Renderer-ready language record returned by the host bridge. */
-export interface CustomCodeLanguage extends CustomCodeLanguageManifest {
-  grammar: string;
-  error?: string;
-}
-
-export interface CustomCodeLanguageInstallInput {
-  fileName: string;
-  grammar: string;
-  id: string;
-  name: string;
-  aliases: string[];
-  enabled?: boolean;
-  replace?: boolean;
-}
-
-export interface CustomCodeLanguageUpdateInput {
-  id: string;
-  name?: string;
-  aliases?: string[];
-  enabled?: boolean;
 }
 
 export interface ParsedTextMateGrammar {

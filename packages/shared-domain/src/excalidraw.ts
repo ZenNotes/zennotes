@@ -3,7 +3,9 @@
 // Markdown notes and `.base` databases: listed in the sidebar with their own
 // icon, opened in a dedicated editor tab, and saved back as JSON.
 
-import { decompressFromBase64 } from 'lz-string'
+import LZString from 'lz-string'
+
+const { decompressFromBase64 } = LZString
 
 export const EXCALIDRAW_EXT = '.excalidraw'
 

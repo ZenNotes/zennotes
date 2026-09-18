@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => {
       calendarShowWeekNumbers: true,
       calendarWeekStart: "monday",
       customTemplates: [],
+      externalApplicationSchemes: [],
+      setExternalApplicationSchemes: vi.fn(),
       darkSidebar: false,
+      showWindowTitleBar: true,
+      setShowWindowTitleBar: vi.fn(),
       editorFontSize: 16,
       editorLineHeight: 1.6,
       editorScrollOff: 0,
@@ -76,6 +80,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     state,
+    runtime: "desktop" as "desktop" | "web",
     setSettingsOpen: state.setSettingsOpen,
     setVaultSettings: state.setVaultSettings,
   };
@@ -98,7 +103,7 @@ vi.mock("../lib/app-update-state", () => ({
 vi.mock("@zennotes/bridge-contract/bridge", () => ({
   getZenBridge: () => ({
     getAppInfo: () => ({
-      runtime: "desktop",
+      runtime: mocks.runtime,
       version: "2.4.0",
       description: "ZenNotes",
       homepage: "https://github.com/ZenNotes/zennotes/releases/latest",
@@ -128,9 +133,13 @@ function blurInput(input: HTMLInputElement): void {
 describe("SettingsModal date note directories", () => {
   let root: Root;
   let host: HTMLDivElement;
+  let originalScrollIntoView: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.runtime = "desktop";
+    originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
+    Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
     mocks.state.vimMode = false;
     mocks.state.vimWrappedLineMotions = "logical";
     mocks.state.keymapOverrides = {};
@@ -166,6 +175,47 @@ describe("SettingsModal date note directories", () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    if (originalScrollIntoView) {
+      Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+    } else {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it("opens application link settings and saves normalized prefixes", async () => {
+    requestSettingsTarget("external-links");
+    await act(async () => root.render(createElement(SettingsModal)));
+    const input = host.querySelector<HTMLInputElement>('input[placeholder="zotero, obsidian, vscode"]');
+    expect(input).toBeTruthy();
+    await act(async () => changeInput(input!, "Zotero://, obsidian:, zotero"));
+    await act(async () => blurInput(input!));
+    expect(mocks.state.setExternalApplicationSchemes).toHaveBeenCalledWith(["zotero", "obsidian"]);
+  });
+
+  it("finds the title bar setting by Hyprland and toggles it", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]');
+    await act(async () => changeInput(search!, "hyprland"));
+    const toggle = host.querySelector<HTMLButtonElement>('[data-settings-search-id="window-title-bar"] [role="switch"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle!.click());
+    expect(mocks.state.setShowWindowTitleBar).toHaveBeenCalledWith(false);
+  });
+
+  it("does not offer native title bar settings in the web app", async () => {
+    mocks.runtime = "web";
+    await act(async () => root.render(createElement(SettingsModal)));
+    expect(host.querySelector('[data-settings-search-id="window-title-bar"]')).toBeNull();
+  });
+
+  it("rejects reserved prefixes with a visible explanation", async () => {
+    requestSettingsTarget("external-links");
+    await act(async () => root.render(createElement(SettingsModal)));
+    const input = host.querySelector<HTMLInputElement>('input[placeholder="zotero, obsidian, vscode"]')!;
+    await act(async () => changeInput(input, "javascript"));
+    await act(async () => blurInput(input));
+    expect(mocks.state.setExternalApplicationSchemes).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('not an available application prefix');
   });
 
   it("does not restore the default daily directory while the field is being cleared", async () => {

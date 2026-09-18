@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { EditorState } from '@codemirror/state'
+import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
@@ -71,7 +71,12 @@ describe('vim arrow bindings defer to the Vim plugin (issue #287)', () => {
     const view = new EditorView({
       state: EditorState.create({
         doc,
-        extensions: [vim(), keymap.of([...vimAwareDefaultKeymap(true)])]
+        extensions: [
+          vim(),
+          // The editors enable this for Vim block edits (#792).
+          EditorState.allowMultipleSelections.of(true),
+          keymap.of([...vimAwareDefaultKeymap(true)])
+        ]
       }),
       parent: document.body
     })
@@ -126,6 +131,35 @@ describe('vim arrow bindings defer to the Vim plugin (issue #287)', () => {
     press(view, 'i', 73) // enter insert mode
     expect(arrowRun('Enter')(view)).toBe(true)
     expect(view.state.doc.toString()).toBe('\nhello')
+  })
+
+  // #803: Escape is the inverse of the keys above. `simplifySelection` reports
+  // it handled for several ranges or a non-empty one, which is exactly what a
+  // block insert and a visual selection look like, so Vim never left the mode.
+  it('defers Escape in insert and visual mode, where Vim has a mode to leave', () => {
+    const multi = EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(6)])
+    const view = mountVim('hello\nworld')
+    press(view, 'i', 73) // enter insert mode
+    view.dispatch({ selection: multi })
+    expect(arrowRun('Escape')(view)).toBe(false)
+    expect(view.state.selection.ranges.length).toBe(2) // left for Vim to collapse
+
+    const visual = mountVim('hello world')
+    press(visual, 'v', 86) // enter visual mode
+    expect(arrowRun('Escape')(visual)).toBe(false)
+  })
+
+  it('keeps the native Escape in normal mode so stray extra cursors still collapse', () => {
+    const view = mountVim('hello\nworld')
+    view.dispatch({
+      selection: EditorSelection.create([EditorSelection.cursor(0), EditorSelection.cursor(6)])
+    })
+    expect(arrowRun('Escape')(view)).toBe(true)
+    expect(view.state.selection.ranges.length).toBe(1)
+  })
+
+  it('drops preventDefault on Escape in Vim mode, or deferring would still consume it', () => {
+    expect(vimAwareDefaultKeymap(true).find((b) => b.key === 'Escape')?.preventDefault).toBe(false)
   })
 })
 

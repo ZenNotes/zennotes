@@ -1,3 +1,4 @@
+import { noteEditingSync, noteEditingLockExtension, refreshNoteEditingLock } from '../lib/note-lifecycle-lock'
 /**
  * Always-visible side panel that shows a single companion note — a
  * "reference pane" writers and researchers can keep open while drafting
@@ -32,6 +33,7 @@ import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
+import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import {
   listIndentGuides as listIndentGuidesExt,
   listIndentWidth,
@@ -78,7 +80,6 @@ const paperHighlight = HighlightStyle.define([
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
   { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
   { tag: t.quote, class: 'tok-quote' },
@@ -213,9 +214,11 @@ export function PinnedReferencePane(): JSX.Element | null {
       const s0 = useStore.getState()
       const initialPath = s0.pinnedRefPath
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
+      viewPathRef.current = initialPath
       const state = EditorState.create({
         doc: initialContent?.body ?? '',
         extensions: [
+          noteEditingLockExtension(() => ({ vault: useStore.getState().vault, path: viewPathRef.current })),
           appMarkdownSnippetExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           vimVisualHighlightExtension,
@@ -230,6 +233,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
           customCodeFenceHighlightExtension,
+          markdownLinkExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           frontmatterStyle,
@@ -317,9 +321,11 @@ export function PinnedReferencePane(): JSX.Element | null {
     const sel = view.state.selection.main
     const clampedAnchor = Math.min(sel.anchor, nextBody.length)
     const clampedHead = Math.min(sel.head, nextBody.length)
+    viewPathRef.current = nextPath
+    refreshNoteEditingLock(view)
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: nextBody },
-      annotations: programmatic.of(true),
+      annotations: [programmatic.of(true), noteEditingSync.of(true)],
       selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
     })
     viewPathRef.current = nextPath

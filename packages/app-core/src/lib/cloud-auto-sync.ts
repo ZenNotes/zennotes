@@ -1,3 +1,4 @@
+import { humanIpcError } from "./ipc-error";
 import type { ZenBridge } from "@zennotes/bridge-contract/bridge";
 import { getZenBridge } from "@zennotes/bridge-contract/bridge";
 import type { CloudSyncRunSummary } from "@zennotes/bridge-contract/cloud-sync";
@@ -17,6 +18,8 @@ export type CloudAutoSyncBridge = Pick<
   | "logoutCloudAccount"
   | "getCloudVaultLink"
   | "syncCloudVault"
+  | "hasCloudVaultChanges"
+  | "onCloudSyncWindow"
   | "onVaultChange"
   | "onCloudAccountChange"
 >;
@@ -55,6 +58,10 @@ interface CloudSyncStatusStore {
    *  status bar, so the command palette and the vim leader open the same
    *  queue the status bar's Review now opens. */
   conflictReviewOpen: boolean;
+  /** Remains locked even if this window's own controller refreshes its status. */
+  syncWindowLocked: boolean;
+  /** A note was saved, but the following whole-vault sync has not completed. */
+  resolutionSaved: boolean;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -64,6 +71,8 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   error: null,
   lastSummary: null,
   conflictReviewOpen: false,
+  syncWindowLocked: false,
+  resolutionSaved: false,
 };
 
 export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
@@ -86,6 +95,17 @@ type CloudAutoSyncTimings = Pick<
 >;
 
 let installedRuntime: CloudAutoSyncRuntime | null = null;
+const conflictDraftFlushers = new Set<() => Promise<void>>();
+
+/** A review's edits must reach durable storage before sync can retire it. */
+export function registerCloudConflictDraftFlusher(
+  flush: () => Promise<void>,
+): () => void {
+  conflictDraftFlushers.add(flush);
+  return () => {
+    conflictDraftFlushers.delete(flush);
+  };
+}
 
 export function startCloudAutoSync(
   bridge: CloudAutoSyncBridge,
@@ -122,6 +142,18 @@ export function startCloudAutoSync(
     sync: async () => {
       await syncCloudVaultWithStatus(bridge);
     },
+    checkRemoteChanges: bridge.hasCloudVaultChanges
+      ? async () => {
+          const state = useCloudSyncStatusStore.getState();
+          if (!state.vaultName || !isCloudAccountConnectedPhase(state.phase)) return false;
+          try {
+            return await bridge.hasCloudVaultChanges!();
+          } catch (error) {
+            await refreshRemovedCloudLink(bridge, error);
+            throw error;
+          }
+        }
+      : undefined,
     online: environment.online,
     active: environment.active,
     debounceMs: timings.debounceMs,
@@ -140,6 +172,23 @@ export function startCloudAutoSync(
   });
   const unsubscribeVault = bridge.onVaultChange((event) => {
     if (isSyncableVaultChange(event)) controller.request("local-change");
+  });
+  const unsubscribeSyncWindow = bridge.onCloudSyncWindow?.({
+    async prepare() {
+      useCloudSyncStatusStore.setState({ syncWindowLocked: true });
+      await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
+    },
+    finished(summary, error) {
+      if (summary) applyCloudSyncSummary(summary);
+      else if (error) {
+        useCloudSyncStatusStore.setState({
+          phase: "error",
+          error: syncFailureMessage(error),
+        });
+        void refreshRemovedCloudLink(bridge, error);
+      }
+      useCloudSyncStatusStore.setState({ syncWindowLocked: false });
+    },
   });
   const unsubscribeAccount = bridge.onCloudAccountChange((status) => {
     if (status.state === "connecting") markCloudSyncConnecting();
@@ -160,6 +209,7 @@ export function startCloudAutoSync(
     stop() {
       controller.stop();
       unsubscribeVault();
+      unsubscribeSyncWindow?.();
       unsubscribeAccount();
       unsubscribeOnline();
       unsubscribeForeground();
@@ -188,7 +238,7 @@ export async function connectCloudAccountFromStatusBar(
 }
 
 export async function syncCloudVaultWithStatus(
-  bridge: Pick<CloudAutoSyncBridge, "syncCloudVault"> = getZenBridge(),
+  bridge: Pick<CloudAutoSyncBridge, "syncCloudVault"> & Partial<Pick<CloudAutoSyncBridge, "getCloudVaultLink">> = getZenBridge(),
   vaultName?: string | null,
 ): Promise<CloudSyncRunSummary> {
   const current = useCloudSyncStatusStore.getState();
@@ -200,40 +250,76 @@ export async function syncCloudVaultWithStatus(
   });
 
   try {
-    const summary = await bridge.syncCloudVault();
-    const attention = cloudSyncAttentionMessage(summary);
-    // An open queue stays open only while it still has something to decide;
-    // otherwise the flag would reopen it on the next unrelated conflict.
-    const conflictReviewOpen =
-      current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0;
-    if (attention !== null) {
-      useCloudSyncStatusStore.setState({
-        phase: "attention",
-        vaultName: nextVaultName,
-        lastSyncedAt: current.lastSyncedAt,
-        error: attention,
-        lastSummary: summary,
-        conflictReviewOpen,
-      });
-      return summary;
+    if (conflictDraftFlushers.size > 0) {
+      await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
     }
-    useCloudSyncStatusStore.setState({
-      phase: "ready",
-      vaultName: nextVaultName,
-      lastSyncedAt: Date.now(),
-      error: null,
-      lastSummary: summary,
-      conflictReviewOpen,
-    });
+    const summary = await bridge.syncCloudVault();
+    applyCloudSyncSummary(summary, nextVaultName);
     return summary;
   } catch (error) {
-    useCloudSyncStatusStore.setState({
-      phase: "error",
-      vaultName: nextVaultName,
-      error: cloudSyncErrorMessage(error),
-    });
+    if (!await refreshRemovedCloudLink(bridge, error)) {
+      useCloudSyncStatusStore.setState({
+        phase: "error",
+        vaultName: nextVaultName,
+        error: syncFailureMessage(error),
+      });
+    }
     throw error;
   }
+}
+
+async function refreshRemovedCloudLink(
+  bridge: Partial<Pick<CloudAutoSyncBridge, "getCloudVaultLink">>,
+  error: unknown,
+): Promise<boolean> {
+  if (!bridge.getCloudVaultLink) return false;
+  try {
+    if (await bridge.getCloudVaultLink() !== null) return false;
+  } catch {
+    return false;
+  }
+  markCloudSyncUnlinked(syncFailureMessage(error));
+  return true;
+}
+
+/** Retire only the acknowledged decision, not the status of the whole vault. */
+export function acknowledgeCloudConflictResolution(
+  conflictId: string,
+  fallbackSummary: CloudSyncRunSummary,
+): CloudSyncRunSummary {
+  const current = useCloudSyncStatusStore.getState();
+  // Linking or restoring can present a new queue before the shared run status
+  // catches up. Never replace that queue with an older, unrelated summary.
+  const previous = current.lastSummary?.pending_conflicts?.some(
+    (item) => item.id === conflictId,
+  ) ? current.lastSummary : fallbackSummary;
+  const summary = {
+    ...previous,
+    pending_conflicts:
+      previous.pending_conflicts?.filter((item) => item.id !== conflictId) ?? [],
+  };
+  useCloudSyncStatusStore.setState({
+    lastSummary: summary,
+    resolutionSaved: true,
+    conflictReviewOpen:
+      current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0,
+  });
+  return summary;
+}
+
+function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string | null): void {
+  const current = useCloudSyncStatusStore.getState();
+  const attention = cloudSyncAttentionMessage(summary);
+  useCloudSyncStatusStore.setState({
+    phase: attention === null ? "ready" : "attention",
+    vaultName: vaultName ?? current.vaultName,
+    lastSyncedAt: attention === null ? Date.now() : current.lastSyncedAt,
+    error: attention,
+    lastSummary: summary,
+    resolutionSaved: false,
+    // Do not reopen a finished review on the next unrelated conflict.
+    conflictReviewOpen: current.conflictReviewOpen && resolvableCloudConflictCount(summary) > 0,
+  });
 }
 
 /** Conflicts the queue can actually resolve. Bootstrap conflicts are no longer
@@ -293,6 +379,7 @@ function markCloudSyncReady(vaultName: string): void {
     phase: "ready",
     vaultName,
     lastSyncedAt: current.vaultName === vaultName ? current.lastSyncedAt : null,
+    resolutionSaved: current.vaultName === vaultName && current.resolutionSaved,
     error: null,
   });
 }
@@ -302,6 +389,7 @@ function markCloudSyncDisconnected(error: string | null = null): void {
     phase: "disconnected",
     vaultName: null,
     lastSyncedAt: null,
+    resolutionSaved: false,
     error,
   });
 }
@@ -311,16 +399,20 @@ function markCloudSyncConnecting(): void {
     phase: "connecting",
     vaultName: null,
     lastSyncedAt: null,
+    resolutionSaved: false,
     error: null,
   });
 }
 
-function markCloudSyncUnlinked(): void {
+function markCloudSyncUnlinked(error: string | null = null): void {
   useCloudSyncStatusStore.setState({
     phase: "unlinked",
     vaultName: null,
     lastSyncedAt: null,
-    error: null,
+    resolutionSaved: false,
+    error,
+    lastSummary: null,
+    conflictReviewOpen: false,
   });
 }
 
@@ -367,8 +459,15 @@ function logAutomaticSyncError(error: unknown, retryInMs: number): void {
   );
 }
 
+function syncFailureMessage(error: unknown): string {
+  const prefix = useCloudSyncStatusStore.getState().resolutionSaved
+    ? "Note saved. Remaining vault sync failed: "
+    : "";
+  return prefix + cloudSyncErrorMessage(error);
+}
+
 function cloudSyncErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return humanIpcError(error instanceof Error ? error : new Error(String(error)), "Cloud sync failed.");
 }
 
 export function cloudSyncAttentionMessage(
@@ -390,7 +489,7 @@ export function cloudSyncAttentionMessage(
       return `Cloud storage limit reached (${formatCloudBytes(capacity.used + capacity.reserved)} of ${formatCloudBytes(capacity.limit)}). Remove files or increase your Cloud capacity.`;
     }
     if (capacity?.dimension === "sync_max_file_bytes") {
-      return `A file exceeds the ${formatCloudBytes(capacity.limit)} Cloud file-size limit.`;
+      return `A file exceeds the ${formatCloudBytes(capacity.limit)} Cloud file-size limit. Reduce or remove the oversized file to finish syncing.`;
     }
     return "Cloud capacity reached. Remove files or increase your Cloud capacity.";
   }
@@ -534,13 +633,13 @@ export function cloudSyncAttentionItems(
 }
 
 function formatCloudBytes(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_000) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1_024;
+  let value = bytes / 1_000;
   let unit = units[0];
   for (const candidate of units.slice(1)) {
-    if (value < 1_024) break;
-    value /= 1_024;
+    if (value < 1_000) break;
+    value /= 1_000;
     unit = candidate;
   }
   return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;

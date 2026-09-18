@@ -1,11 +1,13 @@
 import { confirmApp } from './confirm-requests'
 
-export function confirmMoveToTrash(title?: string | null): Promise<boolean> {
+export function confirmMoveToTrash(title?: string | null, systemTrash = false): Promise<boolean> {
   const trimmed = title?.trim()
   const target = trimmed ? `"${trimmed}"` : 'this note'
   return confirmApp({
     title: `Move ${target} to Trash?`,
-    description: 'You can restore it later from the Trash view.',
+    description: systemTrash
+      ? 'The file will move to your system Trash. Restore it using your file manager.'
+      : 'You can restore it later from the Trash view.',
     confirmLabel: 'Move to Trash'
   })
 }

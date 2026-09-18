@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "repository": "ZenNotes/znserver",
+  "version": "v2.51.0",
+  "assets": {
+    "darwin-arm64": {
+      "file": "zennotes-server-darwin-arm64",
+      "sha256": "c23d59ae06629023a1ff333bb3d2649dc03784a8ba93d8557d5e330dcb816ed6"
+    },
+    "darwin-x64": {
+      "file": "zennotes-server-darwin-amd64",
+      "sha256": "b8d5660e60e3629ccff3943ccdb22bfca9a31b729adcb4ba95b25da0debd1379"
+    },
+    "linux-arm64": {
+      "file": "zennotes-server-linux-arm64",
+      "sha256": "316541db93b66f2a64858eb0143a971e0c51c89bb9daf394ac1d25c159b4a373"
+    },
+    "linux-x64": {
+      "file": "zennotes-server-linux-amd64",
+      "sha256": "e27dfa1b323910fc6d274b0af879bd11ba5c1f4bb6dc1c0950ab2c1b3f08bac5"
+    },
+    "win32-x64": {
+      "file": "zennotes-server-windows-amd64.exe",
+      "sha256": "e3033e92c93a20d69c1d1eda6309f357f467382ece8dff799b788b263e2e80c4"
+    }
+  }
+}

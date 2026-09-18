@@ -282,7 +282,7 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
   initAppUpdater()
   if (managedInstall) return await checkManagedInstallForUpdates()
   if (!updater) return getAppUpdateState()
-  if (updateState.phase === 'checking') return getAppUpdateState()
+  if (updateState.phase === 'checking' || updateState.phase === 'installing') return getAppUpdateState()
 
   setUpdateState(
     nextStateFromInfo('checking', lastInfo, 'Checking GitHub releases for updates…')
@@ -394,7 +394,8 @@ export function scheduleBackgroundAppUpdateCheck(
   backgroundCheckScheduled = true
   startupCheckTimer = setTimeout(() => {
     startupCheckTimer = null
-    void checkForAppUpdates()
+    // A manual check/download/install owns its result once the user starts it.
+    if (updateState.phase === 'idle') void checkForAppUpdates()
   }, Math.max(0, delayMs))
 }
 
@@ -715,15 +716,15 @@ async function installLinuxPackageUpdate(file: string): Promise<void> {
 
   setUpdateState(
     nextStateFromInfo(
-      'downloaded',
+      'installing',
       lastInfo,
       `Installing ZenNotes ${lastInfo?.version ?? ''}… approve the administrator prompt to finish.`
     )
   )
 
   try {
-    // pkexec shows a graphical password prompt and runs the install as root.
-    await execFileAsync('pkexec', ['sh', '-c', script])
+    // Require a graphical agent; a hidden terminal prompt cannot be answered here.
+    await execFileAsync('pkexec', ['--disable-internal-agent', 'sh', '-c', script])
   } catch (error) {
     handleLinuxInstallFailure(format, file, error)
     return
@@ -749,15 +750,14 @@ function handleLinuxInstallFailure(
       nextStateFromInfo(
         'error',
         lastInfo,
-        `Couldn't install automatically: pkexec (graphical sudo) isn't available on this system. The update was downloaded to ${file} — install it manually with: ${hint}, then reopen ZenNotes.`
+        `Couldn't install automatically: pkexec (graphical sudo) isn't available on this system. The update was downloaded to ${file}; install it manually with: ${hint}, then reopen ZenNotes.`
       )
     )
     return
   }
 
-  // pkexec exits 126/127 when the auth dialog is dismissed or not authorized.
-  // Keep the update ready so the user can retry.
-  if (code === 126 || code === 127) {
+  // Only 126 means the user dismissed the authorization dialog.
+  if (code === 126) {
     setUpdateState(
       nextStateFromInfo(
         'downloaded',
@@ -768,6 +768,15 @@ function handleLinuxInstallFailure(
     return
   }
 
+  if (code === 127) {
+    revealDownloadedPackage(file)
+    setUpdateState(nextStateFromInfo(
+      'error', lastInfo,
+      `Administrator authorization failed. Make sure a graphical polkit agent is running, or install the downloaded package with: ${hint}, then reopen ZenNotes.`
+    ))
+    return
+  }
+
   // dpkg/apt (or rpm/pacman) failed.
   revealDownloadedPackage(file)
   const detail = error instanceof Error ? error.message.trim() : String(error)
@@ -775,7 +784,7 @@ function handleLinuxInstallFailure(
     nextStateFromInfo(
       'error',
       lastInfo,
-      `Update install failed: ${detail || 'unknown error'}. The package is at ${file} — you can install it manually with: ${hint}.`
+      `Update install failed: ${detail || 'unknown error'}. The package is at ${file}; you can install it manually with: ${hint}.`
     )
   )
 }

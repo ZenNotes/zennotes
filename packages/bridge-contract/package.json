@@ -1,19 +1,31 @@
 {
   "name": "@zennotes/bridge-contract",
   "private": true,
-  "version": "2.46.0",
+  "version": "2.52.0",
   "type": "module",
   "exports": {
     "./bridge": "./src/bridge.ts",
     "./cloud-sync": "./src/cloud-sync.ts",
     "./ipc": "./src/ipc.ts",
     "./templates": "./src/templates.ts",
-    "./workflows": "./src/workflows.ts"
+    "./workflows": "./src/workflows.ts",
+    "./tasks": "./src/tasks.ts",
+    "./databases": "./src/databases.ts",
+    "./mcp-clients": "./src/mcp-clients.ts",
+    "./custom-themes": "./src/custom-themes.ts",
+    "./overrides": "./src/overrides.ts",
+    "./application-links": "./src/application-links.ts",
+    "./custom-code-languages": "./src/custom-code-languages.ts",
+    "./app-config": "./src/app-config.ts",
+    "./platform": "./src/platform.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc --noEmit -p tsconfig.json",
     "test": "echo 'No bridge-contract tests yet'",
     "test:run": "echo 'No bridge-contract tests yet'"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
   }
 }

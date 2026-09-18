@@ -106,7 +106,8 @@ const WEB_APP_INFO: ZenAppInfo = {
   version: appPackage.version,
   description: appPackage.description,
   homepage: appPackage.homepage,
-  runtime: 'web'
+  runtime: 'web',
+  hostKind: 'browser'
 }
 
 // Base path under which the server is mounted (e.g. "/zennotes" when
@@ -1579,6 +1580,7 @@ export const httpBridge: ZenBridge = {
   exportNoteDocx,
   revealNote,
   openExternalFile,
+  openExternalUrl: async () => ({ ok: false, error: 'desktop-only' }),
   openAssetExternally,
   fetchLinkMetadata,
   revealNoteTarget,

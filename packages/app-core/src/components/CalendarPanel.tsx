@@ -1,3 +1,4 @@
+import { runNoteLifecycleAction } from '../lib/note-lifecycle-actions'
 /**
  * Right-side calendar panel — a date navigator for daily and weekly notes,
  * modelled on Obsidian's Calendar plugin.
@@ -33,11 +34,10 @@ import {
 import { getISOWeek, getISOWeekYear } from '../lib/template-render'
 import { countWords } from '../lib/word-count'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ChevronLeftIcon, ChevronRightIcon } from './icons'
 import { confirmApp } from '../lib/confirm-requests'
-import { confirmMoveToTrash } from '../lib/confirm-trash'
-import { moveNoteToTrash } from '../lib/trash-note'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -111,7 +111,15 @@ function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean 
   return { count: Math.min(MAX_DOTS, Math.ceil(stats.words / WORDS_PER_DOT)), faint: false }
 }
 
-export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
+export function CalendarPanel({
+  note,
+  fitWidth
+}: {
+  note: NoteContent
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
+}): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
@@ -130,7 +138,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   const setPanelWidth = useStore((s) => s.setPanelWidth)
   const weekStart = useStore((s) => s.calendarWeekStart)
   const showWeekNumbers = useStore((s) => s.calendarShowWeekNumbers)
-  const { startResize } = usePanelResize(width, (px) => setPanelWidth('calendar', px))
+  const { startResize } = usePanelResize(fitWidth ?? width, (px) => setPanelWidth('calendar', px))
 
   const settings = useMemo(() => normalizeVaultSettings(vaultSettings), [vaultSettings])
   const dailyEnabled = settings.dailyNotes.enabled
@@ -388,10 +396,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   // --- Context menu --------------------------------------------------------
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
   const trashNote = useCallback(async (meta: NoteMeta) => {
-    if (!(await confirmMoveToTrash(meta.title))) return
-    await moveNoteToTrash(meta.path, {
-      temporarySession: useStore.getState().vault?.temporary === true
-    })
+    await runNoteLifecycleAction(meta.path, 'trash')
   }, [])
   const openDayMenu = useCallback(
     (e: React.MouseEvent, day: Date, iso: string) => {
@@ -853,6 +858,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
         {task.sourcePath !== (dailyByDate.get(dayIso)?.path ?? '') && (
           <span className="shrink-0 truncate text-2xs text-ink-400">{task.noteTitle}</span>
         )}
+        <CloudTaskConflictIndicator path={task.sourcePath} />
       </div>
     )
 
@@ -862,7 +868,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       data-calendar-panel
       aria-label="Calendar"
       tabIndex={0}
-      style={{ width }}
+      style={{ width: fitWidth ?? width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18 outline-none"
     >
       <PanelResizeHandle onStart={startResize} />

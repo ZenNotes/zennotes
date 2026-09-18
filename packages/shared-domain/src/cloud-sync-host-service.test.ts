@@ -27,7 +27,14 @@ function textContent(data: string): CloudSyncContent {
 function setup(vaults: CloudSyncVault[] = [], localItems: CloudSyncLocalItem[] = []) {
   let link: unknown = null
   let state: unknown = null
-  const persistence: CloudSyncHostPersistence = {
+  const retiredStates: Array<{ vaultKey: string; baseUrl: string; vaultId: string; state: unknown }> = []
+  const persistence: CloudSyncHostPersistence & {
+    retireState(vaultKey: string, baseUrl: string, vaultId: string): Promise<void>
+  } = {
+    async retireState(vaultKey, baseUrl, vaultId) {
+      if (state !== null) retiredStates.push({ vaultKey, baseUrl, vaultId, state: structuredClone(state) })
+      state = null
+    },
     async loadLink() {
       return link
     },
@@ -202,7 +209,7 @@ function setup(vaults: CloudSyncVault[] = [], localItems: CloudSyncLocalItem[] =
     ids: { itemId: () => 'item-1', operationId: () => 'operation-1' }
   })
 
-  return { client, hostVault, persistence, service }
+  return { client, hostVault, persistence, service, retiredStates }
 }
 
 describe('CloudSyncHostService', () => {
@@ -529,5 +536,90 @@ describe('CloudSyncHostService', () => {
 
     await expect(service.createBackup(hostVault)).rejects.toThrow('Resolve sync conflicts')
     expect(client.createBackup).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('CloudSyncHostService deleted vault recovery (#791)', () => {
+  const remoteVault: CloudSyncVault = {
+    id: 'vault-1', name: 'Notes', cursor: 0,
+    created_at: '2026-09-16T12:00:00.000Z', updated_at: '2026-09-16T12:00:00.000Z'
+  }
+  const missing = () => Object.assign(new Error('The requested resource was not found.'), {
+    name: 'CloudServiceRequestError', status: 404, code: 'NOT_FOUND'
+  })
+
+  it('retires a confirmed deleted association and its old cursor without applying local file changes', async () => {
+    const { service, client, persistence, hostVault } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    await service.sync(hostVault)
+    expect(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id)).not.toBeNull()
+    const apply = vi.spyOn(hostVault.repository, 'apply')
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockRejectedValue(missing())
+
+    await expect(service.sync(hostVault)).rejects.toThrow()
+
+    expect(await service.linkedVault(hostVault)).toBeNull()
+    expect(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id)).toBeNull()
+    expect(apply).not.toHaveBeenCalled()
+    expect(client.deleteVault).not.toHaveBeenCalled()
+    expect((await service.serviceAccount()).user.email).toBe('ada@example.com')
+  })
+
+  it('archives the full conflict state including an unsent merge draft before retiring it', async () => {
+    const local = textContent('local version')
+    const cloud = textContent('cloud version')
+    const { service, client, persistence, hostVault, retiredStates } = setup(
+      [remoteVault], [{ path: 'Note.md', kind: 'text', content: local }]
+    )
+    client.manifest.mockResolvedValue({
+      data: [{ item_id: 'item-1', path: 'Note.md', kind: 'text', revision: 2,
+        sha256: cloud.sha256, byte_length: cloud.byte_length, media_type: cloud.media_type, content: cloud }],
+      cursor: 1, next_page: null
+    })
+    await service.link(hostVault, remoteVault.id)
+    const conflict = (await service.sync(hostVault)).pending_conflicts![0]!
+    const draft = 'Unsent merge draft\r\nKeep every byte 📝\r\n'
+    await service.saveConflictDraft(hostVault, conflict.id, draft)
+    const state = structuredClone(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id))
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockRejectedValue(missing())
+
+    await expect(service.sync(hostVault)).rejects.toThrow()
+
+    expect(retiredStates).toEqual([{ vaultKey: hostVault.key, baseUrl: 'https://zennotes.org', vaultId: remoteVault.id, state }])
+    expect((retiredStates[0]!.state as CloudSyncState).pending_conflicts![conflict.id]!.draft_text).toBe(draft)
+    expect(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id)).toBeNull()
+    expect(await service.linkedVault(hostVault)).toBeNull()
+  })
+
+  it('keeps the link and active state if the recovery archive cannot be written', async () => {
+    const { service, client, persistence, hostVault, retiredStates } = setup([remoteVault])
+    const link = await service.link(hostVault, remoteVault.id)
+    await service.sync(hostVault)
+    const state = structuredClone(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id))
+    const retire = vi.spyOn(persistence, 'retireState').mockRejectedValue(new Error('Storage full'))
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockRejectedValue(missing())
+
+    await expect(service.sync(hostVault)).rejects.toThrow()
+
+    expect(retire).toHaveBeenCalledWith(hostVault.key, 'https://zennotes.org', remoteVault.id)
+    expect(await service.linkedVault(hostVault)).toEqual(link)
+    expect(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id)).toEqual(state)
+    expect(retiredStates).toEqual([])
+  })
+
+  it('keeps the association when the same 404 is for a resource inside a surviving vault', async () => {
+    const { service, client, hostVault } = setup([remoteVault])
+    const link = await service.link(hostVault, remoteVault.id)
+    await service.sync(hostVault)
+    client.changes.mockRejectedValue(missing())
+    client.manifest.mockResolvedValue({ data: [], cursor: 0, next_page: null })
+
+    await expect(service.sync(hostVault)).rejects.toThrow()
+
+    expect(await service.linkedVault(hostVault)).toEqual(link)
   })
 })

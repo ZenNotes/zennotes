@@ -20,14 +20,5 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
-        window.addEventListener('load', () => {
-          // Use a relative URL so the SW scope matches the (possibly
-          // prefixed) deployment, e.g. /zennotes/sw.js → scope /zennotes/.
-          navigator.serviceWorker.register('sw.js').catch(() => {})
-        })
-      }
-    </script>
   </body>
 </html>

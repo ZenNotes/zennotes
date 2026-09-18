@@ -1,6 +1,8 @@
 // Shared IPC channel names and types between main + renderer.
 // Keeping these in one file gives us a single source of truth.
 
+import type { ZenPlatform } from './platform.js'
+
 export const IPC = {
   WORKSPACE_GET_INFO: 'workspace:get-info',
   WORKSPACE_CONNECT_REMOTE: 'workspace:connect-remote',
@@ -97,6 +99,7 @@ export const IPC = {
   APP_LIST_FONTS: 'app:list-fonts',
   APP_ICON_DATA_URL: 'app:icon-data-url',
   APP_OPEN_SETTINGS: 'app:open-settings',
+  APP_OPEN_EXTERNAL_URL: 'app:open-external-url',
   APP_OPEN_NOTE_REQUESTED: 'app:open-note-requested',
   APP_FRAME_ESCAPE: 'app:frame-escape',
   APP_RENDERER_READY: 'app:renderer-ready',
@@ -125,6 +128,10 @@ export const IPC = {
   CLOUD_VAULT_LINK_DELETE: 'cloud-vault-link:delete',
   CLOUD_VAULT_DELETE: 'cloud-vault:delete',
   CLOUD_VAULT_SYNC: 'cloud-vault:sync',
+  CLOUD_VAULT_HAS_CHANGES: 'cloud-vault:has-changes',
+  CLOUD_VAULT_SYNC_WINDOW: 'cloud-vault:sync-window',
+  CLOUD_VAULT_SYNC_WINDOW_ACK: 'cloud-vault:sync-window-ack',
+  CLOUD_VAULT_CONFLICT_REVIEW_RELEASE: 'cloud-vault:conflict-review-release',
   CLOUD_VAULT_BOOTSTRAP_CONFLICT_GET: 'cloud-vault-bootstrap-conflict:get',
   CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE: 'cloud-vault-bootstrap-conflict:resolve',
   CLOUD_VAULT_CONFLICT_GET: 'cloud-vault-conflict:get',
@@ -197,7 +204,12 @@ export const IPC = {
   // Per-vault workspace state (open tabs, layout, cursor) persisted to
   // <vault>/.zennotes/workspace.json so it syncs with the vault. (#292)
   WORKSPACE_STATE_READ: 'workspace-state:read',
-  WORKSPACE_STATE_WRITE: 'workspace-state:write'
+  WORKSPACE_STATE_WRITE: 'workspace-state:write',
+  // Per-note undo history kept between launches, in the app's own user-data
+  // folder and never in the vault (Vim's `undofile`). (#793)
+  UNDO_HISTORY_READ: 'undo-history:read',
+  UNDO_HISTORY_WRITE: 'undo-history:write',
+  UNDO_HISTORY_CLEAR: 'undo-history:clear'
 } as const
 
 export interface TikzRenderResponse {
@@ -214,10 +226,27 @@ export type AppUpdatePhase =
   | 'not-available'
   | 'downloading'
   | 'downloaded'
+  | 'installing'
   | 'error'
 
-/** Where on disk the `zen` shim is currently installed (or could be). */
+export interface CliInstallRequest {
+  /** Main-issued approval for a specific dangling historical shortcut. */
+  repairToken: string
+}
+
+/** Where on disk the `zn` shim is currently installed (or could be). */
 export interface CliInstallStatus {
+  /** Runtime supplied by this desktop build or its retained managed install. */
+  runtime?: 'go' | 'node'
+  runtimeVersion?: string
+  runtimeError?: string
+  /** Offered only for a missing historical app target without an ownership receipt. */
+  repair?: {
+    token: string
+    oldTarget: string
+    newTarget: string
+    backupPath: string
+  }
   /** True if the wrapper script is shipped with this build. False in
    *  dev runs where electron-vite has not bundled the CLI yet. */
   available: boolean
@@ -768,7 +797,7 @@ export interface LocalVaultEntry extends VaultInfo {
 
 export interface ServerCapabilities {
   version: string
-  platform: NodeJS.Platform
+  platform: ZenPlatform
   authRequired: boolean
   supportsSessionLogin: boolean
   browseRootsEnforced: boolean

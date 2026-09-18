@@ -198,6 +198,92 @@ describe('#202 — store keeps each note its own content during navigation', () 
 // editor applied it as a non-undoable doc swap, and persistNote had already
 // cleared the dirty flag so the follow-up save bailed instead of healing disk.
 describe('#585 — dirty buffers survive watcher change events', () => {
+  it('ignores an older watcher read when a later event restores the starting content', async () => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, target)
+    let readStarted!: () => void
+    const started = new Promise<void>((resolve) => { readStarted = resolve })
+    let releaseRead!: () => void
+    const pending = new Promise<void>((resolve) => { releaseRead = resolve })
+    const zen = window.zen as unknown as { readNote: (path: string) => Promise<unknown> }
+    let reads = 0
+    zen.readNote = async () => {
+      if (++reads === 1) {
+        readStarted()
+        await pending
+        return { ...meta(target, 'STALE CLOUD CONTENT'), body: 'STALE CLOUD CONTENT' }
+      }
+      return { ...meta(target, 'INDEX_BODY'), body: 'INDEX_BODY' }
+    }
+    const event = { kind: 'change' as const, path: target, folder: 'inbox' as const, scope: 'content' as const }
+    const earlier = useStore.getState().applyChange(event)
+    await started
+    await useStore.getState().applyChange(event)
+    releaseRead()
+    await earlier
+
+    expect(useStore.getState().activeNote?.body).toBe('INDEX_BODY')
+    expect(useStore.getState().noteContents[target]?.body).toBe('INDEX_BODY')
+    expect(writeCalls).toEqual([])
+  })
+
+  it.each([
+    { saved: 'NEW LOCAL CONTENT', stale: 'INDEX_BODY' },
+    { saved: 'INDEX_BODY', stale: 'STALE CLOUD CONTENT' }
+  ])('ignores a delayed watcher read after saving $saved', async ({ saved, stale }) => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, target)
+    let readStarted!: () => void
+    const started = new Promise<void>((resolve) => { readStarted = resolve })
+    let releaseRead!: () => void
+    const pending = new Promise<void>((resolve) => { releaseRead = resolve })
+    const zen = window.zen as unknown as { readNote: (path: string) => Promise<unknown> }
+    zen.readNote = async () => {
+      readStarted()
+      await pending
+      return { ...meta(target, stale), body: stale }
+    }
+    const change = useStore.getState().applyChange({ kind: 'change', path: target, folder: 'inbox', scope: 'content' })
+    await started
+    useStore.getState().updateNoteBody(target, 'INTERMEDIATE LOCAL CONTENT')
+    await useStore.getState().persistNote(target)
+    useStore.getState().updateNoteBody(target, saved)
+    await useStore.getState().persistNote(target)
+    releaseRead()
+    await change
+
+    expect(useStore.getState().activeNote?.body).toBe(saved)
+    expect(useStore.getState().noteContents[target]?.body).toBe(saved)
+    expect(vault.get(target)).toBe(saved)
+    expect(useStore.getState().noteDirty[target]).toBe(false)
+  })
+
+  it.each(['change', 'add'] as const)('refreshes a clean note restored to an earlier local save (%s)', async (kind) => {
+    const { useStore } = await loadStore()
+    seedRootVault(useStore)
+    const target = 'index.md'
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, target)
+    useStore.getState().updateNoteBody(target, 'SAVED BACKUP CONTENT')
+    await useStore.getState().persistNote(target)
+
+    // Another device edits the note; restoring a backup later brings back
+    // bytes this renderer once wrote, but that is no longer a save echo.
+    vault.set(target, 'NEWER CLOUD CONTENT')
+    await useStore.getState().applyChange({ kind, path: target, folder: 'inbox', scope: 'content' })
+    expect(useStore.getState().noteContents[target]?.body).toBe('NEWER CLOUD CONTENT')
+    vault.set(target, 'SAVED BACKUP CONTENT')
+    await useStore.getState().applyChange({ kind, path: target, folder: 'inbox', scope: 'content' })
+
+    expect(useStore.getState().noteContents[target]?.body).toBe('SAVED BACKUP CONTENT')
+    expect(useStore.getState().activeNote?.body).toBe('SAVED BACKUP CONTENT')
+    expect(useStore.getState().noteDirty[target]).toBe(false)
+    expect(writeCalls).toEqual([{ path: target, body: 'SAVED BACKUP CONTENT' }])
+  })
+
   it('a change event delivering a truncated read never clobbers unsaved edits', async () => {
     const { useStore } = await loadStore()
     seedRootVault(useStore)

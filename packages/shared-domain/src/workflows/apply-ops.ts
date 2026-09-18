@@ -233,7 +233,7 @@ interface CodeMap {
  *
  * The state machine is lifted from `stripCodeContent` (packages/app-core/src/
  * lib/tags.ts, apps/desktop/src/main/vault.ts, apps/desktop/src/mcp/vault-ops.ts
- * and apps/server/internal/vault/parse.go all carry a copy) so that a `#tag`
+ * and internal/vault/parse.go in ZenNotes/znserver all carry a copy) so that a `#tag`
  * this module writes, and a `#tag` the vault's indexer reads, can never disagree
  * about what is code. It returns per-line flags instead of a blanked string
  * because we edit the original bytes and therefore need offsets to survive.

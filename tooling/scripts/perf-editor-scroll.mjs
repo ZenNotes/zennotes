@@ -30,10 +30,12 @@ import zlib from 'node:zlib'
 import { randomFillSync } from 'node:crypto'
 import WebSocket from 'ws'
 
-const require = createRequire(import.meta.url)
-const electronPath = require('electron')
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
+// electron is a dependency of the desktop workspace, not of the repo root;
+// hoisting is not a contract, so resolve it from where it is declared.
+const requireDesktop = createRequire(resolve(repoRoot, 'apps/desktop/package.json'))
+const electronPath = requireDesktop('electron')
 const desktopOutMain = resolve(repoRoot, 'apps/desktop/out/main/index.js')
 const outPath = process.argv[2] || process.env.ZEN_EDITOR_PERF_OUT || join(scriptDir, 'perf-editor-scroll.json')
 const LINES = Number(process.env.ZEN_EDITOR_PERF_LINES || 700)

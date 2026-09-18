@@ -37,7 +37,7 @@ export function extractTags(body: string): string[] {
  * tag. Fence detection is line-based and indentation-tolerant: a fence nested
  * under a list item is still a code block, so e.g. a C `#include` line inside
  * it is not a tag (#293). Mirrors `stripCodeContent` in
- * apps/desktop/src/main/vault.ts and apps/server/internal/vault/parse.go —
+ * apps/desktop/src/main/vault.ts and internal/vault/parse.go in ZenNotes/znserver —
  * keep the three in sync.
  */
 function stripCodeContent(body: string): string {

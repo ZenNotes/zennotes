@@ -28,6 +28,8 @@ import type {
   CloudSyncPendingConflictDetails,
   CloudSyncPendingConflictResolution,
   CloudSyncRunSummary,
+  CloudSyncWindowEvent,
+  CloudSyncWindowHandlers,
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
   CloudSyncVault,
@@ -45,6 +47,7 @@ import type {
 } from '@zennotes/bridge-contract/workflows'
 import { IPC } from '@shared/ipc'
 import type { AppConfigPortable } from '@shared/app-config'
+import type { ExternalUrlResult } from '@shared/application-links'
 import type { CustomTheme } from '@shared/custom-themes'
 import type { Override } from '@shared/overrides'
 import type {
@@ -56,6 +59,7 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CliInstallRequest,
   DeletedAsset,
   DirectoryBrowseResult,
   ExternalFileContent,
@@ -111,7 +115,8 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsCliInstall: process.platform === 'darwin' || process.platform === 'linux',
   supportsCustomTemplates: true,
   supportsCustomCodeLanguages: true,
-  supportsWorkflows: true
+  supportsWorkflows: true,
+  supportsUndoFile: true
 }
 
 const DESKTOP_APP_INFO: ZenAppInfo = {
@@ -120,7 +125,8 @@ const DESKTOP_APP_INFO: ZenAppInfo = {
   version: appPackage.version,
   description: appPackage.description,
   homepage: appPackage.homepage,
-  runtime: 'desktop'
+  runtime: 'desktop',
+  hostKind: 'desktop'
 }
 
 let remoteWorkspaceInfo: RemoteWorkspaceInfo | null = null
@@ -256,6 +262,30 @@ const api: ZenBridge = {
   unlinkCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_DELETE),
   deleteCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_DELETE),
   syncCloudVault: (): Promise<CloudSyncRunSummary> => ipcRenderer.invoke(IPC.CLOUD_VAULT_SYNC),
+  hasCloudVaultChanges: (): Promise<boolean> => ipcRenderer.invoke(IPC.CLOUD_VAULT_HAS_CHANGES),
+  onCloudSyncWindow: (handlers: CloudSyncWindowHandlers): (() => void) => {
+    const active = new Set<string>()
+    const listener = (_event: Electron.IpcRendererEvent, event: CloudSyncWindowEvent): void => {
+      if (event.phase === 'finished') {
+        if (active.delete(event.requestId)) handlers.finished(event.summary, event.error)
+        return
+      }
+      active.add(event.requestId)
+      void Promise.resolve().then(() => handlers.prepare()).then(
+        () => ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, event.requestId, null),
+        () => ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, event.requestId,
+          'A review draft could not be saved in another window. Sync paused; try again.')
+      )
+    }
+    ipcRenderer.on(IPC.CLOUD_VAULT_SYNC_WINDOW, listener)
+    return () => {
+      for (const requestId of active) {
+        ipcRenderer.send(IPC.CLOUD_VAULT_SYNC_WINDOW_ACK, requestId, 'The vault window changed during sync preparation.')
+      }
+      active.clear()
+      ipcRenderer.removeListener(IPC.CLOUD_VAULT_SYNC_WINDOW, listener)
+    }
+  },
   getCloudBootstrapConflict: (
     conflict: CloudSyncBootstrapConflict
   ): Promise<CloudSyncBootstrapConflictDetails> =>
@@ -264,8 +294,10 @@ const api: ZenBridge = {
     resolution: CloudSyncBootstrapConflictResolution
   ): Promise<void> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_BOOTSTRAP_CONFLICT_RESOLVE, resolution),
-  getCloudConflict: (conflictId: string): Promise<CloudSyncPendingConflictDetails> =>
-    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_GET, conflictId),
+  getCloudConflict: (conflictId: string, reviewId?: string): Promise<CloudSyncPendingConflictDetails> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_GET, conflictId, reviewId),
+  releaseCloudConflictReview: (conflictId: string, reviewId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_REVIEW_RELEASE, conflictId, reviewId),
   saveCloudConflictDraft: (conflictId: string, draftText: string | null): Promise<void> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_CONFLICT_DRAFT_SAVE, conflictId, draftText),
   resolveCloudConflict: (resolution: CloudSyncPendingConflictResolution): Promise<void> =>
@@ -391,6 +423,11 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.WORKSPACE_STATE_READ),
   writeWorkspaceState: (json: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_STATE_WRITE, json),
+  readNoteUndoHistory: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.UNDO_HISTORY_READ, path),
+  writeNoteUndoHistory: (path: string, json: string | null): Promise<void> =>
+    ipcRenderer.invoke(IPC.UNDO_HISTORY_WRITE, path, json),
+  clearNoteUndoHistories: (): Promise<void> => ipcRenderer.invoke(IPC.UNDO_HISTORY_CLEAR),
   rootContentHiddenByInboxMode: (): Promise<boolean> =>
     ipcRenderer.invoke(IPC.VAULT_ROOT_CONTENT_HIDDEN),
 
@@ -503,6 +540,8 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_REVEAL_NOTE_TARGET, relPath),
   revealFilePath: (absPath: string): Promise<void> =>
     ipcRenderer.invoke(IPC.VAULT_REVEAL_FILE_PATH, absPath),
+  openExternalUrl: (url: string): Promise<ExternalUrlResult> =>
+    ipcRenderer.invoke(IPC.APP_OPEN_EXTERNAL_URL, url),
   openExternalFile: (href: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.VAULT_OPEN_EXTERNAL_FILE, href),
   openAssetExternally: (relPath: string): Promise<{ ok: boolean; error?: string }> =>
@@ -659,7 +698,8 @@ const api: ZenBridge = {
   mcpSetInstructions: (next: string | null): Promise<McpInstructionsPayload> =>
     ipcRenderer.invoke(IPC.MCP_SET_INSTRUCTIONS, next),
   cliGetStatus: (): Promise<CliInstallStatus> => ipcRenderer.invoke(IPC.CLI_GET_STATUS),
-  cliInstall: (): Promise<CliInstallStatus> => ipcRenderer.invoke(IPC.CLI_INSTALL),
+  cliInstall: (request?: CliInstallRequest): Promise<CliInstallStatus> =>
+    ipcRenderer.invoke(IPC.CLI_INSTALL, request),
   cliUninstall: (): Promise<CliInstallStatus> => ipcRenderer.invoke(IPC.CLI_UNINSTALL),
   raycastGetStatus: (): Promise<RaycastExtensionStatus> =>
     ipcRenderer.invoke(IPC.RAYCAST_GET_STATUS),

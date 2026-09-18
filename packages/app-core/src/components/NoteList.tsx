@@ -1,3 +1,4 @@
+import { runNoteLifecycleAction, runEmptyTrash } from '../lib/note-lifecycle-actions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -14,7 +15,6 @@ import {
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { ResizeHandle } from './ResizeHandle'
 import { Button, IconButton } from './ui/Button'
-import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
 import { naturalCompare } from '../lib/natural-sort'
 import { extractTags } from '../lib/tags'
@@ -82,6 +82,8 @@ export function NoteList(): JSX.Element {
   const toggleNoteList = useStore((s) => s.toggleNoteList)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const refreshAssets = useStore((s) => s.refreshAssets)
+  const renameAsset = useStore((s) => s.renameAsset)
+  const moveAsset = useStore((s) => s.moveAsset)
   const deleteAssetAction = useStore((s) => s.deleteAsset)
   const noteListWidth = useStore((s) => s.noteListWidth)
   const setNoteListWidth = useStore((s) => s.setNoteListWidth)
@@ -153,8 +155,7 @@ export function NoteList(): JSX.Element {
     return () => observer.disconnect()
   }, [])
   const emptyTrash = async (): Promise<void> => {
-    await window.zen.emptyTrash()
-    await useStore.getState().refreshNotes()
+    await runEmptyTrash()
   }
 
   const menuItems = useMemo<ContextMenuItem[]>(() => {
@@ -176,21 +177,13 @@ export function NoteList(): JSX.Element {
       await navigator.clipboard.writeText(`[[${n.title}]]`)
     }
     const onArchive = async (): Promise<void> => {
-      if (!(await useStore.getState().confirmArchiveNotes([n.path]))) return
-      await window.zen.archiveNote(n.path)
-      await refreshNotes()
-      if (selectedPath === n.path) await selectNote(null)
+      await runNoteLifecycleAction(n.path, 'archive')
     }
     const onUnarchive = async (): Promise<void> => {
-      const meta = await window.zen.unarchiveNote(n.path)
-      await refreshNotes()
-      if (selectedPath === n.path) await selectNote(meta.path)
+      await runNoteLifecycleAction(n.path, 'restore')
     }
     const onTrash = async (): Promise<void> => {
-      if (!(await confirmMoveToTrash(n.title))) return
-      await window.zen.moveToTrash(n.path)
-      await refreshNotes()
-      if (selectedPath === n.path) await selectNote(null)
+      await runNoteLifecycleAction(n.path, 'trash')
     }
     const onMove = async (): Promise<void> => {
       const target = await promptApp(buildMoveNotePrompt(n, folders))
@@ -199,14 +192,10 @@ export function NoteList(): JSX.Element {
       await moveNote(n.path, dest.folder, dest.subpath)
     }
     const onRestore = async (): Promise<void> => {
-      const meta = await window.zen.restoreFromTrash(n.path)
-      await refreshNotes()
-      if (selectedPath === n.path) await selectNote(meta.path)
+      await runNoteLifecycleAction(n.path, 'restore')
     }
     const onDeleteForever = async (): Promise<void> => {
-      await window.zen.deleteNote(n.path)
-      await refreshNotes()
-      if (selectedPath === n.path) await selectNote(null)
+      await runNoteLifecycleAction(n.path, 'delete')
     }
     const onNew = async (): Promise<void> => {
       await useStore
@@ -350,8 +339,7 @@ export function NoteList(): JSX.Element {
             }
           })
           if (!next || next === asset.name) return
-          await window.zen.renameAsset(asset.path, next)
-          await refreshAssets()
+          await renameAsset(asset.path, next)
         }
       })
       items.push({
@@ -374,8 +362,7 @@ export function NoteList(): JSX.Element {
             }
           })
           if (target === null || target === currentDir) return
-          await window.zen.moveAsset(asset.path, target)
-          await refreshAssets()
+          await moveAsset(asset.path, target)
         }
       })
       items.push({

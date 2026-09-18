@@ -16,6 +16,7 @@ import {
   resolveAssetVaultRelativePath,
   resolveLocalAssetUrl
 } from './local-assets'
+import { isResolvedMarkdownLink, terminatedLinkTailEnd } from './cm-markdown-links'
 import { parseBlockAnchors } from './block-anchors'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
@@ -176,34 +177,6 @@ function enclosingLinkRange(ref: SyntaxNodeRefLike): { from: number; to: number 
  * CommonMark's balanced-paren destinations, so a URL like
  * `https://en.wikipedia.org/wiki/Foo_(bar` still counts as unterminated.
  */
-/**
- * The end offset of a balanced `(target)` sitting immediately after a `Link`
- * node, or null when there is none. This is the parser-rejected-destination
- * case (#617): CommonMark refuses an unescaped space in `[text](My Note.md)`,
- * so the `Link` node ends at `]` and the target trails as plain text. The
- * click/gd path (`markdownLinkAt`) accepts those targets, so rendering must
- * treat the whole span as one link too.
- */
-function terminatedLinkTailEnd(state: EditorView['state'], linkTo: number): number | null {
-  if (state.doc.sliceString(linkTo, linkTo + 1) !== '(') return null
-  const line = state.doc.lineAt(linkTo)
-  const rest = state.doc.sliceString(linkTo, line.to)
-  let depth = 0
-  for (let i = 0; i < rest.length; i++) {
-    const ch = rest[i]
-    if (ch === '\\') {
-      i += 1
-      continue
-    }
-    if (ch === '(') depth += 1
-    else if (ch === ')') {
-      depth -= 1
-      if (depth === 0) return i > 1 ? linkTo + i + 1 : null
-    }
-  }
-  return null
-}
-
 function hasUnterminatedLinkTarget(state: EditorView['state'], linkTo: number): boolean {
   if (state.doc.sliceString(linkTo, linkTo + 1) !== '(') return false
   const line = state.doc.lineAt(linkTo)
@@ -1446,6 +1419,12 @@ function computeDecorations(view: EditorView): DecorationSet {
         // makes the definition read as a broken `[label] url`. (#188)
         if (name === 'LinkMark' && node.node.parent?.name === 'LinkReference') return
 
+        if (name === 'LinkMark') {
+          const parent = node.node.parent
+          if (parent && (parent.name === 'Link' || parent.name === 'Image') &&
+              !isResolvedMarkdownLink(state, parent)) return
+        }
+
         const line = state.doc.lineAt(node.from).number
         if (replacedLines.has(line)) return
         if (isLinkSyntax) {
@@ -1577,6 +1556,7 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
         update.selectionSet ||
         update.viewportChanged ||
         update.focusChanged ||
+        syntaxTree(update.startState) !== syntaxTree(update.state) ||
         externalRefresh
       ) {
         this.decorations = computeDecorations(update.view)

@@ -1,3 +1,4 @@
+import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, moveWithCreationMetadata } from '../main/note-creation-metadata'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
  * behavior of src/main/vault.ts, but without Electron dependencies —
@@ -615,7 +616,7 @@ async function folderOf(root: string, abs: string): Promise<NoteFolder | null> {
  * nested under a list item is still a code block (#293). Mirrors
  * `stripCodeContent` in apps/desktop/src/main/vault.ts,
  * packages/app-core/src/lib/{tags,wikilinks}.ts, and
- * apps/server/internal/vault/parse.go — keep all five in sync.
+ * internal/vault/parse.go in ZenNotes/znserver — keep all five in sync.
  */
 function stripCodeContent(body: string): string {
   if (!body.includes('`') && !body.includes('~')) return body
@@ -711,7 +712,7 @@ async function readMeta(root: string, abs: string, folder: NoteFolder): Promise<
     link: buildOpenNoteDeepLink(rel),
     title: path.basename(abs, path.extname(abs)),
     folder,
-    createdAt: stat.birthtimeMs || stat.ctimeMs,
+    createdAt: await readNoteCreatedAt(root, rel, stat.birthtimeMs || stat.ctimeMs),
     updatedAt: stat.mtimeMs,
     size: stat.size,
     tags: isPreamble ? [] : extractTags(body),
@@ -885,6 +886,7 @@ export async function readNote(root: string, rel: string): Promise<NoteContent> 
 export async function writeNote(root: string, rel: string, body: string): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, body, 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -911,6 +913,7 @@ export async function readVaultFileTextOrNull(root: string, rel: string): Promis
 export async function writeVaultFileText(root: string, rel: string, text: string): Promise<void> {
   const abs = resolveSafe(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, text, 'utf8')
 }
 
@@ -971,6 +974,7 @@ export async function createNote(
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
   const content = body ?? `# ${finalTitle}\n\n`
+  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, content, 'utf8')
   return await readMeta(root, abs, folder)
 }
@@ -994,10 +998,10 @@ export async function renameNote(root: string, rel: string, nextTitle: string): 
     }
     if (abs.toLowerCase() === target.toLowerCase() && abs !== target) {
       const tmp = abs + '_rename_tmp_' + Date.now()
-      await fs.rename(abs, tmp)
-      await fs.rename(tmp, target)
+      await moveWithCreationMetadata(root, abs, tmp)
+      await moveWithCreationMetadata(root, tmp, target)
     } else {
-      await fs.rename(abs, target)
+      await moveWithCreationMetadata(root, abs, target)
     }
   }
   await syncTitleHeading(abs, target, trimmed)
@@ -1059,7 +1063,7 @@ async function moveBetweenFolders(
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}.md`)
-  await fs.rename(abs, destAbs)
+  await moveWithCreationMetadata(root, abs, destAbs)
   return await readMeta(root, destAbs, target)
 }
 
@@ -1091,7 +1095,7 @@ export async function moveNote(
   const baseTitle = path.basename(filename, ext)
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}${ext}`)
-  await fs.rename(oldAbs, destAbs)
+  await moveWithCreationMetadata(root, oldAbs, destAbs)
   return await readMeta(root, destAbs, targetFolder)
 }
 
@@ -1105,6 +1109,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
   const copyTitle = await uniqueTitle(dir, `${baseTitle} copy`)
   const destAbs = path.join(dir, `${copyTitle}${ext}`)
   const body = await fs.readFile(abs, 'utf8')
+  await removeNoteCreation(root, toPosix(path.relative(root, destAbs)))
   await fs.writeFile(destAbs, body, 'utf8')
   return await readMeta(root, destAbs, folder)
 }
@@ -1112,6 +1117,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
 export async function deleteNote(root: string, rel: string): Promise<void> {
   const abs = resolveSafe(root, rel)
   await fs.rm(abs, { force: true })
+  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
 }
 
 export async function emptyTrash(root: string): Promise<void> {
@@ -1119,6 +1125,7 @@ export async function emptyTrash(root: string): Promise<void> {
   try {
     const entries = await fs.readdir(trashDir)
     await Promise.all(entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true })))
+    await removeNoteCreation(root, toPosix(path.relative(root, trashDir)), true)
   } catch {
     /* no trash dir */
   }
@@ -1153,7 +1160,7 @@ export async function renameFolder(
     throw new Error('Cannot move a folder into itself')
   }
   await fs.mkdir(path.dirname(newAbs), { recursive: true })
-  await fs.rename(oldAbs, newAbs)
+  await moveWithCreationMetadata(root, oldAbs, newAbs, true)
   return newClean
 }
 
@@ -1167,6 +1174,7 @@ export async function deleteFolder(
   const folderAbs = await folderRoot(root, topFolder)
   const abs = resolveSafe(folderAbs, clean)
   await fs.rm(abs, { recursive: true, force: true })
+  await removeNoteCreation(root, toPosix(path.relative(root, abs)), true)
 }
 
 /* ---------- Text search ---------------------------------------------- */
@@ -1675,6 +1683,7 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
     const current = parseTaskFile(body, ctx, { includeExcluded: true })
     if (!current) return null
     const next = toggleFileTaskInBody(body, current.checked)
+    await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
     await fs.writeFile(abs, next, 'utf8')
     return parseTaskFile(next, ctx, { includeExcluded: true })
   }
@@ -1684,6 +1693,7 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
   const body = await fs.readFile(abs, 'utf8')
   const newBody = toggleTaskInBody(body, targetIndex)
   if (newBody == null) return null
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, newBody, 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -1812,6 +1822,7 @@ export function appendToBody(body: string, text: string): string {
 export async function appendToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, appendToBody(body, text), 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -1830,6 +1841,7 @@ export function prependToBody(body: string, text: string): string {
 export async function prependToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, prependToBody(body, text), 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -1878,6 +1890,7 @@ export async function replaceInNote(
     if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
     return { meta: await readMeta(root, abs, folder), replacements: 0 }
   }
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, next, 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
@@ -1892,6 +1905,7 @@ export async function insertAtLine(
 ): Promise<NoteMeta> {
   const abs = resolveSafe(root, rel)
   const body = await fs.readFile(abs, 'utf8')
+  await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, insertAtLineInBody(body, lineNumber, text), 'utf8')
   const folder = await folderOf(root, abs)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)

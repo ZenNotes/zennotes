@@ -56,6 +56,20 @@ describe('renderMarkdown', () => {
     expect(html).toContain('^Z2')
   })
 
+  it('preserves application links through preview sanitization', () => {
+    const url = 'zotero://open-pdf/library/items/W78FUE98?page=3#annotation=ABC'
+    const html = renderMarkdown(`[Paper](${url})`)
+    expect(html).toContain(`href="${url}"`)
+    expect(html).toContain('Paper</a>')
+  })
+
+  it('never extends application URL support to resource attributes', () => {
+    const html = renderMarkdown('<img src="zotero://open-pdf/item"><a href="javascript:alert(1)">bad</a><a href="obsidian://open?vault=Work">good</a>')
+    expect(html).not.toContain('src="zotero:')
+    expect(html).not.toContain('javascript:')
+    expect(html).toContain('href="obsidian://open?vault=Work"')
+  })
+
   it('sanitizes raw HTML and javascript URLs', () => {
     const html = renderMarkdown(
       [

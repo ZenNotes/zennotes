@@ -1,7 +1,7 @@
 // Shared note-template contract types. Lives in bridge-contract because both
 // the main process (custom-template CRUD over IPC) and the renderer (palette,
 // substitution) need this shape, and the IPC bridge return types reference it.
-import type { NoteFolder } from './ipc'
+import type { NoteFolder } from './ipc.js'
 
 export type TemplateCategory = 'Engineering' | 'Personal' | 'Custom'
 

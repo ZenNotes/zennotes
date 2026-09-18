@@ -232,8 +232,8 @@ describe('CloudSyncApiClient', () => {
     const payload = JSON.stringify({ ...input, tikz_svgs: [], asset_refs: [] })
     expect(requests).toEqual([
       { method: 'GET', path: '/api/v1/shares' },
-      { method: 'POST', path: '/api/v1/shares', body: { payload } },
-      { method: 'PUT', path: '/api/v1/shares/42', body: { payload } },
+      { method: 'POST', path: '/api/v1/shares', body: { payload }, timeoutMs: 300_000 },
+      { method: 'PUT', path: '/api/v1/shares/42', body: { payload }, timeoutMs: 300_000 },
       { method: 'DELETE', path: '/api/v1/shares/42' }
     ])
   })

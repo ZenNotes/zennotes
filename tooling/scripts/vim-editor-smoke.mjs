@@ -21,10 +21,12 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 
-const require = createRequire(import.meta.url)
-const electronPath = require('electron')
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
+// electron is a dependency of the desktop workspace, not of the repo root;
+// hoisting is not a contract, so resolve it from where it is declared.
+const requireDesktop = createRequire(resolve(repoRoot, 'apps/desktop/package.json'))
+const electronPath = requireDesktop('electron')
 const desktopOutMain = resolve(repoRoot, 'apps/desktop/out/main/index.js')
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const skipBuild = process.env.ZEN_VIM_EDITOR_SKIP_BUILD === '1'

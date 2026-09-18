@@ -33,10 +33,12 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 
-const require = createRequire(import.meta.url)
-const electronPath = require('electron')
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
+// electron is a dependency of the desktop workspace, not of the repo root;
+// hoisting is not a contract, so resolve it from where it is declared.
+const requireDesktop = createRequire(resolve(repoRoot, 'apps/desktop/package.json'))
+const electronPath = requireDesktop('electron')
 const desktopOutMain = resolve(repoRoot, 'apps/desktop/out/main/index.js')
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 
@@ -83,13 +85,17 @@ async function seedVault(root) {
     await Promise.all(files.slice(i, i + 100).map(([p, b]) => writeFile(p, b)))
   }
 }
-async function seedUserData(userDataRoot, vaultRoot) {
-  await mkdir(userDataRoot, { recursive: true })
+async function seedUserData(userDataRoot, configRoot, vaultRoot) {
+  await Promise.all([mkdir(userDataRoot, { recursive: true }), mkdir(configRoot, { recursive: true })])
   await writeFile(join(userDataRoot, 'zennotes.config.json'), JSON.stringify({
     workspaceMode: 'local', vaultRoot, remoteWorkspace: null, remoteWorkspaceProfileId: null,
     remoteWorkspaceProfiles: [], windowState: { x: 60, y: 60, width: 1280, height: 860, isMaximized: false },
     zoomFactor: 1, quickCaptureHotkey: ''
   }, null, 2))
+  // Portable prefs live in config.toml, outside userData. Without a config dir
+  // of its own the app reads (and would write) the developer's real one, and
+  // the j/k checks below only pass where that file happens to enable Vim.
+  await writeFile(join(configRoot, 'config.toml'), '[vim]\nenabled = true\n')
 }
 
 function getFreePort() {
@@ -170,13 +176,19 @@ async function main() {
   const tempRoot = await mkdtemp(join(tmpdir(), 'zennotes-sidebar-vim-'))
   const vaultRoot = join(tempRoot, 'vault')
   const userDataRoot = join(tempRoot, 'user-data')
+  const configRoot = join(tempRoot, 'config')
   await seedVault(vaultRoot)
-  await seedUserData(userDataRoot, vaultRoot)
+  await seedUserData(userDataRoot, configRoot, vaultRoot)
   const port = await getFreePort()
 
   const child = spawn(electronPath, [`--remote-debugging-port=${port}`, desktopOutMain], {
     cwd: repoRoot,
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', ZENNOTES_USER_DATA_PATH: userDataRoot },
+    env: {
+      ...process.env,
+      ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
+      ZENNOTES_USER_DATA_PATH: userDataRoot,
+      ZENNOTES_CONFIG_DIR: configRoot
+    },
     stdio: ['ignore', 'pipe', 'pipe']
   })
   let log = ''

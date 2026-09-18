@@ -1,3 +1,4 @@
+import { noteEditingSync, noteEditingLockExtension, refreshNoteEditingLock } from '../lib/note-lifecycle-lock'
 /**
  * Single pane of the editor split view. Each leaf in the pane-layout
  * tree renders an `EditorPane` — owning its own CodeMirror view, tab
@@ -13,7 +14,8 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-  useState
+  useState,
+  type SetStateAction
 } from 'react'
 import {
   Annotation,
@@ -38,21 +40,25 @@ import {
 } from '@codemirror/view'
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
 import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
+import { registerNoteEditor } from '../lib/note-editor-context'
+import { noteEditorHostExtension } from '../lib/editor-host'
 import {
-  history,
   historyKeymap,
   indentWithTab,
   moveLineDown,
   moveLineUp,
   redo,
+  redoDepth,
   selectAll,
-  undo
+  undo,
+  undoDepth
 } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { isImeComposing } from '../lib/ime'
 import { displayRowBoundaryKeymap } from '../lib/cm-display-row'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
+import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import {
   listIndentGuides as listIndentGuidesExt,
   listIndentWidth,
@@ -95,7 +101,7 @@ import {
 } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
-import { useStore } from '../store'
+import { MIN_RIGHT_PANEL_WIDTH, useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
@@ -105,6 +111,7 @@ import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { taskMetadataExtension } from '../lib/cm-task-metadata'
+import { liveTemplateTokenExtension } from '../lib/cm-live-template-tokens'
 import { taskRollupExtension } from '../lib/cm-task-rollup'
 import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
@@ -199,6 +206,7 @@ import {
 } from '../lib/editor-hydration'
 import { recordRendererPerf } from '../lib/perf'
 import {
+  forgetTabScroll,
   rememberTabScroll,
   recallTabScroll,
   type TabScrollPosition
@@ -268,12 +276,32 @@ import {
 import { resolveCommentAnchor, selectionToCommentAnchor } from '../lib/comments'
 import { ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT } from '../lib/keyboard-context-menu'
 import { armMiddleClickPasteGuard } from '../lib/middle-click-paste-guard'
+import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
+import {
+  followPathRewritesInNoteUndoHistories,
+  noteUndoHistoryFor,
+  noteUndoHistoryKey,
+  setAsideNoteUndoHistory
+} from '../lib/note-undo-history'
+import { noteUndoHistoryFromFile, serializeNoteUndoHistory } from '../lib/note-undo-file'
+import { latestPathRewriteSeq, pathAfterRewrites } from '../lib/path-rewrites'
+import { minimalTextChange } from '../lib/minimal-text-change'
+import {
+  MIN_NOTE_WIDTH,
+  MIN_SPLIT_NOTE_WIDTH,
+  bumpSidePanel,
+  fitSidePanels,
+  syncSidePanelRecency,
+  type SidePanelId
+} from '../lib/side-panel-fit'
+import { TuckedPanelsRail } from './TuckedPanelsRail'
 import {
   CALENDAR_PANEL_CLOSED,
   calendarPanelOnNote,
   calendarPanelOnToggle,
   type CalendarPanelState
 } from '../lib/calendar-panel-auto'
+import { usePanePanels } from '../lib/use-pane-panels'
 import {
   assetPathFromTab,
   assetTitleFromPath,
@@ -392,6 +420,7 @@ function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] 
   return [
     markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
     customCodeFenceHighlightExtension,
+    markdownLinkExtension,
     vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
     frontmatterTagExtension,
@@ -439,6 +468,8 @@ function wysiwygExtensions(
     ...hashtagExtension,
     ...taskMetadataExtension,
     ...taskRollupExtension,
+    // `{{modified_date}}` and friends read as the note's last-saved time (#784).
+    ...liveTemplateTokenExtension,
     ...highlightExtension,
     ...wikilinkRenderExtension,
     mathRenderExtension(mathRenderer, typstPreamble),
@@ -473,7 +504,6 @@ const paperHighlight = HighlightStyle.define([
   { tag: t.emphasis, class: 'tok-emphasis' },
   { tag: t.strong, class: 'tok-strong' },
   { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.link, class: 'tok-link' },
   { tag: t.url, class: 'tok-url' },
   { tag: t.monospace, class: 'tok-monospace' },
   { tag: t.quote, class: 'tok-quote' },
@@ -886,11 +916,61 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     keepViewModeAcrossNotes && paneStickyMode
       ? paneStickyMode
       : paneModeForPath(modesByPath, activeTab, defaultPaneMode)
-  const [connectionsOpen, setConnectionsOpen] = useState(false)
-  const [outlineOpen, setOutlineOpen] = useState(false)
+  // One sticky set per pane, or one per note when "Keep panels when switching
+  // notes" is off (#794). Same names and setter shape as the four `useState`s
+  // this replaced, so every toggle and auto-open below is unchanged.
+  const {
+    connections: connectionsOpen,
+    outline: outlineOpen,
+    comments: commentsOpen,
+    calendar: calendarPanel,
+    calendarAutoOpenAllowed,
+    setConnectionsOpen: setConnectionsOpenRaw,
+    setOutlineOpen: setOutlineOpenRaw,
+    setCommentsOpen: setCommentsOpenRaw,
+    setCalendarPanel: setCalendarPanelRaw
+  } = usePanePanels(paneId, activeTab)
+  // Which panel was asked for last, most recent first. In a pane too narrow
+  // for all the open panels the most recent ones are shown and the rest are
+  // tucked into a rail, see lib/side-panel-fit. (#805)
+  const [sidePanelRecency, setSidePanelRecency] = useState<SidePanelId[]>([])
+  const tuckedSidePanelsRef = useRef<readonly SidePanelId[]>([])
+  const revealSidePanel = useCallback((id: SidePanelId) => {
+    setSidePanelRecency((recency) => bumpSidePanel(recency, id))
+  }, [])
+  // Opening a panel that is already open has to bring it forward, or code that
+  // asks for a tucked panel (jumping to a comment opens Comments) would get
+  // nothing. A panel that goes from closed to open is picked up by the effect
+  // that keeps the recency in line with what is open.
+  const setConnectionsOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('connections')
+      setConnectionsOpenRaw(next)
+    },
+    [revealSidePanel, setConnectionsOpenRaw]
+  )
+  const setOutlineOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('outline')
+      setOutlineOpenRaw(next)
+    },
+    [revealSidePanel, setOutlineOpenRaw]
+  )
+  const setCommentsOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('comments')
+      setCommentsOpenRaw(next)
+    },
+    [revealSidePanel, setCommentsOpenRaw]
+  )
+  const setCalendarPanel = useCallback(
+    (next: SetStateAction<CalendarPanelState>) => {
+      if (typeof next !== 'function' && next.open) revealSidePanel('calendar')
+      setCalendarPanelRaw(next)
+    },
+    [revealSidePanel, setCalendarPanelRaw]
+  )
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
-  const [commentsOpen, setCommentsOpen] = useState(false)
-  const [calendarPanel, setCalendarPanel] = useState<CalendarPanelState>(CALENDAR_PANEL_CLOSED)
   const calendarOpen = calendarPanel.open
   // The calendar panel is a date navigator. It auto-opens while the pane shows
   // a daily/weekly note, but stays available (Obsidian-style) on any note as
@@ -969,6 +1049,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
+  // The outgoing note's history is set aside first and handed back when that
+  // note returns, see lib/note-undo-history. (#793)
   const historyCompartmentRef = useRef<Compartment | null>(null)
   const ignoreEditorScrollRef = useRef(false)
   const ignorePreviewScrollRef = useRef(false)
@@ -993,6 +1075,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    * sync effect updates it whenever we swap the view's document.
    */
   const viewPathRef = useRef<string | null>(null)
+  /** The newest entry of the store's `recentPathRewrites` this editor has
+   *  accounted for. Only newer ones can explain a path change as a rename, so
+   *  an old rename can never make a real note switch look like one. */
+  const seenPathRewriteSeqRef = useRef(0)
 
   const updateSelectionCommentAction = useCallback((view: EditorView | null = viewRef.current): void => {
     setSelectionCommentAction(view ? getSelectionCommentAction(view) : null)
@@ -1046,6 +1132,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [])
 
   const toggleConnectionsPanel = useCallback(() => {
+    // Open but tucked away: the key that would close it shows it instead.
+    if (tuckedSidePanelsRef.current.includes('connections')) {
+      revealSidePanel('connections')
+      return
+    }
     setConnectionsOpen((open) => {
       const next = !open
       if (!next) {
@@ -1056,18 +1147,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       return next
     })
-  }, [focusedPanel, setConnectionPreview, setFocusedPanel])
+  }, [focusedPanel, revealSidePanel, setConnectionPreview, setConnectionsOpen, setFocusedPanel])
+
+  // The panel shortcuts act on the note this pane is showing. On a view tab
+  // (Trash, Tasks, Help, an asset) there is no panel to see, and the toggle
+  // used to flip the pane's panels anyway, so they turned up on the next note
+  // without having been asked for. Keyed on the kind of tab, not on loaded
+  // content, so a shortcut pressed while a note is still loading is kept.
+  const panelShortcutsApply =
+    isActive && activeTab != null && !isWorkspaceVirtualTabPath(activeTab)
 
   // ⌘2 toggles the connections panel — only the active pane responds so
   // the shortcut targets the pane the user is currently working in.
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleConnectionsPanel()
     }
     window.addEventListener('zen:toggle-connections', handler)
     return () => window.removeEventListener('zen:toggle-connections', handler)
-  }, [isActive, toggleConnectionsPanel])
+  }, [panelShortcutsApply, toggleConnectionsPanel])
 
   // Mirror `set clipboard=unnamed`: when enabled, Vim yank/delete/change also
   // copy to the system clipboard, and `p` / `P` paste from it. The patch is
@@ -1080,16 +1179,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [vimYankToClipboard])
 
   const toggleOutlinePanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('outline')) return revealSidePanel('outline')
     setOutlineOpen((open) => !open)
-  }, [])
+  }, [revealSidePanel, setOutlineOpen])
 
   const toggleCommentsPanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('comments')) return revealSidePanel('comments')
     setCommentsOpen((open) => !open)
-  }, [])
+  }, [revealSidePanel, setCommentsOpen])
 
   const toggleCalendarPanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('calendar')) return revealSidePanel('calendar')
     setCalendarPanel(calendarPanelOnToggle)
-  }, [])
+  }, [revealSidePanel, setCalendarPanel])
 
 
   const applyPaneMode = useCallback((nextMode: PaneMode) => {
@@ -1124,32 +1226,32 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleOutlinePanel()
     }
     window.addEventListener('zen:toggle-outline', handler)
     return () => window.removeEventListener('zen:toggle-outline', handler)
-  }, [isActive, toggleOutlinePanel])
+  }, [panelShortcutsApply, toggleOutlinePanel])
 
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleCommentsPanel()
     }
     window.addEventListener('zen:toggle-comments', handler)
     return () => window.removeEventListener('zen:toggle-comments', handler)
-  }, [isActive, toggleCommentsPanel])
+  }, [panelShortcutsApply, toggleCommentsPanel])
 
   // `zen:toggle-calendar` — same active-pane routing as the panels above.
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleCalendarPanel()
     }
     window.addEventListener('zen:toggle-calendar', handler)
     return () => window.removeEventListener('zen:toggle-calendar', handler)
-  }, [isActive, toggleCalendarPanel])
+  }, [panelShortcutsApply, toggleCalendarPanel])
 
   // `zen:close-right-panel` — Esc (when a right panel is focused) or the
   // "Close right panel" command dismiss whichever right-hand panel is open in
@@ -1182,11 +1284,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCalendarPanel((state) =>
       calendarPanelOnNote(state, {
         isDateNote,
-        autoEnabled: autoCalendarPanel,
+        // With panels kept per note, a calendar the user closed on this note
+        // stays closed when they come back to it. (#794)
+        autoEnabled: autoCalendarPanel && calendarAutoOpenAllowed,
         available: calendarAvailable
       })
     )
-  }, [content?.path, isDateNote, autoCalendarPanel, calendarAvailable])
+  }, [content?.path, isDateNote, autoCalendarPanel, calendarAutoOpenAllowed, calendarAvailable])
 
   useEffect(() => {
     if (!isActive) return
@@ -1683,6 +1787,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         setSelectionCommentAction(null)
         const existingView = viewRef.current
         rememberCurrentTabScroll()
+        // The editor is torn down whenever the pane shows something that is
+        // not a note (Trash, Tasks, an asset), so this is a way of leaving a
+        // note too. (#793)
+        if (existingView && viewPathRef.current) {
+          setAsideNoteUndoHistory(
+            noteUndoHistoryKey(useStore.getState().vault?.root, viewPathRef.current),
+            existingView.state
+          )
+          saveNoteUndoFile(viewPathRef.current, existingView.state)
+        }
         if (
           existingView &&
           useStore.getState().editorViewRef === existingView
@@ -1728,9 +1842,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         initialBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS && !s0.livePreview
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
+      viewPathRef.current = initialPath
+      // A new editor starts on its note, so no earlier rename concerns it.
+      seenPathRewriteSeqRef.current = latestPathRewriteSeq(s0.recentPathRewrites)
+      followPathRewritesInNoteUndoHistories(s0.recentPathRewrites)
       const state = EditorState.create({
         doc: initialBody,
         extensions: [
+          noteEditingLockExtension(() => ({ vault: useStore.getState().vault, path: viewPathRef.current })),
+          noteEditorHostExtension(),
           appMarkdownSnippetExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           // No text input outside Vim insert mode, so a CJK input method
@@ -1738,7 +1858,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           vimImeGuard(
             () => useStore.getState().vimBlockImeInNormalMode && !isTouchPrimaryDevice()
           ),
-          historyCompartment.of(history()),
+          historyCompartment.of(
+            noteUndoHistoryFor(
+              initialPath ? noteUndoHistoryKey(s0.vault?.root, initialPath) : null,
+              initialBody
+            )
+          ),
           drawSelectionCompartment.of(
             drawSelection({ cursorBlinkRate: s0.cursorBlink ? 1200 : 0 })
           ),
@@ -1831,10 +1956,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   const doc = view.state.doc.toString()
                   if (event.metaKey || event.ctrlKey) {
                     const link = linkRangeAtCursor(doc, pos)
+                    // The modifier is the user's answer to "create it?": a
+                    // link at a missing note creates it at once (#768).
                     if (
                       link &&
                       pointerOverRange(view, link.from, link.to, event.clientX, event.clientY) &&
-                      followLinkTarget(link.target)
+                      followLinkTarget(link.target, { createWithoutAsking: true })
                     ) {
                       event.preventDefault()
                       return true
@@ -1986,6 +2113,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       })
       viewRef.current = view
       viewPathRef.current = initialPath
+      loadNoteUndoFile(
+        view,
+        historyCompartment,
+        initialPath,
+        () => viewRef.current === view && viewPathRef.current === initialPath
+      )
+      registerNoteEditor(view, () => viewPathRef.current, paneId)
       if (initialContent && useStore.getState().activePaneId === paneId) {
         setEditorViewRef(view)
       }
@@ -2024,6 +2158,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     ]
   )
 
+  // The note on screen is never left, so nothing above would save its undo
+  // history when the app quits. The host finishes the write after the window
+  // is gone, the same way it finishes the note saves fired from here. (#793)
+  useEffect(() => {
+    const save = (): void => {
+      const view = viewRef.current
+      if (view) saveNoteUndoFile(viewPathRef.current, view.state)
+    }
+    window.addEventListener('beforeunload', save)
+    return () => window.removeEventListener('beforeunload', save)
+  }, [])
+
   // Register our view as the focused editor whenever our pane is active.
   useEffect(() => {
     const view = viewRef.current
@@ -2053,12 +2199,41 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view) return
     const nextPath = content?.path ?? null
     const nextBody = content?.body ?? ''
-    const pathChanged = viewPathRef.current !== nextPath
+    const prevPath = viewPathRef.current
+    const pathChanged = prevPath !== nextPath
+    const vaultRoot = useStore.getState().vault?.root ?? ''
+    // A new path is not always a new note. When the note on screen was renamed
+    // or moved (or its folder was), this editor is already showing the right
+    // document, and treating it as a tab switch threw the caret to the top,
+    // reset the scroll and dropped the undo history of a note nobody left.
+    // The store logs every such rewrite in the same update that changes the
+    // path, so a path change it explains is the same note.
+    const rewrites = useStore.getState().recentPathRewrites
+    const renamed =
+      pathChanged &&
+      prevPath !== null &&
+      nextPath !== null &&
+      pathAfterRewrites(rewrites, vaultRoot, prevPath, seenPathRewriteSeqRef.current) === nextPath
+    seenPathRewriteSeqRef.current = latestPathRewriteSeq(rewrites)
+    const switched = pathChanged && !renamed
     const bodyChanged =
-      pathChanged ||
+      switched ||
       view.state.doc.length !== nextBody.length ||
       view.state.doc.toString() !== nextBody
     if (!pathChanged && !bodyChanged) return
+    followPathRewritesInNoteUndoHistories(rewrites)
+    if (renamed && prevPath && nextPath) {
+      // The remembered caret and scroll follow the note. The restore effect
+      // below must not run for this path change at all: it re-applies the
+      // remembered offsets on the next frame too, by which time the rename's
+      // heading rewrite has usually shifted the text under them.
+      const remembered = recallTabScroll(prevPath)
+      if (remembered) rememberTabScroll(nextPath, remembered)
+      forgetTabScroll(prevPath)
+      lastRestoredPathRef.current = nextPath
+      // A history saved under the old name would never be asked for again.
+      forgetNoteUndoFile(prevPath)
+    }
     if (deferredLivePreviewTimerRef.current != null) {
       clearTimeout(deferredLivePreviewTimerRef.current)
       deferredLivePreviewTimerRef.current = null
@@ -2074,7 +2249,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const directionCompartment = directionCompartmentRef.current
     const livePreviewEnabled = useStore.getState().livePreview
     const deferRichMarkdown =
-      pathChanged &&
+      switched &&
       nextBody.length >= LARGE_DOC_LIVE_PREVIEW_DEFER_CHARS &&
       !livePreviewEnabled &&
       !!markdownCompartment &&
@@ -2115,30 +2290,71 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       )
     }
     const dispatchStartedAt = performance.now()
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: nextBody },
-      annotations: [
-        programmatic.of(true),
-        skipOrderedListRenumber.of(true),
-        // A programmatic swap (tab switch / external file sync) must never be
-        // undoable — otherwise Cmd+Z reverts the editor to the other document
-        // and the resulting change saves it over the current note (#247).
-        Transaction.addToHistory.of(false)
-      ],
-      effects: effects.length > 0 ? effects : undefined,
-      selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
-    })
-    if (pathChanged) {
+    // While the editor still holds the outgoing note: its undo history is set
+    // aside under that note, to be handed back when it returns. (#793)
+    if (switched && prevPath) {
+      setAsideNoteUndoHistory(noteUndoHistoryKey(vaultRoot, prevPath), view.state)
+      saveNoteUndoFile(prevPath, view.state)
+    }
+    viewPathRef.current = nextPath
+    refreshNoteEditingLock(view)
+    // The same note changed underneath the editor (another pane typed, a
+    // rename rewrote its title heading or a link, the file changed on disk):
+    // say only what changed. A whole-document replace makes CodeMirror map the
+    // caret and every undo step through "everything", which clamps the one and
+    // empties the other. Text with carriage returns keeps the whole replace:
+    // CodeMirror folds `\r\n` into one line break, so offsets in it are not
+    // offsets in the document.
+    const inPlaceChange =
+      !switched && bodyChanged && !nextBody.includes('\r')
+        ? minimalTextChange(view.state.doc.toString(), nextBody)
+        : null
+    if (bodyChanged || effects.length > 0) {
+      view.dispatch({
+        changes: !bodyChanged
+          ? undefined
+          : inPlaceChange ?? { from: 0, to: view.state.doc.length, insert: nextBody },
+        annotations: [
+          noteEditingSync.of(true),
+          programmatic.of(true),
+          skipOrderedListRenumber.of(true),
+          // A programmatic swap (tab switch / external file sync) must never be
+          // undoable: otherwise Cmd+Z reverts the editor to the other document
+          // and the resulting change saves it over the current note (#247).
+          Transaction.addToHistory.of(false)
+        ],
+        effects: effects.length > 0 ? effects : undefined,
+        // A small change carries the selection along by itself.
+        selection: switched
+          ? { anchor: 0 }
+          : inPlaceChange || !bodyChanged
+            ? undefined
+            : { anchor: clampedAnchor, head: clampedHead }
+      })
+    }
+    if (switched) {
       // Switching notes: also drop the previous note's undo history so undo
       // can't cross the boundary at all. There's no "clear history" command, so
-      // remove the history field then re-add it empty. (#247)
+      // remove the history field then re-add it (#247): empty, or holding the
+      // incoming note's own history if it was set aside and the note still
+      // reads as it did then (#793).
       const historyCompartment = historyCompartmentRef.current
       if (historyCompartment) {
         view.dispatch({ effects: historyCompartment.reconfigure([]) })
-        view.dispatch({ effects: historyCompartment.reconfigure(history()) })
+        view.dispatch({
+          effects: historyCompartment.reconfigure(
+            noteUndoHistoryFor(nextPath ? noteUndoHistoryKey(vaultRoot, nextPath) : null, nextBody)
+          )
+        })
+        loadNoteUndoFile(
+          view,
+          historyCompartment,
+          nextPath,
+          () => viewRef.current === view && viewPathRef.current === nextPath
+        )
       }
     }
-    if (pathChanged && pendingJumpLocation?.path !== nextPath) {
+    if (switched && pendingJumpLocation?.path !== nextPath) {
       // Clear scroll on a genuine tab switch; the activation effect below
       // restores a remembered position afterward when there is one.
       view.scrollDOM.scrollTop = 0
@@ -2147,14 +2363,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     recordRendererPerf('editor.doc.sync', performance.now() - dispatchStartedAt, {
       chars: nextBody.length,
       deferred: deferRichMarkdown,
-      pathChanged
+      pathChanged: switched
     })
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         recordRendererPerf('editor.doc.paint-latency', performance.now() - dispatchStartedAt, {
           chars: nextBody.length,
           deferred: deferRichMarkdown,
-          pathChanged
+          pathChanged: switched
         })
       })
     })
@@ -3327,6 +3543,68 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     [comments]
   )
 
+  // The note keeps a readable width; the panels share what is left. (#805)
+  const paneRowRef = useRef<HTMLDivElement | null>(null)
+  const [paneRowWidth, setPaneRowWidth] = useState(0)
+  useLayoutEffect(() => {
+    const row = paneRowRef.current
+    if (!row) return
+    const measure = (): void => setPaneRowWidth(Math.round(row.getBoundingClientRect().width))
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [])
+  const sidePanelWidths = useStore((s) => s.panelWidths)
+  const openSidePanels = useMemo(() => {
+    const open: SidePanelId[] = []
+    if (!content || zenMode) return open
+    if (connectionsOpen && isActive) open.push('connections')
+    if (commentsOpen) open.push('comments')
+    if (outlineOpen) open.push('outline')
+    if (calendarOpen && calendarAvailable) open.push('calendar')
+    return open
+  }, [
+    calendarAvailable,
+    calendarOpen,
+    commentsOpen,
+    connectionsOpen,
+    content,
+    isActive,
+    outlineOpen,
+    zenMode
+  ])
+  useEffect(() => {
+    setSidePanelRecency((recency) => syncSidePanelRecency(recency, openSidePanels))
+  }, [openSidePanels])
+  const sidePanelFit = useMemo(
+    () =>
+      fitSidePanels(
+        paneRowWidth,
+        mode === 'split' ? MIN_SPLIT_NOTE_WIDTH : MIN_NOTE_WIDTH,
+        // Synced here as well as in the effect above, so the render in which
+        // a panel opens already treats it as the most recent one.
+        syncSidePanelRecency(sidePanelRecency, openSidePanels).map((id) => ({
+          id,
+          width: sidePanelWidths[id]
+        })),
+        MIN_RIGHT_PANEL_WIDTH
+      ),
+    [mode, openSidePanels, paneRowWidth, sidePanelRecency, sidePanelWidths]
+  )
+  tuckedSidePanelsRef.current = sidePanelFit.tucked
+  const sidePanelShown = (id: SidePanelId): boolean =>
+    openSidePanels.includes(id) && !sidePanelFit.tucked.includes(id)
+  // A panel that is tucked away while it has the keyboard would leave the keys
+  // going nowhere, so they go back to the note.
+  useEffect(() => {
+    if (!isActive) return
+    if (!focusedPanel || !(sidePanelFit.tucked as readonly string[]).includes(focusedPanel)) return
+    setFocusedPanel('editor')
+    viewRef.current?.focus()
+  }, [focusedPanel, isActive, setFocusedPanel, sidePanelFit.tucked])
+
   const toolbar = useMemo(() => {
     if (!content) return null
     const folder = content.folder
@@ -3334,6 +3612,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // Markdown-specific controls (edit/split/preview, connections, comments,
     // outline, calendar, PDF export) don't apply to a canvas.
     const isDrawing = isExcalidrawPath(content.path)
+    // A tucked panel is open, but the button brings it forward rather than
+    // closing it, so its tooltip has to say so.
+    const tucked = sidePanelFit.tucked
     return (
       <div className="flex items-center gap-1 text-ink-500">
         {!isDrawing && (
@@ -3341,7 +3622,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <ToggleGroup mode={mode} onChange={applyPaneMode} />
             <div className="mx-2 h-4 w-px bg-paper-300" />
             <IconBtn
-              title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+              title={
+                connectionsOpen && !tucked.includes('connections')
+                  ? 'Hide connections'
+                  : 'Show connections'
+              }
               active={connectionsOpen}
               onClick={toggleConnectionsPanel}
             >
@@ -3349,7 +3634,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             </IconBtn>
             <IconBtn
               title={
-                commentsOpen
+                commentsOpen && !tucked.includes('comments')
                   ? 'Hide comments'
                   : `Show comments${openCommentCount > 0 ? ` (${openCommentCount})` : ''}`
               }
@@ -3359,7 +3644,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <FeedbackIcon />
             </IconBtn>
             <IconBtn
-              title={outlineOpen ? 'Hide outline' : 'Show outline'}
+              title={outlineOpen && !tucked.includes('outline') ? 'Hide outline' : 'Show outline'}
               active={outlineOpen}
               onClick={toggleOutlinePanel}
             >
@@ -3367,7 +3652,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             </IconBtn>
             {calendarAvailable && (
               <IconBtn
-                title={calendarOpen ? 'Hide calendar' : 'Show calendar'}
+                title={
+                  calendarOpen && !tucked.includes('calendar') ? 'Hide calendar' : 'Show calendar'
+                }
                 active={calendarOpen}
                 onClick={toggleCalendarPanel}
               >
@@ -3419,6 +3706,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     calendarAvailable,
     calendarOpen,
     toggleCalendarPanel,
+    sidePanelFit.tucked,
     trashActive,
     deleteActivePermanently,
     archiveActive,
@@ -3819,7 +4107,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           {toolbar}
         </header>
       )}
-      <div className="min-h-0 min-w-0 flex flex-1">
+      <div ref={paneRowRef} className="min-h-0 min-w-0 flex flex-1">
         <div
           ref={paneBodyRef}
           className={[
@@ -3980,26 +4268,39 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             />
           )}
         </div>
-        {content && connectionsOpen && isActive && !zenMode && <ConnectionsPanel note={content} />}
-        {content && commentsOpen && !zenMode && (
+        {content && sidePanelShown('connections') && (
+          <ConnectionsPanel note={content} fitWidth={sidePanelFit.widths.connections} />
+        )}
+        {content && sidePanelShown('comments') && (
           <CommentsPanel
             note={content}
+            fitWidth={sidePanelFit.widths.comments}
             draft={commentDraft}
             onCaptureDraft={captureCommentDraft}
             onClearDraft={clearCommentDraft}
             onJump={jumpToComment}
           />
         )}
-        {content && outlineOpen && !zenMode && (
+        {content && sidePanelShown('outline') && (
           <OutlinePanel
             note={content}
+            fitWidth={sidePanelFit.widths.outline}
             activeLine={activeOutlineLine}
             onJump={jumpToOutlineLine}
           />
         )}
-        {content && calendarOpen && calendarAvailable && !zenMode && (
-          <CalendarPanel note={content} />
+        {content && sidePanelShown('calendar') && (
+          <CalendarPanel note={content} fitWidth={sidePanelFit.widths.calendar} />
         )}
+        <TuckedPanelsRail
+          tucked={sidePanelFit.tucked}
+          onReveal={(id) => {
+            revealSidePanel(id)
+            // The button that was clicked is gone once its panel is showing,
+            // and focus must not fall to the page body with it.
+            viewRef.current?.focus()
+          }}
+        />
       </div>
       {content &&
         showEditor &&
@@ -4325,6 +4626,60 @@ function EmptyPaneState({
       </div>
     </div>
   )
+}
+
+/**
+ * Undo history between launches (Vim's `undofile`, #793): only with the
+ * setting on, and only on a host that can keep it somewhere that is not the
+ * vault. Everything here is fire and forget; a note whose history cannot be
+ * saved or read simply starts a clean one next time.
+ */
+function noteUndoFileEnabled(): boolean {
+  return useStore.getState().persistUndoHistory && !!window.zen?.writeNoteUndoHistory
+}
+
+/**
+ * Save the history of the note `state` shows. With nothing to undo there is
+ * nothing to write, and nothing is erased either: the same note can be open in
+ * a second pane whose history was just saved, and a file that no longer fits
+ * the text is ignored when it is read and replaced by the next real save.
+ */
+function saveNoteUndoFile(path: string | null, state: EditorState): void {
+  if (!path || !noteUndoFileEnabled()) return
+  const saved = serializeNoteUndoHistory(state)
+  if (saved === null) return
+  void window.zen.writeNoteUndoHistory?.(path, saved)?.catch(() => undefined)
+}
+
+function forgetNoteUndoFile(path: string | null): void {
+  if (!path || !noteUndoFileEnabled()) return
+  void window.zen.writeNoteUndoHistory?.(path, null)?.catch(() => undefined)
+}
+
+/**
+ * Hand a note the history it had when the app last quit. It only applies while
+ * `view` still shows that note with nothing to undo yet: a history kept in
+ * memory, or an edit made while the file was being read, wins.
+ */
+function loadNoteUndoFile(
+  view: EditorView,
+  compartment: Compartment | null,
+  path: string | null,
+  stillShowing: () => boolean
+): void {
+  if (!path || !compartment || !noteUndoFileEnabled()) return
+  if (undoDepth(view.state) > 0 || redoDepth(view.state) > 0) return
+  void window.zen
+    .readNoteUndoHistory?.(path)
+    ?.then((saved) => {
+      if (!saved || !stillShowing()) return
+      if (undoDepth(view.state) > 0 || redoDepth(view.state) > 0) return
+      const restored = noteUndoHistoryFromFile(saved, view.state.doc.toString())
+      if (!restored) return
+      view.dispatch({ effects: compartment.reconfigure([]) })
+      view.dispatch({ effects: compartment.reconfigure(restored) })
+    })
+    .catch(() => undefined)
 }
 
 function IconBtn({

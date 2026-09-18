@@ -34,6 +34,10 @@ import {
   databaseDataPath,
   databaseSidecarPath,
   folderRoot,
+  folderForRelativePath,
+  getVaultSettings,
+  renameFolder,
+  renameFolderTrees,
   sanitizeNoteTitle,
   uniqueTitle,
   writeFileAtomic
@@ -330,7 +334,7 @@ export async function deleteDatabase(root: string, csvRel: string): Promise<void
 /**
  * Rename a database in place: rename its `<oldName>.base` folder to
  * `<newName>.base` (non-colliding). Returns the new `data.csv` path. Because the
- * data, schema, and pages all live inside, nothing else needs rewriting.
+ * data, schema, and pages move together; the parallel comment tree follows too.
  */
 export async function renameDatabase(
   root: string,
@@ -354,7 +358,17 @@ export async function renameDatabase(
       break
     }
   }
-  await fs.rename(databaseDataPath(root, formDir), databaseDataPath(root, targetRel))
+  const settings = await getVaultSettings(root)
+  const folder = folderForRelativePath(formDir, settings)
+  const top = folder ? await folderRoot(root, folder) : null
+  const oldSub = top ? toPosix(path.relative(top, databaseDataPath(root, formDir))) : null
+  if (folder && top && oldSub && oldSub !== '..' && !oldSub.startsWith('../')) {
+    const newSub = toPosix(path.relative(top, databaseDataPath(root, targetRel)))
+    await renameFolder(root, folder, oldSub, newSub)
+  } else {
+    // Existing root-level databases remain accessible even in inbox mode.
+    await renameFolderTrees(root, formDir, targetRel)
+  }
   return csvPathForFormDir(targetRel)
 }
 

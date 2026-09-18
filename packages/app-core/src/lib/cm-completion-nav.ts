@@ -1,12 +1,15 @@
 import {
   acceptCompletion,
+  closeCompletion,
   completionKeymap,
   completionStatus,
+  currentCompletions,
   moveCompletionSelection,
   selectedCompletion
 } from '@codemirror/autocomplete'
 import { Prec } from '@codemirror/state'
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
+import { wikilinkDisplayTextEdit } from './cm-wikilink-tail'
 
 /**
  * macOS AltGr-style keyboard layouts (custom Ukelele `.keylayout` files, a
@@ -22,9 +25,32 @@ import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
  * cm-vim-default-keymap.ts.) Use this in place of the raw `completionKeymap`.
  */
 const MAC_TEXT_ENTRY_CHORDS = new Set(['Alt-`', 'Alt-i'])
-export const completionKeymapForEditor: readonly KeyBinding[] = completionKeymap.filter(
-  (binding) => !(typeof binding.mac === 'string' && MAC_TEXT_ENTRY_CHORDS.has(binding.mac))
-)
+
+/**
+ * Escape is spent on a completion only when there is a popup to close (#803).
+ *
+ * The stock `closeCompletion` reports the key handled whenever any source is
+ * not inactive, and every typed character puts all sources into "pending" for
+ * the `activateOnTyping` debounce (about 100ms) even when none of them will
+ * match. This keymap runs at `Prec.highest`, ahead of the Vim plugin, so an
+ * Escape pressed right after the last character was swallowed by a completion
+ * nobody could see and Vim stayed in insert mode: easy to hit with Escape on
+ * Caps Lock, and what kept a block `I` in insert mode for fast typists.
+ *
+ * A pending query is still cancelled, so a popup cannot open after the mode
+ * has changed, but the key then falls through to whoever owns it.
+ */
+export function closeVisibleCompletion(view: EditorView): boolean {
+  const visible = currentCompletions(view.state).length > 0
+  closeCompletion(view)
+  return visible
+}
+
+export const completionKeymapForEditor: readonly KeyBinding[] = completionKeymap
+  .filter((binding) => !(typeof binding.mac === 'string' && MAC_TEXT_ENTRY_CHORDS.has(binding.mac)))
+  .map((binding) =>
+    binding.key === 'Escape' ? { ...binding, run: closeVisibleCompletion } : binding
+  )
 
 /**
  * Mount this instead of spreading the bindings into an editor's general
@@ -143,7 +169,36 @@ export const completionNavKeymap = Prec.highest(
         return true
       }
 
+      // `|` on a note, asset or database suggestion: the picker's own tip says
+      // "Type | to change display text", so the key takes the highlighted
+      // suggestion, the way Enter does, and leaves the caret behind a `|`
+      // inside the brackets. It used to be plain text, which threw the
+      // highlighted name away and left `[[|]]`. (#804)
+      if (isTypedPipe(event)) {
+        if (completionStatus(view.state) !== 'active') return false
+        const completion = selectedCompletion(view.state) as
+          | { _kind?: string; _target?: string }
+          | null
+        if (completion?._kind !== 'wikilink' || completion._target == null) return false
+        if (!acceptCompletion(view)) return false
+        view.dispatch(wikilinkDisplayTextEdit(view.state, view.state.selection.main.head))
+        event.preventDefault()
+        event.stopPropagation()
+        return true
+      }
+
       return false
     }
   })
 )
+
+/**
+ * A `|` that is being typed, on any layout. It is Shift+\ on a US keyboard,
+ * Option+7 on a German Mac and AltGr+< on a German PC (which reports Ctrl and
+ * Alt together), so the modifiers cannot be pinned down; only a bare Ctrl or a
+ * Cmd chord is certainly not text.
+ */
+function isTypedPipe(event: KeyboardEvent): boolean {
+  if (event.key !== '|' || event.metaKey) return false
+  return !(event.ctrlKey && !event.altKey)
+}

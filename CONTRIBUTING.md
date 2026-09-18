@@ -23,11 +23,11 @@ npm run dev
 
 Useful scripts:
 
-- `npm run dev` — run the desktop app with hot reload (`dev:web`, `dev:server`, and `dev:web-stack` cover the web client and Go server)
+- `npm run dev` — run the desktop app with hot reload (`dev:web`, `dev:server`, and `dev:web-stack` cover the web client and the pinned Go server release)
 - `npm run typecheck` — TypeScript across every workspace
 - `npm run test:run` — the full test suite, non-interactive (`npm test` is the watch variant)
-- `npm run build` — production build of the web client, desktop app, and Go server
-- `cd apps/server && go test ./...` — the Go server's own tests
+- `npm run build` — production build of the web client and desktop app
+- The Go server and its tests live in [ZenNotes/znserver](https://github.com/ZenNotes/znserver)
 
 There is no lint step; match the style of the surrounding code (Prettier is available
 if a file you touched is already formatted with it).

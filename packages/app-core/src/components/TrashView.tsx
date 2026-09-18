@@ -1,3 +1,4 @@
+import { runNoteLifecycleAction, runEmptyTrash } from '../lib/note-lifecycle-actions'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DeletedAsset, NoteMeta } from '@shared/ipc'
 import { isTrashViewActive, useStore } from '../store'
@@ -6,7 +7,6 @@ import { CollectionViewHeader } from './CollectionViewHeader'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { confirmApp } from '../lib/confirm-requests'
-import { confirmDeletePermanently } from '../lib/confirm-trash'
 import { isAppOverlayOpen } from '../lib/overlay-open'
 
 function formatDate(ms: number): string {
@@ -93,33 +93,19 @@ export function TrashView(): JSX.Element {
 
   const restoreNote = useCallback(
     async (note: NoteMeta) => {
-      await window.zen.restoreFromTrash(note.path)
-      await refreshNotes()
+      await runNoteLifecycleAction(note.path, 'restore')
     },
     [refreshNotes]
   )
 
   const deleteNoteForever = useCallback(
     async (note: NoteMeta) => {
-      if (!(await confirmDeletePermanently(note.title))) return
-      await window.zen.deleteNote(note.path)
-      await refreshNotes()
+      await runNoteLifecycleAction(note.path, 'delete')
     },
     [refreshNotes]
   )
 
-  const emptyTrash = useCallback(async () => {
-    if (trashed.length === 0) return
-    const ok = await confirmApp({
-      title: `Delete ${trashed.length} trashed note${trashed.length === 1 ? '' : 's'} permanently?`,
-      description: 'This cannot be undone.',
-      confirmLabel: 'Empty trash',
-      danger: true
-    })
-    if (!ok) return
-    await window.zen.emptyTrash()
-    await refreshNotes()
-  }, [refreshNotes, trashed.length])
+  const emptyTrash = useCallback(runEmptyTrash, [])
 
   // Deleted assets live in a separate on-disk store (.zennotes/deleted-assets),
   // surfaced here so they're recoverable like notes rather than lost after the

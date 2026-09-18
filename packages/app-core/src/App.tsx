@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
+import { requestSettingsTarget } from './lib/settings-navigation'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   useStore,
   initConfigSync,
@@ -24,7 +25,8 @@ import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
 import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
-import { ToastHost } from './components/ui'
+import { IconButton, ToastHost } from './components/ui'
+import { CloseIcon } from './components/icons'
 import { ExcalidrawEmbedMenuHost } from './components/ExcalidrawEmbedMenuHost'
 import { resolveQuickNoteTitle } from './lib/quick-note-title'
 import { escapeEmbedFrame } from './lib/embed-renderers'
@@ -239,14 +241,23 @@ function AppUpdateNotice({
   hidden: boolean
 }): JSX.Element | null {
   const updateState = useAppUpdateState()
+  const [dismissedNotice, setDismissedNotice] = useState<string | null>(null)
+  const noticeKey = updateState
+    ? `${updateState.availableVersion ?? ''}:${updateState.phase}`
+    : null
   const label = appUpdateNoticeLabel(updateState)
   const actionLabel = appUpdatePrimaryActionLabel(updateState)
 
-  if (hidden || !label) return null
+  if (hidden || !label || dismissedNotice === noticeKey) return null
 
   const runPrimaryAction = (): void => {
     if (updateState?.phase === 'available') {
       void window.zen.downloadAppUpdate()
+      return
+    }
+    if (updateState?.phase === 'error') {
+      requestSettingsTarget('about')
+      useStore.getState().setSettingsOpen(true)
       return
     }
     if (updateState?.phase === 'downloaded') {
@@ -261,7 +272,7 @@ function AppUpdateNotice({
       className="fixed bottom-4 right-4 z-40 flex max-w-[min(28rem,calc(100vw-2rem))] items-center gap-2 rounded-xl border border-accent/30 bg-paper-50/95 px-3 py-2 text-sm text-ink-800 shadow-float backdrop-blur"
     >
       <span className="h-2 w-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_4px_rgb(var(--z-accent)/0.12)]" />
-      <span className="min-w-0 truncate font-medium">{label}</span>
+      <span className="min-w-0 font-medium">{label}</span>
       {updateState?.phase === 'downloading' && (
         <span className="shrink-0 rounded-md bg-paper-200/80 px-1.5 py-0.5 text-xs font-medium text-ink-600">
           {Math.round(updateState.progressPercent ?? 0)}%
@@ -276,6 +287,13 @@ function AppUpdateNotice({
           {actionLabel}
         </button>
       )}
+      <IconButton
+        size="sm"
+        aria-label="Dismiss update notification"
+        onClick={() => setDismissedNotice(noticeKey)}
+      >
+        <CloseIcon className="h-3.5 w-3.5" />
+      </IconButton>
     </div>
   )
 }
@@ -334,10 +352,10 @@ function App(): JSX.Element {
   const mountedAtRef = useRef(performance.now())
   const workspaceReadyLoggedRef = useRef(false)
   const searchPaletteWarmupCleanupRef = useRef<(() => void) | null>(null)
-  const pendingOpenNoteRequestsRef = useRef<string[]>([])
+  const pendingOpenNoteRequestsRef = useRef<Array<{ path: string; vault: ReturnType<typeof useStore.getState>['vault'] }>>([])
   const vault = useStore((s) => s.vault)
   const init = useStore((s) => s.init)
-  const workspaceRestored = useStore((s) => s.workspaceRestored)
+  const workspaceRestored = useStore((s) => s.workspaceRestored && !s.workspaceTransitioning)
   const searchOpen = useStore((s) => s.searchOpen)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const vaultTextSearchOpen = useStore((s) => s.vaultTextSearchOpen)
@@ -452,11 +470,11 @@ function App(): JSX.Element {
   useEffect(() => {
     return window.zen.onOpenNoteRequested((relPath) => {
       const state = useStore.getState()
-      if (state.vault && state.workspaceRestored) {
+      if (state.vault && state.workspaceRestored && !state.workspaceTransitioning) {
         void state.openNoteInTab(relPath)
         return
       }
-      pendingOpenNoteRequestsRef.current.push(relPath)
+      pendingOpenNoteRequestsRef.current.push({ path: relPath, vault: state.vault })
     })
   }, [])
 
@@ -517,8 +535,9 @@ function App(): JSX.Element {
   useEffect(() => {
     if (!vault || !workspaceRestored || pendingOpenNoteRequestsRef.current.length === 0) return
     const requests = pendingOpenNoteRequestsRef.current.splice(0)
-    for (const relPath of requests) {
-      void useStore.getState().openNoteInTab(relPath)
+    for (const request of requests) {
+      if (request.vault && request.vault !== vault) continue
+      void useStore.getState().openNoteInTab(request.path)
     }
   }, [vault, workspaceRestored])
 
@@ -564,6 +583,20 @@ function App(): JSX.Element {
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
   }, [flushDirtyNotes])
+
+  // "Keep undo history after quitting" off means the saved histories go too:
+  // they hold text the user deleted, so they do not outlive the setting that
+  // asked for them. Watched here rather than in the setter, because the
+  // preference can also be turned off from config.toml. (#793)
+  const persistUndoHistory = useStore((s) => s.persistUndoHistory)
+  const persistedUndoHistoryRef = useRef(persistUndoHistory)
+  useEffect(() => {
+    const was = persistedUndoHistoryRef.current
+    persistedUndoHistoryRef.current = persistUndoHistory
+    if (was && !persistUndoHistory) {
+      void window.zen?.clearNoteUndoHistories?.()?.catch(() => undefined)
+    }
+  }, [persistUndoHistory])
 
   // Apply theme: set html[data-theme=...] + html[data-theme-mode=...] based on
   // mode/family/id. Custom themes keep one id (`custom-<slug>`) and express

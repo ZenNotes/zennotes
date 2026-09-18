@@ -1,7 +1,7 @@
 /** Settings pages other surfaces can open directly: the Cloud page from the
  *  status bar, the Keymaps page from `:unbind` when the action id is missing
  *  or unknown. */
-export type SettingsNavigationTarget = "cloud" | "keymaps";
+export type SettingsNavigationTarget = "cloud" | "keymaps" | "external-links" | "about";
 
 let pendingSettingsTarget: SettingsNavigationTarget | null = null;
 

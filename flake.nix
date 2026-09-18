@@ -12,26 +12,23 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
+      # The desktop package wraps the prebuilt linux-x64 release tarball, so it
+      # only exists on x86_64-linux. The self-hosted server is packaged in its
+      # own repository, ZenNotes/znserver.
       packages = forAllSystems (system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          zennotes-server = pkgs.callPackage ./packaging/nix/package-server.nix { };
         in
-        { inherit zennotes-server; }
-        # The desktop package wraps the prebuilt linux-x64 release tarball, so it
-        # only exists on x86_64-linux; elsewhere the server is the default.
-        // (
-          if system == "x86_64-linux" then
-            let
-              zennotes-desktop = pkgs.callPackage ./packaging/nix/package-desktop.nix { };
-            in
-            {
-              inherit zennotes-desktop;
-              default = zennotes-desktop;
-            }
-          else
-            { default = zennotes-server; }
-        )
+        if system == "x86_64-linux" then
+          let
+            zennotes-desktop = pkgs.callPackage ./packaging/nix/package-desktop.nix { };
+          in
+          {
+            inherit zennotes-desktop;
+            default = zennotes-desktop;
+          }
+        else
+          { }
       );
 
       devShell = forAllSystems (system:
@@ -40,7 +37,6 @@
         in
         pkgs.mkShell {
           buildInputs = with pkgs; [
-            go
             nodejs
             electron
             turbo
