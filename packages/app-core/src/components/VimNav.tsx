@@ -48,8 +48,8 @@ import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { atlasHoldsKeyboard } from '../lib/atlas'
 import {
-  hasResolvableCloudConflicts,
-  openCloudConflictReview,
+  hasPendingCloudReview,
+  openPendingCloudReview,
   resolvableCloudConflictCount,
   useCloudSyncStatusStore
 } from '../lib/cloud-auto-sync'
@@ -208,7 +208,7 @@ export function VimNav(): JSX.Element | null {
     isCalendarToggleAvailable(s.vaultSettings, s.activeNote)
   )
   const cloudConflictsWaiting = useCloudSyncStatusStore(
-    (s) => resolvableCloudConflictCount(s.lastSummary) > 0
+    (s) => resolvableCloudConflictCount(s.lastSummary) > 0 || s.settingsConflict !== null
   )
   const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
@@ -285,7 +285,7 @@ export function VimNav(): JSX.Element | null {
             {
               keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCloudConflicts'),
               label: 'Review Cloud conflicts',
-              detail: 'Open the queue of files waiting on a sync decision.'
+              detail: 'Open the files waiting on a sync decision, or the vault settings question.'
             }
           ]
         : []),
@@ -939,16 +939,16 @@ export function VimNav(): JSX.Element | null {
           void state.openWorkflowsView()
           return
         }
-        // Skipped with an empty queue so the key falls through as an unbound
+        // Skipped while nothing waits so the key falls through as an unbound
         // leader press rather than opening an empty dialog.
         if (
-          hasResolvableCloudConflicts() &&
+          hasPendingCloudReview() &&
           matchesSequenceToken(e, overrides, 'vim.leaderCloudConflicts')
         ) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          openCloudConflictReview()
+          openPendingCloudReview()
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {

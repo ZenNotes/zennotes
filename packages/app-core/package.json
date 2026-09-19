@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/app-core",
   "private": true,
-  "version": "2.52.0",
+  "version": "2.53.0",
   "type": "module",
   "exports": {
     "./main": "./src/main.tsx",
@@ -23,8 +23,6 @@
     "./host": "./src/host.ts"
   },
   "dependencies": {
-    "@zennotes/bridge-contract": "*",
-    "@zennotes/shared-domain": "*",
     "@codemirror/autocomplete": "^6.18.3",
     "@codemirror/commands": "^6.7.1",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -55,6 +53,8 @@
     "@myriaddreamin/typst.ts": "^0.7.0",
     "@replit/codemirror-vim": "^6.3.0",
     "@xyflow/react": "^12.11.2",
+    "@zennotes/bridge-contract": "*",
+    "@zennotes/shared-domain": "*",
     "dompurify": "^3.3.4",
     "function-plot": "^1.25.3",
     "gray-matter": "^4.0.3",
@@ -84,15 +84,15 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "vite": "^6.4.3",
-    "vitest": "^3.2.6",
-    "typescript": "^5.7.2",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.20",
     "postcss": "^8.5.10",
     "tailwindcss": "^3.4.17",
-    "autoprefixer": "^10.4.20",
+    "typescript": "^5.7.2",
     "vfile": "^6.0.3",
-    "@types/react": "^18.3.28",
-    "@types/react-dom": "^18.3.7"
+    "vite": "^6.4.3",
+    "vitest": "^3.2.6"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

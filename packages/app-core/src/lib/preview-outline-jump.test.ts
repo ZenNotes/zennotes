@@ -6,7 +6,9 @@ import {
   findRenderedHeadingForOutlineLine,
   nextOutlinePreviewSyncLockUntil,
   outlineHeadingTextOffset,
+  planPreviewJump,
   previewScrollTopForHeading,
+  previewShowsNote,
   scrollTopForElementRelativeTop,
   scrollTopForScrollRatio,
   shouldSyncPreviewAfterMarkdownSettles,
@@ -97,5 +99,86 @@ describe('preview outline jump helpers', () => {
     expect(shouldSyncPreviewFromEditorViewport('split', true, true, false)).toBe(false)
     expect(shouldSyncPreviewFromEditorViewport('split', true, false, true)).toBe(false)
     expect(shouldSyncPreviewFromEditorViewport('preview', true, false, false)).toBe(false)
+  })
+})
+
+describe('planPreviewJump (a jump landing in a pane that is reading)', () => {
+  const body = '# Intro\n\nSome text.\n\n## Target\n\nMore text. ^quote\n'
+  const targetHeadingFrom = body.indexOf('## Target')
+  const blockFrom = body.indexOf('More text.')
+
+  it('lands a [[Note#Heading]] jump on the heading line and stays in reading mode', () => {
+    expect(
+      planPreviewJump(
+        { editorSelectionAnchor: targetHeadingFrom, previewScrollTop: 0, editorScrollMode: 'start' },
+        body
+      )
+    ).toEqual({ kind: 'line', line: 5 })
+  })
+
+  it('lands a ^block jump and a search hit on the block that holds the offset', () => {
+    expect(
+      planPreviewJump(
+        { editorSelectionAnchor: blockFrom, previewScrollTop: 0, editorScrollMode: 'start' },
+        body
+      )
+    ).toEqual({ kind: 'line', line: 7 })
+    // A search hit points into the middle of a line, not at its start.
+    expect(
+      planPreviewJump(
+        { editorSelectionAnchor: blockFrom + 5, previewScrollTop: 0, editorScrollMode: 'center' },
+        body
+      )
+    ).toEqual({ kind: 'line', line: 7 })
+    // An offset past the end (the note shrank) clamps to the last line.
+    expect(
+      planPreviewJump(
+        { editorSelectionAnchor: body.length + 40, previewScrollTop: 0, editorScrollMode: 'center' },
+        body
+      )
+    ).toEqual({ kind: 'line', line: 8 })
+  })
+
+  it('puts the reading view back where it was for a Ctrl+O / Ctrl+I jump', () => {
+    expect(
+      planPreviewJump(
+        { editorSelectionAnchor: 900, previewScrollTop: 412, editorScrollMode: 'preserve' },
+        body
+      )
+    ).toEqual({ kind: 'restore', top: 412 })
+    // A location captured before scroll modes existed carries no mode: it is
+    // a history entry, so it restores instead of scrolling to a line.
+    expect(
+      planPreviewJump({ editorSelectionAnchor: 900, previewScrollTop: -3 }, body)
+    ).toEqual({ kind: 'restore', top: 0 })
+  })
+
+  it('still hands a task jump to the editor, which owns the line highlight', () => {
+    expect(
+      planPreviewJump(
+        {
+          editorSelectionAnchor: blockFrom,
+          previewScrollTop: 0,
+          editorScrollMode: 'center',
+          highlightLine: true
+        },
+        body
+      )
+    ).toEqual({ kind: 'edit' })
+  })
+})
+
+describe('previewShowsNote', () => {
+  it('is true only when the rendered article carries the note path', () => {
+    const scroller = document.createElement('div')
+    const article = document.createElement('article')
+    article.setAttribute('data-preview-content', '')
+    scroller.appendChild(article)
+
+    expect(previewShowsNote(scroller, 'inbox/A.md')).toBe(false)
+    article.dataset.notePath = 'inbox/A.md'
+    expect(previewShowsNote(scroller, 'inbox/A.md')).toBe(true)
+    expect(previewShowsNote(scroller, 'inbox/B.md')).toBe(false)
+    expect(previewShowsNote(null, 'inbox/A.md')).toBe(false)
   })
 })

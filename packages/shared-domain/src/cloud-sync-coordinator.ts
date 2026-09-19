@@ -567,48 +567,63 @@ export class CloudSyncCoordinator {
     // just received. Remember what was on disk before the first skipped
     // revision and give the change that finally lands that instead.
     const onDisk = new Map<string, CloudSyncTrackedItem | undefined>()
-    for (const change of changes) {
-      const acknowledged = acknowledgedSequences.has(change.sequence)
-      if (acknowledged) {
-        // This device's own push: the file already holds these bytes.
-        onDisk.delete(change.item_id)
-      } else if (supersededUpserts.has(change.sequence)) {
-        if (!onDisk.has(change.item_id)) onDisk.set(change.item_id, state.items[change.item_id])
-        pulled++
-      } else {
-        const previous = onDisk.has(change.item_id)
-          ? onDisk.get(change.item_id)
-          : state.items[change.item_id]
-        onDisk.delete(change.item_id)
-        const existingConflict = state.pending_conflicts?.[change.item_id]
-        if (existingConflict) {
-          state = {
-            ...state,
-            pending_conflicts: {
-              ...state.pending_conflicts,
-              [change.item_id]: advancePendingConflict(existingConflict, change)
-            }
-          }
+    // The files a change touched stay changed when a later change in the same
+    // batch fails, but the cursor used to move only once the whole batch was
+    // through. Every retry then replayed the applied changes from the old
+    // cursor: an upsert re-created a note the user had since deleted on this
+    // device, and the batch failed again on the same change (#813). Remember
+    // the newest state that can be persisted on its own (no coalesced
+    // revision still waiting for the change that lands it) and save that
+    // before the error escapes, so a retry resumes at the failing change.
+    let landed = initialState
+    try {
+      for (const change of changes) {
+        const acknowledged = acknowledgedSequences.has(change.sequence)
+        if (acknowledged) {
+          // This device's own push: the file already holds these bytes.
+          onDisk.delete(change.item_id)
+        } else if (supersededUpserts.has(change.sequence)) {
+          if (!onDisk.has(change.item_id)) onDisk.set(change.item_id, state.items[change.item_id])
+          pulled++
         } else {
-          const conflict = await this.repository.apply(change, previous)
-          if (conflict?.code === 'LOCAL_EDIT_CONFLICT') {
-            const pending = await this.storedConflict(change, previous, conflict.local ?? null)
-            if (!(await this.applyAutomaticMerge(pending))) {
-              state = {
-                ...state,
-                pending_conflicts: {
-                  ...state.pending_conflicts,
-                  [pending.id]: pending
-                }
+          const previous = onDisk.has(change.item_id)
+            ? onDisk.get(change.item_id)
+            : state.items[change.item_id]
+          onDisk.delete(change.item_id)
+          const existingConflict = state.pending_conflicts?.[change.item_id]
+          if (existingConflict) {
+            state = {
+              ...state,
+              pending_conflicts: {
+                ...state.pending_conflicts,
+                [change.item_id]: advancePendingConflict(existingConflict, change)
               }
             }
-          } else if (conflict) {
-            localConflicts.push(publicLocalConflict(conflict))
+          } else {
+            const conflict = await this.repository.apply(change, previous)
+            if (conflict?.code === 'LOCAL_EDIT_CONFLICT') {
+              const pending = await this.storedConflict(change, previous, conflict.local ?? null)
+              if (!(await this.applyAutomaticMerge(pending))) {
+                state = {
+                  ...state,
+                  pending_conflicts: {
+                    ...state.pending_conflicts,
+                    [pending.id]: pending
+                  }
+                }
+              }
+            } else if (conflict) {
+              localConflicts.push(publicLocalConflict(conflict))
+            }
           }
+          pulled++
         }
-        pulled++
+        state = reduceCloudSyncChange(state, change)
+        if (onDisk.size === 0) landed = state
       }
-      state = reduceCloudSyncChange(state, change)
+    } catch (error) {
+      if (landed !== initialState) await this.states.save(landed)
+      throw error
     }
     if (changes.length > 0) await this.states.save(state)
 

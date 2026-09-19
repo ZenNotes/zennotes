@@ -257,9 +257,12 @@ describe('DesktopCloudSyncService', () => {
     expect(await service.settingsConflict(localRoot)).toBeNull()
 
     await writeFile(parkedPath, JSON.stringify({ favorites: ['cloud.md'] }))
+    // The cloud's copy travels with the question, so the app can show what
+    // differs and let the user answer one section at a time.
     expect(await service.settingsConflict(localRoot)).toEqual({
       path: '.zennotes/vault.json',
-      cloud_path: '.zennotes/vault.cloud-conflict.json'
+      cloud_path: '.zennotes/vault.cloud-conflict.json',
+      cloud_settings: { favorites: ['cloud.md'] }
     })
 
     // Keeping this device's settings drops the pending copy and changes nothing.
@@ -283,8 +286,12 @@ describe('DesktopCloudSyncService', () => {
     await expect(service.resolveSettingsConflict(localRoot, 'cloud')).rejects.toThrow(
       'could not be read'
     )
-    // The question stays open rather than resolving itself badly.
-    expect(await service.settingsConflict(localRoot)).not.toBeNull()
+    // The question stays open rather than resolving itself badly, and is
+    // asked whole-file: there are no contents to compare.
+    expect(await service.settingsConflict(localRoot)).toEqual({
+      path: '.zennotes/vault.json',
+      cloud_path: '.zennotes/vault.cloud-conflict.json'
+    })
   })
 
   it('links only a vault owned by the connected account', async () => {

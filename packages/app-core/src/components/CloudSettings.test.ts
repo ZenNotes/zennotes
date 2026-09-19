@@ -1081,6 +1081,53 @@ describe("CloudSettings", () => {
     );
   });
 
+  // With the cloud's copy in hand the card says what differs and hands the
+  // per-setting choice to the shared prompt (#816).
+  it("names the settings that differ and opens the comparison prompt", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    mocks.listCloudVaults.mockResolvedValue([]);
+    const local = useStore.getState().vaultSettings;
+    mocks.getCloudSettingsConflict.mockResolvedValue({
+      path: ".zennotes/vault.json",
+      cloud_path: ".zennotes/vault.cloud-conflict.json",
+      cloud_settings: {
+        ...JSON.parse(JSON.stringify(local)),
+        favorites: [...local.favorites, "inbox:Reading"],
+        folderColors: { ...local.folderColors, "inbox:Reading": "amber" },
+        experimentalSpellcheck: { enabled: true },
+      },
+    });
+
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+
+    expect(host.textContent).toContain("What differs: Folder colors, Favorites.");
+    expect(host.textContent).toContain("settings this device does not use (experimentalSpellcheck)");
+
+    // Sync surfaced the question and opened the prompt; the card reopens it
+    // after a "Decide later".
+    useCloudSyncStatusStore.setState({ settingsConflictPromptOpen: false });
+    const compare = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Compare and choose…",
+    );
+    expect(compare).toBeTruthy();
+    await act(async () => compare!.click());
+    expect(useCloudSyncStatusStore.getState().settingsConflictPromptOpen).toBe(true);
+  });
+
   it("does not request vault data when sync is not included", async () => {
     mocks.getCloudAccountStatus.mockResolvedValue(connected);
     mocks.getCloudServiceAccount.mockResolvedValue({

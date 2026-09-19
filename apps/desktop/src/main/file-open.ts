@@ -27,6 +27,19 @@ export function vaultRelativeNotePath(vaultRoot: string, absPath: string): strin
   return segments.join('/')
 }
 
+/**
+ * The argv switch that asks for a fresh window even when one already shows the
+ * same vault, folder or note (#815). `zn open -n` forwards it; Chrome spells
+ * its equivalent the same way, so a launcher can also pass it to the app
+ * directly. Chromium ignores switches it does not know, and Electron does not
+ * define this one, so it reaches `second-instance` untouched.
+ */
+export const NEW_WINDOW_SWITCH = '--new-window'
+
+export function argvRequestsNewWindow(argv: readonly string[]): boolean {
+  return argv.includes(NEW_WINDOW_SWITCH)
+}
+
 export type MarkdownOpenTarget =
   | { kind: 'vault'; vaultRoot: string; relPath: string }
   | { kind: 'external'; absPath: string }

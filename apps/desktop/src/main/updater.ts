@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, shell } from 'electron'
+import { app, BrowserWindow, net, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { fetchLatestRelease, isNewerVersion } from './update-feed'
@@ -16,6 +16,12 @@ const execFileAsync = promisify(execFile)
 const UPDATE_CHECK_MAX_ATTEMPTS = 3
 const UPDATE_CHECK_RETRY_DELAY_MS = 1500
 const BACKGROUND_UPDATE_CHECK_DELAY_MS = 8000
+/** How often a check that found no network looks at the link again. */
+export const OFFLINE_POLL_MS = 15_000
+/** First wait before re-checking when the link is up but GitHub still could
+ *  not be reached; doubles per failure up to the cap. */
+export const OFFLINE_RETRY_BASE_MS = 30_000
+export const OFFLINE_RETRY_MAX_MS = 15 * 60_000
 
 let initialized = false
 let updater: AppUpdater | null = null
@@ -86,10 +92,54 @@ function nextStateFromInfo(
   })
 }
 
+/**
+ * Every message and code along an error's `cause` chain, innermost last.
+ * undici's fetch reports the network as `TypeError: fetch failed` and keeps
+ * the part worth reading (`getaddrinfo ENOTFOUND github.com`) in `cause`;
+ * Electron's net module puts it in the message (`net::ERR_INTERNET_DISCONNECTED`).
+ */
+function errorChainText(error: unknown): string[] {
+  const parts: string[] = []
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (current instanceof Error) {
+      parts.push(current.message)
+      const { code, cause } = current as { code?: unknown; cause?: unknown }
+      if (typeof code === 'string') parts.push(code)
+      current = cause
+    } else {
+      parts.push(String(current))
+      break
+    }
+  }
+  return parts.map((part) => part.trim()).filter(Boolean)
+}
+
+const NETWORK_UNREACHABLE_PATTERN =
+  /\b(ENOTFOUND|EAI_AGAIN|EAI_FAIL|EAI_NONAME|ENETUNREACH|ENETDOWN|EHOSTUNREACH|ECONNREFUSED|ECONNRESET|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_SOCKET)\b|net::ERR_(INTERNET_DISCONNECTED|NAME_NOT_RESOLVED|NAME_RESOLUTION_FAILED|DNS_TIMED_OUT|ADDRESS_UNREACHABLE|NETWORK_CHANGED|NETWORK_IO_SUSPENDED|NETWORK_ACCESS_DENIED|PROXY_CONNECTION_FAILED|TIMED_OUT|CONNECTION_(REFUSED|RESET|CLOSED|ABORTED|FAILED|TIMED_OUT))\b|^fetch failed$/i
+
+/**
+ * True when the check never reached GitHub: no route, no DNS, nothing
+ * listening. GitHub answering badly (a 5xx, a 404) is not this; those are
+ * errors to show, not a connection to wait for.
+ */
+export function isNetworkUnreachableError(error: unknown): boolean {
+  return errorChainText(error).some((part) => NETWORK_UNREACHABLE_PATTERN.test(part))
+}
+
+/** The most specific line of an error chain, for the message the user reads:
+ *  `getaddrinfo ENOTFOUND github.com` rather than `fetch failed`. */
+function describeError(error: unknown): string {
+  const parts = errorChainText(error).filter((part) => !/^fetch failed$/i.test(part))
+  const messages = parts.filter((part) => /\s|::/.test(part))
+  return messages.at(-1) ?? parts.at(-1) ?? 'Unknown updater error.'
+}
+
 function humanizeUpdateError(error: unknown): string {
-  const base =
-    error instanceof Error ? error.message.trim() : String(error).trim()
-  const message = base.length > 0 ? base : 'Unknown updater error.'
+  const message = describeError(error)
+  if (isNetworkUnreachableError(error)) {
+    return `${message} ZenNotes could not reach GitHub. Check the connection and try again.`
+  }
   if (/5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(message)) {
     return `${message} GitHub returned a temporary network or server error while checking for updates. Try again in a moment, or open the latest release directly.`
   }
@@ -122,7 +172,87 @@ function broadcastUpdateState(): void {
 
 function setUpdateState(next: AppUpdateState): void {
   updateState = next
+  // The wait for the network lives exactly as long as the phase it explains.
+  // A check in flight keeps it (its failure count carries into the next
+  // wait); any other outcome, from either a timer or the user, ends it.
+  if (next.phase !== 'offline' && next.phase !== 'checking') stopWaitingForNetwork()
   broadcastUpdateState()
+}
+
+/**
+ * A check that could not reach GitHub at all (issue #812: the app launched
+ * offline, the startup check failed, and nothing ever tried again until the
+ * user pressed Check for Updates). Instead of reporting an error, wait for
+ * the network and check again on our own.
+ *
+ * Two triggers, both cheap: the link coming back (Chromium's own network
+ * change notifier, read through `net.isOnline()` every OFFLINE_POLL_MS; no
+ * request is made), and a retry timer for the case the link is up but GitHub
+ * still cannot be reached (captive portal, the router's WAN side down). The
+ * retry delay doubles per failure up to OFFLINE_RETRY_MAX_MS.
+ *
+ * `isOnline()` answering false is trusted enough to skip retries while the
+ * link is down, but never for good: a real attempt happens at least every
+ * OFFLINE_RETRY_MAX_MS, so a notifier that is wrong about this machine
+ * cannot silence the check forever.
+ */
+interface NetworkWait {
+  timer: NodeJS.Timeout
+  failures: number
+  lastAttemptAt: number
+  linkWasUp: boolean
+}
+
+let networkWait: NetworkWait | null = null
+
+export function offlineRetryDelayMs(failures: number): number {
+  const doublings = Math.max(0, Math.min(failures - 1, 30))
+  return Math.min(OFFLINE_RETRY_BASE_MS * 2 ** doublings, OFFLINE_RETRY_MAX_MS)
+}
+
+function stopWaitingForNetwork(): void {
+  if (!networkWait) return
+  clearInterval(networkWait.timer)
+  networkWait = null
+}
+
+function waitForNetwork(error: unknown): void {
+  const failures = (networkWait?.failures ?? 0) + 1
+  stopWaitingForNetwork()
+  networkWait = {
+    failures,
+    lastAttemptAt: Date.now(),
+    linkWasUp: net.isOnline(),
+    timer: setInterval(pollForNetwork, OFFLINE_POLL_MS)
+  }
+  setUpdateState(
+    nextStateFromInfo(
+      'offline',
+      lastInfo,
+      `ZenNotes can't reach GitHub right now (${describeError(error)}). It will check for updates again on its own once the connection is back.`,
+      { availableVersion: lastInfo?.version ?? updateState.availableVersion }
+    )
+  )
+}
+
+function pollForNetwork(): void {
+  const wait = networkWait
+  if (!wait) return
+  if (updateState.phase !== 'offline') {
+    // A check the user started is running, or something else owns the state.
+    if (updateState.phase !== 'checking') stopWaitingForNetwork()
+    return
+  }
+  const linkUp = net.isOnline()
+  const linkRestored = linkUp && !wait.linkWasUp
+  wait.linkWasUp = linkUp
+  const sinceAttempt = Date.now() - wait.lastAttemptAt
+  const retryDue = sinceAttempt >= offlineRetryDelayMs(wait.failures)
+  const overdue = sinceAttempt >= OFFLINE_RETRY_MAX_MS
+  if (linkRestored || (retryDue && linkUp) || overdue) {
+    wait.lastAttemptAt = Date.now()
+    void checkForAppUpdates()
+  }
 }
 
 function focusAppAndOpenSettings(): void {
@@ -270,6 +400,11 @@ export function initAppUpdater(): void {
     }
   })
   updater.on('error', (error) => {
+    // electron-updater emits this and rejects the same promise. Let the check
+    // or download that owns the promise decide what an unreachable network
+    // means (a wait, not an error); reporting it here first would flash the
+    // error state through the renderer on the way.
+    if (isNetworkUnreachableError(error)) return
     setUpdateState(
       nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
     )
@@ -307,6 +442,10 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
         continue
       }
 
+      if (isNetworkUnreachableError(error)) {
+        waitForNetwork(error)
+        break
+      }
       setUpdateState(
         nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
       )
@@ -370,6 +509,10 @@ async function checkManagedInstallForUpdates(): Promise<AppUpdateState> {
         )
         await sleep(UPDATE_CHECK_RETRY_DELAY_MS)
         continue
+      }
+      if (isNetworkUnreachableError(error)) {
+        waitForNetwork(error)
+        return getAppUpdateState()
       }
       setUpdateState(makeState({ phase: 'error', message: humanizeUpdateError(error) }))
       return getAppUpdateState()
@@ -648,6 +791,101 @@ function readOsReleaseOrNull(): string | null {
   } catch {
     return null
   }
+}
+
+/** How this copy was installed, in the words a bug report wants (#814). The
+ *  Linux answer reuses the detection the updater itself relies on, so what
+ *  `:version` prints is the format the updater will act on. */
+export function installLabel(input: {
+  isPackaged: boolean
+  platform: NodeJS.Platform
+  mas: boolean
+  windowsStore: boolean
+  portableExecutableDir: string | undefined
+  linuxFormat: () => LinuxPackageFormat
+}): string {
+  if (!input.isPackaged) return 'development build'
+  switch (input.platform) {
+    case 'darwin':
+      return input.mas ? 'Mac App Store' : 'macOS app bundle'
+    case 'win32':
+      if (input.windowsStore) return 'Microsoft Store'
+      return input.portableExecutableDir ? 'portable exe' : 'NSIS installer'
+    case 'linux':
+      switch (input.linuxFormat()) {
+        case 'appimage':
+          return 'AppImage'
+        case 'deb':
+          return 'deb package'
+        case 'rpm':
+          return 'rpm package'
+        case 'pacman':
+          return 'pacman package'
+        case 'managed':
+          return 'package manager or tarball (updates are reported, not installed)'
+        default:
+          return 'Linux package (format unknown)'
+      }
+    default:
+      return input.platform
+  }
+}
+
+/** PRETTY_NAME from os-release, e.g. `Ubuntu 24.04.1 LTS`, or null. */
+export function osReleasePrettyName(osRelease: string | null): string | null {
+  if (!osRelease) return null
+  for (const line of osRelease.split('\n')) {
+    const match = /^\s*PRETTY_NAME\s*=\s*(.*)$/.exec(line)
+    if (match) {
+      const value = match[1].trim().replace(/^["']|["']$/g, '')
+      if (value) return value
+    }
+  }
+  return null
+}
+
+/** Operating system and install format for the app info the preload hands
+ *  to the renderer (#814). Reads os-release once; nothing here may throw,
+ *  because the preload asks for it synchronously while the window boots. */
+export function describeInstall(): { os: string; install: string } {
+  const systemVersion = (() => {
+    try {
+      return process.getSystemVersion()
+    } catch {
+      return ''
+    }
+  })()
+  const osRelease = process.platform === 'linux' ? readOsReleaseOrNull() : null
+  const os =
+    process.platform === 'darwin'
+      ? `macOS ${systemVersion}`.trim()
+      : process.platform === 'win32'
+        ? `Windows ${systemVersion}`.trim()
+        : process.platform === 'linux'
+          ? `${osReleasePrettyName(osRelease) ?? 'Linux'} (kernel ${systemVersion || 'unknown'})`
+          : `${process.platform} ${systemVersion}`.trim()
+  let install: string
+  try {
+    install = installLabel({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      mas: Boolean(process.mas),
+      windowsStore: Boolean(process.windowsStore),
+      portableExecutableDir: process.env.PORTABLE_EXECUTABLE_DIR,
+      linuxFormat: () =>
+        linuxUpdaterFormat({
+          isAppImage: Boolean(process.env.APPIMAGE),
+          isOfficialSystemPackage: isOfficialLinuxSystemPackage(
+            process.resourcesPath,
+            existsSync(join(process.resourcesPath, 'package-type'))
+          ),
+          osRelease
+        })
+    })
+  } catch {
+    install = 'unknown'
+  }
+  return { os, install }
 }
 
 function shellQuote(value: string): string {

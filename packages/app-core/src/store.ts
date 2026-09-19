@@ -1833,25 +1833,46 @@ function parseIsoDateLocal(iso: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-// Per-vault "we already rolled over today" marker, persisted in localStorage so
-// opening today's daily note across sessions doesn't re-scan past notes once
-// it's done for the day. Keyed by vault root so multiple vaults don't collide.
-function rolloverMarkerKey(root: string): string {
-  return `zen.tasks.rollover.${root || 'default'}`
+// Per-vault record of the past daily notes the rollover already read and found
+// free of open tasks, persisted in localStorage so opening today's note does
+// not re-read years of daily notes every time. Each entry is keyed by note
+// path and holds the `updatedAt:size` signature of the listing that was
+// scanned, so a note edited since (a task typed into yesterday's note later
+// today, a file changed by sync) stops matching and is read again. Its
+// predecessor was a once-per-day marker written even when nothing had moved,
+// which meant a task added to a past daily note after today's note had been
+// opened once never rolled over until the next day (#817). Keyed by vault
+// root so multiple vaults don't collide.
+type RolloverCleanRecord = Record<string, string>
+
+function rolloverCleanKey(root: string): string {
+  return `zen.tasks.rolloverClean.${root || 'default'}`
 }
-function readRolloverMarker(root: string): string | null {
+function rolloverNoteSignature(note: NoteMeta): string {
+  return `${note.updatedAt}:${note.size}`
+}
+function readRolloverClean(root: string): RolloverCleanRecord {
   try {
-    return typeof localStorage !== 'undefined'
-      ? localStorage.getItem(rolloverMarkerKey(root))
-      : null
+    const raw =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(rolloverCleanKey(root)) : null
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const record: RolloverCleanRecord = {}
+    for (const [path, signature] of Object.entries(parsed)) {
+      if (typeof signature === 'string') record[path] = signature
+    }
+    return record
   } catch {
-    return null
+    return {}
   }
 }
-function writeRolloverMarker(root: string, iso: string): void {
+function writeRolloverClean(root: string, record: RolloverCleanRecord): void {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(rolloverMarkerKey(root), iso)
+      localStorage.setItem(rolloverCleanKey(root), JSON.stringify(record))
+      // The once-per-day marker this record replaces; nothing reads it any more.
+      localStorage.removeItem(`zen.tasks.rollover.${root || 'default'}`)
     }
   } catch {
     // localStorage may be unavailable (private mode); the in-session flow still works.
@@ -3199,7 +3220,11 @@ interface Store {
   closedTabStack: ClosedTabEntry[]
 
   setVault: (v: VaultInfo | null) => void
-  setVaultSettings: (next: VaultSettings) => Promise<void>
+  /** Resolves true once the settings are on disk. A failed write is logged,
+   *  not thrown, because most callers fire and forget; the Cloud settings
+   *  prompt reads the flag so it does not discard the cloud's copy after a
+   *  save that never happened. */
+  setVaultSettings: (next: VaultSettings) => Promise<boolean>
   /**
    * Toggle a favorite (a note path or a `folder:subpath` key) and persist it.
    * Favorites pin to the top of the sidebar.
@@ -3645,7 +3670,8 @@ interface Store {
   addTaskForDate: (dateIso: string, text: string) => Promise<void>
   /** Move unfinished tasks from past daily notes into today's note. Returns the
    *  number of task lines moved. Without `force`, it is gated by the
-   *  `rolloverUnfinishedTasks` setting and a once-per-day marker. */
+   *  `rolloverUnfinishedTasks` setting and skips past notes it already found
+   *  clean and that have not changed on disk since; `force` re-reads them all. */
   rolloverUnfinishedTasksIntoToday: (opts?: {
     force?: boolean
     open?: boolean
@@ -5755,11 +5781,19 @@ export const useStore = create<Store>((set, get) => {
       set({
         vaultSettings: settings
       })
+    } catch (err) {
+      console.error('setVaultSettings failed', err)
+      return false
+    }
+    // The settings are saved at this point; a failed listing refresh is not a
+    // failed save.
+    try {
       await get().refreshNotes()
       await get().refreshRootContentHidden()
     } catch (err) {
       console.error('setVaultSettings failed', err)
     }
+    return true
   },
   applyFavorites: async (nextFavorites) => {
     const isCurrent = captureFolderActionContext(get)
@@ -9121,10 +9155,7 @@ export const useStore = create<Store>((set, get) => {
     const today = new Date()
     const todayIso = noteTitleForDate(today)
     const vaultRoot = get().vault?.root ?? ''
-    if (!force) {
-      if (!settings.dailyNotes.rolloverUnfinishedTasks) return 0
-      if (readRolloverMarker(vaultRoot) === todayIso) return 0
-    }
+    if (!force && !settings.dailyNotes.rolloverUnfinishedTasks) return 0
     const todayNote = await get().ensureDailyNoteForDate(today)
     if (!todayNote) return 0
     if (opts?.open) {
@@ -9144,9 +9175,20 @@ export const useStore = create<Store>((set, get) => {
     }
     pastNotes.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0))
 
+    // The explicit command is the escape hatch: it re-reads every past note
+    // instead of trusting the record. Notes that vanished from the listing
+    // drop out of the record because only notes seen this run are carried.
+    const clean = force ? {} : readRolloverClean(vaultRoot)
+    const nextClean: RolloverCleanRecord = {}
     const movedLines: string[] = []
+    const trimmed: Array<{ path: string; rest: string; buffered: boolean }> = []
     for (const { note } of pastNotes) {
+      const signature = rolloverNoteSignature(note)
       const buffer = get().noteContents[note.path]
+      if (!buffer && clean[note.path] === signature) {
+        nextClean[note.path] = signature
+        continue
+      }
       let body: string
       try {
         body = buffer?.body ?? (await window.zen.readNote(note.path)).body
@@ -9155,29 +9197,24 @@ export const useStore = create<Store>((set, get) => {
         continue
       }
       const { moved, rest } = extractOpenTaskBlocks(body)
-      if (moved.length === 0) continue
-      movedLines.push(...moved)
-      if (buffer) {
-        // Open buffer: route through the normal edit pipeline (marks dirty,
-        // autosaves, watcher rescans tasks) — same as toggleTaskFromList. A disk
-        // rescan here would read the not-yet-flushed file and go stale.
-        get().updateNoteBody(note.path, rest)
-      } else {
-        try {
-          await window.zen.writeNote(note.path, rest)
-          await get().rescanTasksForPath(note.path)
-        } catch (err) {
-          console.error('rollover writeNote (source) failed', note.path, err)
-          // Don't drop the lines we already pulled — they'll still land in today.
-        }
+      if (moved.length === 0) {
+        // The signature describes the file on disk, so only a disk read may
+        // vouch for it: an open buffer can be ahead of the listing, and it
+        // costs nothing to read again.
+        if (!buffer) nextClean[note.path] = signature
+        continue
       }
+      movedLines.push(...moved)
+      trimmed.push({ path: note.path, rest, buffered: Boolean(buffer) })
     }
 
     if (movedLines.length === 0) {
-      writeRolloverMarker(vaultRoot, todayIso)
+      writeRolloverClean(vaultRoot, nextClean)
       return 0
     }
 
+    // Today's note takes the tasks first and the sources give them up after,
+    // so a failure midway leaves a task in two notes rather than in none.
     const todayBuffer = get().noteContents[todayNote.path]
     let todayBody: string
     try {
@@ -9202,7 +9239,27 @@ export const useStore = create<Store>((set, get) => {
         return 0
       }
     }
-    writeRolloverMarker(vaultRoot, todayIso)
+
+    for (const { path, rest, buffered } of trimmed) {
+      if (buffered) {
+        // Open buffer: route through the normal edit pipeline (marks dirty,
+        // autosaves, watcher rescans tasks), same as toggleTaskFromList. A disk
+        // rescan here would read the not-yet-flushed file and go stale.
+        get().updateNoteBody(path, rest)
+      } else {
+        try {
+          await window.zen.writeNote(path, rest)
+          await get().rescanTasksForPath(path)
+        } catch (err) {
+          console.error('rollover writeNote (source) failed', path, err)
+          // The task already landed in today; the copy left here rolls again
+          // next time and the user sees a duplicate, not a lost task.
+        }
+      }
+    }
+    // Trimmed notes are left out on purpose: their signature changes with the
+    // write, and the next run reads them once more before vouching for them.
+    writeRolloverClean(vaultRoot, nextClean)
     return movedLines.length
   }),
 

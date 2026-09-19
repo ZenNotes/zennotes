@@ -1,6 +1,51 @@
+import { lineOfOffset } from '@shared/note-comments'
 import type { OutlineItem } from './outline'
 
 const RENDERED_HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6'
+
+/** The slice of a store `NoteJumpLocation` the reading view needs. */
+export interface PreviewJumpRequest {
+  editorSelectionAnchor: number
+  previewScrollTop: number
+  editorScrollMode?: 'preserve' | 'center' | 'start'
+  highlightLine?: boolean
+}
+
+/**
+ * What a pane in reading mode does with a pending jump.
+ *
+ * - `edit`: the jump exists for the editor. A task jump paints a highlight on
+ *   the source line, which only the editor can show.
+ * - `restore`: Ctrl+O / Ctrl+I. The location remembers how far the reading
+ *   view was scrolled when the user left, so put it back there.
+ * - `line`: a `[[Note#Heading]]`, `[[Note#^block]]` or search hit. Land the
+ *   rendered block for that source line at the top, and stay in reading mode.
+ */
+export type PreviewJumpPlan =
+  | { kind: 'edit' }
+  | { kind: 'restore'; top: number }
+  | { kind: 'line'; line: number }
+
+export function planPreviewJump(jump: PreviewJumpRequest, body: string): PreviewJumpPlan {
+  if (jump.highlightLine) return { kind: 'edit' }
+  if ((jump.editorScrollMode ?? 'preserve') === 'preserve') {
+    return { kind: 'restore', top: Math.max(0, jump.previewScrollTop) }
+  }
+  return { kind: 'line', line: lineOfOffset(body, jump.editorSelectionAnchor) }
+}
+
+/**
+ * Whether the reading view's DOM is the render of `notePath`. The preview
+ * renders asynchronously (diagrams first, then one DOM swap), so right after a
+ * note opens the article still shows the previous note; scrolling against
+ * those blocks would land anywhere. `Preview` stamps the path on the article
+ * in the same step as the DOM swap.
+ */
+export function previewShowsNote(previewScrollEl: ParentNode | null, notePath: string): boolean {
+  const article = previewScrollEl?.querySelector<HTMLElement>('[data-preview-content]')
+  return article?.dataset.notePath === notePath
+}
+
 const ATX_HEADING_TEXT_OFFSET_RE = /^(#{1,6})[ \t]+/
 
 export function outlineHeadingTextOffset(lineText: string): number {

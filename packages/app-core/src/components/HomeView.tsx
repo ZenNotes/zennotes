@@ -4,6 +4,15 @@ import { filterTasksForDisplay, type VaultTask } from '@shared/tasks'
 import { useStore } from '../store'
 import { computeTasksRender } from '../lib/tasks-filter'
 import { InlineMarkdown } from '../lib/inline-markdown'
+import { getSystemFolderLabel } from '../lib/system-folder-labels'
+import {
+  isPrimaryNotesAtRoot,
+  noteFolderSubpath,
+  resolveFavoriteItems,
+  type FavoriteItem
+} from '../lib/vault-layout'
+import { colorGlyphClassById, resolveFolderColorGlyphClass } from './FolderColors'
+import { iconOptionById, resolveFolderIconOption } from './FolderIcons'
 import {
   ArrowUpRightIcon,
   CalendarIcon,
@@ -13,6 +22,7 @@ import {
   ExcalidrawIcon,
   NotePlusIcon,
   PanelLeftIcon,
+  StarIcon,
   ZapIcon
 } from './icons'
 
@@ -49,8 +59,8 @@ function timeAgo(ts: number, now: number): string {
 }
 
 /** A light landing view shown when no note is open: the few most recently
- *  edited notes plus the open tasks for today. Keyboard: ↑/↓ (and j/k in vim
- *  mode) move between rows, Enter opens. */
+ *  edited notes, the vault's favorites, plus the open tasks for today.
+ *  Keyboard: ↑/↓ (and j/k in vim mode) move between rows, Enter opens. */
 export function HomeView({
   sidebarOpen,
   onShowSidebar
@@ -59,11 +69,14 @@ export function HomeView({
   onShowSidebar: () => void
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const folders = useStore((s) => s.folders)
   const vaultTasks = useStore((s) => s.vaultTasks)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
   const tasksLoading = useStore((s) => s.tasksLoading)
   const vimMode = useStore((s) => s.vimMode)
   const selectNote = useStore((s) => s.selectNote)
+  const setView = useStore((s) => s.setView)
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const openTaskAt = useStore((s) => s.openTaskAt)
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
   const refreshTasks = useStore((s) => s.refreshTasks)
@@ -143,6 +156,55 @@ export function HomeView({
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_RECENT),
     [notes]
+  )
+
+  // Favorites (#810) share the sidebar's resolver, so a stale key (note moved
+  // to trash, folder deleted) disappears from both surfaces at the same time.
+  // Stored order is kept: the user arranged the list, the home view shows it.
+  const favorites = useMemo<FavoriteItem[]>(
+    () => resolveFavoriteItems(vaultSettings.favorites, notes, folders),
+    [vaultSettings.favorites, notes, folders]
+  )
+
+  // Where a favorited note lives, as the breadcrumb would spell it: the
+  // system-folder label (skipped for inbox notes kept at the vault root) and
+  // the subpath segments. Empty for a top-level note.
+  const favoriteNoteLocation = useCallback(
+    (path: string): string => {
+      const note = notes.find((n) => n.path === path)
+      if (!note) return ''
+      const segments: string[] = []
+      if (!(note.folder === 'inbox' && isPrimaryNotesAtRoot(vaultSettings))) {
+        segments.push(getSystemFolderLabel(note.folder, systemFolderLabels))
+      }
+      const sub = noteFolderSubpath(note, vaultSettings)
+      if (sub) segments.push(...sub.split('/'))
+      return segments.join(' / ')
+    },
+    [notes, vaultSettings, systemFolderLabels]
+  )
+
+  // A favorited folder opens as the folder view, the same target the sidebar's
+  // Favorites row uses. Two things make that visible from here: the sidebar
+  // comes back if it was hidden, and the folder plus its ancestors expand in
+  // the tree. Folders start collapsed, and in the unified sidebar the tree is
+  // the only place the folder's notes appear, so a highlighted collapsed row
+  // would look like nothing happened.
+  const openFavoriteFolder = useCallback(
+    (item: Extract<FavoriteItem, { kind: 'folder' }>) => {
+      if (!sidebarOpen) onShowSidebar()
+      const chain = new Set([`${item.folder}:`])
+      let acc = ''
+      for (const segment of item.subpath.split('/')) {
+        acc = acc ? `${acc}/${segment}` : segment
+        chain.add(`${item.folder}:${acc}`)
+      }
+      const { collapsedFolders, setCollapsedFolders } = useStore.getState()
+      const expanded = collapsedFolders.filter((key) => !chain.has(key))
+      if (expanded.length !== collapsedFolders.length) setCollapsedFolders(expanded)
+      setView({ kind: 'folder', folder: item.folder, subpath: item.subpath })
+    },
+    [sidebarOpen, onShowSidebar, setView]
   )
 
   const { today, overdueCount } = useMemo(() => {
@@ -234,7 +296,7 @@ export function HomeView({
           ))}
         </div>
 
-        <section className="mb-9">
+        <section className="mb-9" data-home-section="recent">
           <SectionLabel icon={<ZapIcon width={13} height={13} />} text="Recent" />
           {recent.length > 0 ? (
             <ul className="mt-1.5 space-y-0.5">
@@ -243,6 +305,7 @@ export function HomeView({
                   <button
                     type="button"
                     data-home-item
+                    data-home-note-path={note.path}
                     onClick={() => void selectNote(note.path)}
                     className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-paper-200/60 focus:bg-paper-200/70 focus:outline-none"
                   >
@@ -300,7 +363,65 @@ export function HomeView({
           )}
         </section>
 
-        <section>
+        {favorites.length > 0 && (
+          <section className="mb-9" data-home-section="favorites">
+            <SectionLabel icon={<StarIcon width={13} height={13} />} text="Favorites" />
+            <ul className="mt-1.5 space-y-0.5">
+              {favorites.map((item) => {
+                // Same glyph and tint the sidebar gives the favorite, so the
+                // item is recognisable across both surfaces.
+                const icon =
+                  item.kind === 'note'
+                    ? vaultSettings.folderIcons[item.path]
+                      ? iconOptionById(vaultSettings.folderIcons[item.path]).icon
+                      : item.isDrawing
+                        ? <ExcalidrawIcon width={16} height={16} />
+                        : <DocumentTextIcon width={16} height={16} />
+                    : resolveFolderIconOption(item.folder, item.subpath, vaultSettings.folderIcons)
+                        .icon
+                const colorClass =
+                  item.kind === 'note'
+                    ? colorGlyphClassById(vaultSettings.folderColors[item.path])
+                    : resolveFolderColorGlyphClass(
+                        item.folder,
+                        item.subpath,
+                        vaultSettings.folderColors
+                      )
+                const label = item.kind === 'note' ? item.title || 'Untitled' : item.label
+                const location = item.kind === 'note' ? favoriteNoteLocation(item.path) : 'Folder'
+                return (
+                  <li key={item.key}>
+                    <button
+                      type="button"
+                      data-home-item
+                      data-home-favorite={item.kind}
+                      {...(item.kind === 'note' ? { 'data-home-note-path': item.path } : {})}
+                      onClick={() =>
+                        item.kind === 'note' ? void selectNote(item.path) : openFavoriteFolder(item)
+                      }
+                      className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-paper-200/60 focus:bg-paper-200/70 focus:outline-none"
+                    >
+                      <span
+                        className={[
+                          'flex h-4 w-4 shrink-0 items-center justify-center',
+                          colorClass ?? 'text-ink-400 group-hover:text-ink-600'
+                        ].join(' ')}
+                      >
+                        {icon}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-800">{label}</span>
+                      {location && (
+                        <span className="shrink-0 truncate text-xs text-ink-400">{location}</span>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        )}
+
+        <section data-home-section="today">
           <SectionLabel
             icon={<CheckSquareIcon width={13} height={13} />}
             text="Today"

@@ -125,7 +125,12 @@ import {
   type SettingsSearchCategory,
 } from "../lib/settings-search";
 import { useAppUpdateState } from "../lib/app-update-state";
-import { getZenBridge } from "@zennotes/bridge-contract/bridge";
+import { buildVersionReport } from "../lib/version-report";
+import { writeClipboardText } from "../lib/clipboard-text";
+import {
+  getZenBridge,
+  type ZenAppInfo,
+} from "@zennotes/bridge-contract/bridge";
 import companyLogo from "../assets/lumary-labs-logo.svg";
 import { confirmApp } from "../lib/confirm-requests";
 import { promptApp } from "../lib/prompt-requests";
@@ -363,6 +368,8 @@ function formatUpdatePhaseLabel(phase: AppUpdateState["phase"]): string {
       return "Ready to install";
     case "installing":
       return "Installing";
+    case "offline":
+      return "Waiting for network";
     case "error":
       return "Update error";
     case "idle":
@@ -382,6 +389,8 @@ function updatePhaseBadgeClass(phase: AppUpdateState["phase"]): string {
       return "border-paper-300/70 bg-paper-100/85 text-ink-700";
     case "error":
       return "border-red-400/25 bg-red-500/10 text-red-700";
+    case "offline":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
     case "not-available":
       return "border-emerald-400/25 bg-emerald-500/10 text-emerald-700";
     case "unsupported":
@@ -810,7 +819,11 @@ export function SettingsModal(): JSX.Element {
           window.alert(state.message);
           return;
         }
-        if (state.phase === "unsupported" || state.phase === "error") {
+        if (
+          state.phase === "unsupported" ||
+          state.phase === "offline" ||
+          state.phase === "error"
+        ) {
           window.alert(state.message);
         }
       },
@@ -5085,8 +5098,18 @@ export function SettingsModal(): JSX.Element {
         {
           id: "zen-notes-version",
           title: "ZenNotes version",
-          description: "App identity, current version, and product details.",
-          keywords: ["about", "version", "identity"],
+          description:
+            "App identity, current version, and the details to paste into a bug report.",
+          keywords: [
+            "about",
+            "version",
+            "identity",
+            "bug report",
+            "electron",
+            "os",
+            "install",
+            "copy details",
+          ],
         },
         {
           id: "updates",
@@ -5129,6 +5152,7 @@ export function SettingsModal(): JSX.Element {
                     v{appInfo.version}
                   </span>
                 </div>
+                <VersionDetails appInfo={appInfo} />
                 <div
                   className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
                   {...settingsSearchTargetProps("updates")}
@@ -6200,6 +6224,53 @@ function CategorySubTabs({
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return (
     <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+  );
+}
+
+/** The lines a bug report needs (OS, engine, install format, remote server),
+ *  the same ones `:version` prints in Vim mode, with a one-click copy (#814). */
+function VersionDetails({ appInfo }: { appInfo: ZenAppInfo }): JSX.Element {
+  const workspaceMode = useStore((s) => s.workspaceMode);
+  const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
+  const [copied, setCopied] = useState(false);
+  const lines = buildVersionReport({
+    app: appInfo,
+    remoteServer:
+      workspaceMode === "remote"
+        ? {
+            baseUrl: remoteWorkspaceInfo?.baseUrl ?? null,
+            version: remoteWorkspaceInfo?.capabilities?.version ?? null,
+          }
+        : null,
+  });
+  const text = lines.join("\n");
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="mx-auto mt-4 max-w-[44rem] text-left">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+          Version details
+        </div>
+        <Button
+          variant="ghost"
+          aria-label="Copy version details"
+          onClick={() => setCopied(writeClipboardText(text))}
+        >
+          {copied ? "Copied" : "Copy details"}
+        </Button>
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg border border-paper-300/70 bg-paper-100/70 px-3 py-2 font-mono text-xs leading-5 text-ink-600">
+        {text}
+      </pre>
+      <p className="mt-2 text-xs leading-5 text-ink-500">
+        Paste these into a bug report. In Vim mode, <code>:version</code>{" "}
+        prints the same lines and <code>:version copy</code> copies them.
+      </p>
+    </div>
   );
 }
 

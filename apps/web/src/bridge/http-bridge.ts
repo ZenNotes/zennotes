@@ -107,7 +107,12 @@ const WEB_APP_INFO: ZenAppInfo = {
   description: appPackage.description,
   homepage: appPackage.homepage,
   runtime: 'web',
-  hostKind: 'browser'
+  hostKind: 'browser',
+  // The user agent is the one line a browser can answer for `:version`; it
+  // carries the OS too, so no separate os field (#814).
+  ...(typeof navigator !== 'undefined' && navigator.userAgent
+    ? { engine: navigator.userAgent }
+    : {})
 }
 
 // Base path under which the server is mounted (e.g. "/zennotes" when

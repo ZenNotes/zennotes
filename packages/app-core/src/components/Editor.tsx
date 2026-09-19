@@ -54,6 +54,8 @@ import {
 import { promptApp } from "../lib/prompt-requests";
 import { offerCreateNoteFromLink } from "../lib/create-note-from-link";
 import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
+import { buildVersionReport } from "../lib/version-report";
+import { writeClipboardText } from "../lib/clipboard-text";
 import {
   externalFileLink,
   openExternalFileLink,
@@ -359,6 +361,20 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
  * unavailable. (#173)
  */
 function alertEditorError(message: string): void {
+  showEditorNotification(message, { color: "red", duration: 4000 });
+}
+
+/**
+ * Bottom-of-editor Vim notification. Errors are red like codemirror-vim's
+ * own; informational output (`:version`) inherits the editor color, since
+ * red would read as "something failed". Multi-line text keeps its line
+ * breaks. Falls back to an alert (then refocuses) if the editor notification
+ * is unavailable.
+ */
+function showEditorNotification(
+  message: string,
+  opts: { color?: string; duration: number },
+): void {
   const view = useStore.getState().editorViewRef;
   const cm = view ? getCM(view) : null;
   const openNotification = (
@@ -372,14 +388,46 @@ function alertEditorError(message: string): void {
   if (cm && typeof openNotification === "function") {
     const el = document.createElement("div");
     el.className = "cm-vim-message";
-    el.style.color = "red";
+    if (opts.color) el.style.color = opts.color;
     el.style.whiteSpace = "pre";
     el.textContent = message;
-    openNotification.call(cm, el, { bottom: true, duration: 4000 });
+    openNotification.call(cm, el, { bottom: true, duration: opts.duration });
     return;
   }
   window.alert(message);
   focusEditorNormalMode();
+}
+
+/**
+ * `:version` prints the details a bug report needs (ZenNotes version, OS,
+ * engine, install format, remote server) instead of the stock
+ * codemirror-vim line that only named the Vim library (#814). `:version copy`
+ * or `:version!` also puts the text on the clipboard.
+ */
+function runVersionEx(argString: string): void {
+  const state = useStore.getState();
+  const remote =
+    state.workspaceMode === "remote"
+      ? {
+          baseUrl: state.remoteWorkspaceInfo?.baseUrl ?? null,
+          version: state.remoteWorkspaceInfo?.capabilities?.version ?? null,
+        }
+      : null;
+  const lines = buildVersionReport({
+    app: window.zen.getAppInfo(),
+    remoteServer: remote,
+  });
+  const arg = argString.trim();
+  const copy = arg === "!" || arg.toLowerCase() === "copy";
+  const shown = [...lines];
+  if (copy) {
+    shown.push(
+      writeClipboardText(lines.join("\n"))
+        ? "Copied to the clipboard"
+        : "Could not reach the clipboard",
+    );
+  }
+  showEditorNotification(shown.join("\n"), { duration: 15000 });
 }
 
 // Minimal shape of the CodeMirror-Vim adapter + state the display-line motion
@@ -725,6 +773,16 @@ function registerVimCommands(): void {
   };
   Vim.defineEx("template", "template", runTemplateEx);
   Vim.defineEx("tmpl", "tmpl", runTemplateEx);
+
+  // Replaces the library's own `:version`, which reported only the
+  // codemirror-vim version (#814).
+  Vim.defineEx(
+    "version",
+    "ve",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      runVersionEx(params?.argString ?? "");
+    },
+  );
 
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();

@@ -20,10 +20,17 @@ import { confirmApp } from "../lib/confirm-requests";
 import {
   cloudSyncAttentionItems,
   cloudSyncAttentionMessage,
+  openCloudSettingsConflictPrompt,
+  refreshCloudSettingsConflict,
+  resolveCloudSettingsConflictWithStatus,
   useCloudSyncStatusStore,
   requestCloudAutoSync,
   syncCloudVaultWithStatus,
 } from "../lib/cloud-auto-sync";
+import {
+  describeVaultSettingsConflict,
+  VAULT_SETTINGS_SECTION_LABELS,
+} from "../lib/vault-settings-conflict";
 import { useToastStore } from "../lib/toast";
 import { notifyPublishedNoteChanged } from "../lib/published-note-events";
 import { requestPublishNote } from "../lib/publish-note-requests";
@@ -70,8 +77,9 @@ export function CloudSettings({
   const [selectedVaultId, setSelectedVaultId] = useState("");
   const [newVaultName, setNewVaultName] = useState(localVaultName);
   const [summary, setSummary] = useState<CloudSyncRunSummary | null>(null);
-  const [settingsConflict, setSettingsConflict] =
-    useState<CloudSyncSettingsConflict | null>(null);
+  // The settings question is the runtime's, not this panel's: sync raises it
+  // and the prompt answers it from anywhere, so this panel only shows it.
+  const settingsConflict = useCloudSyncStatusStore((state) => state.settingsConflict);
   const [backups, setBackups] = useState<CloudBackupSnapshot[]>([]);
   const [backupSchedule, setBackupSchedule] =
     useState<CloudBackupSchedule | null>(null);
@@ -105,7 +113,6 @@ export function CloudSettings({
           setSelectedVaultId((selected) => remainingVaults.some((vault) => vault.id === selected)
             ? selected : (remainingVaults[0]?.id ?? ""));
           setSummary(null);
-          setSettingsConflict(null);
           setBackups([]);
           setBackupSchedule(null);
           setExpandedBackupId(null);
@@ -383,24 +390,17 @@ export function CloudSettings({
     });
   };
 
-  const loadSettingsConflict = useCallback(async (): Promise<void> => {
-    try {
-      setSettingsConflict(await bridge.getCloudSettingsConflict());
-    } catch {
-      // A host without the question (the web client) simply has none to ask.
-      setSettingsConflict(null);
-    }
-  }, [bridge]);
-
+  // Opening Settings is a chance the runtime did not have: a question parked
+  // before this window existed (or while sync was off) shows up here too.
   useEffect(() => {
-    void loadSettingsConflict();
-  }, [loadSettingsConflict]);
+    void refreshCloudSettingsConflict(bridge);
+  }, [bridge]);
 
   const syncVault = (): Promise<void> => {
     setSummary(null);
     return runAction("sync", async () => {
       setSummary(await syncCloudVaultWithStatus(bridge, link?.vault_name));
-      await loadSettingsConflict();
+      await refreshCloudSettingsConflict(bridge);
       await refreshServiceAccount();
     });
   };
@@ -408,12 +408,8 @@ export function CloudSettings({
   const resolveSettingsConflict = (
     choice: CloudSyncSettingsChoice,
   ): Promise<void> =>
-    runAction(
-      choice === "cloud" ? "settings-cloud" : "settings-local",
-      async () => {
-        await bridge.resolveCloudSettingsConflict(choice);
-        await loadSettingsConflict();
-      },
+    runAction(choice === "cloud" ? "settings-cloud" : "settings-local", () =>
+      resolveCloudSettingsConflictWithStatus(choice, bridge),
     );
 
   const createBackup = (): Promise<void> =>
@@ -1215,7 +1211,9 @@ function CloudVaultPanel({
             {settingsConflict && (
               <CloudSettingsConflictCard
                 action={action}
+                conflict={settingsConflict}
                 onResolve={onResolveSettingsConflict}
+                onCompare={openCloudSettingsConflictPrompt}
               />
             )}
             {syncing && (
@@ -1924,15 +1922,28 @@ function numericLimit(
  * conflict copy to compare side by side, but settings are a single answer, and
  * a copy of them inside a hidden folder is not something anyone can act on.
  * This device's settings stay in use until the question is answered, so doing
- * nothing keeps what is already working.
+ * nothing keeps what is already working. The card names the sections that
+ * differ and hands the per-section choice to the shared prompt; the two
+ * whole-file answers stay here for the common "just keep mine" case.
  */
 function CloudSettingsConflictCard({
   action,
+  conflict,
   onResolve,
+  onCompare,
 }: {
   action: CloudAction;
+  conflict: CloudSyncSettingsConflict;
   onResolve: (choice: CloudSyncSettingsChoice) => void;
+  onCompare: () => void;
 }): JSX.Element {
+  const localSettings = useStore((state) => state.vaultSettings);
+  const described = conflict.cloud_settings
+    ? describeVaultSettingsConflict(localSettings, conflict.cloud_settings)
+    : null;
+  const sections = described?.differences.map(
+    (difference) => VAULT_SETTINGS_SECTION_LABELS[difference.section],
+  );
   return (
     <div
       role="group"
@@ -1941,13 +1952,28 @@ function CloudSettingsConflictCard({
     >
       <div className="font-medium">Vault settings differ from the cloud</div>
       <div className="mt-1 text-xs leading-5 text-ink-500">
-        Another device saved different settings for this vault: favorites,
-        folder icons and colors, and where the built-in folders live. This
-        device&rsquo;s settings are the ones in use.
+        {sections === undefined
+          ? "Another device saved different settings for this vault: favorites, folder icons and colors, and where the built-in folders live."
+          : sections.length === 0
+            ? "Another device saved settings for this vault that this device reads the same way as its own."
+            : `Another device saved different settings for this vault. What differs: ${sections.join(", ")}.`}{" "}
+        This device&rsquo;s settings are the ones in use.
+        {described !== null && described.unknownKeys.length > 0 && (
+          <>
+            {" "}
+            The cloud&rsquo;s copy also carries settings this device does not use (
+            {described.unknownKeys.join(", ")}).
+          </>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
+        {sections !== undefined && sections.length > 0 && (
+          <Button variant="primary" disabled={action !== null} onClick={onCompare}>
+            Compare and choose…
+          </Button>
+        )}
         <Button
-          variant="primary"
+          variant={sections !== undefined && sections.length > 0 ? "secondary" : "primary"}
           disabled={action !== null}
           onClick={() => onResolve("local")}
         >

@@ -8,12 +8,17 @@ import type { VaultChangeEvent } from "@shared/ipc";
 import {
   acknowledgeCloudConflictResolution,
   clearCloudSyncStatus,
+  cloudSyncAttentionIsSettingsOnly,
   cloudSyncAttentionItems,
   cloudSyncAttentionMessage,
   closeCloudConflictReview,
+  closeCloudSettingsConflictPrompt,
   connectCloudAccountFromStatusBar,
+  hasPendingCloudReview,
   openCloudConflictReview,
+  openPendingCloudReview,
   registerCloudConflictDraftFlusher,
+  resolveCloudSettingsConflictWithStatus,
   startCloudAutoSync,
   syncCloudVaultWithStatus,
   type CloudAutoSyncBridge,
@@ -818,5 +823,150 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
     await syncCloudVaultWithStatus({ syncCloudVault: async () => base }, "Notes");
     expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(false);
     closeCloudConflictReview();
+  });
+});
+
+describe("the vault settings question (#816)", () => {
+  const base: CloudSyncRunSummary = {
+    cursor: 9,
+    pulled: 0,
+    pushed: 0,
+    conflicts: [],
+    bootstrap_conflicts: [],
+    local_conflicts: [],
+  };
+  const question = {
+    path: ".zennotes/vault.json",
+    cloud_path: ".zennotes/vault.cloud-conflict.json",
+    cloud_settings: { favorites: ["inbox:Projects"] },
+  };
+
+  function bridgeWith(parked: () => typeof question | null) {
+    return {
+      syncCloudVault: async () => base,
+      getCloudSettingsConflict: async () => parked(),
+      resolveCloudSettingsConflict: vi.fn(async () => undefined),
+    };
+  }
+
+  beforeEach(() => clearCloudSyncStatus());
+  afterEach(() => clearCloudSyncStatus());
+
+  it("surfaces the question right after the run that parked it, and opens the prompt once", async () => {
+    let parked: typeof question | null = question;
+    const bridge = bridgeWith(() => parked);
+
+    await syncCloudVaultWithStatus(bridge, "Notes");
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "attention",
+      settingsConflict: question,
+      settingsConflictPromptOpen: true,
+    });
+    expect(cloudSyncAttentionIsSettingsOnly()).toBe(true);
+    expect(hasPendingCloudReview()).toBe(true);
+
+    // "Decide later" applies nothing: the question stays, the prompt closes,
+    // and the next run with the same parked copy does not reopen it.
+    closeCloudSettingsConflictPrompt();
+    await syncCloudVaultWithStatus(bridge, "Notes");
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "attention",
+      settingsConflict: question,
+      settingsConflictPromptOpen: false,
+    });
+
+    // The status bar and the leader binding reopen the same prompt.
+    openPendingCloudReview();
+    expect(useCloudSyncStatusStore.getState().settingsConflictPromptOpen).toBe(true);
+    closeCloudSettingsConflictPrompt();
+
+    // A newer cloud copy is a new question, so it is asked again.
+    parked = { ...question, cloud_settings: { favorites: ["inbox:Reading"] } };
+    await syncCloudVaultWithStatus(bridge, "Notes");
+    expect(useCloudSyncStatusStore.getState().settingsConflictPromptOpen).toBe(true);
+  });
+
+  it("clears the question and the attention once it is answered", async () => {
+    let parked: typeof question | null = question;
+    const bridge = bridgeWith(() => parked);
+    await syncCloudVaultWithStatus(bridge, "Notes");
+
+    parked = null;
+    await resolveCloudSettingsConflictWithStatus("cloud", bridge);
+    expect(bridge.resolveCloudSettingsConflict).toHaveBeenCalledWith("cloud");
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "ready",
+      error: null,
+      settingsConflict: null,
+      settingsConflictPromptOpen: false,
+    });
+    expect(hasPendingCloudReview()).toBe(false);
+    // Nothing to open: the guard keeps an empty prompt off the screen.
+    openPendingCloudReview();
+    expect(useCloudSyncStatusStore.getState().settingsConflictPromptOpen).toBe(false);
+  });
+
+  it("keeps the generic wording when files also need attention, and lets the file queue go first", async () => {
+    const pending = {
+      id: "item-1",
+      item_id: "item-1",
+      path: "Plans/Trip.md",
+      cloud_path: "Plans/Trip.md",
+      kind: "content" as const,
+      can_merge: true,
+      has_base: true,
+    };
+    await syncCloudVaultWithStatus(
+      {
+        syncCloudVault: async () => ({ ...base, pending_conflicts: [pending] }),
+        getCloudSettingsConflict: async () => question,
+      },
+      "Notes",
+    );
+    const state = useCloudSyncStatusStore.getState();
+    expect(state.phase).toBe("attention");
+    expect(state.error).toContain("1 file differs");
+    expect(cloudSyncAttentionIsSettingsOnly()).toBe(false);
+    expect(state.settingsConflict).toEqual(question);
+
+    openPendingCloudReview();
+    expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true);
+  });
+
+  it("is a question of the host: a bridge without one, or one answering nothing, asks nothing", async () => {
+    await syncCloudVaultWithStatus({ syncCloudVault: async () => base }, "Notes");
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "ready",
+      settingsConflict: null,
+      settingsConflictPromptOpen: false,
+    });
+    await syncCloudVaultWithStatus(
+      {
+        syncCloudVault: async () => base,
+        getCloudSettingsConflict: (async () => undefined) as unknown as () => Promise<null>,
+      },
+      "Notes",
+    );
+    expect(useCloudSyncStatusStore.getState().settingsConflict).toBeNull();
+  });
+
+  it("surfaces a question left by an earlier run even when this run fails", async () => {
+    await expect(
+      syncCloudVaultWithStatus(
+        {
+          syncCloudVault: async () => {
+            throw new Error("Offline");
+          },
+          getCloudSettingsConflict: async () => question,
+        },
+        "Notes",
+      ),
+    ).rejects.toThrow("Offline");
+    await flushPromises();
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "error",
+      settingsConflict: question,
+      settingsConflictPromptOpen: true,
+    });
   });
 });

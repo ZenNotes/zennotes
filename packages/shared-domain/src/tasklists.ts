@@ -505,7 +505,14 @@ export function extractOpenTaskBlocks(markdown: string): {
   moved: string[]
   rest: string
 } {
-  const lines = markdown.split('\n')
+  // Windows files end lines with `\r\n`, and a `\r` left on the line defeats
+  // the `$` in TASK_LINE_RE: such a note shows its tasks in the Tasks view
+  // (the scanner normalizes) but never rolled them over. Matching runs on
+  // `\r`-stripped copies; `rest` is rebuilt from the original lines so the
+  // note keeps its endings byte for byte, and the moved lines are the bare
+  // ones, since today's note is joined on `\n`.
+  const rawLines = markdown.split('\n')
+  const lines = rawLines.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
   const consumed = new Array<boolean>(lines.length).fill(false)
   const moved: string[] = []
   let inFence = false
@@ -547,7 +554,7 @@ export function extractOpenTaskBlocks(markdown: string): {
     i = blockEnd - 1 // skip the consumed block (its children are not new tasks)
   }
 
-  const rest = lines.filter((_, idx) => !consumed[idx]).join('\n')
+  const rest = rawLines.filter((_, idx) => !consumed[idx]).join('\n')
   return { moved, rest }
 }
 

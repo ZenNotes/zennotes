@@ -347,6 +347,13 @@ export const ZapIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** Favorites: the section label on the home view. */
+export const StarIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="m12 3 2.8 5.9 6.2.8-4.5 4.4 1.1 6.4L12 17.4 6.4 20.5l1.1-6.4L3 9.7l6.2-.8Z" />
+  </I>
+)
+
 export const ExternalIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M15 3h6v6" />

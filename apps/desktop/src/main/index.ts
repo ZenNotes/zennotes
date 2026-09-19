@@ -242,6 +242,7 @@ import {
 } from "./raycast-integration";
 import {
   checkForAppUpdates,
+  describeInstall,
   downloadAppUpdate,
   getAppUpdateState,
   initAppUpdater,
@@ -268,6 +269,7 @@ import {
   ZENNOTES_DEEP_LINK_SCHEME,
 } from "./deep-links";
 import {
+  argvRequestsNewWindow,
   isMarkdownFilePath,
   MARKDOWN_FILE_EXTENSIONS,
   candidatePathsFromArgv,
@@ -390,7 +392,13 @@ let cloudAuthLoopbackServer: CloudAuthLoopbackServer | null = null;
 let cloudSyncService: DesktopCloudSyncService | null = null;
 // Markdown files handed to us by the OS (Finder "Open With", a file
 // double-click, drag onto the dock, or a Windows/Linux argv launch).
-const pendingFileOpens: { absPath: string; reuseMainWindow: boolean }[] = [];
+// `newWindow` is the `--new-window` ask (#815): open a fresh window even when
+// one already shows the same vault or folder, instead of raising that one.
+const pendingFileOpens: {
+  absPath: string;
+  reuseMainWindow: boolean;
+  newWindow: boolean;
+}[] = [];
 // windowId -> absolute path of the standalone external file it edits.
 const externalFileWindows = new Map<number, string>();
 // Per-window renderer readiness, so note-open requests can target any
@@ -706,8 +714,13 @@ function findWindowForVaultRoot(root: string): BrowserWindow | null {
 function queueMarkdownFileOpen(
   rawPath: string,
   reuseMainWindow: boolean,
+  newWindow = false,
 ): void {
-  pendingFileOpens.push({ absPath: path.resolve(rawPath), reuseMainWindow });
+  pendingFileOpens.push({
+    absPath: path.resolve(rawPath),
+    reuseMainWindow,
+    newWindow,
+  });
   // Only flush eagerly once startup is finished. During startup `app.isReady()`
   // is already true (we're inside whenReady), so an eager flush here would
   // drain the queue before whenReady's own flush runs — that flush would then
@@ -727,13 +740,16 @@ function handleStartupMarkdownArgs(
   // skipping by index alone let the app dir through as a folder to open.
   const isUnpackagedElectronLaunch =
     (process as NodeJS.Process & { defaultApp?: boolean }).defaultApp === true;
+  // `--new-window` covers every path of this launch (#815). On a cold start it
+  // changes nothing: there is no window to reuse yet.
+  const newWindow = argvRequestsNewWindow(argv);
   let queued = 0;
   for (const candidate of candidatePathsFromArgv(
     argv,
     isUnpackagedElectronLaunch,
     app.getAppPath(),
   )) {
-    queueMarkdownFileOpen(candidate, reuseMainWindow);
+    queueMarkdownFileOpen(candidate, reuseMainWindow, newWindow);
     queued += 1;
   }
   return queued;
@@ -772,7 +788,13 @@ async function drainPendingFileOpens(): Promise<boolean> {
   let openedAny = false;
   for (const item of items) {
     try {
-      if (await openMarkdownFileFromOS(item.absPath, item.reuseMainWindow)) {
+      if (
+        await openMarkdownFileFromOS(
+          item.absPath,
+          item.reuseMainWindow,
+          item.newWindow,
+        )
+      ) {
         openedAny = true;
       }
     } catch (err) {
@@ -782,9 +804,14 @@ async function drainPendingFileOpens(): Promise<boolean> {
   return openedAny;
 }
 
+// `newWindow` (#815) opens a fresh window on the vault or folder even when one
+// already shows it. A file outside every vault keeps reusing its window on
+// purpose: nothing keeps two standalone editors of one file in sync, so the
+// second would silently overwrite the first's saves.
 async function openMarkdownFileFromOS(
   absPath: string,
   reuseMainWindow: boolean,
+  newWindow = false,
 ): Promise<boolean> {
   let stat;
   try {
@@ -794,7 +821,7 @@ async function openMarkdownFileFromOS(
   }
   // A dropped folder opens as a temporary, non-persisted session.
   if (stat.isDirectory()) {
-    return await openTemporaryFolder(absPath, reuseMainWindow);
+    return await openTemporaryFolder(absPath, reuseMainWindow, newWindow);
   }
   if (!stat.isFile() || !isMarkdownFilePath(absPath)) return false;
 
@@ -811,7 +838,7 @@ async function openMarkdownFileFromOS(
   const target = resolveMarkdownOpenTarget(absPath, knownRoots);
 
   if (target.kind === "vault") {
-    const existing = findWindowForVaultRoot(target.vaultRoot);
+    const existing = newWindow ? null : findWindowForVaultRoot(target.vaultRoot);
     if (existing) {
       focusWindow(existing);
       queueNoteOpenForWindow(existing, target.relPath);
@@ -868,11 +895,26 @@ async function openMarkdownFileViaDialog(
 async function openTemporaryFolder(
   dir: string,
   reuseMainWindow: boolean,
+  newWindow = false,
 ): Promise<boolean> {
   const resolved = path.resolve(dir);
   const existing = findWindowForVaultRoot(resolved);
-  if (existing) {
+  if (existing && !newWindow) {
     focusWindow(existing);
+    return true;
+  }
+  if (existing && windowVaults.vaultForWindow(existing.id)?.temporary !== true) {
+    // `zn open -n <vault>` on a vault a window has open for real (#815). A
+    // temporary session on that root is not an option: the ephemeral registry
+    // is keyed by root, not by window, so it would also switch the first
+    // window's workspace-state and settings writes off and send its deleted
+    // notes to the system Trash. Open a second real window on the vault
+    // instead, exactly what "Open Vault in New Window" does.
+    const win = await createWindow({
+      initialVaultRoot: resolved,
+      persistInitialVault: true,
+    });
+    if (!reuseMainWindow) focusWindow(win);
     return true;
   }
   // No markdown-content gate here anymore. It used to bail when a bounded scan
@@ -4608,6 +4650,16 @@ function registerIpc(): void {
       event.returnValue = null;
     }
   });
+  // Same shape as CONFIG_GET_SYNC: the preload folds the OS and install
+  // format into getAppInfo(), which renderer code calls synchronously (#814).
+  ipcMain.on(IPC.APP_INSTALL_INFO_SYNC, (event) => {
+    try {
+      assertTrustedIpcEvent(event);
+      event.returnValue = describeInstall();
+    } catch {
+      event.returnValue = null;
+    }
+  });
   handle(IPC.CONFIG_SET, async (_event, next: AppConfigPortable) => {
     const previousTitleBar =
       getPortableConfigSnapshot().showWindowTitleBar !== false;
@@ -5235,9 +5287,11 @@ async function runMenuUpdateCheck(): Promise<void> {
         ? "ZenNotes is up to date."
         : state.phase === "unsupported"
           ? "Update checks are unavailable."
-          : state.phase === "error"
-            ? "Could not check for updates."
-            : "ZenNotes Updates",
+          : state.phase === "offline"
+            ? "ZenNotes can't reach GitHub right now."
+            : state.phase === "error"
+              ? "Could not check for updates."
+              : "ZenNotes Updates",
     detail: state.message,
   });
 }

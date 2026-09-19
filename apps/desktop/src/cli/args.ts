@@ -3,7 +3,7 @@
  *   zn <command> [<subcommand>] [positional...] [--flag value | --flag=value | -x value]
  * Repeated flags (e.g. `--tag a --tag b`) collect into an array via getMany().
  * Boolean flags are inferred when no value follows or when the next token
- * starts with `--`.
+ * starts with `--`, and the flags in VALUELESS_FLAGS never take one.
  */
 
 export interface ParsedArgs {
@@ -13,6 +13,25 @@ export interface ParsedArgs {
    *  the array of every value seen for that flag, in order. */
   flags: Map<string, string[]>
 }
+
+/**
+ * Long flags that are switches, never `--flag <value>`. Without this list a
+ * switch written before a positional swallowed it: `zn open --new-window
+ * ~/notes` parsed as new-window="~/notes" and no path (#815), and `zn delete
+ * --yes inbox/a.md` the same way. `--flag=value` still works for all of them.
+ * The Go CLI's parser mirrors this list; keep the two in sync.
+ */
+export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
+  'all',
+  'include-excluded',
+  'json',
+  'meta',
+  'new-window',
+  'page',
+  'reopen',
+  'unchecked',
+  'yes'
+])
 
 export function parse(argv: string[]): ParsedArgs {
   const positionals: string[] = []
@@ -36,7 +55,7 @@ export function parse(argv: string[]): ParsedArgs {
       }
       const name = token.slice(2)
       const next = argv[i + 1]
-      if (next != null && !next.startsWith('--')) {
+      if (!VALUELESS_FLAGS.has(name) && next != null && !next.startsWith('--')) {
         push(flags, name, next)
         i += 1
       } else {

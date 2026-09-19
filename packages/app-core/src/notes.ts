@@ -235,6 +235,23 @@ export function requestDeleteNotePermanently(
   return requestLifecycle(host, path, "delete");
 }
 
+/**
+ * Add a note to the vault's Favorites, or take it out again: the sidebar
+ * row's "Add to Favorites" for hosts without that menu. Favorites live in
+ * vault.json, so the list travels with the vault and shows up on Home and in
+ * the desktop sidebar. Trashed notes stay out, as on desktop. Reads go through
+ * the shell snapshot's `favorites`. (#810)
+ */
+export function requestToggleNoteFavorite(
+  host: NoteActionHost,
+  path: string,
+): Promise<NoteActionResult> {
+  return requestNoteAction(host, path, async (state, _note, isCurrent) => {
+    await state.toggleFavorite(path);
+    return isCurrent() ? "completed" : "stale";
+  });
+}
+
 export type NoteBatchAction = 'archive' | 'trash' | 'restore' | 'delete' | 'move'
 export interface NoteBatchResult {
   readonly status: NoteActionResult

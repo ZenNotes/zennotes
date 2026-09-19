@@ -862,6 +862,11 @@ export const Preview = memo(function Preview({
       // not found" and zero-size boards (#68). Mermaid renders to inline SVG, so
       // it is safe to render in the detached buffer above.
       root.replaceChildren(...Array.from(stage.childNodes));
+      // Which note these blocks belong to. Until this swap the article still
+      // shows the previous note, and a jump that lands while a render is in
+      // flight must wait for `onRendered` instead of scrolling against the
+      // wrong blocks (see previewShowsNote).
+      root.dataset.notePath = notePath;
       await renderDiagrams(root, { themeKey: diagramTheme.key, expanded: false });
       if (cancelled) return;
       // Typst math (a no-op when the KaTeX renderer is active, since it emits no

@@ -7,11 +7,17 @@
  *   zn open inbox/demo/03 — Tables and Task Lists.md   (unquoted is fine)
  *   zn open ~/code/myproject/docs        (a folder → focused session)
  *   zn open ~/notes                      (a vault)
+ *   zn open -n ~/notes                   (a second window on that vault)
  *
  * A file must be markdown; a folder opens as a focused, non-persisted
  * session rooted at that folder — the app scopes the window to it and
  * shows only its notes, without registering a vault. That's the way to
  * read a repo's `docs/` or zoom in on one folder of a big vault (#466).
+ *
+ * When a window already shows the vault or folder, the app raises that
+ * window. `-n` / `--new-window` asks for a fresh one instead, the way
+ * Chrome's flag of the same name does (#815): a second workspace on the
+ * same notes, with its own tabs, leaving the first where it was.
  *
  * Paths resolve against the current directory first, then the active
  * vault root — so the vault-relative paths `zn list` prints open from
@@ -27,8 +33,8 @@
 import { spawn } from 'node:child_process'
 import { promises as fsp } from 'node:fs'
 import path from 'node:path'
-import { isMarkdownFilePath } from '../../main/file-open.js'
-import { type ParsedArgs } from '../args.js'
+import { isMarkdownFilePath, NEW_WINDOW_SWITCH } from '../../main/file-open.js'
+import { getBool, type ParsedArgs } from '../args.js'
 import { emitOk } from '../format.js'
 
 export interface ResolvedOpenTarget {
@@ -106,13 +112,17 @@ export async function cmdOpen(vault: string, args: ParsedArgs): Promise<void> {
   }
 
   const absPaths = resolved.map((r) => r.abs)
+  const newWindow = getBool(args, 'n') || getBool(args, 'new-window')
+  // The switch rides in argv ahead of the paths; the app reads it per launch,
+  // so it covers every path given here and none of a later `zn open`.
+  const launchArgs = newWindow ? [NEW_WINDOW_SWITCH, ...absPaths] : absPaths
 
   // Re-launch our own binary in GUI mode. The CLI wrapper set
   // ELECTRON_RUN_AS_NODE so this process runs as plain Node, so we must
   // drop it for the child or it would start as Node too instead of the app.
   const env = { ...process.env }
   delete env.ELECTRON_RUN_AS_NODE
-  const child = spawn(process.execPath, absPaths, {
+  const child = spawn(process.execPath, launchArgs, {
     detached: true,
     stdio: 'ignore',
     env
@@ -140,10 +150,11 @@ export async function cmdOpen(vault: string, args: ParsedArgs): Promise<void> {
   child.unref()
   if (failure) throw new Error(failure)
 
+  const where = newWindow ? 'in a new ZenNotes window' : 'in ZenNotes'
   if (resolved.length === 1) {
     const only = resolved[0]!
-    emitOk(`Opening ${only.isDirectory ? 'folder ' : ''}${only.abs} in ZenNotes`)
+    emitOk(`Opening ${only.isDirectory ? 'folder ' : ''}${only.abs} ${where}`)
   } else {
-    emitOk(`Opening ${resolved.length} items in ZenNotes`)
+    emitOk(`Opening ${resolved.length} items ${where}`)
   }
 }

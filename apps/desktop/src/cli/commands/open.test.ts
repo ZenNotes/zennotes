@@ -19,8 +19,16 @@ import { spawn } from 'node:child_process'
 import { cmdOpen } from './open'
 import type { ParsedArgs } from '../args'
 
-function makeArgs(positionals: string[]): ParsedArgs {
-  return { positionals, flags: new Map() }
+function makeArgs(positionals: string[], flags: Record<string, string> = {}): ParsedArgs {
+  return {
+    positionals,
+    flags: new Map(Object.entries(flags).map(([name, value]) => [name, [value]]))
+  }
+}
+
+function lastMessage(): string {
+  const writes = vi.mocked(process.stdout.write).mock.calls
+  return String(writes[writes.length - 1]?.[0] ?? '')
 }
 
 let tmpDir: string
@@ -164,6 +172,30 @@ describe('cmdOpen', () => {
     expect(spawn).toHaveBeenCalledTimes(1)
     const [, argv] = vi.mocked(spawn).mock.calls[0]
     expect(argv).toEqual([mdFile, vaultDir])
+  })
+
+  // #815: `-n` / `--new-window` asks the app for a fresh window instead of
+  // raising the one that already shows the vault or folder.
+  it('forwards --new-window ahead of the paths when -n is given', async () => {
+    await cmdOpen('', makeArgs([vaultDir], { n: 'true' }))
+    expect(spawn).toHaveBeenCalledTimes(1)
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual(['--new-window', vaultDir])
+    expect(lastMessage()).toBe(`Opening folder ${vaultDir} in a new ZenNotes window\n`)
+  })
+
+  it('accepts the long --new-window spelling and covers every path of the launch', async () => {
+    await cmdOpen('', makeArgs([mdFile, vaultDir], { 'new-window': 'true' }))
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual(['--new-window', mdFile, vaultDir])
+    expect(lastMessage()).toBe('Opening 2 items in a new ZenNotes window\n')
+  })
+
+  it('passes no switch, and says so, without the flag', async () => {
+    await cmdOpen('', makeArgs([vaultDir]))
+    const [, argv] = vi.mocked(spawn).mock.calls[0]
+    expect(argv).toEqual([vaultDir])
+    expect(lastMessage()).toBe(`Opening folder ${vaultDir} in ZenNotes\n`)
   })
 
   it('reports a launch that dies instead of printing success', async () => {

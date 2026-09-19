@@ -1906,6 +1906,132 @@ describe('CloudSyncCoordinator: catching up on a file this device never touched'
     expect(server.mutations).toEqual([])
   })
 
+  it('keeps the changes that landed before a failing one so a retry does not replay them (#813)', async () => {
+    // The desktop saved Untitled.md, trashed it as "Untitled 2.md" because an
+    // older Untitled.md already sat in the trash, then emptied it. On the
+    // phone the move fails in storage every time.
+    const fs = memoryFileSystem({ 'Untitled.md': 'v1', 'trash/Untitled.md': 'older' })
+    const rename = fs.rename
+    fs.rename = async (from, to) => {
+      throw new Error(`rename failed: Already exists /storage/emulated/0/Mind/trash/Untitled.md (${from} -> ${to})`)
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        note: tracked('note', 'Untitled.md', 1, 'v1'),
+        older: tracked('older', 'trash/Untitled.md', 1, 'older')
+      }
+    })
+    const server = remote({
+      changes: [
+        upsert(2, 'note', 'Untitled.md', 'v2'),
+        {
+          sequence: 3,
+          item_id: 'note',
+          type: 'move',
+          path: 'trash/Untitled 2.md',
+          previous_path: 'Untitled.md',
+          revision: 3
+        },
+        {
+          sequence: 4,
+          item_id: 'note',
+          type: 'delete',
+          path: 'trash/Untitled 2.md',
+          previous_path: null,
+          revision: 4
+        }
+      ]
+    })
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    await expect(coordinator.sync()).rejects.toThrow('Already exists')
+    // The saved revision is on disk, so the cursor moves past it: only the
+    // move is still owed.
+    expect(fs.files.get('Untitled.md')).toBe('v2')
+    expect(states.current?.cursor).toBe(2)
+    expect(states.current?.items.note?.sha256).toBe(realContent('v2').sha256)
+
+    // The user deletes the note on the phone to get unstuck. A retry must not
+    // bring it back by replaying the upsert; without a source the move and
+    // the delete have nothing left to do.
+    fs.files.delete('Untitled.md')
+    fs.rename = rename
+    const retry = await coordinator.sync()
+
+    expect(retry.localConflicts).toEqual([])
+    expect([...fs.files.keys()]).toEqual(['trash/Untitled.md'])
+    expect(states.current?.cursor).toBe(4)
+    expect(states.current?.items.note).toBeUndefined()
+    expect(server.mutations).toEqual([])
+  })
+
+  it('does not persist progress past a coalesced revision whose landing change has not run', async () => {
+    // Plan.md v2 is skipped in favour of v3, which comes after the failing
+    // move of another note. Saving the state after v2 would describe the
+    // server's history rather than this device's file, and the retry would
+    // park v3 as a conflict copy.
+    const fs = memoryFileSystem({ [path]: 'v1', 'Other.md': 'other' })
+    const rename = fs.rename
+    let refuse = true
+    fs.rename = async (from, to) => {
+      if (refuse) throw new Error('rename failed: Already exists')
+      return rename(from, to)
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        plan: tracked('plan', path, 1, 'v1'),
+        other: tracked('other', 'Other.md', 1, 'other')
+      }
+    })
+    const server = remote({
+      changes: [
+        upsert(2, 'plan', path, 'v2'),
+        {
+          sequence: 3,
+          item_id: 'other',
+          type: 'move',
+          path: 'archive/Other.md',
+          previous_path: 'Other.md',
+          revision: 3
+        },
+        upsert(4, 'plan', path, 'v3')
+      ]
+    })
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    await expect(coordinator.sync()).rejects.toThrow('Already exists')
+    expect(states.current?.cursor).toBe(1)
+    expect(fs.files.get(path)).toBe('v1')
+
+    refuse = false
+    const retry = await coordinator.sync()
+
+    expect(retry.localConflicts).toEqual([])
+    expect([...fs.files.keys()].sort()).toEqual(['archive/Other.md', path])
+    expect(fs.files.get(path)).toBe('v3')
+    expect(states.current?.cursor).toBe(4)
+    expect(states.current?.pending_conflicts ?? {}).toEqual({})
+    expect(server.mutations).toEqual([])
+  })
+
   it('queues a real local edit without creating a note beside it', async () => {
     const fs = memoryFileSystem({ [path]: 'edited here while offline' })
     const states = memoryState({

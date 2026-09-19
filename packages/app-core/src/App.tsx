@@ -24,6 +24,7 @@ import { ConfirmHost } from './components/ConfirmHost'
 import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
 import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
+import { CloudSettingsConflictHost } from './components/CloudSettingsConflictHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
 import { IconButton, ToastHost } from './components/ui'
 import { CloseIcon } from './components/icons'
@@ -1260,6 +1261,7 @@ function App(): JSX.Element {
       <DatePickerHost />
       <PublishNoteHost />
       <CloudConflictReviewHost />
+      <CloudSettingsConflictHost />
       <ToastHost />
       <ExcalidrawEmbedMenuHost />
       <ServerDirectoryPickerHost />

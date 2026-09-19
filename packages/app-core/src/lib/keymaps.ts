@@ -526,7 +526,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader: review Cloud conflicts",
     // `c` is the calendar and `s` the search group, so review takes `r`.
     description:
-      "Open the Cloud sync conflict queue. Available while files are waiting on a decision.",
+      "Open the Cloud sync conflict queue, or the vault settings question. Available while files or settings are waiting on a decision.",
     defaultBinding: "r",
     vimOnly: true,
     maxTokens: 1,

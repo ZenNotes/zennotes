@@ -44,8 +44,10 @@ category: Custom
 {{cursor}}
 `
 
+// The editor fills whatever height its container gives it: the container is
+// what changes between the side-by-side and the stacked layout below.
 const editorTheme = EditorView.theme({
-  '&': { height: '60vh', fontSize: '13px', backgroundColor: 'transparent' },
+  '&': { height: '100%', fontSize: '13px', backgroundColor: 'transparent' },
   '&.cm-focused': { outline: 'none' },
   '.cm-scroller': {
     fontFamily: 'var(--font-mono, ui-monospace, monospace)',
@@ -224,26 +226,35 @@ export function TemplateEditorModal({
           {vimMode ? 'Vim · ' : ''}YAML frontmatter + markdown body
         </div>
       </div>
-      <div className="grid max-h-[60vh] grid-cols-2">
-        <div ref={setEditorContainer} className="h-[60vh] overflow-hidden border-r border-paper-300/50 bg-paper-50" />
-        <div className="h-[60vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-sm leading-relaxed text-ink-700">
+      {/* Side by side from the md breakpoint up; below it (phones, a narrow
+          window) the two halves would each be too slim to use, so the editor
+          sits above the preview and takes the larger share of the height.
+          Decided by the viewport, not the platform. (android#78) */}
+      <div className="grid grid-cols-1 md:grid-cols-2" data-template-editor-panes>
+        <div
+          ref={setEditorContainer}
+          className="h-[38vh] overflow-hidden border-b border-paper-300/50 bg-paper-50 md:h-[60vh] md:border-b-0 md:border-r"
+        />
+        <div className="h-[22vh] overflow-auto whitespace-pre-wrap p-4 font-mono text-sm leading-relaxed text-ink-700 md:h-[60vh]">
           {preview || <span className="text-ink-500">Preview…</span>}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-paper-300/50 bg-paper-50 px-5 py-2.5">
-        <span className="form-label">Variables</span>
+      {/* One scrolling row of chips when stacked: wrapped, ten chips would
+          eat the height the editor just gained. */}
+      <div className="flex flex-nowrap items-center gap-x-3 gap-y-1.5 overflow-x-auto border-t border-paper-300/50 bg-paper-50 px-5 py-2.5 md:flex-wrap md:overflow-visible">
+        <span className="form-label shrink-0">Variables</span>
         {TEMPLATE_VARIABLES.map((variable) => (
           <button
             key={variable.name}
             type="button"
             title={variable.detail}
             onClick={() => insertVariable(variable.insert)}
-            className="rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 font-mono text-xs text-ink-700 hover:bg-paper-200 hover:text-ink-900"
+            className="shrink-0 rounded-md border border-paper-300/70 bg-paper-100/80 px-2 py-0.5 font-mono text-xs text-ink-700 hover:bg-paper-200 hover:text-ink-900"
           >
             {variable.insert}
           </button>
         ))}
-        <span className="text-xs text-ink-500">— or type {'{{'} to autocomplete</span>
+        <span className="shrink-0 text-xs text-ink-500">or type {'{{'} to autocomplete</span>
       </div>
       <Modal.Footer>
         <Button variant="secondary" onClick={onClose}>

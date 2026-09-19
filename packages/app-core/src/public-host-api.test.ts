@@ -79,6 +79,23 @@ describe('public host APIs', () => {
     requests.settlePromptRequest(request, 'answer')
     expect(await pending).toBe('answer')
   })
+  it('publishes frozen favorites and ignores a settings save that keeps them (#810)', async () => {
+    const s = await setup(), shell = await import('./shell')
+    const settings = () => s.useStore.getState().vaultSettings
+    s.useStore.setState({ vaultSettings: { ...settings(), favorites: ['inbox/One.md', 'inbox:Work'] } })
+    const first = shell.getShellSnapshot(), listener = vi.fn()
+    const dispose = shell.subscribeShell(listener)
+    expect(first.favorites).toEqual(['inbox/One.md', 'inbox:Work'])
+    expect(() => (first.favorites as string[]).push('wrong')).toThrow()
+    // A folder color save rebuilds vault settings, favorites array included.
+    s.useStore.setState({ vaultSettings: { ...settings(), favorites: [...settings().favorites], folderColors: { 'inbox:Work': 'red' } } })
+    expect(shell.getShellSnapshot()).toBe(first)
+    expect(listener).not.toHaveBeenCalled()
+    s.useStore.setState({ vaultSettings: { ...settings(), favorites: ['inbox:Work'] } })
+    expect(shell.getShellSnapshot().favorites).toEqual(['inbox:Work'])
+    expect(listener).toHaveBeenCalledTimes(1)
+    dispose()
+  })
   it('rechecks command availability at invocation instead of retaining stale closures', async () => {
     const s = await setup(), commands = await import('./commands')
     expect(await commands.runAppCommand('not-a-command')).toBe(false)

@@ -1,9 +1,11 @@
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  argvRequestsNewWindow,
   candidatePathsFromArgv,
   isMarkdownFilePath,
   markdownPathsFromArgv,
+  NEW_WINDOW_SWITCH,
   resolveMarkdownOpenTarget,
   vaultRelativeNotePath
 } from './file-open'
@@ -187,4 +189,26 @@ describe('candidatePathsFromArgv own-app-path filter (#579)', () => {
       expect(candidatePathsFromArgv(argv, false, '/repo/apps/desktop')).toEqual([])
     }
   )
+})
+
+describe('--new-window switch (#815)', () => {
+  // `zn open -n` forwards the switch ahead of the paths; the app must both
+  // read it and keep treating it as a switch, never as a path to open.
+  it('is read from anywhere in argv, and only as the exact switch', () => {
+    expect(argvRequestsNewWindow(['/bin/ZenNotes', NEW_WINDOW_SWITCH, '/home/user/vault'])).toBe(
+      true
+    )
+    expect(argvRequestsNewWindow(['/bin/ZenNotes', '/home/user/vault', NEW_WINDOW_SWITCH])).toBe(
+      true
+    )
+    expect(argvRequestsNewWindow(['/bin/ZenNotes', '/home/user/vault'])).toBe(false)
+    // A path that merely contains the words is a path.
+    expect(argvRequestsNewWindow(['/bin/ZenNotes', '/vault/--new-window'])).toBe(false)
+  })
+
+  it('does not leak into the candidate paths', () => {
+    const argv = ['/bin/ZenNotes', NEW_WINDOW_SWITCH, '/home/user/vault', '/home/user/todo.md']
+    expect(candidatePathsFromArgv(argv)).toEqual(['/home/user/vault', '/home/user/todo.md'])
+    expect(markdownPathsFromArgv(argv)).toEqual(['/home/user/todo.md'])
+  })
 })

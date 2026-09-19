@@ -351,6 +351,38 @@ describe('note commands for a trashed note (#712)', () => {
 })
 
 
+describe('favorite command (#810)', () => {
+  const note = { folder: 'inbox', path: 'inbox/Plan.md', title: 'Plan', body: '' } as never
+
+  it('flips its title with the active note and runs the store toggle', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const toggleFavoriteActiveNote = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ activeNote: note, selectedPath: 'inbox/Plan.md', toggleFavoriteActiveNote })
+    const add = buildCommands().find((c) => c.id === 'note.favorite')
+    expect(add?.title).toBe('Add Note to Favorites')
+    expect(add?.when?.()).toBe(true)
+    await add?.run()
+    expect(toggleFavoriteActiveNote).toHaveBeenCalledTimes(1)
+
+    const settings = useStore.getState().vaultSettings
+    useStore.setState({ vaultSettings: { ...settings, favorites: ['inbox:Work', 'inbox/Plan.md'] } })
+    expect(buildCommands().find((c) => c.id === 'note.favorite')?.title).toBe(
+      'Remove Note from Favorites'
+    )
+  })
+
+  it('stays out of the palette with no note open or a trashed one, like the sidebar menu', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ activeNote: null, selectedPath: null })
+    expect(buildCommands().some((c) => c.id === 'note.favorite')).toBe(false)
+    useStore.setState({
+      activeNote: { folder: 'trash', path: 'trash/Gone.md', title: 'Gone', body: '' } as never,
+      selectedPath: 'trash/Gone.md'
+    })
+    expect(buildCommands().some((c) => c.id === 'note.favorite')).toBe(false)
+  })
+})
+
 describe('saved Tasks filters (#731)', () => {
   it('lists one palette entry per saved filter, which opens Tasks and applies it', async () => {
     const { buildCommands, useStore } = await loadCommands()

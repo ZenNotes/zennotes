@@ -1173,6 +1173,45 @@ describe("public note lifecycle", () => {
     expect(s.files.has("trash/One.md")).toBe(false);
   });
 
+  it("toggles a note in and out of Favorites and persists the list (#810)", async () => {
+    const s = await publicSetup();
+    expect(await s.requestToggleNoteFavorite(s.host, "inbox/One.md")).toBe(
+      "completed",
+    );
+    expect(s.useStore.getState().vaultSettings.favorites).toEqual([
+      "inbox/One.md",
+    ]);
+    expect(s.bridge.setVaultSettings).toHaveBeenLastCalledWith(
+      expect.objectContaining({ favorites: ["inbox/One.md"] }),
+    );
+    expect(await s.requestToggleNoteFavorite(s.host, "inbox/One.md")).toBe(
+      "completed",
+    );
+    expect(s.useStore.getState().vaultSettings.favorites).toEqual([]);
+  });
+
+  it("keeps trashed and unknown notes out of Favorites, like the sidebar menu", async () => {
+    const s = await publicSetup();
+    const trashing = s.requestTrashNote(s.host, "inbox/One.md");
+    s.confirm(true);
+    await trashing;
+    s.bridge.setVaultSettings.mockClear();
+    expect(await s.requestToggleNoteFavorite(s.host, "trash/One.md")).toBe(
+      "unavailable",
+    );
+    expect(await s.requestToggleNoteFavorite(s.host, "missing.md")).toBe(
+      "unavailable",
+    );
+    expect(
+      await s.requestToggleNoteFavorite(
+        { isCurrent: () => false },
+        "inbox/Other.md",
+      ),
+    ).toBe("unavailable");
+    expect(s.bridge.setVaultSettings).not.toHaveBeenCalled();
+    expect(s.useStore.getState().vaultSettings.favorites).toEqual([]);
+  });
+
   it("archives and unarchives through the public boundary", async () => {
     const s = await publicSetup();
     expect(await s.requestArchiveNote(s.host, "inbox/One.md")).toBe(

@@ -12,12 +12,14 @@ import {
   type AssetMeta,
   type DateNotePatternSettings,
   type FileLocationSetting,
+  type FolderEntry,
   type FolderIconId,
   type FolderColorId,
   type NoteFolder,
   type NoteMeta,
   type VaultSettings
 } from '@shared/ipc'
+import { isExcalidrawPath } from '@shared/excalidraw'
 import {
   normalizeSystemFolderPaths,
   resolveFolderPath,
@@ -700,6 +702,56 @@ export function parseFavoriteFolderKey(
   if (idx === -1) return null
   const folder = key.slice(0, idx) as NoteFolder
   return { folder, subpath: key.slice(idx + 1) }
+}
+
+/** A favorite key resolved to the live note or folder it names, for rendering. */
+export type FavoriteItem =
+  | { kind: 'note'; key: string; path: string; title: string; isDrawing: boolean }
+  | { kind: 'folder'; key: string; folder: NoteFolder; subpath: string; label: string }
+
+/**
+ * Resolve favorite keys to live notes and folders, in the stored order. A key
+ * whose target no longer exists (renamed away, deleted, trashed) is skipped,
+ * so no surface ever shows a broken row. The sidebar's Favorites section and
+ * the home view's (#810) read the same list through this one function, so a
+ * favorite can never be visible in one and missing from the other.
+ */
+export function resolveFavoriteItems(
+  favorites: readonly string[],
+  notes: readonly NoteMeta[],
+  folders: readonly Pick<FolderEntry, 'folder' | 'subpath'>[]
+): FavoriteItem[] {
+  const out: FavoriteItem[] = []
+  let byPath: Map<string, NoteMeta> | null = null
+  for (const key of favorites) {
+    if (isFavoriteFolderKey(key)) {
+      const parsed = parseFavoriteFolderKey(key)
+      if (!parsed || !parsed.subpath) continue
+      const exists = folders.some(
+        (f) => f.folder === parsed.folder && f.subpath === parsed.subpath
+      )
+      if (!exists) continue
+      out.push({
+        kind: 'folder',
+        key,
+        folder: parsed.folder,
+        subpath: parsed.subpath,
+        label: parsed.subpath.split('/').slice(-1)[0]
+      })
+    } else {
+      byPath ??= new Map(notes.map((n) => [n.path, n]))
+      const note = byPath.get(key)
+      if (!note || note.folder === 'trash') continue
+      out.push({
+        kind: 'note',
+        key,
+        path: note.path,
+        title: note.title,
+        isDrawing: isExcalidrawPath(note.path)
+      })
+    }
+  }
+  return out
 }
 
 /** Toggle a favorite key, returning the next list (added at the end, or removed). */

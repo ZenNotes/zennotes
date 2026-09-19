@@ -39,13 +39,28 @@ export interface ShellSnapshot {
   readonly canGoBack: boolean
   readonly canGoForward: boolean
   readonly noteSortOrder: NoteSortOrder
+  /**
+   * The vault's Favorites in display order, as stored in vault settings: a
+   * note's path, or an opaque key for a favorited folder. `includes(path)`
+   * answers whether a note is a favorite; toggle through
+   * `requestToggleNoteFavorite`. (#810)
+   */
+  readonly favorites: readonly string[]
 }
 
 let notesSource: readonly NoteMeta[] | undefined
 let notesLayout = ''
 let notes: readonly ShellNote[] = Object.freeze([])
 let vault: ShellSnapshot['vault'] = null
+let favorites: readonly string[] = Object.freeze([])
 let snapshot: ShellSnapshot | undefined
+
+// Every settings save rebuilds the favorites array, so compare contents:
+// a saved folder color must not wake shell subscribers over unchanged
+// favorites.
+function sameStrings(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
 
 /** Read frozen shell metadata, without note bodies, credentials, or mutable store values. */
 export function getShellSnapshot(): ShellSnapshot {
@@ -87,6 +102,9 @@ export function getShellSnapshot(): ShellSnapshot {
       temporary: state.vault.temporary
     })
   }
+  if (!sameStrings(favorites, settings.favorites)) {
+    favorites = Object.freeze([...settings.favorites])
+  }
   const next: ShellSnapshot = {
     vault,
     notes,
@@ -99,7 +117,8 @@ export function getShellSnapshot(): ShellSnapshot {
         : (notes.find((note) => note.path === state.selectedPath) ?? null),
     canGoBack: state.noteBackstack.length > 0,
     canGoForward: state.noteForwardstack.length > 0,
-    noteSortOrder: state.noteSortOrder
+    noteSortOrder: state.noteSortOrder,
+    favorites
   }
   if (
     !snapshot ||

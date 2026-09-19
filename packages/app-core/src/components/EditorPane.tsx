@@ -216,7 +216,9 @@ import {
   findRenderedHeadingForOutlineLine,
   nextOutlinePreviewSyncLockUntil,
   outlineHeadingTextOffset,
+  planPreviewJump,
   previewScrollTopForHeading,
+  previewShowsNote,
   scrollTopForElementRelativeTop,
   scrollTopForScrollRatio,
   shouldSyncPreviewFromEditorViewport
@@ -1029,10 +1031,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // lets us tell our own restore scroll apart from a user scroll, so we never
   // yank a reader who scrolled during the render window.
   const previewRestoreTargetRef = useRef<{ path: string; top: number } | null>(null)
-  // Set when the user switches Edit/Split → Preview: the reading view opens on
-  // the line the cursor was on, instead of the top of the note. Applied (and
-  // cleared) once the preview has rendered blocks to anchor against. (#543)
-  const pendingPreviewCursorLineRef = useRef<{ path: string; line: number } | null>(null)
+  // A source line the reading view should open on once it has rendered blocks
+  // to anchor against: the cursor's line when the user switches Edit/Split →
+  // Preview (#543), or the target of a heading/block link followed while
+  // reading (android#74). Applied and cleared from `onRendered`.
+  const pendingPreviewLineRef = useRef<{ path: string; line: number } | null>(null)
   const lastProgrammaticPreviewTopRef = useRef<number | null>(null)
   const lastRestoredPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
@@ -1206,7 +1209,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       view &&
       viewPathRef.current === activeTab
     ) {
-      pendingPreviewCursorLineRef.current = {
+      pendingPreviewLineRef.current = {
         path: activeTab,
         line: view.state.doc.lineAt(view.state.selection.main.head).number
       }
@@ -1463,12 +1466,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       return
     }
     // A mode switch out of editing carries the cursor's line into the
-    // reading view; the live editing position outranks a remembered
-    // preview offset from an earlier visit. (#543)
-    const cursorTarget = pendingPreviewCursorLineRef.current
-    if (cursorTarget && cursorTarget.path === content?.path) {
-      if (scrollPreviewToSourceLine(cursorTarget.line)) {
-        pendingPreviewCursorLineRef.current = null
+    // reading view, and a heading or block link followed while reading
+    // carries its target; either outranks a remembered preview offset from
+    // an earlier visit. (#543, android#74)
+    const lineTarget = pendingPreviewLineRef.current
+    if (lineTarget && lineTarget.path === content?.path) {
+      if (scrollPreviewToSourceLine(lineTarget.line)) {
+        pendingPreviewLineRef.current = null
         previewRestoreTargetRef.current = null
         return
       }
@@ -1501,6 +1505,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   useEffect(() => {
     pendingPreviewOutlineJumpLineRef.current = null
+    // A line the previous note never got to render must not fire on a later
+    // visit. Declared before the pending-jump effect, so a jump that opens a
+    // note in reading mode still sets its line after this reset.
+    pendingPreviewLineRef.current = null
     outlinePreviewSyncLockUntilRef.current = 0
   }, [content?.path])
 
@@ -2644,7 +2652,29 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!isActive) return
     if (!content || !pendingJumpLocation || pendingJumpLocation.path !== content.path) return
     if (mode === 'preview') {
-      applyPaneMode('edit')
+      // Reading mode stays reading mode: a heading or block link, a search hit
+      // and Ctrl+O land the rendered preview on the spot instead of dropping
+      // the reader into the editor. Only a task jump still needs the editor,
+      // for the highlight it paints on the line. (android#74)
+      const plan = planPreviewJump(pendingJumpLocation, content.body)
+      if (plan.kind === 'edit') {
+        applyPaneMode('edit')
+        return
+      }
+      const previewEl = previewScrollRef.current
+      const rendered = previewShowsNote(previewEl, content.path)
+      if (plan.kind === 'restore') {
+        previewRestoreTargetRef.current = { path: content.path, top: plan.top }
+        if (rendered && previewEl) {
+          previewEl.scrollTop = plan.top
+          lastProgrammaticPreviewTopRef.current = previewEl.scrollTop
+        }
+      } else if (rendered && scrollPreviewToSourceLine(plan.line)) {
+        previewRestoreTargetRef.current = null
+      } else {
+        pendingPreviewLineRef.current = { path: content.path, line: plan.line }
+      }
+      clearPendingJumpLocation()
       return
     }
     const raf = requestAnimationFrame(() => {
@@ -2689,7 +2719,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       clearPendingJumpLocation()
     })
     return () => cancelAnimationFrame(raf)
-  }, [applyPaneMode, isActive, mode, content?.path, clearPendingJumpLocation, pendingJumpLocation])
+  }, [
+    applyPaneMode,
+    isActive,
+    mode,
+    content?.path,
+    clearPendingJumpLocation,
+    pendingJumpLocation,
+    scrollPreviewToSourceLine
+  ])
 
   useEffect(() => {
     return () => {

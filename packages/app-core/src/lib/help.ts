@@ -159,7 +159,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Check for updates and install them',
     body:
-      'Use Check for Updates from the app menu, the command palette, or Settings → About. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
+      'Use Check for Updates from the app menu, the command palette, or Settings → About. ZenNotes also checks on its own shortly after launch. If that check finds no network (Settings → About then says "Waiting for network"), nothing needs doing: it checks again by itself once the connection is back, and keeps trying at growing intervals if GitHub stays out of reach. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
   },
   {
     title: 'Run the self-hosted web version with Docker',
@@ -237,7 +237,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'The home view is where you land',
     body:
-      'When no note is open (outside Zen mode), ZenNotes shows a light home view instead of a blank pane: a greeting, quick-create actions (new note, database, drawing — plus daily and weekly notes when those are enabled in Settings), your most recently edited notes, and today’s open tasks with an overdue count. Click a note or task to open it, tick a checkbox to complete a task in place, and use ↑/↓ — or j/k in Vim mode — then Enter to move and open from the keyboard.'
+      'When no note is open (outside Zen mode), ZenNotes shows a light home view instead of a blank pane: a greeting, quick-create actions (new note, database, drawing, plus daily and weekly notes when those are enabled in Settings), your most recently edited notes, your Favorites, and today’s open tasks with an overdue count. The Favorites section sits right after Recent and mirrors the sidebar’s list in the same order: a favorited note opens in place, a favorited folder opens that folder in the note list (bringing the sidebar back if it was hidden), and the section stays out of the way until you favorite something. Favorite a note from the sidebar row’s context menu, `Space l s`, or the command palette’s “Add Note to Favorites” (on the phones, the same entry sits in the ••• sheet and in the long-press note menu). Click a note or task to open it, tick a checkbox to complete a task in place, and use ↑/↓ (or j/k in Vim mode) then Enter to move and open from the keyboard.'
   },
   {
     title: 'Sessions restore on relaunch',
@@ -546,12 +546,12 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
-      { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open the Cloud sync conflict queue: the files two devices changed at once, one decision at a time. The binding and the command palette entry appear only while files are waiting, and open the same queue as Review now in the status bar.' },
+      { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open whatever Cloud sync is waiting on: the queue of files two devices changed at once, one decision at a time, or the vault settings question, which lists each setting that differs with this device’s value beside the cloud’s and lets you pick a side per setting. The binding and the command palette entry appear only while something is waiting, and open the same dialog as Review in the status bar.' },
       { keys: 'Space g', action: 'Open atlas', detail: 'Open the Atlas view: the whole vault drawn as a map of notes and links.' },
       { keys: 'Space q', action: 'Quick capture window', detail: 'Open the floating, always-on-top capture window, same as the global hotkey.' },
       { keys: 'Space i', action: 'Insert template into note', detail: 'Pick a template and insert it at the cursor of the active note, instead of creating a new note from it.' },
       { keys: 'Space c', action: 'Toggle calendar', detail: 'Show or hide the calendar panel for the active pane.' },
-      { keys: 'Space l s', action: 'Toggle favorite', detail: 'Add or remove the active note from the sidebar’s Favorites section. Folders join it from their context menu.' },
+      { keys: 'Space l s', action: 'Toggle favorite', detail: 'Add or remove the active note from the Favorites section shown in the sidebar and on the home view. Folders join it from their context menu.' },
       { keys: 'Space, then pause', action: 'Show leader hints', detail: 'If enabled in Settings, open a which-key style guide for the next available leader actions. Sticky mode keeps it open until `Space` or `Esc`.' },
       { keys: 'Mod+3', action: 'Toggle outline panel', detail: 'Show or hide the persistent outline in the active pane. Once focused (Ctrl+W l or Alt+L from the editor), j / k — or the arrows — walk the headings, gg / G jump to the first and last, Enter jumps the editor to the heading under the cursor, and Esc hands focus back.' },
       { keys: 'zc / zo', action: 'Fold / unfold heading', detail: 'Collapse or expand the section below the heading at the cursor.' },
@@ -803,6 +803,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Open the template picker. With an argument like `:template ADR` it skips the picker and creates from the best-matching template directly.'
   },
   {
+    command: ':version / :ve',
+    summary: 'Show version details for a bug report',
+    detail: 'Print the ZenNotes version, operating system and architecture, the Electron or browser engine, how this copy was installed (AppImage, deb, package manager, macOS app bundle, and so on), and the remote server version when connected to one. `:version copy` (or `:version!`) also puts the lines on the clipboard. The same details, with a Copy button, sit in Settings → About.'
+  },
+  {
     command: ':daily',
     summary: "Open today's daily note",
     detail: 'Open or create today’s daily note (requires daily notes enabled in Settings → Vault → Periodic notes). Uses the assigned daily template if one is set.'
@@ -990,7 +995,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Space> l s',
     summary: 'Leader toggle favorite',
-    detail: 'Add or remove the active note from the sidebar’s Favorites section.'
+    detail: 'Add or remove the active note from the Favorites section shown in the sidebar and on the home view.'
   },
   {
     command: '<Space> d',
@@ -1175,6 +1180,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'About',
     items: [
       { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a short description of the app as a keyboard-first markdown workflow with Vim motions and plain local files.' },
+      { label: 'Version details', detail: 'Under the version, a Version details block lists what a bug report needs: operating system and architecture, the Electron or browser engine, how this copy was installed, and the remote server version when connected to one. Copy details puts the block on the clipboard. In Vim mode, `:version` prints the same lines and `:version copy` copies them.' },
       { label: 'Updates and releases', detail: 'Check for updates, download a newer build, install and relaunch, or jump straight to the latest GitHub release from inside the app. AUR and tarball installs get the check and the notice only; the package manager does the install.' },
       { label: 'Website, community, and issue links', detail: 'The app now exposes direct links to the ZenNotes website, Discord, GitHub repository, and issue tracker so support paths stay discoverable.' },
       { label: 'Configuration file', detail: 'Your preferences (theme, editor, Vim, keymaps, fonts, search backend, and more) are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out: uncomment a line and edit it to remap, or set it to `""` to remove the key entirely), so you can discover and change anything without opening the app. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file, by hand or via a synced dotfile, apply live without a restart. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
@@ -1218,6 +1224,11 @@ export const HELP_CLI: HelpCard[] = [
     title: 'Read and search from the terminal',
     body:
       'Use `zn list` to see recent notes, `zn list --tag work --limit 5` to filter, `zn read inbox/Project.md` to print a body, and `zn search "deadline"` for full-text matches with file:line previews. Quote paths with spaces, like `zn read "hellointerview/system design.md"`, or use `--path`. Add `--json` to any command to get structured output you can pipe into `jq`.'
+  },
+  {
+    title: 'Open notes, folders, and a second window',
+    body:
+      '`zn open inbox/Today.md` brings the ZenNotes window to the front with that note loaded, and `zn open ~/code/project/docs` opens a folder as a focused session without turning it into a vault. When a window already shows the vault or folder, `zn open` raises that window. Add `-n` (or `--new-window`) for a second window on the same notes instead, with its own tabs, leaving the first window where it was: `zn open -n ~/notes`. A markdown file outside every vault always reuses its editor window, since nothing keeps two standalone editors of one file in sync.'
   },
   {
     title: 'Raycast uses the same CLI',

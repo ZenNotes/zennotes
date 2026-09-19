@@ -174,7 +174,7 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
   {
     heading: 'OPEN',
     rows: [
-      { name: 'open <path>', description: 'Open markdown files, or a folder / vault (a focused session), in the app' }
+      { name: 'open <path>', description: 'Open markdown files, or a folder / vault (a focused session), in the app', flags: '-n, --new-window' }
     ]
   },
   {
@@ -215,7 +215,8 @@ const EXAMPLES: string[] = [
   'zn comment list inbox/Plan.md',
   'zn comment reply inbox/Plan.md <id> "Agreed, fixed in the second paragraph." --author Claude',
   'zn open ~/Downloads/notes.md',
-  'zn open ~/code/project/docs   # focus a folder as a session'
+  'zn open ~/code/project/docs   # focus a folder as a session',
+  'zn open -n ~/notes            # a second window on a vault that is already open'
 ]
 
 function header(width: number): string[] {

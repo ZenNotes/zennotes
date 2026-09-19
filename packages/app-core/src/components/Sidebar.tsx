@@ -79,13 +79,13 @@ import {
   dateNoteDirectoryDisplayLabel,
   favoriteFolderKey,
   folderIconKey,
-  isFavoriteFolderKey,
   isPrimaryNotesAtRoot,
   folderForVaultRelativePath,
   normalizeVaultSettings,
   noteFolderSubpath,
-  parseFavoriteFolderKey,
+  resolveFavoriteItems,
   sidebarRevealTarget,
+  type FavoriteItem,
 } from "../lib/vault-layout";
 import { resolveFolderPath } from "@shared/system-folder-paths";
 import {
@@ -322,11 +322,6 @@ function vaultRelativeFolderPath(
 type SidebarSelectionItem =
   | { kind: "note"; path: string }
   | { kind: "folder"; folder: NoteFolder; subpath: string };
-
-/** A favorite resolved to a live note or folder for rendering. */
-type FavoriteItem =
-  | { kind: "note"; key: string; path: string; title: string; isDrawing: boolean }
-  | { kind: "folder"; key: string; folder: NoteFolder; subpath: string; label: string };
 
 function noteSelectionKey(path: string): string {
   return `note:${encodeURIComponent(path)}`;
@@ -1261,40 +1256,12 @@ export function Sidebar(): JSX.Element {
     return next;
   }, [notes, allFolders, assetFiles, vaultSettings]);
 
-  // Resolve favorite keys to live notes/folders. Keys whose target no longer
-  // exists (renamed away, deleted, trashed) are silently skipped — the Favorites
-  // section never shows a broken row. Order follows the stored favorites list.
-  const favoriteItems = useMemo<FavoriteItem[]>(() => {
-    const out: FavoriteItem[] = [];
-    for (const key of vaultSettings.favorites) {
-      if (isFavoriteFolderKey(key)) {
-        const parsed = parseFavoriteFolderKey(key);
-        if (!parsed || !parsed.subpath) continue;
-        const exists = allFolders.some(
-          (f) => f.folder === parsed.folder && f.subpath === parsed.subpath,
-        );
-        if (!exists) continue;
-        out.push({
-          kind: "folder",
-          key,
-          folder: parsed.folder,
-          subpath: parsed.subpath,
-          label: parsed.subpath.split("/").slice(-1)[0],
-        });
-      } else {
-        const note = notes.find((n) => n.path === key);
-        if (!note || note.folder === "trash") continue;
-        out.push({
-          kind: "note",
-          key,
-          path: note.path,
-          title: note.title,
-          isDrawing: isExcalidrawPath(note.path),
-        });
-      }
-    }
-    return out;
-  }, [vaultSettings.favorites, notes, allFolders]);
+  // Shared with the home view's Favorites section, so both surfaces agree on
+  // which keys still resolve to a live note or folder.
+  const favoriteItems = useMemo<FavoriteItem[]>(
+    () => resolveFavoriteItems(vaultSettings.favorites, notes, allFolders),
+    [vaultSettings.favorites, notes, allFolders],
+  );
 
   // Daily/weekly notes grouped for the pinned date-nav: daily by year → month →
   // day, weekly by year → week, all newest-first.

@@ -310,12 +310,13 @@ export function CommandPalette(): JSX.Element {
       // closePalette's focus restore; the retry wins that race. Skipped when the
       // command opened Settings or another palette (search, vault text search,
       // outline, …) so we don't pull focus behind it, and likewise for the Cloud
-      // conflict queue and the Publish Note dialog, which claim focus themselves
-      // and are tracked outside the store.
+      // conflict queue, the Cloud settings prompt and the Publish Note dialog,
+      // which claim focus themselves and are tracked outside the store.
       if (
         shouldRefocusEditorAfterCommand(
           useStore.getState(),
           useCloudSyncStatusStore.getState().conflictReviewOpen ||
+            useCloudSyncStatusStore.getState().settingsConflictPromptOpen ||
             getPublishNoteRequest() !== null
         )
       )

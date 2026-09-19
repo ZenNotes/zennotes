@@ -5,9 +5,11 @@ import { backlinksForNote } from "../lib/wikilinks";
 import { countWords } from "../lib/word-count";
 import { useHoveredLinkStore } from "../lib/hovered-link";
 import {
+  cloudSyncAttentionIsSettingsOnly,
   connectCloudAccountFromStatusBar,
   formatRelativeSyncTime,
   openCloudConflictReview,
+  openCloudSettingsConflictPrompt,
   resolvableCloudConflictCount,
   syncCloudVaultWithStatus,
   type CloudSyncPhase,
@@ -100,6 +102,7 @@ function CloudSyncStatus({
   const lastSyncedAt = useCloudSyncStatusStore((state) => state.lastSyncedAt);
   const error = useCloudSyncStatusStore((state) => state.error);
   const lastSummary = useCloudSyncStatusStore((state) => state.lastSummary);
+  const settingsOnly = useCloudSyncStatusStore(cloudSyncAttentionIsSettingsOnly);
   const setSettingsOpen = useStore((state) => state.setSettingsOpen);
   const [now, setNow] = useState(() => Date.now());
   const resolvableConflictCount = resolvableCloudConflictCount(lastSummary);
@@ -127,7 +130,9 @@ function CloudSyncStatus({
             : phase === "attention"
               ? hasResolvableConflict
                 ? `${resolvableConflictCount} ${resolvableConflictCount === 1 ? "file needs" : "files need"} review`
-                : "Sync incomplete"
+                : settingsOnly
+                  ? "Settings need review"
+                  : "Sync incomplete"
               : phase === "error"
                 ? "Sync failed"
                 : lastSyncedAt === null
@@ -193,6 +198,12 @@ function CloudSyncStatus({
     }
     if (hasResolvableConflict) {
       openCloudConflictReview();
+      return;
+    }
+    if (settingsOnly) {
+      // The prompt is where the settings decision is made; Settings only
+      // repeats the question.
+      openCloudSettingsConflictPrompt();
       return;
     }
     if (phase === "attention") {

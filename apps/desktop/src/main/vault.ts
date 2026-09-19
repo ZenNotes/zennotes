@@ -1182,15 +1182,24 @@ function normalizeTasksSettings(raw: unknown): VaultSettings['tasks'] | undefine
 
 /** Carry the per-vault view overrides (#292) through the round-trip, keeping
  *  only known keys. The renderer validates the values strictly; here we just
- *  preserve a clean object (or undefined when there are no overrides). */
+ *  preserve a clean object (or undefined when there are no overrides). Every
+ *  key of VaultViewSettings must be listed: a key missing here is dropped on
+ *  every save, so the renderer's per-vault choice silently never sticks. */
 function normalizeVaultViewSettings(raw: unknown): VaultViewSettings | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const c = raw as Record<string, unknown>
   const view: VaultViewSettings = {}
   if (typeof c.noteSortOrder === 'string') view.noteSortOrder = c.noteSortOrder
+  if (typeof c.assetSortOrder === 'string') view.assetSortOrder = c.assetSortOrder
   if (typeof c.groupByKind === 'boolean') view.groupByKind = c.groupByKind
   if (typeof c.tasksViewMode === 'string') view.tasksViewMode = c.tasksViewMode
   if (typeof c.kanbanGroupBy === 'string') view.kanbanGroupBy = c.kanbanGroupBy
+  if (typeof c.kanbanFolderRoot === 'string') view.kanbanFolderRoot = c.kanbanFolderRoot
+  if (Array.isArray(c.kanbanStatuses)) {
+    view.kanbanStatuses = c.kanbanStatuses.filter(
+      (status): status is string => typeof status === 'string'
+    )
+  }
   if (c.kanbanColumnTitles && typeof c.kanbanColumnTitles === 'object') {
     view.kanbanColumnTitles = c.kanbanColumnTitles as Record<string, string>
   }

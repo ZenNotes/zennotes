@@ -180,6 +180,7 @@ export const IPC = {
   RAYCAST_GET_STATUS: 'raycast:get-status',
   RAYCAST_INSTALL: 'raycast:install',
   CONFIG_GET_SYNC: 'config:get-sync',
+  APP_INSTALL_INFO_SYNC: 'app:install-info-sync',
   CONFIG_SET: 'config:set',
   CONFIG_GET_PATH: 'config:get-path',
   CONFIG_REVEAL: 'config:reveal',
@@ -227,6 +228,12 @@ export type AppUpdatePhase =
   | 'downloading'
   | 'downloaded'
   | 'installing'
+  /**
+   * The last check could not reach GitHub at all (no network, DNS down,
+   * connection refused). Not an error the user has to act on: the host keeps
+   * watching and checks again on its own once the connection is back.
+   */
+  | 'offline'
   | 'error'
 
 export interface CliInstallRequest {

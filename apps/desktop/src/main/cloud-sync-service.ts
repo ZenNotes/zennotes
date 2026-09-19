@@ -507,14 +507,21 @@ export class DesktopCloudSyncService {
    *  it by accident. */
   async settingsConflict(localRoot: string): Promise<CloudSyncSettingsConflict | null> {
     const parked = path.join(localRoot, ...CLOUD_SYNC_SETTINGS_CONFLICT_PATH.split('/'))
+    let raw: string
     try {
-      await fs.access(parked)
+      raw = await fs.readFile(parked, 'utf8')
     } catch {
       return null
     }
+    // The parsed copy lets the app show what differs and offer a per-section
+    // answer. A copy that does not parse is still a pending question (the
+    // file is there, and sync will not touch vault.json until it is gone), so
+    // it is reported without the contents and the app asks whole-file.
+    const cloudSettings = parseParkedSettings(raw)
     return {
       path: CLOUD_SYNC_VAULT_SETTINGS_PATH,
-      cloud_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH
+      cloud_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
+      ...(cloudSettings ? { cloud_settings: cloudSettings } : {})
     }
   }
 
@@ -528,17 +535,14 @@ export class DesktopCloudSyncService {
   ): Promise<void> {
     const parked = path.join(localRoot, ...CLOUD_SYNC_SETTINGS_CONFLICT_PATH.split('/'))
     if (choice === 'cloud') {
-      const raw = await fs.readFile(parked, 'utf8')
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(raw)
-      } catch {
+      const parsed = parseParkedSettings(await fs.readFile(parked, 'utf8'))
+      if (!parsed) {
         throw new Error('The settings from the cloud could not be read, so nothing was changed.')
       }
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('The settings from the cloud could not be read, so nothing was changed.')
-      }
-      await setVaultSettings(localRoot, parsed as Parameters<typeof setVaultSettings>[1])
+      await setVaultSettings(
+        localRoot,
+        parsed as unknown as Parameters<typeof setVaultSettings>[1]
+      )
     }
     await fs.rm(parked, { force: true })
   }
@@ -628,6 +632,19 @@ function fingerprint(value: string): string {
 
 function rootFingerprint(localRoot: string): string {
   return fingerprint(path.resolve(localRoot))
+}
+
+/** The parked cloud vault.json as an object, or null when the bytes are not
+ *  one (invalid JSON, a bare list, a hand-edited scalar). */
+function parseParkedSettings(raw: string): Record<string, unknown> | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  return parsed as Record<string, unknown>
 }
 
 function isCloudVaultLink(value: unknown): value is CloudVaultLink {

@@ -782,7 +782,7 @@ function LayoutStep({
   primaryLocation: PrimaryNotesLocation
   dailyEnabled: boolean
   dailyDirectory: string
-  setVaultSettings: (next: VaultSettings) => Promise<void>
+  setVaultSettings: (next: VaultSettings) => Promise<unknown>
   hasVault: boolean
   onBack: () => void
   onNext: () => void

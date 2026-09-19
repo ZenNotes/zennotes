@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+// What Chromium's network change notifier would answer; tests flip it to
+// play a link going down and coming back.
+const network = vi.hoisted(() => ({ online: true }))
+
 // updater.ts imports electron and electron-updater at module load. Stub both so
 // we can unit-test the pure Linux-install helpers without an Electron runtime.
 vi.mock('electron', () => ({
   app: { getVersion: () => '2.0.2' },
   BrowserWindow: { getAllWindows: () => [] },
   Notification: { isSupported: () => false },
+  net: { isOnline: () => network.online },
   shell: {}
 }))
 vi.mock('electron-updater', () => ({
@@ -22,7 +27,9 @@ import FpmTarget from 'app-builder-lib/out/targets/FpmTarget'
 import electronUpdater from 'electron-updater'
 import {
   elevatedInstallScript,
+  installLabel,
   installedLinuxFormat,
+  isNetworkUnreachableError,
   isOfficialLinuxSystemPackage,
   linuxFormatFromOsRelease,
   linuxInstallMismatch,
@@ -31,8 +38,80 @@ import {
   linuxUpdaterForFormat,
   linuxUpdaterFormat,
   manualInstallHint,
-  mismatchedUpdateMessage
+  mismatchedUpdateMessage,
+  offlineRetryDelayMs,
+  osReleasePrettyName,
+  OFFLINE_POLL_MS,
+  OFFLINE_RETRY_BASE_MS,
+  OFFLINE_RETRY_MAX_MS
 } from './updater'
+
+describe('installLabel (:version, issue #814)', () => {
+  const packaged = {
+    isPackaged: true,
+    mas: false,
+    windowsStore: false,
+    portableExecutableDir: undefined,
+    linuxFormat: (): 'unknown' => 'unknown'
+  }
+
+  it('calls an unpackaged checkout a development build on every platform', () => {
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      expect(installLabel({ ...packaged, platform, isPackaged: false })).toBe('development build')
+    }
+  })
+
+  it('tells the Mac App Store copy apart from the dmg one', () => {
+    expect(installLabel({ ...packaged, platform: 'darwin' })).toBe('macOS app bundle')
+    expect(installLabel({ ...packaged, platform: 'darwin', mas: true })).toBe('Mac App Store')
+  })
+
+  it('tells the portable exe apart from the NSIS install and the Store', () => {
+    expect(installLabel({ ...packaged, platform: 'win32' })).toBe('NSIS installer')
+    expect(
+      installLabel({ ...packaged, platform: 'win32', portableExecutableDir: 'D:\\apps' })
+    ).toBe('portable exe')
+    expect(installLabel({ ...packaged, platform: 'win32', windowsStore: true })).toBe(
+      'Microsoft Store'
+    )
+  })
+
+  it('names the Linux format the updater itself detected', () => {
+    const linux = (format: ReturnType<typeof linuxUpdaterFormat>) =>
+      installLabel({ ...packaged, platform: 'linux', linuxFormat: () => format })
+    expect(linux('appimage')).toBe('AppImage')
+    expect(linux('deb')).toBe('deb package')
+    expect(linux('rpm')).toBe('rpm package')
+    expect(linux('pacman')).toBe('pacman package')
+    expect(linux('managed')).toBe('package manager or tarball (updates are reported, not installed)')
+    expect(linux('unknown')).toBe('Linux package (format unknown)')
+  })
+
+  it('does not consult the Linux detector off Linux', () => {
+    const linuxFormat = vi.fn((): 'deb' => 'deb')
+    installLabel({ ...packaged, platform: 'darwin', linuxFormat })
+    installLabel({ ...packaged, platform: 'linux', isPackaged: false, linuxFormat })
+    expect(linuxFormat).not.toHaveBeenCalled()
+  })
+})
+
+describe('osReleasePrettyName', () => {
+  it('reads PRETTY_NAME and strips its quotes', () => {
+    expect(
+      osReleasePrettyName('NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04.1 LTS"\nID=ubuntu\n')
+    ).toBe('Ubuntu 24.04.1 LTS')
+    expect(osReleasePrettyName("PRETTY_NAME='Arch Linux'")).toBe('Arch Linux')
+    expect(osReleasePrettyName('PRETTY_NAME=Fedora Linux 40 (Workstation Edition)')).toBe(
+      'Fedora Linux 40 (Workstation Edition)'
+    )
+  })
+
+  it('ignores NAME and an empty PRETTY_NAME, and answers null without a file', () => {
+    expect(osReleasePrettyName('NAME="Debian GNU/Linux"\nVERSION_ID="12"')).toBeNull()
+    expect(osReleasePrettyName('PRETTY_NAME=""')).toBeNull()
+    expect(osReleasePrettyName(null)).toBeNull()
+  })
+})
 
 describe('linuxPackageFormat', () => {
   it('detects each packaged Linux format', () => {
@@ -251,34 +330,51 @@ describe('Linux updater build support', () => {
   })
 })
 
+const FEED = (version: string) =>
+  `version: ${version}\nfiles: []\nreleaseDate: '2026-09-02T15:28:11.000Z'\n`
+
+/** What undici's fetch throws with no network: the readable part is in `cause`. */
+function fetchFailed(code: string, detail: string): TypeError {
+  return new TypeError('fetch failed', {
+    cause: Object.assign(new Error(detail), { code })
+  })
+}
+
+/**
+ * A fresh updater module on the package-manager (notify-only) path, its feed
+ * served by `feed`: a fixed body, a fixed error, or a function answering per
+ * call so a test can bring the network back partway through.
+ */
+async function loadManagedUpdater(feed: string | Error | (() => string | Error)) {
+  vi.resetModules()
+  process.env.ZENNOTES_UPDATER_FORMAT = 'managed'
+  process.env.ZENNOTES_UPDATE_FEED_URL = 'http://127.0.0.1:1/latest-linux.yml'
+  const fetchMock = vi.fn(async () => {
+    const body = typeof feed === 'function' ? feed() : feed
+    if (body instanceof Error) throw body
+    return { ok: true, status: 200, text: async () => body }
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return { mod: await import('./updater'), fetchMock }
+}
+
+function restoreUpdaterEnv(original: { format?: string; feed?: string }): void {
+  vi.unstubAllGlobals()
+  if (original.format === undefined) delete process.env.ZENNOTES_UPDATER_FORMAT
+  else process.env.ZENNOTES_UPDATER_FORMAT = original.format
+  if (original.feed === undefined) delete process.env.ZENNOTES_UPDATE_FEED_URL
+  else process.env.ZENNOTES_UPDATE_FEED_URL = original.feed
+}
+
 describe('checkForAppUpdates on a package-manager install', () => {
-  const FEED = (version: string) => `version: ${version}\nfiles: []\nreleaseDate: '2026-09-02T15:28:11.000Z'\n`
   const original = { format: process.env.ZENNOTES_UPDATER_FORMAT, feed: process.env.ZENNOTES_UPDATE_FEED_URL }
 
-  async function loadManagedUpdater(feedBody: string | Error) {
-    vi.resetModules()
-    process.env.ZENNOTES_UPDATER_FORMAT = 'managed'
-    process.env.ZENNOTES_UPDATE_FEED_URL = 'http://127.0.0.1:1/latest-linux.yml'
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        if (feedBody instanceof Error) throw feedBody
-        return { ok: true, status: 200, text: async () => feedBody }
-      })
-    )
-    return await import('./updater')
-  }
-
   afterEach(() => {
-    vi.unstubAllGlobals()
-    if (original.format === undefined) delete process.env.ZENNOTES_UPDATER_FORMAT
-    else process.env.ZENNOTES_UPDATER_FORMAT = original.format
-    if (original.feed === undefined) delete process.env.ZENNOTES_UPDATE_FEED_URL
-    else process.env.ZENNOTES_UPDATE_FEED_URL = original.feed
+    restoreUpdaterEnv(original)
   })
 
   it('reports a newer version without offering to install it', async () => {
-    const mod = await loadManagedUpdater(FEED('2.0.3'))
+    const { mod } = await loadManagedUpdater(FEED('2.0.3'))
     const state = await mod.checkForAppUpdates()
     expect(state.phase).toBe('available')
     expect(state.availableVersion).toBe('2.0.3')
@@ -289,7 +385,7 @@ describe('checkForAppUpdates on a package-manager install', () => {
   })
 
   it('says so when the running version is the newest', async () => {
-    const mod = await loadManagedUpdater(FEED('2.0.2'))
+    const { mod } = await loadManagedUpdater(FEED('2.0.2'))
     const state = await mod.checkForAppUpdates()
     expect(state.phase).toBe('not-available')
     expect(state.message).toBe("You're already on ZenNotes 2.0.2.")
@@ -297,10 +393,158 @@ describe('checkForAppUpdates on a package-manager install', () => {
   })
 
   it('surfaces a feed failure instead of staying on checking', async () => {
-    const mod = await loadManagedUpdater(new Error('getaddrinfo EAI_FAIL github.com'))
+    const { mod } = await loadManagedUpdater(new Error('GitHub answered 404 for the release feed.'))
     const state = await mod.checkForAppUpdates()
     expect(state.phase).toBe('error')
-    expect(state.message).toMatch(/EAI_FAIL/)
+    expect(state.message).toMatch(/404/)
+  })
+})
+
+describe('isNetworkUnreachableError', () => {
+  it('recognizes no-network failures from both HTTP stacks, cause chain included', () => {
+    // undici (the package-manager feed check): the code is two levels down.
+    expect(isNetworkUnreachableError(fetchFailed('ENOTFOUND', 'getaddrinfo ENOTFOUND github.com'))).toBe(true)
+    expect(isNetworkUnreachableError(fetchFailed('ENETUNREACH', 'connect ENETUNREACH 140.82.121.4:443'))).toBe(true)
+    // Electron's net module (electron-updater): Chromium's name in the message.
+    expect(isNetworkUnreachableError(new Error('net::ERR_INTERNET_DISCONNECTED'))).toBe(true)
+    expect(isNetworkUnreachableError(new Error('net::ERR_NAME_NOT_RESOLVED'))).toBe(true)
+    // Plain Node errors, as a message or as a code.
+    expect(isNetworkUnreachableError(new Error('getaddrinfo EAI_AGAIN github.com'))).toBe(true)
+    expect(isNetworkUnreachableError(Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' }))).toBe(true)
+  })
+
+  it('leaves answers from GitHub, and everything else, to the error path', () => {
+    expect(isNetworkUnreachableError(new Error('GitHub answered 404 for the release feed.'))).toBe(false)
+    expect(isNetworkUnreachableError(new Error('HttpError: 503 Service Unavailable'))).toBe(false)
+    expect(isNetworkUnreachableError(new Error('The release feed carried no version.'))).toBe(false)
+    // "connection" in prose is not a connection error code.
+    expect(isNetworkUnreachableError(new Error('Could not verify the connection to the signing service'))).toBe(false)
+    expect(isNetworkUnreachableError(undefined)).toBe(false)
+  })
+})
+
+describe('offlineRetryDelayMs', () => {
+  it('doubles from the base up to the cap', () => {
+    expect(offlineRetryDelayMs(1)).toBe(OFFLINE_RETRY_BASE_MS)
+    expect(offlineRetryDelayMs(2)).toBe(OFFLINE_RETRY_BASE_MS * 2)
+    expect(offlineRetryDelayMs(3)).toBe(OFFLINE_RETRY_BASE_MS * 4)
+    expect(offlineRetryDelayMs(6)).toBe(OFFLINE_RETRY_MAX_MS)
+    // Far past the cap, and past where 2 ** n stops being a safe integer.
+    expect(offlineRetryDelayMs(60)).toBe(OFFLINE_RETRY_MAX_MS)
+    expect(offlineRetryDelayMs(0)).toBe(OFFLINE_RETRY_BASE_MS)
+  })
+})
+
+describe('checkForAppUpdates with no network (issue #812)', () => {
+  const original = { format: process.env.ZENNOTES_UPDATER_FORMAT, feed: process.env.ZENNOTES_UPDATE_FEED_URL }
+  const offline = fetchFailed('ENOTFOUND', 'getaddrinfo ENOTFOUND github.com')
+
+  afterEach(() => {
+    vi.useRealTimers()
+    network.online = true
+    restoreUpdaterEnv(original)
+  })
+
+  it('waits instead of erroring, and checks again by itself when the link comes back', async () => {
+    vi.useFakeTimers()
+    network.online = false
+    let reachable = false
+    const { mod, fetchMock } = await loadManagedUpdater(() => (reachable ? FEED('2.0.3') : offline))
+
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('offline')
+    // The readable cause, not undici's "fetch failed".
+    expect(state.message).toContain('getaddrinfo ENOTFOUND github.com')
+    expect(state.message).toMatch(/check for updates again on its own/)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // Link down for a while: no requests are wasted on it.
+    await vi.advanceTimersByTimeAsync(5 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(mod.getAppUpdateState().phase).toBe('offline')
+
+    // The link returns: one poll later the check runs and gets its answer.
+    network.online = true
+    reachable = true
+    await vi.advanceTimersByTimeAsync(OFFLINE_POLL_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(mod.getAppUpdateState().phase).toBe('available')
+    expect(mod.getAppUpdateState().availableVersion).toBe('2.0.3')
+
+    // Answered: nothing keeps polling.
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('backs off while the link is up but GitHub stays out of reach, then stops once answered', async () => {
+    vi.useFakeTimers()
+    network.online = true
+    let reachable = false
+    const { mod, fetchMock } = await loadManagedUpdater(() => (reachable ? FEED('2.0.2') : offline))
+
+    expect((await mod.checkForAppUpdates()).phase).toBe('offline')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    // First retry after the base delay (polls land on 15 s marks).
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_BASE_MS - OFFLINE_POLL_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(OFFLINE_POLL_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(mod.getAppUpdateState().phase).toBe('offline')
+
+    // Second retry waits twice as long: nothing at the base delay again.
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_BASE_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_BASE_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    // GitHub is back; the third retry (four times the base) succeeds and ends the wait.
+    reachable = true
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_BASE_MS * 4)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(mod.getAppUpdateState().phase).toBe('not-available')
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('still makes a real attempt now and then if the notifier keeps saying offline', async () => {
+    vi.useFakeTimers()
+    network.online = false
+    const { mod, fetchMock } = await loadManagedUpdater(offline)
+
+    expect((await mod.checkForAppUpdates()).phase).toBe('offline')
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_MAX_MS - OFFLINE_POLL_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(OFFLINE_POLL_MS)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(mod.getAppUpdateState().phase).toBe('offline')
+  })
+
+  it('does not wait on errors that are not the network', async () => {
+    vi.useFakeTimers()
+    const { mod, fetchMock } = await loadManagedUpdater(new Error('GitHub answered 404 for the release feed.'))
+
+    expect((await mod.checkForAppUpdates()).phase).toBe('error')
+    await vi.advanceTimersByTimeAsync(60 * 60_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a manual check while waiting run at once, and keeps waiting if it fails the same way', async () => {
+    vi.useFakeTimers()
+    network.online = true
+    let reachable = false
+    const { mod, fetchMock } = await loadManagedUpdater(() => (reachable ? FEED('2.0.2') : offline))
+
+    expect((await mod.checkForAppUpdates()).phase).toBe('offline')
+    // The user presses Check for Updates before any retry is due.
+    expect((await mod.checkForAppUpdates()).phase).toBe('offline')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // The wait survived the manual check and still recovers on its own.
+    reachable = true
+    await vi.advanceTimersByTimeAsync(OFFLINE_RETRY_MAX_MS)
+    expect(mod.getAppUpdateState().phase).toBe('not-available')
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 })
 

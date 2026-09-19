@@ -10,6 +10,14 @@ describe('daily task rollover placeholders', () => {
     })
   })
 
+  it('rolls tasks out of a CRLF note and keeps its line endings (#817)', () => {
+    const body = '## Tasks\r\n\r\n- [ ] Call the bank\r\n  - [ ] Ask about the fee\r\n- [x] Done\r\n- [ ]\r\n'
+    expect(extractOpenTaskBlocks(body)).toEqual({
+      moved: ['- [ ] Call the bank', '  - [ ] Ask about the fee'],
+      rest: '## Tasks\r\n\r\n- [x] Done\r\n- [ ]\r\n'
+    })
+  })
+
   it('keeps an empty parent with meaningful indented children', () => {
     const body = '- [ ]\n  - [ ] Child task\n\n- [ ]\n  Details to carry\n'
     expect(extractOpenTaskBlocks(body).moved).toEqual([

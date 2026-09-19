@@ -16,6 +16,7 @@ import {
   resolveCreateLocation,
   parseFavoriteFolderKey,
   removeFavoritesForFolder,
+  resolveFavoriteItems,
   rewriteFavoriteNotePath,
   rewriteFavoritesForFolderRename,
   toggleFavorite,
@@ -675,6 +676,60 @@ describe('favorites', () => {
   it('defaults favorites to an empty array', () => {
     const settings = normalizeVaultSettings({} as unknown as VaultSettings)
     expect(settings.favorites).toEqual([])
+  })
+
+  describe('resolveFavoriteItems', () => {
+    const notes = [
+      note('inbox/Plan.md', 'Plan'),
+      note('inbox/Projects/Sketch.excalidraw', 'Sketch'),
+      { ...note('trash/Old.md', 'Old'), folder: 'trash' as const },
+      note('inbox/Untitled.md', '')
+    ]
+    const folders = [
+      { folder: 'inbox' as const, subpath: 'Projects' },
+      { folder: 'inbox' as const, subpath: 'Projects/Sub' }
+    ]
+
+    it('keeps the stored order and resolves notes and folders to live rows', () => {
+      const items = resolveFavoriteItems(
+        ['inbox:Projects/Sub', 'inbox/Plan.md', 'inbox/Projects/Sketch.excalidraw'],
+        notes,
+        folders
+      )
+      expect(items).toEqual([
+        {
+          kind: 'folder',
+          key: 'inbox:Projects/Sub',
+          folder: 'inbox',
+          subpath: 'Projects/Sub',
+          label: 'Sub'
+        },
+        { kind: 'note', key: 'inbox/Plan.md', path: 'inbox/Plan.md', title: 'Plan', isDrawing: false },
+        {
+          kind: 'note',
+          key: 'inbox/Projects/Sketch.excalidraw',
+          path: 'inbox/Projects/Sketch.excalidraw',
+          title: 'Sketch',
+          isDrawing: true
+        }
+      ])
+    })
+
+    it('skips keys whose target is gone, trashed, or a top-level folder key', () => {
+      const items = resolveFavoriteItems(
+        ['inbox/Missing.md', 'trash/Old.md', 'inbox:Archive2020', 'inbox:', 'inbox/Untitled.md'],
+        notes,
+        folders
+      )
+      // The untitled note is the only live target; its empty title is passed
+      // through untouched so each surface picks its own placeholder.
+      expect(items.map((i) => i.key)).toEqual(['inbox/Untitled.md'])
+      expect(items[0]).toMatchObject({ kind: 'note', title: '' })
+    })
+
+    it('returns nothing for a vault without favorites', () => {
+      expect(resolveFavoriteItems([], notes, folders)).toEqual([])
+    })
   })
 })
 

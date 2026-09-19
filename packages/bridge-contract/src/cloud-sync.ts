@@ -550,6 +550,13 @@ export interface CloudSyncPendingConflictResolution {
 export interface CloudSyncSettingsConflict {
   path: string;
   cloud_path: string;
+  /**
+   * The parked cloud vault.json, parsed, so the app can show which settings
+   * differ instead of asking for an all-or-nothing answer. Optional: hosts
+   * that predate it, or a parked copy that is not valid JSON, leave it out and
+   * the app falls back to the whole-file question.
+   */
+  cloud_settings?: Record<string, unknown>;
 }
 
 export type CloudSyncSettingsChoice = "local" | "cloud";

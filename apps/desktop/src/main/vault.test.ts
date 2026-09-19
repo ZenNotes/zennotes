@@ -1317,6 +1317,28 @@ describe('per-vault view settings round-trip (#292)', () => {
     expect((saved.view as Record<string, unknown> | undefined)?.bogus).toBeUndefined()
   })
 
+  // The renderer persists these three per vault too (#292, #730), but the
+  // main normalizer used to drop them on every save, so the choice never
+  // stuck. They also feed the Cloud settings comparison (#816), where a key
+  // dropped on one side shows up as a difference that is not there.
+  it('carries asset sort, kanban statuses and the kanban folder root', async () => {
+    const root = await makeTempDir('zennotes-vault-view-kanban-')
+    await ensureVaultLayout(root)
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, {
+      ...base,
+      view: {
+        assetSortOrder: 'modified-desc',
+        kanbanStatuses: ['todo', 42, 'done'],
+        kanbanFolderRoot: 'Projects'
+      }
+    } as Awaited<ReturnType<typeof getVaultSettings>>)
+    const saved = await getVaultSettings(root)
+    expect(saved.view?.assetSortOrder).toBe('modified-desc')
+    expect(saved.view?.kanbanStatuses).toEqual(['todo', 'done'])
+    expect(saved.view?.kanbanFolderRoot).toBe('Projects')
+  })
+
   it('omits the view block when there are no overrides', async () => {
     const root = await makeTempDir('zennotes-vault-noview-')
     await ensureVaultLayout(root)

@@ -1,7 +1,11 @@
 import { humanIpcError } from "./ipc-error";
 import type { ZenBridge } from "@zennotes/bridge-contract/bridge";
 import { getZenBridge } from "@zennotes/bridge-contract/bridge";
-import type { CloudSyncRunSummary } from "@zennotes/bridge-contract/cloud-sync";
+import type {
+  CloudSyncRunSummary,
+  CloudSyncSettingsChoice,
+  CloudSyncSettingsConflict,
+} from "@zennotes/bridge-contract/cloud-sync";
 import type { VaultChangeEvent } from "@shared/ipc";
 import { create } from "zustand";
 import {
@@ -10,6 +14,13 @@ import {
   type CloudAutoSyncReason,
 } from "@zennotes/shared-domain/cloud-auto-sync";
 import { shouldSyncVaultPath } from "@zennotes/shared-domain/cloud-sync";
+import { vaultSettingsValueEqual } from "@zennotes/shared-domain/vault-settings-conflict";
+
+/** A host without the settings question (the web client's bridge answers it
+ *  with null; a test bridge may leave it out) simply never asks it. */
+type CloudSettingsConflictBridge = Partial<
+  Pick<ZenBridge, "getCloudSettingsConflict">
+>;
 
 export type CloudAutoSyncBridge = Pick<
   ZenBridge,
@@ -22,7 +33,8 @@ export type CloudAutoSyncBridge = Pick<
   | "onCloudSyncWindow"
   | "onVaultChange"
   | "onCloudAccountChange"
->;
+> &
+  CloudSettingsConflictBridge;
 
 export interface CloudAutoSyncEnvironment {
   online(): boolean;
@@ -62,6 +74,16 @@ interface CloudSyncStatusStore {
   syncWindowLocked: boolean;
   /** A note was saved, but the following whole-vault sync has not completed. */
   resolutionSaved: boolean;
+  /** The vault settings question, while one is pending: sync parked the
+   *  cloud's vault.json beside this device's and waits for an answer. It is
+   *  read from the parked copy after every run, not from the run summary,
+   *  because only the run that parked it reports it and the question stays
+   *  open long after that summary is gone. */
+  settingsConflict: CloudSyncSettingsConflict | null;
+  /** Whether the settings prompt is on screen. Lives here for the same reason
+   *  as conflictReviewOpen: the status bar, the palette, the leader binding
+   *  and the sync runtime itself all open the one prompt. */
+  settingsConflictPromptOpen: boolean;
 }
 
 const emptyCloudSyncStatus: CloudSyncStatusStore = {
@@ -73,7 +95,12 @@ const emptyCloudSyncStatus: CloudSyncStatusStore = {
   conflictReviewOpen: false,
   syncWindowLocked: false,
   resolutionSaved: false,
+  settingsConflict: null,
+  settingsConflictPromptOpen: false,
 };
+
+const SETTINGS_ATTENTION_MESSAGE =
+  "Vault settings differ on this device and in Cloud. Choose which settings to use.";
 
 export const useCloudSyncStatusStore = create<CloudSyncStatusStore>(() => ({
   ...emptyCloudSyncStatus,
@@ -188,6 +215,9 @@ export function startCloudAutoSync(
         void refreshRemovedCloudLink(bridge, error);
       }
       useCloudSyncStatusStore.setState({ syncWindowLocked: false });
+      // The other window's run may have parked, replaced or (after an answer
+      // there) removed the settings question; this window's status follows.
+      void refreshCloudSettingsConflict(bridge);
     },
   });
   const unsubscribeAccount = bridge.onCloudAccountChange((status) => {
@@ -238,7 +268,8 @@ export async function connectCloudAccountFromStatusBar(
 }
 
 export async function syncCloudVaultWithStatus(
-  bridge: Pick<CloudAutoSyncBridge, "syncCloudVault"> & Partial<Pick<CloudAutoSyncBridge, "getCloudVaultLink">> = getZenBridge(),
+  bridge: Pick<CloudAutoSyncBridge, "syncCloudVault"> &
+    Partial<Pick<CloudAutoSyncBridge, "getCloudVaultLink" | "getCloudSettingsConflict">> = getZenBridge(),
   vaultName?: string | null,
 ): Promise<CloudSyncRunSummary> {
   const current = useCloudSyncStatusStore.getState();
@@ -254,6 +285,10 @@ export async function syncCloudVaultWithStatus(
       await Promise.all([...conflictDraftFlushers].map((flush) => flush()));
     }
     const summary = await bridge.syncCloudVault();
+    // Read the settings question before the run's status is drawn from the
+    // summary, so a still-open question is part of that status rather than a
+    // correction to it a moment later.
+    await refreshCloudSettingsConflict(bridge);
     applyCloudSyncSummary(summary, nextVaultName);
     return summary;
   } catch (error) {
@@ -264,8 +299,140 @@ export async function syncCloudVaultWithStatus(
         error: syncFailureMessage(error),
       });
     }
+    // The parked copy is local, so a failed run can still surface a question
+    // an earlier run left behind (the first run after a restart, offline).
+    void refreshCloudSettingsConflict(bridge);
     throw error;
   }
+}
+
+/**
+ * Re-read the pending vault settings question from the host and fold it into
+ * the status. Safe with a bridge that cannot answer it (the web client, a
+ * remote vault): such a host has no question to ask.
+ */
+export async function refreshCloudSettingsConflict(
+  bridge: CloudSettingsConflictBridge = getZenBridge(),
+): Promise<void> {
+  if (!bridge.getCloudSettingsConflict) return;
+  let next: CloudSyncSettingsConflict | null;
+  try {
+    next = (await bridge.getCloudSettingsConflict()) ?? null;
+  } catch {
+    next = null;
+  }
+  applyCloudSettingsConflict(next);
+}
+
+function applyCloudSettingsConflict(next: CloudSyncSettingsConflict | null): void {
+  const current = useCloudSyncStatusStore.getState();
+  const previous = current.settingsConflict;
+  if (next === null) {
+    if (previous === null) return;
+    // Answered, here or in another window. A status that only spoke of the
+    // question goes back to what the last run reported; the summary of the
+    // run that parked it still lists it, and that entry is now stale.
+    const settledAttention =
+      current.phase === "attention" && current.error === SETTINGS_ATTENTION_MESSAGE
+        ? attentionMessageWithoutSettings(current.lastSummary)
+        : undefined;
+    useCloudSyncStatusStore.setState({
+      settingsConflict: null,
+      settingsConflictPromptOpen: false,
+      ...(settledAttention === undefined
+        ? {}
+        : {
+            phase: settledAttention === null ? "ready" : "attention",
+            error: settledAttention,
+          }),
+    });
+    return;
+  }
+  // The prompt opens itself for a new question, and again when the cloud's
+  // copy changed underneath a postponed one (sync replaces the parked copy
+  // with the newest cloud version). It does not reopen the same postponed
+  // question on every run: "Decide later" means that.
+  const newQuestion =
+    previous === null ||
+    !vaultSettingsValueEqual(previous.cloud_settings, next.cloud_settings);
+  useCloudSyncStatusStore.setState({
+    settingsConflict: next,
+    settingsConflictPromptOpen: current.settingsConflictPromptOpen || newQuestion,
+    ...(current.phase === "ready"
+      ? { phase: "attention", error: SETTINGS_ATTENTION_MESSAGE }
+      : {}),
+  });
+}
+
+function attentionMessageWithoutSettings(
+  summary: CloudSyncRunSummary | null,
+): string | null {
+  if (summary === null) return null;
+  const attention = cloudSyncAttentionMessage(summary);
+  return attention === SETTINGS_ATTENTION_MESSAGE ? null : attention;
+}
+
+/** True while sync waits for an answer about the vault settings. */
+export function hasPendingCloudSettingsConflict(): boolean {
+  return useCloudSyncStatusStore.getState().settingsConflict !== null;
+}
+
+/**
+ * True when the settings question is the only thing keeping the status at
+ * attention, so a status surface can say "settings" instead of the generic
+ * "incomplete" and open the prompt directly. Capacity trouble or rejected
+ * changes alongside it keep the generic wording: those are read in Settings.
+ */
+export function cloudSyncAttentionIsSettingsOnly(
+  state: Pick<CloudSyncStatusStore, "phase" | "error" | "settingsConflict"> =
+    useCloudSyncStatusStore.getState(),
+): boolean {
+  return (
+    state.phase === "attention" &&
+    state.settingsConflict !== null &&
+    state.error === SETTINGS_ATTENTION_MESSAGE
+  );
+}
+
+export function openCloudSettingsConflictPrompt(): void {
+  if (!hasPendingCloudSettingsConflict()) return;
+  useCloudSyncStatusStore.setState({ settingsConflictPromptOpen: true });
+}
+
+/** Postpones the question. Nothing is applied: this device's settings stay in
+ *  use and the cloud's copy stays parked until the prompt is answered. */
+export function closeCloudSettingsConflictPrompt(): void {
+  useCloudSyncStatusStore.setState({ settingsConflictPromptOpen: false });
+}
+
+/**
+ * Answer the question on the host and sync the answer. Keeping this device's
+ * settings only drops the parked copy, which is not itself a synced file, so
+ * the run that pushes the local settings up has to be asked for here.
+ */
+export async function resolveCloudSettingsConflictWithStatus(
+  choice: CloudSyncSettingsChoice,
+  bridge: Pick<ZenBridge, "resolveCloudSettingsConflict"> &
+    CloudSettingsConflictBridge = getZenBridge(),
+): Promise<void> {
+  await bridge.resolveCloudSettingsConflict(choice);
+  await refreshCloudSettingsConflict(bridge);
+  requestCloudAutoSync("local-change");
+}
+
+/**
+ * Whatever Cloud is waiting on the user for, most urgent first: the file
+ * queue outranks the settings question, because its files cannot sync at all
+ * until answered. One entry point so the status bar, the palette entry and
+ * the leader binding agree on what "review" opens.
+ */
+export function hasPendingCloudReview(): boolean {
+  return hasResolvableCloudConflicts() || hasPendingCloudSettingsConflict();
+}
+
+export function openPendingCloudReview(): void {
+  if (hasResolvableCloudConflicts()) openCloudConflictReview();
+  else openCloudSettingsConflictPrompt();
 }
 
 async function refreshRemovedCloudLink(
@@ -309,7 +476,11 @@ export function acknowledgeCloudConflictResolution(
 
 function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string | null): void {
   const current = useCloudSyncStatusStore.getState();
-  const attention = cloudSyncAttentionMessage(summary);
+  // A run that reports nothing new has still not synced the vault settings
+  // while the question from an earlier run is open.
+  const attention =
+    cloudSyncAttentionMessage(summary) ??
+    (current.settingsConflict !== null ? SETTINGS_ATTENTION_MESSAGE : null);
   useCloudSyncStatusStore.setState({
     phase: attention === null ? "ready" : "attention",
     vaultName: vaultName ?? current.vaultName,
@@ -391,6 +562,8 @@ function markCloudSyncDisconnected(error: string | null = null): void {
     lastSyncedAt: null,
     resolutionSaved: false,
     error,
+    settingsConflict: null,
+    settingsConflictPromptOpen: false,
   });
 }
 
@@ -413,6 +586,10 @@ function markCloudSyncUnlinked(error: string | null = null): void {
     error,
     lastSummary: null,
     conflictReviewOpen: false,
+    // Unlinking leaves the parked copy on disk, but there is no cloud to
+    // answer to; linking again asks afresh.
+    settingsConflict: null,
+    settingsConflictPromptOpen: false,
   });
 }
 
@@ -504,7 +681,7 @@ export function cloudSyncAttentionMessage(
   if (summary.local_conflicts.length > 0) {
     const count = summary.local_conflicts.length;
     if (summary.local_conflicts.every((conflict) => conflict.code === "SETTINGS_CONFLICT")) {
-      return "Vault settings differ on this device and in Cloud. Choose which settings to use.";
+      return SETTINGS_ATTENTION_MESSAGE;
     }
     return `Cloud sync kept both versions of ${count} changed ${count === 1 ? "file" : "files"}. Review the conflict copies.`;
   }
@@ -596,7 +773,8 @@ export function cloudSyncAttentionItems(
       items.push({
         kind: "settings",
         path: conflict.path,
-        detail: "Vault settings differ from the cloud. Choose which to keep above.",
+        detail:
+          "Vault settings differ from the cloud. Compare them and choose which to keep from the card above.",
         conflictCopyPath: null,
       });
     } else if (conflict.conflict_copy_path) {

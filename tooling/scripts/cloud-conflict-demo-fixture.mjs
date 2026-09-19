@@ -102,6 +102,7 @@ const server = createServer(async (request, response) => {
         items.set(noteId, next)
         revisions.get(noteId)?.push(revisionRecord(next, 'upsert'))
         changes.push(changeRecord(next, 'upsert', sequence, notePath))
+        armOtherDeviceSettings()
       }
       return json(response, 200, { armed, cursor: sequence })
     }
@@ -300,6 +301,54 @@ function vaultSummary() {
     created_at: now,
     updated_at: now
   }
+}
+
+/**
+ * The other device also changed the vault's settings: it turned daily notes
+ * on, gave the Plans folder an icon, pinned the trip note, and runs a build
+ * with a setting this one does not know. The cloud only holds a vault.json
+ * once the desktop's first sync has pushed it, so arming before that link is
+ * a no-op for settings. With a local settings change since the last sync,
+ * the next sync parks this copy and the app asks per section (#816).
+ */
+function armOtherDeviceSettings() {
+  const settingsPath = '.zennotes/vault.json'
+  const current = [...items.values()].find(
+    (item) => !item.deleted && item.path.toLowerCase() === settingsPath
+  )
+  if (!current || current.kind !== 'text') return
+  let settings
+  try {
+    settings = JSON.parse(current.content.data)
+  } catch {
+    return
+  }
+  // Pinned on the other device: the first note this desktop pushed, so the
+  // favorites lists disagree even when this device pins the trip note.
+  const pinned =
+    [...items.values()].find(
+      (item) => !item.deleted && item.kind === 'text' && item.path.endsWith('.md') && item.path !== notePath
+    )?.path ?? notePath
+  const otherDevice = {
+    ...settings,
+    dailyNotes: { ...(settings.dailyNotes ?? {}), enabled: true, directory: 'Journal' },
+    folderIcons: { ...(settings.folderIcons ?? {}), 'inbox:Plans': 'map' },
+    favorites: [pinned],
+    experimentalSpellcheck: { enabled: true }
+  }
+  const next = {
+    ...current,
+    revision: current.revision + 1,
+    content: {
+      ...textContent(`${JSON.stringify(otherDevice, null, 2)}\n`),
+      media_type: 'application/json'
+    },
+    deleted: false
+  }
+  sequence += 1
+  items.set(current.item_id, next)
+  revisions.get(current.item_id)?.push(revisionRecord(next, 'upsert'))
+  changes.push(changeRecord(next, 'upsert', sequence, settingsPath))
 }
 
 function applyMutation(current, mutation, revision) {

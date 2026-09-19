@@ -127,6 +127,16 @@ export interface ZenAppInfo {
   /** Legacy renderer family. Use hostKind to distinguish native mobile shells. */
   runtime: 'desktop' | 'web'
   hostKind?: 'desktop' | 'browser' | 'ios' | 'android'
+  /** The details a bug report needs beside the version, read by `:version`
+   *  and Settings > About (#814). Each host fills in what it knows; a field
+   *  it cannot answer is left out of the report, never guessed. */
+  arch?: string
+  /** Operating system name and version, e.g. `macOS 26.0`, `Ubuntu 24.04.1 LTS (kernel 6.8.0)`. */
+  os?: string
+  /** What runs the renderer, e.g. `Electron 38.1.0 (Chromium 140.0.7339.133, Node 22.19.0)`. */
+  engine?: string
+  /** How this copy was installed, e.g. `AppImage`, `deb package`, `package manager or tarball`. */
+  install?: string
 }
 
 export interface ZenBridge {

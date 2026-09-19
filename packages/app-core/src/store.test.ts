@@ -357,6 +357,74 @@ describe('daily task rollover', () => {
     expect(files.get(sourcePath)).toBe('## Tasks\n\n- [ ]\n- [x] Done\n')
     expect(await useStore.getState().rolloverUnfinishedTasksIntoToday({ force: true, open })).toBe(0)
   })
+
+  // The reported flow (#817): today's note is opened once with nothing to
+  // roll, then a task is typed into yesterday's note, then today's note is
+  // opened again. The once-per-day marker used to make the second open a
+  // no-op until the next day.
+  it('rolls a task added to a past daily note after today was already opened', async () => {
+    const iso = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')].join('-')
+    const now = new Date()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const sourcePath = `inbox/Daily Notes/${iso(yesterday)}.md`
+    const targetPath = `inbox/Daily Notes/${iso(now)}.md`
+    const files = new Map([[sourcePath, `# ${iso(yesterday)}\n\n`]])
+    const stamps = new Map([[sourcePath, 1]])
+    const notes = () =>
+      [...files].map(([path, body]) => ({ ...makeNote(body, path), updatedAt: stamps.get(path) ?? 1 }))
+    const readNote = vi.fn(async (path: string) => makeNote(files.get(path)!, path))
+    installZen({
+      createNote: vi.fn(async () => {
+        files.set(targetPath, `# ${iso(now)}\n\n`)
+        return makeNote(files.get(targetPath)!, targetPath)
+      }),
+      listNotes: vi.fn(async () => notes()),
+      readNote,
+      writeNote: vi.fn(async (path: string, body: string) => {
+        files.set(path, body)
+        return makeNote(body, path)
+      })
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: notes(),
+      vaultSettings: {
+        ...useStore.getState().vaultSettings,
+        dailyNotes: { enabled: true, directory: 'Daily Notes', rolloverUnfinishedTasks: true }
+      }
+    })
+
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    const readsAfterFirstRun = readNote.mock.calls.length
+    expect(readNote).toHaveBeenCalledWith(sourcePath)
+
+    // Opening today again with nothing changed must not re-read the past
+    // note the record already vouches for.
+    useStore.setState({ notes: notes() })
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    expect(readNote.mock.calls.length).toBe(readsAfterFirstRun)
+
+    // The user types a task into yesterday's note; the autosave lands on disk
+    // and the watcher re-lists the vault with a fresh mtime and size.
+    files.set(sourcePath, `# ${iso(yesterday)}\n\n- [ ] Call the bank\n`)
+    stamps.set(sourcePath, 2)
+    useStore.setState({ notes: notes() })
+
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(1)
+    expect(files.get(targetPath)).toBe(`# ${iso(now)}\n- [ ] Call the bank\n`)
+    expect(files.get(sourcePath)).toBe(`# ${iso(yesterday)}\n\n`)
+
+    // A note the rollover just trimmed is read once more before it is
+    // trusted again, so the trim itself can never hide a task.
+    const readsAfterMove = readNote.mock.calls.length
+    stamps.set(sourcePath, 3)
+    useStore.setState({ notes: notes() })
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    expect(readNote.mock.calls.length).toBe(readsAfterMove + 1)
+    expect(readNote).toHaveBeenLastCalledWith(sourcePath)
+  })
 })
 
 describe('weekly note patterns', () => {
