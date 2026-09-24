@@ -294,6 +294,7 @@ async function keys(client, sequence) {
 }
 
 async function gotoLine(client, line) {
+  await ensureEditorFocus(client)
   await keys(client, String(line).split(''))
   await press(client, 'G', { shift: true })
   await sleep(100)
@@ -391,6 +392,26 @@ async function focusEditor(client) {
   await sleep(100)
 }
 
+// Something outside the checks (a tooltip, a toast, the window's own
+// activation) can take DOM focus from the editor between two checks. With
+// focus gone every later key goes nowhere, and each check then fails for the
+// same reason, which is what the 2.56.0 gate run showed: four failures in a
+// row, all reporting focused:false over an unmoved cursor. Every check block
+// starts by putting focus back, so one stolen focus costs at most the block
+// it happened in. The ex prompt owns focus on purpose; leave that alone.
+async function ensureEditorFocus(client) {
+  const state = await evaluate(
+    client,
+    `(() => ({
+      editor: document.activeElement === document.querySelector('.cm-content'),
+      prompt: document.activeElement instanceof HTMLInputElement
+    }))()`
+  )
+  if (state?.editor || state?.prompt) return
+  console.log('  note  editor lost focus between checks; refocusing')
+  await focusEditor(client)
+}
+
 async function main() {
   await prepareBuild()
   const tempRoot = await mkdtemp(join(tmpdir(), 'zennotes-vim-editor-'))
@@ -485,6 +506,7 @@ async function main() {
     if (!noteReady || !editorReady) throw new Error('Editor did not become ready')
     await focusEditor(client)
 
+    await ensureEditorFocus(client)
     await keys(client, ['g', 'g', '0'])
     const lineStart = await editorSnapshot(client)
     await press(client, '$')
@@ -495,6 +517,7 @@ async function main() {
       JSON.stringify({ lineStart, dollar })
     )
 
+    await ensureEditorFocus(client)
     await keys(client, ['g', 'g', '0'])
     await press(client, 'A', { shift: true })
     await press(client, 'X', { shift: true })
@@ -507,6 +530,7 @@ async function main() {
     )
     await press(client, 'u')
 
+    await ensureEditorFocus(client)
     await keys(client, ['g', 'g', '0', 'j'])
     await press(client, 'I', { shift: true })
     await press(client, 'Y', { shift: true })
@@ -519,6 +543,7 @@ async function main() {
     )
     await press(client, 'u')
 
+    await ensureEditorFocus(client)
     await keys(client, ['g', 'g', '0'])
     const wrappedCountStart = await editorSnapshot(client)
     await keys(client, ['8', 'j'])
