@@ -87,9 +87,9 @@ function installZen(): void {
 // old one armed keeps running with real timers and calls whatever window.zen
 // is current when it fires, so afterEach settles the old store before the
 // next test installs its own bridge.
-let loaded: Awaited<ReturnType<typeof loadStore>> | null = null
+let loaded: typeof import('./store') | null = null
 
-async function loadStore() {
+async function loadStore(): Promise<typeof import('./store')> {
   vi.resetModules()
   localStorage.clear()
   loaded = await import('./store')
