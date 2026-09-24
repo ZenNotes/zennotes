@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   VAULT_DISPLAY_NAME_MAX_LENGTH,
   normalizeVaultDisplayName,
+  vaultFolderName,
   resolveVaultName
 } from './vault-display-name'
 
@@ -54,5 +55,23 @@ describe('resolveVaultName', () => {
     expect(resolveVaultName('Acme API docs', 'docs')).toBe('Acme API docs')
     expect(resolveVaultName('  ', 'docs')).toBe('docs')
     expect(resolveVaultName(undefined, 'docs')).toBe('docs')
+  })
+})
+
+describe('vaultFolderName', () => {
+  it('takes the last segment of a path root, POSIX or Windows', () => {
+    expect(vaultFolderName({ root: '/Users/me/repos/acme/docs' })).toBe('docs')
+    expect(vaultFolderName({ root: 'C:\\Users\\me\\repos\\acme\\docs\\' })).toBe('docs')
+    expect(vaultFolderName({ root: '/docs' })).toBe('docs')
+  })
+
+  it('prefers the folder name a host gave, which a label root cannot provide', () => {
+    // The phone shells describe a vault by a label, not a path: without the
+    // host's folder name the whole label would stand in for it.
+    const label = 'On this device › ZenNotes › docs'
+    expect(vaultFolderName({ root: label, folderName: 'docs' })).toBe('docs')
+    expect(vaultFolderName({ root: label })).toBe(label)
+    // A host that gives it for a path root is simply believed.
+    expect(vaultFolderName({ root: '/Users/me/repos/acme/docs', folderName: 'docs' })).toBe('docs')
   })
 })

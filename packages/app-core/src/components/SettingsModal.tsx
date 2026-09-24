@@ -4152,9 +4152,9 @@ export function SettingsModal(): JSX.Element {
                 {workspaceMode !== "remote" && vault && !vault.temporary && (
                   <TextInputRow
                     label="Vault name"
-                    description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault.root)} on disk; leave the field empty to use that name.`}
+                    description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault)} on disk; leave the field empty to use that name.`}
                     value={vaultDisplayName}
-                    placeholder={vaultFolderName(vault.root)}
+                    placeholder={vaultFolderName(vault)}
                     settingId="vault-name"
                     commitOnBlur
                     onChange={(next) => void renameVault(next)}

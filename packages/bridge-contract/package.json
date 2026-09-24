@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/bridge-contract",
   "private": true,
-  "version": "2.56.0",
+  "version": "2.56.1",
   "type": "module",
   "exports": {
     "./bridge": "./src/bridge.ts",

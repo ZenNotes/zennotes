@@ -11,7 +11,7 @@ import {
   type EditorCursorPosition
 } from './lib/editor-cursor-position'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
-import { normalizeVaultDisplayName, resolveVaultName } from '@shared/vault-display-name'
+import { normalizeVaultDisplayName, resolveVaultName, vaultFolderName } from '@shared/vault-display-name'
 import {
   DEFAULT_HARPER_DIALECT,
   isHarperDialect,
@@ -4821,8 +4821,7 @@ function withoutNoteInWorkspace(s: Store, path: string): Partial<Store> {
 function applyVaultNameFromSettings(settings: VaultSettings): void {
   const vault = useStore.getState().vault
   if (!vault) return
-  const folder = vault.root.split(/[\\/]/).filter(Boolean).pop() ?? vault.root
-  const name = resolveVaultName(settings.displayName, folder)
+  const name = resolveVaultName(settings.displayName, vaultFolderName(vault))
   if (name === vault.name) return
   useStore.setState({ vault: { ...vault, name } })
 }

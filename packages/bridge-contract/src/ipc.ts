@@ -761,6 +761,16 @@ export interface PastedImageInput {
 export interface VaultInfo {
   root: string
   name: string
+  /**
+   * The folder's own name on disk, for a host whose `root` is not a path
+   * (the phone shells describe a vault as "On this device › ZenNotes › docs").
+   * The display name (#692) falls back to this when it is cleared, and the
+   * Vault name field shows it as the placeholder; without it the app takes
+   * the root's last path segment, which is right for every host whose root
+   * is a path (desktop, the web client, a remote workspace) and wrong for
+   * one whose root is a label.
+   */
+  folderName?: string
   /** True when this is a temporary folder session (a folder dropped on the app
    *  to read, not opened as a vault): edits save to the files in place, but no
    *  ZenNotes state is written into the folder and it isn't remembered. The
