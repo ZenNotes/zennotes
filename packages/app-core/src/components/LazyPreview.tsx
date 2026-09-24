@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import type { DiagramTabPayload } from '../lib/diagram-tabs'
+import type { PreviewEditRequest } from '../lib/preview-outline-jump'
 
 const PreviewImpl = lazy(() =>
   import('./Preview').then((mod) => ({ default: mod.Preview }))
@@ -17,7 +18,7 @@ export function LazyPreview({
 }: {
   markdown: string
   notePath: string
-  onRequestEdit?: (() => void) | null
+  onRequestEdit?: ((request?: PreviewEditRequest | null) => void) | null
   onRendered?: (() => void) | null
 }): JSX.Element {
   return (

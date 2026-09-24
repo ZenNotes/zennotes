@@ -782,7 +782,7 @@ export function TasksView(): JSX.Element {
                 key={id}
                 type="button"
                 onClick={() => setViewMode(id)}
-                title={`${label} (${shortcut})`}
+                title={vimMode ? `${label} (${shortcut})` : label}
                 className={[
                   'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
                   isActive
@@ -825,7 +825,7 @@ export function TasksView(): JSX.Element {
             type="button"
             onClick={() => void newTaskFile()}
             className="rounded-md border border-accent/45 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20"
-            title="New task (a)"
+            title={vimMode ? 'New task (a)' : 'New task'}
           >
             + New task
           </button>
@@ -947,6 +947,7 @@ export function TasksView(): JSX.Element {
                 onReorder={reorderTaskByDrag}
                 onContextMenu={openTaskMenu}
                 toggleKeyLabel={toggleKeyLabel}
+                vimMode={vimMode}
               />
             )
           })}
@@ -1012,11 +1013,9 @@ export function TasksView(): JSX.Element {
           />
         </form>
       ) : (
-        /* Each line names only keys that fire in the current mode. The list's
-           single keys are Vim-gated (arrows, Enter and the Shift+J/K chord
-           are the universal ones); the board and the calendar predate that
-           gating and keep single-key navigation with Vim off, so their lines
-           lose only i / c / :q, which are gated on every surface. */
+        /* Each line names only keys that fire in the current mode. Single
+           keys are Vim's on every surface; arrows, Enter, Space, Tab and the
+           Shift+J/K chord are the universal ones. */
         <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
           {viewMode === 'list'
             ? vimMode
@@ -1025,10 +1024,10 @@ export function TasksView(): JSX.Element {
             : viewMode === 'calendar'
               ? vimMode
                 ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · F saved filters · drag to move · right-click actions · :q'
-                : 'h/j/k/l day · [ ] month · Tab pick · x toggle · drag to move · right-click actions'
+                : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'
               : vimMode
                 ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · F saved filters · right-click actions · :q close'
-                : 'h/l column · j/k card · x toggle · Enter open · right-click actions'}
+                : '←/→ column · ↑/↓ card · Space toggle · Enter open · right-click actions'}
         </div>
       )}
 

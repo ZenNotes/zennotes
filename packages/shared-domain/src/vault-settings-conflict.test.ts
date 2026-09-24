@@ -96,6 +96,7 @@ describe('diffVaultSettings', () => {
 
   it('covers every vault.json section', () => {
     const declared: Record<keyof VaultSettings, true> = {
+      displayName: true,
       primaryNotesLocation: true,
       dailyNotes: true,
       weeklyNotes: true,

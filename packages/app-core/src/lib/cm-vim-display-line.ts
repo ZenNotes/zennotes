@@ -119,8 +119,10 @@ function warnPixelMotionFailure(err: unknown): void {
  * (seen on Linux fractional display scaling at certain zoom levels once a
  * line soft-wraps into 5+ display rows), so no exception may escape a motion.
  * The fallback keeps the cursor moving and the next press re-measures.
+ * Shared with the half-page motion (cm-vim-half-page-motion), which walks
+ * the same pixel-based display rows.
  */
-function pixelMotionFallback(
+export function pixelMotionFallback(
   run: () => { line: number; ch: number },
   fallback: () => { line: number; ch: number }
 ): { line: number; ch: number } {

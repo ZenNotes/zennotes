@@ -122,6 +122,7 @@ export function CalendarPanel({
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
+  const vimMode = useStore((s) => s.vimMode)
   const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
   const openWeeklyNoteForDate = useStore((s) => s.openWeeklyNoteForDate)
   const vaultTasks = useStore((s) => s.vaultTasks)
@@ -538,6 +539,12 @@ export function CalendarPanel({
       const cur = tasks[Math.min(activeTaskIndex, Math.max(0, tasks.length - 1))]
 
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // With Vim off the single-character keys stay with the page, the rule
+      // every list in the app follows: arrows, Enter, Space, Tab and Escape
+      // are universal, the letters (and < > [ ]) are Vim's. Nothing below
+      // then names a key that is not live, and a note typed into by mistake
+      // is not toggled, moved or deleted by a stray letter.
+      if (!vimMode && e.key.length === 1 && e.key !== ' ') return
 
       if (grabbedTask) {
         if (e.key === 'Escape') {
@@ -733,6 +740,7 @@ export function CalendarPanel({
     return () => window.removeEventListener('keydown', handler, true)
   }, [
     dailyEnabled,
+    vimMode,
     selectedDayTasks,
     activeTaskIndex,
     grabbedTask,

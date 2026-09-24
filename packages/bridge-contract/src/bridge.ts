@@ -74,6 +74,7 @@ import type {
 import type { VaultTask } from './tasks.js'
 import type {
   DatabaseDoc,
+  DatabaseSeed,
   DatabaseSidecar,
   DatabaseSummary,
   DbRow
@@ -314,7 +315,16 @@ export interface ZenBridge {
   openDatabase(relPath: string): Promise<DatabaseDoc | null>
   writeDatabaseRows(relPath: string, rows: DbRow[]): Promise<DatabaseDoc>
   writeDatabaseSchema(relPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
-  createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>
+  /** Create a `<title>.base` database under `folder`/`subpath`. Empty (an `id`
+   *  + `Name` grid) by default; with a `seed`, its columns and rows become
+   *  the initial contents, typed the way an adopted CSV would be (#832).
+   *  The resolved doc's `title` may carry a collision suffix (`Name 2`). */
+  createDatabase(
+    folder: NoteFolder,
+    subpath: string,
+    title?: string,
+    seed?: DatabaseSeed
+  ): Promise<DatabaseDoc>
   /** Rename a database's `.base` folder; resolves to the new `data.csv` path. */
   renameDatabase(csvPath: string, newTitle: string): Promise<string>
   /** Create a record's "page" note (returns its vault-relative path). */

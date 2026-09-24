@@ -2011,6 +2011,41 @@ describe('renameNote heading sync (#455)', () => {
     expect(order.slice(0, 2)).toEqual(['save', 'rename'])
   })
 
+  // Every rename in the UI comes through here without a host, so a refusal
+  // has to say why instead of leaving the old name in place silently (#839).
+  it('tells the user why a rename was refused', async () => {
+    installRename({
+      renameNote: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Error invoking remote method 'vault:rename-note': Error: A note named “Groceries” already exists in this folder"
+          )
+        )
+    })
+    const { useStore } = await loadStore()
+    const { useToastStore } = await import('./lib/toast')
+    useStore.setState({ notes: [metaOf('inbox/Untitled.md', 'Untitled')] })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+
+    expect(useToastStore.getState().toasts.map((toast) => [toast.type, toast.message])).toEqual([
+      ['error', 'Could not rename “Untitled”: A note named “Groceries” already exists in this folder']
+    ])
+  })
+
+  it('leaves a refused rename to a host that asked to handle it', async () => {
+    installRename({ renameNote: vi.fn().mockRejectedValue(new Error('refused')) })
+    const { useStore } = await loadStore()
+    const { useToastStore } = await import('./lib/toast')
+
+    await expect(
+      useStore.getState().renameNote('inbox/Untitled.md', 'Groceries', () => true)
+    ).rejects.toThrow('refused')
+    expect(useToastStore.getState().toasts).toEqual([])
+  })
+
   it('does not rename when a dirty linked note could not be saved', async () => {
     const dirtyNote = makeNote('See [[Untitled]]\n', 'inbox/Daily.md')
     const renameNote = vi.fn().mockResolvedValue(renamedMeta)
@@ -2657,5 +2692,42 @@ describe('file-task lifecycle coordination', () => {
     await deleting
     expect(moveToTrash).toHaveBeenCalledTimes(2)
     expect(useStore.getState().noteContents[source.path]).toBeUndefined()
+  })
+})
+
+describe('createAndOpen with tags (#826 follow-up)', () => {
+  it('writes a tag line under the heading, using the title the vault settled on', async () => {
+    const createNote = vi.fn().mockResolvedValue(makeNote('# Runbook 2\n\n', 'inbox/Runbook 2.md'))
+    const writeNote = vi.fn().mockResolvedValue(undefined)
+    installZen({
+      createNote,
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([makeNote('# Runbook 2\n\n', 'inbox/Runbook 2.md')]),
+      readNote: vi.fn().mockResolvedValue(makeNote('# Runbook 2\n\n#ops #prod\n\n', 'inbox/Runbook 2.md'))
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().createAndOpen('inbox', '', { title: 'Runbook', tags: ['ops', 'prod'] })
+
+    expect(createNote).toHaveBeenCalledWith('inbox', 'Runbook', '')
+    expect(writeNote).toHaveBeenCalledTimes(1)
+    expect(writeNote).toHaveBeenCalledWith('inbox/Runbook 2.md', '# Runbook 2\n\n#ops #prod\n\n')
+    expect(useStore.getState().selectedPath).toBe('inbox/Runbook 2.md')
+  })
+
+  it('leaves the body the vault wrote when there are no tags', async () => {
+    const writeNote = vi.fn().mockResolvedValue(undefined)
+    installZen({
+      createNote: vi.fn().mockResolvedValue(makeNote('# T\n\n', 'inbox/T.md')),
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([makeNote('# T\n\n', 'inbox/T.md')]),
+      readNote: vi.fn().mockResolvedValue(makeNote('# T\n\n', 'inbox/T.md'))
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().createAndOpen('inbox', '', { title: 'T', tags: [] })
+    await useStore.getState().createAndOpen('inbox', '', { title: 'T' })
+
+    expect(writeNote).not.toHaveBeenCalled()
   })
 })

@@ -16,15 +16,9 @@ import {
   HELP_SHORTCUT_SECTIONS,
   HELP_VIM_COMMANDS
 } from '../lib/help'
-import {
-  CheckSquareIcon,
-  CloseIcon,
-  CommandIcon,
-  DocumentIcon,
-  SearchIcon,
-  SettingsIcon,
-  TagIcon
-} from './icons'
+import { parseHelpKeys } from '../lib/help-keys'
+import { SearchIcon } from './icons'
+import { Button } from './ui/Button'
 
 interface CommandGroup {
   category: string
@@ -66,6 +60,8 @@ function resolveShortcutKeys(
     if (action === 'Search notes (non-Vim mode)') return shortcut(overrides, 'global.searchNotesNonVim')
     if (action === 'Open commands') return shortcut(overrides, 'global.commandPalette')
     if (action === 'New Quick Note') return shortcut(overrides, 'global.newQuickNote')
+    if (action === 'New note from template') return shortcut(overrides, 'global.newNoteFromTemplate')
+    if (action === 'Insert template into current note') return shortcut(overrides, 'global.insertTemplate')
     if (action === 'Open Settings') return shortcut(overrides, 'global.openSettings')
     if (action === 'Toggle sidebar') return shortcut(overrides, 'global.toggleSidebar')
     if (action === 'Toggle connections') return shortcut(overrides, 'global.toggleConnections')
@@ -184,7 +180,7 @@ const HELP_SECTION_LINKS = [
   { id: 'help-howto', label: 'How-To' },
   { id: 'help-concepts', label: 'Concepts' },
   { id: 'help-shortcuts', label: 'Shortcuts' },
-  { id: 'help-vim', label: 'Vim + Ex' },
+  { id: 'help-vim', label: 'Vim & Ex' },
   { id: 'help-commands', label: 'Commands' },
   { id: 'help-cli', label: 'CLI' },
   { id: 'help-settings', label: 'Settings' }
@@ -214,21 +210,18 @@ function matchesQuery(query: string, ...parts: Array<string | undefined>): boole
 }
 
 export function HelpView(): JSX.Element {
-  const closeActiveNote = useStore((s) => s.closeActiveNote)
   const setCommandPaletteOpen = useStore((s) => s.setCommandPaletteOpen)
-  const setSearchOpen = useStore((s) => s.setSearchOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const runtimePlatform = window.zen.platformSync()
+  const mac = runtimePlatform === 'darwin'
   const platformLabel =
     runtimePlatform === 'darwin'
       ? 'macOS'
       : runtimePlatform === 'win32'
         ? 'Windows'
         : 'Linux'
-  const primaryModifierLabel =
-    runtimePlatform === 'darwin' ? 'Command (⌘)' : 'Ctrl'
 
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query.trim().toLowerCase())
@@ -369,6 +362,21 @@ export function HelpView(): JSX.Element {
     cliCards.length > 0 ||
     settingsSections.length > 0
 
+  // Only the sections that survive the filter get a link, so the nav never
+  // offers a jump to nothing.
+  const visibleSections = new Set<string>(
+    [
+      quickStart.length > 0 && 'help-start',
+      howToGuides.length > 0 && 'help-howto',
+      coreConcepts.length > 0 && 'help-concepts',
+      shortcutSections.length > 0 && 'help-shortcuts',
+      vimCommands.length > 0 && 'help-vim',
+      commandGroups.length > 0 && 'help-commands',
+      cliCards.length > 0 && 'help-cli',
+      settingsSections.length > 0 && 'help-settings'
+    ].filter((id): id is string => !!id)
+  )
+
   return (
     <div
       data-preview-scroll
@@ -377,379 +385,285 @@ export function HelpView(): JSX.Element {
       onFocusCapture={() => setFocusedPanel('editor')}
       className="min-h-0 min-w-0 flex-1 overflow-y-auto outline-none"
     >
-      <div
-        data-preview-content
-        className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-6"
-      >
-        <section
-          id="help-overview"
-          className="overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-50/45 shadow-[0_12px_40px_rgba(15,23,42,0.05)]"
-        >
-          <div className="bg-[radial-gradient(circle_at_top_left,rgba(214,140,82,0.14),transparent_38%),linear-gradient(180deg,rgba(255,255,255,0.2),rgba(255,255,255,0.02))] px-5 py-5 sm:px-6 sm:py-5">
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="max-w-3xl">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-paper-300/70 bg-paper-100/80 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-ink-500">
-                    <DocumentIcon width={14} height={14} />
-                    ZenNotes Manual
-                  </div>
-                  <h1 className="mt-2.5 font-serif text-xl font-semibold tracking-tight text-ink-900 sm:text-2xl">
-                    Learn the app in layers, not all at once.
-                  </h1>
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-500">
-                    Onboarding cards to start, how-to recipes for common jobs, concepts for the app
-                    model, and a living reference for shortcuts, commands, and settings. Labels are
-                    rendered for {platformLabel} ({primaryModifierLabel}); Vim motions like{' '}
-                    <code className="rounded bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.9em] text-ink-700">
-                      Ctrl-w
-                    </code>{' '}
-                    stay literal across OSes.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <ActionBtn
-                    icon={<SearchIcon width={14} height={14} />}
-                    label="Search Notes"
-                    onClick={() => setSearchOpen(true)}
-                  />
-                  <ActionBtn
-                    icon={<CommandIcon width={14} height={14} />}
-                    label="Commands"
-                    onClick={() => setCommandPaletteOpen(true)}
-                  />
-                  <ActionBtn
-                    icon={<SettingsIcon width={14} height={14} />}
-                    label="Settings"
-                    onClick={() => setSettingsOpen(true)}
-                  />
-                  <ActionBtn
-                    icon={<CloseIcon width={14} height={14} />}
-                    label="Close"
-                    onClick={() => void closeActiveNote()}
-                  />
-                </div>
-              </div>
+      <div data-preview-content className="mx-auto w-full max-w-3xl px-6 pb-24 pt-10">
+        <header id="help-overview">
+          <h1 className="font-serif text-3xl font-semibold tracking-tight text-ink-900">Help</h1>
+          <p className="mt-2 max-w-prose text-base leading-7 text-ink-500">
+            The ZenNotes manual: start with the basics, then look up any shortcut, command, or
+            setting.
+          </p>
+          <label className="mt-6 flex items-center gap-2.5 rounded-xl border border-paper-300 bg-paper-100 px-3.5 py-2.5 focus-within:border-accent/60">
+            <SearchIcon width={16} height={16} className="shrink-0 text-ink-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search the manual"
+              aria-label="Search the manual"
+              className="w-full bg-transparent text-base text-ink-900 outline-none placeholder:text-ink-400"
+            />
+            {query && (
+              <Button variant="ghost" onClick={() => setQuery('')}>
+                Clear
+              </Button>
+            )}
+          </label>
+        </header>
 
-              <p className="text-xs text-ink-500">
-                <span className="font-medium text-ink-700">{HELP_QUICK_START.length}</span> onboarding
-                {' · '}
-                <span className="font-medium text-ink-700">{HELP_HOW_TO_GUIDES.length}</span> how-to
-                {' · '}
-                <span className="font-medium text-ink-700">
-                  {allCommands.length + HELP_VIM_COMMANDS.length}
-                </span>{' '}
-                reference entries
-              </p>
-
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-                <label className="block">
-                  <span className="mb-2 block text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                    Filter the manual
-                  </span>
-                  <div className="flex items-center gap-2 rounded-2xl border border-paper-300/80 bg-paper-100/85 px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.55)]">
-                    <SearchIcon width={16} height={16} className="shrink-0 text-ink-400" />
-                    <input
-                      value={query}
-                      onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Search shortcuts, ex commands, settings, or commands"
-                      className="w-full bg-transparent text-sm text-ink-900 outline-none placeholder:text-ink-400"
-                    />
-                    {query && (
-                      <button
-                        type="button"
-                        onClick={() => setQuery('')}
-                        className="rounded-md px-2 py-1 text-xs text-ink-500 transition-colors hover:bg-paper-200 hover:text-ink-900"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </label>
-
-                <div className="flex flex-wrap gap-2">
-                  {HELP_SECTION_LINKS.map((link) => (
-                    <button
-                      key={link.id}
-                      type="button"
-                      onClick={() =>
-                        document.getElementById(link.id)?.scrollIntoView({
-                          block: 'start',
-                          behavior: 'smooth'
-                        })
-                      }
-                      className="rounded-full border border-paper-300/80 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200 hover:text-ink-900"
-                    >
-                      {link.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {!hasMatches && (
-          <section className="rounded-3xl border border-paper-300/70 bg-paper-50/45 px-6 py-8 text-center shadow-[0_18px_48px_rgba(15,23,42,0.05)]">
-            <h2 className="font-serif text-2xl text-ink-900">No help topics matched.</h2>
-            <p className="mt-2 text-sm text-ink-500">
-              Clear the filter to see the full manual again.
-            </p>
-          </section>
+        {visibleSections.size > 0 && (
+          <nav
+            aria-label="Manual sections"
+            className="sticky top-0 z-10 -mx-6 mt-4 flex flex-wrap gap-1 border-b border-paper-300/60 bg-paper-100/95 px-4 py-2 backdrop-blur"
+          >
+            {HELP_SECTION_LINKS.filter((link) => visibleSections.has(link.id)).map((link) => (
+              <Button
+                key={link.id}
+                variant="ghost"
+                onClick={() =>
+                  document.getElementById(link.id)?.scrollIntoView({
+                    block: 'start',
+                    behavior: 'smooth'
+                  })
+                }
+              >
+                {link.label}
+              </Button>
+            ))}
+          </nav>
         )}
 
-        {hasMatches && (
-          <>
-            {quickStart.length > 0 && (
-              <SectionShell
-                id="help-start"
-                title="Start Here"
-                subtitle="A short tutorial path for getting productive without learning the whole app first."
-              >
-                <div className="grid gap-4">
-                  {quickStart.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
-                  ))}
-                </div>
-              </SectionShell>
-            )}
+        {!hasMatches && (
+          <p className="py-16 text-center text-sm text-ink-500">
+            Nothing in the manual matches “{query.trim()}”.
+          </p>
+        )}
 
-            {howToGuides.length > 0 && (
-              <SectionShell
-                id="help-howto"
-                title="How-To Guides"
-                subtitle="Task-focused recipes for the jobs people repeat most often."
-              >
-                <div className="grid gap-4">
-                  {howToGuides.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
-                  ))}
-                </div>
-              </SectionShell>
-            )}
+        {quickStart.length > 0 && (
+          <SectionShell
+            id="help-start"
+            title="Start Here"
+            subtitle="A short path to getting productive without learning the whole app first."
+          >
+            <ArticleList cards={quickStart} />
+          </SectionShell>
+        )}
 
-            {coreConcepts.length > 0 && (
-              <SectionShell
-                id="help-concepts"
-                title="Concepts"
-                subtitle="Explanations that make the app model, file model, and workflow model easier to reason about."
-              >
-                <div className="grid gap-4">
-                  {coreConcepts.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
-                  ))}
-                </div>
-              </SectionShell>
-            )}
+        {howToGuides.length > 0 && (
+          <SectionShell
+            id="help-howto"
+            title="How-To Guides"
+            subtitle="Recipes for the jobs people repeat most often."
+          >
+            <ArticleList cards={howToGuides} />
+          </SectionShell>
+        )}
 
-            {shortcutSections.length > 0 && (
-              <SectionShell
-                id="help-shortcuts"
-                title="Keyboard Shortcuts"
-                subtitle={`Documented from the current input model for ${platformLabel}, not guessed.`}
-              >
-                <div className="grid gap-4">
-                  {shortcutSections.map((section) => (
-                    <div
-                      key={section.id}
-                      className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
-                    >
-                      <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
-                      <p className="mt-1 text-xs leading-6 text-ink-500">{section.description}</p>
-                      <div className="mt-4 flex flex-col gap-3">
-                        {section.items.map((item) => (
-                          <ShortcutRow
-                            key={`${section.id}-${item.action}`}
-                            keys={item.keys}
-                            action={item.action}
-                            detail={item.detail}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </SectionShell>
-            )}
+        {coreConcepts.length > 0 && (
+          <SectionShell
+            id="help-concepts"
+            title="Concepts"
+            subtitle="How the app, your files, and your workflows fit together."
+          >
+            <ArticleList cards={coreConcepts} />
+          </SectionShell>
+        )}
 
-            {vimCommands.length > 0 && (
-              <SectionShell
-                id="help-vim"
-                title="Vim And Ex"
-                subtitle="Short aliases, curated commands, and keyboard-first editor behavior."
-              >
-                <div className="grid gap-4">
-                  <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-                      <DocumentIcon width={15} height={15} className="text-accent" />
-                      Curated ex commands
-                    </div>
-                    <div className="mt-4 grid gap-3">
-                      {vimCommands.map((item) => (
-                        <div
-                          key={item.command}
-                          className="rounded-2xl border border-paper-300/70 bg-paper-100/70 px-4 py-3"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Keycap value={item.command} />
-                            <span className="text-sm font-medium text-ink-900">{item.summary}</span>
-                          </div>
-                          <p className="mt-2 text-sm leading-6 text-ink-500">{item.detail}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-4">
-                    <CalloutCard
-                      icon={<CommandIcon width={16} height={16} className="text-accent" />}
-                      title="Palette commands are also ex commands"
-                      body="Every command palette entry is registered on the Vim `:` line using its command id with punctuation normalized to underscores, like `:app_settings` or `:note_new_quick`."
-                    />
-                    <CalloutCard
-                      icon={<CheckSquareIcon width={16} height={16} className="text-accent" />}
-                      title="Tasks and Tags have local ex prompts"
-                      body={
-                        shortcut(keymapOverrides, 'nav.localEx') === UNBOUND_LABEL
-                          ? 'Inside Tasks or Tags, the local command line (nav.localEx) has no key right now; give it one under Settings, Keymaps to reach view-specific actions like close, split, refresh, and retagging.'
-                          : `Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`
-                      }
-                    />
-                    <CalloutCard
-                      icon={<TagIcon width={16} height={16} className="text-accent" />}
-                      title="Link following is context-aware"
-                      body={
-                        shortcut(keymapOverrides, 'vim.goToDefinition') === UNBOUND_LABEL
-                          ? 'Following the link at the cursor (vim.goToDefinition) has no key right now; give it one under Settings, Keymaps. It opens existing notes, external links, or PDFs, and missing wikilinks can create new notes directly from the ex-aware workflow.'
-                          : `\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`
-                      }
-                    />
-                  </div>
+        {shortcutSections.length > 0 && (
+          <SectionShell
+            id="help-shortcuts"
+            title="Keyboard Shortcuts"
+            subtitle={`Keys are shown for ${platformLabel}, as you have them bound. Vim keys like Ctrl-w are the same on every system.`}
+          >
+            <div className="space-y-10">
+              {shortcutSections.map((section) => (
+                <div key={section.id}>
+                  <h3 className="text-base font-semibold text-ink-900">{section.title}</h3>
+                  {section.description && (
+                    <p className="mt-1 max-w-prose text-sm leading-6 text-ink-500">
+                      {renderRichText(section.description, 'text-xs')}
+                    </p>
+                  )}
+                  <ReferenceList>
+                    {section.items.map((item) => (
+                      <ReferenceRow
+                        key={`${section.id}-${item.action}`}
+                        title={item.action}
+                        keys={<KeyList value={item.keys} mac={mac} />}
+                        detail={item.detail}
+                      />
+                    ))}
+                  </ReferenceList>
                 </div>
-              </SectionShell>
-            )}
+              ))}
+            </div>
+          </SectionShell>
+        )}
 
-            {commandGroups.length > 0 && (
-              <SectionShell
-                id="help-commands"
-                title="Command Palette"
-                subtitle={`Everything searchable from ${shortcut(keymapOverrides, 'global.commandPalette')}, including contextual commands.`}
-              >
-                <div className="space-y-5">
-                  {commandGroups.map((group) => (
-                    <div key={group.category}>
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold text-ink-900">{group.category}</h3>
-                        <span className="text-xs text-ink-400">{group.commands.length}</span>
-                      </div>
-                      <div className="grid gap-3">
-                        {group.commands.map((command) => (
-                          <div
-                            key={command.id}
-                            className="rounded-3xl border border-paper-300/70 bg-paper-50/55 px-4 py-3 shadow-[0_12px_28px_rgba(15,23,42,0.03)]"
-                          >
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium text-ink-900">{command.title}</div>
-                                <div className="mt-1 flex flex-wrap gap-1.5">
-                                  {command.shortcut && <Keycap value={command.shortcut} />}
-                                  <Keycap value={`:${commandExAlias(command.id)}`} subtle />
-                                  {command.when && <Badge label="Contextual" />}
-                                </div>
-                              </div>
-                              <span className="rounded-full bg-paper-100/85 px-2 py-1 text-2xs font-medium uppercase tracking-[0.18em] text-ink-500">
-                                {command.id}
-                              </span>
-                            </div>
-                            {command.keywords && (
-                              <p className="mt-3 text-xs leading-6 text-ink-500">
-                                Keywords: {command.keywords}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </SectionShell>
-            )}
+        {vimCommands.length > 0 && (
+          <SectionShell
+            id="help-vim"
+            title="Vim & Ex"
+            subtitle="Ex commands, short aliases, and keyboard-first editor behavior."
+          >
+            <ReferenceList>
+              {vimCommands.map((item) => (
+                <ReferenceRow
+                  key={item.command}
+                  title={item.summary}
+                  keys={<KeyList value={item.command} mac={mac} />}
+                  detail={item.detail}
+                />
+              ))}
+            </ReferenceList>
+            <h3 className="mt-10 text-base font-semibold text-ink-900">Good to know</h3>
+            <ReferenceList>
+              {[
+                {
+                  title: 'Palette commands are also ex commands',
+                  body: 'Every command palette entry is registered on the Vim `:` line using its command id with punctuation normalized to underscores, like `:app_settings` or `:note_new_quick`.'
+                },
+                {
+                  title: 'Tasks and Tags have local ex prompts',
+                  body:
+                    shortcut(keymapOverrides, 'nav.localEx') === UNBOUND_LABEL
+                      ? 'Inside Tasks or Tags, the local command line (nav.localEx) has no key right now; give it one under Settings, Keymaps to reach view-specific actions like close, split, refresh, and retagging.'
+                      : `Inside Tasks or Tags, press \`${shortcut(keymapOverrides, 'nav.localEx')}\` to open the local command line for view-specific actions like close, split, refresh, and retagging.`
+                },
+                {
+                  title: 'Link following is context-aware',
+                  body:
+                    shortcut(keymapOverrides, 'vim.goToDefinition') === UNBOUND_LABEL
+                      ? 'Following the link at the cursor (vim.goToDefinition) has no key right now; give it one under Settings, Keymaps. It opens existing notes, external links, or PDFs, and missing wikilinks can create new notes directly from the ex-aware workflow.'
+                      : `\`${shortcut(keymapOverrides, 'vim.goToDefinition')}\` opens existing notes, external links, or PDFs. Missing wikilinks can create new notes directly from the ex-aware workflow.`
+                }
+              ].map((tip) => (
+                <ReferenceRow key={tip.title} title={tip.title} detail={tip.body} />
+              ))}
+            </ReferenceList>
+          </SectionShell>
+        )}
 
-            {cliCards.length > 0 && (
-              <SectionShell
-                id="help-cli"
-                title="Command-Line Tool (zen)"
-                subtitle="Capture, search, and edit your vault from any terminal. Install once from Settings → CLI."
-              >
-                <div className="grid gap-4">
-                  {cliCards.map((card) => (
-                    <InfoCard key={card.title} title={card.title} body={card.body} />
-                  ))}
+        {commandGroups.length > 0 && (
+          <SectionShell
+            id="help-commands"
+            title="Command Palette"
+            subtitle={`Everything you can run from ${shortcut(keymapOverrides, 'global.commandPalette')}. Each command also runs on the Vim : line, under the name shown on the right.`}
+            action={
+              <Button variant="ghost" onClick={() => setCommandPaletteOpen(true)}>
+                Open palette
+              </Button>
+            }
+          >
+            <div className="space-y-10">
+              {commandGroups.map((group) => (
+                <div key={group.category}>
+                  <h3 className="flex items-baseline gap-2 text-base font-semibold text-ink-900">
+                    {group.category}
+                    <span className="text-sm font-normal text-ink-400">
+                      {group.commands.length}
+                    </span>
+                  </h3>
+                  <ul className="mt-3 divide-y divide-paper-300/50 border-t border-paper-300/50">
+                    {group.commands.map((command) => (
+                      <li
+                        key={command.id}
+                        className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5"
+                      >
+                        <span className="text-sm text-ink-900">{command.title}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          {command.shortcut && <Keycap value={command.shortcut} />}
+                          <code className="font-mono text-xs text-ink-400">
+                            :{commandExAlias(command.id)}
+                          </code>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-              </SectionShell>
-            )}
+              ))}
+            </div>
+          </SectionShell>
+        )}
 
-            {settingsSections.length > 0 && (
-              <SectionShell
-                id="help-settings"
-                title="Settings"
-                subtitle="Everything configurable from the Settings modal today."
-              >
-                <div className="grid gap-4">
-                  {settingsSections.map((section) => (
-                    <div
-                      key={section.title}
-                      className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]"
-                    >
-                      <h3 className="text-sm font-semibold text-ink-900">{section.title}</h3>
-                      <div className="mt-4 space-y-3">
-                        {section.items.map((item) => (
-                          <div
-                            key={`${section.title}-${item.label}`}
-                            className="rounded-2xl border border-paper-300/70 bg-paper-100/70 px-4 py-3"
-                          >
-                            <div className="text-sm font-medium text-ink-900">{item.label}</div>
-                            <p className="mt-1 text-sm leading-6 text-ink-500">{item.detail}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+        {cliCards.length > 0 && (
+          <SectionShell
+            id="help-cli"
+            title="Command-Line Tool (zen)"
+            subtitle="Capture, search, and edit your vault from any terminal. Install it once from Settings → CLI."
+          >
+            <ArticleList cards={cliCards} />
+          </SectionShell>
+        )}
+
+        {settingsSections.length > 0 && (
+          <SectionShell
+            id="help-settings"
+            title="Settings"
+            subtitle="What each setting does, grouped the way the Settings window groups them."
+            action={
+              <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
+                Open Settings
+              </Button>
+            }
+          >
+            <div className="space-y-10">
+              {settingsSections.map((section) => (
+                <div key={section.title}>
+                  <h3 className="text-base font-semibold text-ink-900">{section.title}</h3>
+                  <ReferenceList>
+                    {section.items.map((item) => (
+                      <ReferenceRow
+                        key={`${section.title}-${item.label}`}
+                        title={item.label}
+                        detail={item.detail}
+                      />
+                    ))}
+                  </ReferenceList>
                 </div>
-              </SectionShell>
-            )}
-          </>
+              ))}
+            </div>
+          </SectionShell>
         )}
       </div>
     </div>
   )
 }
 
+/**
+ * One manual section. Sections are set apart by space alone, not boxes or
+ * rules: the manual reads as one document, and a card around every paragraph
+ * was most of what made it feel cluttered. The scroll margin clears the
+ * sticky section nav even when it wraps onto a second row.
+ */
 function SectionShell({
   id,
   title,
   subtitle,
+  action,
   children
 }: {
   id?: string
   title: string
   subtitle: string
+  action?: React.ReactNode
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section id={id} className="space-y-4">
-      <div>
+    <section id={id} className="mt-16 scroll-mt-24 first-of-type:mt-10">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <h2 className="font-serif text-2xl font-semibold tracking-tight text-ink-900">{title}</h2>
-        <p className="mt-1 text-sm leading-7 text-ink-500">{subtitle}</p>
+        {action}
       </div>
-      {children}
+      <p className="mt-2 max-w-prose text-sm leading-6 text-ink-500">{subtitle}</p>
+      <div className="mt-6">{children}</div>
     </section>
   )
 }
 
 // Renders a help string with Markdown-style backtick code spans. Short spans
-// become inline code chips; long or multi-line spans become a code block so
-// shell commands stay readable instead of wrapping through prose.
-function renderRichText(text: string): React.ReactNode {
+// become inline code; long or multi-line spans become a code block so shell
+// commands stay readable instead of wrapping through prose. `codeSize` keeps
+// inline code a step below the text around it.
+function renderRichText(text: string, codeSize: 'text-xs' | 'text-sm'): React.ReactNode {
   return text.split(/(`[^`]+`)/g).map((seg, i) => {
     if (seg.length > 1 && seg.startsWith('`') && seg.endsWith('`')) {
       const code = seg.slice(1, -1)
@@ -757,7 +671,7 @@ function renderRichText(text: string): React.ReactNode {
         return (
           <code
             key={i}
-            className="my-2.5 block overflow-x-auto whitespace-pre-wrap break-words rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2.5 font-mono text-xs leading-6 text-ink-800"
+            className="my-3 block overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-paper-300/60 bg-paper-200/60 px-3 py-2 font-mono text-xs leading-6 text-ink-800"
           >
             {code}
           </code>
@@ -766,7 +680,7 @@ function renderRichText(text: string): React.ReactNode {
       return (
         <code
           key={i}
-          className="rounded-md border border-paper-300/70 bg-paper-100/80 px-1.5 py-0.5 font-mono text-[0.85em] text-ink-800"
+          className={`rounded border border-paper-300/60 bg-paper-200/60 px-1 py-px font-mono text-ink-800 ${codeSize}`}
         >
           {code}
         </code>
@@ -776,101 +690,84 @@ function renderRichText(text: string): React.ReactNode {
   })
 }
 
-function InfoCard({ title, body }: { title: string; body: string }): JSX.Element {
+/** Guides and concepts: a title and a paragraph, kept to a readable measure. */
+function ArticleList({ cards }: { cards: { title: string; body: string }[] }): JSX.Element {
   return (
-    <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-6 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-      <h3 className="text-base font-semibold text-ink-900">{title}</h3>
-      <div className="mt-2.5 text-base leading-7 text-ink-600">{renderRichText(body)}</div>
+    <div className="space-y-8">
+      {cards.map((card) => (
+        <article key={card.title}>
+          <h3 className="text-base font-semibold text-ink-900">{card.title}</h3>
+          <div className="mt-2 max-w-prose text-base leading-7 text-ink-700">
+            {renderRichText(card.body, 'text-sm')}
+          </div>
+        </article>
+      ))}
     </div>
   )
 }
 
-function ShortcutRow({
+function ReferenceList({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <dl className="mt-4 divide-y divide-paper-300/50 border-t border-paper-300/50">{children}</dl>
+  )
+}
+
+/**
+ * A reference entry: what it does, its keys at the end of the same line, and
+ * the detail underneath. Leading with the action keeps a long detail from
+ * leaving an empty column under the key, and the keys drop below the title
+ * on their own when the pane is too narrow for both.
+ */
+function ReferenceRow({
+  title,
   keys,
-  action,
   detail
 }: {
-  keys: string
-  action: string
-  detail: string
+  title: string
+  keys?: React.ReactNode
+  detail?: string
 }): JSX.Element {
   return (
-    <div className="rounded-2xl border border-paper-300/70 bg-paper-100/70 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Keycap value={keys} />
-        <span className="text-sm font-medium text-ink-900">{action}</span>
-      </div>
-      <p className="mt-2 text-sm leading-6 text-ink-500">{detail}</p>
+    <div className="py-3">
+      <dt className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1.5">
+        <span className="text-sm font-medium text-ink-900">{title}</span>
+        {keys}
+      </dt>
+      {detail && (
+        <dd className="mt-1 max-w-prose text-sm leading-6 text-ink-600">
+          {renderRichText(detail, 'text-xs')}
+        </dd>
+      )}
     </div>
   )
 }
 
-function Keycap({
-  value,
-  subtle = false
-}: {
-  value: string
-  subtle?: boolean
-}): JSX.Element {
+/** A row's keys: one keycap per key, and anything else in plain text. */
+function KeyList({ value, mac }: { value: string; mac: boolean }): JSX.Element {
+  if (value === UNBOUND_LABEL) {
+    return <span className="text-xs text-ink-400">{value}</span>
+  }
+  const { parts, context } = parseHelpKeys(value, mac)
   return (
-    <span
-      className={[
-        'inline-flex items-center rounded-lg border px-2 py-1 font-mono text-xs',
-        subtle
-          ? 'border-paper-300/80 bg-paper-50/80 text-ink-500'
-          : 'border-paper-300 bg-paper-100 text-ink-800'
-      ].join(' ')}
-    >
+    <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1">
+      {parts.map((part, index) =>
+        part.kind === 'key' ? (
+          <Keycap key={index} value={part.text} />
+        ) : (
+          <span key={index} className="text-xs text-ink-400">
+            {part.text}
+          </span>
+        )
+      )}
+      {context && <span className="text-xs text-ink-500">{context}</span>}
+    </span>
+  )
+}
+
+function Keycap({ value }: { value: string }): JSX.Element {
+  return (
+    <span className="inline-block max-w-full break-words rounded-md border border-paper-300 bg-paper-200/60 px-1.5 py-0.5 font-mono text-xs leading-5 text-ink-800">
       {value}
     </span>
-  )
-}
-
-function Badge({ label }: { label: string }): JSX.Element {
-  return (
-    <span className="rounded-full border border-paper-300/80 bg-paper-50/80 px-2 py-1 text-2xs font-medium uppercase tracking-[0.16em] text-ink-500">
-      {label}
-    </span>
-  )
-}
-
-function ActionBtn({
-  icon,
-  label,
-  onClick
-}: {
-  icon: JSX.Element
-  label: string
-  onClick: () => void
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="inline-flex items-center gap-2 rounded-xl border border-paper-300/80 bg-paper-100/85 px-3 py-2 text-sm font-medium text-ink-800 transition-colors hover:bg-paper-200 hover:text-ink-900"
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  )
-}
-
-function CalloutCard({
-  icon,
-  title,
-  body
-}: {
-  icon: JSX.Element
-  title: string
-  body: string
-}): JSX.Element {
-  return (
-    <div className="rounded-3xl border border-paper-300/70 bg-paper-50/55 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.04)]">
-      <div className="flex items-center gap-2 text-sm font-semibold text-ink-900">
-        {icon}
-        {title}
-      </div>
-      <div className="mt-2 text-base leading-7 text-ink-600">{renderRichText(body)}</div>
-    </div>
   )
 }

@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formatRelativeSyncTime } from "../lib/cloud-auto-sync";
 import { useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
+import { setHoveredLink, useHoveredLinkStore } from "../lib/hovered-link";
 import { StatusBar } from "./StatusBar";
 import { CloudConflictReviewHost } from "./CloudConflictReviewHost";
 import { useStore } from "../store";
@@ -321,6 +322,77 @@ describe("cloud sync status time", () => {
     host.remove();
   });
 });
+
+describe("hovered link slot", () => {
+  beforeEach(() => {
+    useCloudSyncStatusStore.setState({ phase: "hidden" });
+    useStore.setState({ notes: [], editorCursorPosition: null });
+    setHoveredLink(null);
+  });
+
+  it("keeps the target while the same note is being typed in", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const slot = (): HTMLElement | null =>
+      host.querySelector<HTMLElement>("[data-hovered-link]");
+
+    act(() => root.render(createElement(StatusBar, { note: noteAt("Alpha plan.md", "See [[Beta]]") })));
+    act(() => setHoveredLink("Beta"));
+    expect(slot()?.textContent).toBe("Beta");
+
+    // A keystroke replaces the note object but not its path; the pointer is
+    // still on the link.
+    act(() =>
+      root.render(createElement(StatusBar, { note: noteAt("Alpha plan.md", "See [[Beta]] now") })),
+    );
+    expect(slot()?.textContent).toBe("Beta");
+    expect(useHoveredLinkStore.getState().href).toBe("Beta");
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("drops the target when the active note changes (#820)", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const slot = (): HTMLElement | null =>
+      host.querySelector<HTMLElement>("[data-hovered-link]");
+
+    act(() => root.render(createElement(StatusBar, { note: noteAt("Alpha plan.md", "See [[Beta]]") })));
+    // What a tap leaves behind: the synthetic mousemove set the target, and
+    // no mouseleave ever follows.
+    act(() => setHoveredLink("Alpha plan#Milestones"));
+    expect(slot()?.textContent).toBe("Alpha plan#Milestones");
+
+    act(() => root.render(createElement(StatusBar, { note: noteAt("Beta.md", "# Milestones") })));
+    expect(slot()?.textContent).toBe("");
+    expect(slot()?.title).toBe("");
+    expect(useHoveredLinkStore.getState().href).toBeNull();
+
+    act(() => root.unmount());
+    host.remove();
+  });
+});
+
+function noteAt(path: string, body: string): NoteContent {
+  return {
+    path,
+    title: path.replace(/\.md$/, ""),
+    folder: "inbox",
+    siblingOrder: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    size: body.length,
+    tags: [],
+    wikilinks: [],
+    assetEmbeds: [],
+    hasAttachments: false,
+    excerpt: body,
+    body,
+  } as NoteContent;
+}
 
 function textVersion(path: string, text: string) {
   return {

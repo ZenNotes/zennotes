@@ -1,11 +1,16 @@
 /**
  * Render a note's leading YAML frontmatter block (the `---` … `---` at the very
  * top) as compact, muted "properties" instead of full-size body text. This is
- * the in-editor counterpart to how the preview hides frontmatter — and it makes
+ * the in-editor counterpart to how the preview hides frontmatter, and it makes
  * database "record page" notes (whose properties live in frontmatter) read like
  * a property list rather than a wall of big text.
+ *
+ * The block itself is kept out of the markdown parser by the note grammar
+ * (cm-markdown-language.ts); this module only decorates it, plus one editing
+ * command (`insertNewlineContinueFrontmatterList`) for the list ergonomics
+ * that markdown used to provide by accident.
  */
-import { type EditorState, RangeSetBuilder } from '@codemirror/state'
+import { EditorSelection, type EditorState, RangeSetBuilder } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -13,21 +18,81 @@ import {
   ViewPlugin,
   type ViewUpdate
 } from '@codemirror/view'
+import { isFrontmatterFence } from '@shared/markdown-lines'
 import { useStore } from '../store'
 
 /** Range of a closed leading `---` … `---` frontmatter block, or null if the
  *  document does not start with one. Used by autocomplete to avoid offering
  *  inline `#tags` inside frontmatter and to offer tags inside frontmatter
- *  `tags:` fields. */
+ *  `tags:` fields. The same predicate the note grammar scans with, so the
+ *  card and the syntax tree always agree on where the block ends. */
 export function frontmatterRange(state: EditorState): { from: number; to: number } | null {
   const doc = state.doc
-  if (doc.lines < 2 || doc.line(1).text.trim() !== '---') return null
+  if (doc.lines < 2 || !isFrontmatterFence(doc.line(1).text)) return null
   for (let i = 2; i <= doc.lines; i++) {
-    if (doc.line(i).text.trim() === '---') {
+    if (isFrontmatterFence(doc.line(i).text)) {
       return { from: doc.line(1).from, to: doc.line(i).to }
     }
   }
   return null
+}
+
+/** A YAML sequence entry: optional indentation, `-`, then either nothing or a
+ *  space and the value. `---` does not match (the second dash is not a space). */
+const FRONTMATTER_LIST_ITEM_RE = /^(\s*)-(?: +(.*))?$/
+
+/**
+ * Enter on a `- item` line inside the frontmatter continues the YAML list.
+ *
+ * While the whole note was parsed as markdown, `tags:` followed by `  - todo`
+ * was a bullet list as far as the editor knew, so Enter added the next `  - `
+ * for free and a second Enter on the empty item ended the list. The note
+ * grammar now keeps the frontmatter out of markdown (#827), which would have
+ * turned those two keystrokes back into plain line breaks. This command keeps
+ * the same two moves for YAML sequences: continue the item with the marker at
+ * the same indentation, or clear an empty item so the cursor is back at the
+ * key level. Everything else returns false and falls through to the default
+ * Enter, which copies the line's indentation.
+ */
+export function insertNewlineContinueFrontmatterList(view: EditorView): boolean {
+  const { state } = view
+  if (state.readOnly || state.selection.ranges.length > 1) return false
+  const range = state.selection.main
+  if (!range.empty) return false
+  const frontmatter = frontmatterRange(state)
+  if (!frontmatter) return false
+  const doc = state.doc
+  const line = doc.lineAt(range.head)
+  // Strictly between the fences: the fence lines belong to the default Enter.
+  if (line.number <= doc.lineAt(frontmatter.from).number) return false
+  if (line.number >= doc.lineAt(frontmatter.to).number) return false
+  const item = line.text.match(FRONTMATTER_LIST_ITEM_RE)
+  if (!item) return false
+  const indent = item[1]
+  const markerEnd = line.from + indent.length + 1
+  // Cursor before the marker: a plain line break above the item.
+  if (range.head < markerEnd) return false
+
+  if (!/\S/.test(line.text.slice(markerEnd - line.from))) {
+    // Second Enter on an empty `- ` ends the list, the way a markdown list
+    // does: the marker goes, and the cursor sits at the start of the line.
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '' },
+      selection: EditorSelection.cursor(line.from),
+      scrollIntoView: true,
+      userEvent: 'delete'
+    })
+    return true
+  }
+
+  const insert = state.lineBreak + indent + '- '
+  view.dispatch({
+    changes: { from: range.head, insert },
+    selection: EditorSelection.cursor(range.head + insert.length),
+    scrollIntoView: true,
+    userEvent: 'input'
+  })
+  return true
 }
 
 export function isInsideFrontmatter(state: EditorState, pos: number): boolean {

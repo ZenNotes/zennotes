@@ -22,6 +22,10 @@ interface Props {
   className?: string
   /** Stop the pointer events that would otherwise start a card drag. */
   stopPointerEvents?: boolean
+  /** The key that toggles the task from the keyboard, named in the tooltip.
+   *  Left out with Vim mode off, where no such key exists: the tooltip then
+   *  promises only what the click does. */
+  toggleKey?: string | null
 }
 
 function stateLabel(task: VaultTask): string {
@@ -36,7 +40,8 @@ export function TaskStateBox({
   onToggle,
   idleClassName = 'border border-current/40 hover:bg-current/10',
   className = 'mt-0.5',
-  stopPointerEvents = false
+  stopPointerEvents = false,
+  toggleKey = null
 }: Props): JSX.Element {
   const stopper = stopPointerEvents
     ? {
@@ -50,7 +55,7 @@ export function TaskStateBox({
       role="checkbox"
       aria-checked={task.checked}
       draggable={false}
-      title={`${stateLabel(task)}Toggle task (x)`}
+      title={`${stateLabel(task)}Toggle task${toggleKey ? ` (${toggleKey})` : ''}`}
       {...stopper}
       onClick={(e) => {
         e.stopPropagation()

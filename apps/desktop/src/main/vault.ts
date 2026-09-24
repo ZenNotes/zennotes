@@ -1,4 +1,10 @@
 import { noteMetadataPath, readNoteCreatedAt, prepareNoteCreation, removeNoteCreation } from './note-creation-metadata'
+import {
+  noteCommentsPath,
+  noteCommentsRoot,
+  relocateFolderTrees,
+  relocateNote
+} from './note-sidecars'
 import { promises as fs, type Dirent } from 'node:fs'
 import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -86,6 +92,7 @@ import {
   type SystemFolderPaths
 } from '@shared/system-folder-paths'
 import { normalizeTasksExcludedFolders } from '@shared/tasks-excluded-folders'
+import { normalizeVaultDisplayName, resolveVaultName } from '@shared/vault-display-name'
 import {
   isTypstPreamblePath,
   normalizeTypstPreambleSettings,
@@ -111,8 +118,6 @@ const DELETED_ASSET_META = '.zn-deleted.json'
 const VAULT_SETTINGS_FILE = 'vault.json'
 const NOTE_META_CACHE_FILE = 'note-meta-cache-v1.json'
 const NOTE_META_CACHE_VERSION = 3
-const NOTE_COMMENTS_DIR = 'comments'
-const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const RESERVED_ROOT_NAMES = new Set<string>([...FOLDERS, ...ATTACHMENTS_DIRS, INTERNAL_VAULT_DIR])
 // The subset that stays reserved however the system folders are remapped:
 // asset dirs and our own internal dir are never user note folders, while
@@ -485,6 +490,22 @@ export function forgetLocalVault(
   return entries.filter((entry) => path.resolve(entry.root) !== target)
 }
 
+/**
+ * The remembered list with one vault's name replaced, in place: order and
+ * `lastOpenedAt` are untouched, because a rename is not a visit (#692). A
+ * vault the list does not hold is left for the next open to add.
+ */
+export function renameLocalVault(
+  entries: PersistedLocalVault[],
+  root: string,
+  name: string
+): PersistedLocalVault[] {
+  const target = path.resolve(root)
+  return entries.map((entry) =>
+    path.resolve(entry.root) === target ? { ...entry, name } : entry
+  )
+}
+
 function configBackupPath(): string {
   return `${configPath()}.bak`
 }
@@ -778,14 +799,6 @@ function noteMetaCachePath(root: string): string {
   return path.join(root, INTERNAL_VAULT_DIR, NOTE_META_CACHE_FILE)
 }
 
-function noteCommentsRoot(root: string): string {
-  return path.join(root, INTERNAL_VAULT_DIR, NOTE_COMMENTS_DIR)
-}
-
-function noteCommentsPath(root: string, rel: string): string {
-  return resolveSafe(noteCommentsRoot(root), `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
-}
-
 /** Absolute path of a database's `.csv` data file (a normal vault file). */
 export function databaseDataPath(root: string, rel: string): string {
   return resolveSafe(root, toPosix(rel))
@@ -803,6 +816,7 @@ export function databaseSidecarPath(root: string, rel: string): string {
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
   return {
+    ...(settings.displayName ? { displayName: settings.displayName } : {}),
     primaryNotesLocation: settings.primaryNotesLocation,
     dailyNotes: {
       enabled: settings.dailyNotes.enabled,
@@ -1070,6 +1084,7 @@ function normalizeVaultSettings(
     }
   }
   const candidate = value as {
+    displayName?: unknown
     primaryNotesLocation?: unknown
     dailyNotes?: {
       enabled?: unknown
@@ -1117,6 +1132,9 @@ function normalizeVaultSettings(
     }
   }
   return {
+    // Undefined when unset, which JSON.stringify leaves out, so a vault that
+    // never named itself keeps a vault.json without the key (#692).
+    displayName: normalizeVaultDisplayName(candidate.displayName),
     primaryNotesLocation: normalizePrimaryNotesLocation(
       candidate.primaryNotesLocation ?? fallbackPrimary
     ),
@@ -1874,8 +1892,26 @@ async function migrateOneLegacyDatabase(
   return true
 }
 
+/** A vault by its folder: the name is the directory's own. Cheap and sync;
+ *  where the app shows the vault, `describeVault` is the one to call. */
 export function vaultInfo(root: string): VaultInfo {
   return { root, name: path.basename(root) }
+}
+
+/**
+ * The vault as the app names it: its display name from vault.json when it
+ * has one (#692), else the folder name. Reads through the settings cache, so
+ * after the first open it costs one stat. A folder that cannot be read still
+ * describes itself by name, the way it always did.
+ */
+export async function describeVault(root: string): Promise<VaultInfo> {
+  const info = vaultInfo(root)
+  try {
+    const settings = await getVaultSettings(root)
+    return { ...info, name: resolveVaultName(settings.displayName, info.name) }
+  } catch {
+    return info
+  }
 }
 
 function toPosix(p: string): string {
@@ -3547,15 +3583,26 @@ export async function renameNote(
   const ext = isExcalidrawPath(abs) ? '.excalidraw' : '.md'
   const target = path.join(dir, `${trimmed}${ext}`)
   const willRename = target !== abs
+  if (willRename) {
+    // Said plainly, since the app shows this reason to whoever is renaming. A
+    // case-only rename finds the note itself on a case-insensitive disk.
+    const [source, taken] = await Promise.all([
+      fs.stat(abs),
+      fs.stat(target).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+    ])
+    if (taken && (taken.ino !== source.ino || taken.dev !== source.dev))
+      throw new Error(`A note named “${trimmed}” already exists in this folder`)
+  }
   // Snapshot the vault before the rename so inbound [[wikilinks]] still
   // resolve to this note under its current name; we rewrite them afterwards.
   const notesBefore = willRename ? await listNotes(root) : []
-  const nextRel = toPosix(path.relative(root, target))
   let meta!: NoteMeta
-  await relocateFolderTrees(
-    [[abs, target], [noteCommentsPath(root, rel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, rel), await noteMetadataPath(root, nextRel)]],
-    async () => { meta = await readMeta(root, target, folder) }
-  )
+  await relocateNote(root, rel, target, async () => {
+    meta = await readMeta(root, target, folder)
+  })
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
@@ -3628,12 +3675,10 @@ async function moveBetweenFolders(
   const destDir = subpath ? resolveSafe(targetRoot, subpath) : targetRoot
   await fs.mkdir(destDir, { recursive: true })
   const destAbs = path.join(destDir, await uniqueFilename(destDir, filename))
-  const nextRel = toPosix(path.relative(root, destAbs))
   let meta!: NoteMeta
-  await relocateFolderTrees(
-    [[abs, destAbs], [noteCommentsPath(root, rel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, rel), await noteMetadataPath(root, nextRel)]],
-    async () => { meta = await readMeta(root, destAbs, target) }
-  )
+  await relocateNote(root, rel, destAbs, async () => {
+    meta = await readMeta(root, destAbs, target)
+  })
   invalidateNoteMetaCache(root, rel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)
@@ -3968,74 +4013,6 @@ export async function createFolder(
   await fs.mkdir(abs, { recursive: true })
 }
 
-async function renameDirectory(from: string, to: string): Promise<void> {
-  if (from === to) return
-  if (from.toLowerCase() !== to.toLowerCase()) return fs.rename(from, to)
-  const temporary = `${from}_rename_tmp_${randomUUID()}`
-  await fs.rename(from, temporary)
-  try {
-    await fs.rename(temporary, to)
-  } catch (error) {
-    try {
-      await fs.rename(temporary, from)
-    } catch (rollbackError) {
-      throw new AggregateError(
-        [error, rollbackError],
-        'FOLDER_STATE_UNCERTAIN: Folder change could not be rolled back; reload the vault before editing'
-      )
-    }
-    throw error
-  }
-}
-
-/** Move content and its parallel comments together, retaining the originals on failure. */
-async function relocateFolderTrees(
-  moves: Array<[string, string]>,
-  persistSettings: () => Promise<unknown>
-): Promise<void> {
-  const present: Array<[string, string]> = []
-  for (const [from, to] of moves) {
-    let source
-    try {
-      source = await fs.stat(from)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    try {
-      const target = await fs.stat(to)
-      if (!source || source.ino !== target.ino || source.dev !== target.dev)
-        throw new Error('The destination folder or its comments already exist')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    if (source) present.push([from, to])
-  }
-  const moved: Array<[string, string]> = []
-  try {
-    for (const [from, to] of present) {
-      await fs.mkdir(path.dirname(to), { recursive: true })
-      await renameDirectory(from, to)
-      moved.push([from, to])
-    }
-    await persistSettings()
-  } catch (error) {
-    const failures: unknown[] = [error]
-    for (const [from, to] of moved.reverse()) {
-      try {
-        await renameDirectory(to, from)
-      } catch (rollbackError) {
-        failures.push(rollbackError)
-      }
-    }
-    if (failures.length > 1)
-      throw new AggregateError(
-        failures,
-        'FOLDER_STATE_UNCERTAIN: Folder change could not be rolled back; reload the vault before editing'
-      )
-    throw error
-  }
-}
-
 /** Shared local folder move for ordinary folders and database containers. */
 export async function renameFolderTrees(
   root: string, oldRelative: string, newRelative: string,
@@ -4367,12 +4344,10 @@ export async function moveNote(
   await fs.mkdir(destDir, { recursive: true })
   const finalName = await uniqueFilename(destDir, filename)
   const destAbs = path.join(destDir, finalName)
-  const nextRel = toPosix(path.relative(root, destAbs))
   let meta!: NoteMeta
-  await relocateFolderTrees(
-    [[oldAbs, destAbs], [noteCommentsPath(root, oldRel), noteCommentsPath(root, nextRel)], [await noteMetadataPath(root, oldRel), await noteMetadataPath(root, nextRel)]],
-    async () => { meta = await readMeta(root, destAbs, targetFolder) }
-  )
+  await relocateNote(root, oldRel, destAbs, async () => {
+    meta = await readMeta(root, destAbs, targetFolder)
+  })
   invalidateNoteMetaCache(root, oldRel)
   invalidateNoteMetaCache(root, meta.path)
   invalidateVaultTextSearchCache(root)

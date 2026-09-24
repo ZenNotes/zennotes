@@ -66,6 +66,28 @@ describe('resolveVaultSelector', () => {
     expect(await resolveVaultSelector(personalVault)).toBe(personalVault)
   })
 
+  it('a vault renamed in the app answers to its display name and to its folder name (#692)', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      localVaults: [
+        { root: workVault, name: 'Acme API docs', lastOpenedAt: 2 },
+        { root: personalVault, name: 'personal', lastOpenedAt: 1 }
+      ]
+    })
+    expect(await resolveVaultSelector('acme api docs')).toBe(workVault)
+    expect(await resolveVaultSelector('Work Vault')).toBe(workVault)
+    // The display name wins over another vault's folder name.
+    await fsp.mkdir(path.join(tmpDir, 'Acme API docs'), { recursive: true })
+    await writeConfig({
+      vaultRoot: workVault,
+      localVaults: [
+        { root: workVault, name: 'Acme API docs', lastOpenedAt: 2 },
+        { root: path.join(tmpDir, 'Acme API docs'), name: 'Other', lastOpenedAt: 1 }
+      ]
+    })
+    expect(await resolveVaultSelector('Acme API docs')).toBe(workVault)
+  })
+
   it('lists known vault names on a bad selector', async () => {
     await expect(resolveVaultSelector('nope')).rejects.toThrow(
       /No vault named "nope".*Work Vault, personal/

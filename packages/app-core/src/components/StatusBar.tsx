@@ -3,7 +3,7 @@ import { useStore } from "../store";
 import type { NoteContent, NoteMeta } from "@shared/ipc";
 import { backlinksForNote } from "../lib/wikilinks";
 import { countWords } from "../lib/word-count";
-import { useHoveredLinkStore } from "../lib/hovered-link";
+import { setHoveredLink, useHoveredLinkStore } from "../lib/hovered-link";
 import {
   cloudSyncAttentionIsSettingsOnly,
   connectCloudAccountFromStatusBar,
@@ -51,12 +51,22 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   // The target of the link the mouse is over (browser-style), shown on the left.
   const hoveredLink = useHoveredLinkStore((s) => s.href);
 
+  // A target belongs to the note it was hovered in. The preview root stays
+  // mounted across a note switch, so nothing else clears it when the note
+  // changes under a resting pointer, or after a tap on a touch screen, which
+  // synthesizes mousemove but never mouseleave. Keyed on the path, not the
+  // note object: typing must not blank a hover. (#820)
+  useEffect(() => {
+    setHoveredLink(null);
+  }, [note?.path]);
+
   return (
     <div
       className="flex h-8 shrink-0 items-center justify-between gap-2 px-3 text-xs text-ink-500 sm:gap-5 sm:px-6"
       style={{ borderTop: "1px solid var(--glass-stroke)" }}
     >
       <span
+        data-hovered-link
         className="min-w-0 flex-1 truncate font-mono text-ink-400"
         title={hoveredLink ?? undefined}
       >

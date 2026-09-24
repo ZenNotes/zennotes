@@ -328,6 +328,12 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment:
       'opt in to the Workflows view, its sidebar row, command, and leader shortcut (off by default)'
   },
+  workflowEventTriggers: {
+    section: 'view',
+    tomlKey: 'workflow_event_triggers',
+    comment:
+      'let active workflows with "trigger: on <event>" run on this device when you save, create, move or tag a note (on by default; needs workflows_enabled)'
+  },
   assetSortOrder: {
     section: 'view',
     tomlKey: 'asset_sort_order',

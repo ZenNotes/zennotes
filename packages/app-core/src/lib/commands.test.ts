@@ -183,9 +183,17 @@ describe('Workflow run entries', () => {
       name: 'Reading log',
       description: 'Keep the table in sync',
       status: 'active' as const,
+      trigger: { type: 'manual' as const },
       mutates: true
     },
-    { id: 'half-idea', name: 'Half idea', description: '', status: 'draft' as const, mutates: false }
+    {
+      id: 'half-idea',
+      name: 'Half idea',
+      description: '',
+      status: 'draft' as const,
+      trigger: { type: 'manual' as const },
+      mutates: false
+    }
   ]
 
   it('lists one Run entry per active workflow and none for drafts', async () => {
@@ -259,6 +267,39 @@ describe('close-tab command shortcut', () => {
     const shortcut = buildCommands().find((c) => c.id === 'tab.close')?.shortcut
     expect(shortcut).not.toBe(':q')
     expect(shortcut).toMatch(/W/)
+  })
+})
+
+describe('template command shortcuts (#847)', () => {
+  it('show the template shortcut once one is set, and the leader key only with Vim on', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    // Linux: the template shortcuts ship unbound there.
+    Object.defineProperty(window, 'zen', {
+      configurable: true,
+      value: { ...window.zen, platformSync: () => 'linux' }
+    })
+    const shortcutOf = (id: string) => buildCommands().find((c) => c.id === id)?.shortcut
+
+    // Insert only exists with a note open.
+    useStore.setState({
+      vimMode: false,
+      keymapOverrides: {},
+      activeNote: { folder: 'inbox', path: 'inbox/Plan.md', title: 'Plan', body: '' } as never
+    })
+    expect(buildCommands().some((c) => c.id === 'template.insert')).toBe(true)
+    expect(shortcutOf('template.create')).toBeFalsy()
+    expect(shortcutOf('template.insert')).toBeFalsy()
+
+    useStore.setState({ vimMode: true })
+    expect(shortcutOf('template.create')).toMatch(/ t$/)
+    expect(shortcutOf('template.insert')).toMatch(/ i$/)
+
+    useStore.setState({
+      vimMode: false,
+      keymapOverrides: { 'global.newNoteFromTemplate': 'Alt+Mod+T', 'global.insertTemplate': 'Alt+Mod+Y' }
+    })
+    expect(shortcutOf('template.create')).toMatch(/T$/)
+    expect(shortcutOf('template.insert')).toMatch(/Y$/)
   })
 })
 

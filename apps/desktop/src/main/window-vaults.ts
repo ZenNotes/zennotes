@@ -84,6 +84,21 @@ export class WindowVaultRegistry {
     return this.sessions.get(windowId)?.vault ?? null
   }
 
+  /** Give every window on a local root the vault's new name (#692). The
+   *  watchers stay as they are: the folder did not move. Returns the windows
+   *  that changed, so the caller can tell each renderer. */
+  renameLocalVault(root: string, name: string): number[] {
+    const target = normalizeRoot(root)
+    const changed: number[] = []
+    for (const [windowId, session] of this.sessions) {
+      if (session.mode !== 'local' || !session.vault) continue
+      if (normalizeRoot(session.vault.root) !== target || session.vault.name === name) continue
+      session.vault = { ...session.vault, name }
+      changed.push(windowId)
+    }
+    return changed
+  }
+
   localVaultsExcept(root: string): VaultInfo[] {
     const excluded = normalizeRoot(root)
     const out = new Map<string, VaultInfo>()

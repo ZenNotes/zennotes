@@ -28,6 +28,7 @@ import {
 import { normalizeTasksExcludedFolders } from '@shared/tasks-excluded-folders'
 import { normalizeTypstPreambleSettings } from '@shared/typst-preamble-folder'
 import { normalizeHarperVaultState } from '@shared/harper-settings'
+import { normalizeVaultDisplayName } from '@shared/vault-display-name'
 import { getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
 
 // Reserved however the system folders are remapped:
@@ -526,7 +527,7 @@ function normalizeFileLocation(
 }
 
 /**
- * Resolve where a new Drawing/Database should be created, from a
+ * Resolve where a new Drawing/Database/task file should be created, from a
  * `FileLocationSetting` + the note you're currently viewing. Returns the
  * `(folder, subpath)` pair the `createExcalidraw` / `createDatabase` bridge calls
  * expect. (#362)
@@ -549,6 +550,21 @@ export function resolveCreateLocation(
     return { folder: 'inbox', subpath: normalized.folder }
   }
   return { folder: 'inbox', subpath: '' }
+}
+
+/**
+ * The vault-relative directory a `Specific folder` location really creates
+ * files in ('' is the vault root), so Settings can spell it out. The folder is
+ * an inbox subpath, not a vault path: `Tasks` is `inbox/Tasks` in an Inbox
+ * vault, `Tasks` in a root vault, and follows a remapped inbox. The Settings
+ * field used to call it vault-relative, which only held in a root vault.
+ */
+export function specificFolderDestination(
+  folder: string | null | undefined,
+  settings: VaultSettings | null | undefined
+): string {
+  const location = resolveCreateLocation({ mode: 'folder', folder: folder ?? '' }, null, settings)
+  return vaultRelativeFolderPath(location.folder, location.subpath, settings)
 }
 
 /**
@@ -603,6 +619,7 @@ export function normalizeVaultSettings(
   )
   const normalizedTypstPreambles = normalizeTypstPreambleSettings(settings?.typstPreambles)
   const normalizedHarper = normalizeHarperVaultState(settings?.harper)
+  const displayName = normalizeVaultDisplayName(settings?.displayName)
   const primaryNotesLocation =
     settings?.primaryNotesLocation === 'root'
       ? 'root'
@@ -673,7 +690,8 @@ export function normalizeVaultSettings(
       ? { tasks: { excludedFolders: normalizedTasksExcluded } }
       : {}),
     ...(normalizedTypstPreambles ? { typstPreambles: normalizedTypstPreambles } : {}),
-    ...(normalizedHarper ? { harper: normalizedHarper } : {})
+    ...(normalizedHarper ? { harper: normalizedHarper } : {}),
+    ...(displayName ? { displayName } : {})
   }
 }
 

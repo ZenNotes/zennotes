@@ -88,6 +88,37 @@ describe('createDatabaseOps', () => {
     expect(second.path).toBe('inbox/Log 2.base/data.csv')
   })
 
+  it('seeds a new database with a converted table and writes the same files the desktop does (#832)', async () => {
+    const vault = memVault()
+    const ops = createDatabaseOps(vault.io)
+    const doc = await ops.createDatabase('inbox', 'Work', 'Roadmap', {
+      headers: ['Item', 'Done', 'Estimate'],
+      rows: [
+        ['Write "spec", v1', 'yes', '3'],
+        ['Ship', 'no', '1']
+      ],
+      columnWidths: [240, null, null]
+    })
+    expect(doc.path).toBe('inbox/Work/Roadmap.base/data.csv')
+    expect(doc.fields.map((f) => [f.name, f.type])).toEqual([
+      ['id', 'text'],
+      ['Item', 'text'],
+      ['Done', 'checkbox'],
+      ['Estimate', 'number']
+    ])
+    expect(doc.fields[1].width).toBe(240)
+    const lines = vault.files.get(doc.path)!.trimEnd().split('\n')
+    expect(lines[0]).toBe('id,Item,Done,Estimate')
+    expect(lines[1]).toBe(`${doc.rows[0].id},"Write ""spec"", v1",yes,3`)
+    expect(lines[2]).toBe(`${doc.rows[1].id},Ship,no,1`)
+    const sidecar = JSON.parse(vault.files.get('inbox/Work/Roadmap.base/schema.json')!)
+    expect(sidecar.fields).toEqual(doc.fields)
+    expect(sidecar.views[0].hiddenFieldIds).toEqual([doc.idFieldId])
+
+    const reopened = await ops.openDatabase(doc.path)
+    expect(reopened.rows).toEqual(doc.rows)
+  })
+
   it('adopts a bare CSV: infers a schema, persists the sidecar, canonicalizes ids', async () => {
     const vault = memVault()
     vault.files.set('inbox/Books.base/data.csv', 'Title,Rating\nDune,5\nNeuromancer,4\n')

@@ -20,6 +20,18 @@ export function keyBindingsFor(binding: string, run: Command): KeyBinding[] {
   return [{ key: toCodeMirrorKey(binding), run }]
 }
 
+/**
+ * Hand the half-page keys to Vim ahead of CodeMirror's own keymaps.
+ *
+ * Where Mod is Ctrl (Linux, Windows) the search keymap binds Ctrl+D to
+ * "select next occurrence" and the history keymap binds Ctrl+U to "undo
+ * selection", and both run before the Vim plugin sees the key. This binding
+ * sits ahead of them and feeds the configured sequence to Vim in normal and
+ * visual mode, so the same half-page motion runs in both: a visual selection
+ * used to gain an extra cursor per press instead of growing (#825). Insert
+ * mode falls through untouched: the half-page motion has no business there,
+ * and Vim's own insert-mode Ctrl+D (unindent) keeps its place in the order.
+ */
 export function vimHalfPageKeymap(
   vimMode: boolean,
   overrides: KeymapOverrides
@@ -32,7 +44,7 @@ export function vimHalfPageKeymap(
     return keyBindingsFor(binding, (view): boolean => {
       const cm = getCM(view)
       const vim = cm?.state.vim
-      if (!cm || !vim || vim.insertMode || vim.visualMode) return false
+      if (!cm || !vim || vim.insertMode) return false
       return !!Vim.handleKey(cm, sequence, 'user')
     })
   })

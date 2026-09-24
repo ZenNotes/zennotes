@@ -5,6 +5,7 @@ import {
   parseRows,
   serializeRows,
   inferFields,
+  initialDatabaseContents,
   buildDefaultViews,
   type GenId
 } from '@shared/database-csv'
@@ -139,6 +140,98 @@ describe('inferFields', () => {
     expect(views[0].id).toBe(activeViewId)
     expect(views[0].hiddenFieldIds).toContain(idFieldId)
     expect(views[0].columnOrder).toEqual(fields.map((f) => f.id))
+  })
+})
+
+describe('initialDatabaseContents', () => {
+  it('without a seed is the empty id + Name grid', () => {
+    const { sidecar, rows } = initialDatabaseContents(undefined, counterGenId())
+    expect(rows).toEqual([])
+    expect(sidecar.fields.map((f) => [f.name, f.type, f.hidden ?? false])).toEqual([
+      ['id', 'text', true],
+      ['Name', 'text', false]
+    ])
+    expect(sidecar.idFieldId).toBe(sidecar.fields[0].id)
+    expect(sidecar.views[0].hiddenFieldIds).toEqual([sidecar.idFieldId])
+    expect(serializeRows(rows, sidecar.fields)).toBe('id,Name\n')
+  })
+
+  it('types a seeded table like an adopted CSV and keys rows by field id (#832)', () => {
+    const { sidecar, rows } = initialDatabaseContents(
+      {
+        headers: ['Task', 'Done', 'Due', 'Hours'],
+        rows: [
+          ['Write **draft**', 'x', '2026-03-01', '2'],
+          ['Ship, then rest', '', '2026-03-09', '0.5']
+        ]
+      },
+      counterGenId()
+    )
+    const byName = new Map(sidecar.fields.map((f) => [f.name, f]))
+    // A hidden id field is synthesized in front of the table's own columns.
+    expect(sidecar.fields[0].name).toBe('id')
+    expect(sidecar.fields[0].id).toBe(sidecar.idFieldId)
+    expect(byName.get('Task')!.type).toBe('text')
+    expect(byName.get('Done')!.type).toBe('checkbox')
+    expect(byName.get('Due')!.type).toBe('date')
+    expect(byName.get('Hours')!.type).toBe('number')
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.id).toBeTruthy()
+      expect(row.cells[sidecar.idFieldId]).toBe(row.id)
+    }
+    expect(rows[0].cells[byName.get('Task')!.id]).toBe('Write **draft**')
+    expect(rows[1].cells[byName.get('Done')!.id]).toBe('')
+    // What lands in data.csv: RFC 4180 quoting for the comma, markdown kept verbatim.
+    const csv = serializeRows(rows, sidecar.fields)
+    expect(csv.split('\n')[0]).toBe('id,Task,Done,Due,Hours')
+    expect(csv).toContain(',"Ship, then rest",,2026-03-09,0.5\n')
+    expect(parseRows(csv, sidecar.fields, sidecar.idFieldId)).toEqual(rows)
+  })
+
+  it('adopts an all-unique id column from the seed instead of synthesizing one', () => {
+    const { sidecar, rows } = initialDatabaseContents(
+      { headers: ['id', 'Name'], rows: [['a1', 'Alpha'], ['b2', 'Beta']] },
+      counterGenId()
+    )
+    expect(sidecar.fields.map((f) => f.name)).toEqual(['id', 'Name'])
+    expect(sidecar.fields[0].hidden).toBe(true)
+    expect(rows.map((r) => r.id)).toEqual(['a1', 'b2'])
+  })
+
+  it('renames blank and duplicate headers and pads short rows', () => {
+    const { sidecar, rows } = initialDatabaseContents(
+      { headers: ['', 'Name', 'Name'], rows: [['only one cell']] },
+      counterGenId()
+    )
+    expect(sidecar.fields.map((f) => f.name)).toEqual(['id', 'Column 1', 'Name', 'Name (2)'])
+    const [, c1, n1, n2] = sidecar.fields
+    expect(rows[0].cells[c1.id]).toBe('only one cell')
+    expect(rows[0].cells[n1.id]).toBe('')
+    expect(rows[0].cells[n2.id]).toBe('')
+  })
+
+  it('carries positive column widths onto the matching fields and drops the rest', () => {
+    const { sidecar } = initialDatabaseContents(
+      {
+        headers: ['A', 'B', 'C'],
+        rows: [],
+        columnWidths: [120, null, -4]
+      },
+      counterGenId()
+    )
+    const widths = sidecar.fields.map((f) => f.width)
+    expect(widths).toEqual([undefined, 120, undefined, undefined])
+  })
+
+  it('a header-only seed makes an empty database with those fields', () => {
+    const { sidecar, rows } = initialDatabaseContents(
+      { headers: ['Title', 'Notes'], rows: [] },
+      counterGenId()
+    )
+    expect(rows).toEqual([])
+    expect(sidecar.fields.map((f) => f.name)).toEqual(['id', 'Title', 'Notes'])
+    expect(sidecar.fields.slice(1).every((f) => f.type === 'text')).toBe(true)
   })
 })
 

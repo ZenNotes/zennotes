@@ -14,6 +14,7 @@ import {
   noteFolderSubpath,
   normalizeVaultSettings,
   resolveCreateLocation,
+  specificFolderDestination,
   parseFavoriteFolderKey,
   removeFavoritesForFolder,
   resolveFavoriteItems,
@@ -784,6 +785,32 @@ describe('resolveCreateLocation (#362)', () => {
       folder: 'inbox',
       subpath: ''
     })
+  })
+})
+
+describe('specificFolderDestination', () => {
+  const inboxVault = normalizeVaultSettings(null)
+  const rootVault = normalizeVaultSettings({ primaryNotesLocation: 'root' } as VaultSettings)
+
+  it('nests the folder inside the inbox of an Inbox vault, not at the vault root', () => {
+    expect(specificFolderDestination('Tasks', inboxVault)).toBe('inbox/Tasks')
+    expect(specificFolderDestination('/Projects/Inbox/', inboxVault)).toBe('inbox/Projects/Inbox')
+  })
+
+  it('is the vault-root folder in a root vault', () => {
+    expect(specificFolderDestination('Tasks', rootVault)).toBe('Tasks')
+  })
+
+  it('follows a remapped inbox', () => {
+    const remapped = normalizeVaultSettings({
+      systemFolderPaths: { inbox: '01 - Entry' }
+    } as unknown as VaultSettings)
+    expect(specificFolderDestination('Tasks', remapped)).toBe('01 - Entry/Tasks')
+  })
+
+  it('is the primary notes root while no folder is named', () => {
+    expect(specificFolderDestination('', inboxVault)).toBe('inbox')
+    expect(specificFolderDestination(undefined, rootVault)).toBe('')
   })
 })
 

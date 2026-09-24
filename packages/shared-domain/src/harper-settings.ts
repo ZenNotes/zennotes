@@ -61,6 +61,27 @@ export function normalizeHarperVaultState(value: unknown): HarperVaultState | un
   return { words, ignoredLints }
 }
 
+/**
+ * The union of two states, `base` first: a vault's list keeps its order and
+ * anything only `extra` knows lands at the end. The dictionary and the ignore
+ * list are append-only from inside the app (there is no UI that removes an
+ * entry), so when the vault and a live session disagree the answer is
+ * everything both hold, never the shorter list; a persist built on this
+ * cannot lose a word the vault already had. A future "remove word" feature
+ * has to revisit the callers of this function.
+ */
+export function mergeHarperVaultState(
+  base: HarperVaultState,
+  extra: HarperVaultState
+): HarperVaultState {
+  return {
+    words: uniqueStrings([...base.words, ...extra.words]),
+    ignoredLints: uniqueStrings([...base.ignoredLints, ...extra.ignoredLints]).filter((hash) =>
+      /^\d+$/.test(hash)
+    )
+  }
+}
+
 /** Harper exports ignored lints as `{"context_hashes":[<u64>, ...]}`. Pull the
  *  digit runs out as strings without ever parsing the JSON. */
 export function harperIgnoredLintHashes(exported: string): string[] {

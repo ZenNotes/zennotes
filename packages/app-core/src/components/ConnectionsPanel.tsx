@@ -64,7 +64,10 @@ export function ConnectionsPanel({
   const [scanLoading, setScanLoading] = useState(false)
   const isConnectionsFocused = focusedPanel === 'connections'
   const isHoverPreviewFocused = focusedPanel === 'hoverpreview'
-  const showKeyboardHints = isConnectionsFocused || isHoverPreviewFocused
+  const vimMode = useStore((s) => s.vimMode)
+  // Every key on the strip is VimNav's, which stands down with Vim off, so
+  // the strip does too rather than naming keys that do nothing.
+  const showKeyboardHints = vimMode && (isConnectionsFocused || isHoverPreviewFocused)
 
   const cancelScheduledClose = (): void => {
     if (!closeTimerRef.current) return
@@ -454,6 +457,9 @@ function ConnectionRow({
   active: boolean
   rowIndex: number
 }): JSX.Element {
+  // The cursor row keeps its styling in both modes (it is the row you
+  // clicked); the chip on it names VimNav's key, so it exists only in Vim mode.
+  const vimMode = useStore((s) => s.vimMode)
   return (
     <button
       type="button"
@@ -493,7 +499,7 @@ function ConnectionRow({
       <div className={['mt-2 line-clamp-3 text-xs leading-5', active ? 'text-white/85' : 'text-ink-600'].join(' ')}>
         {summary}
       </div>
-      {active && (
+      {active && vimMode && (
         <div className="mt-2 flex justify-end">
           <ConnectionKeyHint keyLabel="p" label="preview" active />
         </div>
@@ -519,6 +525,7 @@ function AttachmentConnectionRow({
   rowIndex: number
 }): JSX.Element {
   const name = link.assetPath.split('/').pop() ?? link.assetPath
+  const vimMode = useStore((s) => s.vimMode)
   return (
     <button
       type="button"
@@ -554,7 +561,7 @@ function AttachmentConnectionRow({
       <div className={['mt-2 line-clamp-2 text-xs leading-5', active ? 'text-white/85' : 'text-ink-600'].join(' ')}>
         A file in this vault, not a note. Click to open it.
       </div>
-      {active && (
+      {active && vimMode && (
         <div className="mt-2 flex justify-end">
           <ConnectionKeyHint keyLabel="↵" label="open" active />
         </div>
@@ -576,6 +583,7 @@ function MissingConnectionRow({
   active: boolean
   rowIndex: number
 }): JSX.Element {
+  const vimMode = useStore((s) => s.vimMode)
   return (
     <button
       type="button"
@@ -612,7 +620,7 @@ function MissingConnectionRow({
       <div className={['mt-2 line-clamp-2 text-xs leading-5', active ? 'text-white/85' : 'text-ink-600'].join(' ')}>
         No note resolves this wikilink yet. Click to create it.
       </div>
-      {active && (
+      {active && vimMode && (
         <div className="mt-2 flex justify-end">
           <ConnectionKeyHint keyLabel="↵" label="create" active />
         </div>

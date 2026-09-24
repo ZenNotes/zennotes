@@ -10,6 +10,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   inferFields,
+  initialDatabaseContents,
   buildDefaultViews,
   parseCsv,
   parseRows,
@@ -23,6 +24,7 @@ import {
   formTitleFromCsvPath,
   isFormDirName,
   type DatabaseDoc,
+  type DatabaseSeed,
   type DatabaseSidecar,
   type DatabaseSummary,
   type DbField,
@@ -250,15 +252,18 @@ export async function writeDatabaseSchema(
 }
 
 /**
- * Create a new empty database (`id` + `Name` fields) under `folder`/`subpath`
- * and return it hydrated. Uses `folderRoot` so a root-mode vault creates at the
- * vault root rather than inventing an `inbox/` directory.
+ * Create a new database under `folder`/`subpath` and return it hydrated: empty
+ * (`id` + `Name` fields) by default, or holding the `seed`'s columns and rows
+ * when one is given (a Markdown table converted in place, #832). Uses
+ * `folderRoot` so a root-mode vault creates at the vault root rather than
+ * inventing an `inbox/` directory.
  */
 export async function createDatabase(
   root: string,
   folder: NoteFolder,
   subpath: string,
-  title?: string
+  title?: string,
+  seed?: DatabaseSeed
 ): Promise<DatabaseDoc> {
   const safeTitle = (title ?? 'Untitled Database').trim() || 'Untitled Database'
   const baseName = safeTitle.replace(/[\\/:*?"<>|]/g, '-')
@@ -281,22 +286,12 @@ export async function createDatabase(
   }
   const rel = csvPathForFormDir(formDirRel)
 
-  const idField: DbField = { id: randomUUID(), name: 'id', type: 'text', hidden: true }
-  const nameField: DbField = { id: randomUUID(), name: 'Name', type: 'text' }
-  const fields = [idField, nameField]
-  const { views, activeViewId } = buildDefaultViews(fields)
-  const sidecar: DatabaseSidecar = {
-    version: 1,
-    idFieldId: idField.id,
-    fields,
-    views,
-    activeViewId
-  }
+  const { sidecar, rows } = initialDatabaseContents(seed, randomUUID)
   // Create the folder, then the two data files.
   await fs.mkdir(databaseDataPath(root, formDirRel), { recursive: true })
   await persistSidecar(root, rel, sidecar)
-  await writeFileAtomic(databaseDataPath(root, rel), serializeRows([], fields))
-  return hydrate(rel, sidecar, [])
+  await writeFileAtomic(databaseDataPath(root, rel), serializeRows(rows, sidecar.fields))
+  return hydrate(rel, sidecar, rows)
 }
 
 /**

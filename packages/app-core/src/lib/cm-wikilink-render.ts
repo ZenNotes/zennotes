@@ -26,6 +26,7 @@ import { createNoteFromLinkNow, offerCreateNoteFromLink } from './create-note-fr
 import { openWikilinkAttachment } from './open-wikilink-attachment'
 import { resolveAssetPathAmong } from './asset-path-resolution'
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from './database-links'
+import { setHoveredLink } from './hovered-link'
 
 // Same shape as the Preview pipeline (remarkWikilinks).
 const WIKILINK_RE = /(!?)\[\[([^\]|]+?)(?:\|([^\]]+))?\]\]/g
@@ -278,6 +279,9 @@ const wikilinkClick = EditorView.domEventHandlers({
     const target = el?.dataset.target
     if (!target) return false
     event.preventDefault()
+    // Following the link ends its status-bar hover; a tap never sends the
+    // mouseleave that would (#820).
+    setHoveredLink(null)
     openWikilink(target, {
       createWithoutAsking: event.button === 0 && (event.metaKey || event.ctrlKey)
     })

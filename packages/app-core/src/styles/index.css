@@ -2227,7 +2227,7 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   color: rgb(var(--z-fg));
 }
 
-/* Leading YAML frontmatter — render as a compact "properties" metadata card
+/* Leading YAML frontmatter: rendered as a compact "properties" metadata card
  * (see cm-frontmatter.ts). For database record pages these values mirror the
  * database fields, so it should read like a tidy property list, not body text. */
 .cm-editor .cm-frontmatter-line {
@@ -2240,38 +2240,17 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   border-left: 1px solid rgb(var(--z-grey-0) / 0.13);
   border-right: 1px solid rgb(var(--z-grey-0) / 0.13);
 }
-.cm-editor .cm-frontmatter-line
-  :is(
-    .tok-meta,
-    .tok-string,
-    .tok-keyword,
-    .tok-atom,
-    .tok-heading,
-    .tok-heading1,
-    .tok-heading2,
-    .tok-heading3,
-    .tok-heading4,
-    .tok-heading5,
-    .tok-heading6
-  ) {
+/* The note grammar (cm-markdown-language.ts) keeps the frontmatter out of the
+ * markdown parse, so its lines carry no heading or list tokens; the only token
+ * inside the card is the `meta` mark on the two `---` fences, which must
+ * inherit the fence rows' transparent color below. */
+.cm-editor .cm-frontmatter-line .tok-meta {
   color: inherit;
-}
-/* Without a blank line before the closing `---`, CodeMirror's markdown parser
- * can tokenize the previous frontmatter line as a setext heading. The metadata
- * card owns frontmatter presentation, so suppress body heading typography here. */
-.cm-editor .cm-frontmatter-line
-  :is(.tok-heading, .tok-heading1, .tok-heading2, .tok-heading3, .tok-heading4, .tok-heading5, .tok-heading6) {
-  font-size: inherit;
-  font-weight: inherit;
-  line-height: inherit;
-  text-transform: none;
-  letter-spacing: 0;
 }
 /* The key (before the `:`) is a muted-but-legible label; the value renders at
  * normal text brightness (see the line rule above), so an all-frontmatter note
  * like a task file stays readable instead of fading into the background. */
-.cm-editor .cm-frontmatter-key,
-.cm-editor .cm-frontmatter-key :is(.tok-meta, .tok-string, .tok-keyword, .tok-atom) {
+.cm-editor .cm-frontmatter-key {
   color: rgb(var(--z-grey-1));
   font-weight: 500;
 }

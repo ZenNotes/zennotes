@@ -44,12 +44,13 @@ import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { registerDisplayLineMotion } from '../lib/cm-vim-display-line'
+import { mapDefaultHalfPageKeys, registerHalfPageMotion } from '../lib/cm-vim-half-page-motion'
 import { registerHeadingMotion } from '../lib/cm-vim-heading-motion'
 import { registerReflowOperator } from '../lib/cm-vim-reflow'
+import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
@@ -222,6 +223,8 @@ function registerCaptureVimCommands(
   // #312: this window is a separate Electron renderer with its own Vim, so it
   // needs its own registration to get the main editor's j/k display-line motion.
   registerHeadingMotion()
+  registerHalfPageMotion()
+  mapDefaultHalfPageKeys()
   registerReflowOperator()
 
   Vim.defineEx('write', 'w', () => {
@@ -476,7 +479,7 @@ export function QuickCaptureApp(): JSX.Element {
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           EditorView.lineWrapping,
-          markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+          noteMarkdown(),
           customCodeFenceHighlightExtension,
           markdownLinkExtension,
           vimAwareMarkdownKeymap,
@@ -517,6 +520,9 @@ export function QuickCaptureApp(): JSX.Element {
             })
           ),
           keymap.of([
+            // No keymap overrides in this window, so the default Ctrl+D /
+            // Ctrl+U reach Vim ahead of the search and history keymaps (#825).
+            ...vimHalfPageKeymap(prefs.vimMode, {}),
             indentWithTab,
             ...vimAwareDefaultKeymap(prefs.vimMode),
             ...historyKeymap,
@@ -721,6 +727,7 @@ export function QuickCaptureApp(): JSX.Element {
           <CommandOverlay
             modKey={modKey}
             mode={mode}
+            vimMode={prefs.vimMode}
             onCancel={() => {
               setOverlay('none')
               requestAnimationFrame(() => editorRef.current?.focus())
@@ -877,11 +884,14 @@ type CommandAction = 'save' | 'save-no-close' | 'new' | 'open'
 interface CommandOverlayProps {
   modKey: string
   mode: EditingMode
+  /** Whether the capture editor runs Vim: its ex line is the only way to
+   *  `:w`, so that hint exists only then. */
+  vimMode: boolean
   onAction: (action: CommandAction) => void
   onCancel: () => void
 }
 
-function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
+function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -901,7 +911,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
       {
         id: 'save-no-close' as CommandAction,
         label: 'Save without hiding',
-        hint: ':w',
+        hint: vimMode ? ':w' : '',
         keywords: 'save write keep open'
       },
       {
@@ -917,7 +927,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
         keywords: 'open switch picker find search note'
       }
     ],
-    [mode.kind, modKey]
+    [mode.kind, modKey, vimMode]
   )
 
   const results = useMemo(() => {
@@ -982,9 +992,11 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
                 ].join(' ')}
               >
                 <span className="truncate">{cmd.label}</span>
-                <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-2xs text-ink-500">
-                  {cmd.hint}
-                </kbd>
+                {cmd.hint && (
+                  <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-2xs text-ink-500">
+                    {cmd.hint}
+                  </kbd>
+                )}
               </button>
             )
           })

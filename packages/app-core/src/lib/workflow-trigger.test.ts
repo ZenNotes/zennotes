@@ -25,7 +25,14 @@ const storeState = {
       typeof next === 'function' ? next(storeState.workflowRunRecord) : next
   },
   persistNote: vi.fn().mockResolvedValue(undefined),
-  refreshNotes: vi.fn().mockResolvedValue(undefined)
+  refreshNotes: vi.fn().mockResolvedValue(undefined),
+  // The editor-follows-its-note half lives in the real store; here it is a
+  // no-op that records what the run promised to move.
+  followWorkflowMoves: vi.fn((moves: readonly { from: string; to: string }[]) => {
+    storeState.promised = [...moves]
+    return async () => {}
+  }),
+  promised: [] as { from: string; to: string }[]
 }
 
 vi.mock('../store', () => ({ useStore: { getState: () => storeState } }))
@@ -116,7 +123,9 @@ describe('running a workflow from the palette', () => {
       workflowId: 'star-books',
       receipt: receipt('run-1'),
       undone: null,
-      undoError: null
+      undoError: null,
+      // Nothing moved, so there is nothing for an undo to carry an editor back along.
+      moves: []
     })
   })
 

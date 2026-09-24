@@ -5,7 +5,8 @@
  */
 import type { Completion, CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import type { EditorState } from '@codemirror/state'
-import { collectTagCounts, rankTagCompletions } from './cm-hashtag-complete'
+import { collectTagCounts } from './cm-hashtag-complete'
+import { rankTagCompletions } from './tags'
 import { frontmatterTagsValue, isInsideFrontmatter } from './cm-frontmatter'
 
 /** Characters that terminate a tag token when scanning forward or backward

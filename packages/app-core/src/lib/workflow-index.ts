@@ -1,12 +1,13 @@
 // The vault's workflows, reduced to what surfaces OUTSIDE the workflows view
 // need to know: the command palette lists them, the trigger flow checks they
-// may act. Everything here derives from the same files the view reads, through
-// the same parser, so the palette can never disagree with the editor about
-// what exists or what may run.
+// may act, and the event triggers ask which of them listen for an event.
+// Everything here derives from the same files the view reads, through the
+// same parser, so the palette can never disagree with the editor about what
+// exists or what may run.
 
 import type { WorkflowFile } from '@bridge-contract/workflows'
 import { parseWorkflow } from '@shared/workflows/parse'
-import type { WorkflowStatus } from '@shared/workflows/types'
+import type { WorkflowStatus, WorkflowTrigger } from '@shared/workflows/types'
 import { stepIsMutating } from '@shared/workflows/nodes'
 
 export interface WorkflowIndexEntry {
@@ -15,6 +16,9 @@ export interface WorkflowIndexEntry {
   name: string
   description: string
   status: WorkflowStatus
+  /** As parsed: an unknown trigger has already degraded to manual here, so an
+   *  event trigger in the index is one the engine knows how to fire. */
+  trigger: WorkflowTrigger
   /** True when any step writes, i.e. running it will ask for confirmation. */
   mutates: boolean
 }
@@ -34,6 +38,7 @@ export function buildWorkflowIndex(files: readonly WorkflowFile[]): WorkflowInde
       name: workflow.name,
       description: workflow.description,
       status: workflow.status,
+      trigger: workflow.trigger,
       mutates: workflow.statements.some((statement) =>
         statement.steps.some((step) => stepIsMutating(step.kind))
       )

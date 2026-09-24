@@ -48,9 +48,21 @@ export interface InspectorVocabulary {
   tags: readonly string[]
   fields: readonly string[]
   paths: readonly string[]
-  folders: readonly string[]
+  folders: readonly ComboboxOption[]
   wires: readonly string[]
   workflows: readonly string[]
+}
+
+/**
+ * An entry a combobox can offer: the value the argument takes, and a hint
+ * shown beside it when the value alone does not say what it means. `inbox`
+ * reads as "Vault root" on a vault whose notes live there, which is the one
+ * folder a list of directories could never carry (#840). Typing matches the
+ * hint too, so "root" finds it.
+ */
+export interface ComboboxOption {
+  value: string
+  hint?: string
 }
 
 /**
@@ -65,11 +77,21 @@ const BUILTIN_FIELDS: readonly string[] = ['title', 'path', 'folder', 'created',
 /** Enough options to recognize what exists, not a whole vault in a dropdown. */
 const OPTION_LIMIT = 60
 
-function optionsFor(all: readonly string[], text: string): string[] {
+function optionsFor(
+  all: readonly (string | ComboboxOption)[],
+  text: string
+): ComboboxOption[] {
   const needle = text.trim().toLowerCase()
-  const out: string[] = []
-  for (const option of all) {
-    if (needle !== '' && !option.toLowerCase().includes(needle)) continue
+  const out: ComboboxOption[] = []
+  for (const entry of all) {
+    const option = typeof entry === 'string' ? { value: entry } : entry
+    if (
+      needle !== '' &&
+      !option.value.toLowerCase().includes(needle) &&
+      !(option.hint ?? '').toLowerCase().includes(needle)
+    ) {
+      continue
+    }
     out.push(option)
     if (out.length >= OPTION_LIMIT) break
   }
@@ -128,7 +150,7 @@ function ThemedCombobox({
   onChange
 }: {
   value: string
-  options: readonly string[]
+  options: readonly ComboboxOption[]
   disabled: boolean
   label: string
   placeholder?: string
@@ -192,7 +214,7 @@ function ThemedCombobox({
             setCursor((c) => (c - 1 + visible.length) % visible.length)
           } else if (event.key === 'Enter') {
             event.preventDefault()
-            commit(visible[active])
+            commit(visible[active].value)
           } else if (event.key === 'Escape') {
             // Swallowed so the inspector stays open: Escape here means "I am
             // done with this list", not "leave the workflow".
@@ -209,7 +231,7 @@ function ThemedCombobox({
           className="absolute left-0 right-0 z-dropdown mt-1 max-h-48 overflow-auto rounded-md border border-paper-300 bg-paper-100 py-1 shadow-float"
         >
           {visible.map((option, index) => (
-            <li key={option}>
+            <li key={option.value}>
               <button
                 type="button"
                 role="option"
@@ -218,14 +240,17 @@ function ThemedCombobox({
                 // the list before a click could register.
                 onMouseDown={(event) => {
                   event.preventDefault()
-                  commit(option)
+                  commit(option.value)
                 }}
                 onMouseEnter={() => setCursor(index)}
                 className={`block w-full px-2 py-1 text-left text-xs ${
                   index === active ? 'bg-paper-300/70 text-ink-900' : 'text-ink-700'
                 }`}
               >
-                {option}
+                {option.value}
+                {option.hint !== undefined && (
+                  <span className="ml-2 text-ink-500">{option.hint}</span>
+                )}
               </button>
             </li>
           ))}
@@ -318,7 +343,10 @@ function ParamControl({
     )
   }
 
-  const combobox = (all: readonly string[], placeholder?: string): JSX.Element => (
+  const combobox = (
+    all: readonly (string | ComboboxOption)[],
+    placeholder?: string
+  ): JSX.Element => (
     <ThemedCombobox
       value={text}
       options={optionsFor(all, text)}

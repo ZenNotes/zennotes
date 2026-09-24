@@ -21,6 +21,7 @@ import {
   invalidateNoteMetaCache,
   invalidateVaultSettingsCache,
   listNotes,
+  moveNote,
   moveToTrash,
   readNote,
   renameFolder,
@@ -177,6 +178,26 @@ describe('portable note creation metadata across desktop vault operations', () =
     await expect(readFile(metadataPath(root, trashPath))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it('moves and trashes a note onto stale destination dates, keeping its own (#839)', async () => {
+    const root = await makeVault()
+    await seedNote(root, 'inbox/Original.md')
+    const stale = JSON.stringify({ version: 1, createdAt: ORIGINAL_CREATED_AT + 1000 })
+    for (const leftover of ['inbox/Work/Original.md', 'trash/Work/Original.md']) {
+      await mkdir(path.dirname(metadataPath(root, leftover)), { recursive: true })
+      await writeFile(metadataPath(root, leftover), stale)
+    }
+
+    const moved = await moveNote(root, 'inbox/Original.md', 'inbox', 'Work')
+    const trashed = await moveToTrash(root, moved.path)
+
+    expect(moved.path).toBe('inbox/Work/Original.md')
+    expect(moved.createdAt).toBe(ORIGINAL_CREATED_AT)
+    expect(trashed.path).toBe('trash/Work/Original.md')
+    expect(trashed.createdAt).toBe(ORIGINAL_CREATED_AT)
+    expect(await readMetadata(root, trashed.path)).toEqual({ version: 1, createdAt: ORIGINAL_CREATED_AT })
+    await expect(readFile(metadataPath(root, moved.path))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('removes creation metadata on permanent deletion so a new note cannot inherit the old date', async () => {
     const root = await makeVault()
     const notePath = 'inbox/Original.md'
@@ -255,7 +276,10 @@ describe.each(vaultClients)('%s creation metadata safety', (_name, client) => {
     }
   )
 
-  it('refuses a note rename onto orphan destination metadata and preserves both dates', async () => {
+  // A date left behind by a note that was moved or deleted outside ZenNotes
+  // belongs to nobody. Refusing the rename over it blocked that name for good
+  // (#839); creating a note there already discards it.
+  it('renames a note onto a stale destination date, keeping its own date', async () => {
     const root = await makeVault()
     const sourcePath = 'inbox/Original.md'
     const targetPath = 'inbox/Destination.md'
@@ -263,13 +287,28 @@ describe.each(vaultClients)('%s creation metadata safety', (_name, client) => {
     const orphanDate = ORIGINAL_CREATED_AT + 1000
     await writeFile(metadataPath(root, targetPath), JSON.stringify({ version: 1, createdAt: orphanDate }))
 
-    await expect(client.renameNote(root, sourcePath, 'Destination')).rejects.toThrow()
+    await client.renameNote(root, sourcePath, 'Destination')
 
-    expect(await readFile(path.join(root, sourcePath))).toEqual(Buffer.from(ORIGINAL_BODY))
-    expect(await readMetadata(root, sourcePath)).toEqual({ version: 1, createdAt: ORIGINAL_CREATED_AT })
-    expect(await readMetadata(root, targetPath)).toEqual({ version: 1, createdAt: orphanDate })
-    await expect(readFile(path.join(root, targetPath))).rejects.toMatchObject({ code: 'ENOENT' })
-    expect((await client.readNote(root, sourcePath)).createdAt).toBe(ORIGINAL_CREATED_AT)
+    expect(await readFile(path.join(root, targetPath), 'utf8')).toContain('Keep **Markdown** and trailing spaces.')
+    expect(await readMetadata(root, targetPath)).toEqual({ version: 1, createdAt: ORIGINAL_CREATED_AT })
+    expect((await client.readNote(root, targetPath)).createdAt).toBe(ORIGINAL_CREATED_AT)
+    await expect(readFile(path.join(root, sourcePath))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(metadataPath(root, sourcePath))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('never hands a stale destination date to a renamed note that has none', async () => {
+    const root = await makeVault()
+    const sourcePath = 'inbox/Original.md'
+    const targetPath = 'inbox/Destination.md'
+    await mkdir(path.join(root, 'inbox'), { recursive: true })
+    await writeFile(path.join(root, sourcePath), ORIGINAL_BODY)
+    await mkdir(path.dirname(metadataPath(root, targetPath)), { recursive: true })
+    await writeFile(metadataPath(root, targetPath), JSON.stringify({ version: 1, createdAt: ORIGINAL_CREATED_AT }))
+
+    await client.renameNote(root, sourcePath, 'Destination')
+
+    expect(await readFile(path.join(root, targetPath), 'utf8')).toContain('Keep **Markdown** and trailing spaces.')
+    expect((await client.readNote(root, targetPath)).createdAt).not.toBe(ORIGINAL_CREATED_AT)
   })
 
   it('refuses a folder move onto an orphan metadata tree without moving the source', async () => {

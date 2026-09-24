@@ -42,6 +42,7 @@ import {
 /** Minimum draggable column width (px) for the resize handles (#294). */
 const MIN_COL_WIDTH = 48
 import { openTableContextMenu } from './cm-table-menu'
+import { convertTableToDatabase } from './table-to-database'
 import { renderMarkdown } from './markdown'
 import { getCM, Vim } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
@@ -191,7 +192,7 @@ export function tableBlockAt(doc: Text, pos: number): { from: number; to: number
 /** Find the enclosing `Table` node range for a doc position, or null. The range
  *  is extended over a trailing `zen:cols` width marker so re-serialization
  *  replaces both (no duplicate markers, no leaked raw comment). */
-function tableRangeAt(view: EditorView, pos: number): { from: number; to: number } | null {
+export function tableRangeAt(view: EditorView, pos: number): { from: number; to: number } | null {
   let node = syntaxTree(view.state).resolveInner(pos, 1)
   while (node) {
     if (node.name === 'Table') {
@@ -202,6 +203,55 @@ function tableRangeAt(view: EditorView, pos: number): { from: number; to: number
     node = node.parent
   }
   return tableBlockAt(view.state.doc, pos)
+}
+
+/**
+ * The rendered table the user last worked in, per editor.
+ *
+ * A palette or leader command that acts on "the table under the cursor"
+ * cannot read it from the selection while tables are widgets: the atomic
+ * range keeps the caret out of the block, and by the time the command runs,
+ * focus has already left the cell for the palette input. So the editor
+ * remembers the widget that last took focus and forgets it as soon as focus
+ * lands back in the note text, where the caret is the better authority again.
+ * The element is kept alongside its position so a table that is still on
+ * screen resolves live (robust to edits above it), and one whose widget was
+ * rebuilt while the palette was up still resolves from where it started.
+ */
+const lastFocusedTable = new WeakMap<EditorView, { el: HTMLElement; anchor: number }>()
+const focusTrackedViews = new WeakSet<EditorView>()
+
+function trackTableFocus(view: EditorView): void {
+  if (focusTrackedViews.has(view)) return
+  focusTrackedViews.add(view)
+  view.contentDOM.addEventListener('focusin', (event) => {
+    const widget = (event.target as HTMLElement | null)?.closest?.<HTMLElement>('.cm-table-widget')
+    if (!widget) {
+      lastFocusedTable.delete(view)
+      return
+    }
+    try {
+      lastFocusedTable.set(view, { el: widget, anchor: view.posAtDOM(widget) })
+    } catch {
+      // A widget that is no longer part of the view has nothing to record.
+    }
+  })
+}
+
+/** Document position of the rendered table whose cell holds focus, or held it
+ *  most recently since the caret was last in the note text. Null when no table
+ *  was visited, or the editor itself has had focus since. */
+export function focusedTableAnchor(view: EditorView): number | null {
+  const entry = lastFocusedTable.get(view)
+  if (!entry) return null
+  if (entry.el.isConnected) {
+    try {
+      return view.posAtDOM(entry.el)
+    } catch {
+      // Detached between the check and the lookup; fall back to the recorded start.
+    }
+  }
+  return entry.anchor
 }
 
 /**
@@ -404,6 +454,7 @@ class TableWidget extends WidgetType {
 
   toDOM(view: EditorView): HTMLElement {
     this.view = view
+    trackTableFocus(view)
     const root = document.createElement('div')
     root.className = 'cm-table-widget'
     root.setAttribute('contenteditable', 'false')
@@ -664,7 +715,8 @@ class TableWidget extends WidgetType {
         row,
         col,
         model: this.model,
-        apply: (next, focus) => this.applyMenuAction(next, focus, anchor)
+        apply: (next, focus) => this.applyMenuAction(next, focus, anchor),
+        convertToDatabase: () => this.convertToDatabase(anchor)
       })
     })
     cell.append(editable)
@@ -1960,8 +2012,19 @@ class TableWidget extends WidgetType {
       row,
       col,
       model: this.model,
-      apply: (next, focus) => this.applyMenuAction(next, focus, anchor)
+      apply: (next, focus) => this.applyMenuAction(next, focus, anchor),
+      convertToDatabase: () => this.convertToDatabase(anchor)
     })
+  }
+
+  /** Hand this table to the database converter (#832). The focus moving into
+   *  the menu already committed any dirty cell, so the document holds the
+   *  table's current contents; `anchor` re-finds it after that rebuild. */
+  private convertToDatabase(anchor?: number): void {
+    this.commitIfDirty()
+    const pos = anchor ?? this.captureTableAnchor()
+    if (pos == null) return
+    void convertTableToDatabase(this.view, pos)
   }
 
   ignoreEvent(): boolean {

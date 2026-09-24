@@ -19,7 +19,7 @@ async function setup() {
   const create = vi.fn(async () => {})
   const rename = vi.fn(async () => {})
   const remove = vi.fn(async () => {})
-  const createDatabase = vi.fn(async () => {})
+  const createDatabase = vi.fn(async () => undefined)
   const renameDatabase = vi.fn(async () => {})
   useStore.setState({
     vault: { root: '/test', name: 'Test' },
@@ -314,6 +314,15 @@ describe('public Browse actions', () => {
     )
   })
 
+  it('moves a nested folder to the notes root on an empty answer', async () => {
+    const s = await setup()
+    const result = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+    expect(s.getPromptRequest()?.options.validate?.('')).toBeNull()
+    s.answer('')
+    expect(await result).toBe('completed')
+    expect(s.rename).toHaveBeenCalledWith('inbox', 'Work/Nested', 'Nested', expect.any(Function))
+  })
+
   it('offers only real destinations: not itself, its children, databases, or archive', async () => {
     const s = await setup()
     s.useStore.setState({
@@ -325,10 +334,10 @@ describe('public Browse actions', () => {
       ]
     })
     const result = s.requestMoveBrowseDirectory(s.host, 'Work')
-    expect(s.getPromptRequest()?.options.suggestions?.map((row) => row.value)).toEqual([
-      'inbox',
-      'inbox/Home'
-    ])
+    // The notes root is the empty path, labelled the way the sidebar labels it.
+    const suggestions = s.getPromptRequest()?.options.suggestions
+    expect(suggestions?.map((row) => row.value)).toEqual(['', 'Home'])
+    expect(suggestions?.[0].label).toBe('Inbox')
     s.answer(null)
     expect(await result).toBe('cancelled')
   })
@@ -337,9 +346,6 @@ describe('public Browse actions', () => {
     const s = await setup()
     for (const value of [
       null,
-      '',
-      '   ',
-      'Work',
       'archive',
       'inbox/Work/Nested',
       'inbox/Work/Nested/Deeper',
@@ -355,11 +361,14 @@ describe('public Browse actions', () => {
       s.answer(value)
       expect(await result).toBe('cancelled')
     }
-    // Its current parent is a valid answer that changes nothing.
-    const same = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
-    expect(s.getPromptRequest()?.options.validate?.('inbox/Work')).toBeNull()
-    s.answer('inbox/Work')
-    expect(await same).toBe('cancelled')
+    // Its current parent is a valid answer that changes nothing, in either
+    // spelling: the sidebar's, or the older inbox/ one.
+    for (const parent of ['Work', 'inbox/Work']) {
+      const same = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+      expect(s.getPromptRequest()?.options.validate?.(parent)).toBeNull()
+      s.answer(parent)
+      expect(await same).toBe('cancelled')
+    }
     expect(s.rename).not.toHaveBeenCalled()
   })
 

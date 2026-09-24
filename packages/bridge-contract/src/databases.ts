@@ -121,6 +121,19 @@ export interface DatabaseSidecar {
   pages?: Record<string, string>
 }
 
+/**
+ * Tabular contents a database is created with, when it starts from existing
+ * data rather than empty: a header row and body rows of raw cell strings,
+ * index-aligned. A Markdown table converted in place arrives this way (#832).
+ * Per-column pixel widths, when given, follow the same column order so a
+ * table whose columns were resized keeps those widths in the grid.
+ */
+export interface DatabaseSeed {
+  headers: string[]
+  rows: string[][]
+  columnWidths?: Array<number | null>
+}
+
 /** Cells are raw CSV strings keyed by DbField.id. */
 export interface DbRow {
   /** == cells[idFieldId]. */

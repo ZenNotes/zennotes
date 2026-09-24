@@ -135,4 +135,32 @@ describe('WindowVaultRegistry', () => {
 
     expect(registry.localVaultsExcept(rootA)).toEqual([{ root: rootB, name: 'B' }])
   })
+
+  it('renames a local vault in every window on that root without touching its watcher (#692)', () => {
+    const watchers: TestWatcher[] = []
+    const registry = new WindowVaultRegistry({
+      makeWatcher: () => {
+        const watcher = new TestWatcher()
+        watchers.push(watcher)
+        return watcher
+      },
+      invalidateVault: () => {},
+      sendVaultChange: () => {}
+    })
+    const docs = path.resolve('/tmp/zennotes-rename-docs')
+    const other = path.resolve('/tmp/zennotes-rename-other')
+    registry.setLocalVault(1, { root: docs, name: 'docs' })
+    registry.setLocalVault(2, { root: docs, name: 'docs' })
+    registry.setLocalVault(3, { root: other, name: 'other' })
+    registry.setRemoteVault(4, { root: docs, name: 'docs' })
+
+    expect(registry.renameLocalVault(`${docs}/`, 'Acme API docs').sort()).toEqual([1, 2])
+    expect(registry.vaultForWindow(1)?.name).toBe('Acme API docs')
+    expect(registry.vaultForWindow(2)?.name).toBe('Acme API docs')
+    expect(registry.vaultForWindow(3)?.name).toBe('other')
+    expect(registry.vaultForWindow(4)?.name).toBe('docs')
+    expect(watchers.every((w) => !w.stopped)).toBe(true)
+    // Already named: nothing to report.
+    expect(registry.renameLocalVault(docs, 'Acme API docs')).toEqual([])
+  })
 })

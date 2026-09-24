@@ -29,7 +29,8 @@ import {
   undoneHeadline,
   unknownTemplateDiagnostics,
   unsavedCollisionDescription,
-  unsavedCollisions
+  unsavedCollisions,
+  promisedMoves
 } from './workflow-run'
 
 const OPS: WorkflowOp[] = [
@@ -508,5 +509,40 @@ describe('interruptedRunToOffer', () => {
     expect(interruptedRunHeadline(runSummary())).toBe(
       '"reading-log" was interrupted before it finished. 2 notes on disk still carry it.'
     )
+  })
+})
+
+describe('promisedMoves', () => {
+  it('names where a move, a rename, an archive and a trash put a note', () => {
+    expect(
+      promisedMoves([
+        { kind: 'move', path: 'inbox/Dune.md', to: 'Topics' },
+        { kind: 'rename', path: 'inbox/Old.md', to: 'New name' },
+        { kind: 'archive', path: 'inbox/Done.md' },
+        { kind: 'trash', path: 'inbox/Gone.md' },
+        { kind: 'add-tag', path: 'inbox/Stay.md', tag: 'x' }
+      ])
+    ).toEqual([
+      { from: 'inbox/Dune.md', to: 'Topics/Dune.md' },
+      { from: 'inbox/Old.md', to: 'inbox/New name.md' },
+      { from: 'inbox/Done.md', to: 'archive/Done.md' },
+      { from: 'inbox/Gone.md', to: 'trash/Gone.md' }
+    ])
+  })
+
+  it('folds a note moved twice to its last stop, and respects remapped system folders', () => {
+    expect(
+      promisedMoves(
+        [
+          { kind: 'move', path: 'inbox/Dune.md', to: 'Topics' },
+          { kind: 'rename', path: 'Topics/Dune.md', to: 'Arrakis' },
+          { kind: 'archive', path: 'inbox/Done.md' }
+        ],
+        { archive: 'Shelf' }
+      )
+    ).toEqual([
+      { from: 'inbox/Dune.md', to: 'Topics/Arrakis.md' },
+      { from: 'inbox/Done.md', to: 'Shelf/Done.md' }
+    ])
   })
 })

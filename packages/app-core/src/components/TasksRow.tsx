@@ -21,6 +21,8 @@ interface Props {
    *  the hint. The old hint hard-coded `Space`, which is a lie whenever Space is
    *  the Vim leader (the default): the keypress opens leader hints instead. */
   toggleKeyLabel?: string | null
+  /** Whether Vim's single-letter keys are live, so a tooltip may name them. */
+  vimMode?: boolean
 }
 
 function priorityLabel(p: VaultTask['priority']): string {
@@ -53,7 +55,8 @@ export function TasksRow({
   onFocusRow,
   onReorder,
   onContextMenu,
-  toggleKeyLabel = 'x'
+  toggleKeyLabel = 'x',
+  vimMode = false
 }: Props): JSX.Element {
   const [dropPos, setDropPos] = useState<'before' | 'after' | null>(null)
   const draggable = !!onReorder
@@ -131,7 +134,7 @@ export function TasksRow({
       {dropPos === 'after' && (
         <span className="pointer-events-none absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-accent" />
       )}
-      <TaskStateBox task={task} onToggle={onToggle} />
+      <TaskStateBox task={task} onToggle={onToggle} toggleKey={toggleKeyLabel} />
       <div className="min-w-0 flex-1">
         <div
           className={[
@@ -188,7 +191,7 @@ export function TasksRow({
         <button
           type="button"
           aria-label={`Open ${task.noteTitle}`}
-          title="Open note (Enter / o)"
+          title={vimMode ? 'Open note (Enter / o)' : 'Open note (Enter)'}
           onClick={(e) => {
             e.stopPropagation()
             onOpen()

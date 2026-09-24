@@ -230,6 +230,49 @@ describe('sequenceTokenFromEvent', () => {
   })
 })
 
+describe('template shortcuts (#847)', () => {
+  it('bind New note from template to ⌘⌥T on the Mac and leave Linux and Windows unbound', () => {
+    withPlatform('darwin', () => {
+      expect(getDefaultKeymapBinding('global.newNoteFromTemplate')).toBe('Alt+Mod+T')
+      expect(getDefaultKeymapBinding('global.insertTemplate')).toBe('')
+    })
+    for (const platform of ['linux', 'win32'] as const) {
+      withPlatform(platform, () => {
+        expect(getDefaultKeymapBinding('global.newNoteFromTemplate')).toBe('')
+        expect(getDefaultKeymapBinding('global.insertTemplate')).toBe('')
+      })
+    }
+  })
+
+  it('fire on the chord a Mac actually sends, and never while unbound', () => {
+    withPlatform('darwin', () => {
+      // Option turns T into †; the binding still has to match the physical key.
+      const cmdOptionT = fakeEvent({ key: '†', code: 'KeyT', metaKey: true, altKey: true })
+      expect(matchesShortcut(cmdOptionT, {}, 'global.newNoteFromTemplate')).toBe(true)
+      expect(matchesShortcut(cmdOptionT, {}, 'global.insertTemplate')).toBe(false)
+    })
+    withPlatform('linux', () => {
+      const ctrlAltT = fakeEvent({ key: 't', code: 'KeyT', ctrlKey: true, altKey: true })
+      expect(matchesShortcut(ctrlAltT, {}, 'global.newNoteFromTemplate')).toBe(false)
+      const bound = { 'global.newNoteFromTemplate': 'Alt+Mod+T' }
+      expect(matchesShortcut(ctrlAltT, bound, 'global.newNoteFromTemplate')).toBe(true)
+    })
+  })
+
+  it('have no key to show while unbound, and never clash with each other', () => {
+    withPlatform('linux', () => {
+      expect(getKeymapDisplay({}, 'global.insertTemplate')).toBe('')
+      expect(findKeymapConflict({}, 'global.newNoteFromTemplate', '')).toBeNull()
+      expect(findKeymapConflict({}, 'global.insertTemplate', 'Alt+Mod+Y')).toBeNull()
+    })
+    withPlatform('darwin', () => {
+      expect(findKeymapConflict({}, 'global.insertTemplate', 'Alt+Mod+T')?.id).toBe(
+        'global.newNoteFromTemplate'
+      )
+    })
+  })
+})
+
 describe('leader keymap definitions', () => {
   it('keeps the recent-note toggle portable with a literal Ctrl+Tab Mac default', () => {
     withPlatform('darwin', () => {
@@ -252,6 +295,9 @@ describe('leader keymap definitions', () => {
     // unchanged on every platform.
     for (const def of getKeymapDefinitions()) {
       if (def.kind !== 'shortcut') continue
+      // An action that ships unbound (the template shortcuts off the Mac,
+      // #847) has no spelling to round-trip.
+      if (def.defaultBinding === '') continue
       for (const platform of ['darwin', 'linux', 'win32'] as const) {
         const roundTripped = withPlatform(platform, () =>
           normalizeShortcutBinding(def.defaultBinding)

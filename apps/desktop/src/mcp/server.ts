@@ -11,6 +11,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -19,7 +20,7 @@ import {
 
 import { resolveInstructions } from './instructions-store.js'
 import { createBackend, type VaultBackend } from '../cli/backend.js'
-import { resolveDefaultTarget } from '../cli/vault-target.js'
+import { resolveDefaultTarget, type VaultTarget } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
@@ -965,22 +966,48 @@ export function describeToolError(err: unknown): string {
   return message
 }
 
-export async function runMcpServer(): Promise<void> {
-  // Resolve the vault lazily and once: the workspace the desktop app has
-  // open, a folder or a server (#688). When nothing is configured yet we
-  // still boot so the client surface stays consistent; every tool call then
-  // reports the missing-vault error, and the next call tries again rather
-  // than repeating a stale failure.
+export interface McpServerOptions {
+  /**
+   * Which vault the tools run against. `zn mcp` passes the target its
+   * `--vault` / `--server` / `--token` flags name (#831); the legacy stdio
+   * entry has no flags and follows the environment, then the workspace the
+   * desktop app has open (#688), which is also the default here.
+   */
+  resolveTarget?: () => Promise<VaultTarget>
+  /** Defaults to stdio, the only transport the clients speak. Tests bind an
+   *  in-memory pair instead. */
+  transport?: Transport
+}
+
+export async function runMcpServer(options: McpServerOptions = {}): Promise<void> {
+  const resolveTarget = options.resolveTarget ?? (() => resolveDefaultTarget())
+
+  // Resolve the vault once and keep it for the session. When nothing resolves
+  // yet we still boot so the client surface stays consistent; every tool call
+  // then reports the error, and the next call tries again rather than
+  // repeating a stale failure.
   let backendPromise: Promise<VaultBackend> | null = null
   const getBackend = (): Promise<VaultBackend> => {
     if (!backendPromise) {
-      backendPromise = resolveDefaultTarget().then(createBackend)
+      backendPromise = resolveTarget().then(createBackend)
       backendPromise.catch(() => {
         backendPromise = null
       })
     }
     return backendPromise
   }
+
+  // Try at startup and say so on stderr when it fails: a terminal shows it at
+  // once and MCP clients keep it in their server logs, whereas waiting for the
+  // first tool call hid a `--vault` typo in a client config until the
+  // assistant tripped over it (#831). stdout is the protocol channel and
+  // stays clean.
+  await getBackend().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    process.stderr.write(
+      `[zennotes-mcp] ${message} The MCP server is running anyway; every tool call returns this error until a vault resolves.\n`
+    )
+  })
 
   const instructions = await resolveInstructions()
   const server = new Server(
@@ -1022,6 +1049,5 @@ export async function runMcpServer(): Promise<void> {
     }
   })
 
-  const transport = new StdioServerTransport()
-  await server.connect(transport)
+  await server.connect(options.transport ?? new StdioServerTransport())
 }

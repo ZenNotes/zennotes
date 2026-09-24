@@ -86,6 +86,7 @@ import type {
 } from '@shared/workflows/types'
 import { useStore } from '../store'
 import type { WorkflowRunRecord } from '../store'
+import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { useToastStore } from '../lib/toast'
 import { createVaultReader } from '../lib/workflow-vault-reader'
 import { canManageWorkflows } from '../lib/workflow-workspace'
@@ -132,6 +133,7 @@ import {
   irreversibleNote,
   opsExcludingPaths,
   planWritePaths,
+  promisedMoves,
   receiptHeadline,
   resolveTemplateOps,
   runConfirmDescription,
@@ -143,8 +145,8 @@ import {
   undoneHeadline,
   unknownTemplateDiagnostics,
   unsavedCollisionDescription,
-  unsavedCollisionTitle,
   unsavedCollisions,
+  unsavedCollisionTitle,
   unsavedSkipDescription,
   unsavedSkipTitle
 } from '../lib/workflow-run'
@@ -161,7 +163,7 @@ import { ContextMenu } from './ContextMenu'
 import type { ContextMenuItem } from './ContextMenu'
 import { CloseIcon, PencilIcon, PlusIcon, TrashIcon, ZapIcon } from './icons'
 import { NodeInspector } from './workflows/NodeInspector'
-import type { InspectorVocabulary } from './workflows/NodeInspector'
+import type { ComboboxOption, InspectorVocabulary } from './workflows/NodeInspector'
 import { ImportReviewDialog } from './workflows/ImportReviewDialog'
 import { TutorialPanel } from './workflows/TutorialPanel'
 import { WorkflowListPane } from './workflows/WorkflowListPane'
@@ -211,7 +213,7 @@ const MODEL_RULES: readonly string[] = [
 const HEADER_KEY_HELP: Record<string, string> = {
   name: 'What it is called, and the filename it saves under.',
   description: 'One line, shown in the list on the left.',
-  trigger: `manual, "on <event>", or "schedule <cron>". Events: ${WORKFLOW_EVENTS.join(', ')}.`,
+  trigger: `manual, "on <event>", or "schedule <cron>". Events: ${WORKFLOW_EVENTS.join(', ')}. An event fires for the change you make in this app, on this device, and the run sees only the note that changed; "on <event> where <field> <op> <value>" fires only when that note matches. Schedules parse but do not fire yet.`,
   // Stated here as well as shown as a badge, because the file is the state:
   // someone reading the `.md` has to be able to tell whether it can act.
   status: 'draft or active. A draft is saved but cannot run. Missing means active.',
@@ -1122,6 +1124,8 @@ const CARET_KEYS: ReadonlySet<string> = new Set([
  */
 export function WorkflowsView(): JSX.Element {
   const notes = useStore((s) => s.notes)
+  const primaryNotesAtRoot = useStore((s) => s.vaultSettings.primaryNotesLocation === 'root')
+  const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const selectedPath = useStore((s) => s.selectedPath)
   const vimMode = useStore((s) => s.vimMode)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
@@ -1749,27 +1753,43 @@ export function WorkflowsView(): JSX.Element {
   }, [plan])
 
   /**
-   * Every folder a note lives in, ancestors included.
+   * The four system names, then every folder a note lives in, ancestors
+   * included.
    *
-   * Derived from the note paths rather than from the store's folder tree
-   * because that is exactly what the engine sees: `WorkflowNote.folder` is the
-   * vault-relative DIRECTORY, while `NoteMeta.folder` is the system bucket. A
-   * combobox offering the bucket would suggest folders that match nothing.
+   * Directories are derived from the note paths rather than from the store's
+   * folder tree because that is exactly what the engine sees:
+   * `WorkflowNote.folder` is the vault-relative DIRECTORY, while
+   * `NoteMeta.folder` is the system bucket. The system names lead because the
+   * engine reads them as the system folders wherever the vault keeps them, and
+   * each carries the name the sidebar shows for it. On a vault whose notes
+   * live at the root, `inbox` is the root itself: the one folder no directory
+   * name could offer, and the one a list of directories sent someone looking
+   * for in vain (#840).
    */
-  const vaultFolders = useMemo(() => {
-    const seen = new Set<string>()
+  const vaultFolders = useMemo<ComboboxOption[]>(() => {
+    const buckets = (['inbox', 'quick', 'archive', 'trash'] as const).map((bucket) => ({
+      value: bucket,
+      hint:
+        bucket === 'inbox' && primaryNotesAtRoot
+          ? 'Vault root'
+          : getSystemFolderLabel(bucket, systemFolderLabels)
+    }))
+    const seen = new Set<string>(buckets.map((bucket) => bucket.value))
+    const directories: string[] = []
     for (const note of notes) {
       const cut = note.path.lastIndexOf('/')
       if (cut === -1) continue
       let directory = note.path.slice(0, cut)
       while (directory !== '' && !seen.has(directory)) {
         seen.add(directory)
+        directories.push(directory)
         const up = directory.lastIndexOf('/')
         directory = up === -1 ? '' : directory.slice(0, up)
       }
     }
-    return [...seen].sort((a, b) => a.localeCompare(b))
-  }, [notes])
+    directories.sort((a, b) => a.localeCompare(b))
+    return [...buckets, ...directories.map((value) => ({ value }))]
+  }, [notes, primaryNotesAtRoot, systemFolderLabels])
 
   // A diagnostic carries a line, and a whole pipeline lives on one line, so a
   // bad step marks every step of its statement. Line is the finest grain the
@@ -3619,11 +3639,25 @@ export function WorkflowsView(): JSX.Element {
         // on disk, so the edits have to be on disk before the run reads them.
         await Promise.all(unsaved.paths.map((path) => persistNote(path)))
       }
-      const receipt = await window.zen.applyWorkflow({
-        workflowId: item.workflow.id,
-        ops: withTemplates.ops
-      })
-      setRecord({ workflowId: item.workflow.id, receipt, undone: null, undoError: null })
+      // An editor open on a note the run moves follows it (see the store's
+      // `followWorkflowMoves`): shielded from the unlink echo during the run,
+      // carried to the new path after it.
+      const moves = promisedMoves(
+        withTemplates.ops,
+        useStore.getState().vaultSettings.systemFolderPaths
+      )
+      const settle = useStore.getState().followWorkflowMoves(moves)
+      const receipt = await (async () => {
+        try {
+          return await window.zen.applyWorkflow({
+            workflowId: item.workflow.id,
+            ops: withTemplates.ops
+          })
+        } finally {
+          await settle()
+        }
+      })()
+      setRecord({ workflowId: item.workflow.id, receipt, undone: null, undoError: null, moves })
       // The two op kinds the main process cannot perform (a toast and the
       // clipboard live here, not there) happen now, and only for a run that
       // stood: a rolled-back run announcing itself, or writing its output to
@@ -3692,8 +3726,20 @@ export function WorkflowsView(): JSX.Element {
     }
 
     setUndoing(true)
+    // The notes the run moved go back, and an editor open on one goes back
+    // with it, the way it followed the run forward.
+    const settle = useStore.getState().followWorkflowMoves(
+      (current.moves ?? []).map(({ from, to }) => ({ from: to, to: from })),
+      { reverting: true }
+    )
     try {
-      const result = await window.zen.undoWorkflowRun(current.receipt.runId)
+      const result = await (async () => {
+        try {
+          return await window.zen.undoWorkflowRun(current.receipt.runId)
+        } finally {
+          await settle()
+        }
+      })()
       setRecord((latest) =>
         latest && latest.receipt.runId === current.receipt.runId
           ? { ...latest, undone: result, undoError: null }

@@ -12,3 +12,8 @@ export function noteEditorMatches(view: EditorView, path: string, paneId: string
   const registered = noteEditors.get(view)
   return registered?.paneId === paneId && registered.path() === path
 }
+
+/** The note path a registered editor shows right now, or null. */
+export function noteEditorPath(view: EditorView): string | null {
+  return noteEditors.get(view)?.path() ?? null
+}

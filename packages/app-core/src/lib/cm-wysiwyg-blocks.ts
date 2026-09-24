@@ -7,7 +7,7 @@
  * WYSIWYG-only: registered via `wysiwygExtensions()`; never loads in Split.
  */
 import { syntaxTree } from '@codemirror/language'
-import { RangeSetBuilder, type EditorState } from '@codemirror/state'
+import { RangeSetBuilder } from '@codemirror/state'
 import {
   Decoration,
   type DecorationSet,
@@ -17,18 +17,6 @@ import {
   WidgetType
 } from '@codemirror/view'
 import { calloutGroupFor } from './callout-types'
-/** Line number (1-based) of the closing `---` of leading YAML frontmatter,
- *  or -1 when there is none. Lets us leave the frontmatter fences to the
- *  frontmatter styling rather than rendering them as horizontal rules.
- *  (Inlined: the PR's full frontmatter-properties module isn't ported.) */
-function frontmatterEndLine(state: EditorState): number {
-  const doc = state.doc
-  if (doc.lines < 2 || doc.line(1).text.trim() !== '---') return -1
-  for (let i = 2; i <= doc.lines; i++) {
-    if (doc.line(i).text.trim() === '---') return i
-  }
-  return -1
-}
 
 const quoteLine = Decoration.line({ class: 'cm-wq-quote' })
 
@@ -121,10 +109,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   const active = activeLineSet(view)
   const pending: Pending[] = []
   const quotedLines = new Set<number>()
-  // The properties widget owns the leading frontmatter (its `---` fences parse
-  // as HorizontalRule); skip that range so we don't emit an overlapping
-  // replace decoration over the same lines.
-  const fmEnd = frontmatterEndLine(state)
+  // The leading frontmatter is not part of the markdown tree (note grammar,
+  // cm-markdown-language.ts), so its fences never show up as HorizontalRule
+  // here; the properties widget owns those lines.
 
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(state).iterate({
@@ -187,7 +174,6 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
         if (node.name === 'HorizontalRule') {
           const lineNo = state.doc.lineAt(node.from).number
-          if (fmEnd >= 1 && lineNo <= fmEnd) return // leave frontmatter to the properties widget
           if (active.has(lineNo)) return // reveal `---` source on the active line
           pending.push({ from: node.from, to: node.to, deco: hrRule, line: false })
           return

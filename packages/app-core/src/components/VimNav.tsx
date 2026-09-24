@@ -39,6 +39,7 @@ import {
   sequenceTokenFromEvent
 } from '../lib/keymaps'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
+import { convertTableToDatabase } from '../lib/table-to-database'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
   dispatchKeyboardContextMenu,
@@ -257,6 +258,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderToggleFavorite'),
         label: 'Toggle favorite',
         detail: 'Add or remove the active note from Favorites.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderTableToDatabase'),
+        label: 'Table to database',
+        detail: 'Turn the table under the cursor into a database, linked from the note.'
       }
       ]
     }
@@ -1068,6 +1074,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.toggleFavoriteActiveNote()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderTableToDatabase') && editorNormalMode) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          if (state.editorViewRef) void convertTableToDatabase(state.editorViewRef)
           return
         }
         resetLeader()

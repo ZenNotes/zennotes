@@ -153,7 +153,7 @@ export const NODE_DEFS: readonly NodeDef[] = [
     category: 'source',
     title: 'Notes in folder',
     description:
-      'Starts a pipeline with the notes in a folder, subfolders included.',
+      'Starts a pipeline with the notes in a folder, subfolders included. The four system names (inbox, quick, archive, trash) mean those folders wherever the vault keeps them: on a vault whose notes live at the root, `folder inbox` is the vault root.',
     example: 'inbox = folder inbox',
     params: [p('folder', 'folder')],
     source: true,
@@ -259,7 +259,7 @@ export const NODE_DEFS: readonly NodeDef[] = [
     category: 'filter',
     title: 'In folder',
     description:
-      'Keeps only the notes that live inside a folder, subfolders included.',
+      'Keeps only the notes that live inside a folder, subfolders included. The four system names mean the system folders wherever the vault keeps them, as with `folder`.',
     example: 'in inbox/projects',
     params: [p('folder', 'folder')],
     source: false,

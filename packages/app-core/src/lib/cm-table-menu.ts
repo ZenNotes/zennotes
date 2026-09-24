@@ -28,6 +28,10 @@ export interface TableMenuRequest {
   col: number
   model: MarkdownTable
   apply: (next: MarkdownTable, focus?: { row: number; col: number }) => void
+  /** Turn the whole table into a `.base` database and leave a link in its
+   *  place (#832). Unlike `apply`, this leaves the table model alone: the
+   *  converter reads the committed document itself. Omitted = no such item. */
+  convertToDatabase?: () => void
 }
 
 type MenuItem =
@@ -43,7 +47,7 @@ export function closeTableContextMenu(): void {
 
 export function openTableContextMenu(req: TableMenuRequest): void {
   closeTableContextMenu()
-  const { row, col, model, apply } = req
+  const { row, col, model, apply, convertToDatabase } = req
   // Restore focus to whatever opened the menu (e.g. a table cell) on close,
   // unless an action ran — that focuses its own target cell.
   const previouslyFocused = document.activeElement as HTMLElement | null
@@ -142,7 +146,13 @@ export function openTableContextMenu(req: TableMenuRequest): void {
       kind: 'item',
       label: 'Sort column (Z → A)',
       run: () => apply(sortByColumn(model, col, 'desc'))
-    }
+    },
+    ...(convertToDatabase
+      ? [
+          { kind: 'sep' } as const,
+          { kind: 'item', label: 'Convert to database…', run: convertToDatabase } as const
+        ]
+      : [])
   ]
 
   const menu = document.createElement('div')

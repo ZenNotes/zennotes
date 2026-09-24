@@ -3,6 +3,9 @@ import { externalLinkUrl } from './internal-links'
 import { openVaultAssetExternally } from './external-file-link'
 import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
 import { resolveAssetPathAmong, stripQueryAndHash } from './asset-path-resolution'
+import type { PreviewEditRequest } from './preview-outline-jump'
+
+type RequestEdit = (request?: PreviewEditRequest | null) => void
 
 const IMAGE_EXTENSIONS = new Set([
   '.apng',
@@ -131,7 +134,8 @@ function buildImageEmbed(
   img: HTMLImageElement,
   rawHref: string,
   resolvedUrl: string,
-  onRequestEdit?: (() => void) | null,
+  sourceLine: number | null,
+  onRequestEdit?: RequestEdit | null,
   onOpenAsset?: (() => void) | null
 ): HTMLElement {
   const figure = document.createElement('figure')
@@ -144,6 +148,10 @@ function buildImageEmbed(
   figure.dataset.localAssetUrl = resolvedUrl
   figure.dataset.localAssetKind = 'image'
   figure.dataset.localAssetHref = rawHref
+  // The figure stands in for the stamped paragraph it replaces, so the
+  // split scroll sync and the reading position carried into Edit still see
+  // this block's source line. (#822)
+  if (sourceLine != null) figure.dataset.sourceLine = String(sourceLine)
 
   const frame = document.createElement('div')
   frame.className = 'local-image-embed-frame'
@@ -156,7 +164,7 @@ function buildImageEmbed(
     editButton.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      onRequestEdit()
+      onRequestEdit({ sourceLine, blockClientTop: figure.getBoundingClientRect().top })
     })
     controlsTop.append(editButton)
   }
@@ -374,7 +382,7 @@ export function enhanceLocalAssetNodes(
   options: {
     vaultRoot: string | null | undefined
     notePath: string | null | undefined
-    onRequestEdit?: (() => void) | null
+    onRequestEdit?: RequestEdit | null
     /** When set, PDF embeds matching this vault-relative path are
      *  collapsed to a compact placeholder instead of a full iframe. */
     pinnedAssetPath?: string | null
@@ -448,11 +456,13 @@ export function enhanceLocalAssetNodes(
     const paragraph = isStandaloneImageParagraph(img)
     if (!paragraph || paragraph.dataset.assetEmbed === 'true') return
     paragraph.dataset.assetEmbed = 'true'
+    const sourceLine = Number(paragraph.dataset.sourceLine)
     paragraph.replaceWith(
       buildImageEmbed(
         img,
         raw,
         resolved,
+        Number.isFinite(sourceLine) && sourceLine >= 1 ? sourceLine : null,
         onRequestEdit,
         assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
       )

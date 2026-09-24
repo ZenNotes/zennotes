@@ -11,6 +11,11 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
+import {
+  HALF_PAGE_MOTION,
+  halfPageMotionArgs,
+  registerHalfPageMotion,
+} from "../lib/cm-vim-half-page-motion";
 import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
 import { registerReflowOperator } from "../lib/cm-vim-reflow";
 import {
@@ -47,6 +52,7 @@ import {
 } from "../lib/internal-links";
 import {
   buildMoveNotePrompt,
+  moveNoteVocabulary,
   parseMoveNoteTarget,
   parseTemplateDestination,
   validateMoveNoteTarget,
@@ -142,48 +148,22 @@ function paneMapBindings(
   return [...new Set(bindings)];
 }
 
-/**
- * Clamped half-page scroll for the editor, bound to Ctrl+D / Ctrl+U.
- *
- * Replaces CodeMirror-Vim's built-in `<C-d>`/`<C-u>` (`moveByScroll`), which
- * derives its scroll target from the cursor's pixel coordinates. With live-
- * preview decorations and folded headings shifting block heights, that math
- * can resolve to the top of the document, snapping the cursor and viewport
- * back to line 1 at the end of a note. Moving by display lines and scrolling
- * by a fixed half-viewport — both clamped to the document bounds — can never
- * wrap. Mirrors the clamped preview scroll (`scrollPreviewBy`) in VimNav.
- */
-function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
-  if (!view) return;
-  const scroller = view.scrollDOM;
-  const half = Math.max(1, Math.round(scroller.clientHeight / 2));
-  const lineHeight = view.defaultLineHeight || 18;
-  const steps = Math.max(1, Math.round(half / lineHeight));
-  let range = view.state.selection.main;
-  for (let i = 0; i < steps; i++) {
-    const next = view.moveVertically(range, forward);
-    if (next.head === range.head) break; // reached the first/last line — stop, never wrap
-    range = next;
-  }
-  const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-  const nextTop = Math.max(
-    0,
-    Math.min(maxTop, scroller.scrollTop + (forward ? half : -half)),
-  );
-  view.dispatch({ selection: { anchor: range.head } });
-  scroller.scrollTop = nextTop;
-}
+type VimKeymapMapping = {
+  id: KeymapId;
+  bindings: string[];
+  // VimNav's global fallback stands down while the editor has focus (#578),
+  // so anything that used to reach it from a standing selection has to be
+  // mapped in visual context here as well.
+  contexts?: Array<"normal" | "visual">;
+} & (
+  | { action: string }
+  // A motion moves Vim's own selection head, so it also extends a visual
+  // selection; an action cannot (#825).
+  | { motion: string; motionArgs: Record<string, unknown> }
+);
 
 function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{
-    id: KeymapId;
-    action: string;
-    bindings: string[];
-    // VimNav's global fallback stands down while the editor has focus (#578),
-    // so anything that used to reach it from a standing selection has to be
-    // mapped in visual context here as well.
-    contexts?: Array<"normal" | "visual">;
-  }> = [
+  const mappings: VimKeymapMapping[] = [
       {
         id: "vim.harperNext",
         action: "zenHarperNext",
@@ -313,16 +293,25 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
           toVimSequence(getKeymapBinding(overrides, "vim.unfoldAll")),
         ].filter((binding): binding is string => !!binding),
       },
+      // Half-page keys are a motion in normal AND visual context, so `v` +
+      // Ctrl+D grows the selection as far as Ctrl+D moves the cursor (#825).
+      // Operator-pending (`d<C-d>`) is left to Vim's default motion, like
+      // j/k. The floating, Quick Note and external-file windows map the
+      // same motion to the default chords (`mapDefaultHalfPageKeys`).
       {
         id: "nav.halfPageDown",
-        action: "zenHalfPageDown",
+        contexts: ["normal", "visual"],
+        motion: HALF_PAGE_MOTION,
+        motionArgs: halfPageMotionArgs(true),
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "nav.halfPageDown")),
         ].filter((binding): binding is string => !!binding),
       },
       {
         id: "nav.halfPageUp",
-        action: "zenHalfPageUp",
+        contexts: ["normal", "visual"],
+        motion: HALF_PAGE_MOTION,
+        motionArgs: halfPageMotionArgs(false),
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "nav.halfPageUp")),
         ].filter((binding): binding is string => !!binding),
@@ -342,7 +331,13 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
     }
     for (const binding of mapping.bindings) {
       for (const context of contexts) {
-        Vim.mapCommand(binding, "action", mapping.action, {}, { context });
+        if ("motion" in mapping) {
+          Vim.mapCommand(binding, "motion", mapping.motion, mapping.motionArgs, {
+            context,
+          });
+        } else {
+          Vim.mapCommand(binding, "action", mapping.action, {}, { context });
+        }
       }
     }
     syncedVimBindings[mapping.id] = mapping.bindings;
@@ -576,6 +571,7 @@ function registerVimCommands(): void {
     () => useStore.getState().vimWrappedLineMotions,
   );
   registerHeadingMotion();
+  registerHalfPageMotion();
   registerReflowOperator();
 
   Vim.defineEx("write", "w", () => {
@@ -1119,20 +1115,26 @@ function registerVimNoteCommands(): void {
     const active = state.activeNote;
     if (!active) return;
 
-    const value = raw.trim();
-    let target = value;
+    const vocabulary = moveNoteVocabulary(
+      state.vaultSettings,
+      state.systemFolderLabels,
+      state.folders,
+    );
+    let target: string | null = raw.trim();
     if (!target) {
-      target =
-        (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? "";
-      if (!target) return;
+      // Empty is an answer (the notes root); only null is the Cancel.
+      target = await promptApp(
+        buildMoveNotePrompt(active, state.folders, vocabulary),
+      );
+      if (target === null) return;
     }
 
-    const error = validateMoveNoteTarget(target);
+    const error = validateMoveNoteTarget(target, vocabulary);
     if (error) {
       alertEditorError(error);
       return;
     }
-    const dest = parseMoveNoteTarget(target);
+    const dest = parseMoveNoteTarget(target, vocabulary);
     await state.moveNote(active.path, dest.folder, dest.subpath);
   };
 
@@ -1299,12 +1301,6 @@ function registerVimNoteCommands(): void {
   Vim.defineAction("unfoldHeadingAtCursor", () => runFold(unfoldCode as never));
   Vim.defineAction("foldAllHeadings", () => runFold(foldAll as never));
   Vim.defineAction("unfoldAllHeadings", () => runFold(unfoldAll as never));
-  Vim.defineAction("zenHalfPageDown", (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, true),
-  );
-  Vim.defineAction("zenHalfPageUp", (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, false),
-  );
   Vim.defineEx("fold", "fold", () => runFold(foldCode as never));
   Vim.defineEx("unfold", "unfold", () => runFold(unfoldCode as never));
   Vim.defineEx("foldall", "foldall", () => runFold(foldAll as never));
@@ -1424,7 +1420,13 @@ function registerCommandPaletteEx(): void {
   };
 
   const names = new Set<string>(MANUAL_EX_NAMES);
-  for (const cmd of buildCommands()) {
+  // Register every command, gated or not. This runs when the Editor mounts,
+  // before any pane has a view or a note, and buildCommands() drops every
+  // command whose `when` says no at that instant, which is the whole
+  // editor-scoped family (:editor_reflow_paragraph, :task_forward, and the
+  // rest) for the life of the window. `runCommand` re-checks `when` when the
+  // name is actually typed, so nothing runs out of context.
+  for (const cmd of buildCommands({ includeUnavailable: true })) {
     const name = commandIdToExName(cmd.id);
     if (names.has(name)) continue;
     names.add(name);

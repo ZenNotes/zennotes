@@ -12,6 +12,8 @@ import { getPromptRequest, promptApp } from './prompt-requests'
 import { parentDirOf } from './manual-order'
 import {
   buildMoveDirectoryPrompt,
+  moveNoteVocabulary,
+  type MoveNoteVocabulary,
   parseMoveNoteTarget,
   validateMoveDirectoryTarget
 } from './move-note'
@@ -150,14 +152,19 @@ export async function requestMoveBrowseDirectory(
   if (!context) return 'unavailable'
   const { isCurrent, targetExists } = context
   try {
+    const vocabulary = (): MoveNoteVocabulary => {
+      const state = useStore.getState()
+      return moveNoteVocabulary(state.vaultSettings, state.systemFolderLabels, state.folders)
+    }
     const validate = (value: string): string | null =>
-      validateMoveDirectoryTarget(directory, value, useStore.getState().folders)
+      validateMoveDirectoryTarget(directory, value, useStore.getState().folders, vocabulary())
     const target = await promptApp({
-      ...buildMoveDirectoryPrompt(directory, useStore.getState().folders),
+      ...buildMoveDirectoryPrompt(directory, useStore.getState().folders, vocabulary()),
       validate
     })
-    if (!target || validate(target)) return 'cancelled'
-    const parent = parseMoveNoteTarget(target).subpath
+    // Empty is an answer (the notes root); only null is the Cancel.
+    if (target === null || validate(target)) return 'cancelled'
+    const parent = parseMoveNoteTarget(target, vocabulary()).subpath
     if (parent === parentDirOf(directory)) return 'cancelled'
     if (!isCurrent() || !targetExists()) return 'stale'
     const leaf = directory.split('/').pop()!

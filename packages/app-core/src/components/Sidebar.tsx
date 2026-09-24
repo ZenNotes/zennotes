@@ -24,7 +24,7 @@ import {
   useStore,
 } from "../store";
 import { Button } from "./ui/Button";
-import { buildMoveNotePrompt, parseMoveNoteTarget } from "../lib/move-note";
+import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from "../lib/move-note";
 import { buildTagTree, extractTags, flattenTagTree } from "../lib/tags";
 import { isTypstPreamblePath, resolveTypstPreambleFolder } from "../lib/typst-preamble";
 import { focusEditorNormalMode } from "../lib/editor-focus";
@@ -50,6 +50,7 @@ import {
   FolderPlusIcon,
   NotePlusIcon,
   PanelLeftIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -64,6 +65,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
+import { canRenameVault, renameVaultWithPrompt } from '../lib/rename-vault'
 import { naturalCompare } from '../lib/natural-sort'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
@@ -449,6 +451,7 @@ export function Sidebar(): JSX.Element {
   const allFolders = useStore((s) => s.folders);
   const hasAssetsDir = useStore((s) => s.hasAssetsDir);
   const focusedPanel = useStore((s) => s.focusedPanel);
+  const vimMode = useStore((s) => s.vimMode);
   const sidebarCursorIndex = useStore((s) => s.sidebarCursorIndex);
   const activeNote = useStore((s) => s.activeNote);
   const activeDirty = useStore((s) => s.activeDirty);
@@ -579,6 +582,10 @@ export function Sidebar(): JSX.Element {
     window.zen.getCapabilities().supportsRemoteWorkspace;
   const canSwitchVaults = canSwitchLocalVaults || canUseRemoteWorkspaces;
   const canCloseCurrentVault = canSwitchLocalVaults && workspaceMode !== "remote" && !!vault;
+  // A display name (#692) is a vault.json setting, so any host that can write
+  // one can rename; only a temporary folder session and a remote workspace
+  // cannot.
+  const canRenameCurrentVault = canRenameVault({ vault, workspaceMode });
   const absolutePathLabel =
     workspaceMode === "remote" ? "Copy Server Path" : "Copy Absolute Path";
   const canManageAssetFiles =
@@ -2213,9 +2220,12 @@ export function Sidebar(): JSX.Element {
       items.push({
         label: "Move…",
         onSelect: async () => {
-          const target = await promptApp(buildMoveNotePrompt(n, allFolders));
-          if (!target) return;
-          const dest = parseMoveNoteTarget(target);
+          const state = useStore.getState();
+          const vocabulary = moveNoteVocabulary(state.vaultSettings, state.systemFolderLabels, allFolders);
+          const target = await promptApp(buildMoveNotePrompt(n, allFolders, vocabulary));
+          // Empty is an answer (the notes root); only null is the Cancel.
+          if (target === null) return;
+          const dest = parseMoveNoteTarget(target, vocabulary);
           await moveNoteAction(n.path, dest.folder, dest.subpath);
         },
       });
@@ -2655,6 +2665,15 @@ export function Sidebar(): JSX.Element {
     }
 
     items.push({ kind: "separator" });
+    if (canRenameCurrentVault) {
+      items.push({
+        label: "Rename Vault…",
+        icon: <PencilIcon className="h-4 w-4" />,
+        onSelect: async () => {
+          await renameVaultWithPrompt();
+        },
+      });
+    }
     if (canCloseCurrentVault) {
       items.push({
         label: "Close Current Vault",
@@ -2696,6 +2715,7 @@ export function Sidebar(): JSX.Element {
     return items;
   }, [
     canCloseCurrentVault,
+    canRenameCurrentVault,
     canSwitchLocalVaults,
     canUseRemoteWorkspaces,
     closeVault,
@@ -2918,7 +2938,11 @@ export function Sidebar(): JSX.Element {
   return (
     <SidebarScrollerContext.Provider value={sidebarScrollRef}>
     <aside
-      className={`glass-sidebar relative flex shrink-0 flex-col pt-3${isSidebarFocused ? " panel-focused" : ""}`}
+      // The pane ring answers "which pane do Ctrl+W h/j/k/l move from", a
+      // question only Vim mode asks; a click into the sidebar with Vim off
+      // used to draw it too, and read as a terminal to people who never use
+      // the keys it stands for.
+      className={`glass-sidebar relative flex shrink-0 flex-col pt-3${isSidebarFocused && vimMode ? " panel-focused" : ""}`}
       style={{ width: sidebarWidth }}
       // Programmatic focus target for focusSidebarPanel (the Focus Sidebar
       // command); -1 keeps it out of the tab order.
@@ -6285,6 +6309,13 @@ function DateNotesNav({
   return <div className="flex flex-col">{rows}</div>;
 }
 
+/**
+ * The key chip on the cursor row (`m` opens the row's menu). The key is
+ * Vim's: VimNav owns every single-letter shortcut and stands down entirely
+ * with Vim mode off, so with Vim off the chip named a key that did nothing.
+ * Read from the store here rather than threaded through six row components,
+ * which is one subscription, since only the cursor row mounts a chip.
+ */
 function RowKeyHint({
   active,
   keyLabel,
@@ -6295,7 +6326,9 @@ function RowKeyHint({
   keyLabel: string;
   label?: string;
   compact?: boolean;
-}): JSX.Element {
+}): JSX.Element | null {
+  const vimMode = useStore((s) => s.vimMode);
+  if (!vimMode) return null;
   return (
     <span
       className={[

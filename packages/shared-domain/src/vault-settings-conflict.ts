@@ -22,6 +22,7 @@ export type VaultSettingsSection = keyof VaultSettings
 // section list is what the settings conflict prompt offers, so a new section
 // must be added (or knowingly left out) rather than silently never shown.
 const SECTIONS: Record<VaultSettingsSection, true> = {
+  displayName: true,
   primaryNotesLocation: true,
   dailyNotes: true,
   weeklyNotes: true,

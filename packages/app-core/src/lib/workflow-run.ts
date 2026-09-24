@@ -10,6 +10,8 @@
 // after their vault changes, so each one is worth testing without mounting
 // React. Nothing in this file writes, and nothing in it touches the bridge.
 
+import { folderTarget, moveTarget, renameTarget } from '@shared/workflows/paths'
+import type { SystemFolderDirs } from '@shared/workflows/paths'
 import type { NoteTemplate } from '@bridge-contract/templates'
 import type {
   WorkflowRunReceipt,
@@ -565,4 +567,42 @@ export function interruptedRunHeadline(run: WorkflowRunSummary): string {
     'note',
     'notes'
   )} on disk still carry it.`
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Where a run promises to put the notes it moves                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Each note a run moves, with the path the plan promises it ends up at, the
+ * chain of a note moved twice folded to its last stop. Read by the store so
+ * an open editor follows its note (`followWorkflowMoves`). The applier can
+ * still land a note at a suffixed name when the promised one is taken, which
+ * is why the store checks the file before it trusts a promise.
+ */
+export function promisedMoves(
+  ops: readonly WorkflowOp[],
+  systemFolderDirs?: SystemFolderDirs
+): { from: string; to: string }[] {
+  const finalOf = new Map<string, string>()
+  for (const op of ops) {
+    let to: string
+    switch (op.kind) {
+      case 'move':
+        to = moveTarget(op.path, op.to)
+        break
+      case 'rename':
+        to = renameTarget(op.path, op.to)
+        break
+      case 'archive':
+      case 'trash':
+        to = folderTarget(op.kind, op.path, systemFolderDirs)
+        break
+      default:
+        continue
+    }
+    const origin = [...finalOf.entries()].find(([, current]) => current === op.path)?.[0]
+    finalOf.set(origin ?? op.path, to)
+  }
+  return [...finalOf.entries()].map(([from, to]) => ({ from, to }))
 }

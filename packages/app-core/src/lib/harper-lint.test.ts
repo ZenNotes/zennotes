@@ -97,6 +97,30 @@ describe.skipIf(process.platform === 'win32')('Harper session', () => {
     expect(await other.lint(text)).toEqual([])
   }, 30_000)
 
+  it('keeps the dictionary and the ignored suggestions across a dialect change (#829)', async () => {
+    const current = await session()
+    const text = 'This is teh answer.'
+    await current.addWord('Zennotez')
+    const [first] = await current.lint(text)
+    await current.ignore(text, first)
+    const before = await current.exportState()
+    expect(before.words).toEqual(['Zennotez'])
+    expect(before.ignoredLints).toHaveLength(1)
+
+    // harper.js answers a new dialect with a brand-new Linter and frees the
+    // old one, and the dictionary and the ignore list live in the Linter.
+    await current.configure({ dialect: 'british', lintConfig: {} })
+    expect(await current.exportState()).toEqual(before)
+    expect((await current.lint('Open Zennotez today.')).map((lint) => lint.problem)).not.toContain(
+      'Zennotez'
+    )
+    expect((await current.lint(text)).map((lint) => lint.kind)).not.toContain(first.kind)
+
+    // The same dialect again is not a change, so nothing is rebuilt or lost.
+    await current.configure({ dialect: 'british', lintConfig: {} })
+    expect(await current.exportState()).toEqual(before)
+  }, 60_000)
+
   it('does not lint a note past the size cap', async () => {
     const current = await session()
     const text = 'teh '.repeat(HARPER_LINT_CHAR_LIMIT / 4 + 1)

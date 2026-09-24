@@ -123,27 +123,40 @@ export function harperSessionFromLinter(
     async ignore(text, lint) {
       await linter.ignoreLint(text, lint.raw)
     },
-    async exportState() {
-      return {
-        words: await linter.exportWords(),
-        ignoredLints: harperIgnoredLintHashes(await linter.exportIgnoredLints())
-      }
-    },
+    exportState: () => exportState(linter),
     async configure(options) {
-      await linter.setDialect(toDialect(harper.Dialect, options.dialect))
+      const dialect = toDialect(harper.Dialect, options.dialect)
+      if ((await linter.getDialect()) !== dialect) {
+        // harper.js answers a new dialect by freeing the Linter and building
+        // another, and the dictionary and the ignore list live inside the
+        // Linter. Carry them across, or the next export of this session would
+        // hand the vault an empty list in place of its words (#829).
+        const held = await exportState(linter)
+        await linter.setDialect(dialect)
+        await importState(linter, held)
+      }
       await linter.setLintConfig(options.lintConfig)
     },
-    async importState(state) {
-      await linter.clearWords()
-      await linter.clearIgnoredLints()
-      if (state.words.length > 0) await linter.importWords(state.words)
-      const json = harperIgnoredLintsJson(state.ignoredLints)
-      if (json) await linter.importIgnoredLints(json)
-    },
+    importState: (state) => importState(linter, state),
     dispose() {
       void linter.dispose?.()
     }
   }
+}
+
+async function exportState(linter: Linter): Promise<HarperVaultState> {
+  return {
+    words: await linter.exportWords(),
+    ignoredLints: harperIgnoredLintHashes(await linter.exportIgnoredLints())
+  }
+}
+
+async function importState(linter: Linter, state: HarperVaultState): Promise<void> {
+  await linter.clearWords()
+  await linter.clearIgnoredLints()
+  if (state.words.length > 0) await linter.importWords(state.words)
+  const json = harperIgnoredLintsJson(state.ignoredLints)
+  if (json) await linter.importIgnoredLints(json)
 }
 
 async function createSession(

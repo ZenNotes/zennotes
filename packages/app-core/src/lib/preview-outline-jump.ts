@@ -46,6 +46,116 @@ export function previewShowsNote(previewScrollEl: ParentNode | null, notePath: s
   return article?.dataset.notePath === notePath
 }
 
+/**
+ * The stretch of source the reading view has on screen. `top` is the stamped
+ * line of the first block still (partly) in view, `end` the line of the first
+ * block below the fold, or null when the view reaches the end of the note.
+ */
+export interface PreviewVisibleSourceLines {
+  top: number
+  end: number | null
+}
+
+/**
+ * Read the visible source range off the rendered blocks. Null when nothing
+ * stamped is on screen: an empty note, or a render of the previous note
+ * (check `previewShowsNote` first).
+ */
+export function previewVisibleSourceLines(
+  previewScrollEl: HTMLElement | null
+): PreviewVisibleSourceLines | null {
+  if (!previewScrollEl) return null
+  const viewport = previewScrollEl.getBoundingClientRect()
+  let top: number | null = null
+  for (const block of previewScrollEl.querySelectorAll<HTMLElement>('[data-source-line]')) {
+    const line = Number(block.dataset.sourceLine)
+    if (!Number.isFinite(line)) continue
+    const rect = block.getBoundingClientRect()
+    if (top == null) {
+      if (rect.bottom > viewport.top + 1) top = line
+    } else if (rect.top >= viewport.bottom) {
+      return { top, end: line }
+    }
+  }
+  return top == null ? null : { top, end: null }
+}
+
+/**
+ * Whether `line` falls inside what the reader can see. The block that starts
+ * at `top` counts even when its first pixels are scrolled off, so a caret
+ * left on a heading whose section is on screen is still "in view".
+ */
+export function previewShowsSourceLine(
+  visible: PreviewVisibleSourceLines | null,
+  line: number
+): boolean {
+  if (!visible) return false
+  return line >= visible.top && (visible.end == null || line < visible.end)
+}
+
+/** A rendered block the reader pointed at, resolved to where it came from. */
+export interface PreviewEditRequest {
+  /** 1-based source line of the block, null when the pointer sat off any stamped block. */
+  sourceLine: number | null
+  /** Where the block's top edge is on screen (client coordinates), when known. */
+  blockClientTop: number | null
+}
+
+// Things in the reading view that own their double-click, or whose lines are
+// not this note's: links (the first click already navigated), controls, asset
+// embeds (the image embed offers its own "Edit this block" button), diagrams
+// (double-click resets their pan and zoom), Excalidraw frames, and transcluded
+// notes (their stamps count lines of the expanded markdown, not of this file).
+const PREVIEW_EDIT_INERT_SELECTOR = [
+  'a',
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'summary',
+  'label',
+  'iframe',
+  'video',
+  'audio',
+  'canvas',
+  '[data-local-asset-kind]',
+  '[data-zen-diagram-kind]',
+  '[data-excalidraw-embed]',
+  '.note-embed'
+].join(', ')
+
+/**
+ * The block a double-click in the reading view opens for editing, or null when
+ * the click landed on something that should keep its own behaviour.
+ */
+export function previewEditRequestForTarget(target: EventTarget | null): PreviewEditRequest | null {
+  if (!(target instanceof Element)) return null
+  if (target.closest(PREVIEW_EDIT_INERT_SELECTOR)) return null
+  const block = target.closest<HTMLElement>('[data-source-line]')
+  if (!block) return null
+  const line = Number(block.dataset.sourceLine)
+  if (!Number.isFinite(line) || line < 1) return null
+  return { sourceLine: line, blockClientTop: block.getBoundingClientRect().top }
+}
+
+/**
+ * Where the landed line should sit in the editor so it stays at the height its
+ * rendered block had on screen and the eye does not have to travel. Clamped so
+ * the line neither hugs the top edge nor falls off the bottom; a block whose
+ * position is unknown lands at the minimum margin, like an outline jump.
+ */
+export function editorLandingTopMargin(
+  blockClientTop: number | null,
+  viewportClientTop: number,
+  viewportHeight: number,
+  minMargin: number
+): number {
+  if (blockClientTop == null) return minMargin
+  const maxMargin = Math.max(minMargin, viewportHeight - 2 * minMargin)
+  const offset = Math.round(blockClientTop - viewportClientTop)
+  return Math.max(minMargin, Math.min(maxMargin, offset))
+}
+
 const ATX_HEADING_TEXT_OFFSET_RE = /^(#{1,6})[ \t]+/
 
 export function outlineHeadingTextOffset(lineText: string): number {

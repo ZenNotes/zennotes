@@ -6,8 +6,10 @@ import { confirmApp, getConfirmRequest } from "./lib/confirm-requests";
 import { getPromptRequest, promptApp } from "./lib/prompt-requests";
 import {
   buildMoveNotePrompt,
+  moveNoteVocabulary,
   parseMoveNoteTarget,
   validateMoveNoteTarget,
+  type MoveNoteVocabulary,
 } from "./lib/move-note";
 import { noteFolderSubpath } from "./lib/vault-layout";
 import {
@@ -29,18 +31,27 @@ export type NoteActionResult =
 
 let pending = false;
 
-function validateDestination(value: string): string | null {
-  const error = validateMoveNoteTarget(value);
+function validateDestination(
+  value: string,
+  vocabulary: MoveNoteVocabulary,
+): string | null {
+  const error = validateMoveNoteTarget(value, vocabulary);
   if (error) return error;
-  const { subpath } = parseMoveNoteTarget(value);
-  if (
-    /[\u0000-\u001f]/.test(value) ||
-    subpath.split("/").some((part) => part.startsWith("."))
-  )
-    return "Choose a folder without hidden names or parent-directory segments.";
+  const { subpath } = parseMoveNoteTarget(value, vocabulary);
   if (formDirContaining(subpath))
     return "Database record folders are not move destinations.";
   return null;
+}
+
+/** The prompt speaks the sidebar's language for this vault (see move-note). */
+function moveVocabulary(
+  state: ReturnType<typeof useStore.getState>,
+): MoveNoteVocabulary {
+  return moveNoteVocabulary(
+    state.vaultSettings,
+    state.systemFolderLabels,
+    state.folders,
+  );
 }
 
 function captureNoteActionContext(host: NoteActionHost): () => boolean {
@@ -104,25 +115,25 @@ export async function requestMoveNote(
 ): Promise<NoteActionResult> {
   return requestNoteAction(host, path, async (state, note, isCurrent) => {
     const subpath = noteFolderSubpath(note, state.vaultSettings);
-    const initialValue =
-      note.folder === "archive" || note.folder === "inbox"
-        ? [note.folder, subpath].filter(Boolean).join("/")
-        : "inbox";
+    const vocabulary = moveVocabulary(state);
+    const validate = (value: string): string | null =>
+      validateDestination(value, vocabulary);
     const target = await promptApp({
       ...buildMoveNotePrompt(
         note,
         state.folders.filter((folder) => !formDirContaining(folder.subpath)),
+        vocabulary,
       ),
-      initialValue,
-      validate: validateDestination,
+      validate,
     });
-    if (!target || validateDestination(target)) return "cancelled";
+    // Empty is an answer here (the notes root); only null is the Cancel.
+    if (target === null || validate(target)) return "cancelled";
     if (
       !isCurrent() ||
       !useStore.getState().notes.some((note) => note.path === path)
     )
       return "stale";
-    const destination = parseMoveNoteTarget(target);
+    const destination = parseMoveNoteTarget(target, vocabulary);
     if (destination.folder === note.folder && destination.subpath === subpath)
       return "cancelled";
     await useStore
@@ -298,13 +309,14 @@ export async function requestNoteBatch(
       if (!valid()) return 'unavailable'
       let destination: ReturnType<typeof parseMoveNoteTarget> | null = null
       if (action === 'move') {
+        const vocabulary = moveVocabulary(state)
+        const validate = (value: string): string | null => validateDestination(value, vocabulary)
         const target = await promptApp({
-          ...buildMoveNotePrompt({ ...first, title: `${paths.length} notes` }, state.folders.filter(folder => !formDirContaining(folder.subpath))),
-          initialValue: [first.folder === 'archive' ? 'archive' : 'inbox', noteFolderSubpath(first, state.vaultSettings)].filter(Boolean).join('/'),
-          validate: validateDestination
+          ...buildMoveNotePrompt({ ...first, title: `${paths.length} notes` }, state.folders.filter(folder => !formDirContaining(folder.subpath)), vocabulary),
+          validate
         })
-        if (!target || validateDestination(target)) return 'cancelled'
-        destination = parseMoveNoteTarget(target)
+        if (target === null || validate(target)) return 'cancelled'
+        destination = parseMoveNoteTarget(target, vocabulary)
       } else if (action === 'archive') {
         if (!(await state.confirmArchiveNotes(paths))) return 'cancelled'
       } else if (action !== 'restore') {

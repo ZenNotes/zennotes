@@ -750,6 +750,29 @@ function inFolder(note: WorkflowNote, folder: string): boolean {
   return own === target || own.startsWith(`${target}/`)
 }
 
+/** The system folder a `folder`/`in` argument names, or null for a directory. */
+function bucketNamed(folder: string): NonNullable<WorkflowNote['system']> | null {
+  const name = normalizeFolder(folder).trim().toLowerCase()
+  return name === 'inbox' || name === 'quick' || name === 'archive' || name === 'trash'
+    ? name
+    : null
+}
+
+/**
+ * `inFolder`, plus the four system names read as THE system folders. `folder
+ * trash` means the Trash rather than a directory that happens to carry that
+ * name, so on a vault with remapped system folders it matches by the reader's
+ * classification too, and `folder inbox` means the primary notes area
+ * wherever the vault keeps it. On a vault whose notes live at the root that
+ * is the root itself, which no directory name can spell: `folder ""` is
+ * refused above, and the root's own directory is that empty string (#840).
+ */
+function inFolderOrBucket(note: WorkflowNote, folder: string): boolean {
+  if (inFolder(note, folder)) return true
+  const bucket = bucketNamed(folder)
+  return bucket !== null && note.system === bucket
+}
+
 /** Whether a `folder`/`in` argument actually names something. */
 function hasFolderName(folder: string): boolean {
   return normalizeFolder(folder).trim() !== ''
@@ -947,18 +970,8 @@ async function runStep(
       const folder = argString(step, 'folder')
       if (folder === null) return missingArg(state, step, 'folder')
       if (!hasFolderName(folder)) return fail(state, '`folder` needs a name', step.line)
-      // `folder trash` / `folder archive` mean THE Trash / THE Archive, not a
-      // directory that happens to carry that name, so on a vault with remapped
-      // system folders they match by the reader's classification too.
-      const bucket = folder.trim().toLowerCase()
-      const matchesBucket =
-        bucket === 'trash' || bucket === 'archive'
-          ? (note: WorkflowNote): boolean => note.system === bucket
-          : (): boolean => false
       return keep(
-        (await allNotes(state, step.line)).filter(
-          (note) => inFolder(note, folder) || matchesBucket(note)
-        )
+        (await allNotes(state, step.line)).filter((note) => inFolderOrBucket(note, folder))
       )
     }
 
@@ -1035,7 +1048,7 @@ async function runStep(
       const folder = argString(step, 'folder')
       if (folder === null) return missingArg(state, step, 'folder')
       if (!hasFolderName(folder)) return fail(state, '`in` needs a folder name', step.line)
-      return keep(current.filter((note) => inFolder(note, folder)))
+      return keep(current.filter((note) => inFolderOrBucket(note, folder)))
     }
 
     case 'matching': {

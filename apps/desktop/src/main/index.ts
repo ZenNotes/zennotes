@@ -62,6 +62,7 @@ import {
   DEFAULT_QUICK_CAPTURE_HOTKEY,
   deleteFolder,
   deleteNote,
+  describeVault,
   duplicateAsset,
   duplicateFolder,
   duplicateNote,
@@ -107,6 +108,7 @@ import {
   type PersistedRemoteWorkspaceProfile,
   type PersistedWindowState,
   rememberLocalVault,
+  renameLocalVault,
   updateConfig,
   unarchiveNote,
   vaultInfo,
@@ -210,7 +212,11 @@ import {
   type DatabaseOps as SharedDatabaseOps,
 } from "@shared/database-ops";
 import { createAbsenceAwareReader } from "@shared/remote-absence";
-import type { DatabaseSidecar, DbRow } from "@shared/databases";
+import type {
+  DatabaseSeed,
+  DatabaseSidecar,
+  DbRow,
+} from "@shared/databases";
 import { VaultWatcher } from "./watcher";
 import { WindowVaultRegistry } from "./window-vaults";
 import { registerEphemeralRoot, isEphemeralRoot } from "./ephemeral-vaults";
@@ -1954,7 +1960,7 @@ async function setVaultForWindow(
     await ensureVaultLayout(root);
   }
   const vault = {
-    ...vaultInfo(path.resolve(root)),
+    ...(await describeVault(path.resolve(root))),
     temporary: options.ephemeral === true,
   };
   windowVaults.setLocalVault(win.id, vault);
@@ -1984,7 +1990,7 @@ async function setVault(root: string): Promise<VaultInfo> {
   if (win && !win.isDestroyed()) return await setVaultForWindow(win, root);
 
   await ensureVaultLayout(root);
-  const vault = vaultInfo(path.resolve(root));
+  const vault = await describeVault(path.resolve(root));
   currentVault = vault;
   currentWorkspaceMode = "local";
   remoteWorkspaceClient = null;
@@ -2057,6 +2063,14 @@ async function closeLocalVaultForWindow(): Promise<VaultInfo | null> {
 }
 
 async function listLocalVaults(): Promise<LocalVaultEntry[]> {
+  // The asking window's vault first: a display name that changed on disk
+  // (#692) reaches the remembered list here, so the switcher and the sidebar
+  // header, which read that list, never lag behind the vault they show.
+  const win = currentIpcWindow();
+  const open = win ? windowVaults.vaultForWindow(win.id) : currentVault;
+  if (open && (win ? windowVaults.modeForWindow(win.id) : currentWorkspaceMode) === "local") {
+    await syncLocalVaultName(open.root);
+  }
   const cfg = await loadConfig();
   let entries = cfg.localVaults;
   if (
@@ -2066,7 +2080,7 @@ async function listLocalVaults(): Promise<LocalVaultEntry[]> {
     )
   ) {
     try {
-      entries = rememberLocalVault(entries, vaultInfo(cfg.vaultRoot), 0);
+      entries = rememberLocalVault(entries, await describeVault(cfg.vaultRoot), 0);
     } catch {
       entries = [
         {
@@ -2632,13 +2646,51 @@ async function connectRemoteWorkspaceProfile(
   return result;
 }
 
+/**
+ * Re-read a local vault's display name (#692) and give every window on the
+ * root, `currentVault` and the remembered-vaults list the result. After a
+ * settings save this is what makes a rename land everywhere at once; on a
+ * renderer's getCurrentVault and on every listing it is what makes an edit
+ * to vault.json from outside (a git pull, another machine) show up. The
+ * remembered list is compared on its own, not inferred from the windows: a
+ * boot opens the vault without persisting, so the windows can already carry
+ * the name while the list still holds the one from the last visit, and the
+ * sidebar header reads the list. Returns the name in effect.
+ */
+async function syncLocalVaultName(root: string): Promise<string> {
+  const { name } = await describeVault(root);
+  windowVaults.renameLocalVault(root, name);
+  if (
+    currentVault &&
+    currentWorkspaceMode === "local" &&
+    path.resolve(currentVault.root) === path.resolve(root) &&
+    currentVault.name !== name
+  ) {
+    currentVault = { ...currentVault, name };
+  }
+  const remembered = (await loadConfig()).localVaults.find(
+    (entry) => path.resolve(entry.root) === path.resolve(root),
+  );
+  if (remembered && remembered.name !== name) {
+    await updateConfig((cfg) => ({
+      ...cfg,
+      localVaults: renameLocalVault(cfg.localVaults, root, name),
+    }));
+  }
+  return name;
+}
+
 async function loadCurrentVaultFromConfig(): Promise<VaultInfo | null> {
   const win = currentIpcWindow() ?? mainWindow;
   if (win && !win.isDestroyed()) {
     const existing = windowVaults.vaultForWindow(win.id);
-    if (existing) return existing;
+    if (existing) {
+      if (windowVaults.modeForWindow(win.id) !== "local") return existing;
+      return { ...existing, name: await syncLocalVaultName(existing.root) };
+    }
   } else if (currentVault) {
-    return currentVault;
+    if (currentWorkspaceMode !== "local") return currentVault;
+    return { ...currentVault, name: await syncLocalVaultName(currentVault.root) };
   }
   const cfg = await loadConfig();
   remoteWorkspaceConfig = cfg.remoteWorkspace;
@@ -3266,7 +3318,11 @@ function registerIpc(): void {
       return await requireRemoteWorkspaceClient().setVaultSettings(next);
     }
     const v = requireVault();
-    return await setVaultSettings(v.root, next);
+    const saved = await setVaultSettings(v.root, next);
+    // The display name may have moved with this save (#692); the windows on
+    // this root and the remembered list follow before the renderer hears back.
+    await syncLocalVaultName(v.root);
+    return saved;
   });
 
   // Per-vault workspace state (#292): open tabs, pane layout, sidebar, cursors.
@@ -3809,15 +3865,28 @@ function registerIpc(): void {
 
   handle(
     IPC.VAULT_CREATE_DATABASE,
-    async (_e, folder: NoteFolder, subpath: string, title?: string) => {
+    async (
+      _e,
+      folder: NoteFolder,
+      subpath: string,
+      title?: string,
+      seed?: DatabaseSeed,
+    ) => {
       if (isRemoteWorkspaceActive()) {
         return await databaseOpsForRemote().createDatabase(
           folder,
           subpath,
           title,
+          seed,
         );
       }
-      return await createDatabase(requireVault().root, folder, subpath, title);
+      return await createDatabase(
+        requireVault().root,
+        folder,
+        subpath,
+        title,
+        seed,
+      );
     },
   );
 

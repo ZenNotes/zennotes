@@ -53,10 +53,9 @@ import {
   undo,
   undoDepth
 } from '@codemirror/commands'
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { isImeComposing } from '../lib/ime'
 import { displayRowBoundaryKeymap } from '../lib/cm-display-row'
-import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import {
@@ -101,7 +100,7 @@ import {
 } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
-import { MIN_RIGHT_PANEL_WIDTH, useStore } from '../store'
+import { MIN_RIGHT_PANEL_WIDTH, noteDiskRevision, useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
@@ -213,15 +212,19 @@ import {
 } from '../lib/tab-scroll-memory'
 import { activeOutlineLineForCursor, parseOutline } from '../lib/outline'
 import {
+  editorLandingTopMargin,
   findRenderedHeadingForOutlineLine,
   nextOutlinePreviewSyncLockUntil,
   outlineHeadingTextOffset,
   planPreviewJump,
   previewScrollTopForHeading,
   previewShowsNote,
+  previewShowsSourceLine,
+  previewVisibleSourceLines,
   scrollTopForElementRelativeTop,
   scrollTopForScrollRatio,
-  shouldSyncPreviewFromEditorViewport
+  shouldSyncPreviewFromEditorViewport,
+  type PreviewEditRequest
 } from '../lib/preview-outline-jump'
 import {
   ArchiveIcon,
@@ -288,6 +291,7 @@ import {
 import { noteUndoHistoryFromFile, serializeNoteUndoHistory } from '../lib/note-undo-file'
 import { latestPathRewriteSeq, pathAfterRewrites } from '../lib/path-rewrites'
 import { minimalTextChange } from '../lib/minimal-text-change'
+import { isDiskChange, resetUndoHistory } from '../lib/editor-disk-sync'
 import {
   MIN_NOTE_WIDTH,
   MIN_SPLIT_NOTE_WIDTH,
@@ -420,7 +424,7 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
 
 function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] {
   return [
-    markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+    noteMarkdown(),
     customCodeFenceHighlightExtension,
     markdownLinkExtension,
     vimAwareMarkdownKeymap,
@@ -581,6 +585,46 @@ const OUTLINE_JUMP_TOP_MARGIN = 24
 const OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS = 450
 const OUTLINE_JUMP_SCROLL_SYNC_SETTLE_MS = 120
 const TASK_JUMP_HIGHLIGHT_MS = 1400
+
+/**
+ * Where the editor lands when a pane leaves Preview. (#822)
+ *
+ * - `reading-position`: the default. The caret stays put while its line is
+ *   still on screen in the reading view; once the reader has scrolled away
+ *   from it, the editor opens on the block at the top of what they were
+ *   reading instead of snapping back to a caret they left screens ago.
+ * - `caller`: the caller places the caret itself (a comment jump, a task
+ *   jump), so the reading position must not override it.
+ * - a line: a block the reader pointed at, with the viewport offset that keeps
+ *   it at the same height on screen.
+ */
+type EditorLanding =
+  | 'reading-position'
+  | 'caller'
+  | { line: number; topMargin: number }
+
+interface PendingEditorLanding {
+  path: string
+  line: number
+  topMargin: number
+}
+
+function landEditorOnLine(view: EditorView, line: number, topMargin: number): void {
+  const safeLine = Math.min(Math.max(1, line), view.state.doc.lines)
+  const targetLine = view.state.doc.line(safeLine)
+  // Focus before moving the selection. CodeMirror mirrors a new selection
+  // into the DOM only while it owns focus; dispatched into an unfocused
+  // editor, the DOM selection stays parked where the last click left it
+  // (inside the editor that Preview had hidden), and the observer's next
+  // flush reads that stale caret back as a user selection, snapping the
+  // cursor to the old line a frame before the deferred focus arrives.
+  if (!view.hasFocus) view.focus()
+  view.dispatch({
+    selection: { anchor: targetLine.from + outlineHeadingTextOffset(targetLine.text) },
+    effects: EditorView.scrollIntoView(targetLine.from, { y: 'start', yMargin: topMargin })
+  })
+}
+
 const EMPTY_COMMENTS: NoteComment[] = []
 const taskJumpHighlightEffect = StateEffect.define<number | null>()
 const taskJumpHighlightDecoration = Decoration.line({ class: 'cm-task-jump-highlight' })
@@ -1036,6 +1080,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // Preview (#543), or the target of a heading/block link followed while
   // reading (android#74). Applied and cleared from `onRendered`.
   const pendingPreviewLineRef = useRef<{ path: string; line: number } | null>(null)
+  // The reverse trip: the line the editor opens on when the pane leaves
+  // Preview, committed once the editor is back on screen. (#822)
+  const pendingEditorLandingRef = useRef<PendingEditorLanding | null>(null)
   const lastProgrammaticPreviewTopRef = useRef<number | null>(null)
   const lastRestoredPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
@@ -1082,6 +1129,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    *  accounted for. Only newer ones can explain a path change as a rename, so
    *  an old rename can never make a real note switch look like one. */
   const seenPathRewriteSeqRef = useRef(0)
+  /** The store's disk revision for the note on screen that this editor has
+   *  accounted for. A body change under the same path with a newer revision
+   *  is the file changing on disk, which starts the undo history clean; a
+   *  peer pane or a rename rewrite leaves the revision alone (#852). */
+  const seenDiskRevisionRef = useRef(0)
 
   const updateSelectionCommentAction = useCallback((view: EditorView | null = viewRef.current): void => {
     setSelectionCommentAction(view ? getSelectionCommentAction(view) : null)
@@ -1197,7 +1249,33 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [revealSidePanel, setCalendarPanel])
 
 
-  const applyPaneMode = useCallback((nextMode: PaneMode) => {
+  const lockOutlinePreviewSync = useCallback((durationMs = OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS): void => {
+    // Outline jumps target a rendered heading; ratio sync can otherwise override them.
+    outlinePreviewSyncLockUntilRef.current = nextOutlinePreviewSyncLockUntil(
+      performance.now(),
+      durationMs,
+      outlinePreviewSyncLockUntilRef.current
+    )
+  }, [])
+
+  // The block at the top of what the reader has on screen, or null when the
+  // caret's own line is still in view (a peek at the rendering and back keeps
+  // the cursor exactly where it was) or the reading view is not this note's
+  // render yet.
+  const readingPositionLanding = useCallback((view: EditorView, path: string) => {
+    const previewEl = previewScrollRef.current
+    if (!previewShowsNote(previewEl, path)) return null
+    const visible = previewVisibleSourceLines(previewEl)
+    if (!visible) return null
+    const caretLine = view.state.doc.lineAt(view.state.selection.main.head).number
+    if (previewShowsSourceLine(visible, caretLine)) return null
+    return { line: visible.top, topMargin: OUTLINE_JUMP_TOP_MARGIN }
+  }, [])
+
+  const applyPaneMode = useCallback((
+    nextMode: PaneMode,
+    options: { landing?: EditorLanding } = {}
+  ) => {
     // Capture the cursor's line NOW, while the editor is still mounted:
     // preview-only mode tears the editor down, and "continue reading where I
     // was editing" needs this anchor to land the preview there. (#543)
@@ -1214,6 +1292,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         line: view.state.doc.lineAt(view.state.selection.main.head).number
       }
     }
+    // And the way back: read the reading view's viewport NOW, while it is
+    // still in the DOM, so the editor can open where the reader is. (#822)
+    if (nextMode !== 'preview' && modeRef.current === 'preview' && activeTab) {
+      const landing = options.landing ?? 'reading-position'
+      let target: { line: number; topMargin: number } | null = null
+      if (landing === 'reading-position') {
+        if (view && viewPathRef.current === activeTab) {
+          target = readingPositionLanding(view, activeTab)
+        }
+      } else if (landing !== 'caller') {
+        target = landing
+      }
+      if (target) {
+        pendingEditorLandingRef.current = { path: activeTab, ...target }
+        // Preview → Split: hold the split sync until the editor has landed,
+        // or its first pass would drag the reading view to the editor's stale
+        // scroll position. The landing then re-aligns the reading view itself.
+        if (nextMode === 'split') lockOutlinePreviewSync()
+      }
+    }
     setPaneModeForPath(paneId, activeTab, nextMode)
     setActivePane(paneId)
     setFocusedPanel('editor')
@@ -1224,7 +1322,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       focusEditorNormalMode()
     })
-  }, [activeTab, paneId, setPaneModeForPath, setActivePane, setFocusedPanel])
+  }, [
+    activeTab,
+    lockOutlinePreviewSync,
+    paneId,
+    readingPositionLanding,
+    setPaneModeForPath,
+    setActivePane,
+    setFocusedPanel
+  ])
 
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
@@ -1317,15 +1423,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
     return () => window.removeEventListener(ZEN_SET_PANE_MODE_EVENT, handler)
   }, [applyPaneMode, isActive])
-
-  const lockOutlinePreviewSync = useCallback((durationMs = OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS): void => {
-    // Outline jumps target a rendered heading; ratio sync can otherwise override them.
-    outlinePreviewSyncLockUntilRef.current = nextOutlinePreviewSyncLockUntil(
-      performance.now(),
-      durationMs,
-      outlinePreviewSyncLockUntilRef.current
-    )
-  }, [])
 
   const scrollPreviewToOutlineLine = useCallback((line: number): boolean => {
     // Works wherever the preview is mounted (split or preview), not in edit.
@@ -1434,7 +1531,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // Scroll the preview so the rendered block for `line` sits near the top:
   // the nearest data-source-line block at or above the line, like the split
   // sync's anchor walk, but from a bare line number (no live editor needed).
-  const scrollPreviewToSourceLine = useCallback((line: number): boolean => {
+  const scrollPreviewToSourceLine = useCallback((
+    line: number,
+    topMargin = OUTLINE_JUMP_TOP_MARGIN
+  ): boolean => {
     const previewEl = previewScrollRef.current
     if (!previewEl) return false
     const blocks = previewEl.querySelectorAll<HTMLElement>('[data-source-line]')
@@ -1449,7 +1549,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
     }
     const nextTop = anchor
-      ? scrollTopForElementRelativeTop(previewEl, anchor, OUTLINE_JUMP_TOP_MARGIN)
+      ? scrollTopForElementRelativeTop(previewEl, anchor, topMargin)
       : 0
     previewEl.scrollTop = nextTop
     lastProgrammaticPreviewTopRef.current = previewEl.scrollTop
@@ -1509,6 +1609,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // visit. Declared before the pending-jump effect, so a jump that opens a
     // note in reading mode still sets its line after this reset.
     pendingPreviewLineRef.current = null
+    pendingEditorLandingRef.current = null
     outlinePreviewSyncLockUntilRef.current = 0
   }, [content?.path])
 
@@ -1614,7 +1715,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setActiveCommentId(comment.id)
     if (!view) return
     if (mode === 'preview') {
-      applyPaneMode('edit')
+      applyPaneMode('edit', { landing: 'caller' })
     }
     const anchor = resolveCommentAnchor(comment, view.state.doc.toString())
     const selection =
@@ -1851,8 +1952,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
       viewPathRef.current = initialPath
-      // A new editor starts on its note, so no earlier rename concerns it.
+      // A new editor starts on its note, so no earlier rename concerns it,
+      // and no earlier disk change either.
       seenPathRewriteSeqRef.current = latestPathRewriteSeq(s0.recentPathRewrites)
+      seenDiskRevisionRef.current = initialPath ? noteDiskRevision(initialPath) : 0
       followPathRewritesInNoteUndoHistories(s0.recentPathRewrites)
       const state = EditorState.create({
         doc: initialBody,
@@ -1971,6 +2074,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       pointerOverRange(view, link.from, link.to, event.clientX, event.clientY) &&
                       followLinkTarget(link.target, { createWithoutAsking: true })
                     ) {
+                      // Following the link ends its status-bar hover; a tap
+                      // never sends the mouseleave that would (#820).
+                      setHoveredLink(null)
                       event.preventDefault()
                       return true
                     }
@@ -1984,6 +2090,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       const sel = view.state.selection.main
                       const rendered = sel.to < link.from || sel.from > link.to
                       if (rendered && followLinkTarget(link.href)) {
+                        setHoveredLink(null)
                         event.preventDefault()
                         return true
                       }
@@ -2228,6 +2335,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       switched ||
       view.state.doc.length !== nextBody.length ||
       view.state.doc.toString() !== nextBody
+    // The file changing on disk under the note on screen, as opposed to a
+    // peer pane or a rename rewrite: the store bumps the note's disk revision
+    // in the same update. Re-baseline on every path change, so a disk change
+    // a note took while off screen (already handled by the set-aside history)
+    // is not counted again when it comes back.
+    const diskRevision = nextPath ? noteDiskRevision(nextPath) : 0
+    const fromDisk = isDiskChange({
+      pathChanged,
+      bodyChanged,
+      diskRevision,
+      seenDiskRevision: seenDiskRevisionRef.current
+    })
+    seenDiskRevisionRef.current = diskRevision
     if (!pathChanged && !bodyChanged) return
     followPathRewritesInNoteUndoHistories(rewrites)
     if (renamed && prevPath && nextPath) {
@@ -2339,6 +2459,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ? undefined
             : { anchor: clampedAnchor, head: clampedHead }
       })
+    }
+    if (fromDisk) {
+      // The text came from disk (a sync tool, an external editor, a script),
+      // not from anyone in this app. The user's undo steps were mapped through
+      // the change and still apply, but onto text nobody here wrote: undoing
+      // one made a document neither the user nor the other program ever had,
+      // and the save that follows every edit wrote it to disk (#852). A note
+      // reopened after such a change already starts clean; one that never left
+      // the screen now does too. The caret and scroll stay where they are.
+      const historyCompartment = historyCompartmentRef.current
+      if (historyCompartment) resetUndoHistory(view, historyCompartment)
     }
     if (switched) {
       // Switching notes: also drop the previous note's undo history so undo
@@ -2658,7 +2789,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       // for the highlight it paints on the line. (android#74)
       const plan = planPreviewJump(pendingJumpLocation, content.body)
       if (plan.kind === 'edit') {
-        applyPaneMode('edit')
+        applyPaneMode('edit', { landing: 'caller' })
         return
       }
       const previewEl = previewScrollRef.current
@@ -3840,13 +3971,62 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   hasContentRef.current = content != null
   previewIsStaleRef.current = previewIsStale
 
-  const handlePreviewRequestEdit = useCallback(() => {
+  // Commit the line a reader carried out of Preview once the editor is on
+  // screen again: a frame after the mode switch, like an outline jump, so
+  // CodeMirror measures the freshly shown scroller before it scrolls. (#822)
+  useEffect(() => {
+    const target = pendingEditorLandingRef.current
+    if (!target || mode === 'preview' || !editorReady) return
+    if (target.path !== content?.path) return
+    const raf = requestAnimationFrame(() => {
+      const view = viewRef.current
+      if (!view || viewPathRef.current !== target.path) return
+      pendingEditorLandingRef.current = null
+      landEditorOnLine(view, target.line, target.topMargin)
+      if (mode === 'split') {
+        // Entering split reflowed the reading view to half its width, which
+        // moved the block the reader had at the top. Put it back there beside
+        // the editor's copy, and hold the split sync while both settle: its
+        // block-plus-pixel-offset mapping would otherwise pull the reading
+        // view a few lines off the line the editor just landed on.
+        lockOutlinePreviewSync()
+        scrollPreviewToSourceLine(target.line, target.topMargin)
+      }
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [content?.path, editorReady, lockOutlinePreviewSync, mode, scrollPreviewToSourceLine])
+
+  // A double-click on a rendered block (or the image embed's "Edit this
+  // block" button) opens that block in the editor, at the height it had on
+  // screen so the eye does not have to travel. Without a block to point at,
+  // leaving Preview still lands where the reader is. (#822)
+  const handlePreviewRequestEdit = useCallback((request?: PreviewEditRequest | null) => {
+    const previewEl = previewScrollRef.current
+    const landing: EditorLanding =
+      request?.sourceLine != null && previewEl
+        ? {
+            line: request.sourceLine,
+            topMargin: editorLandingTopMargin(
+              request.blockClientTop,
+              previewEl.getBoundingClientRect().top,
+              previewEl.clientHeight,
+              OUTLINE_JUMP_TOP_MARGIN
+            )
+          }
+        : 'reading-position'
     if (mode === 'preview') {
-      applyPaneMode('edit')
+      applyPaneMode('edit', { landing })
       return
     }
+    const view = viewRef.current
+    if (typeof landing === 'object' && view && viewPathRef.current === content?.path) {
+      // Split: the editor is already on screen. Hold the scroll sync so the
+      // reading view stays put while the editor comes to the block.
+      lockOutlinePreviewSync()
+      landEditorOnLine(view, landing.line, landing.topMargin)
+    }
     focusEditorNormalMode()
-  }, [applyPaneMode, mode])
+  }, [applyPaneMode, content?.path, lockOutlinePreviewSync, mode])
 
   // Editing follows the cursor so keyboard motion updates the Outline even
   // when the viewport barely moves. Preview mode remains scroll-driven.
@@ -4821,6 +5001,8 @@ function Breadcrumb({
   const createAndOpen = useStore((s) => s.createAndOpen)
   const createDrawingAndOpen = useStore((s) => s.createDrawingAndOpen)
   const createFolder = useStore((s) => s.createFolder)
+  // `m` on a focused crumb is VimNav's, so the tooltip names it only in Vim mode.
+  const vimMode = useStore((s) => s.vimMode)
   const [crumbMenu, setCrumbMenu] = useState<{ x: number; y: number; subpath: string } | null>(
     null
   )
@@ -4911,7 +5093,7 @@ function Breadcrumb({
               setCrumbMenu({ x: e.clientX, y: e.clientY, subpath: c.subpath })
             }}
             className="truncate rounded px-1 hover:bg-paper-200/70 hover:text-ink-800"
-            title={`Go to ${c.label} — right-click (or m) to create here`}
+            title={`Go to ${c.label}, right-click${vimMode ? ' (or m)' : ''} to create here`}
           >
             {c.label}
           </button>

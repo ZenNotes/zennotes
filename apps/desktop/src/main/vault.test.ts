@@ -10,6 +10,7 @@ import {
   archiveNote,
   deleteAsset,
   deleteNote,
+  describeVault,
   duplicateAsset,
   emptyDeletedAssets,
   emptyTrash,
@@ -34,6 +35,7 @@ import {
   purgeDeletedAsset,
   renameAsset,
   renameFolder,
+  renameLocalVault,
   deleteFolder,
   readNoteComments,
   writeNoteComments,
@@ -131,6 +133,49 @@ describe('daily-notes task settings round-trip (#288)', () => {
     const settings = await getVaultSettings(root)
     expect(settings.dailyNotes.tasksDueOnNoteDate).toBe(true)
     expect(settings.dailyNotes.rolloverUnfinishedTasks).toBe(false)
+  })
+})
+
+describe('vault display name (#692)', () => {
+  it('round-trips through set/get, normalized, and leaves vault.json without the key when cleared', async () => {
+    const root = await makeTempDir('zennotes-vault-displayname-')
+    const base = await getVaultSettings(root)
+    expect(base.displayName).toBeUndefined()
+    const returned = await setVaultSettings(root, { ...base, displayName: '  Acme   API docs ' })
+    expect(returned.displayName).toBe('Acme API docs')
+    expect((await getVaultSettings(root)).displayName).toBe('Acme API docs')
+    const onDisk = JSON.parse(await readFile(path.join(root, '.zennotes', 'vault.json'), 'utf8'))
+    expect(onDisk.displayName).toBe('Acme API docs')
+
+    await setVaultSettings(root, { ...returned, displayName: '   ' })
+    expect((await getVaultSettings(root)).displayName).toBeUndefined()
+    const cleared = JSON.parse(await readFile(path.join(root, '.zennotes', 'vault.json'), 'utf8'))
+    expect('displayName' in cleared).toBe(false)
+  })
+
+  it('describeVault names the vault by its display name, else by its folder', async () => {
+    const root = await makeTempDir('zennotes-vault-describe-')
+    expect(await describeVault(root)).toEqual({ root, name: path.basename(root) })
+    const base = await getVaultSettings(root)
+    await setVaultSettings(root, { ...base, displayName: 'Acme API docs' })
+    expect(await describeVault(root)).toEqual({ root, name: 'Acme API docs' })
+    // A folder that is gone still describes itself rather than throwing.
+    const missing = path.join(root, 'nope')
+    expect(await describeVault(missing)).toEqual({ root: missing, name: 'nope' })
+  })
+
+  it('renameLocalVault changes one entry in place and is not a visit', () => {
+    const entries = [
+      { root: '/vaults/a', name: 'a', lastOpenedAt: 30 },
+      { root: '/vaults/docs', name: 'docs', lastOpenedAt: 20 },
+      { root: '/vaults/c', name: 'c', lastOpenedAt: 10 }
+    ]
+    expect(renameLocalVault(entries, '/vaults/docs/', 'Acme API docs')).toEqual([
+      { root: '/vaults/a', name: 'a', lastOpenedAt: 30 },
+      { root: '/vaults/docs', name: 'Acme API docs', lastOpenedAt: 20 },
+      { root: '/vaults/c', name: 'c', lastOpenedAt: 10 }
+    ])
+    expect(renameLocalVault(entries, '/vaults/unknown', 'x')).toEqual(entries)
   })
 })
 
@@ -1565,6 +1610,29 @@ describe('note rename transaction', () => {
     await expect(stat(path.join(root,'inbox/Renamed.md'))).rejects.toMatchObject({code:'ENOENT'})
     expect((await readNoteComments(root,'inbox/Renamed.md'))[0].body).toBe('Keep destination')
     if (withComments) expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Source discussion')
+  })
+
+  // The app shows these reasons in a toast now, so they have to read plainly (#839).
+  it('names the leftover comments file that blocks a rename', async () => {
+    const root = await makeTempDir('zennotes-note-rename-reason-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original.\n')
+    await writeNoteComments(root, 'inbox/Renamed.md', [{notePath:'inbox/Renamed.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'destination', body:'Keep destination', createdAt:1, updatedAt:1}])
+    await expect(renameNote(root, 'inbox/One.md', 'Renamed')).rejects.toThrow(
+      'Comments from an earlier note named “Renamed” are still in .zennotes/comments/inbox/Renamed.md.comments.json'
+    )
+  })
+
+  it('says when another note already has the name', async () => {
+    const root = await makeTempDir('zennotes-note-rename-taken-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original.\n')
+    await writeNote(root, 'inbox/Two.md', 'Other note.\n')
+    await expect(renameNote(root, 'inbox/One.md', 'Two')).rejects.toThrow(
+      'A note named “Two” already exists in this folder'
+    )
+    expect(await readFile(path.join(root, 'inbox/One.md'), 'utf8')).toBe('Original.\n')
+    expect(await readFile(path.join(root, 'inbox/Two.md'), 'utf8')).toBe('Other note.\n')
   })
 })
 

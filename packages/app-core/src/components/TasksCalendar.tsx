@@ -368,6 +368,12 @@ export function TasksCalendar({
       }
 
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // With Vim off the single-character keys stay with the page, the rule
+      // every list in the app follows: arrows, Enter, Space, Tab and Escape
+      // are universal, the letters (and < > [ ]) are Vim's. A stray letter
+      // then never edits, deletes, moves or reschedules the task under the
+      // cursor, and the hint line names nothing that is not live.
+      if (!vimMode && e.key.length === 1 && e.key !== ' ') return
 
       // Grab & place: while a task is picked up, the grid navigation chooses a
       // target day; Enter places it (move / set-due choice), Esc cancels.
@@ -591,7 +597,8 @@ export function TasksCalendar({
     onToggleTask,
     onRescheduleTask,
     onMoveTask,
-    deleteTaskFromList
+    deleteTaskFromList,
+    vimMode
   ])
 
   const focusedTaskRef = useRef<HTMLDivElement | null>(null)
@@ -634,7 +641,9 @@ export function TasksCalendar({
         <div className="text-xs text-current/40">
           {grabbedTask
             ? `Moving “${grabbedTask.content || 'task'}” — h/j/k/l pick a day · Enter place · Esc cancel`
-            : 'h/j/k/l day · Tab pick · x toggle · e edit · dd del · m move · < > / T due · a add'}
+            : vimMode
+              ? 'h/j/k/l day · Tab pick · x toggle · e edit · dd del · m move · < > / T due · a add'
+              : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'}
         </div>
       </div>
 

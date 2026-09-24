@@ -14,15 +14,27 @@ export const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)$/
 export const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})[ \t]*$/
 
 /**
+ * A YAML frontmatter fence: `---` alone on its line, surrounding whitespace
+ * tolerated. Every frontmatter consumer in the editor decides "is this line a
+ * fence" with this one predicate: this walker, the properties card
+ * (`frontmatterRange` in app-core's cm-frontmatter.ts), and the note grammar
+ * that keeps the block out of the markdown parser (cm-markdown-language.ts).
+ * They must agree, or the card styles a range the grammar still parses as
+ * markdown, and a `key: value` line comes back as a setext heading (#827).
+ */
+export function isFrontmatterFence(line: string): boolean {
+  return line.trim() === '---'
+}
+
+/**
  * 0-based index of the closing `---` of a leading YAML frontmatter block,
- * or -1 when the body has none. Matches the editor's frontmatter detection
- * (cm-wysiwyg-blocks): the very first line must be `---`, and the block runs
- * to the next `---` line.
+ * or -1 when the body has none. The very first line must be a fence, and the
+ * block runs to the next fence line.
  */
 export function frontmatterEndIndex(lines: string[]): number {
-  if (lines.length < 2 || lines[0].trim() !== '---') return -1
+  if (lines.length < 2 || !isFrontmatterFence(lines[0])) return -1
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i].trim() === '---') return i
+    if (isFrontmatterFence(lines[i])) return i
   }
   return -1
 }

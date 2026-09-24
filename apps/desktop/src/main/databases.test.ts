@@ -53,6 +53,38 @@ describe('createDatabase + readDatabase', () => {
     const b = await createDatabase(root, 'inbox', '', 'Notes')
     expect(a.path).not.toBe(b.path)
   })
+
+  it('writes a seeded database with the seed rows and inferred types (#832)', async () => {
+    const root = await makeVault()
+    const doc = await createDatabase(root, 'inbox', 'Work', 'Roadmap', {
+      headers: ['Item', 'Done', 'Estimate'],
+      rows: [
+        ['Write "spec", v1', 'yes', '3'],
+        ['Ship', 'no', '1']
+      ],
+      columnWidths: [240, null, null]
+    })
+    expect(doc.path).toBe('inbox/Work/Roadmap.base/data.csv')
+    expect(doc.fields.map((f) => [f.name, f.type])).toEqual([
+      ['id', 'text'],
+      ['Item', 'text'],
+      ['Done', 'checkbox'],
+      ['Estimate', 'number']
+    ])
+    expect(doc.fields[1].width).toBe(240)
+    expect(doc.rows).toHaveLength(2)
+
+    const csv = await readFile(path.join(root, doc.path), 'utf8')
+    const lines = csv.trimEnd().split('\n')
+    expect(lines[0]).toBe('id,Item,Done,Estimate')
+    expect(lines[1]).toBe(`${doc.rows[0].id},"Write ""spec"", v1",yes,3`)
+    expect(lines[2]).toBe(`${doc.rows[1].id},Ship,no,1`)
+
+    // Reopening through the sidecar yields the same rows and ids.
+    const reopened = await readDatabase(root, doc.path)
+    expect(reopened.rows).toEqual(doc.rows)
+    expect(reopened.fields).toEqual(doc.fields)
+  })
 })
 
 describe('writeDatabaseRows round-trip', () => {

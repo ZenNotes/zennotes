@@ -7,7 +7,14 @@
  * of encoding inside a single cell ("a, b") — option values therefore may not
  * contain commas (enforced when options are created).
  */
-import type { DbField, DbRow, DbView, FieldType } from './databases'
+import type {
+  DatabaseSeed,
+  DatabaseSidecar,
+  DbField,
+  DbRow,
+  DbView,
+  FieldType
+} from './databases'
 import { DEFAULT_ID_FIELD_NAME } from './databases'
 
 /** Injectable id factory (main passes node's randomUUID; tests pass a counter). */
@@ -245,4 +252,82 @@ export function buildDefaultViews(
     hiddenFieldIds: fields.filter((f) => f.hidden).map((f) => f.id)
   }
   return { views: [view], activeViewId: id }
+}
+
+// ---------------------------------------------------------------------------
+// Creation (what a brand-new database is written with)
+// ---------------------------------------------------------------------------
+
+export interface InitialDatabaseContents {
+  sidecar: DatabaseSidecar
+  rows: DbRow[]
+}
+
+/**
+ * The sidecar and rows a new database starts with. Both database IO
+ * implementations (desktop main's direct-fs one and the IO-abstracted
+ * database-ops) build their files from this, so what "New Database" and a
+ * converted table write stays byte-compatible across transports.
+ *
+ * Without a seed that is the empty grid: a hidden `id` column and one `Name`
+ * text field. With a seed, its columns become fields through the same
+ * inference that adopts a plain CSV (`inferFields`), so a Markdown table
+ * converted in place (#832) gets exactly the schema its data would get if it
+ * had been saved as a CSV and opened: number, checkbox, and date columns
+ * typed, blank or duplicate headers renamed, an existing all-unique `id`
+ * column adopted as the row id and a hidden one synthesized otherwise. Rows
+ * are keyed by the resulting field ids; a row without an id gets one minted,
+ * as `parseRows` does on read.
+ *
+ * The seed crosses the bridge from the renderer, so its shape is normalized
+ * here rather than trusted: cells and headers are coerced to strings and only
+ * positive finite widths survive.
+ */
+export function initialDatabaseContents(
+  seed: DatabaseSeed | undefined,
+  genId: GenId = defaultGenId
+): InitialDatabaseContents {
+  if (!seed) {
+    const idField: DbField = { id: genId(), name: DEFAULT_ID_FIELD_NAME, type: 'text', hidden: true }
+    const nameField: DbField = { id: genId(), name: 'Name', type: 'text' }
+    const fields = [idField, nameField]
+    const { views, activeViewId } = buildDefaultViews(fields, genId)
+    return {
+      sidecar: { version: 1, idFieldId: idField.id, fields, views, activeViewId },
+      rows: []
+    }
+  }
+
+  const headers = (Array.isArray(seed.headers) ? seed.headers : []).map((h) => String(h ?? ''))
+  const grid = (Array.isArray(seed.rows) ? seed.rows : []).map((row) =>
+    headers.map((_, i) => String((Array.isArray(row) ? row[i] : undefined) ?? ''))
+  )
+  const { fields, idFieldId } = inferFields(headers, grid, genId)
+  // inferFields either adopted one of the seed's own columns as the id field,
+  // leaving fields aligned 1:1 with the headers, or put a synthesized id field
+  // in front of them.
+  const columnFields = fields.length > headers.length ? fields.slice(1) : fields
+  columnFields.forEach((field, i) => {
+    const width = seed.columnWidths?.[i]
+    if (typeof width === 'number' && Number.isFinite(width) && width > 0) {
+      field.width = Math.round(width)
+    }
+  })
+
+  const rows: DbRow[] = grid.map((raw) => {
+    const cells: Record<string, string> = {}
+    for (const field of fields) cells[field.id] = ''
+    columnFields.forEach((field, i) => {
+      cells[field.id] = raw[i]
+    })
+    let id = cells[idFieldId]
+    if (!id) {
+      id = genId()
+      cells[idFieldId] = id
+    }
+    return { id, cells }
+  })
+
+  const { views, activeViewId } = buildDefaultViews(fields, genId)
+  return { sidecar: { version: 1, idFieldId, fields, views, activeViewId }, rows }
 }

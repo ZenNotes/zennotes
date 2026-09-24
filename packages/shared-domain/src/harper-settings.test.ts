@@ -3,6 +3,7 @@ import {
   harperIgnoredLintHashes,
   harperIgnoredLintsJson,
   isHarperDialect,
+  mergeHarperVaultState,
   normalizeHarperLintConfig,
   normalizeHarperVaultState
 } from './harper-settings'
@@ -21,6 +22,30 @@ describe('normalizeHarperVaultState', () => {
     expect(normalizeHarperVaultState(undefined)).toBeUndefined()
     expect(normalizeHarperVaultState({ words: [], ignoredLints: [] })).toBeUndefined()
     expect(normalizeHarperVaultState({ words: 'nope' })).toBeUndefined()
+  })
+})
+
+describe('mergeHarperVaultState (#829)', () => {
+  it('keeps every entry of both sides, the base order first, new ones appended', () => {
+    expect(
+      mergeHarperVaultState(
+        { words: ['Zennotez', 'Kanata'], ignoredLints: ['12'] },
+        { words: ['Kanata', 'Flurbish'], ignoredLints: ['9722060015410969502', '12'] }
+      )
+    ).toEqual({
+      words: ['Zennotez', 'Kanata', 'Flurbish'],
+      ignoredLints: ['12', '9722060015410969502']
+    })
+  })
+
+  it('never shrinks to the side that holds less', () => {
+    const vault = { words: ['Zennotez', 'Kanata'], ignoredLints: ['12'] }
+    // A session that lost its imports exports one freshly added word.
+    expect(mergeHarperVaultState(vault, { words: ['Flurbish'], ignoredLints: [] })).toEqual({
+      words: ['Zennotez', 'Kanata', 'Flurbish'],
+      ignoredLints: ['12']
+    })
+    expect(mergeHarperVaultState(vault, { words: [], ignoredLints: [] })).toEqual(vault)
   })
 })
 

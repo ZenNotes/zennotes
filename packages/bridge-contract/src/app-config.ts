@@ -78,6 +78,7 @@ export const PORTABLE_PREF_KEYS = [
   'monoFont',
   // features
   'workflowsEnabled',
+  'workflowEventTriggers',
   'hiddenWorkflowPresets',
   'atlasEnabled',
   // view

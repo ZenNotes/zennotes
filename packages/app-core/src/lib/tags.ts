@@ -110,6 +110,53 @@ export function noteTagsForCount(
 
 const EMPTY_TAGS: readonly string[] = []
 
+/**
+ * Unique tags across the vault (trash excluded), counted by how many notes use
+ * them. The active note is read live from its buffer so a tag just typed in the
+ * same note is offered too. One aggregation for the editor's `#` completion,
+ * the frontmatter `tags:` completion and the New note form in search.
+ */
+export function countVaultTags(
+  notes: readonly { path: string; folder: string; tags: readonly string[] }[],
+  active: { path: string; body: string } | null | undefined,
+  preambleFolder: string
+): Map<string, number> {
+  const counter = new Map<string, number>()
+  for (const note of notes) {
+    if (note.folder === 'trash') continue
+    for (const t of noteTagsForCount(note, active, preambleFolder)) {
+      counter.set(t, (counter.get(t) ?? 0) + 1)
+    }
+  }
+  return counter
+}
+
+export interface RankedTag {
+  tag: string
+  count: number
+}
+
+const MAX_TAG_COMPLETIONS = 20
+
+/** Rank vault tags for `query` so prefix matches beat substring matches, and
+ *  more-used tags beat less-used ones. Excludes the exact tag already typed. */
+export function rankTagCompletions(
+  query: string,
+  counts: ReadonlyMap<string, number>
+): RankedTag[] {
+  const q = query.toLowerCase()
+  return [...counts.entries()]
+    .map(([tag, count]) => {
+      const lower = tag.toLowerCase()
+      const rank = lower.startsWith(q) ? 0 : lower.includes(q) ? 1 : 2
+      return { tag, lower, count, rank }
+    })
+    .filter((t) => t.rank < 2 && t.lower !== q)
+    .sort((a, b) => a.rank - b.rank || b.count - a.count || a.tag.localeCompare(b.tag))
+    .slice(0, MAX_TAG_COMPLETIONS)
+    .map(({ tag, count }) => ({ tag, count }))
+}
+
 /** A node in the hierarchical (`/`-separated) tag tree. (#439) */
 export interface TagTreeNode {
   /** The last path segment shown as the row label, e.g. `compiler`. */

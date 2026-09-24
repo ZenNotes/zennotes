@@ -26,13 +26,21 @@ import {
   FORM_DIR_SUFFIX,
   isFormDirName,
   type DatabaseDoc,
+  type DatabaseSeed,
   type DatabaseSidecar,
   type DatabaseSummary,
   type DbField,
   type DbRow,
   type DbView
 } from './databases'
-import { buildDefaultViews, inferFields, parseCsv, parseRows, serializeRows } from './database-csv'
+import {
+  buildDefaultViews,
+  inferFields,
+  initialDatabaseContents,
+  parseCsv,
+  parseRows,
+  serializeRows
+} from './database-csv'
 import {
   resolveFolderPath,
   systemFolderForDirName,
@@ -70,7 +78,12 @@ export interface DatabaseOps {
   openDatabase(csvPath: string): Promise<DatabaseDoc>
   writeDatabaseRows(csvPath: string, rows: DbRow[]): Promise<DatabaseDoc>
   writeDatabaseSchema(csvPath: string, sidecar: DatabaseSidecar, rows: DbRow[]): Promise<DatabaseDoc>
-  createDatabase(folder: NoteFolder, subpath: string, title?: string): Promise<DatabaseDoc>
+  createDatabase(
+    folder: NoteFolder,
+    subpath: string,
+    title?: string,
+    seed?: DatabaseSeed
+  ): Promise<DatabaseDoc>
   createRecordPage(csvPath: string, title: string, body: string): Promise<string>
   renameDatabase(csvPath: string, newTitle: string): Promise<string>
   listDatabases(): Promise<DatabaseSummary[]>
@@ -281,7 +294,8 @@ export function createDatabaseOps(io: DatabaseFileOps): DatabaseOps {
   async function createDatabase(
     folder: NoteFolder,
     subpath: string,
-    title?: string
+    title?: string,
+    seed?: DatabaseSeed
   ): Promise<DatabaseDoc> {
     const layout = await io.vaultLayout()
     const baseTitle = (title ?? 'Untitled Database').trim() || 'Untitled Database'
@@ -297,22 +311,11 @@ export function createDatabaseOps(io: DatabaseFileOps): DatabaseOps {
     const csvPath = csvFor(name)
     const folderSub = joinSub(subpath, `${name}${FORM_DIR_SUFFIX}`)
 
-    const idField: DbField = { id: dbGenId(), name: 'id', type: 'text', hidden: true }
-    const nameField: DbField = { id: dbGenId(), name: 'Name', type: 'text' }
-    const fields = [idField, nameField]
-    const { views, activeViewId } = buildDefaultViews(fields, dbGenId)
-    const sidecar: DatabaseSidecar = {
-      version: 1,
-      idFieldId: idField.id,
-      fields,
-      views,
-      activeViewId
-    }
-
+    const { sidecar, rows } = initialDatabaseContents(seed, dbGenId)
     await io.createFolder(folder, folderSub)
     await dbPersistSidecar(csvPath, sidecar)
-    await io.writeFile(csvPath, serializeRows([], fields))
-    return dbHydrate(csvPath, sidecar, [])
+    await io.writeFile(csvPath, serializeRows(rows, sidecar.fields))
+    return dbHydrate(csvPath, sidecar, rows)
   }
 
   async function createRecordPage(csvPath: string, title: string, body: string): Promise<string> {

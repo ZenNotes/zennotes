@@ -39,6 +39,11 @@ import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
+import { wrapTaskItemOwnText } from "../lib/preview-task-body";
+import {
+  previewEditRequestForTarget,
+  type PreviewEditRequest,
+} from "../lib/preview-outline-jump";
 import { renderDiagrams } from "../lib/diagram-renderers";
 import { renderEmbeds, renderBookmarks } from "../lib/embed-renderers";
 import { renderTypstMath } from "../lib/typst-math-render";
@@ -187,7 +192,7 @@ export const Preview = memo(function Preview({
 }: {
   markdown: string;
   notePath: string;
-  onRequestEdit?: (() => void) | null;
+  onRequestEdit?: ((request?: PreviewEditRequest | null) => void) | null;
   onRendered?: (() => void) | null;
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -480,6 +485,12 @@ export const Preview = memo(function Preview({
       }
       const anchor = target.closest("a") as HTMLAnchorElement | null;
       if (!anchor) return;
+      // Following a link ends its hover. A tap on a touch screen arrives as
+      // synthetic mouseover, mousemove and click with no mouseleave ever, so
+      // the target the mousemove put in the status bar would otherwise sit
+      // there until the next tap. A real pointer that is still over a link
+      // puts it back on its next move. (#820)
+      setHoveredLink(null);
       if (anchor.classList.contains("wikilink")) {
         e.preventDefault();
         const path = anchor.dataset.resolvedPath;
@@ -694,7 +705,22 @@ export const Preview = memo(function Preview({
 
     const onMouseLeave = (): void => setHoveredLink(null);
 
+    // Double-click on a rendered block edits it right there, the way the VS
+    // Code markdown preview does; the block's source line and screen position
+    // travel with the request so the editor opens on it at the same height.
+    // Links, controls, embeds and diagrams keep their own double-click. (#822)
+    const onDoubleClick = (e: MouseEvent): void => {
+      if (e.button !== 0) return;
+      const requestEdit = onRequestEditRef.current;
+      if (!requestEdit) return;
+      const request = previewEditRequestForTarget(e.target);
+      if (!request) return;
+      e.preventDefault();
+      requestEdit(request);
+    };
+
     root.addEventListener("click", onClick);
+    root.addEventListener("dblclick", onDoubleClick);
     root.addEventListener("mouseover", onMouseOver);
     root.addEventListener("mousemove", onMouseMove);
     root.addEventListener("mouseout", onMouseOut);
@@ -704,6 +730,7 @@ export const Preview = memo(function Preview({
 
     return () => {
       root.removeEventListener("click", onClick);
+      root.removeEventListener("dblclick", onDoubleClick);
       root.removeEventListener("mouseover", onMouseOver);
       root.removeEventListener("mousemove", onMouseMove);
       root.removeEventListener("mouseout", onMouseOut);
@@ -820,33 +847,9 @@ export const Preview = memo(function Preview({
         const due = chip.dataset.due ?? "";
         chip.classList.toggle("zen-task-due-overdue", !closed && due !== "" && due < today);
       });
-      // Wrap the item's OWN inline text in a span, so state styling (strike/gray
-      // for done and cancelled) targets just this line and never bleeds onto
-      // nested sub-tasks. Loose items keep their <p>, which the CSS targets
-      // directly; only bare-text (tight) items get the wrapper. The state marker
-      // span stays outside it: it sits in the gutter and must not be struck
-      // along with the text. (#512)
-      if (!li.querySelector(":scope > .task-item-body")) {
-        const own = Array.from(li.childNodes).filter((node) => {
-          if (node === input) return false;
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node as Element;
-            if (el.tagName === "UL" || el.tagName === "OL" || el.tagName === "P") return false;
-            if (el.classList.contains("zen-task-state")) return false;
-          }
-          return true;
-        });
-        const hasText = own.some(
-          (node) =>
-            node.nodeType !== Node.TEXT_NODE || (node.textContent ?? "").trim() !== "",
-        );
-        if (hasText && own.length > 0) {
-          const body = document.createElement("span");
-          body.className = "task-item-body";
-          li.insertBefore(body, own[0]);
-          for (const node of own) body.appendChild(node);
-        }
-      }
+      // Wrap the item's own text so done and cancelled styling lands on it
+      // alone, never on a sub-task or a block such as a code block. (#512, #849)
+      wrapTaskItemOwnText(li, input);
     });
 
     const applyRenderedDom = async (): Promise<void> => {

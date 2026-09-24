@@ -16,8 +16,12 @@ A visual, keyboard-drivable pipeline editor for the vault.
 > local vaults shipped first. Since 2.29, current self-hosted web servers also
 > store workflow files and apply the browser-prepared transaction under the Go
 > vault lock, with the same journalled Undo and crash recovery. Electron remote
-> workspaces remain read-only. Not shipped yet, and described below as design:
-> event and schedule triggers (they parse but do not fire), workflow MCP tools,
+> workspaces remain read-only. Event triggers shipped in 2.55 in a narrower
+> form than the executor model below: they fire for the edits made in the app
+> itself, each run sees only the note that changed, and Settings carries a
+> per-device kill switch (the in-app Help has the rules). Not shipped yet, and
+> described below as design: schedule triggers (they parse but do not fire),
+> the single executor per vault and sync-arrived changes, workflow MCP tools,
 > and anything labeled community.
 
 ## Problem Statement

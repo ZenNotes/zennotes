@@ -395,7 +395,7 @@ export function TagView(): JSX.Element {
             <button
               type="button"
               onClick={() => setSelectedTags([])}
-              title="Clear all selected tags (c)"
+              title={vimMode ? 'Clear all selected tags (c)' : 'Clear all selected tags'}
               className="rounded-md border border-paper-300/60 px-2 py-1 text-xs text-current/60 transition-colors hover:bg-paper-200/70 hover:text-current/90"
             >
               Clear all
@@ -660,7 +660,9 @@ export function TagView(): JSX.Element {
         </form>
       ) : (
         <div className="border-t border-paper-300/50 px-4 py-1.5 text-xs text-current/40">
-          j/k move · Enter/o open · click chips to toggle · c clear tags · / filter · : command · :q close
+          {vimMode
+            ? 'j/k move · Enter/o open · click chips to toggle · c clear tags · / filter · : command · :q close'
+            : '↑/↓ move · Enter open · click chips to toggle'}
         </div>
       )}
       {tagMenu && (

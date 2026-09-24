@@ -10,6 +10,7 @@ export type {
   DbViewType,
   DbView,
   DatabaseSidecar,
+  DatabaseSeed,
   DbRow,
   DatabaseDoc,
   DatabaseSummary

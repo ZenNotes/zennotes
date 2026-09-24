@@ -1,7 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { createServer, type Server as HttpServer } from 'node:http'
+import { promises as fsp } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { parse } from '../cli/args'
 import type { VaultBackend } from '../cli/backend'
+import { resolveTarget, type VaultTarget } from '../cli/vault-target'
 import { RemoteRequestError } from '../main/remote/connection'
-import { callTool, commentAuthorForClient, describeToolError, listToolNames } from './server'
+import {
+  callTool,
+  commentAuthorForClient,
+  describeToolError,
+  listToolNames,
+  runMcpServer,
+  type McpServerOptions
+} from './server'
 
 // Only the members a given test reaches are implemented; the cast keeps the
 // stubs honest about being partial.
@@ -188,5 +203,173 @@ describe('comment tools (#738)', () => {
       expect.objectContaining({ author: 'Assistant', body: 'Yes, the blocker runs at night.' })
     ])
     expect(stored[1]).toMatchObject({ parentId: 'c1', anchorText: 'Ship the beta in October.' })
+  })
+})
+
+/**
+ * `zn mcp --vault beta` used to serve the vault the desktop app had open
+ * (#831): the CLI parsed the flags and then started the server without them.
+ * These sessions run the real server over an in-memory transport with the
+ * real flag parser and target resolution, against a scratch config whose
+ * active vault is "alpha".
+ */
+describe('runMcpServer follows the target it is given (#831)', () => {
+  let tmpDir: string
+  let configDir: string
+  let alpha: string
+  let beta: string
+
+  async function writeConfig(config: Record<string, unknown>): Promise<void> {
+    await fsp.writeFile(path.join(configDir, 'zennotes.config.json'), JSON.stringify(config))
+  }
+
+  beforeAll(async () => {
+    tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zen-mcp-831-'))
+    configDir = path.join(tmpDir, 'config')
+    alpha = path.join(tmpDir, 'alpha')
+    beta = path.join(tmpDir, 'beta')
+    await Promise.all(
+      [configDir, path.join(alpha, 'inbox'), path.join(beta, 'inbox')].map((dir) =>
+        fsp.mkdir(dir, { recursive: true })
+      )
+    )
+  })
+
+  afterAll(async () => {
+    await fsp.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  beforeEach(async () => {
+    vi.stubEnv('ZENNOTES_CONFIG_DIR', configDir)
+    vi.stubEnv('ZENNOTES_VAULT', '')
+    vi.stubEnv('ZENNOTES_SERVER', '')
+    vi.stubEnv('ZENNOTES_REMOTE_TOKEN', '')
+    await writeConfig({
+      vaultRoot: alpha,
+      localVaults: [
+        { root: alpha, name: 'alpha', lastOpenedAt: 2_000 },
+        { root: beta, name: 'beta', lastOpenedAt: 1_000 }
+      ]
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  /** A connected client for one server session; `vaultInfo` is what an agent
+   *  sees when it calls the tool, `stderr` what the user sees at startup. */
+  async function session(options: Omit<McpServerOptions, 'transport'> = {}) {
+    const stderr: string[] = []
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      stderr.push(String(chunk))
+      return true
+    })
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+    await runMcpServer({ ...options, transport: serverTransport })
+    const client = new Client({ name: 'server-test', version: '0' })
+    await client.connect(clientTransport)
+    return {
+      stderr,
+      vaultInfo: async () => {
+        const result = await client.callTool({ name: 'vault_info', arguments: {} })
+        const text = (result.content as Array<{ text: string }>)[0].text
+        return result.isError ? { error: text } : { info: JSON.parse(text) as Record<string, unknown> }
+      },
+      close: () => client.close()
+    }
+  }
+
+  /** What `zn mcp <flags>` hands the server. */
+  const flags = (...argv: string[]) => ({ resolveTarget: () => resolveTarget(parse(argv)) })
+
+  it('without a target follows the vault the app has open, quietly', async () => {
+    const s = await session()
+    expect((await s.vaultInfo()).info).toMatchObject({ kind: 'local', vaultRoot: alpha })
+    expect(s.stderr).toEqual([])
+    await s.close()
+  })
+
+  it('serves the vault --vault names, by path or by known name', async () => {
+    const byPath = await session(flags('--vault', beta))
+    expect((await byPath.vaultInfo()).info).toMatchObject({ kind: 'local', vaultRoot: beta })
+    await byPath.close()
+
+    const byName = await session(flags('--vault', 'beta'))
+    expect((await byName.vaultInfo()).info).toMatchObject({ kind: 'local', vaultRoot: beta })
+    await byName.close()
+  })
+
+  it('tells the user at startup when --vault names nothing, and still serves', async () => {
+    const s = await session(flags('--vault', path.join(tmpDir, 'no-such-vault')))
+    // Said once, on stderr, before any tool call: that is where a terminal
+    // user and the MCP client's log see it.
+    expect(s.stderr).toHaveLength(1)
+    expect(s.stderr[0]).toContain('[zennotes-mcp] No vault named')
+    expect(s.stderr[0]).toContain('Known vaults: alpha, beta')
+    expect(s.stderr[0]).toContain('running anyway')
+    // The agent gets the same error instead of a silent fall-back to alpha.
+    const { error } = await s.vaultInfo()
+    expect(error).toContain('No vault named')
+    expect(error).toContain('alpha')
+    expect(s.stderr).toHaveLength(1)
+    await s.close()
+  })
+
+  it('reaches the server --server names and sends --token as its bearer token', async () => {
+    const seen: Array<{ url: string; auth: string | null }> = []
+    const fake: HttpServer = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      seen.push({ url: url.pathname, auth: req.headers.authorization ?? null })
+      const bodies: Record<string, unknown> = {
+        '/api/vault': { root: '/srv/notes', name: 'notes' },
+        '/api/vault/settings': { primaryNotesLocation: 'inbox', systemFolderPaths: null },
+        '/api/folders': []
+      }
+      res.writeHead(url.pathname in bodies ? 200 : 404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(bodies[url.pathname] ?? null))
+    })
+    await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', resolve))
+    const address = fake.address()
+    if (address == null || typeof address === 'string') throw new Error('no port')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+
+    try {
+      const s = await session(flags('--server', `127.0.0.1:${address.port}`, '--token', 'secret-831'))
+      const { info } = await s.vaultInfo()
+      expect(info).toMatchObject({ kind: 'remote', server: baseUrl, authConfigured: true })
+      expect(seen.length).toBeGreaterThan(0)
+      expect(seen.map((r) => r.auth)).toEqual(seen.map(() => 'Bearer secret-831'))
+      await s.close()
+    } finally {
+      await new Promise<void>((resolve) => fake.close(() => resolve()))
+    }
+  })
+
+  it('pins the first vault that resolves and retries only after a failure', async () => {
+    // One attempt at startup (warned), one per failing tool call, then the
+    // session keeps the first vault that resolved.
+    const outcomes: Array<Error | VaultTarget> = [
+      new Error('not at startup'),
+      new Error('not yet'),
+      { kind: 'local', root: beta },
+      { kind: 'local', root: alpha }
+    ]
+    let calls = 0
+    const s = await session({
+      resolveTarget: async () => {
+        const next = outcomes[calls++]
+        if (next instanceof Error) throw next
+        return next
+      }
+    })
+    expect(s.stderr.join('')).toContain('not at startup')
+    expect((await s.vaultInfo()).error).toBe('Error: not yet')
+    expect((await s.vaultInfo()).info).toMatchObject({ vaultRoot: beta })
+    // A further call must not move the session to alpha: the target is pinned.
+    expect((await s.vaultInfo()).info).toMatchObject({ vaultRoot: beta })
+    expect(calls).toBe(3)
+    await s.close()
   })
 })

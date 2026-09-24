@@ -16,10 +16,11 @@ import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemir
 import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
+import { mapDefaultHalfPageKeys, registerHalfPageMotion } from '../lib/cm-vim-half-page-motion'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
+import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
@@ -168,7 +169,7 @@ export function ExternalFileApp(): JSX.Element {
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
-          markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+          noteMarkdown(),
           customCodeFenceHighlightExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
@@ -178,6 +179,9 @@ export function ExternalFileApp(): JSX.Element {
           prefs.livePreview ? livePreviewPlugin : [],
           lineNumberExtension(prefs.lineNumberMode),
           keymap.of([
+            // No keymap overrides in this window, so the default Ctrl+D /
+            // Ctrl+U reach Vim ahead of the search and history keymaps (#825).
+            ...vimHalfPageKeymap(prefs.vimMode, {}),
             indentWithTab,
             ...vimAwareDefaultKeymap(prefs.vimMode),
             ...historyKeymap,
@@ -417,6 +421,9 @@ function deferredClose(): void {
 function registerExternalFileVimCommands(): void {
   if (externalFileVimRegistered) return
   externalFileVimRegistered = true
+
+  registerHalfPageMotion()
+  mapDefaultHalfPageKeys()
 
   Vim.defineEx('write', 'w', () => {
     void externalFileHandlers.persist?.()

@@ -145,9 +145,10 @@ export async function resolveVaultTarget(
  * The target when nothing named one: `ZENNOTES_SERVER` points at a server for
  * a whole shell session, `ZENNOTES_VAULT` at a folder, and otherwise the vault
  * the desktop app has open, a connected server included (#688). This is what
- * `zn mcp` uses, so an agent works on the vault the user is looking at; the
- * app's own token stays in the OS secret store, so a server that needs one
- * gets it from `ZENNOTES_REMOTE_TOKEN` (or `--token`).
+ * `zn mcp` falls back to without `--vault` / `--server` (#831), so an agent
+ * works on the vault the user is looking at; the app's own token stays in the
+ * OS secret store, so a server that needs one gets it from
+ * `ZENNOTES_REMOTE_TOKEN` (or `--token`).
  */
 export async function resolveDefaultTarget(
   env: NodeJS.ProcessEnv = process.env,

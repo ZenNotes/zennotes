@@ -82,8 +82,11 @@ async function main(argv: string[]): Promise<number> {
   // the subcommand before parsing flags so positionals don't include it.
   const { subcommand, parsed } = peelSubcommand(command, rest)
 
+  // The MCP server gets the parsed flags rather than a backend: it must boot
+  // even when `--vault` names nothing yet, warning on stderr and retrying on
+  // each tool call, so the client sees a server rather than an exit (#831).
   if (command === 'mcp') {
-    await cmdMcp()
+    await cmdMcp(parsed)
     return 0
   }
 

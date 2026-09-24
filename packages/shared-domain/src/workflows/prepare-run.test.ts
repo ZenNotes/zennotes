@@ -27,8 +27,34 @@ describe('prepareWorkflowRun', () => {
       changes: [
         { path: 'inbox/A.md', before: '# A\n', after: null },
         { path: 'archive/A.md', before: null, after: '# A\ndone\n' }
-      ]
+      ],
+      moves: [{ from: 'inbox/A.md', to: 'archive/A.md' }]
     })
+  })
+
+  it('lists the moves as they land, so the server can carry each note\'s comments', async () => {
+    const files = new Map<string, string>([['inbox/A.md', '# A\n']])
+
+    const prepared = await prepareWorkflowRun(
+      {
+        workflowId: 'chain',
+        ops: [
+          { kind: 'move', path: 'inbox/A.md', to: 'inbox/Work' },
+          { kind: 'rename', path: 'inbox/Work/A.md', to: 'Final' },
+          { kind: 'append', path: 'inbox/Work/Final.md', text: 'done' }
+        ]
+      },
+      {
+        read: async (path) => files.get(path) ?? null,
+        systemFolderDirs: {}
+      }
+    )
+
+    // In order, each from where the note really is: a text op adds no move.
+    expect(prepared.moves).toEqual([
+      { from: 'inbox/A.md', to: 'inbox/Work/A.md' },
+      { from: 'inbox/Work/A.md', to: 'inbox/Work/Final.md' }
+    ])
   })
 
   it('refuses a create that would replace an existing note', async () => {
@@ -70,6 +96,8 @@ describe('prepareWorkflowRun', () => {
       { path: 'inbox/A.md', before: '# A\n', after: null },
       { path: 'archive/A 2.md', before: null, after: '# A\ndone\n' }
     ])
+    // The move names where the note landed, suffix and all.
+    expect(prepared.moves).toEqual([{ from: 'inbox/A.md', to: 'archive/A 2.md' }])
   })
 
   it('rejects malformed operations before reading or preparing files', async () => {

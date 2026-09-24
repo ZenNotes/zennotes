@@ -10,10 +10,20 @@
  * starts from scratch, and an enabled setting warms the session at idle after
  * boot so the first note does not wait for a 15 MB compile.
  */
-import { EMPTY_HARPER_VAULT_STATE, type HarperVaultState } from '@shared/harper-settings'
+import {
+  EMPTY_HARPER_VAULT_STATE,
+  mergeHarperVaultState,
+  type HarperVaultState
+} from '@shared/harper-settings'
 import { useStore } from '../store'
 import type { HarperEditorConfig } from './cm-harper'
-import { disposeHarper, loadHarper, type HarperLint, type HarperSession } from './harper-lint'
+import {
+  disposeHarper,
+  harperLoaded,
+  loadHarper,
+  type HarperLint,
+  type HarperSession
+} from './harper-lint'
 
 interface Applied {
   dialect: string
@@ -21,10 +31,20 @@ interface Applied {
 }
 
 let applied: Applied | null = null
-/** The store's vault state as of the last import or our own last write. A
- *  store value equal to this is either already in the session or an echo of
- *  what the session exported, so it is never imported again; anything else
- *  came from outside (a vault switch, Cloud sync, another device) and is. */
+/** The store's vault state as the session holds it: what it was built from,
+ *  the last import, or our own last write. A store value equal to this is
+ *  either already in the session or an echo of what the session exported, so
+ *  it is never imported again; anything else came from outside (the vault
+ *  finishing its load after boot, a vault switch, Cloud sync, another window
+ *  or device) and is.
+ *
+ *  Both are recorded the moment a session starts building, before the 15 MB
+ *  compile is awaited. The store keeps loading the vault while that compile
+ *  runs, and a session built from the still-empty settings must read the
+ *  words that land meanwhile as a change to import, not as the state it was
+ *  born with. A session that never learned the vault's words underlined them
+ *  all over again and, on the next `zg`, wrote its own short list over the
+ *  vault's (#829). */
 let seenVaultState: string | null = null
 let reconciling: Promise<void> | null = null
 
@@ -52,14 +72,27 @@ export function harperSeenVaultState(): string | null {
 async function session(): Promise<HarperSession | null> {
   const state = useStore.getState()
   if (!state.harperEnabled || !harperSupported()) return null
+  const options = {
+    dialect: state.harperDialect,
+    lintConfig: state.harperLintConfig,
+    state: currentVaultState()
+  }
+  // `loadHarper` memoizes on its first caller's options, so only that caller
+  // builds the session, and it records what the session is built from here,
+  // synchronously, before the compile is awaited (see `seenVaultState`).
+  const creating = !harperLoaded()
+  if (creating) {
+    applied = { dialect: options.dialect, lintConfig: JSON.stringify(options.lintConfig) }
+    seenVaultState = JSON.stringify(options.state)
+  }
   let loaded: HarperSession
   try {
-    loaded = await loadHarper({
-      dialect: state.harperDialect,
-      lintConfig: state.harperLintConfig,
-      state: currentVaultState()
-    })
+    loaded = await loadHarper(options)
   } catch (error) {
+    if (creating) {
+      applied = null
+      seenVaultState = null
+    }
     console.error('[zen:harper] failed to load Harper', error)
     return null
   }
@@ -68,15 +101,17 @@ async function session(): Promise<HarperSession | null> {
 }
 
 /** Bring the session in line with the store. Serialized so two callers never
- *  race their `configure` and `importState` calls against each other. */
+ *  race their `configure` and `importState` calls against each other; a
+ *  waiter re-reads the store once the pass ahead of it is done, and a failure
+ *  in that pass belongs to its own caller, not to the waiter. */
 async function reconcile(loaded: HarperSession): Promise<void> {
-  if (reconciling) await reconciling
+  while (reconciling) await reconciling.catch(() => undefined)
   const state = useStore.getState()
   const next: Applied = { dialect: state.harperDialect, lintConfig: JSON.stringify(state.harperLintConfig) }
   const vaultState = currentVaultState()
   const vaultJson = JSON.stringify(vaultState)
   const configChanged = !applied || applied.dialect !== next.dialect || applied.lintConfig !== next.lintConfig
-  const vaultChanged = seenVaultState === null || seenVaultState !== vaultJson
+  const vaultChanged = seenVaultState !== vaultJson
   if (!configChanged && !vaultChanged) return
   reconciling = (async () => {
     if (configChanged) {
@@ -84,9 +119,7 @@ async function reconcile(loaded: HarperSession): Promise<void> {
       applied = next
     }
     if (vaultChanged) {
-      // The session was created from the store's state, so the very first
-      // pass only records what it already holds.
-      if (seenVaultState !== null) await loaded.importState(vaultState)
+      await loaded.importState(vaultState)
       seenVaultState = vaultJson
     }
   })()
@@ -97,10 +130,27 @@ async function reconcile(loaded: HarperSession): Promise<void> {
   }
 }
 
+/**
+ * Write the session's dictionary and ignore list back to the vault. The vault
+ * side is the union of what it already holds and what the session exports:
+ * both lists are append-only from inside the app, so a session that knows
+ * fewer entries than the vault has lost some (it was built before the vault
+ * loaded, or a dialect change rebuilt harper's linter underneath it), and the
+ * one place that writes vault.json must never trade the vault's list for that
+ * shorter one. When the vault knew more, the session learns it here too, so
+ * the re-lint that follows a `zg` clears every word the vault has.
+ */
 async function persist(loaded: HarperSession): Promise<void> {
-  const next = await loaded.exportState()
+  const exported = await loaded.exportState()
+  const next = mergeHarperVaultState(currentVaultState(), exported)
   await useStore.getState().saveHarperVaultState(next)
-  // Whatever the store now holds is what the session just exported.
+  if (
+    next.words.length !== exported.words.length ||
+    next.ignoredLints.length !== exported.ignoredLints.length
+  ) {
+    await loaded.importState(next)
+  }
+  // Whatever the store now holds is what the session holds.
   seenVaultState = JSON.stringify(currentVaultState())
 }
 

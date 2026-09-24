@@ -83,8 +83,13 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
     setPos({ left, top })
   }, [x, y])
 
+  // Take the keyboard as the menu mounts, so a key pressed before the next
+  // frame cannot reach whatever held focus (the calendar panel, after a
+  // keyboard drop), and again on that frame in case the event that opened the
+  // menu moves focus after mount (#850). Closing hands focus back.
   useEffect(() => {
     previousFocusRef.current = document.activeElement as HTMLElement | null
+    ref.current?.focus({ preventScroll: true })
     const id = requestAnimationFrame(() => {
       ref.current?.focus({ preventScroll: true })
     })

@@ -798,6 +798,23 @@ function App(): JSX.Element {
           return
         }
       }
+      // The template pickers as plain shortcuts, so they no longer need Vim's
+      // leader (#847). Same overlay rule as tab selection: a picker opened
+      // under Settings or another palette would strand the user behind it.
+      if (!tabSelectBlocked && matchesShortcut(e, overrides, 'global.newNoteFromTemplate')) {
+        e.preventDefault()
+        state.setTemplatePaletteOpen(true)
+        return
+      }
+      if (
+        !tabSelectBlocked &&
+        state.activeNote &&
+        matchesShortcut(e, overrides, 'global.insertTemplate')
+      ) {
+        e.preventDefault()
+        state.openTemplatePaletteForInsert()
+        return
+      }
       if (matchesShortcut(e, overrides, 'global.exportNotePdf')) {
         e.preventDefault()
         void state.exportActiveNotePdf()

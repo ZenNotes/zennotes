@@ -169,6 +169,21 @@ function normalizeRow(cells: string[], colCount: number): string[] {
   return out
 }
 
+/**
+ * Parse a table block the way the editor delimits one: the pipe rows plus the
+ * optional trailing `<!-- zen:cols=… -->` width marker (`tableBlockAt` and
+ * `tableRangeAt` in cm-table.ts extend their range over it). The marker
+ * becomes `colWidths` here; handed to `parseTable` it would read as a body row
+ * whose first cell is an HTML comment.
+ */
+export function parseTableBlock(block: string): MarkdownTable | null {
+  const lines = block.replace(/\n+$/, '').split('\n')
+  const widths = lines.length > 2 ? parseColWidthsComment(lines[lines.length - 1]) : null
+  const table = parseTable(widths ? lines.slice(0, -1).join('\n') : block)
+  if (table && widths) table.colWidths = widths
+  return table
+}
+
 // ---------------------------------------------------------------------------
 // Serialization (padded, Obsidian/prettier-ish)
 // ---------------------------------------------------------------------------

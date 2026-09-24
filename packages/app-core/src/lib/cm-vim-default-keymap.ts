@@ -5,6 +5,7 @@ import { keymap, type EditorView, type KeyBinding } from '@codemirror/view'
 import { searchKeymap } from '@codemirror/search'
 import { getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
+import { insertNewlineContinueFrontmatterList } from './cm-frontmatter'
 import { isMacPlatform } from './keymaps'
 
 /**
@@ -203,8 +204,20 @@ const fencedCodeIndentEnter: KeyBinding = {
   run: insertNewlineContinueFencedCodeIndent
 }
 
+// #827: the frontmatter is no longer markdown to the parser, so the markdown
+// Enter command never sees a `tags:` list there. This keeps `- item` + Enter
+// continuing the YAML sequence. It returns false outside the frontmatter and
+// on non-list lines, so the markdown command runs as before.
+const frontmatterListEnter: KeyBinding = {
+  key: 'Enter',
+  run: insertNewlineContinueFrontmatterList
+}
+
 export const vimAwareMarkdownKeymap: Extension = Prec.high(
   keymap.of(
-    deferKeysToVim([fencedCodeIndentEnter, ...markdownKeymap], new Set(['Enter', 'Backspace']))
+    deferKeysToVim(
+      [frontmatterListEnter, fencedCodeIndentEnter, ...markdownKeymap],
+      new Set(['Enter', 'Backspace'])
+    )
   )
 )

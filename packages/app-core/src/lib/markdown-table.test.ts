@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseTable,
+  parseTableBlock,
   serializeTable,
   insertRow,
   deleteRow,
@@ -297,6 +298,27 @@ describe('column-width marker (#294)', () => {
     expect(parseColWidthsComment('<!-- a normal comment -->')).toBeNull()
     const widths = [120, null, 90]
     expect(parseColWidthsComment(serializeColWidthsComment(widths)!)).toEqual(widths)
+  })
+})
+
+describe('parseTableBlock (table + trailing zen:cols marker, #832)', () => {
+  it('parses a bare table exactly like parseTable', () => {
+    expect(parseTableBlock(SIMPLE)).toEqual(parseTable(SIMPLE))
+  })
+
+  it('lifts a trailing zen:cols marker into colWidths instead of a body row', () => {
+    const t = parseTableBlock(`${SIMPLE}\n<!-- zen:cols=120,auto -->`)
+    expect(t).not.toBeNull()
+    expect(t!.rows).toEqual([
+      ['1', '2'],
+      ['3', '4']
+    ])
+    expect(t!.colWidths).toEqual([120, null])
+  })
+
+  it('still rejects text that is not a table', () => {
+    expect(parseTableBlock('| just one line |')).toBeNull()
+    expect(parseTableBlock('<!-- zen:cols=1 -->')).toBeNull()
   })
 })
 

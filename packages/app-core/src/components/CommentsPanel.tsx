@@ -88,6 +88,11 @@ export function CommentsPanel({
   const panelRef = useRef<HTMLElement | null>(null)
   const notePathRef = useRef(note.path)
   const commentsFocused = focusedPanel === 'comments'
+  // The strip and the badges name VimNav's keys, which stand down with Vim
+  // off, so neither exists then: a row of letters that do nothing reads as
+  // a terminal to someone who never asked for one, and a strip that can
+  // never fade in would only hold its blank row open under the header.
+  const vimMode = useStore((s) => s.vimMode)
 
   useEffect(() => {
     void loadNoteComments(note.path)
@@ -255,22 +260,24 @@ export function CommentsPanel({
             <PlusIcon width={15} height={15} />
           </button>
         </div>
-        <div
-          aria-hidden={!commentsFocused}
-          className={[
-            'mt-3 flex h-5 items-center gap-1 overflow-hidden transition-opacity',
-            commentsFocused ? 'opacity-100' : 'pointer-events-none opacity-0'
-          ].join(' ')}
-        >
-          <CommentKeyHint keyLabel="j/k" label="Move" />
-          <CommentKeyHint keyLabel="↵" label="Jump" />
-          <CommentKeyHint keyLabel="n" label="New" />
-          <CommentKeyHint keyLabel="a" label="Reply" />
-          <CommentKeyHint keyLabel="e" label="Edit" />
-          <CommentKeyHint keyLabel="r" label="Resolve" />
-          <CommentKeyHint keyLabel="d" label="Delete" />
-          <CommentKeyHint keyLabel="esc" label="Back to note" />
-        </div>
+        {vimMode && (
+          <div
+            aria-hidden={!commentsFocused}
+            className={[
+              'mt-3 flex h-5 items-center gap-1 overflow-hidden transition-opacity',
+              commentsFocused ? 'opacity-100' : 'pointer-events-none opacity-0'
+            ].join(' ')}
+          >
+            <CommentKeyHint keyLabel="j/k" label="Move" />
+            <CommentKeyHint keyLabel="↵" label="Jump" />
+            <CommentKeyHint keyLabel="n" label="New" />
+            <CommentKeyHint keyLabel="a" label="Reply" />
+            <CommentKeyHint keyLabel="e" label="Edit" />
+            <CommentKeyHint keyLabel="r" label="Resolve" />
+            <CommentKeyHint keyLabel="d" label="Delete" />
+            <CommentKeyHint keyLabel="esc" label="Back to note" />
+          </div>
+        )}
 
         {draft && (
           <div className="mt-4 rounded-lg border border-accent/35 bg-paper-100/72 p-3 shadow-[0_14px_32px_-28px_rgb(var(--z-shadow)/0.85)]">
@@ -475,7 +482,9 @@ function CommentCard({
   // Render the comment body as Markdown (sanitized). Cached by renderMarkdown,
   // memoized per-body so card re-renders (hover/selection) don't re-parse.
   const bodyHtml = useMemo(() => renderMarkdown(comment.body), [comment.body])
-  const showActionShortcuts = active && commentsFocused && !editing
+  // One subscription per card: the badges exist only for Vim's keys.
+  const vimMode = useStore((s) => s.vimMode)
+  const showActionShortcuts = vimMode && active && commentsFocused && !editing
   const handleCardClick = (event: MouseEvent<HTMLElement>): void => {
     const target = event.target as HTMLElement | null
     if (target?.closest('button, textarea, input, select, a, [data-comment-card-control]')) return
@@ -680,7 +689,7 @@ function CommentCard({
           <IconTextButton
             title="Jump"
             action="jump"
-            shortcut="↵"
+            shortcut={vimMode ? '↵' : undefined}
             showShortcut={showActionShortcuts}
             onClick={onJump}
           >
@@ -690,7 +699,7 @@ function CommentCard({
             <IconTextButton
               title="Reply"
               action="reply"
-              shortcut="a"
+              shortcut={vimMode ? 'a' : undefined}
               showShortcut={showActionShortcuts}
               onClick={onReply}
             >
@@ -701,7 +710,7 @@ function CommentCard({
             <IconTextButton
               title="Edit"
               action="edit"
-              shortcut="e"
+              shortcut={vimMode ? 'e' : undefined}
               showShortcut={showActionShortcuts}
               onClick={onEdit}
             >
@@ -711,7 +720,7 @@ function CommentCard({
           <IconTextButton
             title={resolved ? 'Reopen' : 'Resolve'}
             action="resolve"
-            shortcut="r"
+            shortcut={vimMode ? 'r' : undefined}
             showShortcut={showActionShortcuts}
             onClick={onResolve}
           >
@@ -720,7 +729,7 @@ function CommentCard({
           <IconTextButton
             title="Delete"
             action="delete"
-            shortcut="d"
+            shortcut={vimMode ? 'd' : undefined}
             showShortcut={showActionShortcuts}
             onClick={onDelete}
             danger

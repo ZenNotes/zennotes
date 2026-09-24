@@ -486,6 +486,18 @@ export interface VaultViewSettings {
 }
 
 export interface VaultSettings {
+  /**
+   * The name the vault goes by in the app (#692): the sidebar header, the
+   * vault switcher, the title bar, the CLI's vault list. Absent means the
+   * folder's own name, which is what every vault had before. It lives in
+   * vault.json rather than the app's config so it travels with the vault
+   * (a `docs/` folder inside a repo can be "Acme API docs" on every machine
+   * that opens it), and it is deliberately not a portable app preference for
+   * the same reason. Normalized by `normalizeVaultDisplayName` in
+   * shared-domain: trimmed, inner whitespace collapsed, control characters
+   * dropped, capped, and omitted rather than stored empty.
+   */
+  displayName?: string
   primaryNotesLocation: PrimaryNotesLocation
   dailyNotes: DailyNotesSettings
   weeklyNotes: WeeklyNotesSettings

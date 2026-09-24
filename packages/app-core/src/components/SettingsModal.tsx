@@ -28,6 +28,7 @@ import type {
   RaycastExtensionStatus,
   RemoteWorkspaceProfile,
   RemoteWorkspaceProfileInput,
+  VaultSettings,
   VaultTextSearchBackendPreference,
   VaultTextSearchCapabilities,
   VaultTextSearchToolPaths,
@@ -46,6 +47,7 @@ import {
   resolveTypstPreambleFolder,
 } from "@shared/typst-preamble-folder";
 import { useStore, refreshCustomThemes, refreshOverrides } from "../store";
+import { vaultFolderName } from "../lib/rename-vault";
 import {
   WORKFLOW_PRESETS,
   hiddenPresetsInOrder,
@@ -115,6 +117,7 @@ import {
   normalizeMonthlyNoteLocale,
   normalizeMonthlyNoteTitlePattern,
   normalizeMonthlyNotesDirectory,
+  specificFolderDestination,
 } from "../lib/vault-layout";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import { composeTemplateFile, mergeTemplates } from "@shared/template-files";
@@ -309,6 +312,7 @@ function settingsSearchTargetProps(settingId: string | undefined): {
   return settingId ? { "data-settings-search-id": settingId } : {};
 }
 
+
 function findSettingsSearchTarget(
   root: HTMLElement,
   targetId: string,
@@ -327,6 +331,15 @@ function clearSettingsSearchHighlights(root: HTMLElement): void {
     .forEach((element) => {
       delete element.dataset.settingsSearchHighlight;
     });
+}
+
+/** Where a `Specific folder` row's files really land, for its description. */
+function specificFolderDestinationLabel(
+  folder: string | undefined,
+  settings: VaultSettings,
+): string {
+  const dir = specificFolderDestination(folder, settings);
+  return dir ? `\`${dir}/\`` : "the vault root";
 }
 
 function resolveVaultTextSearchBackend(
@@ -560,6 +573,8 @@ export function SettingsModal(): JSX.Element {
   const setTabsEnabled = useStore((s) => s.setTabsEnabled);
   const workflowsEnabled = useStore((s) => s.workflowsEnabled);
   const setWorkflowsEnabled = useStore((s) => s.setWorkflowsEnabled);
+  const workflowEventTriggers = useStore((s) => s.workflowEventTriggers);
+  const setWorkflowEventTriggers = useStore((s) => s.setWorkflowEventTriggers);
   const atlasEnabled = useStore((s) => s.atlasEnabled);
   const setAtlasEnabled = useStore((s) => s.setAtlasEnabled);
   const hiddenWorkflowPresets = useStore((s) => s.hiddenWorkflowPresets);
@@ -586,6 +601,8 @@ export function SettingsModal(): JSX.Element {
   const setRtlMode = useStore((s) => s.setRtlMode);
   const vault = useStore((s) => s.vault);
   const workspaceMode = useStore((s) => s.workspaceMode);
+  const renameVault = useStore((s) => s.renameVault);
+  const vaultDisplayName = useStore((s) => s.vaultSettings.displayName ?? "");
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles);
   const vaultSettings = useStore((s) => s.vaultSettings);
@@ -1339,12 +1356,24 @@ export function SettingsModal(): JSX.Element {
   const wrappedLineMotionsTargetId = vimMode
     ? "wrapped-line-motions"
     : "vim-mode";
+  const vimYankToClipboardTargetId = vimMode
+    ? "vim-yank-to-clipboard"
+    : "vim-mode";
+  const vimBlockImeTargetId = vimMode
+    ? "vim-block-ime-in-normal-mode"
+    : "vim-mode";
   const leaderHintBehaviorTargetId =
     vimMode && whichKeyHints ? "leader-hint-behavior" : leaderKeyHintsTargetId;
   const leaderHintDurationTargetId =
     vimMode && whichKeyHints && whichKeyHintMode === "timed"
       ? "leader-hint-duration"
       : leaderHintBehaviorTargetId;
+  const dailyNotesTasksDueTargetId = vaultSettings.dailyNotes.enabled
+    ? "daily-notes-tasks-due-on-date"
+    : "enable-daily-notes";
+  const dailyNotesRolloverTargetId = vaultSettings.dailyNotes.enabled
+    ? "daily-notes-rollover"
+    : "enable-daily-notes";
 
   const categories: SettingsCategory[] = [
     {
@@ -1408,6 +1437,20 @@ export function SettingsModal(): JSX.Element {
           description:
             "Show /-separated tags as a collapsible tree in the sidebar and Tags view instead of a flat list.",
           keywords: ["hierarchical", "tree", "tags", "nested", "hierarchy"],
+        },
+        {
+          id: "pdf-export-use-theme",
+          title: "Use theme for PDF export",
+          description:
+            "Export PDFs in your current theme, snippets, and color tweaks, or in a clean light theme for printing.",
+          keywords: [
+            "pdf",
+            "export pdf",
+            "pdf theme",
+            "dark pdf",
+            "print",
+            "paper",
+          ],
         },
       ],
       content: (
@@ -1902,6 +1945,40 @@ export function SettingsModal(): JSX.Element {
           keywords: ["vim", "jk", "jj", "escape", "insert mode", "esc"],
         },
         {
+          id: "vim-yank-to-clipboard",
+          title: "Sync clipboard with Vim registers",
+          description:
+            "Yank, delete, and change to the system clipboard, and paste from it with p / P.",
+          keywords: [
+            "vim",
+            "yank",
+            "copy",
+            "paste",
+            "system clipboard",
+            "clipboard=unnamed",
+            "unnamedplus",
+          ],
+          targetId: vimYankToClipboardTargetId,
+        },
+        {
+          id: "vim-block-ime-in-normal-mode",
+          title: "Keep the input method out of normal mode",
+          description:
+            "With a Korean, Chinese, or Japanese input method on, normal-mode keys stay Vim motions instead of composing text.",
+          keywords: [
+            "vim",
+            "ime",
+            "cjk",
+            "korean",
+            "chinese",
+            "japanese",
+            "hangul",
+            "pinyin",
+            "composition",
+          ],
+          targetId: vimBlockImeTargetId,
+        },
+        {
           id: "leader-key-hints",
           title: "Leader key hints",
           description:
@@ -1969,6 +2046,24 @@ export function SettingsModal(): JSX.Element {
             "vim",
             "plain text",
             "source",
+          ],
+        },
+        {
+          id: "completed-task-style",
+          title: "Completed task style",
+          description:
+            "Strike through or gray out a checked task's text in the editor and preview, or both.",
+          keywords: [
+            "checkbox",
+            "done",
+            "completed tasks",
+            "checked",
+            "strikethrough",
+            "cross out",
+            "gray",
+            "grey",
+            "dim",
+            "todo",
           ],
         },
         {
@@ -2066,6 +2161,22 @@ export function SettingsModal(): JSX.Element {
             "latex",
             "relaxed",
             "loose",
+          ],
+        },
+        {
+          id: "default-view-mode",
+          title: "Default view mode",
+          description:
+            "The mode a note opens in before you pick one for it: Edit, Split, or Preview.",
+          keywords: [
+            "view mode",
+            "edit",
+            "split",
+            "preview",
+            "reading mode",
+            "read mode",
+            "open in preview",
+            "start in preview",
           ],
         },
         {
@@ -2317,6 +2428,55 @@ export function SettingsModal(): JSX.Element {
             "run",
           ],
         },
+        {
+          id: "workflow-event-triggers",
+          title: "Event triggers",
+          description:
+            "Let active workflows run on their own when you create, save, move, or tag a note in this app.",
+          keywords: [
+            "workflow",
+            "workflows",
+            "trigger",
+            "automation",
+            "automatic",
+            "on save",
+            "note-saved",
+            "note-created",
+            "note-moved",
+            "tag-added",
+          ],
+        },
+        {
+          id: "workflow-tutorial",
+          title: "Guided tutorial",
+          description:
+            "A hands-on Workflows walkthrough on a practice folder, cleaned up when you finish.",
+          keywords: [
+            "workflow",
+            "workflows",
+            "walkthrough",
+            "learn",
+            "practice",
+            "onboarding",
+            "start tutorial",
+          ],
+        },
+        {
+          id: "workflow-hidden-recipes",
+          title: "Built-in recipes",
+          description:
+            "Hide or restore the shipped recipes in the recipe gallery behind New workflow.",
+          keywords: [
+            "workflow",
+            "workflows",
+            "recipe gallery",
+            "gallery",
+            "presets",
+            "hide recipes",
+            "restore recipes",
+            "new workflow",
+          ],
+        },
       ],
       subTabs: [
         {
@@ -2326,6 +2486,8 @@ export function SettingsModal(): JSX.Element {
             "vim-mode",
             "wrapped-line-motions",
             "vim-insert-escape",
+            "vim-yank-to-clipboard",
+            "vim-block-ime-in-normal-mode",
             "leader-key-hints",
             "leader-hint-behavior",
             "leader-hint-duration",
@@ -2541,8 +2703,15 @@ export function SettingsModal(): JSX.Element {
           searchIds: [
             "live-preview",
             "render-tables",
+            "completed-task-style",
+            "math-renderer",
+            "math-font-scale",
+            "typst-tag-preambles",
+            "typst-preamble-folder",
             "harper-enabled",
             "harper-dialect",
+            "loose-math-delimiters",
+            "default-view-mode",
             "keep-view-mode",
             "keep-panels",
             "persist-undo-history",
@@ -2560,6 +2729,8 @@ export function SettingsModal(): JSX.Element {
             "smooth-preview-scroll",
             "pdfs-in-edit-mode",
             "time-format",
+            "date-titled-quick-notes",
+            "quick-note-prefix",
           ],
           content: (
             <div className="space-y-6">
@@ -2871,11 +3042,7 @@ export function SettingsModal(): JSX.Element {
         {
           id: "quick-capture",
           title: "Quick capture",
-          searchIds: [
-            "date-titled-quick-notes",
-            "quick-note-prefix",
-            "quick-capture-hotkey",
-          ],
+          searchIds: ["quick-capture-hotkey"],
           content: (
             <div className="space-y-6">
               <Section
@@ -2917,6 +3084,7 @@ export function SettingsModal(): JSX.Element {
             "The Workflows canvas, and whether it appears in the app at all.",
           searchIds: [
             "workflows-enabled",
+            "workflow-event-triggers",
             "workflow-hidden-recipes",
             "workflow-tutorial",
           ],
@@ -2932,6 +3100,13 @@ export function SettingsModal(): JSX.Element {
                   value={workflowsEnabled}
                   settingId="workflows-enabled"
                   onChange={setWorkflowsEnabled}
+                />
+                <ToggleRow
+                  label="Event triggers"
+                  description="Let an active workflow whose trigger is on note-created, note-saved, note-moved or tag-added run on its own when you make that change in this app. Each run sees only the note that changed, applies without a confirmation, and leaves a receipt with Undo. Off silences every event trigger on this device; a workflow of its own is silenced by trigger: manual or status: draft."
+                  value={workflowEventTriggers}
+                  settingId="workflow-event-triggers"
+                  onChange={setWorkflowEventTriggers}
                 />
                 <div
                   className="flex items-center justify-between gap-5 px-5 py-4"
@@ -3465,6 +3640,13 @@ export function SettingsModal(): JSX.Element {
           keywords: ["folder", "root", "location", "open vault", "change"],
         },
         {
+          id: "vault-name",
+          title: "Vault name",
+          description:
+            "What the sidebar and the vault switcher call this vault; the folder keeps its own name.",
+          keywords: ["vault name", "display name", "rename vault", "rename", "title", "label", "switcher"],
+        },
+        {
           id: "saved-remote-workspaces",
           title: "Saved Remote Workspaces",
           description:
@@ -3478,6 +3660,47 @@ export function SettingsModal(): JSX.Element {
           description:
             "Choose whether ZenNotes treats `inbox/` as the main notes area or uses the vault root directly.",
           keywords: ["primary notes", "inbox", "vault root"],
+        },
+        {
+          id: "drawings-location",
+          title: "Default drawings location",
+          description:
+            "Where new Excalidraw drawings are created: your primary notes area, the active note's folder, or a folder you name.",
+          keywords: [
+            "drawings",
+            "drawing folder",
+            "drawings folder",
+            "excalidraw",
+            "new drawing",
+          ],
+        },
+        {
+          id: "databases-location",
+          title: "Default databases location",
+          description:
+            "Where new databases are created: your primary notes area, the active note's folder, or a folder you name.",
+          keywords: [
+            "databases",
+            "database folder",
+            "databases folder",
+            "database location",
+            "new database",
+          ],
+        },
+        {
+          id: "tasks-location",
+          title: "Default tasks location",
+          description:
+            "Where new task files are created: your primary notes area, the active note's folder, or a folder you name.",
+          keywords: [
+            "tasks",
+            "task folder",
+            "tasks folder",
+            "task location",
+            "task files",
+            "new task",
+            "todos",
+          ],
         },
         {
           id: "view-settings-scope",
@@ -3562,6 +3785,38 @@ export function SettingsModal(): JSX.Element {
           title: "Daily note template",
           description: "Template applied when a daily note is created.",
           keywords: ["daily notes", "template"],
+        },
+        {
+          id: "daily-notes-tasks-due-on-date",
+          title: "Tasks are due on the note's date",
+          description:
+            "A task written in a daily note shows on the calendar for that day, without typing a due date.",
+          keywords: [
+            "daily notes",
+            "tasks",
+            "due date",
+            "calendar",
+            "deadline",
+            "schedule",
+          ],
+          targetId: dailyNotesTasksDueTargetId,
+        },
+        {
+          id: "daily-notes-rollover",
+          title: "Roll over unfinished tasks to today",
+          description:
+            "When today's daily note opens, move every unchecked task from past daily notes into it.",
+          keywords: [
+            "daily notes",
+            "rollover",
+            "carry over",
+            "carry forward",
+            "incomplete",
+            "move tasks",
+            "migrate",
+            "todos",
+          ],
+          targetId: dailyNotesRolloverTargetId,
         },
         {
           id: "enable-weekly-notes",
@@ -3783,13 +4038,65 @@ export function SettingsModal(): JSX.Element {
           description: "Display name for the vault-wide Tasks view.",
           keywords: ["system folders", "tasks", "todos", "goals", "rename"],
         },
+        {
+          id: "inbox-path",
+          title: "Inbox path",
+          description:
+            "The top-level folder that holds the main notes area. Empty uses `inbox`.",
+          keywords: [
+            "system folders",
+            "folder path",
+            "inbox folder",
+            "directory",
+            "on disk",
+          ],
+        },
+        {
+          id: "quick-path",
+          title: "Quick Notes path",
+          description:
+            "The top-level folder that holds Quick Notes. Empty uses `quick`.",
+          keywords: [
+            "system folders",
+            "folder path",
+            "quick notes folder",
+            "directory",
+            "on disk",
+          ],
+        },
+        {
+          id: "archive-path",
+          title: "Archive path",
+          description:
+            "The top-level folder that holds archived notes. Empty uses `archive`.",
+          keywords: [
+            "system folders",
+            "folder path",
+            "archive folder",
+            "directory",
+            "on disk",
+          ],
+        },
+        {
+          id: "trash-path",
+          title: "Trash path",
+          description:
+            "The top-level folder that holds deleted notes. Empty uses `trash`.",
+          keywords: [
+            "system folders",
+            "folder path",
+            "trash folder",
+            "directory",
+            "on disk",
+          ],
+        },
       ],
       subTabs: [
         {
           id: "location",
           title: "Location",
           description: "Where this vault lives, plus saved remote connections.",
-          searchIds: ["vault-location", "saved-remote-workspaces"],
+          searchIds: ["vault-location", "vault-name", "saved-remote-workspaces"],
           content: (
             <div className="space-y-6">
               <Section
@@ -3853,6 +4160,20 @@ export function SettingsModal(): JSX.Element {
                     </button>
                   )}
                 </div>
+                {/* Local vaults only (#692): a temporary folder session writes
+                    nothing into its folder, and a remote workspace's settings
+                    belong to the server. */}
+                {workspaceMode !== "remote" && vault && !vault.temporary && (
+                  <TextInputRow
+                    label="Vault name"
+                    description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault.root)} on disk; leave the field empty to use that name.`}
+                    value={vaultDisplayName}
+                    placeholder={vaultFolderName(vault.root)}
+                    settingId="vault-name"
+                    commitOnBlur
+                    onChange={(next) => void renameVault(next)}
+                  />
+                )}
               </Section>
 
               {supportsRemoteWorkspace && (
@@ -3959,8 +4280,14 @@ export function SettingsModal(): JSX.Element {
           id: "notes",
           title: "Notes",
           description:
-            "How primary notes, new drawings and databases, and view preferences are organized.",
-          searchIds: ["primary-notes-location", "view-settings-scope"],
+            "Where primary notes live, where new drawings, databases, and tasks are created, and how view preferences apply.",
+          searchIds: [
+            "primary-notes-location",
+            "drawings-location",
+            "databases-location",
+            "tasks-location",
+            "view-settings-scope",
+          ],
           content: (
             <div className="space-y-6">
               <Section
@@ -3990,7 +4317,7 @@ export function SettingsModal(): JSX.Element {
               >
                 <SegmentedRow
                   label="Default drawings location"
-                  description="`Primary location` uses your primary notes area, `Active note's folder` puts it beside the note you're viewing, `Specific folder` uses a subfolder you choose."
+                  description="`Primary location` uses your primary notes area, `Active note's folder` puts it beside the note you're viewing, `Specific folder` uses a folder you name inside your primary notes area."
                   value={vaultSettings.drawingsLocation?.mode ?? "primary"}
                   settingId="drawings-location"
                   options={[
@@ -4011,7 +4338,7 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.drawingsLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Drawings folder"
-                    description="Vault-relative subfolder for new drawings, e.g. `assets/drawings`."
+                    description={`A folder inside your primary notes area, e.g. \`assets/drawings\`. New drawings go to ${specificFolderDestinationLabel(vaultSettings.drawingsLocation?.folder, vaultSettings)}.`}
                     value={vaultSettings.drawingsLocation?.folder ?? ""}
                     placeholder="assets/drawings"
                     settingId="drawings-folder"
@@ -4050,7 +4377,7 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.databasesLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Databases folder"
-                    description="Vault-relative subfolder for new databases, e.g. `assets/databases`."
+                    description={`A folder inside your primary notes area, e.g. \`assets/databases\`. New databases go to ${specificFolderDestinationLabel(vaultSettings.databasesLocation?.folder, vaultSettings)}.`}
                     value={vaultSettings.databasesLocation?.folder ?? ""}
                     placeholder="assets/databases"
                     settingId="databases-folder"
@@ -4086,7 +4413,7 @@ export function SettingsModal(): JSX.Element {
                 {vaultSettings.tasksLocation?.mode === "folder" && (
                   <TextInputRow
                     label="Tasks folder"
-                    description="Vault-relative subfolder for new task files, e.g. `Tasks` or `Projects/Inbox`."
+                    description={`A folder inside your primary notes area, e.g. \`Tasks\` or \`Projects/Inbox\`. New task files go to ${specificFolderDestinationLabel(vaultSettings.tasksLocation?.folder, vaultSettings)}.`}
                     value={vaultSettings.tasksLocation?.folder ?? ""}
                     placeholder="Tasks"
                     settingId="tasks-folder"
@@ -4135,6 +4462,8 @@ export function SettingsModal(): JSX.Element {
             "daily-note-pattern-reset",
             "open-todays-daily-note",
             "daily-notes-template",
+            "daily-notes-tasks-due-on-date",
+            "daily-notes-rollover",
             "enable-weekly-notes",
             "weekly-notes-directory",
             "weekly-note-title-pattern",
@@ -4685,7 +5014,7 @@ export function SettingsModal(): JSX.Element {
           id: "folders",
           title: "Folders",
           description:
-            "Rename the built-in folders and the Tasks view as they appear in the UI.",
+            "Rename the built-in folders and the Tasks view as they appear in the UI, and choose which folder on disk each system folder uses.",
           searchIds: [
             "inbox-label",
             "quick-notes-label",
@@ -4693,7 +5022,7 @@ export function SettingsModal(): JSX.Element {
             "trash-label",
             "tasks-label",
             "inbox-path",
-            "quick-notes-path",
+            "quick-path",
             "archive-path",
             "trash-path",
           ],

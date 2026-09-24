@@ -190,7 +190,9 @@ describe("public note move", () => {
       .getState()
       .updateNoteBody("inbox/One.md", "Saved via public action.\n");
     const moving = s.requestMoveNote(s.host, "inbox/One.md");
-    expect(s.getPromptRequest()?.options.initialValue).toBe("inbox");
+    // The notes root is the empty path now; `inbox/Work` is the older spelling
+    // of the same folder and still lands in it.
+    expect(s.getPromptRequest()?.options.initialValue).toBe("");
     s.answer("inbox/Work");
     expect(await moving).toBe("completed");
     expect(s.files.get("inbox/Work/One.md")).toBe("Saved via public action.\n");
@@ -417,7 +419,7 @@ it.each([false, true])(
       },
     });
     const moving = s.requestMoveNote(s.host, path);
-    expect(s.getPromptRequest()?.options.initialValue).toBe("inbox/Work");
+    expect(s.getPromptRequest()?.options.initialValue).toBe("Work");
     s.answer("inbox/Work");
     expect(await moving).toBe("cancelled");
   },

@@ -1,4 +1,5 @@
-import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, moveWithCreationMetadata } from '../main/note-creation-metadata'
+import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadataPath } from '../main/note-creation-metadata'
+import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
  * behavior of src/main/vault.ts, but without Electron dependencies —
@@ -14,11 +15,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { parse as parseToml } from 'smol-toml'
 import { retitleLeadingHeading } from '@shared/note-heading-sync'
-import {
-  NOTE_COMMENTS_DIR,
-  NOTE_COMMENTS_SUFFIX,
-  normalizeNoteComments
-} from '@shared/note-comments'
+import { normalizeNoteComments } from '@shared/note-comments'
 import type { NoteComment, NoteCommentInput } from '@shared/ipc'
 export type { NoteComment, NoteCommentInput }
 import { noteTasksMode, type NoteTasksMode } from '@shared/tasks'
@@ -536,7 +533,15 @@ export async function resolveVaultSelector(selector: string): Promise<string> {
   const trimmed = selector.trim()
   const known = await readKnownVaultsFromConfig()
 
-  const byName = known.filter((vault) => vault.name.toLowerCase() === trimmed.toLowerCase())
+  // The name the app shows, then the folder's own: a vault renamed in the
+  // app (#692) answers to both, so a script written before the rename keeps
+  // working. Same ambiguity rule for either.
+  const wanted = trimmed.toLowerCase()
+  const byDisplayName = known.filter((vault) => vault.name.toLowerCase() === wanted)
+  const byName =
+    byDisplayName.length > 0
+      ? byDisplayName
+      : known.filter((vault) => path.basename(vault.root).toLowerCase() === wanted)
   if (byName.length === 1) {
     const root = byName[0].root
     try {
@@ -996,13 +1001,9 @@ export async function renameNote(root: string, rel: string, nextTitle: string): 
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
     }
-    if (abs.toLowerCase() === target.toLowerCase() && abs !== target) {
-      const tmp = abs + '_rename_tmp_' + Date.now()
-      await moveWithCreationMetadata(root, abs, tmp)
-      await moveWithCreationMetadata(root, tmp, target)
-    } else {
-      await moveWithCreationMetadata(root, abs, target)
-    }
+    // Comments and the creation date travel with the note, as they do on the
+    // desktop; a case-only rename is handled inside the shared move.
+    await relocateNote(root, toPosix(path.relative(root, abs)), target, async () => {})
   }
   await syncTitleHeading(abs, target, trimmed)
   return await readMeta(root, target, folder)
@@ -1063,7 +1064,7 @@ async function moveBetweenFolders(
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}.md`)
-  await moveWithCreationMetadata(root, abs, destAbs)
+  await relocateNote(root, toPosix(path.relative(root, abs)), destAbs, async () => {})
   return await readMeta(root, destAbs, target)
 }
 
@@ -1095,7 +1096,7 @@ export async function moveNote(
   const baseTitle = path.basename(filename, ext)
   const finalTitle = await uniqueTitle(destDir, baseTitle)
   const destAbs = path.join(destDir, `${finalTitle}${ext}`)
-  await moveWithCreationMetadata(root, oldAbs, destAbs)
+  await relocateNote(root, toPosix(path.relative(root, oldAbs)), destAbs, async () => {})
   return await readMeta(root, destAbs, targetFolder)
 }
 
@@ -1116,8 +1117,12 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
 
 export async function deleteNote(root: string, rel: string): Promise<void> {
   const abs = resolveSafe(root, rel)
+  const notePath = toPosix(path.relative(root, abs))
   await fs.rm(abs, { force: true })
-  await removeNoteCreation(root, toPosix(path.relative(root, abs)))
+  // A note's discussion goes with it, as on the desktop: left behind, it would
+  // be taken over by the next note created under this name.
+  await fs.rm(noteCommentsPath(root, notePath), { force: true })
+  await removeNoteCreation(root, notePath)
 }
 
 export async function emptyTrash(root: string): Promise<void> {
@@ -1125,7 +1130,9 @@ export async function emptyTrash(root: string): Promise<void> {
   try {
     const entries = await fs.readdir(trashDir)
     await Promise.all(entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true })))
-    await removeNoteCreation(root, toPosix(path.relative(root, trashDir)), true)
+    const trashRel = toPosix(path.relative(root, trashDir))
+    await fs.rm(resolveSafe(noteCommentsRoot(root), trashRel), { recursive: true, force: true })
+    await removeNoteCreation(root, trashRel, true)
   } catch {
     /* no trash dir */
   }
@@ -1159,8 +1166,18 @@ export async function renameFolder(
   if ((newAbs + path.sep).startsWith(oldAbs + path.sep)) {
     throw new Error('Cannot move a folder into itself')
   }
-  await fs.mkdir(path.dirname(newAbs), { recursive: true })
-  await moveWithCreationMetadata(root, oldAbs, newAbs, true)
+  const oldRel = toPosix(path.relative(root, oldAbs))
+  const newRel = toPosix(path.relative(root, newAbs))
+  // The folder's comments and creation dates move as one with it, the way the
+  // desktop's renameFolderTrees does; a failure puts all three back.
+  await relocateFolderTrees(
+    [
+      [oldAbs, newAbs],
+      [resolveSafe(noteCommentsRoot(root), oldRel), resolveSafe(noteCommentsRoot(root), newRel)],
+      [await noteMetadataPath(root, oldRel, true), await noteMetadataPath(root, newRel, true)]
+    ],
+    async () => {}
+  )
   return newClean
 }
 
@@ -1173,8 +1190,10 @@ export async function deleteFolder(
   if (!clean) throw new Error('Cannot delete the top-level folder')
   const folderAbs = await folderRoot(root, topFolder)
   const abs = resolveSafe(folderAbs, clean)
+  const rel = toPosix(path.relative(root, abs))
   await fs.rm(abs, { recursive: true, force: true })
-  await removeNoteCreation(root, toPosix(path.relative(root, abs)), true)
+  await fs.rm(resolveSafe(noteCommentsRoot(root), rel), { recursive: true, force: true })
+  await removeNoteCreation(root, rel, true)
 }
 
 /* ---------- Text search ---------------------------------------------- */
@@ -1915,13 +1934,6 @@ export async function insertAtLine(
 /* ---------- Backlinks ------------------------------------------------- */
 
 /* ---------- Note comments (#738) --------------------------------------- */
-
-/** The sidecar beside a note: `.zennotes/comments/<rel>.comments.json`, the
- *  same path the desktop and the Go server use, validated against escapes. */
-function noteCommentsPath(root: string, rel: string): string {
-  const commentsRoot = path.join(root, INTERNAL_VAULT_DIR, NOTE_COMMENTS_DIR)
-  return resolveSafe(commentsRoot, `${toPosix(rel)}${NOTE_COMMENTS_SUFFIX}`)
-}
 
 export async function readNoteComments(root: string, rel: string): Promise<NoteComment[]> {
   const notePath = toPosix(rel)

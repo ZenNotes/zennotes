@@ -6,7 +6,7 @@ import { isArchiveViewActive, useStore } from '../store'
 import { ArchiveIcon, ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
 import { ContextMenu } from './ContextMenu'
-import { buildMoveNotePrompt, parseMoveNoteTarget } from '../lib/move-note'
+import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from '../lib/move-note'
 import { promptApp } from '../lib/prompt-requests'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
@@ -44,6 +44,7 @@ export function ArchiveView(): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const vaultSettings = useStore((s) => s.vaultSettings)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const amActive = useStore(isArchiveViewActive)
   const folderLabels = useMemo(
@@ -176,9 +177,11 @@ export function ArchiveView(): JSX.Element {
     items.push({
       label: 'Move…',
       onSelect: async () => {
-        const target = await promptApp(buildMoveNotePrompt(note, folders))
-        if (!target) return
-        const dest = parseMoveNoteTarget(target)
+        const vocabulary = moveNoteVocabulary(vaultSettings, systemFolderLabels, folders)
+        const target = await promptApp(buildMoveNotePrompt(note, folders, vocabulary))
+        // Empty is an answer (the notes root); only null is the Cancel.
+        if (target === null) return
+        const dest = parseMoveNoteTarget(target, vocabulary)
         await moveNote(note.path, dest.folder, dest.subpath)
       }
     })

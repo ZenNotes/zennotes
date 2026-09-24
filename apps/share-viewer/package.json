@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/share-viewer",
   "private": true,
-  "version": "2.53.0",
+  "version": "2.56.0",
   "type": "module",
   "description": "Read-only renderer for publicly shared ZenNotes, embedded by the zennotes.org website",
   "homepage": "https://zennotes.org",

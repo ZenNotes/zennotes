@@ -21,12 +21,26 @@ export interface WorkflowRunFileChange {
   after: string | null
 }
 
+/** One path op as it will land: the note's path before and after. */
+export interface WorkflowRunMove {
+  from: string
+  to: string
+}
+
 export interface PreparedWorkflowRun {
   workflowId: string
   ops: WorkflowOp[]
   applied: number
   irreversible: number
   changes: WorkflowRunFileChange[]
+  /**
+   * The path ops in the order they land. `changes` names only notes, and a
+   * note's comments live in `.zennotes`, which a change may not name; the
+   * server carries them along for each move and records them for undo. A
+   * server from before this field ignores it and moves the Markdown alone, as
+   * it always did.
+   */
+  moves: WorkflowRunMove[]
 }
 
 export interface WorkflowRunSource {
@@ -171,6 +185,7 @@ export async function prepareWorkflowRun(
   const live = new Map<string, string | null>()
   const journal = new Map<string, { path: string; before: string | null }>()
   const redirects = new Map<string, string>()
+  const moves: WorkflowRunMove[] = []
 
   const read = async (path: string): Promise<string | null> => {
     const normalized = normalizeRel(path)
@@ -240,6 +255,7 @@ export async function prepareWorkflowRun(
     await touch(destination)
     live.set(from, null)
     live.set(destination, body)
+    moves.push({ from, to: destination })
     const promised = normalizeRel(promisedPath)
     if (destination !== promised) redirects.set(promised, destination)
   }
@@ -301,6 +317,7 @@ export async function prepareWorkflowRun(
     ops,
     applied,
     irreversible: ops.filter((op) => IRREVERSIBLE_OP_KINDS.has(op.kind)).length,
-    changes
+    changes,
+    moves
   }
 }

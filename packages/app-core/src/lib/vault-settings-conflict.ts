@@ -16,6 +16,7 @@ import { normalizeVaultSettings } from "./vault-layout";
  */
 
 export const VAULT_SETTINGS_SECTION_LABELS: Record<VaultSettingsSection, string> = {
+  displayName: "Vault name",
   primaryNotesLocation: "Primary notes location",
   dailyNotes: "Daily notes",
   weeklyNotes: "Weekly notes",

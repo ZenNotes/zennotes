@@ -29,14 +29,15 @@ import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { registerDisplayLineMotion } from '../lib/cm-vim-display-line'
+import { mapDefaultHalfPageKeys, registerHalfPageMotion } from '../lib/cm-vim-half-page-motion'
 import { registerHeadingMotion } from '../lib/cm-vim-heading-motion'
 import { registerReflowOperator } from '../lib/cm-vim-reflow'
+import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
@@ -341,7 +342,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
-          markdown({ base: markdownLanguage, codeLanguages: resolveCodeLanguage, addKeymap: false }),
+          noteMarkdown(),
           customCodeFenceHighlightExtension,
           markdownLinkExtension,
           vimAwareMarkdownKeymap,
@@ -352,6 +353,9 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           prefs.livePreview ? livePreviewPlugin : [],
           lineNumberExtension(prefs.lineNumberMode),
           keymap.of([
+            // No keymap overrides in this window, so the default Ctrl+D /
+            // Ctrl+U reach Vim ahead of the search and history keymaps (#825).
+            ...vimHalfPageKeymap(prefs.vimMode, {}),
             indentWithTab,
             ...vimAwareDefaultKeymap(prefs.vimMode),
             ...historyKeymap,
@@ -565,6 +569,8 @@ function registerFloatingVimCommands(
   floatingVimRegistered = true
 
   registerHeadingMotion()
+  registerHalfPageMotion()
+  mapDefaultHalfPageKeys()
   registerReflowOperator()
 
   Vim.defineEx('write', 'w', () => {

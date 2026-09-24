@@ -14,6 +14,8 @@ export type KeymapId =
   | "global.commandPalette"
   | "global.newQuickNote"
   | "global.newNoteHere"
+  | "global.newNoteFromTemplate"
+  | "global.insertTemplate"
   | "global.openSettings"
   | "global.openFile"
   | "global.toggleSidebar"
@@ -63,6 +65,7 @@ export type KeymapId =
   | "vim.leaderFormatNote"
   | "vim.leaderCopyMarkdown"
   | "vim.leaderToggleFavorite"
+  | "vim.leaderTableToDatabase"
   | "vim.leaderQuickCapture"
   | "vim.leaderTemplatePicker"
   | "vim.leaderInsertTemplate"
@@ -224,6 +227,31 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Create a note in the active note's folder (or the browsed folder when no note is open) and focus its title. Wins over Vim's Ctrl+N (cursor down) when Mod is Ctrl.",
     defaultBinding: "Mod+N",
+  },
+  // The template actions were reachable only through Vim's leader (Space t,
+  // Space i) and the palette, so with Vim off no key could reach them (#847).
+  // Windows and Linux ship unbound: Ctrl+Alt+T opens a terminal on most Linux
+  // desktops, and Ctrl/Cmd+Alt+I is Electron's DevTools.
+  {
+    id: "global.newNoteFromTemplate",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "New note from template",
+    description:
+      "Open the template picker to create a note, as Vim's Leader t does. Unbound on Windows and Linux until you set a key.",
+    defaultBinding: "",
+    defaultBindingMac: "Alt+Mod+T",
+  },
+  {
+    id: "global.insertTemplate",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Insert template into current note",
+    description:
+      "Render a template into the note you are editing, as Vim's Leader i does. Unbound until you set a key.",
+    defaultBinding: "",
   },
   {
     id: "global.openSettings",
@@ -638,6 +666,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader note action: toggle favorite",
     description: "Add or remove the active note from Favorites.",
     defaultBinding: "s",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderTableToDatabase",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: convert table to database",
+    // `d` for database; `t` stays free for whatever the note group needs next.
+    description:
+      "Turn the Markdown table under the cursor into a database and leave a link to it in the note.",
+    defaultBinding: "d",
     vimOnly: true,
     maxTokens: 1,
   },

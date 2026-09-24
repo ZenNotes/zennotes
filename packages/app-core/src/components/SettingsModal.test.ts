@@ -1,10 +1,21 @@
 // @vitest-environment jsdom
 
-import { act, createElement } from "react";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { act, createElement, isValidElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsModal } from "./SettingsModal";
 import { requestSettingsTarget } from "../lib/settings-navigation";
+import {
+  getSettingsSearchResults,
+  type SettingsSearchCategory,
+} from "../lib/settings-search";
+
+// Spied, not replaced: the modal hands search every category it built, which
+// is how the guards below read the real search items and sub-tabs.
+vi.mock("../lib/settings-search", { spy: true });
 
 const cloudMocks = vi.hoisted(() => ({
   getCloudAccountStatus: vi
@@ -34,6 +45,7 @@ const mocks = vi.hoisted(() => {
       interfaceFont: null,
       keymapOverrides: {} as Record<string, string>,
       lineNumberMode: "off",
+      mathRenderer: "katex" as "katex" | "typst",
       monoFont: null,
       previewMaxWidth: 760,
       quickNoteTitlePrefix: null,
@@ -81,10 +93,13 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     runtime: "desktop" as "desktop" | "web",
+    capabilities: {} as Record<string, boolean>,
     setSettingsOpen: state.setSettingsOpen,
     setVaultSettings: state.setVaultSettings,
   };
 });
+
+const defaultVaultSettings = mocks.state.vaultSettings;
 
 vi.mock("../store", () => ({
   useStore: (selector: (state: typeof mocks.state) => unknown) =>
@@ -112,6 +127,7 @@ vi.mock("@zennotes/bridge-contract/bridge", () => ({
       supportsCustomTemplates: true,
       supportsRemoteWorkspace: false,
       supportsCloudSync: true,
+      ...mocks.capabilities,
     }),
     ...cloudMocks,
   }),
@@ -130,6 +146,47 @@ function blurInput(input: HTMLInputElement): void {
   input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
 }
 
+/** Folder fields that only render in folder mode, right under the location
+ *  row a search hit already opens (tasks-location for tasks-folder). */
+const REACHED_THROUGH_LOCATION_ROW = new Set([
+  "drawings-folder",
+  "databases-folder",
+  "tasks-folder",
+]);
+
+type BuiltSettingsCategory = SettingsSearchCategory & {
+  content?: ReactNode;
+  subTabs?: { id: string; searchIds?: string[]; content: ReactNode }[];
+};
+
+/** The search targets a pane's JSX registers: a row's `settingId`, or a
+ *  `data-settings-search-id` spread onto a plain element. */
+function searchTargetsIn(node: ReactNode): string[] {
+  if (Array.isArray(node)) return node.flatMap(searchTargetsIn);
+  if (!isValidElement(node)) return [];
+  const props = node.props as {
+    settingId?: unknown;
+    "data-settings-search-id"?: unknown;
+    children?: ReactNode;
+  };
+  const own = [props.settingId, props["data-settings-search-id"]].filter(
+    (id): id is string => typeof id === "string",
+  );
+  return [...own, ...searchTargetsIn(props.children)];
+}
+
+/** Every id a search hit can name: each item's own id and the row it jumps to. */
+function searchItemTargets(categories: SettingsSearchCategory[]): Set<string> {
+  return new Set(
+    categories.flatMap((category) =>
+      (category.searchItems ?? []).flatMap((item) => [
+        item.id,
+        item.targetId ?? item.id,
+      ]),
+    ),
+  );
+}
+
 describe("SettingsModal date note directories", () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -145,6 +202,9 @@ describe("SettingsModal date note directories", () => {
     mocks.state.keymapOverrides = {};
     mocks.state.workspaceMode = "local";
     mocks.state.remoteWorkspaceInfo = null;
+    mocks.state.mathRenderer = "katex";
+    mocks.state.vaultSettings = defaultVaultSettings;
+    mocks.capabilities = {};
     (
       globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
     ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -200,6 +260,200 @@ describe("SettingsModal date note directories", () => {
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     await act(async () => toggle!.click());
     expect(mocks.state.setShowWindowTitleBar).toHaveBeenCalledWith(false);
+  });
+
+  it("finds the new-file location rows by the words people search for", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    const cases = [
+      ["tasks folder", "Default tasks location", "tasks-location"],
+      ["task folder", "Default tasks location", "tasks-location"],
+      ["new task", "Default tasks location", "tasks-location"],
+      ["drawings folder", "Default drawings location", "drawings-location"],
+      ["database location", "Default databases location", "databases-location"],
+    ] as const;
+    for (const [query, title, settingId] of cases) {
+      await act(async () => changeInput(search, query));
+      const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+        (button) => button.textContent?.includes(title),
+      );
+      expect(result, query).toBeTruthy();
+      await act(async () => result!.click());
+      expect(host.querySelector(`[data-settings-search-id="${settingId}"]`), query).toBeTruthy();
+    }
+  });
+
+  it("says where a specific tasks folder really lands for the vault's layout", async () => {
+    const original = mocks.state.vaultSettings;
+    const withTasksFolder = (primaryNotesLocation: "inbox" | "root") =>
+      ({
+        ...original,
+        primaryNotesLocation,
+        tasksLocation: { mode: "folder", folder: "Tasks" },
+      }) as typeof original;
+    const folderRowText = () =>
+      host.querySelector('[data-settings-search-id="tasks-folder"]')?.textContent ?? "";
+    try {
+      mocks.state.vaultSettings = withTasksFolder("inbox");
+      await act(async () => root.render(createElement(SettingsModal)));
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+      await act(async () => changeInput(search, "tasks folder"));
+      expect(folderRowText()).toContain("New task files go to `inbox/Tasks/`.");
+      expect(folderRowText()).not.toContain("Vault-relative");
+
+      mocks.state.vaultSettings = withTasksFolder("root");
+      await act(async () => root.render(createElement(SettingsModal)));
+      expect(folderRowText()).toContain("New task files go to `Tasks/`.");
+    } finally {
+      mocks.state.vaultSettings = original;
+    }
+  });
+
+  /** Renders once with every gate a row can sit behind switched on (Vim mode,
+   *  Typst, Harper, undofile, remote workspaces, periodic notes, the folder
+   *  modes) and returns the categories the modal handed to search. */
+  async function renderEveryRow(): Promise<BuiltSettingsCategory[]> {
+    mocks.state.vimMode = true;
+    mocks.state.mathRenderer = "typst";
+    mocks.state.vaultSettings = {
+      ...defaultVaultSettings,
+      dailyNotes: { ...defaultVaultSettings.dailyNotes, enabled: true },
+      weeklyNotes: { ...defaultVaultSettings.weeklyNotes, enabled: true },
+      monthlyNotes: { ...defaultVaultSettings.monthlyNotes, enabled: true },
+      drawingsLocation: { mode: "folder", folder: "Drawings" },
+      databasesLocation: { mode: "folder", folder: "Databases" },
+      tasksLocation: { mode: "folder", folder: "Tasks" },
+    } as typeof defaultVaultSettings;
+    mocks.capabilities = {
+      supportsRemoteWorkspace: true,
+      supportsUndoFile: true,
+      supportsCustomCodeLanguages: true,
+    };
+    Object.assign(window.zen, {
+      getCapabilities: () => ({ supportsHarper: true }),
+    });
+    await act(async () => root.render(createElement(SettingsModal)));
+    return vi.mocked(getSettingsSearchResults).mock
+      .lastCall![0] as BuiltSettingsCategory[];
+  }
+
+  /** Types a query, opens the result with this title, and returns the row the
+   *  jump highlighted once the two frames it waits for have run. */
+  async function openSearchHit(
+    query: string,
+    title: string,
+  ): Promise<string | undefined> {
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, query));
+    const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+      (button) => button.textContent?.includes(title),
+    );
+    expect(result, `${query} → ${title}`).toBeTruthy();
+    await act(async () => result!.click());
+    await act(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    return host.querySelector<HTMLElement>('[data-settings-search-highlight="true"]')
+      ?.dataset.settingsSearchId;
+  }
+
+  it("gives every settings row a search item, so Settings search can find it", async () => {
+    const findable = searchItemTargets(await renderEveryRow());
+    // Not `new URL(…, import.meta.url)`: in a jsdom test Vite rewrites that
+    // into a dev-server asset URL, which readFileSync cannot open.
+    const source = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "SettingsModal.tsx"),
+      "utf8",
+    );
+    const rows = new Set(
+      [
+        ...source.matchAll(
+          /(?:settingId=|settingsSearchTargetProps\(|data-settings-search-id=)"([^"]+)"/g,
+        ),
+      ].map((match) => match[1]),
+    );
+    // A scan that stopped matching the file would pass on nothing.
+    expect(rows.size).toBeGreaterThan(100);
+    const unfindable = [...rows].filter(
+      (id) => !findable.has(id) && !REACHED_THROUGH_LOCATION_ROW.has(id),
+    );
+    expect(unfindable).toEqual([]);
+  });
+
+  it("lists every row in the searchIds of the sub-tab that renders it", async () => {
+    // Walks the JSX each pane is built from rather than the source, so rows
+    // named by an expression (`${key}-path`) count too.
+    const problems: string[] = [];
+    for (const category of await renderEveryRow()) {
+      const findable = searchItemTargets([category]);
+      const panes = category.subTabs ?? [
+        { id: category.id, content: category.content },
+      ];
+      for (const pane of panes) {
+        const rendered = searchTargetsIn(pane.content).filter(
+          (id) => !REACHED_THROUGH_LOCATION_ROW.has(id),
+        );
+        for (const id of rendered) {
+          if (!findable.has(id)) {
+            problems.push(`${category.id}: no search item for ${id}`);
+          }
+          if (category.subTabs && !pane.searchIds?.includes(id)) {
+            problems.push(`${category.id}/${pane.id}: searchIds is missing ${id}`);
+          }
+        }
+        for (const id of pane.searchIds ?? []) {
+          if (!rendered.includes(id)) {
+            problems.push(`${category.id}/${pane.id}: searchIds lists ${id}, which it does not render`);
+          }
+        }
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it("finds each row by the words people search for and lands on it", async () => {
+    mocks.state.vimMode = true;
+    await act(async () => root.render(createElement(SettingsModal)));
+    const cases = [
+      ["pdf theme", "Use theme for PDF export", "pdf-export-use-theme"],
+      ["clipboard", "Sync clipboard with Vim registers", "vim-yank-to-clipboard"],
+      ["korean", "Keep the input method out of normal mode", "vim-block-ime-in-normal-mode"],
+      ["strikethrough", "Completed task style", "completed-task-style"],
+      ["open in preview", "Default view mode", "default-view-mode"],
+      ["event triggers", "Event triggers", "workflow-event-triggers"],
+      ["due date", "Tasks are due on the note's date", "daily-notes-tasks-due-on-date"],
+      ["rollover", "Roll over unfinished tasks to today", "daily-notes-rollover"],
+      ["tutorial", "Guided tutorial", "workflow-tutorial"],
+      ["recipe gallery", "Built-in recipes", "workflow-hidden-recipes"],
+      ["trash folder", "Trash path", "trash-path"],
+      ["quick notes folder", "Quick Notes path", "quick-path"],
+      ["math renderer", "Math renderer", "math-renderer"],
+      ["quick note prefix", "Quick Note prefix", "quick-note-prefix"],
+    ] as const;
+    for (const [query, title, settingId] of cases) {
+      expect(await openSearchHit(query, title), query).toBe(settingId);
+    }
+  });
+
+  it("lands on the switch that reveals a row while that row is hidden", async () => {
+    mocks.state.vimMode = false;
+    mocks.state.vaultSettings = {
+      ...defaultVaultSettings,
+      dailyNotes: { ...defaultVaultSettings.dailyNotes, enabled: false },
+    };
+    await act(async () => root.render(createElement(SettingsModal)));
+    const cases = [
+      ["clipboard", "Sync clipboard with Vim registers", "vim-mode"],
+      ["korean", "Keep the input method out of normal mode", "vim-mode"],
+      ["due date", "Tasks are due on the note's date", "enable-daily-notes"],
+      ["rollover", "Roll over unfinished tasks to today", "enable-daily-notes"],
+    ] as const;
+    for (const [query, title, settingId] of cases) {
+      expect(await openSearchHit(query, title), query).toBe(settingId);
+    }
   });
 
   it("does not offer native title bar settings in the web app", async () => {
