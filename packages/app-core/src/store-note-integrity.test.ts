@@ -83,10 +83,17 @@ function installZen(): void {
   })
 }
 
+// The store module a test loaded. Each test gets a fresh one, but a timer the
+// old one armed keeps running with real timers and calls whatever window.zen
+// is current when it fires, so afterEach settles the old store before the
+// next test installs its own bridge.
+let loaded: Awaited<ReturnType<typeof loadStore>> | null = null
+
 async function loadStore() {
   vi.resetModules()
   localStorage.clear()
-  return import('./store')
+  loaded = await import('./store')
+  return loaded
 }
 
 async function flush(): Promise<void> {
@@ -97,8 +104,27 @@ beforeEach(() => {
   vi.restoreAllMocks()
   installZen()
 })
-afterEach(() => {
+afterEach(async () => {
+  // Real timers first: a fake-timer test's pending saves are dropped with the
+  // fake clock, and the race below needs a real setTimeout.
   vi.useRealTimers()
+  // Typing arms the store's 350 ms debounced save. A test that ends with a
+  // dirty buffer would let that timer fire into a later test and push a write
+  // nobody there made into writeCalls (the #852 dirty-buffer test did exactly
+  // that under turbo's parallel load). persistNote clears the timer before
+  // its first await, so calling it is enough; the write it starts goes to
+  // this test's bridge, which may be gated forever, hence the race.
+  const store = loaded
+  loaded = null
+  if (!store) return
+  const state = store.useStore.getState()
+  const dirty = Object.entries(state.noteDirty)
+    .filter(([, isDirty]) => isDirty)
+    .map(([path]) => path)
+  await Promise.race([
+    Promise.allSettled(dirty.map((path) => state.persistNote(path))),
+    new Promise((resolve) => setTimeout(resolve, 50))
+  ])
 })
 
 function seedRootVault(useStore: { setState: (s: Record<string, unknown>) => void }): void {
@@ -259,9 +285,7 @@ describe('#852: a note body taken from disk moves its disk revision', () => {
     expect(useStore.getState().noteContents[a]?.body).toBe('unsaved typing')
     expect(noteDiskRevision(a)).toBe(0)
 
-    // The typing above armed the debounced save; settle it here rather than
-    // let it fire into a later test. The user's own write reaching disk is
-    // not a disk change either.
+    // The user's own write reaching disk is not a disk change either.
     await useStore.getState().persistNote(a)
     expect(vault.get(a)).toBe('unsaved typing')
     expect(noteDiskRevision(a)).toBe(0)
