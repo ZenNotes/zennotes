@@ -158,6 +158,23 @@ describe('public shell snapshots', () => {
     expect(s.getShellSnapshot().vault).toBeNull()
   })
 
+  it('carries the folder name a host gave, and notices when it changes', async () => {
+    // The phone shells describe a vault by a label root and name the folder
+    // separately (#692); a snapshot that dropped folderName made the
+    // switcher unable to tell which folder is open.
+    const s = await setup()
+    s.useStore.setState({
+      vault: { root: 'On this device › ZenNotes › docs', name: 'Acme API docs', folderName: 'docs' }
+    })
+    const first = s.getShellSnapshot()
+    expect(first.vault).toMatchObject({ name: 'Acme API docs', folderName: 'docs' })
+    s.useStore.setState({
+      vault: { root: 'On this device › ZenNotes › docs', name: 'Acme API docs', folderName: 'docs2' }
+    })
+    expect(s.getShellSnapshot().vault?.folderName).toBe('docs2')
+    expect(s.getShellSnapshot().vault).not.toBe(first.vault)
+  })
+
   it('observes the current state after an earlier subscriber corrects a transition', async () => {
     const s = await setup()
     disposers.push(

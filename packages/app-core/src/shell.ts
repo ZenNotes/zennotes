@@ -94,11 +94,16 @@ export function getShellSnapshot(): ShellSnapshot {
   else if (
     vault?.root !== state.vault.root ||
     vault.name !== state.vault.name ||
+    vault.folderName !== state.vault.folderName ||
     vault.temporary !== state.vault.temporary
   ) {
+    // Every field of VaultInfo, by name: the snapshot is typed as one, and a
+    // host that reads a field this list forgot gets undefined with no error
+    // (folderName, for the phone shells, was missing here in 2.56.1).
     vault = Object.freeze({
       root: state.vault.root,
       name: state.vault.name,
+      folderName: state.vault.folderName,
       temporary: state.vault.temporary
     })
   }
