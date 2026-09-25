@@ -107,12 +107,12 @@ jobs:
       REQUIRE_MAC_SIGNING: "true"
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -194,7 +194,7 @@ jobs:
         # endpoint has a bad day, and a platform build takes up to 40 minutes.
         # With the build kept here, a failed upload is finished by hand from
         # this artifact instead of being built again.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.name }}
           path: release-assets/
