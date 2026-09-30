@@ -255,3 +255,61 @@ describe('config persistence', () => {
     expect(raw).toBe('corrupt')
   })
 })
+
+describe('remote workspace profiles from the live connection (#870)', () => {
+  const SERVER = 'https://notes.example.com'
+  const writeRaw = async (value: unknown): Promise<void> => {
+    await writeFile(configFile(), JSON.stringify(value), 'utf8')
+  }
+
+  it('gives a config from before saved profiles one profile for its connection', async () => {
+    await writeRaw({ workspaceMode: 'remote', remoteWorkspace: { baseUrl: SERVER, authToken: 'legacy-token' } })
+
+    const cfg = await loadConfig()
+    expect(cfg.remoteWorkspaceProfiles).toHaveLength(1)
+    expect(cfg.remoteWorkspaceProfiles[0]).toMatchObject({
+      name: 'ZenNotes Server',
+      baseUrl: SERVER,
+      authToken: 'legacy-token',
+      vaultPath: null
+    })
+  })
+
+  it('does not make up a profile for the live connection of a current config', async () => {
+    await writeRaw({
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: SERVER },
+      remoteWorkspaceProfileId: null,
+      remoteWorkspaceProfiles: []
+    })
+
+    const cfg = await loadConfig()
+    expect(cfg.remoteWorkspace).toEqual({ baseUrl: SERVER, authToken: null })
+    expect(cfg.remoteWorkspaceProfiles).toEqual([])
+  })
+
+  it('leaves one saved profile after Quick Connect writes the connection and then the profile', async () => {
+    await writeRaw({ workspaceMode: 'local', remoteWorkspace: null, remoteWorkspaceProfileId: null, remoteWorkspaceProfiles: [] })
+
+    // The order Quick Connect writes in: setRemoteWorkspace persists the live
+    // connection, then saveRemoteWorkspaceProfile adds the profile.
+    await updateConfig((cfg) => ({
+      ...cfg,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: SERVER },
+      remoteWorkspaceProfileId: null
+    }))
+    await updateConfig((cfg) => ({
+      ...cfg,
+      remoteWorkspaceProfiles: [
+        ...cfg.remoteWorkspaceProfiles,
+        { id: 'quick-connect', name: 'workspace (notes.example.com)', baseUrl: SERVER, vaultPath: '/workspace', lastConnectedAt: null }
+      ],
+      remoteWorkspaceProfileId: 'quick-connect'
+    }))
+
+    const cfg = await loadConfig()
+    expect(cfg.remoteWorkspaceProfiles.map((p) => p.name)).toEqual(['workspace (notes.example.com)'])
+    expect(cfg.remoteWorkspaceProfileId).toBe('quick-connect')
+  })
+})

@@ -133,6 +133,26 @@ describe('store.renameVault', () => {
     expect(useStore.getState().closedTabStack).toHaveLength(0)
   })
 
+  it('a host whose root is a label keeps the folder name it gave through every settings save', async () => {
+    // The phone shells hand over a VaultInfo whose root reads
+    // "On this device › ZenNotes › docs" and whose folderName is "docs".
+    // Before folderName existed, the first settings save (a favorite toggled
+    // is enough) renamed the vault to the whole label, because the fallback
+    // took the root's last path segment and a label has none.
+    const useStore = await loadStore()
+    const phone = { root: 'On this device › ZenNotes › docs', name: 'docs', folderName: 'docs' }
+    useStore.setState({ vault: phone } as never)
+
+    await useStore.getState().setVaultSettings({ ...DEFAULT_VAULT_SETTINGS, favorites: ['inbox/a.md'] })
+    expect(useStore.getState().vault?.name).toBe('docs')
+
+    expect(await useStore.getState().renameVault('Acme API docs')).toBe(true)
+    expect(useStore.getState().vault?.name).toBe('Acme API docs')
+
+    expect(await useStore.getState().renameVault('')).toBe(true)
+    expect(useStore.getState().vault?.name).toBe('docs')
+  })
+
   it('an external vault.json change renames the open vault too', async () => {
     const useStore = await loadStore()
     ;(window.zen.getVaultSettings as ReturnType<typeof vi.fn>).mockResolvedValue({

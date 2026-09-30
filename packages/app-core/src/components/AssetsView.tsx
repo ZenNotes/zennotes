@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import type { AssetMeta } from '@shared/ipc'
 import { useStore, type AssetSortColumn, type AssetSortOrder } from '../store'
 import { assetTabPath } from '../lib/asset-tabs'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 import { confirmMoveToTrash } from '../lib/confirm-trash'
 import { promptApp } from '../lib/prompt-requests'
 import { naturalCompare } from '../lib/natural-sort'
@@ -125,6 +126,12 @@ export function AssetsView(): JSX.Element {
   const assetSortOrder = useStore((s) => s.assetSortOrder)
   const setAssetSortOrder = useStore((s) => s.setAssetSortOrder)
   const sort = useMemo(() => parseAssetSortOrder(assetSortOrder), [assetSortOrder])
+
+  // A note found through the asset it uses opens for editing: hand it the
+  // keyboard, since the click left focus on this view's button (#863).
+  const openUsingNote = (path: string): void => {
+    void openNoteInTab(path).then(() => focusEditorNormalMode())
+  }
 
   // assetPath → note paths that embed it (resolved via relative-path + the
   // unique-basename fallback, matching how embeds render). (#185)
@@ -293,7 +300,7 @@ export function AssetsView(): JSX.Element {
                         onClick={(e) => {
                           e.stopPropagation()
                           const notePaths = usage.get(asset.path) ?? []
-                          if (notePaths.length === 1) void openNoteInTab(notePaths[0]!)
+                          if (notePaths.length === 1) openUsingNote(notePaths[0]!)
                           else if (notePaths.length > 1)
                             setUsageMenu({ x: e.clientX, y: e.clientY, notes: notePaths })
                         }}
@@ -356,7 +363,7 @@ export function AssetsView(): JSX.Element {
           y={usageMenu.y}
           items={usageMenu.notes.map((notePath) => ({
             label: noteLabel(notePath),
-            onSelect: () => void openNoteInTab(notePath)
+            onSelect: () => openUsingNote(notePath)
           }))}
           onClose={() => setUsageMenu(null)}
         />

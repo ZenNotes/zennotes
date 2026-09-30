@@ -27,7 +27,8 @@ import {
 } from "../lib/cm-harper";
 import { harperEditorConfig } from "../lib/harper-runtime";
 import { moveLineDown, moveLineUp } from "@codemirror/commands";
-import { foldAll, unfoldAll, foldCode, unfoldCode } from "@codemirror/language";
+import { unfoldAll } from "@codemirror/language";
+import { foldAllOutline, foldAtCursor, unfoldAtCursor } from "../lib/cm-heading-fold";
 import { isTagsViewActive, isTasksViewActive, useStore } from "../store";
 import { buildCommands, type Command } from "../lib/commands";
 import { rankItems } from "../lib/fuzzy-score";
@@ -1284,27 +1285,26 @@ function registerVimNoteCommands(): void {
     void useStore.getState().openTrashView();
   });
 
-  // Heading fold helpers — wrap CodeMirror's commands so they work on
-  // whichever pane currently owns the editor. `:fold` / `:unfold` act
-  // on the current heading; `:foldall` / `:unfoldall` cover the whole
-  // note. We map vim's `zc` / `zo` / `zM` / `zR` keys explicitly so the
-  // advertised fold chords work regardless of what CM-Vim ships by default.
-  const runFold = (
-    cmd: (view: { state: unknown; dispatch: unknown }) => boolean,
-  ): void => {
+  // Fold helpers: run on whichever pane currently owns the editor.
+  // `:fold` / `:unfold` act on the heading or list item at the cursor
+  // (#848); `:foldall` / `:unfoldall` cover the whole note, headings and
+  // lists nested. We map vim's `zc` / `zo` / `zM` / `zR` keys explicitly so
+  // the advertised fold chords work regardless of what CM-Vim ships by
+  // default. The action ids keep their heading names; config refers to them.
+  const runFold = (cmd: (view: EditorView) => boolean): void => {
     const view = useStore.getState().editorViewRef;
     if (!view) return;
-    cmd(view as unknown as Parameters<typeof foldCode>[0]);
+    cmd(view);
     view.focus();
   };
-  Vim.defineAction("foldHeadingAtCursor", () => runFold(foldCode as never));
-  Vim.defineAction("unfoldHeadingAtCursor", () => runFold(unfoldCode as never));
-  Vim.defineAction("foldAllHeadings", () => runFold(foldAll as never));
-  Vim.defineAction("unfoldAllHeadings", () => runFold(unfoldAll as never));
-  Vim.defineEx("fold", "fold", () => runFold(foldCode as never));
-  Vim.defineEx("unfold", "unfold", () => runFold(unfoldCode as never));
-  Vim.defineEx("foldall", "foldall", () => runFold(foldAll as never));
-  Vim.defineEx("unfoldall", "unfoldall", () => runFold(unfoldAll as never));
+  Vim.defineAction("foldHeadingAtCursor", () => runFold(foldAtCursor));
+  Vim.defineAction("unfoldHeadingAtCursor", () => runFold(unfoldAtCursor));
+  Vim.defineAction("foldAllHeadings", () => runFold(foldAllOutline));
+  Vim.defineAction("unfoldAllHeadings", () => runFold(unfoldAll));
+  Vim.defineEx("fold", "fold", () => runFold(foldAtCursor));
+  Vim.defineEx("unfold", "unfold", () => runFold(unfoldAtCursor));
+  Vim.defineEx("foldall", "foldall", () => runFold(foldAllOutline));
+  Vim.defineEx("unfoldall", "unfoldall", () => runFold(unfoldAll));
 }
 
 /** Flatten the pane tree to a list of leaves, independent of the store's

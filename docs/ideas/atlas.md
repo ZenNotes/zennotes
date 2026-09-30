@@ -2,11 +2,18 @@
 
 A map of the vault: every note, every connection, in one navigable place.
 
-> **Status (August 2026).** Design document, nothing shipped. Written as an
-> answer to the recurring request for "a graph view like Obsidian's", from a
-> position of not wanting Obsidian's graph. An interactive prototype of the
-> feel (fake vault, real interactions) sits next to this doc as
-> `atlas-prototype.html`; open it in a browser and press `?`.
+> **Status (September 2026).** Atlas v1 shipped in 2.30.0 (`Space g`): the
+> map and the sky behind `v`, lenses 1 to 4, hint jump, filter, and regions
+> taken from top-level folders, with positions cached per vault by the app
+> rather than in `.zennotes/atlas.json`. Since 2.57.0 a note added after the
+> map was drawn takes the nearest free spot beside what it links to (#861).
+> The rest of this document (clustering and named regions, trace, replay,
+> suggestions, the reflow command) is still design.
+>
+> Written in August 2026 as an answer to the recurring request for "a graph
+> view like Obsidian's", from a position of not wanting Obsidian's graph. An
+> interactive prototype of the feel (fake vault, real interactions) sits next
+> to this doc as `atlas-prototype.html`; open it in a browser and press `?`.
 
 ## Problem Statement
 
@@ -134,9 +141,13 @@ honest.
 - Placement: regions on a golden-angle spiral (big regions claim space first),
   notes within a region by phyllotaxis, refined by a short, seeded, damped
   relaxation. Then **frozen**.
-- Incremental: a new note is placed at the weighted centroid of its neighbors
-  with deterministic jitter; an unconnected note parks at its folder-mates'
-  region edge until it earns links. Existing positions never shift.
+- Incremental: a new note takes the nearest free spot around the notes it
+  links to (around its region's slot while none of them is on the map yet),
+  clear of every dot already there. Existing positions never shift, with one
+  exception: a note sitting on a note it links to moves to the nearest free
+  spot. That is what versions before 2.57.0 cached for notes written after the
+  first visit, when a newcomer landed on its neighbors' centroid with only
+  jitter to separate it (#861).
 - Persistence: `.zennotes/atlas.json` in the vault. Positions, region names,
   user renames. Small, derived, safe to delete (deleting = voluntary reflow).
   In-vault so desktop, web, and any future device share one geography.

@@ -20,14 +20,24 @@ import {
 
 import { resolveInstructions } from './instructions-store.js'
 import { createBackend, type VaultBackend } from '../cli/backend.js'
-import { resolveDefaultTarget, type VaultTarget } from '../cli/vault-target.js'
+import { resolveDefaultTarget, sameVault, type VaultTarget } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
 
+interface ToolContext {
+  /** Set on the vault_info call that moved the session to a new vault: the
+   *  vault it left. */
+  previous?: VaultTarget | null
+}
+
 interface ToolDef {
   schema: Tool
-  handler: (args: Record<string, unknown>, backend: VaultBackend) => Promise<unknown>
+  handler: (
+    args: Record<string, unknown>,
+    backend: VaultBackend,
+    context?: ToolContext
+  ) => Promise<unknown>
 }
 
 /* ---------- Comment authorship ---------------------------------------- */
@@ -122,10 +132,13 @@ const TOOLS: ToolDef[] = [
         'Return where the currently configured ZenNotes vault lives (a folder on this machine, or a self-hosted server the desktop app is connected to) and its top-level layout. Call this once at the start of a session to confirm you are pointing at the right vault, and to learn whether the user runs in `inbox` or `root` primary mode (the answer changes how every other tool behaves).',
       inputSchema: { type: 'object', properties: {} }
     },
-    handler: async (_args, backend) => {
+    handler: async (_args, backend, context) => {
       const [description, folders] = await Promise.all([backend.describe(), backend.listFolders()])
       const primaryNotesLocation = description.primaryNotesLocation
       const isRootMode = primaryNotesLocation === 'root'
+      const switchNote = context?.previous
+        ? `The vault changed: until this call the session worked in ${describeTarget(context.previous)}. Every tool runs here now, and paths or content you got from the previous vault do not apply to this one. `
+        : ''
       const pathNotes =
         'IMPORTANT: Always use the `path` returned by other tools verbatim. Never prepend `inbox/` to a path you got back from list_notes / create_note / read_note. ' +
         (isRootMode
@@ -146,6 +159,7 @@ const TOOLS: ToolDef[] = [
           subfolders: folders,
           authConfigured: description.authConfigured,
           notes:
+            switchNote +
             'This vault lives on a self-hosted ZenNotes server, the workspace the desktop app currently has open. Every tool works on it through the server API; paths are vault-relative POSIX paths exactly as the server reports them. ' +
             pathNotes +
             (description.authConfigured
@@ -164,7 +178,7 @@ const TOOLS: ToolDef[] = [
         inboxAbsolutePath: isRootMode ? vault : `${vault}/inbox`,
         topFolders: ['inbox', 'quick', 'archive', 'trash'],
         subfolders: folders,
-        notes: pathNotes
+        notes: switchNote + pathNotes
       }
     }
   },
@@ -966,12 +980,96 @@ export function describeToolError(err: unknown): string {
   return message
 }
 
+/** A vault named in a sentence. The app often names a saved server after its
+ *  host already ("Server Vault (10.0.0.5:7878)"), so the name is quoted and
+ *  the URL follows "at" rather than a second parenthesis. */
+function describeTarget(target: VaultTarget): string {
+  if (target.kind === 'local') return `the local vault ${target.root}`
+  return target.name
+    ? `the server "${target.name}" at ${target.baseUrl}`
+    : `the server at ${target.baseUrl}`
+}
+
+function sameTarget(a: VaultTarget, b: VaultTarget): boolean {
+  if (a.kind === 'local' || b.kind === 'local') {
+    return a.kind === 'local' && b.kind === 'local' && a.root === b.root
+  }
+  return a.baseUrl === b.baseUrl && a.name === b.name && a.authToken === b.authToken
+}
+
+/** The vault changed after the session last served a call. */
+export class VaultSwitchedError extends Error {
+  constructor(
+    readonly from: VaultTarget,
+    readonly to: VaultTarget
+  ) {
+    super(
+      `The ZenNotes vault changed since this session's last call: it was ${describeTarget(from)} ` +
+        `and is now ${describeTarget(to)}. Nothing ran. Call vault_info to confirm the new vault and ` +
+        'tell the user, then re-read anything you meant to change before you retry.'
+    )
+  }
+}
+
+/**
+ * The vault the tools run against, resolved again before every call so the
+ * server follows the desktop app the way a fresh `zn` does. Pinning the first
+ * vault for the life of the process left an agent working on a server after
+ * the app had moved back to a local vault, until the client restarted the
+ * server.
+ *
+ * A switch still never redirects work silently. An agent that read notes in
+ * one vault and writes after the user switched would change a note at the
+ * same path in the other one, so once the vault changes, every call except
+ * vault_info fails with VaultSwitchedError until vault_info confirms the new
+ * vault. That holds for a whole batch of parallel calls, not only the first.
+ * The Go `zn mcp` (ZenNotes/tui, internal/mcp/session.go) behaves the same.
+ */
+export class VaultSession {
+  private target: VaultTarget | null = null
+  private backend: VaultBackend | null = null
+  private queue: Promise<unknown> = Promise.resolve()
+
+  constructor(
+    private readonly resolve: () => Promise<VaultTarget>,
+    private readonly open: (target: VaultTarget) => VaultBackend = createBackend
+  ) {}
+
+  /** The backend for one call. `confirm` marks vault_info, the only call that
+   *  moves the session to a new vault; `previous` is the vault it moved away
+   *  from, null when the vault did not change. Calls resolve one at a time so
+   *  a batch sees one consistent session. */
+  backendFor(confirm: boolean): Promise<{ backend: VaultBackend; previous: VaultTarget | null }> {
+    const next = this.queue.then(() => this.step(confirm))
+    this.queue = next.catch(() => undefined)
+    return next
+  }
+
+  private async step(
+    confirm: boolean
+  ): Promise<{ backend: VaultBackend; previous: VaultTarget | null }> {
+    const target = await this.resolve()
+    let previous: VaultTarget | null = null
+    if (this.target && this.backend && !(await sameVault(this.target, target))) {
+      if (!confirm) throw new VaultSwitchedError(this.target, target)
+      previous = this.target
+    }
+    // A new token or profile name for the same vault reopens quietly.
+    if (!this.target || !this.backend || !sameTarget(this.target, target)) {
+      this.backend = this.open(target)
+      this.target = target
+    }
+    return { backend: this.backend, previous }
+  }
+}
+
 export interface McpServerOptions {
   /**
-   * Which vault the tools run against. `zn mcp` passes the target its
-   * `--vault` / `--server` / `--token` flags name (#831); the legacy stdio
-   * entry has no flags and follows the environment, then the workspace the
-   * desktop app has open (#688), which is also the default here.
+   * Which vault the tools run against, asked again before every tool call
+   * (see VaultSession). `zn mcp` passes the target its `--vault` /
+   * `--server` / `--token` flags name (#831); the legacy stdio entry has no
+   * flags and follows the environment, then the workspace the desktop app
+   * has open (#688), which is also the default here.
    */
   resolveTarget?: () => Promise<VaultTarget>
   /** Defaults to stdio, the only transport the clients speak. Tests bind an
@@ -981,28 +1079,18 @@ export interface McpServerOptions {
 
 export async function runMcpServer(options: McpServerOptions = {}): Promise<void> {
   const resolveTarget = options.resolveTarget ?? (() => resolveDefaultTarget())
-
-  // Resolve the vault once and keep it for the session. When nothing resolves
-  // yet we still boot so the client surface stays consistent; every tool call
-  // then reports the error, and the next call tries again rather than
-  // repeating a stale failure.
-  let backendPromise: Promise<VaultBackend> | null = null
-  const getBackend = (): Promise<VaultBackend> => {
-    if (!backendPromise) {
-      backendPromise = resolveTarget().then(createBackend)
-      backendPromise.catch(() => {
-        backendPromise = null
-      })
-    }
-    return backendPromise
-  }
+  // When nothing resolves yet we still boot so the client surface stays
+  // consistent; every tool call then reports the error, and the next call
+  // tries again rather than repeating a stale failure.
+  const vaults = new VaultSession(resolveTarget)
 
   // Try at startup and say so on stderr when it fails: a terminal shows it at
   // once and MCP clients keep it in their server logs, whereas waiting for the
   // first tool call hid a `--vault` typo in a client config until the
   // assistant tripped over it (#831). stdout is the protocol channel and
-  // stays clean.
-  await getBackend().catch((err: unknown) => {
+  // stays clean. The session starts at the first call it serves, so a vault
+  // the app left before that call never counts as a switch.
+  await resolveTarget().catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err)
     process.stderr.write(
       `[zennotes-mcp] ${message} The MCP server is running anyway; every tool call returns this error until a vault resolves.\n`
@@ -1036,8 +1124,10 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
       }
     }
     try {
-      const backend = await getBackend()
-      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend)
+      const { backend, previous } = await vaults.backendFor(name === 'vault_info')
+      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend, {
+        previous
+      })
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }

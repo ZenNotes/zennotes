@@ -53,6 +53,13 @@ describe('wysiwygBlocksPlugin', () => {
     view.destroy()
   })
 
+  it('hides a code block\'s closing fence inside a callout too', () => {
+    const view = mount('# T\n\n> [!warning] Log\n> ```\n> fetch: done\n> ```\n\nEnd.')
+    expect(view.dom.textContent).toContain('fetch: done')
+    expect(view.dom.textContent).not.toContain('```')
+    view.destroy()
+  })
+
   it('reveals the raw list marker on the active line', () => {
     const view = mount(DOC)
     const firstItem = DOC.indexOf('- first')

@@ -194,7 +194,9 @@ when the folder is \`Linear Algebra/\`), synonyms, and feeling tags
 \`due:YYYY-MM-DD\`, \`!high\` / \`!med\` / \`!low\`, \`@waiting\`, and
 \`#tag\`.
 
-**Callouts**: \`> [!note]\`, \`> [!tip]\`, \`> [!warning]\`.
+**Callouts**: \`> [!note]\`, \`> [!tip]\`, \`> [!warning]\`. A \`-\` right after the
+type (\`> [!example]- Screenshots\`) makes the callout start collapsed, a \`+\`
+starts it expanded; use \`-\` for long blocks a reader opens on demand.
 
 ## Tool etiquette
 

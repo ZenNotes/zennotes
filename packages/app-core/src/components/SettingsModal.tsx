@@ -452,6 +452,181 @@ function formatReleaseNotesForDisplay(notes: string | null): string | null {
   }
 }
 
+/**
+ * The About page's update card. It owns the updater subscription so the
+ * once-a-second progress broadcast of a download re-renders this card and not
+ * the whole Settings dialog (#868).
+ */
+function AppUpdatesCard({ homepage }: { homepage?: string }): JSX.Element {
+  const appUpdateState = useAppUpdateState();
+
+  const triggerUpdateCheck = useCallback(() => {
+    void window.zen.checkForAppUpdates().then(
+      (state) => {
+        if (state.phase === "available") {
+          window.alert(
+            state.installable
+              ? `ZenNotes ${state.availableVersion ?? ""} is available. Use “Download Update” to fetch it.`
+              : state.message,
+          );
+          return;
+        }
+        if (state.phase === "not-available") {
+          window.alert(state.message);
+          return;
+        }
+        if (
+          state.phase === "unsupported" ||
+          state.phase === "offline" ||
+          state.phase === "error"
+        ) {
+          window.alert(state.message);
+        }
+      },
+      (error) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Could not check for updates.";
+        window.alert(message);
+      },
+    );
+  }, []);
+
+  const triggerUpdateDownload = useCallback(() => {
+    void window.zen.downloadAppUpdate();
+  }, []);
+
+  const triggerUpdateInstall = useCallback(() => {
+    void window.zen.installAppUpdate();
+  }, []);
+
+  const displayedReleaseNotes = useMemo(
+    () => formatReleaseNotesForDisplay(appUpdateState?.releaseNotes ?? null),
+    [appUpdateState?.releaseNotes],
+  );
+
+  return (
+    <div
+      className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
+      {...settingsSearchTargetProps("updates")}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+            Updates
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span
+              className={[
+                "rounded-full border px-2.5 py-1 text-xs font-medium",
+                updatePhaseBadgeClass(appUpdateState?.phase ?? "idle"),
+              ].join(" ")}
+            >
+              {formatUpdatePhaseLabel(appUpdateState?.phase ?? "idle")}
+            </span>
+            {appUpdateState?.availableVersion && (
+              <span className="text-xs text-ink-500">
+                Latest: v{appUpdateState.availableVersion}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {appUpdateState?.phase === "available" &&
+          appUpdateState.installable ? (
+            <button
+              onClick={triggerUpdateDownload}
+              className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+            >
+              Download Update
+            </button>
+          ) : appUpdateState?.phase === "downloaded" ? (
+            <button
+              onClick={triggerUpdateInstall}
+              className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
+            >
+              Install and Relaunch
+            </button>
+          ) : (
+            <button
+              onClick={triggerUpdateCheck}
+              disabled={
+                appUpdateState?.phase === "checking" ||
+                appUpdateState?.phase === "downloading" ||
+                appUpdateState?.phase === "installing"
+              }
+              className={[
+                "rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors",
+                appUpdateState?.phase === "checking" ||
+                appUpdateState?.phase === "downloading" ||
+                appUpdateState?.phase === "installing"
+                  ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
+                  : "border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200",
+              ].join(" ")}
+            >
+              Check for Updates
+            </button>
+          )}
+          <a
+            href={
+              homepage ?? "https://github.com/ZenNotes/zennotes/releases/latest"
+            }
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
+          >
+            View Release
+          </a>
+        </div>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-ink-600">
+        {appUpdateState?.message ??
+          "Check GitHub releases for a newer ZenNotes build."}
+      </p>
+      {appUpdateState?.phase === "downloading" && (
+        <div className="mt-3">
+          <div className="h-2 overflow-hidden rounded-full bg-paper-200/90">
+            <div
+              className="h-full rounded-full bg-accent transition-[width] duration-200"
+              style={{
+                width: `${Math.max(0, Math.min(100, appUpdateState.progressPercent ?? 0))}%`,
+              }}
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
+            <span>{Math.round(appUpdateState.progressPercent ?? 0)}%</span>
+            {formatBytes(appUpdateState.transferredBytes) &&
+              formatBytes(appUpdateState.totalBytes) && (
+                <span>
+                  {formatBytes(appUpdateState.transferredBytes)} /{" "}
+                  {formatBytes(appUpdateState.totalBytes)}
+                </span>
+              )}
+            {formatBytes(appUpdateState.bytesPerSecond) && (
+              <span>{formatBytes(appUpdateState.bytesPerSecond)}/s</span>
+            )}
+          </div>
+        </div>
+      )}
+      {displayedReleaseNotes && (
+        <details className="mt-3 rounded-xl border border-paper-300/60 bg-paper-100/60 px-3 py-2.5">
+          <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+            Release notes
+          </summary>
+          <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">
+            {displayedReleaseNotes}
+          </pre>
+        </details>
+      )}
+      <div className="mt-3 text-xs leading-5 text-ink-500">
+        In-app updates use the published GitHub release feed. For general users,
+        that feed must be publicly reachable.
+      </div>
+    </div>
+  );
+}
+
 /** Read a `--z-*` token's current resolved value off <html> as #rrggbb, for
  *  seeding the Quick-tweaks pickers from the active theme. */
 function rgbVarToHex(token: string): string {
@@ -765,7 +940,6 @@ export function SettingsModal(): JSX.Element {
   const setNestedTags = useStore((s) => s.setNestedTags);
   const pdfExportUseTheme = useStore((s) => s.pdfExportUseTheme);
   const setPdfExportUseTheme = useStore((s) => s.setPdfExportUseTheme);
-  const appUpdateState = useAppUpdateState();
   const [editingRemoteProfile, setEditingRemoteProfile] = useState<{
     mode: "create" | "edit";
     value?: RemoteWorkspaceProfileInput;
@@ -820,47 +994,6 @@ export function SettingsModal(): JSX.Element {
       cancelled = true;
     };
   }, [searchToolPaths]);
-
-  const triggerUpdateCheck = useCallback(() => {
-    void window.zen.checkForAppUpdates().then(
-      (state) => {
-        if (state.phase === "available") {
-          window.alert(
-            state.installable
-              ? `ZenNotes ${state.availableVersion ?? ""} is available. Use “Download Update” to fetch it.`
-              : state.message,
-          );
-          return;
-        }
-        if (state.phase === "not-available") {
-          window.alert(state.message);
-          return;
-        }
-        if (
-          state.phase === "unsupported" ||
-          state.phase === "offline" ||
-          state.phase === "error"
-        ) {
-          window.alert(state.message);
-        }
-      },
-      (error) => {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Could not check for updates.";
-        window.alert(message);
-      },
-    );
-  }, []);
-
-  const triggerUpdateDownload = useCallback(() => {
-    void window.zen.downloadAppUpdate();
-  }, []);
-
-  const triggerUpdateInstall = useCallback(() => {
-    void window.zen.installAppUpdate();
-  }, []);
 
   const currentRemoteProfileId =
     workspaceMode === "remote"
@@ -917,11 +1050,6 @@ export function SettingsModal(): JSX.Element {
       await deleteRemoteWorkspaceProfile(profile.id);
     },
     [deleteRemoteWorkspaceProfile],
-  );
-
-  const displayedReleaseNotes = useMemo(
-    () => formatReleaseNotesForDisplay(appUpdateState?.releaseNotes ?? null),
-    [appUpdateState?.releaseNotes],
   );
 
   // Family list — Apple is the default, followed by the other families.
@@ -4103,11 +4231,15 @@ export function SettingsModal(): JSX.Element {
                 title="Location"
                 description="ZenNotes reads markdown directly from the selected vault folder."
               >
+                {/* The buttons are one group that wraps under the label when
+                    the row is too narrow (#871). On one unwrapping line, the
+                    four remote-mode buttons squeezed the label to nothing and
+                    ran past the card's edge. */}
                 <div
-                  className="flex items-center justify-between gap-4 px-5 py-5"
+                  className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-5"
                   {...settingsSearchTargetProps("vault-location")}
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1 basis-56">
                     <div className="text-sm font-medium text-ink-900">
                       {workspaceMode === "remote"
                         ? "Remote workspace"
@@ -4123,42 +4255,44 @@ export function SettingsModal(): JSX.Element {
                         </div>
                       )}
                   </div>
-                  <button
-                    onClick={() =>
-                      void (workspaceMode === "remote"
-                        ? changeRemoteWorkspaceVaultPath()
-                        : openVaultPicker())
-                    }
-                    className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
-                  >
-                    {workspaceMode === "remote"
-                      ? "Change Remote Vault…"
-                      : "Change…"}
-                  </button>
-                  {workspaceMode === "remote" && (
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={() => void disconnectRemoteWorkspace()}
+                      onClick={() =>
+                        void (workspaceMode === "remote"
+                          ? changeRemoteWorkspaceVaultPath()
+                          : openVaultPicker())
+                      }
                       className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
                     >
-                      Return to Local Vault
+                      {workspaceMode === "remote"
+                        ? "Change Remote Vault…"
+                        : "Change…"}
                     </button>
-                  )}
-                  {workspaceMode === "remote" && (
-                    <button
-                      onClick={() => void openVaultPicker()}
-                      className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
-                    >
-                      Open Local Vault…
-                    </button>
-                  )}
-                  {supportsRemoteWorkspace && (
-                    <button
-                      onClick={() => void connectRemoteWorkspace()}
-                      className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
-                    >
-                      Quick Connect…
-                    </button>
-                  )}
+                    {workspaceMode === "remote" && (
+                      <button
+                        onClick={() => void disconnectRemoteWorkspace()}
+                        className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Return to Local Vault
+                      </button>
+                    )}
+                    {workspaceMode === "remote" && (
+                      <button
+                        onClick={() => void openVaultPicker()}
+                        className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Open Local Vault…
+                      </button>
+                    )}
+                    {supportsRemoteWorkspace && (
+                      <button
+                        onClick={() => void connectRemoteWorkspace()}
+                        className="shrink-0 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                      >
+                        Quick Connect…
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {/* Local vaults only (#692): a temporary folder session writes
                     nothing into its folder, and a remote workspace's settings
@@ -4166,9 +4300,9 @@ export function SettingsModal(): JSX.Element {
                 {workspaceMode !== "remote" && vault && !vault.temporary && (
                   <TextInputRow
                     label="Vault name"
-                    description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault.root)} on disk; leave the field empty to use that name.`}
+                    description={`What the sidebar, the vault switcher and the title bar call this vault. The folder stays ${vaultFolderName(vault)} on disk; leave the field empty to use that name.`}
                     value={vaultDisplayName}
-                    placeholder={vaultFolderName(vault.root)}
+                    placeholder={vaultFolderName(vault)}
                     settingId="vault-name"
                     commitOnBlur
                     onChange={(next) => void renameVault(next)}
@@ -5482,132 +5616,7 @@ export function SettingsModal(): JSX.Element {
                   </span>
                 </div>
                 <VersionDetails appInfo={appInfo} />
-                <div
-                  className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
-                  {...settingsSearchTargetProps("updates")}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-                        Updates
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        <span
-                          className={[
-                            "rounded-full border px-2.5 py-1 text-xs font-medium",
-                            updatePhaseBadgeClass(
-                              appUpdateState?.phase ?? "idle",
-                            ),
-                          ].join(" ")}
-                        >
-                          {formatUpdatePhaseLabel(
-                            appUpdateState?.phase ?? "idle",
-                          )}
-                        </span>
-                        {appUpdateState?.availableVersion && (
-                          <span className="text-xs text-ink-500">
-                            Latest: v{appUpdateState.availableVersion}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      {appUpdateState?.phase === "available" &&
-                      appUpdateState.installable ? (
-                        <button
-                          onClick={triggerUpdateDownload}
-                          className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
-                        >
-                          Download Update
-                        </button>
-                      ) : appUpdateState?.phase === "downloaded" ? (
-                        <button
-                          onClick={triggerUpdateInstall}
-                          className="rounded-xl border border-accent/30 bg-accent/10 px-3.5 py-2 text-xs font-medium text-accent transition-colors hover:bg-accent/15"
-                        >
-                          Install and Relaunch
-                        </button>
-                      ) : (
-                        <button
-                          onClick={triggerUpdateCheck}
-                          disabled={
-                            appUpdateState?.phase === "checking" ||
-                            appUpdateState?.phase === "downloading" ||
-                            appUpdateState?.phase === "installing"
-                          }
-                          className={[
-                            "rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors",
-                            appUpdateState?.phase === "checking" ||
-                            appUpdateState?.phase === "downloading" ||
-                            appUpdateState?.phase === "installing"
-                              ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
-                              : "border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200",
-                          ].join(" ")}
-                        >
-                          Check for Updates
-                        </button>
-                      )}
-                      <a
-                        href={
-                          appInfo.homepage ??
-                          "https://github.com/ZenNotes/zennotes/releases/latest"
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3.5 py-2 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
-                      >
-                        View Release
-                      </a>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-ink-600">
-                    {appUpdateState?.message ??
-                      "Check GitHub releases for a newer ZenNotes build."}
-                  </p>
-                  {appUpdateState?.phase === "downloading" && (
-                    <div className="mt-3">
-                      <div className="h-2 overflow-hidden rounded-full bg-paper-200/90">
-                        <div
-                          className="h-full rounded-full bg-accent transition-[width] duration-200"
-                          style={{
-                            width: `${Math.max(0, Math.min(100, appUpdateState.progressPercent ?? 0))}%`,
-                          }}
-                        />
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500">
-                        <span>
-                          {Math.round(appUpdateState.progressPercent ?? 0)}%
-                        </span>
-                        {formatBytes(appUpdateState.transferredBytes) &&
-                          formatBytes(appUpdateState.totalBytes) && (
-                            <span>
-                              {formatBytes(appUpdateState.transferredBytes)} /{" "}
-                              {formatBytes(appUpdateState.totalBytes)}
-                            </span>
-                          )}
-                        {formatBytes(appUpdateState.bytesPerSecond) && (
-                          <span>
-                            {formatBytes(appUpdateState.bytesPerSecond)}/s
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {displayedReleaseNotes && (
-                    <details className="mt-3 rounded-xl border border-paper-300/60 bg-paper-100/60 px-3 py-2.5">
-                      <summary className="cursor-pointer text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-                        Release notes
-                      </summary>
-                      <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6 text-ink-600">
-                        {displayedReleaseNotes}
-                      </pre>
-                    </details>
-                  )}
-                  <div className="mt-3 text-xs leading-5 text-ink-500">
-                    In-app updates use the published GitHub release feed. For
-                    general users, that feed must be publicly reachable.
-                  </div>
-                </div>
+                <AppUpdatesCard homepage={appInfo.homepage} />
                 <p className="mx-auto mt-2 max-w-[44rem] text-center">
                   {appInfo.description}. Visit{" "}
                   <a

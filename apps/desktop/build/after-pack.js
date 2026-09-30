@@ -47,7 +47,13 @@ exports.default = async function afterPack(context) {
     const resources = platform === 'darwin'
       ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
       : path.join(context.appOutDir, 'resources')
-    await stageTerminalArtifact({ platform, arch, localDirectory, allowLocal, output: path.join(resources, 'terminal') })
+    // `zn-cli`, not the `terminal` of 2.52.0 to 2.57.0: those releases shipped
+    // `terminal` as root-owned 0700 (#869), and dpkg and pacman keep an
+    // existing folder's mode on upgrade, so fixing the mode alone never
+    // reached installed copies. A new name is created fresh with the packaged
+    // mode, and the old folder is removed with the old package's files.
+    // cli-install.ts reads the same name.
+    await stageTerminalArtifact({ platform, arch, localDirectory, allowLocal, output: path.join(resources, 'zn-cli') })
   }
   if (platform !== 'linux') return
   await rewriteAsFreshFiles(path.join(context.appOutDir, 'resources', 'arch-extras'))

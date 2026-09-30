@@ -55,3 +55,15 @@ function cutAtUtf16Units(text: string, limit: number): string {
 export function resolveVaultName(displayName: unknown, folderName: string): string {
   return normalizeVaultDisplayName(displayName) ?? folderName
 }
+
+/**
+ * The folder a vault lives in, as it is shown beside a display name and as
+ * the name to fall back to: the host's `folderName` when it gave one, else
+ * the root's last segment, POSIX or Windows. A host whose root is a label
+ * rather than a path (the phone shells) must give the folder name, or the
+ * whole label would stand in for it.
+ */
+export function vaultFolderName(vault: { root: string; folderName?: string }): string {
+  if (vault.folderName) return vault.folderName
+  return vault.root.split(/[\\/]/).filter(Boolean).pop() ?? vault.root
+}

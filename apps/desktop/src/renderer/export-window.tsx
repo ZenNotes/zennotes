@@ -460,6 +460,14 @@ function ExportNoteWindow({ notePath }: { notePath: string }): JSX.Element {
           markdown={withExportTitle(note.body, note.title).markdown}
           notePath={note.path}
           onRendered={() => {
+            // A PDF cannot be clicked open: print collapsed callouts open,
+            // before the image wait below, since their images load only
+            // once they show (#853).
+            document
+              .querySelectorAll<HTMLDetailsElement>('[data-preview-content] details.callout')
+              .forEach((callout) => {
+                callout.open = true
+              })
             // Images load after the DOM is in place, and the preview defers
             // the ones below the viewport; print only once they have all
             // settled (#769).

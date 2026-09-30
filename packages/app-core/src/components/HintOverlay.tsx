@@ -14,6 +14,8 @@ function getVisibleInteractiveElements(): HTMLElement[] {
   const selectors = [
     'button:not([disabled])',
     'a[href]',
+    // A <details> toggle, such as a foldable callout's title in Preview (#853).
+    'summary',
     '[role="button"]',
     '[role="link"]',
     'input:not([disabled])',

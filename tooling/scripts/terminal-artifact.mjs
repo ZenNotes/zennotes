@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import {
+  chmod,
   mkdir,
   mkdtemp,
   readFile,
@@ -100,13 +101,23 @@ async function installStage(output, bytes, license, manifest, probe) {
   let replaced = false
   try {
     const binary = join(stage, 'zn')
-    await writeFile(binary, bytes, { mode: 0o755 })
+    await writeFile(binary, bytes)
     await writeFile(join(stage, 'LICENSE'), license)
     await writeFile(
       join(stage, 'manifest.json'),
       JSON.stringify({ ...manifest, binarySha256: hash(bytes) }, null, 2) +
         '\n',
     )
+    // The stage directory becomes the packaged `resources/zn-cli`, and the
+    // Linux packages (deb, rpm, pacman, and the tarball the AUR repackages
+    // with `cp -a`) install it root-owned with the mode it has here. mkdtemp
+    // creates it 0700, which left every user but root unable to read the
+    // manifest, so the app stayed on the legacy CLI (#869). Set every mode
+    // explicitly: chmod is not narrowed by the builder's umask.
+    await chmod(stage, 0o755)
+    await chmod(binary, 0o755)
+    await chmod(join(stage, 'LICENSE'), 0o644)
+    await chmod(join(stage, 'manifest.json'), 0o644)
     if (
       probe &&
       manifest.platform === process.platform &&

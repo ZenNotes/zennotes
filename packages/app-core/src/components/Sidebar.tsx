@@ -504,7 +504,6 @@ export function Sidebar(): JSX.Element {
   const toggleSidebar = useStore((s) => s.toggleSidebar);
   const setFocusedPanel = useStore((s) => s.setFocusedPanel);
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
-  const appUpdateState = useAppUpdateState();
   const renameTag = useStore((s) => s.renameTag);
   const deleteTag = useStore((s) => s.deleteTag);
   const tagsCollapsed = useStore((s) => s.tagsCollapsed);
@@ -565,15 +564,6 @@ export function Sidebar(): JSX.Element {
   const setVaultSettings = useStore((s) => s.setVaultSettings);
   const canRevealInFileManager =
     window.zen.getAppInfo().runtime === "desktop" && workspaceMode !== "remote";
-  const appUpdateBadge = appUpdateBadgeLabel(appUpdateState);
-  const appUpdateSettingsTitle =
-    appUpdateState?.phase === "downloaded"
-      ? "Settings, update ready to install"
-      : appUpdateState?.phase === "downloading"
-        ? "Settings, update downloading"
-        : appUpdateState?.phase === "available"
-          ? "Settings, update available"
-          : "Settings";
   const canSwitchLocalVaults =
     window.zen.getAppInfo().runtime === "desktop" &&
     window.zen.getCapabilities().supportsLocalFilesystemPickers;
@@ -3742,11 +3732,7 @@ export function Sidebar(): JSX.Element {
           sidebarFocused={isSidebarFocused}
           sidebarData={{ type: "help" }}
         />
-        <SidebarFooterAction
-          icon={<SettingsIcon />}
-          label="Settings"
-          title={appUpdateSettingsTitle}
-          badgeLabel={appUpdateBadge ?? undefined}
+        <SidebarSettingsAction
           iconOnly={!footerShowsLabels}
           onClick={() => setSettingsOpen(true)}
           sidebarIdx={idxCounter.current.value++}
@@ -5922,6 +5908,56 @@ function SidebarRow({
   );
 }
 
+interface SidebarFooterActionProps {
+  icon: JSX.Element;
+  label: string;
+  title?: string;
+  count?: number;
+  badgeLabel?: string;
+  active?: boolean;
+  /** Narrow-sidebar mode (#539): the label is dropped and the tooltip and
+   *  aria-label carry it instead, so the row never outgrows the sidebar. */
+  iconOnly?: boolean;
+  onClick: () => void;
+  sidebarIdx?: number;
+  vimHighlight?: boolean;
+  sidebarFocused?: boolean;
+  sidebarData?: { type: string };
+}
+
+/**
+ * The Settings row carries the updater badge, so it is the one piece of the
+ * sidebar that needs the updater state. It subscribes here, in a leaf, rather
+ * than in Sidebar itself: a download broadcasts a new state about once a
+ * second for its whole duration, and each broadcast used to re-render the
+ * entire sidebar tree to repaint one percentage badge (#868).
+ */
+function SidebarSettingsAction(
+  props: Omit<
+    SidebarFooterActionProps,
+    "icon" | "label" | "title" | "badgeLabel"
+  >,
+): JSX.Element {
+  const appUpdateState = useAppUpdateState();
+  const title =
+    appUpdateState?.phase === "downloaded"
+      ? "Settings, update ready to install"
+      : appUpdateState?.phase === "downloading"
+        ? "Settings, update downloading"
+        : appUpdateState?.phase === "available"
+          ? "Settings, update available"
+          : "Settings";
+  return (
+    <SidebarFooterAction
+      {...props}
+      icon={<SettingsIcon />}
+      label="Settings"
+      title={title}
+      badgeLabel={appUpdateBadgeLabel(appUpdateState) ?? undefined}
+    />
+  );
+}
+
 /** Compact labeled action used in the sidebar footer. Same vim-nav
  *  wiring as SidebarRow (sidebarIdx / sidebarData), but kept short so
  *  vault utilities stay legible without stealing space from the tree. */
@@ -5938,22 +5974,7 @@ function SidebarFooterAction({
   vimHighlight,
   sidebarFocused = false,
   sidebarData,
-}: {
-  icon: JSX.Element;
-  label: string;
-  title?: string;
-  count?: number;
-  badgeLabel?: string;
-  active?: boolean;
-  /** Narrow-sidebar mode (#539): the label is dropped and the tooltip and
-   *  aria-label carry it instead, so the row never outgrows the sidebar. */
-  iconOnly?: boolean;
-  onClick: () => void;
-  sidebarIdx?: number;
-  vimHighlight?: boolean;
-  sidebarFocused?: boolean;
-  sidebarData?: { type: string };
-}): JSX.Element {
+}: SidebarFooterActionProps): JSX.Element {
   const strongActive = !!active && (!sidebarFocused || !!vimHighlight);
   const resolvedTitle = title ?? label;
   return (

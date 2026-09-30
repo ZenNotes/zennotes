@@ -1,19 +1,22 @@
 /**
- * Obsidian-style heading folding for CodeMirror 6 markdown editors.
+ * Obsidian-style heading and list folding for CodeMirror 6 markdown editors.
  *
  * A fold on a heading hides everything from the end of the heading
  * line up to (but not including) the next heading of equal-or-higher
- * level — or the end of the document when none follows.
+ * level, or the end of the document when none follows. A list item
+ * with indented children folds the same way (lib/cm-list-fold, #848), and
+ * so does a callout below its title line (lib/cm-callout-fold, #853).
  *
- * The exported extension bundles three pieces:
+ * The exported extension bundles four pieces:
  *   - `foldService`: the semantic range calculator so CodeMirror's
  *     fold commands (our vim `zc` / `zo` mappings, the `:fold`
  *     ex command) know what to collapse.
  *   - A `ViewPlugin` that adds an inline ▾ arrow to each heading's
  *     line start and a line-decoration class marking the cursor line.
- *   - No fold gutter — the full-document gutter would show chevrons
- *     next to every foldable range (lists, code blocks, frontmatter)
- *     which clutters the minimalist editor surface.
+ *   - The list item arrows, one beside each foldable item's marker.
+ *   - No fold gutter: the full-document gutter would show chevrons
+ *     next to every foldable range (paragraphs, code blocks,
+ *     frontmatter), which clutters the minimalist editor surface.
  *
  * CSS rules in styles/index.css hide the arrow by default and only
  * reveal it when the heading line is hovered or holds the caret,
@@ -21,8 +24,11 @@
  */
 import {
   codeFolding,
+  ensureSyntaxTree,
+  foldable,
   foldService,
   foldEffect,
+  unfoldCode,
   unfoldEffect,
   foldedRanges,
   syntaxTree
@@ -37,6 +43,15 @@ import {
   ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import {
+  allListItemFoldRanges,
+  enclosingListItem,
+  foldedExactly,
+  listItemAtLine,
+  listItemFoldArrows,
+  type FoldRange
+} from './cm-list-fold'
+import { calloutAtLine, enclosingFoldableCallout, foldableCalloutRanges } from './cm-callout-fold'
 
 const HEADING_RE = /^(#{1,6})\s+/
 
@@ -154,36 +169,91 @@ function exactFoldAtRange(
   state: EditorState,
   range: { from: number; to: number }
 ): { from: number; to: number } | null {
-  let existing: { from: number; to: number } | null = null
-  foldedRanges(state).between(range.from, range.to, (from, to) => {
-    if (from === range.from && to === range.to) {
-      existing = { from, to }
-      return false
+  return foldedExactly(state, range)
+}
+
+/**
+ * Fold what the cursor is on: the heading or list item its line starts,
+ * else anything CodeMirror folds from that line (a code block, a table),
+ * else the list item the line sits in, the way Vim's zc closes the fold
+ * around the cursor; the caret then moves to that item's marker (#848).
+ * Mod+Alt+F, zc, :fold and the palette all run this.
+ */
+export function foldAtCursor(view: EditorView): boolean {
+  const { state } = view
+  const head = state.selection.main.head
+  const line = state.doc.lineAt(head)
+  const level = headingLevelAt(state, line.number)
+  let range: FoldRange | null =
+    level !== null
+      ? rangeForHeading(state, line.number, level)
+      : (listItemAtLine(state, line.number)?.range ??
+        calloutAtLine(state, line.number)?.range ??
+        null)
+  let caret: number | null = null
+  if (!range) range = foldable(state, line.from, line.to)
+  if (!range) {
+    // On a line inside a list item or a foldable callout, fold the innermost
+    // of the two and bring the caret up to its first line.
+    const item = enclosingListItem(state, head)
+    const found = enclosingFoldableCallout(state, head)
+    const callout = found?.range ? { node: found.node, range: found.range } : null
+    const parent = item && callout ? (item.range.from >= callout.range.from ? item : callout) : (item ?? callout)
+    if (parent) {
+      range = parent.range
+      caret = parent.node.from
     }
-    return undefined
+  }
+  if (!range || exactFoldAtRange(state, range)) return false
+  view.dispatch({
+    effects: foldEffect.of(range),
+    ...(caret !== null ? { selection: { anchor: caret } } : {})
   })
-  return existing
-}
-
-function headingRangeAtCursor(view: EditorView): { from: number; to: number } | null {
-  const line = view.state.doc.lineAt(view.state.selection.main.head)
-  const level = headingLevelAt(view.state, line.number)
-  return level === null ? null : rangeForHeading(view.state, line.number, level)
-}
-
-export function foldHeadingAtCursor(view: EditorView): boolean {
-  const range = headingRangeAtCursor(view)
-  if (!range || exactFoldAtRange(view.state, range)) return false
-  view.dispatch({ effects: foldEffect.of(range) })
   return true
 }
 
-export function unfoldHeadingAtCursor(view: EditorView): boolean {
-  const range = headingRangeAtCursor(view)
-  if (!range) return false
-  const existing = exactFoldAtRange(view.state, range)
-  if (!existing) return false
-  view.dispatch({ effects: unfoldEffect.of(existing) })
+/** Unfold the fold that starts on the cursor's line, a heading's or a list
+ *  item's alike. */
+export function unfoldAtCursor(view: EditorView): boolean {
+  return unfoldCode(view)
+}
+
+/**
+ * Fold every heading section, list item, callout and syntax fold, nested,
+ * the way Vim's zM closes every fold: opening a heading then shows its lists
+ * still folded, one line per item. CodeMirror's foldAll folds only the
+ * outermost ranges, so a heading swallowed the tasks under it (#848), but
+ * its syntax folds (code blocks, tables, quotes) must still participate.
+ */
+export function foldAllOutline(view: EditorView): boolean {
+  const { state } = view
+  const tree = ensureSyntaxTree(state, state.doc.length, 500) ?? syntaxTree(state)
+  const ranges = new Map<string, FoldRange>()
+  for (let n = 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n)
+    const level = headingLevelAt(state, n)
+    const range =
+      level === null
+        ? foldable(state, line.from, line.to)
+        : rangeForHeading(state, n, level)
+    if (range) ranges.set(`${range.from}:${range.to}`, range)
+  }
+  for (const range of [...allListItemFoldRanges(state, tree), ...foldableCalloutRanges(state, tree)]) {
+    ranges.set(`${range.from}:${range.to}`, range)
+  }
+  const fresh = [...ranges.values()].filter((range) => !exactFoldAtRange(state, range))
+  if (fresh.length === 0) return false
+  // Keep the caret in sight: on the line that opens the outermost fold
+  // around it, as zM leaves it in Vim.
+  const head = state.selection.main.head
+  let outer: FoldRange | null = null
+  for (const range of ranges.values()) {
+    if (head > range.from && head <= range.to && (!outer || range.from < outer.from)) outer = range
+  }
+  view.dispatch({
+    effects: fresh.map((range) => foldEffect.of(range)),
+    ...(outer ? { selection: { anchor: state.doc.lineAt(outer.from).from } } : {})
+  })
   return true
 }
 
@@ -404,6 +474,7 @@ export function headingFolding(options: HeadingFoldingOptions = {}): Extension {
     codeFolding(),
     service,
     headingArrowPlugin(showLevelLabels),
+    listItemFoldArrows(),
     // The level chips sit LEFT of the arrow slot, wider than .cm-content's
     // default 32px padding. The centered column's auto margin cannot host
     // them: it is zero whenever the pane is narrower than the column cap,

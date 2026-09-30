@@ -275,8 +275,9 @@ async function locateWrapper(): Promise<WrapperLocation | null> {
         let terminal
         try {
           terminal = await prepareTerminalRuntime({
+            // Named in build/after-pack.js, which says why it is not `terminal` (#869).
             bundleDir: app.isPackaged
-              ? path.join(process.resourcesPath, 'terminal')
+              ? path.join(process.resourcesPath, 'zn-cli')
               : path.resolve(here, '../../build/terminal', `${process.platform}-${process.arch}`),
             userData: app.getPath('userData'),
             platform: process.platform,

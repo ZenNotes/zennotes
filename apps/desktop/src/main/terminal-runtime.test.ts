@@ -1,4 +1,5 @@
 import {
+  chmod,
   mkdtemp,
   mkdir,
   writeFile,
@@ -22,7 +23,7 @@ afterEach(async () => {
 async function fixture(version = '1.0.0') {
   const root = await mkdtemp(path.join(os.tmpdir(), "zn terminal ' "))
   roots.push(root)
-  const bundleDir = path.join(root, 'resources', 'terminal')
+  const bundleDir = path.join(root, 'resources', 'zn-cli')
   await mkdir(bundleDir, { recursive: true })
   const binary = `#!/bin/sh\nif [ "$1" = --desktop-integration ]; then\n  echo '{"protocol":1,"version":"${version}"}'\n  exit\nfi\nprintf '%s\\n' "$ZENNOTES_WORKSPACE_SOURCE" "$@"\nexit 7\n`
   await writeFile(path.join(bundleDir, 'zn'), binary, { mode: 0o755 })
@@ -105,5 +106,22 @@ describe.skipIf(process.platform === 'win32')(
       await rm(options.bundleDir, { recursive: true })
       expect(await prepareTerminalRuntime(options)).toBeNull()
     })
+
+    // Root reads through any mode, so the denial cannot be staged as root.
+    it.skipIf(process.getuid?.() === 0)(
+      'reports an unreadable bundle as a permission problem, not an invalid manifest (#869)',
+      async () => {
+        const options = await fixture()
+        await chmod(options.bundleDir, 0o000)
+        try {
+          const failure = prepareTerminalRuntime(options)
+          await expect(failure).rejects.toThrow(/cannot be read \(permission denied\)/)
+          await expect(failure).rejects.toThrow(options.bundleDir)
+          await expect(failure).rejects.not.toThrow(/invalid/i)
+        } finally {
+          await chmod(options.bundleDir, 0o755)
+        }
+      },
+    )
   },
 )

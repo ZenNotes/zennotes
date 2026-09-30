@@ -15,6 +15,7 @@ import {
   describeToolError,
   listToolNames,
   runMcpServer,
+  VaultSwitchedError,
   type McpServerOptions
 } from './server'
 
@@ -154,6 +155,19 @@ describe('describeToolError', () => {
   })
 })
 
+describe('VaultSwitchedError', () => {
+  it('names a saved server by its quoted name and URL, and never the token', () => {
+    const err = new VaultSwitchedError(
+      { kind: 'remote', name: 'Server Vault (10.0.0.5:7878)', baseUrl: 'http://10.0.0.5:7878', authToken: 'tok-secret' },
+      { kind: 'local', root: '/notes' }
+    )
+    expect(err.message).toContain(
+      'it was the server "Server Vault (10.0.0.5:7878)" at http://10.0.0.5:7878 and is now the local vault /notes.'
+    )
+    expect(err.message).not.toContain('tok-secret')
+  })
+})
+
 describe('comment tools (#738)', () => {
   it('lists the four comment tools', () => {
     const names = listToolNames()
@@ -270,12 +284,16 @@ describe('runMcpServer follows the target it is given (#831)', () => {
     await runMcpServer({ ...options, transport: serverTransport })
     const client = new Client({ name: 'server-test', version: '0' })
     await client.connect(clientTransport)
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = await client.callTool({ name, arguments: args })
+      return { text: (result.content as Array<{ text: string }>)[0].text, isError: !!result.isError }
+    }
     return {
       stderr,
+      call,
       vaultInfo: async () => {
-        const result = await client.callTool({ name: 'vault_info', arguments: {} })
-        const text = (result.content as Array<{ text: string }>)[0].text
-        return result.isError ? { error: text } : { info: JSON.parse(text) as Record<string, unknown> }
+        const { text, isError } = await call('vault_info')
+        return isError ? { error: text } : { info: JSON.parse(text) as Record<string, unknown> }
       },
       close: () => client.close()
     }
@@ -347,12 +365,12 @@ describe('runMcpServer follows the target it is given (#831)', () => {
     }
   })
 
-  it('pins the first vault that resolves and retries only after a failure', async () => {
-    // One attempt at startup (warned), one per failing tool call, then the
-    // session keeps the first vault that resolved.
+  it('retries until a vault resolves, and starts the session at the first call it serves', async () => {
+    // One attempt at startup (warned), then one per tool call.
     const outcomes: Array<Error | VaultTarget> = [
       new Error('not at startup'),
       new Error('not yet'),
+      { kind: 'local', root: beta },
       { kind: 'local', root: beta },
       { kind: 'local', root: alpha }
     ]
@@ -366,10 +384,114 @@ describe('runMcpServer follows the target it is given (#831)', () => {
     })
     expect(s.stderr.join('')).toContain('not at startup')
     expect((await s.vaultInfo()).error).toBe('Error: not yet')
-    expect((await s.vaultInfo()).info).toMatchObject({ vaultRoot: beta })
-    // A further call must not move the session to alpha: the target is pinned.
-    expect((await s.vaultInfo()).info).toMatchObject({ vaultRoot: beta })
-    expect(calls).toBe(3)
+    // Nothing was served before, so beta is no switch.
+    const first = (await s.vaultInfo()).info
+    expect(first).toMatchObject({ vaultRoot: beta })
+    expect(String(first?.notes)).not.toContain('The vault changed')
+    expect((await s.call('list_notes')).isError).toBe(false)
+    // The app moved to alpha: the next call stops instead of running there.
+    const moved = await s.call('list_notes')
+    expect(moved.isError).toBe(true)
+    expect(moved.text).toContain(`it was the local vault ${beta} and is now the local vault ${alpha}`)
+    expect(calls).toBe(5)
     await s.close()
+  })
+
+  it('a vault the app left before the first call is no switch', async () => {
+    const s = await session()
+    await writeConfig({ vaultRoot: beta, localVaults: [{ root: beta, name: 'beta' }] })
+    const listed = await s.call('list_notes')
+    expect(listed.isError).toBe(false)
+    await s.close()
+  })
+
+  it('refuses writes between case-sensitive server paths until vault_info confirms the switch', async () => {
+    const writes: string[] = []
+    const fake = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      const prefix = url.pathname.startsWith('/Work/') ? '/Work' : '/work'
+      const route = url.pathname.slice(prefix.length)
+      if (req.method === 'POST') writes.push(url.pathname)
+      const bodies: Record<string, unknown> = {
+        '/api/vault': { root: `/srv${prefix}`, name: prefix.slice(1) },
+        '/api/vault/settings': { primaryNotesLocation: 'inbox', systemFolderPaths: null },
+        '/api/folders': [],
+        '/api/notes/write': { path: 'inbox/Plan.md', title: 'Plan' }
+      }
+      res.writeHead(route in bodies ? 200 : 404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(bodies[route] ?? null))
+    })
+    await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', resolve))
+    const address = fake.address()
+    if (address == null || typeof address === 'string') throw new Error('no port')
+    const origin = `http://127.0.0.1:${address.port}`
+    let target: VaultTarget = { kind: 'remote', baseUrl: `${origin}/Work`, name: '', authToken: null }
+    let s: Awaited<ReturnType<typeof session>> | undefined
+
+    try {
+      s = await session({ resolveTarget: async () => target })
+      expect((await s.vaultInfo()).info).toMatchObject({ server: `${origin}/Work` })
+
+      target = { ...target, baseUrl: `${origin}/work` }
+      const refused = await s.call('write_note', { path: 'inbox/Plan.md', body: 'planned for Work' })
+      expect(writes).toEqual([])
+      expect(refused.isError).toBe(true)
+      expect(refused.text).toContain('The ZenNotes vault changed')
+
+      const { info } = await s.vaultInfo()
+      expect(info).toMatchObject({ server: `${origin}/work` })
+      expect(String(info?.notes)).toContain(`until this call the session worked in the server at ${origin}/Work`)
+      expect((await s.call('write_note', { path: 'inbox/Plan.md', body: 'planned for work' })).isError).toBe(false)
+      expect(writes).toEqual(['/work/api/notes/write'])
+    } finally {
+      await s?.close()
+      await new Promise<void>((resolve) => fake.close(() => resolve()))
+    }
+  })
+
+  it('follows the app to another vault only after vault_info confirms it', async () => {
+    await fsp.writeFile(path.join(alpha, 'inbox', 'Alpha.md'), '# Alpha\n')
+    await fsp.writeFile(path.join(beta, 'inbox', 'Beta.md'), '# Beta\n')
+    try {
+      const s = await session()
+      const before = await s.call('list_notes')
+      expect(before.isError).toBe(false)
+      expect(before.text).toContain('inbox/Alpha.md')
+
+      await writeConfig({ vaultRoot: beta, localVaults: [{ root: beta, name: 'beta' }] })
+      // A write planned against alpha must not land in beta, and a whole
+      // batch stops, not only its first call.
+      const batch = await Promise.all([
+        s.call('write_note', { path: 'inbox/Alpha.md', body: 'planned for alpha' }),
+        s.call('list_notes'),
+        s.call('read_note', { path: 'inbox/Alpha.md' })
+      ])
+      for (const result of batch) {
+        expect(result.isError).toBe(true)
+        expect(result.text).toContain('The ZenNotes vault changed')
+        expect(result.text).toContain(alpha)
+        expect(result.text).toContain(beta)
+        expect(result.text).toContain('vault_info')
+      }
+      await expect(fsp.access(path.join(beta, 'inbox', 'Alpha.md'))).rejects.toThrow()
+      expect(await fsp.readFile(path.join(alpha, 'inbox', 'Alpha.md'), 'utf8')).toBe('# Alpha\n')
+
+      const { info } = await s.vaultInfo()
+      expect(info).toMatchObject({ kind: 'local', vaultRoot: beta })
+      expect(
+        String(info?.notes).startsWith(
+          `The vault changed: until this call the session worked in the local vault ${alpha}.`
+        )
+      ).toBe(true)
+      const after = await s.call('list_notes')
+      expect(after.isError).toBe(false)
+      expect(after.text).toContain('inbox/Beta.md')
+      expect(after.text).not.toContain('Alpha.md')
+      expect(String((await s.vaultInfo()).info?.notes)).not.toContain('The vault changed')
+      await s.close()
+    } finally {
+      await fsp.rm(path.join(alpha, 'inbox', 'Alpha.md'), { force: true })
+      await fsp.rm(path.join(beta, 'inbox', 'Beta.md'), { force: true })
+    }
   })
 })

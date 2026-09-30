@@ -47,6 +47,7 @@ const ALLOWED_RENDERED_URI_RE =
 const ALLOWED_RENDERED_DATA_ATTRS = [
   'data-bookmark-url',
   'data-callout',
+  'data-callout-fold',
   'data-embed-src',
   'data-embed-url',
   'data-embed-height',
@@ -592,6 +593,11 @@ function remarkHighlight() {
  *     > body
  *
  * → `<div class="callout" data-callout="note">` with a `.callout-title` header.
+ *
+ * A fold marker after the type (`> [!note]-` collapsed, `> [!note]+`
+ * expanded) makes it a `<details>` with the title as its `<summary>`, so the
+ * whole title row toggles it and the browser's find opens it on a match
+ * (#853). Folding it hides the body only; the note never changes.
  */
 function remarkCallouts() {
   return (tree: MdRoot): void => {
@@ -606,9 +612,10 @@ function remarkCallouts() {
       // nodes included — a [link](x) or $math$ in the title used to be
       // orphaned into an uncolored body paragraph, because only this leading
       // text fragment was consulted for the title. (#549)
-      const marker = firstText.value.match(/^\[!(\w+)\](?:[ \t]+|(?=\n)|$)/)
+      const marker = firstText.value.match(/^\[!(\w+)\]([-+])?(?:[ \t]+|(?=\n)|$)/)
       if (!marker) return
       const type = marker[1].toLowerCase()
+      const marker2 = marker[2] as '-' | '+' | undefined
 
       // Split the paragraph's inline children into the title line and the
       // body. Explicit Markdown breaks arrive as `break` nodes, while ordinary
@@ -657,22 +664,27 @@ function remarkCallouts() {
       } else {
         node.children.shift()
       }
+      // A callout with nothing under its title has nothing to fold, and
+      // renders as a plain one, as the editor draws it with no chevron.
+      const fold = node.children.length > 0 ? marker2 : undefined
 
-      // Turn the blockquote into a styled div.
+      // Turn the blockquote into a styled div, or a <details> when it folds.
       node.data = {
         ...(node.data || {}),
-        hName: 'div',
+        hName: fold ? 'details' : 'div',
         hProperties: {
           className: ['callout'],
-          'data-callout': type
+          'data-callout': type,
+          ...(fold ? { 'data-callout-fold': fold === '-' ? 'collapsed' : 'expanded', open: fold === '+' } : {})
         }
       }
 
-      // Prepend a title paragraph that renders as `<div class="callout-title">`.
+      // Prepend a title paragraph that renders as `<div class="callout-title">`
+      // (the <summary> of a foldable callout).
       node.children.unshift({
         type: 'paragraph',
         data: {
-          hName: 'div',
+          hName: fold ? 'summary' : 'div',
           hProperties: { className: ['callout-title'] }
         },
         children: hasTitle ? titleChildren : [{ type: 'text', value: fallbackTitle }]

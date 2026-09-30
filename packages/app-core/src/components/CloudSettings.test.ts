@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
   requestCloudAutoSync: vi.fn(),
   syncCloudVaultWithStatus: vi.fn(),
   confirmApp: vi.fn(async () => true),
+  focusEditorNormalMode: vi.fn(),
 }));
 
 vi.mock("@zennotes/bridge-contract/bridge", () => ({
@@ -57,6 +58,10 @@ vi.mock("@zennotes/bridge-contract/bridge", () => ({
 
 vi.mock("../lib/confirm-requests", () => ({
   confirmApp: mocks.confirmApp,
+}));
+
+vi.mock("../lib/editor-focus", () => ({
+  focusEditorNormalMode: mocks.focusEditorNormalMode,
 }));
 
 vi.mock("../lib/cloud-auto-sync", async (importOriginal) => ({
@@ -617,9 +622,12 @@ describe("CloudSettings", () => {
       const openCopy = [...list!.querySelectorAll("button")].find(
         (button) => button.textContent?.trim() === "Open copy",
       );
+      mocks.focusEditorNormalMode.mockClear();
       await act(async () => openCopy!.click());
       expect(setSettingsOpen).toHaveBeenCalledWith(false);
       expect(openNoteInTab).toHaveBeenCalledWith("inbox/Plan (cloud conflict).md");
+      // Settings held the keyboard; the note opened behind it takes it (#863).
+      expect(mocks.focusEditorNormalMode).toHaveBeenCalledTimes(1);
     } finally {
       useStore.setState(previous);
     }

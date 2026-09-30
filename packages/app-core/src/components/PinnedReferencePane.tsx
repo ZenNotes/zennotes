@@ -29,6 +29,8 @@ import {
 import { vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
+import { getKeymapBinding, type KeymapOverrides } from '../lib/keymaps'
+import { keyBindingsFor } from '../lib/vim-half-page-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
@@ -129,6 +131,22 @@ function lineNumberExtension(mode: LineNumberMode): Extension {
   ]
 }
 
+function buildReferenceKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
+  return keymap.of([
+    // Note search must precede the find bar only while its binding is set.
+    ...keyBindingsFor(getKeymapBinding(overrides, 'global.searchNotesNonVim'), () => {
+      const state = useStore.getState()
+      if (state.vimMode) return false
+      state.setSearchOpen(true)
+      return true
+    }),
+    indentWithTab,
+    ...vimAwareDefaultKeymap(vimMode),
+    ...historyKeymap,
+    ...vimAwareSearchKeymap(vimMode)
+  ])
+}
+
 export function PinnedReferencePane(): JSX.Element | null {
   const globalRefPath = useStore((s) => s.pinnedRefPath)
   const globalRefKind = useStore((s) => s.pinnedRefKind)
@@ -166,6 +184,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const updateNoteBody = useStore((s) => s.updateNoteBody)
   const persistNote = useStore((s) => s.persistNote)
   const vimMode = useStore((s) => s.vimMode)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
   const livePreview = useStore((s) => s.livePreview)
   const rtlMode = useStore((s) => s.rtlMode)
   const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
@@ -180,6 +199,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const viewRef = useRef<EditorView | null>(null)
   const viewPathRef = useRef<string | null>(null)
   const vimCompartmentRef = useRef<Compartment | null>(null)
+  const keymapCompartmentRef = useRef<Compartment | null>(null)
   const livePreviewCompartmentRef = useRef<Compartment | null>(null)
   const directionCompartmentRef = useRef<Compartment | null>(null)
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
@@ -199,12 +219,14 @@ export function PinnedReferencePane(): JSX.Element | null {
       }
       if (viewRef.current) return
       const vimCompartment = new Compartment()
+      const keymapCompartment = new Compartment()
       const livePreviewCompartment = new Compartment()
       const directionCompartment = new Compartment()
       const lineNumbersCompartment = new Compartment()
       const headingCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
+      keymapCompartmentRef.current = keymapCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
       directionCompartmentRef.current = directionCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
@@ -277,21 +299,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           }),
           completionNavKeymap,
           completionKeymapExtension,
-          keymap.of([
-            {
-              key: 'Mod-f',
-              run: () => {
-                const state = useStore.getState()
-                if (state.vimMode) return false
-                state.setSearchOpen(true)
-                return true
-              }
-            },
-            indentWithTab,
-            ...vimAwareDefaultKeymap(s0.vimMode),
-            ...historyKeymap,
-            ...vimAwareSearchKeymap(s0.vimMode)
-          ]),
+          keymapCompartment.of(buildReferenceKeymap(s0.vimMode, s0.keymapOverrides)),
           EditorView.updateListener.of((upd) => {
             if (!upd.docChanged) return
             if (upd.transactions.some((tr: Transaction) => tr.annotation(programmatic))) return
@@ -337,6 +345,12 @@ export function PinnedReferencePane(): JSX.Element | null {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(vimMode ? vim() : []) })
   }, [vimMode])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = keymapCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({ effects: comp.reconfigure(buildReferenceKeymap(vimMode, keymapOverrides)) })
+  }, [vimMode, keymapOverrides])
   useEffect(() => {
     const view = viewRef.current
     const comp = livePreviewCompartmentRef.current

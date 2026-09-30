@@ -14,7 +14,6 @@ import {
   previewShowsSourceLine,
   previewVisibleSourceLines,
   scrollTopForElementRelativeTop,
-  scrollTopForScrollRatio,
   shouldSyncPreviewAfterMarkdownSettles,
   shouldSyncPreviewFromEditorViewport
 } from './preview-outline-jump'
@@ -76,13 +75,6 @@ describe('preview outline jump helpers', () => {
     heading.getBoundingClientRect = () => ({ top: 260 } as DOMRect)
 
     expect(previewScrollTopForHeading(preview, heading, 24)).toBe(700)
-  })
-
-  it('maps continuous scroll by ratio for smooth split-pane sync', () => {
-    expect(scrollTopForScrollRatio(250, 1000, 500, 2000, 1000)).toBe(500)
-    expect(scrollTopForScrollRatio(1200, 1000, 500, 2000, 1000)).toBe(1000)
-    expect(scrollTopForScrollRatio(250, 500, 500, 2000, 1000)).toBe(0)
-    expect(scrollTopForScrollRatio(250, 1000, 500, 1000, 1000)).toBe(0)
   })
 
   it('extends the outline preview sync lock without shortening an active lock', () => {

@@ -9,7 +9,9 @@ import {
   resolveDefaultTarget,
   resolveTarget,
   resolveServerTarget,
-  resolveVaultTarget
+  resolveVaultTarget,
+  sameVault,
+  type VaultTarget
 } from './vault-target'
 
 let tmpDir: string
@@ -288,5 +290,59 @@ describe('the default target follows the workspace the app has open (#688)', () 
     expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
     await writeConfig({ vaultRoot: workVault, workspaceMode: 'remote', remoteWorkspace: { baseUrl: '' } })
     expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
+  })
+})
+
+describe('sameVault: a vault switch is a different vault, not new credentials', () => {
+  const local = (root: string): VaultTarget => ({ kind: 'local', root })
+  const server = (baseUrl: string, name = '', authToken: string | null = null): VaultTarget => ({
+    kind: 'remote',
+    name,
+    baseUrl,
+    authToken
+  })
+
+  it('matches a directory however its path is spelled, symlinks included', async () => {
+    const other = path.join(tmpDir, 'other')
+    await fsp.mkdir(other, { recursive: true })
+    // Windows only allows symlinks with developer mode or elevation.
+    const link = path.join(tmpDir, 'work-link')
+    const linked = await fsp.symlink(workVault, link, 'dir').then(
+      () => link,
+      () => workVault
+    )
+    expect(await sameVault(local(workVault), local(workVault))).toBe(true)
+    expect(await sameVault(local(workVault), local(`${other}/../work/`))).toBe(true)
+    expect(await sameVault(local(workVault), local(linked))).toBe(true)
+    expect(await sameVault(local(workVault), local(other))).toBe(false)
+    expect(await sameVault(local(path.join(tmpDir, 'a')), local(path.join(tmpDir, 'b')))).toBe(false)
+  })
+
+  it('matches a server by URL whatever the token or profile name', async () => {
+    expect(
+      await sameVault(
+        server('https://notes.example.com', 'home', 'old'),
+        server('https://notes.example.com', '', 'new')
+      )
+    ).toBe(true)
+    expect(await sameVault(server('https://Notes.Example.com/'), server('https://notes.example.com'))).toBe(true)
+    expect(await sameVault(server('notes.example.com:7878'), server('http://notes.example.com:7878'))).toBe(true)
+    expect(await sameVault(server('http://notes.example.com:7878'), server('http://notes.example.com:7879'))).toBe(false)
+    expect(await sameVault(local(workVault), server('https://notes.example.com'))).toBe(false)
+  })
+
+  it('normalizes the origin without changing the case of a reverse-proxy path', async () => {
+    expect(
+      await sameVault(server('https://notes.example.com/Work'), server('https://notes.example.com/work'))
+    ).toBe(false)
+    expect(
+      await sameVault(server('HTTPS://Notes.Example.com:443/Work/'), server('https://notes.example.com/Work'))
+    ).toBe(true)
+  })
+
+  it('keeps query values case-sensitive too', async () => {
+    expect(
+      await sameVault(server('https://notes.example.com/?vault=Work'), server('https://notes.example.com/?vault=work'))
+    ).toBe(false)
   })
 })

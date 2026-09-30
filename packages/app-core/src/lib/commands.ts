@@ -53,13 +53,20 @@ const APP_REPOSITORY_URL = 'https://github.com/ZenNotes/zennotes'
 const APP_RELEASES_URL = 'https://github.com/ZenNotes/zennotes/releases/latest'
 const APP_ISSUES_URL = 'https://github.com/ZenNotes/zennotes/issues'
 
-type FoldCommand = 'foldCode' | 'unfoldCode' | 'foldAll' | 'unfoldAll'
+type FoldCommand = 'foldAtCursor' | 'unfoldAtCursor' | 'foldAllOutline' | 'unfoldAll'
 
 async function runFoldCommand(command: FoldCommand): Promise<void> {
   const view = useStore.getState().editorViewRef
   if (!view) return
-  const foldModule = await import('@codemirror/language')
-  foldModule[command](view)
+  if (command === 'unfoldAll') {
+    const language = await import('@codemirror/language')
+    language.unfoldAll(view)
+  } else {
+    // Headings and list items alike (#848); loaded on demand like the
+    // editor itself.
+    const folding = await import('./cm-heading-fold')
+    folding[command](view)
+  }
   view.focus()
 }
 
@@ -866,37 +873,37 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'fold.heading',
-      title: 'Fold Heading at Cursor',
+      title: 'Fold Heading or List Item at Cursor',
       category: 'Editor',
       shortcut: shortcut('vim.foldCurrent'),
-      keywords: 'collapse fold heading section',
+      keywords: 'collapse fold heading section list item task bullet children callout',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => runFoldCommand('foldCode')
+      run: () => runFoldCommand('foldAtCursor')
     },
     {
       id: 'fold.unfold-heading',
-      title: 'Unfold Heading at Cursor',
+      title: 'Unfold Heading or List Item at Cursor',
       category: 'Editor',
       shortcut: shortcut('vim.unfoldCurrent'),
-      keywords: 'expand unfold heading section',
+      keywords: 'expand unfold heading section list item task bullet children callout',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => runFoldCommand('unfoldCode')
+      run: () => runFoldCommand('unfoldAtCursor')
     },
     {
       id: 'fold.all',
-      title: 'Fold All Headings',
+      title: 'Fold All Headings and Lists',
       category: 'Editor',
       shortcut: shortcut('vim.foldAll'),
-      keywords: 'collapse fold all every',
+      keywords: 'collapse fold all every heading list item task outline callout',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
-      run: () => runFoldCommand('foldAll')
+      run: () => runFoldCommand('foldAllOutline')
     },
     {
       id: 'fold.unfold-all',
-      title: 'Unfold All Headings',
+      title: 'Unfold All Headings and Lists',
       category: 'Editor',
       shortcut: shortcut('vim.unfoldAll'),
-      keywords: 'expand unfold all every reset',
+      keywords: 'expand unfold all every reset heading list item task outline callout',
       when: () => !!getState().editorViewRef && !!getState().activeNote,
       run: () => runFoldCommand('unfoldAll')
     },

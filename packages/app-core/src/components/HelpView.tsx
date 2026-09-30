@@ -105,8 +105,11 @@ function resolveShortcutKeys(
       return leader === UNBOUND_LABEL ? leader : `${leader}, then pause`
     }
     if (action === 'Toggle outline panel') return shortcut(overrides, 'global.toggleOutlinePanel')
-    if (action === 'Fold / unfold heading') {
+    if (action === 'Fold / unfold heading or list item') {
       return alternatives([shortcut(overrides, 'vim.foldCurrent'), shortcut(overrides, 'vim.unfoldCurrent')])
+    }
+    if (action === 'Fold / unfold, Vim on or off') {
+      return alternatives([shortcut(overrides, 'editor.foldHeading'), shortcut(overrides, 'editor.unfoldHeading')])
     }
     if (action === 'Fold / unfold all') {
       return alternatives([shortcut(overrides, 'vim.foldAll'), shortcut(overrides, 'vim.unfoldAll')])

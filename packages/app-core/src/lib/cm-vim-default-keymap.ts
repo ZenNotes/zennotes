@@ -1,8 +1,14 @@
 import { defaultKeymap } from '@codemirror/commands'
 import { markdownKeymap } from '@codemirror/lang-markdown'
 import { Prec, type Extension } from '@codemirror/state'
-import { keymap, type EditorView, type KeyBinding } from '@codemirror/view'
-import { searchKeymap } from '@codemirror/search'
+import { keymap, type Command, type EditorView, type KeyBinding } from '@codemirror/view'
+import {
+  findNext,
+  findPrevious,
+  openSearchPanel,
+  searchKeymap,
+  searchPanelOpen
+} from '@codemirror/search'
 import { getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
 import { insertNewlineContinueFrontmatterList } from './cm-frontmatter'
@@ -165,6 +171,27 @@ export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
 }
 
 /**
+ * F3 and Mod-G run CodeMirror's `findNext`/`findPrevious`, which open the find
+ * bar only while no query is set. Once one search had run and the bar was
+ * closed, they jumped to the next match of that old query out of sight (the
+ * selection toolbar popping up over it), and the bar never came back to the
+ * keyboard, in every note, until a restart. In the main window, where Mod+F
+ * opens note search with Vim off, F3 was the only key into the bar. (#860)
+ * With the bar closed they now open it, the last query prefilled and selected
+ * as Mod+F does; with it open they step through the matches as before.
+ */
+const reopenFirst =
+  (step: Command): Command =>
+  (view) =>
+    searchPanelOpen(view.state) ? step(view) : openSearchPanel(view)
+
+const reopeningSearchKeymap: readonly KeyBinding[] = searchKeymap.map((binding) =>
+  binding.run === findNext
+    ? { ...binding, run: reopenFirst(findNext), shift: reopenFirst(findPrevious) }
+    : binding
+)
+
+/**
  * CodeMirror's `searchKeymap`, made Vim-aware where Mod is Ctrl.
  *
  * The search panel is bound to `Mod-f`. On Linux and Windows that is Ctrl+F,
@@ -173,11 +200,12 @@ export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
  * Vim: the one motion chord the editor still took from Vim (#510). With Vim
  * mode on, Vim users search with `/`, so the binding is dropped there and
  * Ctrl+F pages like Ctrl+B. macOS keeps it: Cmd+F never collided with Vim.
- * The rest of the keymap (find next, replace, select matches) stays as is.
+ * The rest of the keymap (replace, select matches) stays as is; find next and
+ * previous reopen a closed bar (above).
  */
 export function vimAwareSearchKeymap(vimMode: boolean, mac: boolean = isMacPlatform()): readonly KeyBinding[] {
-  if (!vimMode || mac) return searchKeymap
-  return searchKeymap.filter((binding) => binding.key !== 'Mod-f')
+  if (!vimMode || mac) return reopeningSearchKeymap
+  return reopeningSearchKeymap.filter((binding) => binding.key !== 'Mod-f')
 }
 
 /**

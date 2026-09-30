@@ -125,6 +125,21 @@ describe("CloudSettingsConflictDialog", () => {
     expect(applied.folderIcons).toEqual({ "inbox:Projects": "bolt", "inbox:Archive": "archive" });
   });
 
+  it("keeps the buttons on a phone: a column where only the body scrolls, and a footer that wraps (Android #88)", () => {
+    // jsdom has no layout, so this pins the structure the fix depends on; the
+    // measured check at 360 to 393 px and 100 to 130 % text is in the release notes.
+    const panel = document.body.querySelector('[data-cloud-settings-conflict-dialog] [role="dialog"]') as HTMLElement;
+    expect(panel.className).toMatch(/\bflex\b/);
+    expect(panel.className).toMatch(/\bflex-col\b/);
+    expect(panel.className).toMatch(/max-h-\[88dvh\]/);
+    const [, body, footer] = [...panel.children] as HTMLElement[];
+    expect(body.className).toMatch(/\bmin-h-0\b/);
+    expect(body.className).toMatch(/\boverflow-y-auto\b/);
+    expect(body.className).not.toMatch(/max-h-\[60vh\]/);
+    expect(footer.className).toMatch(/\bflex-wrap\b/);
+    expect(footer.contains(button(host, "Decide later"))).toBe(true);
+  });
+
   it("applies nothing when postponed", async () => {
     await act(async () => sectionChoice("Favorites", "Cloud").click());
     await act(async () => button(host, "Decide later").click());

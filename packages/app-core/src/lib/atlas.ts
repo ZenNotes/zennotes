@@ -3,9 +3,11 @@
 //
 // Two hard rules from the design (docs/ideas/atlas.md):
 //  - The layout is DETERMINISTIC and FROZEN. Same notes + links = same map.
-//  - Notes already on the map never move when new notes arrive; newcomers are
-//    placed at the centroid of their linked neighbors (or their region) so the
-//    geography stays a place the user knows.
+//  - Notes already on the map never move when new notes arrive; a newcomer
+//    takes the nearest free spot beside what it links to (or in its region),
+//    so the geography stays a place the user knows. The one exception is a
+//    note sitting on a note it links to, which is no place anyone could know
+//    (settleAtlasSpace, below).
 import type { NoteMeta } from '@shared/ipc'
 import { resolveWikilinkTarget } from './wikilinks'
 
@@ -58,6 +60,11 @@ function mulberry32(a: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
+}
+
+/** A note's dot radius in world units; the view scales it with the zoom. */
+export function atlasNodeRadius(degree: number): number {
+  return 3.4 + Math.sqrt(degree) * 2.1
 }
 
 /** The region a note belongs to: its top-level folder (clustering can come later). */
@@ -242,10 +249,197 @@ function relax(
   }
 }
 
+// Spacing for notes placed after the map was drawn, edge to edge between
+// dots, in world units. A newcomer takes the nearest spot PLACE_GAP clear of
+// every other dot when one lies within PLACE_NEAR of the notes it links to;
+// on a map too crowded for that it takes the nearest spot that is MIN_GAP
+// clear, and LINK_GAP clear of what it links to. Relaxation leaves linked
+// notes about 90 apart, so PLACE_GAP is snug but readable.
+const PLACE_GAP = 24
+const PLACE_NEAR = 120
+const MIN_GAP = 4
+// Newcomers used to land on the centroid of what they link to, give or take
+// 11 units a side, with no look at what was already there: a note written
+// after the map was first drawn sat on its link, and the cache froze it there
+// (#861). A cached note this close to a note it links to (edge to edge) is one
+// of those, since relaxation pushes linked notes much further apart.
+const LINK_GAP = 12
+const CELL = 96
+const PROBES = 200000
+
+/**
+ * The k-th probe around an anchor, and its distance from it: a sunflower in
+ * 2D, a filled ball in 3D. Probes widen evenly from the anchor itself, so the
+ * first one that fits is about the nearest spot that does.
+ */
+function probeOffset(k: number, dims: 2 | 3): [number, number, number, number] {
+  if (dims === 2) {
+    const r = 5 * Math.sqrt(k)
+    return [Math.cos(k * GOLD) * r, Math.sin(k * GOLD) * r, 0, r]
+  }
+  const r = 6 * Math.cbrt(k)
+  const z = 1 - 2 * ((k * 0.7548776662466927) % 1)
+  const a = 2 * Math.PI * ((k * 0.5698402909980532) % 1)
+  const s = Math.sqrt(Math.max(0, 1 - z * z))
+  return [Math.cos(a) * s * r, Math.sin(a) * s * r, z * r, r]
+}
+
+/**
+ * Settle one layout space: every note gets a position, and no note sits on
+ * a note it links to.
+ *
+ * `placed` marks the notes that already have a position here (cached, or just
+ * relaxed). They keep it, except a note within LINK_GAP of a note it links
+ * to: of the two, the heavier one (more links, then older, then path order)
+ * stays and the other moves to the nearest spot that fits, from where it was.
+ * Notes without a position (newcomers) then take the nearest spot that fits
+ * around the notes they link to, or around their region slot while none of
+ * those is on the map. Every placement meets the rule the first pass checks,
+ * so a settled space settles to itself and reopening the map moves nothing.
+ */
+function settleAtlasSpace(
+  nodes: AtlasNode[],
+  adjacency: ReadonlyMap<number, number[]>,
+  dims: 2 | 3,
+  placed: boolean[],
+  get: (n: AtlasNode) => [number, number, number],
+  set: (n: AtlasNode, x: number, y: number, z: number) => void,
+  regionSlot: (i: number) => [number, number, number]
+): void {
+  const count = nodes.length
+  const radius = nodes.map((n) => atlasNodeRadius(n.degree))
+  let maxRadius = 0
+  for (const r of radius) maxRadius = Math.max(maxRadius, r)
+  const linked = new Set<number>()
+  adjacency.forEach((list, a) => list.forEach((b) => linked.add(a * count + b)))
+  const px = new Float64Array(count)
+  const py = new Float64Array(count)
+  const pz = new Float64Array(count)
+  nodes.forEach((n, i) => {
+    if (!placed[i]) return
+    const [x, y, z] = get(n)
+    px[i] = x
+    py[i] = y
+    pz[i] = dims === 3 ? z : 0
+  })
+  const grid = new Map<string, number[]>()
+  const add = (i: number): void => {
+    const key =
+      Math.floor(px[i] / CELL) +
+      ',' +
+      Math.floor(py[i] / CELL) +
+      ',' +
+      (dims === 3 ? Math.floor(pz[i] / CELL) : 0)
+    const cell = grid.get(key)
+    if (cell) cell.push(i)
+    else grid.set(key, [i])
+  }
+  // How note i would sit at (x, y, z) among the notes in the grid: 0 when it
+  // would cover or crowd one (under MIN_GAP, or under LINK_GAP from a note it
+  // links to), 1 when it fits but snugly, 2 when it is PLACE_GAP clear.
+  const fit = (i: number, x: number, y: number, z: number, strict: boolean): 0 | 1 | 2 => {
+    const reach = Math.ceil((radius[i] + maxRadius + PLACE_GAP) / CELL)
+    const gx = Math.floor(x / CELL)
+    const gy = Math.floor(y / CELL)
+    const gz = dims === 3 ? Math.floor(z / CELL) : 0
+    let roomy = true
+    for (let ax = gx - reach; ax <= gx + reach; ax++)
+      for (let ay = gy - reach; ay <= gy + reach; ay++)
+        for (let az = dims === 3 ? gz - reach : 0; az <= (dims === 3 ? gz + reach : 0); az++) {
+          const cell = grid.get(ax + ',' + ay + ',' + az)
+          if (!cell) continue
+          for (const j of cell) {
+            const dx = px[j] - x
+            const dy = py[j] - y
+            const dz = pz[j] - z
+            const gap = Math.sqrt(dx * dx + dy * dy + dz * dz) - radius[i] - radius[j]
+            if (gap < LINK_GAP && linked.has(i * count + j)) return 0
+            if (!strict) continue
+            if (gap < MIN_GAP) return 0
+            if (gap < PLACE_GAP) roomy = false
+          }
+        }
+    return roomy ? 2 : 1
+  }
+
+  const heavier = (a: number, b: number): number =>
+    nodes[b].degree - nodes[a].degree ||
+    nodes[a].createdAt - nodes[b].createdAt ||
+    (nodes[a].path < nodes[b].path ? -1 : nodes[a].path > nodes[b].path ? 1 : 0)
+  const moved: number[] = []
+  for (const i of nodes.map((_, i) => i).filter((i) => placed[i]).sort(heavier)) {
+    if (fit(i, px[i], py[i], pz[i], false) === 0) {
+      placed[i] = false
+      moved.push(i)
+    } else add(i)
+  }
+
+  const placeNear = (i: number, ax: number, ay: number, az: number): void => {
+    let snug: [number, number, number] | null = null
+    let at: [number, number, number] = [ax, ay, az]
+    for (let k = 0; k < PROBES; k++) {
+      const [ox, oy, oz, reach] = probeOffset(k, dims)
+      if (snug && reach > PLACE_NEAR) {
+        at = snug
+        break
+      }
+      at = [ax + ox, ay + oy, dims === 3 ? az + oz : 0]
+      const f = fit(i, at[0], at[1], at[2], true)
+      if (f === 2) break
+      if (f === 1 && !snug) snug = at
+    }
+    ;[px[i], py[i], pz[i]] = at
+    set(nodes[i], at[0], at[1], at[2])
+    placed[i] = true
+    add(i)
+  }
+  for (const i of moved) placeNear(i, px[i], py[i], pz[i])
+
+  // Newcomers, breadth-first from the map, so a chain of new notes grows off
+  // the note it hangs from instead of parking in its region.
+  const queue: number[] = []
+  const queued = new Uint8Array(count)
+  const offer = (i: number): void => {
+    if (placed[i] || queued[i]) return
+    if (!(adjacency.get(i) ?? []).some((m) => placed[m])) return
+    queued[i] = 1
+    queue.push(i)
+  }
+  nodes.forEach((_, i) => offer(i))
+  let head = 0
+  let next = 0
+  for (;;) {
+    let i: number
+    if (head < queue.length) i = queue[head++]
+    else {
+      while (next < count && placed[next]) next++
+      if (next === count) break
+      i = next
+    }
+    const around = (adjacency.get(i) ?? []).filter((m) => placed[m])
+    if (around.length > 0) {
+      let sx = 0
+      let sy = 0
+      let sz = 0
+      for (const m of around) {
+        sx += px[m]
+        sy += py[m]
+        sz += pz[m]
+      }
+      placeNear(i, sx / around.length, sy / around.length, sz / around.length)
+    } else {
+      const [x, y, z] = regionSlot(i)
+      placeNear(i, x, y, dims === 3 ? z : 0)
+    }
+    for (const m of adjacency.get(i) ?? []) offer(m)
+  }
+}
+
 /**
  * Lay out the graph in both dimensions. Nodes whose path appears in `previous`
  * keep those positions verbatim; only newcomers are computed. When most of the
  * vault is new (or nothing is cached) the full deterministic layout runs.
+ * Either way the result is settled (settleAtlasSpace).
  */
 export function layoutAtlas(graph: AtlasGraph, previous?: AtlasPositions | null): void {
   const { nodes, edges, regions } = graph
@@ -278,51 +472,47 @@ export function layoutAtlas(graph: AtlasGraph, previous?: AtlasPositions | null)
   }
   const fresh = nodes.length - known.size
   const fullLayout = known.size === 0 || fresh / Math.max(1, nodes.length) > 0.4
-  const perRegionIndex = new Map<number, number>()
   const adjacency = new Map<number, number[]>()
   edges.forEach(([a, b]) => {
     ;(adjacency.get(a) ?? adjacency.set(a, []).get(a)!).push(b)
     ;(adjacency.get(b) ?? adjacency.set(b, []).get(b)!).push(a)
   })
-  nodes.forEach((n, i) => {
+  // Each note's slot in its region: a flattened sphere (3D) and a
+  // phyllotaxis disc (2D) around the region's center.
+  const perRegionIndex = new Map<number, number>()
+  const slotIndex = nodes.map((n) => {
     const j = perRegionIndex.get(n.region) ?? 0
     perRegionIndex.set(n.region, j + 1)
-    if (!fullLayout && known.has(n.path)) return
+    return j
+  })
+  const slot = (i: number): { x: number; y: number; z: number; x2: number; y2: number } => {
+    const n = nodes[i]
     const reg = regions[n.region]
-    const jitter = (): number => (rng() - 0.5) * 22
-    const placedNeighbors = fullLayout
-      ? []
-      : (adjacency.get(i) ?? []).filter((m) => known.has(nodes[m].path))
-    if (!fullLayout && placedNeighbors.length > 0) {
-      // A newcomer lands beside what it links to; nothing else moves.
-      const sum = placedNeighbors.reduce(
-        (s, m) => {
-          const nb = nodes[m]
-          return [s[0] + nb.x, s[1] + nb.y, s[2] + nb.z, s[3] + nb.x2, s[4] + nb.y2]
-        },
-        [0, 0, 0, 0, 0]
-      )
-      const c = placedNeighbors.length
-      n.x = sum[0] / c + jitter()
-      n.y = sum[1] / c + jitter()
-      n.z = sum[2] / c + jitter()
-      n.x2 = sum[3] / c + jitter()
-      n.y2 = sum[4] / c + jitter()
-      return
-    }
+    const j = slotIndex[i]
     const count = Math.max(1, reg.count)
     const yy = 1 - (2 * (j + 0.5)) / count
     const rr = Math.sqrt(Math.max(0, 1 - yy * yy))
     const th = j * GOLD + n.region * 1.7
     const rad = reg.r * 0.85
-    n.x = reg.cx + Math.cos(th) * rr * rad + jitter()
-    n.y = reg.cy + yy * rad * 0.85 + jitter()
-    n.z = reg.cz + Math.sin(th) * rr * rad + jitter()
     const rr2 = reg.r * 0.9 * Math.sqrt((j + 0.6) / count)
-    n.x2 = reg.cx2 + Math.cos(th) * rr2 + jitter()
-    n.y2 = reg.cy2 + Math.sin(th) * rr2 + jitter()
-  })
+    return {
+      x: reg.cx + Math.cos(th) * rr * rad,
+      y: reg.cy + yy * rad * 0.85,
+      z: reg.cz + Math.sin(th) * rr * rad,
+      x2: reg.cx2 + Math.cos(th) * rr2,
+      y2: reg.cy2 + Math.sin(th) * rr2
+    }
+  }
   if (fullLayout) {
+    const jitter = (): number => (rng() - 0.5) * 22
+    nodes.forEach((n, i) => {
+      const s = slot(i)
+      n.x = s.x + jitter()
+      n.y = s.y + jitter()
+      n.z = s.z + jitter()
+      n.x2 = s.x2 + jitter()
+      n.y2 = s.y2 + jitter()
+    })
     const iterations = nodes.length > 1500 ? 50 : 120
     relax(
       nodes,
@@ -350,6 +540,38 @@ export function layoutAtlas(graph: AtlasGraph, previous?: AtlasPositions | null)
       (n) => [regions[n.region].cx2, regions[n.region].cy2, 0]
     )
   }
+  const onMap = (): boolean[] => nodes.map((n) => fullLayout || known.has(n.path))
+  settleAtlasSpace(
+    nodes,
+    adjacency,
+    3,
+    onMap(),
+    (n) => [n.x, n.y, n.z],
+    (n, x, y, z) => {
+      n.x = x
+      n.y = y
+      n.z = z
+    },
+    (i) => {
+      const s = slot(i)
+      return [s.x, s.y, s.z]
+    }
+  )
+  settleAtlasSpace(
+    nodes,
+    adjacency,
+    2,
+    onMap(),
+    (n) => [n.x2, n.y2, 0],
+    (n, x, y) => {
+      n.x2 = x
+      n.y2 = y
+    },
+    (i) => {
+      const s = slot(i)
+      return [s.x2, s.y2, 0]
+    }
+  )
   // Label anchors follow the notes, wherever they ended up.
   regions.forEach((reg, ri) => {
     const rn = nodes.filter((n) => n.region === ri)

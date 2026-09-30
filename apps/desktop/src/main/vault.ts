@@ -418,7 +418,19 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
         .map((entry) => normalizeProfile(entry))
         .filter((entry): entry is PersistedRemoteWorkspaceProfile => !!entry)
     : []
-  if (legacyRemoteWorkspace && !remoteWorkspaceProfiles.some((entry) => entry.baseUrl === legacyRemoteWorkspace.baseUrl)) {
+  // Only a config from before saved remote workspaces existed (no
+  // `remoteWorkspaceProfiles` key at all) gets a profile made up for its
+  // connection. In a current config `remoteWorkspace` is just the live
+  // connection, which Quick Connect writes a moment before it saves the real
+  // profile, so making one up here turned one Quick Connect into two saved
+  // workspaces: the real one and a tokenless "ZenNotes Server" that took a new
+  // random id on every load until some other write kept it (#870).
+  const isPreProfileConfig = !Array.isArray(candidate.remoteWorkspaceProfiles)
+  if (
+    isPreProfileConfig &&
+    legacyRemoteWorkspace &&
+    !remoteWorkspaceProfiles.some((entry) => entry.baseUrl === legacyRemoteWorkspace.baseUrl)
+  ) {
     remoteWorkspaceProfiles.unshift({
       id: randomUUID(),
       name: 'ZenNotes Server',

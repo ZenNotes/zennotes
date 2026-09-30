@@ -218,21 +218,6 @@ export function scrollTopForElementRelativeTop(
   return Math.max(0, Math.min(maxTop, nextTop))
 }
 
-export function scrollTopForScrollRatio(
-  sourceScrollTop: number,
-  sourceScrollHeight: number,
-  sourceClientHeight: number,
-  targetScrollHeight: number,
-  targetClientHeight: number
-): number {
-  const sourceMax = sourceScrollHeight - sourceClientHeight
-  const targetMax = targetScrollHeight - targetClientHeight
-  if (targetMax <= 0) return 0
-  if (sourceMax <= 0) return 0
-  const ratio = Math.max(0, Math.min(1, sourceScrollTop / sourceMax))
-  return ratio * targetMax
-}
-
 export function nextOutlinePreviewSyncLockUntil(
   nowMs: number,
   durationMs: number,

@@ -118,7 +118,10 @@ export function CloudSettingsConflictDialog({
       onClose={onClose}
       labelledBy={TITLE_ID}
       initialFocus={primary}
-      className="max-h-[88vh]"
+      // A column capped to the visible screen: only the body scrolls, so the
+      // header and the buttons stay on screen however many settings differ.
+      // Phones (Android #88) put the buttons past the sheet's edge otherwise.
+      className="flex max-h-[88dvh] flex-col"
       // The existing guards (vim leader, editor focus, overlay detection) key
       // on the first marker; the second names this dialog for its own tests.
       data={{
@@ -131,7 +134,7 @@ export function CloudSettingsConflictDialog({
         titleId={TITLE_ID}
         description={describeQuestion(vaultName, described, differences)}
       />
-      <Modal.Body className="max-h-[60vh] overflow-y-auto">
+      <Modal.Body className="min-h-0 overflow-y-auto">
         {differences.length > 0 && described !== null && (
           <>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -190,8 +193,11 @@ export function CloudSettingsConflictDialog({
           </div>
         )}
       </Modal.Body>
-      <Modal.Footer className="items-center">
-        <div className="mr-auto text-xs text-ink-500">
+      {/* The note keeps a readable width and the buttons wrap under it on a
+          narrow screen, instead of the note shrinking to nothing while the
+          buttons run past the edge (Android #88). */}
+      <Modal.Footer className="flex-wrap items-center">
+        <div className="mr-auto min-w-0 flex-1 basis-48 text-xs text-ink-500">
           This device&rsquo;s settings stay in use until you decide.
         </div>
         <Button variant="ghost" disabled={busy} onClick={onClose}>

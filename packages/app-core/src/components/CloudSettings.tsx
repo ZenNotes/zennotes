@@ -36,6 +36,7 @@ import { notifyPublishedNoteChanged } from "../lib/published-note-events";
 import { requestPublishNote } from "../lib/publish-note-requests";
 import { Button } from "./ui/Button";
 import { useStore } from "../store";
+import { focusEditorNormalMode } from "../lib/editor-focus";
 import { CloudPendingConflictResolver } from "./CloudPendingConflictResolver";
 
 type CloudAction =
@@ -2020,7 +2021,9 @@ function CloudSyncSummary({
   const openPath = (path: string): void => {
     const store = useStore.getState();
     store.setSettingsOpen(false);
-    void store.openNoteInTab(path);
+    // Settings held the keyboard; the note opened behind it takes it now,
+    // or typing went nowhere once the modal closed (#863).
+    void store.openNoteInTab(path).then(() => focusEditorNormalMode());
   };
   return (
     <div

@@ -6,6 +6,7 @@ import { useStore, isAtlasViewActive } from '../store'
 import {
   applyExtraLinkEdges,
   atlasHoldsKeyboard,
+  atlasNodeRadius,
   atlasRegionDirection,
   buildAtlasGraph,
   collectAtlasPositions,
@@ -14,6 +15,7 @@ import {
   type AtlasPositions
 } from '../lib/atlas'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 import { extractMarkdownLinkHrefs } from '../lib/wikilinks'
 import { resolveInternalNoteHref } from '../lib/internal-links'
 
@@ -451,7 +453,7 @@ export function AtlasView(): JSX.Element {
         const d = w.display[i]
         const em = emphasis(i)
         const hue = col.regionHues[n.region % col.regionHues.length]
-        const base = Math.max(1.4, (3.4 + Math.sqrt(n.degree) * 2.1) * p.s)
+        const base = Math.max(1.4, atlasNodeRadius(n.degree) * p.s)
         if (em.glow > 0.05) {
           const grad = ctx.createRadialGradient(p.sx, p.sy, 0, p.sx, p.sy, base * 4.2)
           const glowHue = st.lens === 2 ? col.accent : hue
@@ -596,7 +598,7 @@ export function AtlasView(): JSX.Element {
     stateRef.current.graph.nodes.forEach((n, i) => {
       const p = proj[i]
       if (!p || world.current.display[i].alpha < 0.1) return
-      const r = Math.max(1.4, (3.4 + Math.sqrt(n.degree) * 2.1) * p.s) + 6
+      const r = Math.max(1.4, atlasNodeRadius(n.degree) * p.s) + 6
       const d = (p.sx - sx) ** 2 + (p.sy - sy) ** 2
       if (d < r * r && p.depth < bd) {
         bd = p.depth
@@ -669,9 +671,15 @@ export function AtlasView(): JSX.Element {
     setStatus(reg.label)
     touch()
   }
+  // Opening a note leaves the map, and the map held the keyboard: without a
+  // hand-off typing went nowhere with Vim mode off and to the sidebar with it
+  // on (#863).
+  function openNote(path: string): void {
+    void selectNote(path).then(() => focusEditorNormalMode())
+  }
   function openFocused(): void {
     const path = world.current.focusPath
-    if (path) void selectNote(path)
+    if (path) openNote(path)
   }
 
   // Keyboard: capture phase so it beats VimNav; single letters are Vim-only
@@ -892,7 +900,7 @@ export function AtlasView(): JSX.Element {
         const i = hitTest(e.clientX - rect.left, e.clientY - rect.top)
         if (i >= 0) {
           const path = stateRef.current.graph.nodes[i].path
-          if (world.current.focusPath === path) void selectNote(path)
+          if (world.current.focusPath === path) openNote(path)
           else world.current.focusPath = path
         } else world.current.focusPath = null
       }

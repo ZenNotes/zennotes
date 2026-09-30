@@ -4,6 +4,15 @@ import { EditorSelection, EditorState } from '@codemirror/state'
 import { EditorView, keymap, type KeyBinding } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
+import {
+  SearchQuery,
+  closeSearchPanel,
+  getSearchQuery,
+  openSearchPanel,
+  search,
+  searchPanelOpen,
+  setSearchQuery
+} from '@codemirror/search'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from './cm-vim-default-keymap'
 
 // Regression guard for the macOS Vim `Ctrl-d` bug: defaultKeymap's emacs-style
@@ -238,3 +247,58 @@ describe('vimAwareSearchKeymap', () => {
   })
 })
 
+// #860: F3 and Mod-G ran findNext, which opens the find bar only while no
+// query is set. After one search they jumped to the old query's next match
+// with the bar closed, and the bar never came back to the keyboard.
+describe('find next and previous reopen a closed find bar (#860)', () => {
+  const doc = 'alpha one\nbeta\nalpha two\nalpha three\n'
+  const binding = (key: string): KeyBinding => {
+    const found = vimAwareSearchKeymap(false, false).find((b) => b.key === key)
+    if (!found) throw new Error(`no ${key} binding`)
+    return found
+  }
+  let view: EditorView | null = null
+  afterEach(() => {
+    view?.destroy()
+    view = null
+  })
+  // One search has run and the bar was closed again, the caret at the start.
+  const searchedThenClosed = (): EditorView => {
+    view = new EditorView({ state: EditorState.create({ doc, extensions: [search()] }), parent: document.body })
+    openSearchPanel(view)
+    view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'alpha' })) })
+    closeSearchPanel(view)
+    view.dispatch({ selection: EditorSelection.cursor(0) })
+    return view
+  }
+  const selected = (v: EditorView): [number, number] => [v.state.selection.main.from, v.state.selection.main.to]
+
+  for (const key of ['F3', 'Mod-g']) {
+    it(`${key} opens the closed bar with the last query and moves nothing`, () => {
+      const v = searchedThenClosed()
+      expect(searchPanelOpen(v.state)).toBe(false)
+      expect(binding(key).run?.(v)).toBe(true)
+      expect(searchPanelOpen(v.state)).toBe(true)
+      expect(getSearchQuery(v.state).search).toBe('alpha')
+      expect(selected(v)).toEqual([0, 0])
+    })
+
+    it(`${key} steps through the matches once the bar is open, and Shift steps back`, () => {
+      const v = searchedThenClosed()
+      binding(key).run?.(v)
+      binding(key).run?.(v)
+      expect(selected(v)).toEqual([0, 5])
+      binding(key).run?.(v)
+      expect(selected(v)).toEqual([15, 20])
+      binding(key).shift?.(v)
+      expect(selected(v)).toEqual([0, 5])
+    })
+  }
+
+  it('Shift on a closed bar opens it too, rather than stepping back out of sight', () => {
+    const v = searchedThenClosed()
+    expect(binding('F3').shift?.(v)).toBe(true)
+    expect(searchPanelOpen(v.state)).toBe(true)
+    expect(selected(v)).toEqual([0, 0])
+  })
+})

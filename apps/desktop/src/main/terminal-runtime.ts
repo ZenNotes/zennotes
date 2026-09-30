@@ -91,7 +91,16 @@ async function prepare(
       await fs.readFile(path.join(options.bundleDir, 'manifest.json'), 'utf8'),
     )
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT') return null
+    // A package that installs the bundle without read access for this user
+    // (#869) is not a broken manifest; say what is wrong and how to fix it.
+    if (code === 'EACCES' || code === 'EPERM') {
+      throw new Error(
+        `The bundled terminal at ${options.bundleDir} cannot be read (permission denied). Make that folder readable (chmod 755) or reinstall ZenNotes.`,
+        { cause: error },
+      )
+    }
     throw new Error('The bundled terminal manifest is invalid.', {
       cause: error,
     })

@@ -550,6 +550,39 @@ describe('callout titles keep their inline markup (#549)', () => {
   })
 })
 
+describe('foldable callouts (#853)', () => {
+  it('renders a collapsed callout as a closed <details> with the title as its <summary>', () => {
+    const html = renderMarkdown('> [!example]- Screenshots\n> first\n> second')
+    expect(html).toMatch(/<details class="callout" data-callout="example" data-callout-fold="collapsed"[^>]*>/)
+    expect(html).not.toMatch(/<details[^>]*\sopen/)
+    expect(html).toContain('<summary class="callout-title">Screenshots</summary>')
+    expect(html).toMatch(/<p[^>]*>first\nsecond<\/p>/)
+  })
+
+  it('renders an expanded callout open', () => {
+    const html = renderMarkdown('> [!tip]+ Open by default\n> body')
+    expect(html).toMatch(/<details class="callout" data-callout="tip" data-callout-fold="expanded" open=""/)
+    expect(html).toContain('<summary class="callout-title">Open by default</summary>')
+  })
+
+  it('titles an untitled foldable callout with its type', () => {
+    expect(renderMarkdown('> [!note]-\n> body')).toContain('<summary class="callout-title">Note</summary>')
+  })
+
+  it('draws a plain box for a callout with nothing to fold, or no marker', () => {
+    const empty = renderMarkdown('> [!note]-')
+    expect(empty).not.toContain('<details')
+    expect(empty).toContain('<div class="callout-title">Note</div>')
+    const plain = renderMarkdown('> [!note] Plain\n> body')
+    expect(plain).not.toContain('<details')
+    expect(plain).not.toContain('data-callout-fold')
+  })
+
+  it('takes no marker glued to text for a fold marker', () => {
+    expect(renderMarkdown('> [!note]-x not a marker')).not.toContain('callout')
+  })
+})
+
 // A display block inside an Obsidian-style callout used to lose the reading
 // view entirely: the fence normalizer re-scanned the closing fence of the block
 // BEFORE the callout as an opener, took the callout's `> $$` for content

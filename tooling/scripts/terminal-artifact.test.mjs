@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -119,6 +119,50 @@ test('local candidates require opt-in and checksum verification without replacin
     )
     assert.deepEqual(await readFile(join(staged, 'zn')), bytes)
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('the staged folder is readable by every user, whatever the umask (#869)', async () => {
+  // Linux packages install this folder root-owned with the mode it is staged
+  // with; a 0700 folder (mkdtemp's default) hid the bundled CLI from users.
+  const root = await mkdtemp(join(tmpdir(), 'zn-artifact-modes-'))
+  const previous = process.umask(0o077)
+  try {
+    const local = join(root, 'local'),
+      staged = join(root, 'output')
+    const target = join(local, 'linux-x64')
+    await mkdir(target, { recursive: true })
+    const bytes = executable('linux', 'x64')
+    await writeFile(join(target, 'zn'), bytes)
+    await writeFile(join(target, 'LICENSE'), 'MIT\n')
+    await writeFile(
+      join(target, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        protocol: 1,
+        version: '1.0.0-local',
+        platform: 'linux',
+        arch: 'x64',
+        local: true,
+        binarySha256: createHash('sha256').update(bytes).digest('hex'),
+      }),
+    )
+    await stageTerminalArtifact({
+      platform: 'linux',
+      arch: 'x64',
+      localDirectory: local,
+      allowLocal: true,
+      output: staged,
+      probe: false,
+    })
+    const mode = async (path) => (await stat(path)).mode & 0o777
+    assert.equal(await mode(staged), 0o755)
+    assert.equal(await mode(join(staged, 'zn')), 0o755)
+    assert.equal(await mode(join(staged, 'LICENSE')), 0o644)
+    assert.equal(await mode(join(staged, 'manifest.json')), 0o644)
+  } finally {
+    process.umask(previous)
     await rm(root, { recursive: true, force: true })
   }
 })

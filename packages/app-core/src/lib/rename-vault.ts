@@ -6,14 +6,11 @@
  * prompt; Settings has a field instead.
  */
 import type { VaultInfo, WorkspaceMode } from '@shared/ipc'
+import { vaultFolderName } from '@shared/vault-display-name'
 import { promptApp } from './prompt-requests'
 import { useStore } from '../store'
 
-/** The folder a vault lives in, as it is shown beside a display name: the
- *  root's last segment, POSIX or Windows. */
-export function vaultFolderName(root: string): string {
-  return root.split(/[\\/]/).filter(Boolean).pop() ?? root
-}
+export { vaultFolderName }
 
 /**
  * Whether the open vault can take a display name: a local vault that is not
@@ -34,7 +31,7 @@ export async function renameVaultWithPrompt(): Promise<boolean> {
   const state = useStore.getState()
   const vault = state.vault
   if (!vault || !canRenameVault(state)) return false
-  const folder = vaultFolderName(vault.root)
+  const folder = vaultFolderName(vault)
   const next = await promptApp({
     title: 'Rename vault',
     description: `Shown in the sidebar and the vault switcher. The folder stays ${folder} on disk; leave the name empty to go back to it.`,

@@ -14,6 +14,7 @@ import { classifyOutgoingWikilinks, type AttachmentLink } from '../lib/connectio
 import { assetTabPath } from '../lib/asset-tabs'
 import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
 import { promptApp } from '../lib/prompt-requests'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { PanelResizeHandle } from './PanelResizeHandle'
 
@@ -137,6 +138,15 @@ export function ConnectionsPanel({
     [connectionPreview, notes]
   )
 
+  // Following a connection opens that note in the editor beside the panel,
+  // but a click left DOM focus on the row, or on <body> once the panel
+  // re-rendered for the new note, so typing never reached it: nowhere with
+  // Vim mode off, the sidebar with it on. Enter on a row already hands the
+  // keyboard over through VimNav; a click does the same now (#863).
+  const openConnection = (path: string): void => {
+    void selectNote(path).then(() => focusEditorNormalMode())
+  }
+
   const handleCreateMissingLink = async (item: MissingLinkItem): Promise<void> => {
     const value = await promptApp({
       title: `Create note for "${item.target}"?`,
@@ -164,9 +174,11 @@ export function ConnectionsPanel({
     )
     if (existing) {
       await selectNote(existing.path)
+      focusEditorNormalMode()
       return
     }
     await createAndOpen(parsed.folder, parsed.subpath, { title: parsed.title })
+    focusEditorNormalMode()
   }
 
   useEffect(() => {
@@ -298,7 +310,7 @@ export function ConnectionsPanel({
                 key={item.path}
                 note={item}
                 summary={item.excerpt || 'No excerpt available yet.'}
-                onOpen={() => void selectNote(item.path)}
+                onOpen={() => openConnection(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
                   setPreviewFromRect(item, rect)
@@ -353,7 +365,7 @@ export function ConnectionsPanel({
                     .filter(Boolean)
                     .join(' · ') || 'No excerpt available yet.'
                 }
-                onOpen={() => void selectNote(item.path)}
+                onOpen={() => openConnection(item.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
                   setPreviewFromRect(item, rect)
@@ -378,7 +390,7 @@ export function ConnectionsPanel({
                 note={item.note}
                 summary={item.snippet}
                 tone="mention"
-                onOpen={() => void selectNote(item.note.path)}
+                onOpen={() => openConnection(item.note.path)}
                 onHover={(rect) => {
                   cancelScheduledClose()
                   setPreviewFromRect(item.note, rect)

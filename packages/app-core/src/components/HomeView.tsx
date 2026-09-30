@@ -3,6 +3,7 @@ import type { NoteMeta } from '@shared/ipc'
 import { filterTasksForDisplay, type VaultTask } from '@shared/tasks'
 import { useStore } from '../store'
 import { computeTasksRender } from '../lib/tasks-filter'
+import { focusEditorNormalMode } from '../lib/editor-focus'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import {
@@ -91,6 +92,18 @@ export function HomeView({
 
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // Opening a note from here swaps this view out, button and all, so DOM
+  // focus fell to <body>: the note showed, but with Vim mode off typing went
+  // nowhere, and with it on the keys drove the sidebar and the leader
+  // instead of the note (#863). Hand the keyboard to the editor the way the
+  // sidebar and the palettes do (#599).
+  const openNote = useCallback(
+    (path: string): void => {
+      void selectNote(path).then(() => focusEditorNormalMode())
+    },
+    [selectNote]
+  )
+
   // Quick-create actions. Daily/weekly only appear when enabled in settings
   // (they default off), matching the command palette's gating.
   const actions = useMemo<Array<{ label: string; icon: JSX.Element; run: () => void }>>(() => {
@@ -98,7 +111,7 @@ export function HomeView({
       {
         label: 'New note',
         icon: <NotePlusIcon width={15} height={15} />,
-        run: () => void createAndOpen('inbox', '')
+        run: () => void createAndOpen('inbox', '', { focusTitle: true })
       },
       {
         label: 'Database',
@@ -306,7 +319,7 @@ export function HomeView({
                     type="button"
                     data-home-item
                     data-home-note-path={note.path}
-                    onClick={() => void selectNote(note.path)}
+                    onClick={() => openNote(note.path)}
                     className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-paper-200/60 focus:bg-paper-200/70 focus:outline-none"
                   >
                     <DocumentTextIcon
@@ -331,7 +344,7 @@ export function HomeView({
                   {
                     label: 'New note',
                     icon: NotePlusIcon,
-                    run: () => void createAndOpen('inbox', '')
+                    run: () => void createAndOpen('inbox', '', { focusTitle: true })
                   },
                   {
                     label: 'New from template',
@@ -397,7 +410,7 @@ export function HomeView({
                       data-home-favorite={item.kind}
                       {...(item.kind === 'note' ? { 'data-home-note-path': item.path } : {})}
                       onClick={() =>
-                        item.kind === 'note' ? void selectNote(item.path) : openFavoriteFolder(item)
+                        item.kind === 'note' ? openNote(item.path) : openFavoriteFolder(item)
                       }
                       className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-paper-200/60 focus:bg-paper-200/70 focus:outline-none"
                     >

@@ -1864,11 +1864,12 @@ async function migrateLegacyRemoteWorkspaceSecrets(): Promise<void> {
     }
 
     // After this write the target profile holds the only copy of the
-    // credential (the config's own copy is stripped right below). The config
-    // parser synthesizes the legacy workspace's profile with a fresh random
-    // id on every load and keeps remoteWorkspaceProfileId only when it
-    // matches a profile, so the common legacy case arrives here with a found
-    // profile and a null selection. Leaving the selection null strands the
+    // credential (the config's own copy is stripped right below). For a
+    // config from before saved profiles existed, the config parser
+    // synthesizes the legacy workspace's profile with a fresh random id on
+    // every load and keeps remoteWorkspaceProfileId only when it matches a
+    // profile, so the common legacy case arrives here with a found profile
+    // and a null selection. Leaving the selection null strands the
     // credential: boot resolves the token through the selected profile and
     // lands on the reconnect screen asking for a token the user already
     // saved. Never steal an existing valid selection, though.
@@ -2628,10 +2629,23 @@ async function connectRemoteWorkspaceProfile(
     throw new Error("That saved remote workspace no longer exists.");
   }
   const authToken = await getRemoteWorkspaceSecret(profile.id);
-  const result = await setRemoteWorkspace(profile.baseUrl, authToken, {
-    profileId: profile.id,
-    vaultPath: profile.vaultPath,
-  });
+  let result: Awaited<ReturnType<typeof setRemoteWorkspace>>;
+  try {
+    result = await setRemoteWorkspace(profile.baseUrl, authToken, {
+      profileId: profile.id,
+      vaultPath: profile.vaultPath,
+    });
+  } catch (err) {
+    // A profile with no saved token that the server turns away is missing a
+    // token, not holding a wrong one: name the profile and where to add it,
+    // instead of "check the auth token" for a token that was never sent (#870).
+    if (!authToken && err instanceof RemoteRequestError && err.status === 401) {
+      throw new Error(
+        `No auth token is saved for "${profile.name}", and ${profile.baseUrl} needs one. Choose Edit on it under Settings → Vault → Saved Remote Workspaces and add the server's token.`,
+      );
+    }
+    throw err;
+  }
   const connectedAt = Date.now();
   await updateConfig((current) => ({
     ...current,

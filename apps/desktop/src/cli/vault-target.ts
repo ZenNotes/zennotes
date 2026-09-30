@@ -18,6 +18,8 @@
  * is immediately nameable from the CLI with nothing else to configure.
  */
 
+import { promises as fsp } from 'node:fs'
+import path from 'node:path'
 import { normalizeBaseUrl } from '../main/remote/connection.js'
 import {
   readActiveWorkspaceFromConfig,
@@ -31,6 +33,31 @@ import { getString, type ParsedArgs } from './args.js'
 export type VaultTarget =
   | { kind: 'local'; root: string }
   | { kind: 'remote'; name: string; baseUrl: string; authToken: string | null }
+
+/** Two targets reach the same vault: the same server URL, or the same
+ *  directory however its path is spelled. Tokens and profile names do not
+ *  matter. */
+export async function sameVault(a: VaultTarget, b: VaultTarget): Promise<boolean> {
+  if (a.kind === 'remote' || b.kind === 'remote') {
+    // URL normalizes the origin while preserving case-sensitive paths and
+    // query values: a reverse proxy may serve different vaults at /Work and /work.
+    return (
+      a.kind === 'remote' &&
+      b.kind === 'remote' &&
+      new URL(normalizeBaseUrl(a.baseUrl)).href === new URL(normalizeBaseUrl(b.baseUrl)).href
+    )
+  }
+  if (path.resolve(a.root) === path.resolve(b.root)) return true
+  try {
+    const [left, right] = await Promise.all([
+      fsp.stat(a.root, { bigint: true }),
+      fsp.stat(b.root, { bigint: true })
+    ])
+    return left.dev === right.dev && left.ino === right.ino
+  } catch {
+    return false
+  }
+}
 
 /** Token precedence, loudest first: an explicit `--token`, then the
  *  environment (the CI / headless case, where nothing is stored on disk),

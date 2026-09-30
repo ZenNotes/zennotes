@@ -114,6 +114,26 @@ afterEach(() => {
   lastLoadedStore = null
 })
 
+type LoadedStore = Awaited<ReturnType<typeof loadStore>>['useStore']
+
+/** Run `work` on a fake clock and let `ms` of it pass: the unlink of an open
+ *  note waits for its file to come back before the tab closes (#863). */
+async function onFakeClock(ms: number, work: () => Promise<unknown>): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    const done = work()
+    await vi.advanceTimersByTimeAsync(ms)
+    await done
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
+const applyUnlink = (useStore: LoadedStore, path: string): Promise<void> =>
+  onFakeClock(2000, () => useStore.getState().applyChange({ kind: 'unlink', path, folder: 'inbox' }))
+
+const missing = (path: string): Error => Object.assign(new Error(`ENOENT: ${path}`), { code: 'ENOENT' })
+
 async function flushAsyncWork(): Promise<void> {
   await new Promise((resolve) => window.setTimeout(resolve, 0))
 }
@@ -2510,7 +2530,7 @@ describe('renaming the open note while the watcher reports the move (#713)', () 
 
     // inotify: the move is an unlink of the old path and an add of the new
     // one, both delivered before the host has answered the rename.
-    await useStore.getState().applyChange({ kind: 'unlink', path: OLD, folder: 'inbox' })
+    await applyUnlink(useStore, OLD)
     await useStore.getState().applyChange({ kind: 'add', path: NEW, folder: 'inbox' })
     await useStore.getState().refreshNotes()
     expect(useStore.getState().selectedPath).toBe(OLD)
@@ -2534,7 +2554,8 @@ describe('renaming the open note while the watcher reports the move (#713)', () 
     useStore.setState({ notes: [oldNote] })
     await useStore.getState().selectNote(OLD)
 
-    await useStore.getState().applyChange({ kind: 'unlink', path: OLD, folder: 'inbox' })
+    vi.mocked(window.zen.readNote).mockRejectedValue(missing(OLD))
+    await applyUnlink(useStore, OLD)
 
     expect(JSON.stringify(useStore.getState().paneLayout)).not.toContain(OLD)
     expect(useStore.getState().noteContents[OLD]).toBeUndefined()
@@ -2552,8 +2573,112 @@ describe('renaming the open note while the watcher reports the move (#713)', () 
     await useStore.getState().renameActive('Taken')
     expect(useStore.getState().selectedPath).toBe(OLD)
 
-    await useStore.getState().applyChange({ kind: 'unlink', path: OLD, folder: 'inbox' })
+    vi.mocked(window.zen.readNote).mockRejectedValue(missing(OLD))
+    await applyUnlink(useStore, OLD)
     expect(JSON.stringify(useStore.getState().paneLayout)).not.toContain(OLD)
+  })
+})
+
+describe('an open note replaced from outside the app (#863)', () => {
+  const PLAN = 'inbox/Plan.md'
+  const OTHER = 'inbox/Other.md'
+
+  // The vault as files: another program deletes and rewrites them, and the
+  // app's own saves land here too.
+  function installDisk(files: Record<string, string>): Map<string, string> {
+    const disk = new Map(Object.entries(files))
+    installZen({
+      listNotes: vi.fn().mockImplementation(async () =>
+        [...disk].map(([path, body]) => makeNote(body, path))
+      ),
+      readNote: vi.fn().mockImplementation(async (path: string) => {
+        const body = disk.get(path)
+        if (body === undefined) throw missing(path)
+        return makeNote(body, path)
+      }),
+      writeNote: vi.fn().mockImplementation(async (path: string, body: string) => {
+        disk.set(path, body)
+      })
+    })
+    return disk
+  }
+
+  async function openNotes(disk: Map<string, string>, ...paths: string[]): Promise<LoadedStore> {
+    const { useStore } = await loadStore()
+    useStore.setState({ notes: [...disk].map(([path, body]) => makeNote(body, path)) })
+    for (const path of paths) await useStore.getState().selectNote(path)
+    return useStore
+  }
+
+  const tabs = (useStore: LoadedStore): string => JSON.stringify(useStore.getState().paneLayout)
+
+  it('keeps a note open when its file is written back, and takes the new text', async () => {
+    const disk = installDisk({ [PLAN]: '# Plan\n\nfirst' })
+    const useStore = await openNotes(disk, PLAN)
+
+    // git checkout, some sync clients: delete, then write the file back later
+    // than chokidar's 100 ms, so the watcher reports an unlink and an add.
+    disk.delete(PLAN)
+    await onFakeClock(2000, async () => {
+      const unlinked = useStore.getState().applyChange({ kind: 'unlink', path: PLAN, folder: 'inbox' })
+      await vi.advanceTimersByTimeAsync(400)
+      disk.set(PLAN, '# Plan\n\nrewritten')
+      await useStore.getState().applyChange({ kind: 'add', path: PLAN, folder: 'inbox' })
+      await unlinked
+    })
+
+    expect(useStore.getState().selectedPath).toBe(PLAN)
+    expect(useStore.getState().noteContents[PLAN]?.body).toBe('# Plan\n\nrewritten')
+  })
+
+  it('never closes over unsaved edits: the pending save writes the note back', async () => {
+    const disk = installDisk({ [PLAN]: '# Plan\n\nfirst' })
+    const useStore = await openNotes(disk, PLAN)
+
+    await onFakeClock(2000, async () => {
+      useStore.getState().updateNoteBody(PLAN, '# Plan\n\nfirst, and typed')
+      disk.delete(PLAN)
+      await useStore.getState().applyChange({ kind: 'unlink', path: PLAN, folder: 'inbox' })
+    })
+
+    expect(useStore.getState().selectedPath).toBe(PLAN)
+    expect(useStore.getState().noteContents[PLAN]?.body).toBe('# Plan\n\nfirst, and typed')
+    expect(disk.get(PLAN)).toBe('# Plan\n\nfirst, and typed')
+  })
+
+  it('closes a clean note whose file stays gone, once the wait is over', async () => {
+    const disk = installDisk({ [PLAN]: '# Plan\n\nfirst' })
+    const useStore = await openNotes(disk, PLAN)
+
+    disk.delete(PLAN)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const unlinked = useStore.getState().applyChange({ kind: 'unlink', path: PLAN, folder: 'inbox' })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(tabs(useStore)).toContain(PLAN)
+      await vi.advanceTimersByTimeAsync(1000)
+      await unlinked
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(tabs(useStore)).not.toContain(PLAN)
+    expect(useStore.getState().noteContents[PLAN]).toBeUndefined()
+  })
+
+  it('keeps a background tab with unsaved edits through a listing that missed its file', async () => {
+    const disk = installDisk({ [PLAN]: '# Plan\n\nfirst', [OTHER]: '# Other\n' })
+    const useStore = await openNotes(disk, PLAN, OTHER)
+    expect(useStore.getState().selectedPath).toBe(OTHER)
+
+    await onFakeClock(0, async () => {
+      useStore.getState().updateNoteBody(PLAN, '# Plan\n\nfirst, and typed')
+      disk.delete(PLAN)
+      await useStore.getState().refreshNotes()
+    })
+
+    expect(tabs(useStore)).toContain(PLAN)
+    expect(useStore.getState().noteContents[PLAN]?.body).toBe('# Plan\n\nfirst, and typed')
+    expect(useStore.getState().noteDirty[PLAN]).toBe(true)
   })
 })
 

@@ -11,7 +11,7 @@ import {
   type EditorCursorPosition
 } from './lib/editor-cursor-position'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
-import { normalizeVaultDisplayName, resolveVaultName } from '@shared/vault-display-name'
+import { normalizeVaultDisplayName, resolveVaultName, vaultFolderName } from '@shared/vault-display-name'
 import {
   DEFAULT_HARPER_DIALECT,
   isHarperDialect,
@@ -3931,6 +3931,16 @@ export function noteDiskRevision(path: string): number {
  */
 const renamesInFlight = new Set<string>()
 
+/**
+ * How long an open note's file may be gone before its tab closes. A writer
+ * that replaces a file by deleting it and writing it back (git, some sync
+ * clients, editors that save that way) reaches the watcher as an unlink and a
+ * later add, and chokidar merges the pair only inside 100 ms. Closing on the
+ * unlink dropped the reader on Home and threw away the text they had not
+ * saved yet along with the tab (#863).
+ */
+const UNLINK_SETTLE_MS = 1500
+
 // --- CSV database debounced persistence + echo suppression ---
 const DATABASE_SAVE_DEBOUNCE_MS = 400
 const databaseSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -4836,8 +4846,7 @@ function withoutNoteInWorkspace(s: Store, path: string): Partial<Store> {
 function applyVaultNameFromSettings(settings: VaultSettings): void {
   const vault = useStore.getState().vault
   if (!vault) return
-  const folder = vault.root.split(/[\\/]/).filter(Boolean).pop() ?? vault.root
-  const name = resolveVaultName(settings.displayName, folder)
+  const name = resolveVaultName(settings.displayName, vaultFolderName(vault))
   if (name === vault.name) return
   useStore.setState({ vault: { ...vault, name } })
 }
@@ -7411,8 +7420,10 @@ export const useStore = create<Store>((set, get) => {
           existingPaths.has(path) ||
           isWorkspaceVirtualTabPath(path) ||
           renamesInFlight.has(path) ||
-          (path === s.selectedPath &&
-            (s.noteContents[path] !== undefined || s.noteDirty[path] === true))
+          // Unsaved edits outrank a listing taken while their file was
+          // briefly gone, in a background tab as in the active one (#863).
+          s.noteDirty[path] === true ||
+          (path === s.selectedPath && s.noteContents[path] !== undefined)
         const prunedLayout = rewritePathsInTree(s.paneLayout, (path) =>
           keep(path) ? path : null
         )
@@ -7602,6 +7613,30 @@ export const useStore = create<Store>((set, get) => {
         }
       })
     }
+    // An unlink from outside the app (this app's own deletes and moves close
+    // their tabs themselves) may be the first half of a replace, so the tab
+    // waits for the file to come back before closing. It never closes over
+    // unsaved edits: the note's pending save writes the file back instead,
+    // the same way a stale listing never outranks a dirty buffer (#863).
+    const settleUnlinkedNote = async (notePath: string): Promise<void> => {
+      const root = get().vault?.root
+      await new Promise((resolve) => setTimeout(resolve, UNLINK_SETTLE_MS))
+      const stillOpen = (): boolean => {
+        const s = get()
+        return (
+          s.vault?.root === root &&
+          findLeavesContaining(s.paneLayout, notePath).length > 0 &&
+          !s.noteDirty[notePath]
+        )
+      }
+      if (!stillOpen()) return
+      const back = await window.zen.readNote(notePath).then(
+        () => true,
+        () => false
+      )
+      if (back || !stillOpen()) return
+      closeUnlinkedNote(notePath)
+    }
     if (ev.scope === 'resync') {
       // The change feed was interrupted and events were lost; re-pull every
       // surface the feed keeps fresh instead of trusting the resumed stream.
@@ -7790,7 +7825,7 @@ export const useStore = create<Store>((set, get) => {
     if (!open) return
 
     if (ev.kind === 'unlink') {
-      closeUnlinkedNote(ev.path)
+      await settleUnlinkedNote(ev.path)
       return
     }
 

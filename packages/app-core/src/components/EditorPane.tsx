@@ -94,9 +94,9 @@ import {
   defaultHighlightStyle
 } from '@codemirror/language'
 import {
-  foldHeadingAtCursor,
+  foldAtCursor,
   headingFolding,
-  unfoldHeadingAtCursor
+  unfoldAtCursor
 } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
@@ -108,6 +108,7 @@ import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
+import { calloutFolding } from '../lib/cm-callout-fold'
 import { hashtagExtension } from '../lib/cm-hashtags'
 import { taskMetadataExtension } from '../lib/cm-task-metadata'
 import { liveTemplateTokenExtension } from '../lib/cm-live-template-tokens'
@@ -222,10 +223,18 @@ import {
   previewShowsSourceLine,
   previewVisibleSourceLines,
   scrollTopForElementRelativeTop,
-  scrollTopForScrollRatio,
   shouldSyncPreviewFromEditorViewport,
   type PreviewEditRequest
 } from '../lib/preview-outline-jump'
+import {
+  mapSplitScrollTop,
+  SPLIT_SCROLL_LEAD_MS,
+  splitScrollAnchors,
+  splitScrollEchoes,
+  type SplitScrollAnchor,
+  type SplitScrollLead,
+  type SplitScrollPane
+} from '../lib/split-scroll-sync'
 import {
   ArchiveIcon,
   ArrowLeftIcon,
@@ -369,15 +378,16 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // edge and misland on wrapped lines under fractional display scaling
     // (#591, the same resolution #575 removed from `$`).
     ...displayRowBoundaryKeymap,
-    {
-      key: 'Mod-f',
-      run: () => {
-        const state = useStore.getState()
-        if (state.vimMode) return false
-        state.setSearchOpen(true)
-        return true
-      }
-    },
+    // Note search's non-Vim shortcut has to win over the find bar's Mod-f in
+    // here, but it is the user's binding: unbound or moved under Settings →
+    // Keymap, Mod+F falls through to the find bar instead of still opening
+    // note search. (#860)
+    ...keyBindingsFor(getKeymapBinding(overrides, 'global.searchNotesNonVim'), () => {
+      const state = useStore.getState()
+      if (state.vimMode) return false
+      state.setSearchOpen(true)
+      return true
+    }),
     // Move the current line (or selection) up/down — reorders the markdown so
     // it persists in the file. Listed before defaultKeymap so the configured
     // binding wins; works in Vim normal/insert and non-Vim alike.
@@ -393,8 +403,8 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
     ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerForward'), markerHop.forward),
     ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerBackward'), markerHop.backward),
-    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.foldHeading'), foldHeadingAtCursor),
-    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.unfoldHeading'), unfoldHeadingAtCursor),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.foldHeading'), foldAtCursor),
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.unfoldHeading'), unfoldAtCursor),
     // Inline-format shortcuts (bold/italic/code/strike/highlight/math/link). In
     // Vim mode VimNav owns these (its window handler also resolves the Ctrl+I
     // jumplist collision on Linux); in non-Vim mode that handler is disabled, so
@@ -471,6 +481,8 @@ function wysiwygExtensions(
     // markdown for full keyboard/Vim editing (#232).
     ...(renderTables ? [tablePlugin, tableVimEntry] : []),
     wysiwygBlocksPlugin,
+    // Collapsed callouts (`> [!type]-`) start folded when a note opens (#853).
+    calloutFolding(),
     ...hashtagExtension,
     ...taskMetadataExtension,
     ...taskRollupExtension,
@@ -623,6 +635,32 @@ function landEditorOnLine(view: EditorView, line: number, topMargin: number): vo
     selection: { anchor: targetLine.from + outlineHeadingTextOffset(targetLine.text) },
     effects: EditorView.scrollIntoView(targetLine.from, { y: 'start', yMargin: topMargin })
   })
+}
+
+// Where each top-level block of the note starts, as a scroll position in the
+// editor and in the split preview. Only the article's own children count: a
+// nested element stamped with some other note's lines (an embed) would put an
+// anchor in the wrong place.
+function splitScrollAnchorsFor(view: EditorView, previewEl: HTMLElement): SplitScrollAnchor[] {
+  const editorEl = view.scrollDOM
+  const doc = view.state.doc
+  // The document starts below the scroller's top padding.
+  const editorOffset = view.documentTop - editorEl.getBoundingClientRect().top + editorEl.scrollTop
+  const previewOffset = previewEl.scrollTop - previewEl.getBoundingClientRect().top
+  const blocks: SplitScrollAnchor[] = []
+  for (const el of previewEl.querySelectorAll<HTMLElement>('[data-preview-content] > [data-source-line]')) {
+    const line = Number(el.dataset.sourceLine)
+    if (!Number.isInteger(line) || line < 1 || line > doc.lines) continue
+    blocks.push({
+      editor: view.lineBlockAt(doc.line(line).from).top + editorOffset,
+      preview: el.getBoundingClientRect().top + previewOffset
+    })
+  }
+  return splitScrollAnchors(
+    blocks,
+    editorEl.scrollHeight - editorEl.clientHeight,
+    previewEl.scrollHeight - previewEl.clientHeight
+  )
 }
 
 const EMPTY_COMMENTS: NoteComment[] = []
@@ -1102,8 +1140,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // The outgoing note's history is set aside first and handed back when that
   // note returns, see lib/note-undo-history. (#793)
   const historyCompartmentRef = useRef<Compartment | null>(null)
-  const ignoreEditorScrollRef = useRef(false)
   const ignorePreviewScrollRef = useRef(false)
+  // Split mode: which pane the reader is driving and until when, and which
+  // one they drove last. The follower's scroll events are echoes while the
+  // other pane leads, and an editor re-measure only moves the preview when
+  // the editor was the pane last driven. (#859)
+  const splitScrollLeadRef = useRef<SplitScrollLead | null>(null)
+  const splitScrollDriverRef = useRef<SplitScrollPane>('editor')
   const pendingOutlineJumpLineRef = useRef<number | null>(null)
   const pendingPreviewOutlineJumpLineRef = useRef<number | null>(null)
   const outlinePreviewJumpFrameRef = useRef<number | null>(null)
@@ -1113,6 +1156,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const hasContentRef = useRef(false)
   const editorViewportSyncFrameRef = useRef<number | null>(null)
   const syncPreviewToEditorScrollRef = useRef<() => boolean>(() => false)
+  const syncEditorToPreviewScrollRef = useRef<() => void>(() => {})
   const activeOutlineLineRef = useRef<number | null>(null)
   const activeOutlineFrameRef = useRef<number | null>(null)
   const selectionActionFrameRef = useRef<number | null>(null)
@@ -1441,58 +1485,42 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return true
   }, [content?.body, lockOutlinePreviewSync, mode])
 
+  // The pane the reader drives leads for a moment; `byReader` also makes it
+  // the pane they drove last. Our own sync takes the lead for the pane it
+  // copies from, so the follower's echo is recognized as one.
+  const leadSplitScroll = useCallback((pane: SplitScrollPane, byReader: boolean): void => {
+    splitScrollLeadRef.current = { pane, until: performance.now() + SPLIT_SCROLL_LEAD_MS }
+    if (byReader) splitScrollDriverRef.current = pane
+  }, [])
+
+  // Both directions map through the same anchors (see split-scroll-sync), so
+  // the same content sits at the top of both panes however differently a
+  // block renders, and a round trip lands where it started. With no anchored
+  // block the mapping is the plain scroll ratio.
   const syncPreviewToEditorScroll = useCallback((): boolean => {
     const view = viewRef.current
     const editorEl = view?.scrollDOM
     const previewEl = previewScrollRef.current
     if (!view || !editorEl || !previewEl) return false
-
-    // Line-based sync: map the source line at the top of the editor viewport to
-    // the rendered preview block stamped with that line (data-source-line), so
-    // the same content sits at the top of both panes even when their heights
-    // differ. Falls back to a scroll ratio when no line data is available.
-    const ratioTop = (): number =>
-      scrollTopForScrollRatio(
-        editorEl.scrollTop,
-        editorEl.scrollHeight,
-        editorEl.clientHeight,
-        previewEl.scrollHeight,
-        previewEl.clientHeight
-      )
-
-    const blocks = previewEl.querySelectorAll<HTMLElement>('[data-source-line]')
-    let nextTop: number
-    if (blocks.length === 0) {
-      nextTop = ratioTop()
-    } else {
-      const topLine = view.state.doc.lineAt(view.lineBlockAtHeight(editorEl.scrollTop).from).number
-      let anchor: HTMLElement | null = null
-      let anchorLine = 0
-      for (const el of blocks) {
-        const ln = Number(el.dataset.sourceLine)
-        if (Number.isFinite(ln) && ln <= topLine) {
-          anchor = el
-          anchorLine = ln
-        } else if (ln > topLine) {
-          break
-        }
-      }
-      if (!anchor) {
-        nextTop = 0
-      } else {
-        // Shift the anchor by how far the editor has scrolled past its start
-        // line, so a mid-block scroll position carries over too.
-        const anchorEditorTop = view.lineBlockAt(view.state.doc.line(anchorLine).from).top
-        nextTop = scrollTopForElementRelativeTop(previewEl, anchor, anchorEditorTop - editorEl.scrollTop)
-      }
-    }
-
+    const nextTop = mapSplitScrollTop(splitScrollAnchorsFor(view, previewEl), 'editor', editorEl.scrollTop)
     if (Math.abs(previewEl.scrollTop - nextTop) < 1) return true
-    ignorePreviewScrollRef.current = true
+    leadSplitScroll('editor', false)
     previewEl.scrollTop = nextTop
     return true
-  }, [])
+  }, [leadSplitScroll])
   syncPreviewToEditorScrollRef.current = syncPreviewToEditorScroll
+
+  const syncEditorToPreviewScroll = useCallback((): void => {
+    const view = viewRef.current
+    const editorEl = view?.scrollDOM
+    const previewEl = previewScrollRef.current
+    if (!view || !editorEl || !previewEl) return
+    const nextTop = mapSplitScrollTop(splitScrollAnchorsFor(view, previewEl), 'preview', previewEl.scrollTop)
+    if (Math.abs(editorEl.scrollTop - nextTop) < 1) return
+    leadSplitScroll('preview', false)
+    editorEl.scrollTop = nextTop
+  }, [leadSplitScroll])
+  syncEditorToPreviewScrollRef.current = syncEditorToPreviewScroll
 
   const canSyncPreviewFromEditorViewport = useCallback((): boolean => {
     return shouldSyncPreviewFromEditorViewport(
@@ -1509,6 +1537,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     editorViewportSyncFrameRef.current = requestAnimationFrame(() => {
       editorViewportSyncFrameRef.current = null
       if (!canSyncPreviewFromEditorViewport()) return
+      // The reader is scrolling the preview: the editor measured the lines the
+      // sync just revealed, so it is the editor that settles onto the preview.
+      if (splitScrollEchoes(splitScrollLeadRef.current, 'editor', performance.now())) {
+        syncEditorToPreviewScrollRef.current()
+        return
+      }
+      // The reader last drove the preview. A click in the editor re-measures
+      // the line it reveals, and that must not drag the preview away from what
+      // they were reading. (#859)
+      if (splitScrollDriverRef.current === 'preview') return
       syncPreviewToEditorScrollRef.current()
     })
   }, [canSyncPreviewFromEditorViewport])
@@ -1593,6 +1631,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       return
     }
     if (!canSyncPreviewFromEditorViewport()) return
+    // A re-render while the reader drives the preview keeps their place.
+    if (
+      splitScrollDriverRef.current === 'preview' ||
+      splitScrollEchoes(splitScrollLeadRef.current, 'editor', performance.now())
+    ) {
+      return
+    }
     syncPreviewToEditorScroll()
   }, [
     canSyncPreviewFromEditorViewport,
@@ -2722,28 +2767,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const previewEl = previewScrollRef.current
     if (!editorEl || !previewEl) return
 
-    const syncByRatio = (
-      source: HTMLElement,
-      target: HTMLElement,
-      targetKind: 'editor' | 'preview'
-    ): void => {
-      const nextTop = scrollTopForScrollRatio(
-        source.scrollTop,
-        source.scrollHeight,
-        source.clientHeight,
-        target.scrollHeight,
-        target.clientHeight
-      )
-      if (Math.abs(target.scrollTop - nextTop) < 1) return
-      if (targetKind === 'editor') ignoreEditorScrollRef.current = true
-      else ignorePreviewScrollRef.current = true
-      target.scrollTop = nextTop
-    }
+    splitScrollLeadRef.current = null
+    splitScrollDriverRef.current = 'editor'
+    // A scroll in the pane that does not lead is the echo of our own sync, or
+    // of the editor settling onto it, and goes no further. Any other scroll is
+    // the reader's (wheel, scrollbar, keys, the caret scrolled into view): that
+    // pane leads and the other follows it.
     const onEditorScroll = (): void => {
-      if (ignoreEditorScrollRef.current) {
-        ignoreEditorScrollRef.current = false
-        return
-      }
+      if (splitScrollEchoes(splitScrollLeadRef.current, 'editor', performance.now())) return
+      leadSplitScroll('editor', true)
       if (!canSyncPreviewFromEditorViewport()) return
       syncPreviewToEditorScroll()
     }
@@ -2752,11 +2784,28 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         ignorePreviewScrollRef.current = false
         return
       }
+      if (splitScrollEchoes(splitScrollLeadRef.current, 'preview', performance.now())) return
+      leadSplitScroll('preview', true)
       if (!canSyncPreviewFromEditorViewport()) return
-      syncByRatio(previewEl, editorEl, 'editor')
+      syncEditorToPreviewScroll()
+    }
+    // Input that scrolls a pane claims it before the scroll events arrive, so
+    // an echo landing in the same frame is already known for one. Typing makes
+    // the editor the pane last driven without taking the lead; a click does
+    // neither.
+    const leadEditor = (): void => leadSplitScroll('editor', true)
+    const leadPreview = (): void => leadSplitScroll('preview', true)
+    const typedInEditor = (): void => {
+      splitScrollDriverRef.current = 'editor'
     }
     editorEl.addEventListener('scroll', onEditorScroll, { passive: true })
     previewEl.addEventListener('scroll', onPreviewScroll, { passive: true })
+    editorEl.addEventListener('wheel', leadEditor, { passive: true })
+    previewEl.addEventListener('wheel', leadPreview, { passive: true })
+    editorEl.addEventListener('touchstart', leadEditor, { passive: true })
+    previewEl.addEventListener('touchstart', leadPreview, { passive: true })
+    editorEl.addEventListener('keydown', typedInEditor)
+    previewEl.addEventListener('keydown', leadPreview)
     const raf = requestAnimationFrame(() => {
       if (!canSyncPreviewFromEditorViewport()) return
       syncPreviewToEditorScroll()
@@ -2765,8 +2814,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       cancelAnimationFrame(raf)
       editorEl.removeEventListener('scroll', onEditorScroll)
       previewEl.removeEventListener('scroll', onPreviewScroll)
-      ignoreEditorScrollRef.current = false
+      editorEl.removeEventListener('wheel', leadEditor)
+      previewEl.removeEventListener('wheel', leadPreview)
+      editorEl.removeEventListener('touchstart', leadEditor)
+      previewEl.removeEventListener('touchstart', leadPreview)
+      editorEl.removeEventListener('keydown', typedInEditor)
+      previewEl.removeEventListener('keydown', leadPreview)
       ignorePreviewScrollRef.current = false
+      splitScrollLeadRef.current = null
       outlinePreviewSyncLockUntilRef.current = 0
     }
   }, [
@@ -2774,7 +2829,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     content?.path,
     editorHydration?.path,
     editorHydration?.ready,
+    leadSplitScroll,
     mode,
+    syncEditorToPreviewScroll,
     syncPreviewToEditorScroll
   ])
 
