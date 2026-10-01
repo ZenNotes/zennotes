@@ -40,6 +40,7 @@ import {
   listIndentWidth,
   markdownListIndentPlugin
 } from '../lib/cm-markdown-list-indent'
+import { bidiExtension } from '../lib/cm-bidi'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
@@ -252,6 +253,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           markdownLinkExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
+          bidiExtension,
           frontmatterStyle,
           frontmatterTagExtension,
           headingCompartment.of(
