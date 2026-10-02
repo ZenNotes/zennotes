@@ -1,8 +1,12 @@
 import {
   CloudSyncApiClient,
+  cloudSyncRateLimits,
+  type CloudSyncRateLimitCoordinator,
+  type CloudSyncResponseHeaders,
   type CloudSyncHttpRequest,
   type CloudSyncHttpTransport
 } from '@zennotes/shared-domain/cloud-sync-api'
+import { createHash } from 'node:crypto'
 import { createReadStream, type ReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import type {
@@ -38,30 +42,58 @@ export class CloudServiceRequestError extends Error {
     message: string,
     readonly status: number,
     readonly code: string | null,
-    readonly details: Record<string, unknown> | null = null
+    readonly details: Record<string, unknown> | null = null,
+    readonly headers: CloudSyncResponseHeaders = {}
   ) {
     super(message)
     this.name = 'CloudServiceRequestError'
   }
 }
 
+export interface DesktopCloudSyncClientOptions {
+  accountId?: string
+  signal?: AbortSignal
+  rateLimits?: CloudSyncRateLimitCoordinator
+  contentReferences?: boolean
+}
+
 export function createCloudSyncClient(
   baseUrl: string,
   token: string,
-  fetchImplementation: typeof fetch = fetch
+  fetchImplementation: typeof fetch = fetch,
+  options: DesktopCloudSyncClientOptions = {}
 ): CloudSyncApiClient {
+  const accountId = options.accountId ?? createHash('sha256').update(token).digest('hex')
   return new DesktopCloudSyncApiClient(
-    new BearerFetchTransport(baseUrl, token, fetchImplementation),
-    fetchImplementation
+    (options.rateLimits ?? cloudSyncRateLimits).wrap(
+      new BearerFetchTransport(baseUrl, token, fetchImplementation),
+      {
+        baseUrl,
+        // The service supplies stable account identity. Standalone callers
+        // can still share a credential's cooldown without retaining its token.
+        accountId,
+        signal: options.signal
+      }
+    ),
+    fetchImplementation,
+    options.signal,
+    { ...options, accountId, baseUrl }
   )
 }
 
 class DesktopCloudSyncApiClient extends CloudSyncApiClient {
   constructor(
     http: CloudSyncHttpTransport,
-    private readonly fetchImplementation: typeof fetch
+    private readonly fetchImplementation: typeof fetch,
+    private readonly signal: AbortSignal | undefined,
+    options: DesktopCloudSyncClientOptions & { baseUrl: string; accountId: string }
   ) {
-    super(http)
+    const url = new URL(options.baseUrl)
+    super(http, {
+      contentReferences: options.contentReferences, accountScope: { baseUrl: options.baseUrl, accountId: options.accountId },
+      signal, allowInsecureLoopbackDownloads: url.protocol === 'http:' &&
+        (url.hostname === 'localhost' || url.hostname === '[::1]' || /^127\./.test(url.hostname))
+    })
   }
 
   override async mutate(
@@ -99,6 +131,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     vaultId: string,
     mutation: CloudSyncUpsertMutation
   ): Promise<CloudSyncMutationResponse> {
+    this.signal?.throwIfAborted()
     const uploadBody = await prepareDirectUploadBody(mutation)
 
     let initiation: CloudSyncUploadInitiationResponse
@@ -142,7 +175,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
           method: upload.method,
           headers,
           body: uploadBody.createBody(),
-          signal: AbortSignal.timeout(DIRECT_UPLOAD_TIMEOUT_MS),
+          signal: requestSignal(this.signal, DIRECT_UPLOAD_TIMEOUT_MS),
           redirect: 'error',
           ...(uploadBody.stream ? { duplex: 'half' } : {})
         })
@@ -179,6 +212,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     mutation: CloudSyncUpsertMutation
   ): Promise<CloudSyncMutationResponse> {
     for (let attempt = 1; attempt <= DIRECT_UPLOAD_COMPLETION_ATTEMPTS; attempt++) {
+      this.signal?.throwIfAborted()
       try {
         return (await this.completeUpload(vaultId, uploadId)).data.result
       } catch (error) {
@@ -220,7 +254,7 @@ class BearerFetchTransport implements CloudSyncHttpTransport {
           : request.body instanceof FormData
             ? request.body
             : JSON.stringify(request.body),
-      signal: AbortSignal.timeout(request.timeoutMs ?? 30_000)
+      signal: requestSignal(request.signal, request.timeoutMs ?? 30_000)
     })
     const payload = await parseJson(response)
 
@@ -230,7 +264,8 @@ class BearerFetchTransport implements CloudSyncHttpTransport {
         error?.message ?? `ZenNotes Cloud request failed (${response.status}).`,
         response.status,
         error?.code ?? null,
-        error?.details ?? null
+        error?.details ?? null,
+        response.headers
       )
     }
 
@@ -248,9 +283,16 @@ async function parseJson(response: globalThis.Response): Promise<unknown> {
     throw new CloudServiceRequestError(
       'ZenNotes Cloud returned an invalid JSON response.',
       response.status,
-      null
+      null,
+      null,
+      response.headers
     )
   }
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
 }
 
 function asErrorPayload(payload: unknown): {

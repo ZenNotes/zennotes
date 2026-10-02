@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { constants as fsConstants, createReadStream, promises as fs } from 'node:fs'
+import { constants as fsConstants, createReadStream, promises as fs, type Stats } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteTarget, renameWithRetry } from './atomic-write'
+import { stageDesktopCloudContent, copyVerifiedCloudFile, type DesktopCloudDownloadOptions, type DesktopCloudStagedHandle } from './cloud-sync-download'
+import { cloudSyncStagedHandle, throwIfCloudSyncCancelled, type CloudSyncDownloadSource, type CloudSyncStagedFile, type CloudSyncStagedConflict } from '@zennotes/shared-domain/cloud-sync-content'
 import type {
   CloudSyncBootstrapConflictResolution,
   CloudSyncChange,
@@ -87,7 +89,133 @@ export class CloudSyncLocalEditConflictError extends Error {
 }
 
 export class DesktopCloudSyncRepository implements CloudSyncRepository {
-  constructor(private readonly root: string) {}
+  constructor(private readonly root: string, private readonly downloads: DesktopCloudDownloadOptions = {}) {}
+
+  stageCloudContent(source: CloudSyncDownloadSource): Promise<CloudSyncStagedFile> {
+    return stageDesktopCloudContent(source, this, this.downloads)
+  }
+
+  async matchesCloudContent(path: string, reference: CloudSyncStagedFile['reference']): Promise<boolean> {
+    const local = await this.localItemOrNull(path)
+    return local?.content.sha256 === reference.sha256 && local.content.byte_length === reference.byte_length
+  }
+
+  async applyStagedCloudContent(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined, file: CloudSyncStagedFile): Promise<CloudSyncRepositoryConflict | void> {
+    if ([change.path, previous?.path].some((candidate) => candidate && !shouldSyncVaultPath(candidate))) return
+    const handle = this.stagedHandle(file)
+    if (change.type !== 'upsert' || !change.content_ref || change.item_id !== file.reference.item_id ||
+        change.revision < file.reference.revision) throw new Error('Invalid staged Cloud change.')
+    cloudSyncStagedHandle(file, change.content_ref)
+    const atTarget = await this.localItemOrNull(change.path)
+    if (atTarget?.content.sha256 === file.reference.sha256 && atTarget.content.byte_length === file.reference.byte_length) return
+    for (const candidate of new Set([previous?.path ?? change.path, change.path])) {
+      const local = candidate === change.path ? atTarget : await this.localItemOrNull(candidate)
+      if (local && (!previous || local.content.sha256 !== previous.sha256)) {
+        if (isCloudSyncVaultSettingsPath(change.path)) {
+          const parked = await this.localItemOrNull(CLOUD_SYNC_SETTINGS_CONFLICT_PATH)
+          await this.publishFile(CLOUD_SYNC_SETTINGS_CONFLICT_PATH, handle.path, file.reference, parked?.content.sha256 ?? null, handle.signal)
+          return { code: 'SETTINGS_CONFLICT', path: change.path, conflict_copy_path: CLOUD_SYNC_SETTINGS_CONFLICT_PATH, local }
+        }
+        return localConflict(candidate, local)
+      }
+    }
+    await this.publishFile(change.path, handle.path, file.reference, atTarget?.content.sha256 ?? null, handle.signal)
+  }
+
+  async resolveStagedCloudConflict(input: CloudSyncStagedConflict): Promise<void> {
+    const handle = this.stagedHandle(input.file)
+    const expected = input.expected_path ? normalizeCloudSyncPath(input.expected_path) : null
+    const cloud = normalizeCloudSyncPath(input.cloud_path)
+    const keep = input.keep_both_path === undefined ? null : normalizeCloudSyncPath(input.keep_both_path)
+    if (!shouldSyncVaultPath(cloud) || (keep && (!shouldSyncVaultPath(keep) || cloudSyncPathKey(keep) === cloudSyncPathKey(cloud) ||
+        (expected && cloudSyncPathKey(keep) === cloudSyncPathKey(expected))))) throw new Error('Choose a different filename inside the synced vault.')
+    const local = expected ? await this.localItemOrNull(expected) : null
+    if ((local?.content.sha256 ?? null) !== input.expected_sha256) throw new Error('This file changed on this device.')
+    const replacing = expected !== null && cloudSyncPathKey(expected) === cloudSyncPathKey(cloud)
+    if (!replacing && await exists(this.resolve(cloud))) throw new Error(`${cloud} already exists.`)
+    let keptCopy: Stats | undefined
+    let cloudPublished = false
+    try {
+      if (keep) {
+        if (!expected || !local) throw new Error('Both versions are no longer available.')
+        if (await exists(this.resolve(keep))) throw new Error(`${keep} already exists.`)
+        keptCopy = await this.publishFile(keep, this.resolve(expected), local.content, null, handle.signal)
+      }
+      // Recheck after a potentially long local copy, immediately before publish.
+      if (expected && ((await this.localItemOrNull(expected))?.content.sha256 ?? null) !== input.expected_sha256) {
+        throw new Error('This file changed on this device.')
+      }
+      await this.publishFile(cloud, handle.path, input.file.reference, replacing ? input.expected_sha256 : null, handle.signal)
+      cloudPublished = true
+      if (expected && !replacing) {
+        const current = await this.localItemOrNull(expected)
+        if ((current?.content.sha256 ?? null) !== input.expected_sha256) throw new Error('This file changed on this device.')
+        if (current) await fs.rm(this.resolve(expected))
+      }
+    } catch (error) {
+      if (keep && expected && local && keptCopy && !cloudPublished) {
+        // Roll back only our unchanged duplicate while the original remains
+        // intact. An edit, replacement or unverifiable file must survive.
+        await this.rollbackStagedConflictCopy(keep, expected, local.content, keptCopy).catch(() => {})
+      }
+      throw error
+    }
+  }
+
+  private async rollbackStagedConflictCopy(relPath: string, originalPath: string, content: CloudSyncContent, created: Stats): Promise<void> {
+    const filename = this.resolve(relPath)
+    const before = await fs.lstat(filename)
+    if (!before.isFile() || before.ino === 0 || before.dev !== created.dev || before.ino !== created.ino ||
+        before.size !== created.size || before.mtimeMs !== created.mtimeMs) return
+    const copy = await this.localItemOrNull(relPath)
+    const original = await this.localItemOrNull(originalPath)
+    if (copy?.content.sha256 !== content.sha256 || copy.content.byte_length !== content.byte_length ||
+        original?.content.sha256 !== content.sha256 || original.content.byte_length !== content.byte_length) return
+    const current = await fs.lstat(filename)
+    if (current.isFile() && current.dev === before.dev && current.ino === before.ino &&
+        current.size === before.size && current.mtimeMs === before.mtimeMs && current.ctimeMs === before.ctimeMs) {
+      await fs.rm(filename)
+    }
+  }
+
+  private stagedHandle(file: CloudSyncStagedFile): DesktopCloudStagedHandle {
+    const handle = cloudSyncStagedHandle<DesktopCloudStagedHandle>(file)
+    if (handle.owner !== this) throw new Error('Cloud staging belongs to another repository.')
+    return handle
+  }
+
+  private async publishFile(relPath: string, source: string, content: Omit<CloudSyncContent, 'data'>, expectedHash: string | null, signal?: AbortSignal): Promise<Stats> {
+    const destination = await atomicWriteTarget(this.resolve(relPath))
+    await fs.mkdir(path.dirname(destination), { recursive: true })
+    const temporary = `${destination}.${randomUUID()}.tmp`
+    try {
+      await copyVerifiedCloudFile(source, temporary, content, signal)
+      const created = await fs.stat(temporary)
+      const current = await this.localItemOrNull(relPath)
+      if ((current?.content.sha256 ?? null) !== expectedHash) throw new Error('This file changed on this device.')
+      throwIfCloudSyncCancelled(signal)
+      if (current) {
+        await fs.chmod(temporary, (await fs.stat(destination)).mode & 0o777)
+        await renameWithRetry(temporary, destination)
+      } else {
+        await fs.link(temporary, destination)
+      }
+      return created
+    } finally {
+      await fs.rm(temporary, { force: true })
+    }
+  }
+
+  private async writeContent(relPath: string, content: CloudSyncContent, expectedHash: string | null): Promise<void> {
+    const source = cloudSyncUploadSource(content)
+    if (source && content.data === '' && content.byte_length > 0) {
+      await this.publishFile(relPath, source, content, expectedHash)
+    } else {
+      const current = await this.localItemOrNull(relPath)
+      if ((current?.content.sha256 ?? null) !== expectedHash) throw new Error('This file changed on this device.')
+      await this.write(relPath, await decodeContent(content))
+    }
+  }
 
   async scan(): Promise<CloudSyncLocalItem[]> {
     const items: CloudSyncLocalItem[] = []
@@ -167,8 +295,8 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     cloudContent: CloudSyncContent
     resolution: CloudSyncBootstrapConflictResolution
   }): Promise<void> {
-    const current = await this.readIfExists(input.path)
-    if (!current || sha256(current) !== input.expectedLocalSha256) {
+    const current = await this.localItemOrNull(input.path)
+    if (!current || current.content.sha256 !== input.expectedLocalSha256) {
       throw new Error(
         'This file changed on this device. Sync again to compare the latest versions.'
       )
@@ -219,8 +347,8 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     expectedSha256: string | null
     content: CloudSyncContent | null
   }): Promise<void> {
-    const current = await this.readIfExists(input.path)
-    if ((current ? sha256(current) : null) !== input.expectedSha256) {
+    const current = await this.localItemOrNull(input.path)
+    if ((current?.content.sha256 ?? null) !== input.expectedSha256) {
       throw new Error(
         'This file changed on this device. Review the latest changes before continuing.'
       )
@@ -229,7 +357,7 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       if (current) await fs.rm(this.resolve(input.path), { force: true })
       return
     }
-    await this.write(input.path, await decodeContent(input.content))
+    await this.writeContent(input.path, input.content, input.expectedSha256)
   }
 
   async applyConflictResolutionFiles(input: {
@@ -238,8 +366,8 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     files: Array<{ path: string; content: CloudSyncContent }>
   }): Promise<void> {
     const expectedPath = input.expected_path ? normalizeCloudSyncPath(input.expected_path) : null
-    const current = expectedPath ? await this.readIfExists(expectedPath) : null
-    if ((current ? sha256(current) : null) !== input.expected_sha256) {
+    const current = expectedPath ? await this.localItemOrNull(expectedPath) : null
+    if ((current?.content.sha256 ?? null) !== input.expected_sha256) {
       throw new Error(
         'This file changed on this device. Review the latest changes before continuing.'
       )
@@ -267,9 +395,10 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
     try {
       for (const file of ordered) {
         if (cloudSyncPathKey(file.path) !== expectedKey) newPaths.push(file.path)
-        await this.write(file.path, await decodeContent(file.content))
+        await this.writeContent(file.path, file.content, cloudSyncPathKey(file.path) === expectedKey ? input.expected_sha256 : null)
       }
       if (expectedPath && !files.some((file) => cloudSyncPathKey(file.path) === expectedKey)) {
+        if ((await this.localItemOrNull(expectedPath))?.content.sha256 !== input.expected_sha256) throw new Error('This file changed on this device.')
         await fs.rm(this.resolve(expectedPath), { force: true })
       }
     } catch (error) {

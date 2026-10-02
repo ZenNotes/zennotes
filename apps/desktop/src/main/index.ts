@@ -456,7 +456,8 @@ function getCloudSyncService(): DesktopCloudSyncService {
     storageDirectory: path.join(app.getPath("userData"), "cloud-sync"),
     accountStatus: () => getCloudAuthManager().status(),
     getSecret: getCloudServiceSecret,
-    createClient: createCloudSyncClient,
+    createClient: (baseUrl, token, options) =>
+      createCloudSyncClient(baseUrl, token, fetch, options),
     withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
   });
   return cloudSyncService;
@@ -478,6 +479,8 @@ function requireLocalCloudVaultRoot(): string {
 function broadcastCloudAccountChange(
   status: Awaited<ReturnType<CloudAuthManager["status"]>>,
 ): void {
+  if (status.state === "connected") cloudSyncService?.resume();
+  else cloudSyncService?.stop();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed())
       win.webContents.send(IPC.CLOUD_ACCOUNT_ON_CHANGE, status);
@@ -3008,6 +3011,7 @@ function registerIpc(): void {
     },
   );
   handle(IPC.CLOUD_ACCOUNT_LOGOUT, async () => {
+    cloudSyncService?.stop();
     await cloudAuthLoopbackServer?.stop();
     const status = await getCloudAuthManager().logout();
     broadcastCloudAccountChange(status);
@@ -5783,6 +5787,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  cloudSyncService?.stop();
   void cloudAuthLoopbackServer?.stop();
   windowVaults.stopAll();
   stopRemoteWatch();

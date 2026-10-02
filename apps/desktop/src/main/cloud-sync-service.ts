@@ -30,7 +30,7 @@ import {
 } from '@zennotes/shared-domain/cloud-sync'
 import { setVaultSettings } from './vault'
 import type { CloudSyncApiClient } from '@zennotes/shared-domain/cloud-sync-api'
-import { CloudServiceRequestError } from './cloud-sync-client'
+import { CloudServiceRequestError, type DesktopCloudSyncClientOptions } from './cloud-sync-client'
 import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from '@zennotes/shared-domain/cloud-vault-availability'
 import { createDesktopCloudSyncCoordinator, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
 
@@ -64,7 +64,7 @@ export interface DesktopCloudSyncServiceDependencies {
   storageDirectory: string
   accountStatus(): Promise<CloudAccountStatus>
   getSecret(baseUrl: string): Promise<string | null>
-  createClient(baseUrl: string, token: string): SyncClient
+  createClient(baseUrl: string, token: string, options?: DesktopCloudSyncClientOptions): SyncClient
   fetchImplementation?: typeof fetch
   now?: () => Date
   withWindowSync?(root: string, run: () => Promise<CloudSyncRunSummary>): Promise<CloudSyncRunSummary>
@@ -77,10 +77,20 @@ export class DesktopCloudSyncService {
   private readonly linkUpdates = new Map<string, Promise<unknown>>()
   private readonly now: () => Date
   private readonly fetchImplementation: typeof fetch
+  private requestController = new AbortController()
 
   constructor(private readonly dependencies: DesktopCloudSyncServiceDependencies) {
     this.now = dependencies.now ?? (() => new Date())
     this.fetchImplementation = dependencies.fetchImplementation ?? fetch
+  }
+
+  /** Logout and shutdown cancel waits before credentials or windows disappear. */
+  stop(): void {
+    this.requestController.abort()
+  }
+
+  resume(): void {
+    if (this.requestController.signal.aborted) this.requestController = new AbortController()
   }
 
   async listVaults(): Promise<CloudSyncVault[]> {
@@ -562,13 +572,20 @@ export class DesktopCloudSyncService {
     client: SyncClient
     token: string
   } | null> {
+    const signal = this.requestController.signal
+    signal.throwIfAborted()
     const status = await this.dependencies.accountStatus()
     if (status.state !== 'connected' || !status.account) return null
     const token = await this.dependencies.getSecret(status.account.base_url)
+    signal.throwIfAborted()
     if (!token) throw new Error('The ZenNotes Cloud credential is unavailable. Sign in again.')
     return {
       account: status.account,
-      client: this.dependencies.createClient(status.account.base_url, token),
+      client: this.dependencies.createClient(status.account.base_url, token, {
+        accountId: status.account.user.email,
+        signal,
+        contentReferences: true
+      }),
       token
     }
   }

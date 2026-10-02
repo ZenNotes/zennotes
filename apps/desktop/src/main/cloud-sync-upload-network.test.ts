@@ -49,7 +49,11 @@ describe('disk-backed Cloud uploads over HTTP', () => {
     expect(sha256(downloaded)).toBe(fixture.mutation.content.sha256)
   })
 
-  it.each([8_100_000, 10_000_000])(
+  it.each([
+    8_100_000,
+    10_000_000,
+    ...(process.env.CAPACITY_QUALIFICATION === '1' ? [50_000_000, 200_000_000] : [])
+  ])(
     'round-trips all %i bytes through a real upload and download',
     async (size) => {
       const fixture = await setup(size)
