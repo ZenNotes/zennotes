@@ -21,10 +21,10 @@ jobs:
     outputs:
       tag: ${{ steps.prepare.outputs.tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.source_commit }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -43,7 +43,7 @@ jobs:
           ARTIFACT: ${{ inputs.artifact }}
           APPROVED_SOURCE: ${{ inputs.source_commit }}
         run: node tooling/scripts/prepare-boundary-release.mjs "$ARTIFACT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: boundary-release
           path: ${{ steps.prepare.outputs.directory }}
@@ -55,7 +55,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: boundary-release
           path: release
