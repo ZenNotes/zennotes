@@ -1,11 +1,14 @@
 import type {
   CloudSyncChange,
   CloudSyncContent,
+  CloudSyncContentReference,
+  CloudSyncContentMetadata,
   CloudSyncItemKind,
   CloudSyncMutation,
   CloudSyncMutationResponse
 } from '@zennotes/bridge-contract/cloud-sync'
 import { cloudSyncPathKey, normalizeCloudSyncPath, shouldSyncVaultPath } from './cloud-sync'
+import { validateCloudSyncContentReference } from './cloud-sync-content'
 
 export interface CloudSyncLocalItem {
   path: string
@@ -28,6 +31,7 @@ export interface CloudSyncConflictSnapshot {
   revision: number | null
   kind: CloudSyncItemKind
   content: CloudSyncContent | null
+  content_ref?: CloudSyncContentReference
 }
 
 export interface CloudSyncStoredConflict {
@@ -251,21 +255,25 @@ export function reduceCloudSyncChange(
       revision: change.revision
     }
   } else {
-    if (!change.content) throw new Error(`Upsert change ${change.sequence} did not include content`)
+    if (change.content_ref && change.content) throw new Error('Ambiguous Cloud change content.')
+    const content = change.content_ref
+      ? validateCloudSyncContentReference(change.content_ref, change)
+      : change.content
+    if (!content) throw new Error(`Upsert change ${change.sequence} did not include content`)
     items[change.item_id] = {
       item_id: change.item_id,
       path: change.path,
-      kind: items[change.item_id]?.kind ?? inferItemKind(change.content),
+      kind: items[change.item_id]?.kind ?? inferItemKind(content),
       revision: change.revision,
-      sha256: change.content.sha256,
-      byte_length: change.content.byte_length,
-      media_type: change.content.media_type
+      sha256: content.sha256,
+      byte_length: content.byte_length,
+      media_type: content.media_type
     }
   }
 
   return { ...state, cursor: change.sequence, items }
 }
 
-function inferItemKind(content: CloudSyncContent): CloudSyncItemKind {
+function inferItemKind(content: CloudSyncContentMetadata): CloudSyncItemKind {
   return content.encoding === 'utf8' ? 'text' : 'binary'
 }

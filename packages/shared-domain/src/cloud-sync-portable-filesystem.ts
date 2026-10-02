@@ -14,6 +14,7 @@ import {
 } from './cloud-sync'
 import type { CloudSyncRepository, CloudSyncRepositoryConflict } from './cloud-sync-coordinator'
 import type { CloudSyncLocalItem, CloudSyncTrackedItem } from './cloud-sync-engine'
+import type { CloudSyncDownloadSource, CloudSyncStagedFile, CloudSyncStagedConflict } from './cloud-sync-content'
 
 const TEXT_EXTENSIONS = new Set([
   '.base',
@@ -67,6 +68,9 @@ export interface CloudSyncFileEntry {
 
 /** The minimal vault-relative filesystem surface implemented by both mobile shells. */
 export interface PortableCloudSyncFileSystem {
+  stageCloudContent?(source: CloudSyncDownloadSource): Promise<CloudSyncStagedFile>
+  applyStagedCloudContent?(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined, file: CloudSyncStagedFile): Promise<CloudSyncRepositoryConflict | void>
+  resolveStagedCloudConflict?(input: CloudSyncStagedConflict): Promise<void>
   readdir(directory: string): Promise<CloudSyncFileEntry[]>
   stat(path: string): Promise<'file' | 'directory' | null>
   readBase64(path: string): Promise<string>
@@ -74,6 +78,11 @@ export interface PortableCloudSyncFileSystem {
   writeBase64(path: string, value: string): Promise<void>
   deleteFile(path: string): Promise<void>
   rename(from: string, to: string): Promise<void>
+  /** Native hosts can fingerprint and copy large files without bridge-sized bodies. */
+  readItem?(path: string): Promise<CloudSyncLocalItem>
+  validateContent?(content: CloudSyncContent): Promise<void>
+  /** Must preserve the previous file if a write fails, including partial native writes. */
+  writeContent?(path: string, content: CloudSyncContent): Promise<void>
 }
 
 export class CloudSyncLocalEditConflictError extends Error {
@@ -100,7 +109,23 @@ function localConflict(
 
 /** Web-API implementation shared by iOS and Android Capacitor filesystems. */
 export class PortableCloudSyncRepository implements CloudSyncRepository {
-  constructor(private readonly fs: PortableCloudSyncFileSystem) {}
+  readonly stageCloudContent?: CloudSyncRepository['stageCloudContent']
+  readonly applyStagedCloudContent?: CloudSyncRepository['applyStagedCloudContent']
+  readonly resolveStagedCloudConflict?: CloudSyncRepository['resolveStagedCloudConflict']
+
+  constructor(private readonly fs: PortableCloudSyncFileSystem) {
+    if (fs.stageCloudContent && fs.applyStagedCloudContent && fs.resolveStagedCloudConflict) {
+      this.stageCloudContent = fs.stageCloudContent.bind(fs)
+      this.applyStagedCloudContent = fs.applyStagedCloudContent.bind(fs)
+      this.resolveStagedCloudConflict = fs.resolveStagedCloudConflict.bind(fs)
+    }
+  }
+
+  async matchesCloudContent(path: string, reference: CloudSyncStagedFile['reference']): Promise<boolean> {
+    if (!this.fs.readItem) return false
+    const local = await this.readItemOrNull(this.path(path))
+    return local?.content.sha256 === reference.sha256 && local.content.byte_length === reference.byte_length
+  }
 
   async scan(): Promise<CloudSyncLocalItem[]> {
     const items: CloudSyncLocalItem[] = []
@@ -155,6 +180,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     }
 
     if (!change.content) throw new Error(`Upsert change ${change.sequence} did not include content`)
+    await this.validateContent(change.content)
 
     const previousPath = this.path(previous?.path ?? change.previous_path ?? change.path)
     const nextPath = this.path(change.path)
@@ -193,6 +219,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     resolution: CloudSyncBootstrapConflictResolution
   }): Promise<void> {
     const originalPath = this.path(input.path)
+    await this.validateContent(input.cloudContent)
     const current = await this.readItemOrNull(originalPath)
     if (!current || current.content.sha256 !== input.expectedLocalSha256) {
       throw new Error(
@@ -209,7 +236,12 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       if (input.cloudContent.encoding !== 'utf8' || input.resolution.merged_text === undefined) {
         throw new Error('Only text conflicts can be merged.')
       }
-      await this.fs.writeText(originalPath, input.resolution.merged_text)
+      const bytes = new TextEncoder().encode(input.resolution.merged_text)
+      await this.write(originalPath, {
+        encoding: 'utf8', data: input.resolution.merged_text,
+        sha256: await sha256(bytes), byte_length: bytes.byteLength,
+        media_type: input.cloudContent.media_type
+      })
       return
     }
 
@@ -271,6 +303,8 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     }
 
     const files = normalizedResolutionFiles(input.files)
+    // Validate every source before creating a copy or replacing the original.
+    for (const file of files) await this.validateContent(file.content)
     const expectedKey = expectedPath ? cloudSyncPathKey(expectedPath) : null
     for (const file of files) {
       if (cloudSyncPathKey(file.path) === expectedKey) continue
@@ -348,6 +382,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
   }
 
   private async readItem(path: string): Promise<CloudSyncLocalItem> {
+    if (this.fs.readItem) return this.fs.readItem(path)
     const bytes = base64ToBytes(await this.fs.readBase64(path))
     const text = decodeText(path, bytes)
     return {
@@ -364,6 +399,8 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
   }
 
   private async write(path: string, content: CloudSyncContent): Promise<void> {
+    await this.validateContent(content)
+    if (this.fs.writeContent) return this.fs.writeContent(path, content)
     if (content.encoding === 'utf8') {
       await this.fs.writeText(path, content.data)
       return
@@ -373,6 +410,14 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       return
     }
     throw new Error('Encrypted cloud sync content must be decrypted before filesystem apply')
+  }
+
+  private async validateContent(content: CloudSyncContent): Promise<void> {
+    if (content.data === '' && content.byte_length > 0 &&
+        (!this.fs.validateContent || !this.fs.writeContent)) {
+      throw new Error('File content has no readable source bytes.')
+    }
+    await this.fs.validateContent?.(content)
   }
 
   private path(value: string): string {

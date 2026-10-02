@@ -89,6 +89,36 @@ class FailingMemoryFileSystem extends MemoryFileSystem {
 }
 
 describe('PortableCloudSyncRepository', () => {
+  it('rejects unrecognized metadata before creating any conflict files', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'original' })
+    const repository = new PortableCloudSyncRepository(fs)
+    const original = await textContent('original')
+    const missing = { ...await textContent('missing'), data: '' }
+    await expect(repository.applyConflictResolutionFiles({
+      expected_path: 'note.md', expected_sha256: original.sha256,
+      files: [{ path: 'copy.md', content: original }, { path: 'note.md', content: missing }]
+    })).rejects.toThrow('source bytes')
+    expect([...fs.files.keys()]).toEqual(['note.md'])
+    expect(fs.text('note.md')).toBe('original')
+  })
+
+  it('uses native content hooks for inherited reads, validation and writes', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'original' })
+    const original = await textContent('original')
+    const incoming = await textContent('incoming')
+    const validated: string[] = []
+    const sourceAware: PortableCloudSyncFileSystem = fs
+    sourceAware.readItem = async (path) => ({ path, kind: 'text', content: { ...original, data: '' } })
+    sourceAware.validateContent = async (content) => { validated.push(content.sha256) }
+    sourceAware.writeContent = async (path, content) => { await fs.writeText(path, content.data) }
+    fs.readBase64 = async () => { throw new Error('A native fingerprint must not read inline bytes') }
+    await new PortableCloudSyncRepository(sourceAware).replaceConflictFile({
+      path: 'note.md', expectedSha256: original.sha256, content: incoming
+    })
+    expect(fs.text('note.md')).toBe('incoming')
+    expect(validated).toContain(incoming.sha256)
+  })
+
   it('scans portable user files with text/binary encoding and excludes local state', async () => {
     const fs = new MemoryFileSystem({
       'inbox/Plan.md': '# Plan',

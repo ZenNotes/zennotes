@@ -12,6 +12,8 @@ import type {
   CloudPublishNoteInput,
   CloudServiceAccountResponse,
   CloudSyncChangeResponse,
+  CloudSyncContentRequestOptions,
+  CloudSyncDownloadResponse,
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
@@ -22,28 +24,131 @@ import type {
   CloudSyncVaultCollection,
   CloudSyncVaultResponse
 } from '@zennotes/bridge-contract/cloud-sync'
+import type { CloudSyncRateLimitScope } from './cloud-sync-rate-limit'
+
+export * from './cloud-sync-content'
+export type {
+  CloudSyncContentMetadata, CloudSyncContentReference, CloudSyncContentRequestOptions,
+  CloudSyncDownloadInstruction, CloudSyncDownloadResponse
+} from '@zennotes/bridge-contract/cloud-sync'
+
+const contentCapabilities = new Map<string, { until: number; value: Promise<boolean> }>()
+
+export {
+  CloudSyncRateLimitCoordinator,
+  cloudSyncRateLimits,
+  cloudSyncRetryAfterMs,
+  type CloudSyncRateLimitScope,
+  type CloudSyncRateLimitOptions,
+  type CloudSyncResponseHeaders
+} from './cloud-sync-rate-limit'
 
 export interface CloudSyncHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
   path: string
   body?: unknown
   timeoutMs?: number
+  signal?: AbortSignal
+  /** Only for explicitly idempotent JSON operations with stable operation/session IDs.
+   * GETs are replayable by default. Other requests are never retried implicitly. */
+  retryOnRateLimit?: boolean
 }
 
 export interface CloudSyncHttpTransport {
   request<Response>(request: CloudSyncHttpRequest): Promise<Response>
 }
 
+export interface CloudSyncApiClientOptions {
+  /** Lower the coordinator's estimated bulk content-page budget. Does not
+   * change page offsets or cap the size of an individual revision download. */
+  bootstrapContentPageBytes?: number
+  /** Explicit streaming-host opt-in. Negotiation must succeed before reads. */
+  contentReferences?: boolean
+  accountScope?: CloudSyncRateLimitScope
+  maxInlineBytes?: number
+  signal?: AbortSignal
+  allowInsecureLoopbackDownloads?: boolean
+}
+
 /** Typed API surface shared by Electron and both Capacitor shells. */
 export class CloudSyncApiClient {
-  constructor(private readonly http: CloudSyncHttpTransport) {}
+  readonly bootstrapContentPageBytes?: number
+  readonly downloadSignal?: AbortSignal
+  readonly allowInsecureLoopbackDownloads: boolean
+  readonly requiresContentReferenceHost: boolean
+  private referencesActive = false
+  private capabilityPromise?: Promise<boolean>
+  private capabilityExpiresAt = 0
+
+  constructor(
+    private readonly http: CloudSyncHttpTransport,
+    private readonly options: CloudSyncApiClientOptions = {}
+  ) {
+    this.options = { ...options, accountScope: options.accountScope ? { ...options.accountScope } : undefined }
+    const budget = options.bootstrapContentPageBytes
+    if (budget !== undefined && (!Number.isSafeInteger(budget) || budget <= 0)) {
+      throw new Error('The bootstrap content-page byte budget must be a positive integer.')
+    }
+    this.bootstrapContentPageBytes = budget
+    this.downloadSignal = options.signal
+    this.allowInsecureLoopbackDownloads = options.allowInsecureLoopbackDownloads === true
+    this.requiresContentReferenceHost = options.contentReferences === true
+  }
 
   async listVaults(): Promise<CloudSyncVaultCollection> {
     return this.http.request({ method: 'GET', path: '/api/v1/vaults' })
   }
 
   async account(): Promise<CloudServiceAccountResponse> {
-    return this.http.request({ method: 'GET', path: '/api/v1/account' })
+    const response = await this.http.request<CloudServiceAccountResponse>({ method: 'GET', path: '/api/v1/account' })
+    const key = this.capabilityKey()
+    if (key) contentCapabilities.set(key, {
+      until: Date.now() + 300_000, value: Promise.resolve(response.data.capabilities?.content_references === true)
+    })
+    return response
+  }
+
+  async negotiateContentReferences(): Promise<boolean> {
+    if (!this.options.contentReferences) return false
+    if (Date.now() >= this.capabilityExpiresAt) this.capabilityPromise = undefined
+    const key = this.capabilityKey()
+    const cached = key ? contentCapabilities.get(key) : undefined
+    if (!this.capabilityPromise) {
+      const value = cached && cached.until > Date.now() ? cached.value :
+        this.account().then((response) => response.data.capabilities?.content_references === true)
+      if (key && value !== cached?.value) contentCapabilities.set(key, { until: Date.now() + 300_000, value })
+      this.capabilityExpiresAt = cached && value === cached.value ? cached.until : Date.now() + 300_000
+      this.capabilityPromise = value.catch((error) => {
+        this.capabilityPromise = undefined
+        if (key && contentCapabilities.get(key)?.value === value) contentCapabilities.delete(key)
+        throw error
+      })
+    }
+    if (!await this.capabilityPromise) {
+      this.referencesActive = false
+      throw new Error('This Cloud server needs content-reference support before this streaming host can sync.')
+    }
+    this.referencesActive = true
+    return true
+  }
+
+  private capabilityKey(): string | undefined {
+    const scope = this.options.accountScope
+    return scope ? JSON.stringify([new URL(scope.baseUrl).href.replace(/\/+$/, ''), scope.accountId]) : undefined
+  }
+
+  private contentQuery(options: CloudSyncContentRequestOptions = {}, metadataOnly = false): Record<string, string | number> {
+    if (!this.referencesActive) {
+      if (options.contentMode || (this.options.contentReferences && !metadataOnly)) throw new Error('Negotiate Cloud content references before using the reference protocol.')
+      return {}
+    }
+    const inline = options.maxInlineBytes ?? this.options.maxInlineBytes ?? 262_144
+    const response = options.maxResponseBytes ?? Math.max(65_536, Math.min(this.bootstrapContentPageBytes ?? 16_777_216, 33_554_432))
+    if (!Number.isInteger(inline) || inline < 0 || inline > 1_048_576 ||
+        !Number.isInteger(response) || response < 65_536 || response > 33_554_432) {
+      throw new Error('Invalid Cloud content response budgets.')
+    }
+    return { content_mode: 'references', max_inline_bytes: inline, max_response_bytes: response }
   }
 
   async createVault(name: string): Promise<CloudSyncVaultResponse> {
@@ -95,12 +200,13 @@ export class CloudSyncApiClient {
 
   async manifest(
     vaultId: string,
-    options: { includeContent?: boolean; page?: number; perPage?: number } = {}
+    options: { includeContent?: boolean; page?: number; perPage?: number } & CloudSyncContentRequestOptions = {}
   ): Promise<CloudSyncManifestResponse> {
     const query = encodeQuery({
       include_content: options.includeContent,
       page: options.page,
-      per_page: options.perPage
+      per_page: options.perPage,
+      ...this.contentQuery(options, options.includeContent === false)
     })
     return this.http.request({
       method: 'GET',
@@ -108,21 +214,29 @@ export class CloudSyncApiClient {
     })
   }
 
-  async changes(vaultId: string, after: number, limit = 100): Promise<CloudSyncChangeResponse> {
+  async changes(vaultId: string, after: number, limit = 100, options: CloudSyncContentRequestOptions = {}): Promise<CloudSyncChangeResponse> {
     return this.http.request({
       method: 'GET',
-      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/changes${encodeQuery({ after, limit })}`
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/changes${encodeQuery({ after, limit, ...this.contentQuery(options) })}`
     })
   }
 
   async revision(
     vaultId: string,
     itemId: string,
-    revision: number
+    revision: number,
+    options: CloudSyncContentRequestOptions = {}
   ): Promise<CloudSyncRevisionResponse> {
     return this.http.request({
       method: 'GET',
-      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}`
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}${encodeQuery(this.contentQuery(options))}`
+    })
+  }
+
+  async download(vaultId: string, itemId: string, revision: number): Promise<CloudSyncDownloadResponse> {
+    if (!this.referencesActive) throw new Error('Negotiate Cloud content references before downloading revisions.')
+    return this.http.request({ method: 'GET',
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}/download`
     })
   }
 
@@ -133,7 +247,9 @@ export class CloudSyncApiClient {
     return this.http.request({
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/mutations`,
-      body
+      body,
+      ...(body.mutations.length > 0 && body.mutations.every((mutation) => mutation.operation_id)
+        ? { retryOnRateLimit: true } : {})
     })
   }
 
@@ -144,7 +260,8 @@ export class CloudSyncApiClient {
     return this.http.request({
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/uploads`,
-      body
+      body,
+      ...(body.operation_id ? { retryOnRateLimit: true } : {})
     })
   }
 
@@ -155,7 +272,8 @@ export class CloudSyncApiClient {
     return this.http.request({
       method: 'POST',
       path: `${this.uploadPath(vaultId, uploadId)}/complete`,
-      timeoutMs: 300_000
+      timeoutMs: 300_000,
+      ...(uploadId ? { retryOnRateLimit: true } : {})
     })
   }
 
@@ -299,9 +417,9 @@ function publishedNoteBody(input: CloudPublishNoteInput): { payload: string } | 
   return form
 }
 
-function encodeQuery(values: Record<string, boolean | number | undefined>): string {
-  const entries = Object.entries(values).filter((entry): entry is [string, boolean | number] =>
-    ['boolean', 'number'].includes(typeof entry[1])
+function encodeQuery(values: Record<string, boolean | number | string | undefined>): string {
+  const entries = Object.entries(values).filter((entry): entry is [string, boolean | number | string] =>
+    ['boolean', 'number', 'string'].includes(typeof entry[1])
   )
   if (entries.length === 0) return ''
   return `?${entries.map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`).join('&')}`

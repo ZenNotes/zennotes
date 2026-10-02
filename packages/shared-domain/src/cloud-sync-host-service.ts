@@ -33,6 +33,7 @@ type SyncClient = Pick<
   | 'createVault'
   | 'deleteVault'
   | 'manifest'
+  | 'bootstrapContentPageBytes'
   | 'changes'
   | 'revision'
   | 'mutate'

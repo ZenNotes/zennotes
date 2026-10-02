@@ -9,6 +9,35 @@ export interface CloudSyncContent {
   media_type: string;
 }
 
+export type CloudSyncContentMetadata = Omit<CloudSyncContent, 'data'>
+
+export interface CloudSyncContentReference extends CloudSyncContentMetadata {
+  item_id: string
+  revision: number
+}
+
+export interface CloudSyncContentRequestOptions {
+  contentMode?: 'references'
+  maxInlineBytes?: number
+  maxResponseBytes?: number
+}
+
+export interface CloudSyncDownloadInstruction {
+  item_id: string
+  revision: number
+  content: CloudSyncContentMetadata
+  download: {
+    url: string
+    method: 'GET'
+    headers: Record<string, string>
+    expires_at: string
+  }
+}
+
+export interface CloudSyncDownloadResponse {
+  data: CloudSyncDownloadInstruction
+}
+
 interface CloudSyncMutationBase {
   operation_id: string;
   item_id: string;
@@ -131,6 +160,7 @@ export interface CloudSyncManifestItem {
   byte_length: number;
   media_type: string;
   content?: CloudSyncContent;
+  content_ref?: CloudSyncContentReference
 }
 
 export interface CloudSyncManifestResponse {
@@ -147,6 +177,7 @@ export interface CloudSyncChange {
   previous_path: string | null;
   revision: number;
   content?: CloudSyncContent;
+  content_ref?: CloudSyncContentReference
 }
 
 export interface CloudSyncChangeResponse {
@@ -161,7 +192,8 @@ export interface CloudSyncRevision {
   path: string;
   kind: CloudSyncItemKind;
   deleted: boolean;
-  content: CloudSyncContent | null;
+  content?: CloudSyncContent | null;
+  content_ref?: CloudSyncContentReference
 }
 
 export interface CloudSyncRevisionResponse {
@@ -360,6 +392,7 @@ export interface CloudUsage {
 }
 
 export interface CloudServiceAccount {
+  capabilities?: { content_references?: boolean }
   user: CloudAccountUser;
   device: CloudAccountDevice & { app_version: string | null };
   features: Record<
