@@ -23,7 +23,7 @@ jobs:
         run: pacman -Syu --noconfirm git sudo namcap
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up build user
         run: |
