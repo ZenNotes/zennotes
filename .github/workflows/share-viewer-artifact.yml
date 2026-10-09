@@ -19,7 +19,7 @@ jobs:
   candidate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
       - run: node --test tooling/scripts/pack-web-artifact.test.mjs
       - run: npm run pack:share-viewer
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: share-viewer-candidate
           path: dist/viewer-artifacts/*
