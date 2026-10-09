@@ -19,7 +19,7 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: 22
@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
       - run: npm run test:web-artifact
       - run: npm run artifact:web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: self-hosted-web-candidate
           path: dist/web-artifacts/*
