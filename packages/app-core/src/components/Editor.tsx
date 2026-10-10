@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
+import { registerVisualCharMotion } from "../lib/cm-bidi";
 import {
   HALF_PAGE_MOTION,
   halfPageMotionArgs,
@@ -571,6 +572,8 @@ function registerVimCommands(): void {
   registerDisplayLineMotion(
     () => useStore.getState().vimWrappedLineMotions,
   );
+  // #134: h/l and the arrow keys move by what is on screen in RTL lines.
+  registerVisualCharMotion();
   registerHeadingMotion();
   registerHalfPageMotion();
   registerReflowOperator();

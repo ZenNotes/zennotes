@@ -62,6 +62,7 @@ import {
   listIndentWidth,
   markdownListIndentPlugin
 } from '../lib/cm-markdown-list-indent'
+import { bidiExtension } from '../lib/cm-bidi'
 import { forwardOnCheckboxArrow } from '../lib/cm-forward-task'
 import { markerHopCommands } from '../lib/cm-marker-hop'
 import { isInMarkdownCode } from '../lib/cm-auto-pairs'
@@ -442,6 +443,7 @@ function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] 
     markdownLinkExtension,
     vimAwareMarkdownKeymap,
     markdownListIndentPlugin,
+    bidiExtension,
     frontmatterTagExtension,
     orderedListRenumber,
     forwardOnCheckboxArrow,
