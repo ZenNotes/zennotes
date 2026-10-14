@@ -26,6 +26,6 @@
     "test:run": "echo 'No bridge-contract tests yet'"
   },
   "devDependencies": {
-    "typescript": "^5.7.2"
+    "typescript": "^7.0.2"
   }
 }
