@@ -447,6 +447,10 @@ Then open:
 
 - [http://localhost:7878](http://localhost:7878)
 
+### One-click deploy
+
+[![Deploy on RepoCloud](https://d16t0pc4846x52.cloudfront.net/deploylobe.svg)](https://repocloud.io/details/ZenNotes/)
+
 ### Default Docker mounts
 
 When you start Docker with `make up`, ZenNotes mounts:
