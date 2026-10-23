@@ -8,6 +8,7 @@ import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
+import { shouldShowWindowControls } from '../lib/titlebar'
 
 export function TitleBar({ standalone = false }: { standalone?: boolean }): JSX.Element | null {
   const showWindowTitleBar = useStore((s) => s.showWindowTitleBar)
@@ -17,6 +18,7 @@ export function TitleBar({ standalone = false }: { standalone?: boolean }): JSX.
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const workspaceMode = useStore((s) => s.workspaceMode)
   const isMac = window.zen.platformSync() === 'darwin'
+  const runtime = window.zen.getAppInfo().runtime
   const labels = resolveSystemFolderLabels(systemFolderLabels)
 
   if (showWindowTitleBar === false) {
@@ -62,7 +64,7 @@ export function TitleBar({ standalone = false }: { standalone?: boolean }): JSX.
           </span>
         )}
       </div>
-      {!isMac && (
+      {shouldShowWindowControls(isMac ? 'darwin' : 'other', runtime) && (
         <div className="flex items-center gap-1">
           <WinButton onClick={() => window.zen.windowMinimize()} label="–" />
           <WinButton onClick={() => window.zen.windowToggleMaximize()} label="▢" />
