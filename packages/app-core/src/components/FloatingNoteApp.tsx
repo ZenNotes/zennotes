@@ -41,6 +41,7 @@ import { registerReflowOperator } from '../lib/cm-vim-reflow'
 import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { bidiExtension, registerVisualCharMotion } from '../lib/cm-bidi'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
@@ -360,6 +361,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           markdownLinkExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
+          bidiExtension,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -567,6 +569,7 @@ function registerFloatingVimCommands(
   getWrappedLineMotionMode: () => VimWrappedLineMotionMode
 ): void {
   registerDisplayLineMotion(getWrappedLineMotionMode)
+  registerVisualCharMotion()
   if (floatingVimRegistered) return
   floatingVimRegistered = true
 

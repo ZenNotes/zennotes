@@ -58,6 +58,7 @@ import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { bidiExtension, registerVisualCharMotion } from '../lib/cm-bidi'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
 import { tags as t } from '@lezer/highlight'
@@ -226,6 +227,7 @@ function registerCaptureVimCommands(
   getWrappedLineMotionMode: () => VimWrappedLineMotionMode
 ): void {
   registerDisplayLineMotion(getWrappedLineMotionMode)
+  registerVisualCharMotion()
   if (vimRegistered) return
   vimRegistered = true
 
@@ -494,6 +496,7 @@ export function QuickCaptureApp(): JSX.Element {
           markdownLinkExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
+          bidiExtension,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
           syntaxHighlighting(captureHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),

@@ -25,6 +25,7 @@ import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languag
 import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { applyVimInsertEscape } from '../lib/vim-insert-escape'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { bidiExtension, registerVisualCharMotion } from '../lib/cm-bidi'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
@@ -183,6 +184,7 @@ export function ExternalFileApp(): JSX.Element {
           customCodeFenceHighlightExtension,
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
+          bidiExtension,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
           syntaxHighlighting(paperHighlight),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
@@ -424,6 +426,7 @@ function registerExternalFileVimCommands(): void {
 
   registerHalfPageMotion()
   mapDefaultHalfPageKeys()
+  registerVisualCharMotion()
 
   Vim.defineEx('write', 'w', () => {
     void externalFileHandlers.persist?.()
