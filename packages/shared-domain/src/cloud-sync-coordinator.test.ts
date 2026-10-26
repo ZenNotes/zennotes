@@ -2101,7 +2101,7 @@ describe('CloudSyncCoordinator: catching up on a file this device never touched'
     expect(server.mutations).toEqual([])
   })
 
-  it('pulls each change at the same cost in a large vault as in a small one', async () => {
+  it('pulls each change in a large vault in microseconds, not milliseconds', async () => {
     // Every pulled change used to copy the whole tracked state, so a phone
     // catching up on a big vault paid for its size on every file: 1.7 ms a
     // change at 10,000 notes against 0.18 ms at 600 (18 µs at both now).
@@ -2151,10 +2151,17 @@ describe('CloudSyncCoordinator: catching up on a file this device never touched'
       return (last - first) / (arriving - 1)
     }
 
+    // A bound in absolute time, not a ratio to a small vault: a change there
+    // takes a microsecond or two, so that ratio swung from 1.5 to 4.6 on a
+    // quiet machine and failed a 5x bound on macOS CI (25 µs against 2.7 µs).
+    // At 20,000 notes a change takes 2 to 5 µs now and took 3.6 ms (7 ms on a
+    // busy machine) with the copy, so 250 µs sits a decade clear of both. The
+    // fastest of three runs drops the pauses that only ever add time, and a
+    // small run first warms the code up.
     await perChange(200, 2000)
-    const small = await perChange(200, 2000)
-    const large = await perChange(20_000, 2000)
-    expect(large).toBeLessThan(small * 5)
+    const runs: number[] = []
+    for (let run = 0; run < 3; run++) runs.push(await perChange(20_000, 2000))
+    expect(Math.min(...runs)).toBeLessThan(0.25)
   })
 
   it('queues a real local edit without creating a note beside it', async () => {
