@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeTabWasPicked,
   leafWithAddedTab,
   leafWithPinnedTab,
   leafWithPreviewTab,
@@ -179,5 +180,42 @@ describe('preserveLayoutIfPruneEmptiesNoteTabs (#384)', () => {
     const prev = leaf({ tabs: ['workspace:tasks'], activeTab: 'workspace:tasks' })
     const pruned = makeLeaf()
     expect(preserveLayoutIfPruneEmptiesNoteTabs(prev, pruned, isVirtual)).toBe(pruned)
+  })
+})
+
+describe('activeTabWasPicked', () => {
+  const only = (layout: ReturnType<typeof rewritePathsInTree>): PaneLeaf => {
+    if (layout.kind !== 'leaf') throw new Error('expected a leaf')
+    return layout
+  }
+
+  it('marks a leaf whose active note was dropped', () => {
+    const base = leaf({ tabs: ['old.md', 'b.md', 'c.md'], activeTab: 'c.md' })
+    const next = only(rewritePathsInTree(base, (p) => (p === 'c.md' ? null : p)))
+    expect(next.activeTab).toBe('old.md')
+    expect(activeTabWasPicked(next)).toBe(true)
+  })
+
+  it('marks a leaf that showed no tab (a phone on Home)', () => {
+    const base = leaf({ tabs: ['old.md', 'b.md'], activeTab: null })
+    const next = only(rewritePathsInTree(base, (p) => p))
+    expect(next.activeTab).toBe('old.md')
+    expect(activeTabWasPicked(next)).toBe(true)
+  })
+
+  it('does not mark a leaf whose active note was renamed or kept', () => {
+    const base = leaf({ tabs: ['old.md', 'b.md'], activeTab: 'b.md' })
+    const renamed = only(rewritePathsInTree(base, (p) => (p === 'b.md' ? 'moved/b.md' : p)))
+    expect(renamed.activeTab).toBe('moved/b.md')
+    expect(activeTabWasPicked(renamed)).toBe(false)
+    const kept = only(rewritePathsInTree(base, (p) => (p === 'old.md' ? null : p)))
+    expect(kept.activeTab).toBe('b.md')
+    expect(activeTabWasPicked(kept)).toBe(false)
+  })
+
+  it('forgets the mark on the next change to the leaf', () => {
+    const base = leaf({ tabs: ['old.md', 'b.md'], activeTab: 'b.md' })
+    const picked = only(rewritePathsInTree(base, (p) => (p === 'b.md' ? null : p)))
+    expect(activeTabWasPicked(leafWithAddedTab(picked, 'c.md'))).toBe(false)
   })
 })

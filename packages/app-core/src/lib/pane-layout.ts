@@ -257,6 +257,7 @@ export function rewritePathsInTree(
         nextActive = mappedActive
       }
     }
+    const picked = !nextActive
     if (!nextActive) nextActive = nextTabs[0]
     let nextPreview: string | null = null
     if (leaf.previewTab) {
@@ -265,15 +266,30 @@ export function rewritePathsInTree(
         nextPreview = mappedPreview
       }
     }
-    return enforcePinnedPrefix({
+    const next = enforcePinnedPrefix({
       ...leaf,
       tabs: nextTabs,
       pinnedTabs: nextPinned,
       activeTab: nextActive,
       previewTab: nextPreview
     })
+    if (picked) leavesWithPickedTab.add(next)
+    return next
   })
   return result ?? makeLeaf()
+}
+
+/**
+ * Leaves whose active tab `rewritePathsInTree` chose on its own, because the
+ * note they showed was dropped (trashed, archived, deleted) or because they
+ * showed none (a phone's Home). Desktop wants that choice: its tab strip shows
+ * where it landed. A shell that hides tabs reads this to show Home instead of
+ * a hidden tab the user never asked for (see `installHomeGuard`).
+ */
+const leavesWithPickedTab = new WeakSet<PaneLeaf>()
+
+export function activeTabWasPicked(leaf: PaneLeaf): boolean {
+  return leavesWithPickedTab.has(leaf)
 }
 
 /**

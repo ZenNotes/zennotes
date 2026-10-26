@@ -1,6 +1,6 @@
 import { captureNavigationContext } from './lib/navigation-context'
 import { useStore } from './store'
-import { findLeaf, updateLeaf } from './lib/pane-layout'
+import { activeTabWasPicked, findLeaf, updateLeaf } from './lib/pane-layout'
 import { paneModesWithPathMode, type PaneMode } from './lib/pane-mode'
 
 /** Open a note or app-generated page path through the normal save and history flow. */
@@ -56,27 +56,24 @@ export function goHome(): void {
  * Register before mounting React or adding other store subscribers. Call the
  * returned disposer when the host shell is torn down.
  *
- * A rescan or vault mutation can promote the first tab while rewriting paths.
- * Restore Home only for that transition. Deliberate note navigation does not
- * replace the note index and must remain visible.
+ * A rescan or vault mutation can promote the first tab while rewriting paths,
+ * from Home or because the note on screen left the workspace (moved to Trash,
+ * archived, deleted). That tab is the oldest note still open behind Home, not
+ * one the user chose, so show Home for those transitions instead. Deliberate
+ * note navigation does not replace the note index and must remain visible.
  */
 export function installHomeGuard(): () => void {
   return useStore.subscribe((state, previous) => {
-    if (
-      state.notes === previous.notes ||
-      state.paneLayout === previous.paneLayout
-    )
-      return
+    if (state.paneLayout === previous.paneLayout) return
     const leaf = findLeaf(state.paneLayout, state.activePaneId)
+    if (!leaf || leaf.activeTab === null) return
     const before = findLeaf(previous.paneLayout, state.activePaneId)
-    if (
-      !leaf ||
-      !before ||
-      before.activeTab !== null ||
-      before.tabs.length === 0
-    )
-      return
-    if (leaf.activeTab === null || leaf.activeTab !== leaf.tabs[0]) return
+    const rescannedFromHome =
+      state.notes !== previous.notes &&
+      before?.activeTab === null &&
+      before.tabs.length > 0 &&
+      leaf.activeTab === leaf.tabs[0]
+    if (!rescannedFromHome && !activeTabWasPicked(leaf)) return
     const next = updateLeaf(state.paneLayout, leaf.id, (pane) => ({
       ...pane,
       activeTab: null
