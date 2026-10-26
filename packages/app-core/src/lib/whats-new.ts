@@ -40,6 +40,27 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.77.0',
+    highlights: [
+      {
+        title: 'Links to notes you haven’t written yet',
+        body: 'Unresolved Links lists every [[link]] in your vault that points at no note, most linked first, with the lines that link to it. Open it from the command palette, or with Space u in Vim mode.'
+      },
+      {
+        title: 'Edit a linked note in place',
+        body: 'Rest the pointer on a link and its note opens in a popover over yours: type, then Escape. A link to a missing note offers to create it right there. K in Vim mode, Shift+Cmd+K without.'
+      },
+      {
+        title: 'Tags find the idea, not just the note',
+        body: 'The Tags view lists the tagged blocks inside each note: a list item, a paragraph, or a whole section under a tagged heading. In Search notes, #idea does the same, and Enter jumps to the line.'
+      },
+      {
+        title: 'Steadier on slow networks',
+        body: 'ZenNotes Cloud retries a stalled request after 30 seconds instead of waiting five minutes, and a conflict review opens at once, even while a sync is running.'
+      }
+    ]
+  },
+  {
     version: '2.76.0',
     highlights: [
       {
