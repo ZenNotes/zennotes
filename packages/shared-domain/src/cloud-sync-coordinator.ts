@@ -108,6 +108,10 @@ export interface CloudSyncRepository {
   applyStagedCloudContent?(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined, file: CloudSyncStagedFile): Promise<CloudSyncRepositoryConflict | void>
   resolveStagedCloudConflict?(input: CloudSyncStagedConflict): Promise<void>
   scan(): Promise<CloudSyncLocalItem[]>
+  /** The file scan() would list at exactly this path and spelling, or null
+   *  when none is there. Reviewing a conflict needs only its own file, and a
+   *  phone hashes every file a scan lists. */
+  readLocalItem?(path: string): Promise<CloudSyncLocalItem | null>
   /** Finish filesystem work an earlier run was stopped in the middle of. Runs
    *  first in every sync run, before anything is pulled or scanned. */
   recoverInterruptedWork?(): Promise<void>
@@ -1234,8 +1238,15 @@ export class CloudSyncCoordinator {
   private async currentLocalSnapshot(
     conflict: CloudSyncStoredConflict
   ): Promise<CloudSyncStoredConflict['local']> {
-    const items = await this.repository.scan()
     const expectedPath = conflict.local.path ?? conflict.base.path
+    // Opening one conflict scanned the whole vault, and a phone reads and
+    // hashes every file it lists: on a vault just pulled from a computer the
+    // review waited on that for as long as the vault was big. Only a file
+    // that is no longer at its path (moved, renamed by case) needs the scan.
+    const direct = expectedPath && this.repository.readLocalItem
+      ? await this.repository.readLocalItem(expectedPath)
+      : null
+    const items = direct ? [direct] : await this.repository.scan()
     const exact = expectedPath
       ? items.find((item) => cloudSyncPathKey(item.path) === cloudSyncPathKey(expectedPath))
       : undefined

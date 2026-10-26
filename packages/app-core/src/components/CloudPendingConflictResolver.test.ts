@@ -8,7 +8,10 @@ import type {
   CloudSyncPendingConflictDetails,
   CloudSyncRunSummary,
 } from "@zennotes/bridge-contract/cloud-sync";
-import { CloudPendingConflictResolver } from "./CloudPendingConflictResolver";
+import {
+  CLOUD_CONFLICT_LOAD_TIMEOUT_MS,
+  CloudPendingConflictResolver,
+} from "./CloudPendingConflictResolver";
 import {
   clearCloudSyncStatus,
   syncCloudVaultWithStatus,
@@ -459,6 +462,91 @@ describe("CloudPendingConflictResolver", () => {
     expect(button(view.host, "Save combined note")).toBeInstanceOf(
       HTMLButtonElement,
     );
+    view.unmount();
+  });
+
+  // Discord, 2026-10-26: on a phone whose sync was stuck, the sheet showed
+  // "Loading the versions kept for you…" with Finish later greyed out, and
+  // closing the app was the only way out.
+  it("ends a load that never answers in an error with Retry and Details", async () => {
+    vi.useFakeTimers();
+    try {
+      bridge.getCloudConflict.mockReturnValueOnce(new Promise(() => {}));
+      useCloudSyncStatusStore.setState({ phase: "syncing" });
+      const view = mount({});
+      await act(async () => Promise.resolve());
+      expect(view.host.textContent).toContain("Loading the versions kept for you");
+      expect(button(view.host, "Finish later").disabled).toBe(false);
+
+      await act(async () => {
+        vi.advanceTimersByTime(CLOUD_CONFLICT_LOAD_TIMEOUT_MS);
+      });
+      const alert = view.host.querySelector('[role="alert"]');
+      expect(alert?.textContent).toContain("taking too long to open the two versions");
+      expect(alert?.querySelector("[data-cloud-error-details]")?.textContent).toContain(
+        "Loading conflict item-1 (Plans/Trip.md) did not finish within 20 seconds.",
+      );
+      expect(view.host.textContent).not.toContain("Loading the versions kept for you");
+
+      await act(async () => button(view.host, "Retry").click());
+      expect(bridge.getCloudConflict).toHaveBeenCalledTimes(2);
+      expect(view.host.querySelector('[role="alert"]')).toBeNull();
+      expect(view.host.textContent).toContain("Combined note");
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows a load that fails with Retry instead of loading forever", async () => {
+    bridge.getCloudConflict.mockRejectedValueOnce(new Error("Disk is full"));
+    const view = mount({});
+    await act(async () => Promise.resolve());
+
+    expect(view.host.querySelector('[role="alert"]')?.textContent).toContain("Disk is full");
+    expect(view.host.textContent).not.toContain("Loading the versions kept for you");
+
+    await act(async () => button(view.host, "Retry").click());
+    expect(bridge.getCloudConflict).toHaveBeenCalledTimes(2);
+    expect(view.host.querySelector('[role="alert"]')).toBeNull();
+    expect(view.host.textContent).toContain("Combined note");
+    view.unmount();
+  });
+
+  it("shows both versions when a slow load answers after the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let answer!: (value: CloudSyncPendingConflictDetails) => void;
+      bridge.getCloudConflict.mockReturnValueOnce(
+        new Promise((resolve) => { answer = resolve; }),
+      );
+      const view = mount({});
+      await act(async () => {
+        vi.advanceTimersByTime(CLOUD_CONFLICT_LOAD_TIMEOUT_MS);
+      });
+      expect(view.host.querySelector('[role="alert"]')).not.toBeNull();
+
+      await act(async () => answer(details));
+      expect(view.host.querySelector('[role="alert"]')).toBeNull();
+      expect(view.host.textContent).toContain("Combined note");
+      expect(bridge.getCloudConflict).toHaveBeenCalledOnce();
+      view.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("can be left with Finish later while a sync is running", async () => {
+    useCloudSyncStatusStore.setState({ phase: "syncing" });
+    const onClose = vi.fn();
+    const view = mount({ onClose });
+    await act(async () => Promise.resolve());
+    expect(button(view.host, "Use other device").disabled).toBe(true);
+
+    await act(async () => button(view.host, "Finish later").click());
+    await act(async () => button(view.host, "Save & finish later").click());
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(bridge.saveCloudConflictDraft).not.toHaveBeenCalled();
     view.unmount();
   });
 

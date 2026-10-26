@@ -21,6 +21,11 @@ import { randomUUID } from "@zennotes/shared-domain/random-uuid";
 type ChangeChoice = "local" | "cloud" | "both";
 type WholeVersionChoice = "local" | "cloud";
 
+/** Both versions are one local file and at most one small download. A load
+ *  still going after this is waiting on something else: the desktop, for
+ *  one, still lets a running sync finish first. */
+export const CLOUD_CONFLICT_LOAD_TIMEOUT_MS = 20_000;
+
 export function CloudPendingConflictResolver({
   conflict,
   summary,
@@ -73,6 +78,7 @@ export function CloudPendingConflictResolver({
 
   useEffect(() => {
     let cancelled = false;
+    let overdue = false;
     setDetails(null);
     setChoices({});
     if (!reload.keepError) setError(null);
@@ -81,10 +87,21 @@ export function CloudPendingConflictResolver({
     setFinishLaterOpen(false);
     setCombineOpen(false);
     setWholeVersionChoice(null);
+    // A load that never answered kept this sheet on its loading line, and the
+    // only way out was closing the app. Past the deadline it says so and
+    // offers Retry; an answer that still arrives replaces the error.
+    const deadline = window.setTimeout(() => {
+      if (cancelled) return;
+      overdue = true;
+      setReloading(false);
+      setError(loadTooSlow(conflict));
+    }, CLOUD_CONFLICT_LOAD_TIMEOUT_MS);
     void bridge
       .getCloudConflict(conflict.id, reviewId.current)
       .then((next) => {
         if (cancelled) return;
+        window.clearTimeout(deadline);
+        if (overdue) setError(null);
         setReloading(false);
         const initialDraft =
           next.draft_text ??
@@ -104,11 +121,13 @@ export function CloudPendingConflictResolver({
       })
       .catch((cause) => {
         if (cancelled) return;
+        window.clearTimeout(deadline);
         setReloading(false);
         setError(message(cause));
       });
     return () => {
       cancelled = true;
+      window.clearTimeout(deadline);
     };
   }, [bridge, conflict.id, reload]);
 
@@ -268,10 +287,12 @@ export function CloudPendingConflictResolver({
             {conflictExplanation(conflict)}
           </p>
         </div>
+        {/* Not held by a running sync: a draft is saved before every run and
+            cannot change during one, so leaving never waits on that run. */}
         <Button
           ref={finishLaterButton}
           variant="ghost"
-          disabled={busy}
+          disabled={resolving}
           onClick={() => setFinishLaterOpen(true)}
         >
           Finish later
@@ -303,7 +324,7 @@ export function CloudPendingConflictResolver({
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="primary"
-              disabled={busy}
+              disabled={resolving}
               onClick={() => {
                 setFinishLaterOpen(false);
                 window.setTimeout(() => finishLaterButton.current?.focus(), 0);
@@ -313,7 +334,7 @@ export function CloudPendingConflictResolver({
             </Button>
             <Button
               variant="ghost"
-              disabled={busy}
+              disabled={resolving}
               onClick={() => void finishLater()}
             >
               Save &amp; finish later
@@ -328,6 +349,20 @@ export function CloudPendingConflictResolver({
           className="mt-4 rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-sm leading-5 text-danger"
         >
           <CloudErrorMessage message={error.message} detail={error.detail} />
+          {!details && !reloading && (
+            <div className="mt-3">
+              <Button
+                onClick={() =>
+                  setReload((current) => ({
+                    nonce: current.nonce + 1,
+                    keepError: false,
+                  }))
+                }
+              >
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -988,6 +1023,15 @@ function fileName(path: string): string {
 
 function safeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
+
+function loadTooSlow(conflict: CloudSyncPendingConflict): CloudErrorCopy {
+  return {
+    message:
+      "ZenNotes is taking too long to open the two versions of this file. Both versions are safe, and nothing was changed. Choose Retry, or Finish later to come back to it.",
+    detail: `Loading conflict ${conflict.id} (${conflict.path}) did not finish within ${CLOUD_CONFLICT_LOAD_TIMEOUT_MS / 1000} seconds.`,
+    kind: "other",
+  };
 }
 
 /** Without this the resolver showed "Error invoking remote method

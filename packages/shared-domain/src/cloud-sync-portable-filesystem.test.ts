@@ -875,6 +875,103 @@ describe('PortableCloudSyncRepository: an interrupted case-only rename', () => {
   })
 })
 
+/** Counts the files read, the way a phone pays for each one in native work. */
+class CountingMemoryFileSystem extends MemoryFileSystem {
+  readonly reads: string[] = []
+
+  override async readBase64(path: string): Promise<string> {
+    this.reads.push(path)
+    return super.readBase64(path)
+  }
+}
+
+// Discord, 2026-10-26: on a phone that had just pulled a computer's vault,
+// opening one first-sync conflict read and hashed every note in the vault.
+describe('PortableCloudSyncRepository: opening one waiting conflict', () => {
+  async function firstSyncWithConflict() {
+    const statePath = 'zennotes-cloud-sync/state.json'
+    const notes: Record<string, string> = {}
+    for (let index = 1; index <= 200; index++) notes[`inbox/Note ${index}.md`] = `note ${index}`
+    const fs = new CountingMemoryFileSystem({ ...notes, 'inbox/Shopping.md': 'Eggs (from the phone)' })
+    const cloudFiles = { ...notes, 'inbox/Shopping.md': 'Coffee (from the PC)' }
+    const items = await Promise.all(Object.entries(cloudFiles).map(async ([path, text], index) => {
+      const content = await textContent(text)
+      return { item_id: `item-${index}`, path, kind: 'text' as const, revision: 1, sha256: content.sha256,
+        byte_length: content.byte_length, media_type: content.media_type, content }
+    }))
+    const remote: CloudSyncRemote = {
+      manifest: async () => ({ data: items, cursor: items.length, next_page: null }),
+      changes: async () => ({ data: [], cursor: items.length, has_more: false }),
+      mutate: async () => { throw new Error('nothing should be pushed') }
+    }
+    let id = 0
+    const coordinator = new CloudSyncCoordinator('vault-1', remote, new PortableCloudSyncRepository(fs), {
+      load: async () => (fs.text(statePath) ? JSON.parse(fs.text(statePath)!) as CloudSyncState : null),
+      save: async (state) => fs.writeText(statePath, JSON.stringify(state))
+    }, { itemId: () => `new-${++id}`, operationId: () => `operation-${++id}` })
+    const run = await coordinator.sync()
+    expect(run.pendingConflicts.map((conflict) => conflict.path)).toEqual(['inbox/Shopping.md'])
+    fs.reads.length = 0
+    return { fs, coordinator, conflictId: run.pendingConflicts[0]!.id }
+  }
+
+  it('reads only that file, not the whole vault', async () => {
+    const { fs, coordinator, conflictId } = await firstSyncWithConflict()
+
+    await expect(coordinator.getConflict(conflictId)).resolves.toMatchObject({
+      local: { path: 'inbox/Shopping.md', text: 'Eggs (from the phone)' },
+      cloud: { path: 'inbox/Shopping.md', text: 'Coffee (from the PC)' }
+    })
+    expect(fs.reads).toEqual(['inbox/Shopping.md'])
+  })
+
+  it('still finds this device\'s version after it moved', async () => {
+    const { fs, coordinator, conflictId } = await firstSyncWithConflict()
+    await fs.rename('inbox/Shopping.md', 'Errands/Shopping.md')
+
+    await expect(coordinator.getConflict(conflictId)).resolves.toMatchObject({
+      local: { path: 'Errands/Shopping.md', text: 'Eggs (from the phone)' }
+    })
+    expect(fs.reads.length).toBeGreaterThan(200)
+  })
+})
+
+describe('PortableCloudSyncRepository.readLocalItem', () => {
+  it('reads the file at exactly that path', async () => {
+    const repository = new PortableCloudSyncRepository(new MemoryFileSystem({ 'inbox/Plan.md': 'plan' }))
+
+    await expect(repository.readLocalItem('inbox/Plan.md')).resolves.toMatchObject({
+      path: 'inbox/Plan.md', kind: 'text', content: { data: 'plan' }
+    })
+  })
+
+  // The scan reports the spelling stored on disk, so any other spelling is
+  // left to it rather than read under the asked-for name.
+  it('leaves a name stored in other letter case to the scan', async () => {
+    const repository = new PortableCloudSyncRepository(
+      new CaseInsensitiveMemoryFileSystem({ 'inbox/plan.md': 'plan' })
+    )
+
+    await expect(repository.readLocalItem('inbox/Plan.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('Inbox/plan.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('inbox/plan.md')).resolves.toMatchObject({ path: 'inbox/plan.md' })
+  })
+
+  it('finds nothing where the scan would list nothing', async () => {
+    const repository = new PortableCloudSyncRepository(new MemoryFileSystem({
+      'inbox/Plan.md/inside.md': 'a folder named like a note',
+      '.zennotes/sync/downloads/staged.md': 'sync work',
+      'zennotes-cloud-sync/state.json': '{}'
+    }))
+
+    await expect(repository.readLocalItem('inbox/Plan.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('inbox/Missing.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('Missing/Plan.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('.zennotes/sync/downloads/staged.md')).resolves.toBeNull()
+    await expect(repository.readLocalItem('zennotes-cloud-sync/state.json')).resolves.toBeNull()
+  })
+})
+
 async function tracked(path: string, data: string) {
   const content = await textContent(data)
   return {

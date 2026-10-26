@@ -372,16 +372,21 @@ export class CloudSyncHostService {
     vault: CloudSyncHostVault,
     conflictId: string
   ): Promise<CloudSyncPendingConflictDetails> {
-    return await this.exclusive(vault.key, async () => {
-      const { account, client, link } = await this.linkedConnection(vault)
-      return await new CloudSyncCoordinator(
-        link.vault_id,
-        client,
-        vault.repository,
-        this.stateStore(vault.key, account.base_url, link.vault_id),
-        this.ids
-      ).getConflict(conflictId)
-    })
+    // Reading a waiting conflict changes nothing, so it does not queue behind
+    // the vault's other work. Queued, the review waited out whatever sync was
+    // running: a phone's long first sync, or a request on a dropped
+    // connection that holds a run for minutes until it times out (Discord,
+    // 2026-10-26: "Loading the versions kept for you" never finished). A
+    // draft or a decision still waits its turn, and a choice made on what
+    // this read showed is checked again when it is saved.
+    const { account, client, link } = await this.linkedConnection(vault)
+    return await new CloudSyncCoordinator(
+      link.vault_id,
+      client,
+      vault.repository,
+      this.stateStore(vault.key, account.base_url, link.vault_id),
+      this.ids
+    ).getConflict(conflictId)
   }
 
   async saveConflictDraft(

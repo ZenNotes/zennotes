@@ -142,6 +142,33 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     return items.sort((left, right) => left.path.localeCompare(right.path))
   }
 
+  /**
+   * The file at exactly this path, read as scan() reads it, found with one
+   * listing per folder on the way down. Every name must match its listing
+   * exactly; a case-only difference anywhere is left to the scan, which
+   * reports the spelling on disk.
+   */
+  async readLocalItem(path: string): Promise<CloudSyncLocalItem | null> {
+    const normalized = this.path(path)
+    if (!shouldSyncVaultPath(normalized)) return null
+    const segments = normalized.split('/')
+    let directory = ''
+    for (const [index, segment] of segments.entries()) {
+      const last = index === segments.length - 1
+      let entries: CloudSyncFileEntry[]
+      try {
+        entries = await this.fs.readdir(directory)
+      } catch {
+        return null
+      }
+      const entry = entries.find((candidate) => candidate.name.normalize('NFC') === segment)
+      if (!entry || entry.type !== (last ? 'file' : 'directory')) return null
+      directory = directory ? `${directory}/${segment}` : segment
+      if (!last && !shouldTraverseCloudSyncDirectory(directory)) return null
+    }
+    return this.readItem(normalized)
+  }
+
   async pendingConflictPaths(): Promise<string[]> {
     return (await this.fs.stat(CLOUD_SYNC_SETTINGS_CONFLICT_PATH)) === 'file'
       ? [CLOUD_SYNC_VAULT_SETTINGS_PATH]

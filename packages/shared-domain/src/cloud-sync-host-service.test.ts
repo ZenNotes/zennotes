@@ -360,6 +360,65 @@ describe('CloudSyncHostService', () => {
     })
   })
 
+  // Discord, 2026-10-26: queued behind a run waiting on a dropped connection,
+  // a phone's review showed "Loading the versions kept for you" until that
+  // request timed out minutes later.
+  it('opens a waiting conflict without waiting for a sync that is stuck', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 1,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const local = textContent('latest local edit')
+    const cloud = textContent('older cloud edit')
+    const { client, hostVault, service } = setup(
+      [remoteVault],
+      [{ path: 'Note.md', kind: 'text', content: local }]
+    )
+    client.manifest.mockResolvedValue({
+      data: [
+        {
+          item_id: 'item-remote',
+          path: 'Note.md',
+          kind: 'text',
+          revision: 3,
+          sha256: cloud.sha256,
+          byte_length: cloud.byte_length,
+          media_type: cloud.media_type,
+          content: cloud
+        }
+      ],
+      cursor: 1,
+      next_page: null
+    })
+    await service.link(hostVault, remoteVault.id)
+    const conflict = (await service.sync(hostVault)).pending_conflicts![0]!
+
+    let releaseChanges!: (value: { data: []; cursor: number; has_more: false }) => void
+    client.changes.mockReset().mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseChanges = resolve
+        })
+    )
+    const syncing = service.sync(hostVault)
+    await vi.waitFor(() => expect(client.changes).toHaveBeenCalledOnce())
+
+    const opened = await Promise.race([
+      service.getConflict(hostVault, conflict.id),
+      new Promise<'still waiting'>((resolve) => setTimeout(() => resolve('still waiting'), 500))
+    ])
+    expect(opened).toMatchObject({
+      local: { text: 'latest local edit' },
+      cloud: { text: 'older cloud edit' }
+    })
+
+    releaseChanges({ data: [], cursor: 1, has_more: false })
+    await syncing
+  })
+
   it('does not start a sync while a conflict decision is being saved', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',
