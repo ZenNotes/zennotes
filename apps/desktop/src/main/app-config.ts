@@ -96,6 +96,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'fzf_path',
     comment: 'absolute path to fzf; empty = look on $PATH'
   },
+  searchTaggedBlocks: {
+    section: 'search',
+    tomlKey: 'tagged_blocks',
+    comment: 'with a #tag in Search notes, list the tagged blocks under each note'
+  },
   // editor
   livePreview: {
     section: 'editor',

@@ -697,6 +697,8 @@ export function SettingsModal(): JSX.Element {
   const setRipgrepBinaryPath = useStore((s) => s.setRipgrepBinaryPath);
   const fzfBinaryPath = useStore((s) => s.fzfBinaryPath);
   const setFzfBinaryPath = useStore((s) => s.setFzfBinaryPath);
+  const searchTaggedBlocks = useStore((s) => s.searchTaggedBlocks);
+  const setSearchTaggedBlocks = useStore((s) => s.setSearchTaggedBlocks);
   const externalApplicationSchemes = useStore((s) => s.externalApplicationSchemes);
   const setExternalApplicationSchemes = useStore((s) => s.setExternalApplicationSchemes);
   const [externalApplicationIssue, setExternalApplicationIssue] = useState<string | null>(null);
@@ -2200,6 +2202,13 @@ export function SettingsModal(): JSX.Element {
           keywords: ["scroll", "scrolloff", "vim", "cursor", "margin"],
         },
         {
+          id: "search-tagged-blocks",
+          title: "Show tagged blocks in note search",
+          description:
+            "When a Search notes query has a #tag, list the tagged blocks under each note, so a matching idea opens at its line.",
+          keywords: ["search", "tags", "blocks", "palette", "note search", "ideas", "clutter"],
+        },
+        {
           id: "vault-text-search-backend",
           title: "Vault text search backend",
           description:
@@ -2799,12 +2808,25 @@ export function SettingsModal(): JSX.Element {
           id: "search",
           title: "Search",
           searchIds: [
+            "search-tagged-blocks",
             "vault-text-search-backend",
             "ripgrep-binary-path",
             "fzf-binary-path",
           ],
           content: (
             <div className="space-y-6">
+              <Section
+                title="Note search"
+                description="What the Search notes palette lists."
+              >
+                <ToggleRow
+                  label="Show tagged blocks in note search"
+                  description="When your query has a #tag, list up to two tagged blocks under each note (the list item, paragraph or section carrying the tag), with a row that opens the rest in the Tags view. Off keeps one row per note."
+                  value={searchTaggedBlocks}
+                  settingId="search-tagged-blocks"
+                  onChange={setSearchTaggedBlocks}
+                />
+              </Section>
               <Section
                 title="Search"
                 description="Choose how vault-wide text search is powered."

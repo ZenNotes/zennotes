@@ -569,6 +569,8 @@ interface Prefs {
   ripgrepBinaryPath: string | null
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
+  /** With a #tag in Search notes, list each note's tagged blocks under it (#837). */
+  searchTaggedBlocks: boolean
   livePreview: boolean      // hide markdown syntax on inactive lines
   /** Show an H1 through H6 badge before Markdown headings in the editor. */
   showHeadingLevelLabels: boolean
@@ -1105,6 +1107,7 @@ export const DEFAULT_PREFS: Prefs = {
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
+  searchTaggedBlocks: true,
   livePreview: true,
   showHeadingLevelLabels: false,
   listIndentGuides: true,
@@ -1270,6 +1273,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.fzfBinaryPath === 'string' || p.fzfBinaryPath === null
         ? (p.fzfBinaryPath as string | null)
         : DEFAULT_PREFS.fzfBinaryPath,
+    searchTaggedBlocks:
+      typeof p.searchTaggedBlocks === 'boolean'
+        ? p.searchTaggedBlocks
+        : DEFAULT_PREFS.searchTaggedBlocks,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
     showHeadingLevelLabels:
@@ -2398,6 +2405,7 @@ function collectPrefs(s: {
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
+  searchTaggedBlocks: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
@@ -2513,6 +2521,7 @@ function collectPrefs(s: {
     vaultTextSearchBackend: s.vaultTextSearchBackend,
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
+    searchTaggedBlocks: s.searchTaggedBlocks,
     livePreview: s.livePreview,
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     listIndentGuides: s.listIndentGuides,
@@ -3046,6 +3055,7 @@ interface Store {
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
+  searchTaggedBlocks: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
@@ -3284,6 +3294,10 @@ interface Store {
   /** Whether multiple selected tags combine with AND (`all`, the default —
    *  narrows) or OR (`any` — widens). */
   tagMatchMode: TagMatchMode
+  /** Text for the Tags view to put in its filter the next time it renders,
+   *  then clear: how the Search notes palette hands over a "+N more" row with
+   *  its free text still applied (#837). */
+  tagViewFilterSeed: string | null
 
   /** Vim navigation: which panel is keyboard-focused. */
   focusedPanel: Panel | null
@@ -3396,6 +3410,10 @@ interface Store {
    *  open + focused. If `tag` is omitted, just opens the tab with the
    *  current selection. First open with a tag starts a fresh selection. */
   openTagView: (tag?: string) => Promise<void>
+  /** Open the Tags view on exactly these tags, matching all of them, with
+   *  `filter` in its filter box: the rest of a Search notes result, one
+   *  keystroke away. */
+  openTagViewFor: (tags: string[], filter?: string) => Promise<void>
   /** Open the Workflows canvas as a tab in the active pane. */
   openWorkflowsView: () => Promise<void>
   /** Open the Atlas map as a tab in the active pane. */
@@ -3675,6 +3693,7 @@ interface Store {
   setVaultTextSearchBackend: (backend: VaultTextSearchBackendPreference) => void
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
+  setSearchTaggedBlocks: (enabled: boolean) => void
   setLivePreview: (on: boolean) => void
   setShowHeadingLevelLabels: (on: boolean) => void
   setListIndentGuides: (on: boolean) => void
@@ -5895,6 +5914,7 @@ export const useStore = create<Store>((set, get) => {
   vaultTextSearchBackend: loadPrefs().vaultTextSearchBackend,
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
+  searchTaggedBlocks: loadPrefs().searchTaggedBlocks,
   livePreview: loadPrefs().livePreview,
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   listIndentGuides: loadPrefs().listIndentGuides,
@@ -6009,6 +6029,7 @@ export const useStore = create<Store>((set, get) => {
   databasesLoading: {},
   selectedTags: [],
   tagMatchMode: 'all',
+  tagViewFilterSeed: null,
   focusedPanel: null,
   sidebarCursorIndex: 0,
   dateNavExpanded: [],
@@ -6227,6 +6248,12 @@ export const useStore = create<Store>((set, get) => {
     // <body>, so j/k reached the document instead of the list and the whole view
     // read as broken in a keyboard-first app. The view claims the keyboard
     // itself, which also moves focus off the sidebar row this was blurring.
+  },
+
+  openTagViewFor: async (tags, filter) => {
+    get().setSelectedTags(tags)
+    set({ tagMatchMode: 'all', tagViewFilterSeed: filter ?? '' })
+    await get().openTagView()
   },
 
   openTagView: async (tag) => {
@@ -9145,6 +9172,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setFzfBinaryPath: (path) => {
     set({ fzfBinaryPath: path })
+    savePrefs(collectPrefs(get()))
+  },
+  setSearchTaggedBlocks: (enabled) => {
+    set({ searchTaggedBlocks: enabled })
     savePrefs(collectPrefs(get()))
   },
   setLivePreview: (on) => {

@@ -22,6 +22,7 @@ export const PORTABLE_PREF_KEYS = [
   'vaultTextSearchBackend',
   'ripgrepBinaryPath',
   'fzfBinaryPath',
+  'searchTaggedBlocks',
   // editor
   'livePreview',
   'showHeadingLevelLabels',

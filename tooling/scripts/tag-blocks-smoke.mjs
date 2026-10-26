@@ -14,6 +14,11 @@
  *   - the filter narrows to the blocks whose text matches,
  *   - a block typed into an open note lists right away,
  *   - with Vim off, } is inert and the arrows and Enter still work,
+ *   - Search notes with a #tag lists two blocks per note and a "+N more" row:
+ *     Ctrl+J / the arrows reach the blocks, Enter opens one at its line, free
+ *     text narrows and marks them, "+N more" opens the Tags view with the
+ *     text still filtering, and the Settings toggle (saved to config.toml)
+ *     turns the blocks off,
  *   - a tag on ZEN_TAG_BLOCKS_BULK notes (default 500) fills in, timed,
  *   - no console errors fire.
  *
@@ -25,7 +30,7 @@
 import { execFileSync, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { constants } from 'node:fs'
-import { access, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
@@ -323,6 +328,15 @@ async function pressCtrl(client, letter) {
   await sleep(60)
 }
 
+/** Mod (Cmd on macOS, Ctrl elsewhere) plus a key, as a real key press. */
+async function pressMod(client, key, code, keyCode) {
+  const modifiers = process.platform === 'darwin' ? 4 : 2
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await client.send('Input.dispatchKeyEvent', { type, key, code, windowsVirtualKeyCode: keyCode, modifiers })
+  }
+  await sleep(80)
+}
+
 /** A real mouse click at the centre of the first element matching `selector`. */
 async function clickAt(client, selector) {
   const rect = await evaluate(
@@ -432,7 +446,7 @@ async function launch(label, vim, body) {
     if (!ready) throw new Error(`notes never rendered; log tail: ${log.slice(-400)}`)
     await dismissWhatsNew(client)
     await sleep(300)
-    await body(client, errors)
+    await body(client, errors, { configRoot })
   } finally {
     client?.close()
     if (child.exitCode == null) child.kill('SIGTERM')
@@ -620,13 +634,183 @@ async function vimOffScenario(client, errors) {
   check('no console errors with Vim off', errors.length === 0, errors.slice(0, 3).join(' | '))
 }
 
+/** The Search notes rows, as text: a note's title, an indented block, "+N more". */
+function paletteRows(client) {
+  return evaluate(
+    client,
+    `(() => [...document.querySelectorAll('[data-search-idx]')].map((el) => ({
+      label: el.dataset.searchBlock ? '  ' + el.dataset.searchBlock
+        : el.dataset.searchMore ? '  ' + (el.textContent || '').replace('open in Tags', '').trim()
+        : el.dataset.searchCreate !== undefined ? 'create'
+        : (el.querySelector('span')?.textContent || '').trim(),
+      active: el.className.split(/\\s+/).includes('bg-paper-200')
+    })))()`
+  )
+}
+
+async function openPalette(client, text) {
+  await pressMod(client, 'p', 'KeyP', 80)
+  const open = await until(client, `!!document.querySelector('input[placeholder^="Search notes"]')`, 3000)
+  if (!open) return false
+  await evaluate(client, `document.querySelector('input[placeholder^="Search notes"]').focus(), true`)
+  await typeText(client, text)
+  return true
+}
+
+/** Clear the palette's query with real Backspaces, then type `text`. */
+async function retypePalette(client, text) {
+  const len = await evaluate(client, `document.querySelector('input[placeholder^="Search notes"]')?.value.length ?? 0`)
+  for (let i = 0; i < len; i++) await press(client, 'Backspace')
+  await typeText(client, text)
+}
+
+async function moveToPaletteRow(client, label, nextKey) {
+  for (let i = 0; i < 20; i++) {
+    const rows = await paletteRows(client)
+    if (rows.find((r) => r.active)?.label === label) return true
+    await nextKey()
+  }
+  return false
+}
+
+async function paletteScenario(client, errors) {
+  const opened = await openPalette(client, '#idea')
+  check('Mod+P opens Search notes', opened)
+  await until(client, `document.querySelectorAll('[data-search-block]').length >= 3`, 4000)
+  let rows = (await paletteRows(client)).map((r) => r.label)
+  const at = rows.indexOf('Ideas')
+  check(
+    'a #tag query lists two blocks under the note, then "+N more"',
+    JSON.stringify(rows.slice(at, at + 4)) ===
+      JSON.stringify(['Ideas', '  inbox/Ideas.md:6', '  inbox/Ideas.md:8', '  +3 more tagged blocks']),
+    JSON.stringify(rows)
+  )
+  const j = rows.indexOf('Journal')
+  check('every tagged note lists its own blocks', rows[j + 1] === '  inbox/Journal.md:5', JSON.stringify(rows))
+  const pr = rows.indexOf('Project')
+  check(
+    'a note tagged only in frontmatter is a plain row in the palette',
+    pr >= 0 && !(rows[pr + 1] ?? '').startsWith('  '),
+    JSON.stringify(rows)
+  )
+  await screenshot(client, '07-palette-tag-blocks')
+
+  const reached = await moveToPaletteRow(client, '  inbox/Ideas.md:6', () => pressCtrl(client, 'j'))
+  check('Ctrl+J walks onto a block row', reached, JSON.stringify(await paletteRows(client)))
+  await press(client, 'Enter')
+  const landed = await until(
+    client,
+    `(() => {
+      if (document.querySelector('input[placeholder^="Search notes"]')) return null;
+      const line = document.querySelector('.cm-editor .cm-activeLine');
+      const hl = document.querySelector('.cm-editor .cm-line.cm-task-jump-highlight');
+      return line && /Recipe gallery/.test(line.textContent) && hl && /Recipe gallery/.test(hl.textContent) ? line.textContent : null;
+    })()`,
+    4000
+  )
+  check('Enter on a palette block opens the note at that line, highlighted', !!landed, String(landed))
+
+  await openPalette(client, '#idea zine')
+  await until(client, `document.querySelectorAll('[data-search-block]').length === 2`, 4000)
+  rows = (await paletteRows(client)).map((r) => r.label)
+  check(
+    'free text narrows the blocks, across notes',
+    rows.filter((r) => r.startsWith('  ')).sort().join('|') === '  inbox/Ideas.md:16|  inbox/Journal.md:5',
+    JSON.stringify(rows)
+  )
+  const marks = await evaluate(client, `[...document.querySelectorAll('[data-block-match]')].map((m) => m.textContent.toLowerCase())`)
+  check('the typed text is marked inside the blocks', marks.length >= 2 && marks.every((m) => m === 'zine'), JSON.stringify(marks))
+  await screenshot(client, '08-palette-narrowed')
+
+  await retypePalette(client, '#idea the')
+  await until(client, `!!document.querySelector('[data-search-more]')`, 4000)
+  rows = (await paletteRows(client)).map((r) => r.label)
+  const more = rows.find((r) => r.startsWith('  +'))
+  check('"+N more" counts the narrowed blocks', more === '  +1 more tagged block', JSON.stringify(rows))
+  await moveToPaletteRow(client, more, () => press(client, 'ArrowDown'))
+  await press(client, 'Enter')
+  const tags = await until(
+    client,
+    `(() => {
+      const filter = document.querySelector('input[placeholder^="Filter"]');
+      const rows = document.querySelectorAll('[data-tag-block-row]').length;
+      return filter && rows > 0 ? { filter: filter.value, rows } : null;
+    })()`,
+    4000
+  )
+  check('"+N more" opens the Tags view with the text still filtering', tags?.filter === 'the' && tags.rows === 3, JSON.stringify(tags))
+  await screenshot(client, '09-more-opens-tags')
+  check('no console errors in the palette', errors.length === 0, errors.slice(0, 3).join(' | '))
+}
+
+async function paletteVimOffScenario(client, errors, { configRoot }) {
+  await openPalette(client, '#idea')
+  await until(client, `document.querySelectorAll('[data-search-block]').length >= 3`, 4000)
+  const reached = await moveToPaletteRow(client, '  inbox/Ideas.md:8', () => press(client, 'ArrowDown'))
+  check('Vim off: the arrows walk onto a palette block', reached, JSON.stringify(await paletteRows(client)))
+  await press(client, 'Enter')
+  const landed = await until(
+    client,
+    `(() => { const line = document.querySelector('.cm-editor .cm-activeLine'); return line && /Plugin store/.test(line.textContent) ? line.textContent : null })()`,
+    4000
+  )
+  check('Vim off: Enter on a palette block opens its line', !!landed, String(landed))
+
+  // Settings → Search → Show tagged blocks in note search, off.
+  await pressMod(client, ',', 'Comma', 188)
+  const search = await until(client, `!!document.querySelector('input[placeholder="Search settings…"]')`, 3000)
+  check('Settings opens', !!search)
+  await evaluate(client, `document.querySelector('input[placeholder="Search settings…"]').focus(), true`)
+  await typeText(client, 'tagged blocks')
+  const sw = '[data-settings-search-id="search-tagged-blocks"] [role="switch"]'
+  if (!(await until(client, `!!document.querySelector('${sw}')`, 1500))) await press(client, 'Enter')
+  const found = await until(client, `!!document.querySelector('${sw}')`, 3000)
+  check('Settings search finds "Show tagged blocks in note search"', !!found)
+  await evaluate(client, `document.querySelector('${sw}')?.scrollIntoView({ block: 'center' }), true`)
+  await screenshot(client, '10-setting-on')
+  await clickAt(client, sw)
+  const off = await until(client, `document.querySelector('${sw}')?.getAttribute('aria-checked') === 'false'`, 2000)
+  check('the toggle turns off', !!off)
+  const toml = await (async () => {
+    for (let i = 0; i < 30; i++) {
+      const text = await readFile(join(configRoot, 'config.toml'), 'utf8').catch(() => '')
+      if (/tagged_blocks\s*=\s*false/.test(text)) return text
+      await sleep(100)
+    }
+    return ''
+  })()
+  check('the setting is saved to config.toml as tagged_blocks = false', !!toml)
+  await press(client, 'Escape')
+  await until(client, `!document.querySelector('input[placeholder="Search settings…"]')`, 2000)
+
+  await openPalette(client, '#idea')
+  await sleep(400)
+  const rows = await paletteRows(client)
+  check(
+    'with the setting off, a #tag query lists notes only',
+    rows.length > 0 && rows.every((r) => !r.label.startsWith('  ')),
+    JSON.stringify(rows)
+  )
+  await screenshot(client, '11-setting-off-plain-rows')
+  await press(client, 'Escape')
+  check('no console errors in the palette with Vim off', errors.length === 0, errors.slice(0, 3).join(' | '))
+}
+
 async function main() {
   if (!skipBuild || !(await fileExists(desktopOutMain))) {
     console.log('Building @zennotes/desktop (set ZEN_TAG_BLOCKS_SKIP_BUILD=1 to reuse the current build)…')
     await run(npmCommand, ['run', 'build', '--workspace', '@zennotes/desktop'])
   }
-  await launch('Tag blocks smoke test, Vim on', true, vimOnScenario)
-  await launch('Tag blocks smoke test, Vim off', false, vimOffScenario)
+  await launch('Tag blocks smoke test, Vim on', true, async (client, errors, ctx) => {
+    await vimOnScenario(client, errors)
+    console.log('\n  Search notes, Vim on\n')
+    await paletteScenario(client, errors, ctx)
+  })
+  await launch('Tag blocks smoke test, Vim off', false, async (client, errors, ctx) => {
+    await vimOffScenario(client, errors)
+    console.log('\n  Search notes, Vim off\n')
+    await paletteVimOffScenario(client, errors, ctx)
+  })
   console.log('')
   if (failures.length === 0) {
     console.log('All tag-block checks passed.')

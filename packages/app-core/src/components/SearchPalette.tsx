@@ -19,8 +19,16 @@ import {
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderLabel } from '../lib/vault-layout'
 import { useToastStore } from '../lib/toast'
+import { openTaggedBlock, useTagBlockIndex } from '../lib/tag-block-index'
+import { buildSearchPaletteRows, type SearchPaletteRow } from '../lib/search-palette-rows'
 import { Modal } from './ui/Modal'
 import { SearchCreateForm, type SearchCreateTarget } from './SearchCreateForm'
+import { TaggedBlockText } from './TaggedBlockText'
+
+const NO_NOTES: NoteMeta[] = []
+const RESULT_LIMIT = 20
+// The cursor's key for the create row, which no note path can equal.
+const CREATE_ROW_KEY = '\0create'
 
 export function SearchPalette(): JSX.Element {
   const notes = useStore((s) => s.notes)
@@ -31,8 +39,16 @@ export function SearchPalette(): JSX.Element {
   const vault = useStore((s) => s.vault)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
+  const searchTaggedBlocks = useStore((s) => s.searchTaggedBlocks)
+  const openTagViewFor = useStore((s) => s.openTagViewFor)
   const [query, setQuery] = useState('')
-  const [active, setActive] = useState(0)
+  // The cursor follows a row's key: tagged blocks fill in under their notes
+  // after the notes list, and the highlighted row must not drift while they
+  // do. `index` is the fallback when the key leaves the list.
+  const [cursor, setCursor] = useState<{ key: string | null; index: number }>({
+    key: null,
+    index: 0
+  })
   // While set, the palette shows the New note form instead of the results.
   const [draft, setDraft] = useState<SearchCreateDraft | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -47,16 +63,58 @@ export function SearchPalette(): JSX.Element {
   const { freeText, tagTokens } = useMemo(() => parseNoteSearchQuery(query), [query])
 
   const results = useMemo(() => {
-    return searchNoteIndex(searchIndex, query, { limit: 20 })
+    return searchNoteIndex(searchIndex, query, { limit: RESULT_LIMIT })
   }, [query, searchIndex])
+
+  // Tagged blocks under the notes (#837), only for a query with a #tag and
+  // the setting on. Free text can match a block anywhere in a tagged note, so
+  // it reads every note carrying the tags; a bare tag query lists the results'
+  // blocks only, and only those are read.
+  const showBlocks = searchTaggedBlocks && tagTokens.length > 0
+  const taggedNotes = useMemo(() => {
+    if (!showBlocks) return NO_NOTES
+    return notes.filter(
+      (n) =>
+        n.folder !== 'trash' &&
+        tagTokens.every((tag) => n.tags.some((t) => t.toLowerCase() === tag))
+    )
+  }, [showBlocks, notes, tagTokens])
+  const tagBlocks = useTagBlockIndex(showBlocks ? (freeText ? taggedNotes : results) : NO_NOTES)
+  const rows = useMemo(
+    () =>
+      buildSearchPaletteRows({
+        results,
+        tagged: taggedNotes,
+        blocksByPath: tagBlocks.blocksByPath,
+        tagTokens,
+        freeText,
+        enabled: searchTaggedBlocks,
+        limit: RESULT_LIMIT
+      }),
+    [results, taggedNotes, tagBlocks.blocksByPath, tagTokens, freeText, searchTaggedBlocks]
+  )
 
   // A search that finds nothing is often the moment the note should start
   // existing (#826). The free text drafts the note to create (its `#tags`
-  // become the note's tags); the create row sits after the results, at index
-  // results.length, and leads to a form where the name, folder and tags can
+  // become the note's tags); the create row sits after the result rows, at
+  // index rows.length, and leads to a form where the name, folder and tags can
   // still change, so it shows even when the name is taken or not yet valid.
   const createRow = useMemo(() => searchCreateDraft(freeText, tagTokens), [freeText, tagTokens])
-  const rowCount = results.length + (createRow ? 1 : 0)
+  const rowKeys = useMemo(
+    () => [...rows.map((row) => row.key), ...(createRow ? [CREATE_ROW_KEY] : [])],
+    [rows, createRow]
+  )
+  const rowCount = rowKeys.length
+  const active = useMemo(() => {
+    if (cursor.key !== null) {
+      const at = rowKeys.indexOf(cursor.key)
+      if (at >= 0) return at
+    }
+    return Math.max(0, Math.min(cursor.index, rowCount - 1))
+  }, [rowKeys, rowCount, cursor])
+  const setActive = (index: number): void =>
+    setCursor({ key: rowKeys[index] ?? null, index })
+  const createRowIndex = rows.length
   const labels: AreaLabels = useMemo(() => {
     const resolved = resolveSystemFolderLabels(systemFolderLabels)
     return {
@@ -76,7 +134,7 @@ export function SearchPalette(): JSX.Element {
     if (!draft) inputRef.current?.focus()
   }, [draft])
 
-  useEffect(() => setActive(0), [query])
+  useEffect(() => setCursor({ key: null, index: 0 }), [query])
 
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>(`[data-search-idx="${active}"]`)
@@ -87,6 +145,20 @@ export function SearchPalette(): JSX.Element {
     setSearchOpen(false)
     await selectNote(note.path)
     focusEditorNormalMode()
+  }
+
+  // A block opens its note at the block's line, highlighted, and records the
+  // jump (Ctrl+O comes back); "+N more" opens the rest in the Tags view with
+  // the free text still filtering.
+  const openRow = async (row: SearchPaletteRow): Promise<void> => {
+    if (row.kind === 'note') return open(row.note)
+    setSearchOpen(false)
+    if (row.kind === 'block') {
+      await openTaggedBlock(row.note.path, row.block.startLine)
+      focusEditorNormalMode()
+      return
+    }
+    await openTagViewFor(tagTokens, freeText)
   }
 
   // Same landing as `:e name` and the dead-wikilink flow: the new note opens
@@ -109,14 +181,17 @@ export function SearchPalette(): JSX.Element {
   // search that ends in "this needs to go" used to mean opening the note or
   // hunting for it in the sidebar). Same confirmation and clean-up as every
   // other Move to Trash; the row disappears because search never lists trash.
+  // Note rows only: a block or "+N more" row is a place inside a note, and
+  // trashing the whole note from it would be a surprise.
   const trashSelected = async (): Promise<void> => {
-    const note = results[active]
-    if (!note) return
+    const row = rows[active]
+    if (row?.kind !== 'note') return
+    const note = row.note
     const moved = await trashNote(note.path)
     inputRef.current?.focus()
     if (!moved) return
     useToastStore.getState().addToast(`Moved "${note.title}" to Trash`, 'success')
-    setActive((a) => Math.max(0, Math.min(a, results.length - 2)))
+    setCursor({ key: null, index: Math.max(0, Math.min(active, rowCount - 2)) })
   }
 
   if (draft) {
@@ -146,20 +221,20 @@ export function SearchPalette(): JSX.Element {
               if (isPaletteNextKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()
-                setActive((a) => Math.max(0, Math.min(rowCount - 1, a + 1)))
+                setActive(Math.max(0, Math.min(rowCount - 1, active + 1)))
               } else if (isPalettePreviousKey(e)) {
                 e.preventDefault()
                 e.stopPropagation()
-                setActive((a) => Math.max(0, a - 1))
+                setActive(Math.max(0, active - 1))
               } else if (e.key === 'Enter' && e.shiftKey) {
                 e.preventDefault()
                 e.stopPropagation()
                 if (createRow) setDraft(createRow)
               } else if (e.key === 'Enter') {
                 e.preventDefault()
-                const note = results[active]
-                if (note) void open(note)
-                else if (createRow && active === results.length) setDraft(createRow)
+                const row = rows[active]
+                if (row) void openRow(row)
+                else if (createRow && active === createRowIndex) setDraft(createRow)
               } else if (
                 e.ctrlKey &&
                 !e.metaKey &&
@@ -198,17 +273,66 @@ export function SearchPalette(): JSX.Element {
           {rowCount === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink-400">No matches.</div>
           ) : (
-            results.map((n, i) => {
+            rows.map((row, i) => {
+              const isActive = i === active
+              if (row.kind === 'block') {
+                return (
+                  <button
+                    key={row.key}
+                    data-search-idx={i}
+                    data-search-block={`${row.note.path}:${row.block.startLine + 1}`}
+                    onClick={() => void openRow(row)}
+                    onMouseMove={() => setActive(i)}
+                    className={[
+                      'flex w-full min-w-0 items-start gap-2 py-1.5 pl-8 pr-4 text-left',
+                      isActive ? 'bg-paper-200' : 'hover:bg-paper-200/70'
+                    ].join(' ')}
+                  >
+                    <span className="min-w-0 flex-1 border-l-2 border-paper-300/70 pl-2.5 text-ink-800">
+                      <TaggedBlockText
+                        block={row.block}
+                        tags={tagTokens}
+                        highlight={freeText}
+                        clampClassName="line-clamp-2"
+                      />
+                    </span>
+                    <span className="shrink-0 pt-0.5 font-mono text-2xs text-ink-400">
+                      L{row.block.startLine + 1}
+                    </span>
+                  </button>
+                )
+              }
+              if (row.kind === 'more') {
+                return (
+                  <button
+                    key={row.key}
+                    data-search-idx={i}
+                    data-search-more={row.note.path}
+                    onClick={() => void openRow(row)}
+                    onMouseMove={() => setActive(i)}
+                    className={[
+                      'flex w-full min-w-0 items-center gap-2 py-1 pl-8 pr-4 text-left',
+                      isActive ? 'bg-paper-200' : 'hover:bg-paper-200/70'
+                    ].join(' ')}
+                  >
+                    <span className="min-w-0 flex-1 truncate border-l-2 border-paper-300/70 pl-2.5 text-xs text-ink-500">
+                      +{row.hidden} more tagged {row.hidden === 1 ? 'block' : 'blocks'}
+                    </span>
+                    <span className="shrink-0 text-xs text-ink-400">open in Tags</span>
+                  </button>
+                )
+              }
+              const n = row.note
               const dir = noteFolderLabel(n, vaultSettings)
               return (
                 <button
-                  key={n.path}
+                  key={row.key}
                   data-search-idx={i}
                   onClick={() => open(n)}
                   onMouseMove={() => setActive(i)}
                   className={[
                     'flex w-full min-w-0 items-center gap-3 px-4 py-2 text-left',
-                    i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
+                    isActive ? 'bg-paper-200' : 'hover:bg-paper-200/70'
                   ].join(' ')}
                 >
                   {/* Notes that share a name differ only by folder, so the row
@@ -239,18 +363,18 @@ export function SearchPalette(): JSX.Element {
               )
             })
           )}
-          {createRow && results.length > 0 && (
+          {createRow && rows.length > 0 && (
             <div className="my-1 border-t border-paper-300/70" aria-hidden="true" />
           )}
           {createRow && (
             <button
-              data-search-idx={results.length}
+              data-search-idx={createRowIndex}
               data-search-create=""
               onClick={() => setDraft(createRow)}
-              onMouseMove={() => setActive(results.length)}
+              onMouseMove={() => setActive(createRowIndex)}
               className={[
                 'flex w-full min-w-0 items-center gap-3 px-4 py-2 text-left',
-                active === results.length ? 'bg-paper-200' : 'hover:bg-paper-200/70'
+                active === createRowIndex ? 'bg-paper-200' : 'hover:bg-paper-200/70'
               ].join(' ')}
             >
               <span className="min-w-0 flex-1 truncate text-sm text-ink-900">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { NoteMeta } from '@shared/ipc'
-import { extractTagBlocks, type TagBlock } from '@shared/tag-blocks'
+import { extractTagBlocks, tagBlockJumpOffset, type TagBlock } from '@shared/tag-blocks'
 import { useStore } from '../store'
 
 /**
@@ -111,8 +111,10 @@ function pump(): void {
   while (activeReads < MAX_CONCURRENT_READS && queue.length > 0) {
     const job = queue.shift() as ReadJob
     activeReads += 1
-    void window.zen
-      .readNote(job.path)
+    // Through a promise, so a host without the call rejects instead of
+    // throwing inside the effect that asked.
+    void Promise.resolve()
+      .then(() => window.zen.readNote(job.path))
       .then(
         (content) => {
           if (cacheScope === job.scope) {
@@ -196,4 +198,30 @@ export function useTagBlockIndex(notes: readonly NoteMeta[]): TagBlockIndex {
   }, [missing, scope])
 
   return index
+}
+
+/**
+ * Open a note at a tagged block's first line, highlighted, the way a task
+ * opens from the Tasks view. The offset comes from the body as it is now (the
+ * open buffer when there is one), so an edit since the list was built cannot
+ * send the caret to a stale position. Recorded as a jump, so Ctrl+O comes
+ * back. Resolves false when the note could not be read.
+ */
+export async function openTaggedBlock(path: string, startLine: number): Promise<boolean> {
+  const state = useStore.getState()
+  let body =
+    state.activeNote?.path === path ? state.activeNote.body : state.noteContents[path]?.body
+  if (body == null) {
+    try {
+      body = (await window.zen.readNote(path)).body
+    } catch (err) {
+      console.error('open tagged block: readNote failed', err)
+      return false
+    }
+  }
+  await useStore.getState().openNoteAtOffset(path, tagBlockJumpOffset(body, startLine), {
+    scrollMode: 'center',
+    highlightLine: true
+  })
+  return true
 }

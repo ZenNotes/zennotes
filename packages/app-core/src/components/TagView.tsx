@@ -1,9 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTagsViewActive, useStore } from '../store'
 import type { NoteMeta } from '@shared/ipc'
-import { tagBlockJumpOffset, type TagBlock } from '@shared/tag-blocks'
+import type { TagBlock } from '@shared/tag-blocks'
 import { buildTagTree, flattenTagTree, matchesSelectedTags, noteTagsForCount } from '../lib/tags'
-import { useTagBlockIndex } from '../lib/tag-block-index'
+import { openTaggedBlock, useTagBlockIndex } from '../lib/tag-block-index'
 import {
   buildTagViewRows,
   nextNoteRowIndex,
@@ -13,6 +13,7 @@ import {
 import { resolveTypstPreambleFolder } from '../lib/typst-preamble'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
+import { TaggedBlockText } from './TaggedBlockText'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { isImeComposing } from '../lib/ime'
@@ -72,6 +73,15 @@ export function TagView(): JSX.Element {
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; tag: string } | null>(null)
 
   const filterRef = useRef<HTMLInputElement>(null)
+
+  // A "+N more" row in Search notes opens this view with its free text as the
+  // filter, so the list shows the blocks that row stood for.
+  const filterSeed = useStore((s) => s.tagViewFilterSeed)
+  useEffect(() => {
+    if (filterSeed === null) return
+    setFilter(filterSeed)
+    useStore.setState({ tagViewFilterSeed: null })
+  }, [filterSeed])
   const exRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const gPending = useRef(0)
@@ -164,32 +174,10 @@ export function TagView(): JSX.Element {
     [selectNote]
   )
 
-  // Jump to the block's first line, highlighted, the way a task opens from
-  // the Tasks view. The offset comes from the body as it is now (the open
-  // buffer when there is one), so an edit since the list was built cannot
-  // send the caret to a stale position. Recorded as a jump, so Ctrl+O comes
-  // back here.
   const openBlock = useCallback(async (note: NoteMeta, block: TagBlock) => {
-    const state = useStore.getState()
-    let body =
-      state.activeNote?.path === note.path
-        ? state.activeNote.body
-        : state.noteContents[note.path]?.body
-    if (body == null) {
-      try {
-        body = (await window.zen.readNote(note.path)).body
-      } catch (err) {
-        console.error('open tagged block: readNote failed', err)
-        return
-      }
+    if (await openTaggedBlock(note.path, block.startLine)) {
+      requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
     }
-    await useStore
-      .getState()
-      .openNoteAtOffset(note.path, tagBlockJumpOffset(body, block.startLine), {
-        scrollMode: 'center',
-        highlightLine: true
-      })
-    requestAnimationFrame(() => useStore.getState().editorViewRef?.focus())
   }, [])
 
   const openRow = useCallback(
@@ -691,7 +679,7 @@ export function TagView(): JSX.Element {
                   ].join(' ')}
                 >
                   <span className="min-w-0 flex-1 border-l-2 border-paper-300/70 pl-2.5">
-                    <TaggedBlockText block={block} selectedTags={selectedTags} />
+                    <TaggedBlockText block={block} tags={selectedTags} highlight={filter} />
                   </span>
                   <span className="shrink-0 pt-0.5 font-mono text-2xs text-current/40">
                     L{block.startLine + 1}
@@ -792,45 +780,5 @@ export function TagView(): JSX.Element {
         />
       )}
     </div>
-  )
-}
-
-// A `#tag` token where the tag scanner would read one: at the start of the
-// text or after whitespace. The capture keeps the token in `split` output.
-const TAG_TOKEN_SPLIT_RE = /((?<=^|\s)#\p{L}[\p{L}\d_/-]*)/u
-
-/** A block's text with the selected tags picked out, a heading's own line in
- *  bold, clamped to three lines. */
-function TaggedBlockText({
-  block,
-  selectedTags
-}: {
-  block: TagBlock
-  selectedTags: readonly string[]
-}): JSX.Element {
-  const wanted = new Set(selectedTags.map((t) => t.toLowerCase()))
-  return (
-    <span className="line-clamp-3 block whitespace-pre-line text-xs leading-5 text-current/75">
-      {block.text.split('\n').map((line, li) => (
-        <Fragment key={li}>
-          {li > 0 ? '\n' : null}
-          <span
-            className={
-              li === 0 && block.kind === 'heading' ? 'font-semibold text-current/90' : undefined
-            }
-          >
-            {line.split(TAG_TOKEN_SPLIT_RE).map((part, pi) =>
-              part.startsWith('#') && wanted.has(part.slice(1).toLowerCase()) ? (
-                <span key={pi} className="font-medium text-accent">
-                  {part}
-                </span>
-              ) : (
-                part
-              )
-            )}
-          </span>
-        </Fragment>
-      ))}
-    </span>
   )
 }
