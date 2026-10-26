@@ -134,6 +134,7 @@ import { TemplateEditorModal } from "./TemplateEditorModal";
 import type { NoteTemplate } from "@bridge-contract/templates";
 import {
   getSettingsSearchResults,
+  inNavigationOrder,
   type SettingsSearchCategory,
 } from "../lib/settings-search";
 import { useAppUpdateState } from "../lib/app-update-state";
@@ -314,6 +315,10 @@ const SETTINGS_SECTIONS: {
   { id: "vault", title: "Vault", categoryIds: ["vault", "cloud", "templates"] },
   { id: "system", title: "System", categoryIds: ["mcp", "cli", "about"] },
 ];
+
+const SETTINGS_NAVIGATION_ORDER = SETTINGS_SECTIONS.flatMap(
+  (section) => section.categoryIds,
+);
 
 function settingsSearchTargetProps(settingId: string | undefined): {
   "data-settings-search-id"?: string;
@@ -5885,7 +5890,10 @@ export function SettingsModal(): JSX.Element {
   ];
 
   const query = navQuery.trim().toLowerCase();
-  const searchResults = getSettingsSearchResults(categories, query);
+  const searchResults = getSettingsSearchResults(
+    inNavigationOrder(categories, SETTINGS_NAVIGATION_ORDER),
+    query,
+  );
   const visibleSearchResult =
     searchResults.find((result) => result.id === activeSearchResultId) ??
     searchResults.find((result) => result.category.id === activeCategory) ??

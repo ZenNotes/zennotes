@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getSettingsSearchResults } from './settings-search'
+import { getSettingsSearchResults, inNavigationOrder } from './settings-search'
 
 const categories = [
   {
@@ -116,5 +116,34 @@ describe('getSettingsSearchResults', () => {
       title: 'Leader hint behavior',
       targetId: 'leader-key-hints'
     })
+  })
+})
+
+// #993: Ctrl+J/K walk the results list, which with an empty search used to
+// follow the definition order while the nav showed the section order.
+describe('inNavigationOrder', () => {
+  const cat = (id: string) => ({ id, title: id, description: '', keywords: [] })
+  const defined = ['appearance', 'editor', 'keymaps', 'tasks', 'typography', 'cloud', 'vault'].map(cat)
+  const nav = ['appearance', 'typography', 'editor', 'tasks', 'keymaps', 'vault', 'cloud']
+
+  it('puts the categories in the order the navigation shows them', () => {
+    expect(inNavigationOrder(defined, nav).map((c) => c.id)).toEqual(nav)
+  })
+
+  it('so the empty-search results Ctrl+J walks match the nav', () => {
+    const results = getSettingsSearchResults(inNavigationOrder(defined, nav), '')
+    expect(results.map((r) => r.category.id)).toEqual(nav)
+  })
+
+  it('keeps categories the order does not name, after the named ones', () => {
+    const ids = inNavigationOrder([cat('extra'), ...defined], ['vault', 'appearance']).map((c) => c.id)
+    expect(ids.slice(0, 2)).toEqual(['vault', 'appearance'])
+    expect(ids.slice(2)).toEqual(['extra', 'editor', 'keymaps', 'tasks', 'typography', 'cloud'])
+  })
+
+  it('leaves the input untouched', () => {
+    const input = [...defined]
+    inNavigationOrder(input, nav)
+    expect(input.map((c) => c.id)).toEqual(defined.map((c) => c.id))
   })
 })

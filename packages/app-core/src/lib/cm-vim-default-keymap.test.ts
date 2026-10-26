@@ -224,6 +224,71 @@ describe('vimAwareMarkdownKeymap (Enter in Vim normal mode acts as <CR>)', () =>
   })
 })
 
+// #993: on Linux/Windows defaultKeymap's Mod-a (select all) is Ctrl+A, Vim's
+// <C-a> increment, and it ran ahead of the Vim plugin. jsdom's navigator is not
+// a Mac, so CodeMirror reads Mod as Ctrl here, exactly as it does there.
+describe('Ctrl+A reaches Vim where Mod is Ctrl (#993)', () => {
+  const views: EditorView[] = []
+  afterEach(() => {
+    views.splice(0).forEach((v) => v.destroy())
+  })
+
+  const mount = (doc: string): EditorView => {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        // Keymap first: in the real editors CodeMirror's keymap handler runs
+        // before the Vim plugin's (measured in the app), which is the order
+        // that let select all win.
+        extensions: [keymap.of([...vimAwareDefaultKeymap(true, false)]), vim()]
+      }),
+      parent: document.body
+    })
+    views.push(view)
+    view.focus()
+    return view
+  }
+
+  const press = (view: EditorView, key: string, keyCode: number, ctrlKey = false): void => {
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent('keydown', { key, keyCode, ctrlKey, bubbles: true, cancelable: true })
+    )
+  }
+
+  const selectAllRun = (mac: boolean): NonNullable<KeyBinding['run']> => {
+    const binding = vimAwareDefaultKeymap(true, mac).find((b) => b.key === 'Mod-a')
+    if (!binding?.run) throw new Error('no Mod-a binding')
+    return binding.run
+  }
+
+  it('increments the number on the line in normal mode instead of selecting the note', () => {
+    const view = mount('count 41 apples')
+    press(view, 'a', 65, true)
+    expect(view.state.doc.toString()).toBe('count 42 apples')
+    expect(view.state.selection.main.empty).toBe(true)
+  })
+
+  it('defers in visual mode too, and keeps select all in insert mode', () => {
+    const visual = mount('hello world')
+    press(visual, 'v', 86)
+    expect(selectAllRun(false)(visual)).toBe(false)
+
+    const insert = mount('hello world')
+    press(insert, 'i', 73)
+    expect(selectAllRun(false)(insert)).toBe(true)
+    expect(insert.state.selection.main.from).toBe(0)
+    expect(insert.state.selection.main.to).toBe(11)
+  })
+
+  it('leaves Cmd+A on macOS and Ctrl+A with Vim off as plain select all', () => {
+    const mac = vimAwareDefaultKeymap(true, true).find((b) => b.key === 'Mod-a')
+    expect(mac?.preventDefault).toBeUndefined()
+    const view = mount('hello world')
+    expect(mac?.run?.(view)).toBe(true) // normal mode, and still selects
+    expect(vimAwareDefaultKeymap(false, false)).toBe(vimAwareDefaultKeymap(false, true))
+  })
+})
+
 // #510: on Linux/Windows the search panel's Mod-f is Ctrl+F, which Vim wants
 // for page-forward; the keymap runs ahead of the Vim plugin, so the panel won.
 describe('vimAwareSearchKeymap', () => {

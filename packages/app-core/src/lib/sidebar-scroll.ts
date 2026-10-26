@@ -29,3 +29,18 @@ export function isRecentSidebarPointerInteraction(
   if (!Number.isFinite(now) || now < lastPointerAt) return false
   return now - lastPointerAt <= windowMs
 }
+
+/**
+ * Whether the sidebar's reveal has a new selection to follow. The parts are
+ * the things a person selects (the note, the view, the special views), and
+ * they compare by identity. A reveal that ran for the same parts already put
+ * the Vim cursor there, so re-running it can only pull the cursor back from
+ * where the keys have since moved it. (#993)
+ */
+export function sidebarSelectionChanged(
+  previous: readonly unknown[] | null,
+  next: readonly unknown[]
+): boolean {
+  if (!previous || previous.length !== next.length) return true
+  return next.some((part, i) => !Object.is(part, previous[i]))
+}

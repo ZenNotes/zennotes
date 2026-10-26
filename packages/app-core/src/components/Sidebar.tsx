@@ -133,6 +133,7 @@ import {
 import {
   getScrollTopForPreservedSidebarAnchor,
   isRecentSidebarPointerInteraction,
+  sidebarSelectionChanged,
 } from "../lib/sidebar-scroll";
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
 import { appUpdateBadgeLabel, useAppUpdateState } from "../lib/app-update-state";
@@ -702,6 +703,10 @@ export function Sidebar(): JSX.Element {
   const selectedSidebarCountRef = useRef(selectedSidebarCount);
   const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
   const lastSidebarPointerAtRef = useRef(0);
+  // What the reveal effect below last put the Vim cursor on, and the last
+  // note that was selected; see that effect.
+  const revealedSelectionRef = useRef<readonly unknown[] | null>(null);
+  const lastSelectedNoteRef = useRef<string | null>(null);
   const pendingSidebarScrollAnchorRef = useRef<{
     selector: string;
     top: number;
@@ -2797,7 +2802,32 @@ export function Sidebar(): JSX.Element {
   };
 
   useEffect(() => {
-    if (!isSidebarFocused) return;
+    if (!isSidebarFocused) {
+      // Coming back into the sidebar always lands on the current item.
+      revealedSelectionRef.current = null;
+      return;
+    }
+
+    // Follow a new selection, never a re-run for the same one. Selecting a
+    // folder clears selectedPath, and almost any store update after it (the
+    // first expand's note prefetch landing, a listing refresh) sets it back
+    // to the open tab. That is the same note coming back, not a new pick, so
+    // the last note counts through the gap; and a refresh that leaves the
+    // selection alone is no reason to move. Both used to drag the cursor off
+    // the row Vim keys had moved it to and onto the open note. (#993)
+    if (selectedPath) lastSelectedNoteRef.current = selectedPath;
+    const selection = [
+      lastSelectedNoteRef.current,
+      view,
+      tagsViewActive,
+      selectedTags,
+      trashViewActive,
+      archiveViewActive,
+      quickNotesViewActive,
+    ];
+    if (!sidebarSelectionChanged(revealedSelectionRef.current, selection)) {
+      return;
+    }
 
     const findTarget = (): HTMLElement | null => {
       if (
@@ -2900,8 +2930,10 @@ export function Sidebar(): JSX.Element {
       return null;
     };
 
+    // No row yet (the listing is still loading): the next run tries again.
     const target = findTarget();
     if (!target) return;
+    revealedSelectionRef.current = selection;
 
     const idx = Number(target.dataset.sidebarIdx);
     if (Number.isFinite(idx) && idx !== sidebarCursorIndex) {

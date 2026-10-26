@@ -1,8 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import {
   getScrollTopForPreservedSidebarAnchor,
-  isRecentSidebarPointerInteraction
+  isRecentSidebarPointerInteraction,
+  sidebarSelectionChanged
 } from './sidebar-scroll'
+
+// #993: the reveal re-ran on every listing refresh and on the open note
+// coming back after a folder selection, and each run pulled the Vim cursor
+// onto the open note.
+describe('sidebarSelectionChanged', () => {
+  const folderView = { kind: 'folder', folder: 'inbox', subpath: 'Projects' }
+  const tags: string[] = []
+
+  it('reveals the first time, after focus comes back (no previous selection)', () => {
+    expect(sidebarSelectionChanged(null, ['inbox/a.md', folderView, false, tags])).toBe(true)
+  })
+
+  it('stays put when nothing the person selects has changed', () => {
+    const selection = ['inbox/a.md', folderView, false, tags]
+    expect(sidebarSelectionChanged(selection, ['inbox/a.md', folderView, false, tags])).toBe(false)
+  })
+
+  it('follows a different note, a new view, or a toggled special view', () => {
+    const selection = ['inbox/a.md', folderView, false, tags]
+    expect(sidebarSelectionChanged(selection, ['inbox/b.md', folderView, false, tags])).toBe(true)
+    expect(sidebarSelectionChanged(selection, ['inbox/a.md', { ...folderView }, false, tags])).toBe(true)
+    expect(sidebarSelectionChanged(selection, ['inbox/a.md', folderView, true, tags])).toBe(true)
+    expect(sidebarSelectionChanged(selection, ['inbox/a.md', folderView, false, ['x']])).toBe(true)
+  })
+})
 
 describe('sidebar scroll anchoring', () => {
   it('keeps the interacted row at the same visual offset', () => {

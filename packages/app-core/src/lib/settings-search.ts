@@ -85,6 +85,25 @@ function settingResult<TCategory extends SettingsSearchCategory>(
   }
 }
 
+/**
+ * Categories in the order the navigation shows them, which groups them by
+ * section and so differs from the order they are defined in. The results
+ * list is built from this, and Ctrl+J/K (and the arrows) walk that list even
+ * while the search is empty, so a definition-order list sent the keys
+ * skipping back and forth through the categories on screen. (#993)
+ * Categories the order does not name follow, in their own order.
+ */
+export function inNavigationOrder<TCategory extends SettingsSearchCategory>(
+  categories: readonly TCategory[],
+  order: readonly string[]
+): TCategory[] {
+  const rank = (id: string): number => {
+    const at = order.indexOf(id)
+    return at === -1 ? order.length : at
+  }
+  return [...categories].sort((a, b) => rank(a.id) - rank(b.id))
+}
+
 export function getSettingsSearchResults<TCategory extends SettingsSearchCategory>(
   categories: TCategory[],
   query: string

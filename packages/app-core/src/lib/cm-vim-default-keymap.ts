@@ -160,14 +160,33 @@ const vimModeKeymap: readonly KeyBinding[] = deferEscapeToVim(
 )
 
 /**
+ * Ctrl+A belongs to Vim where Mod is Ctrl (#993). `defaultKeymap` binds
+ * `Mod-a` to select all, which on Linux and Windows is Ctrl+A, Vim's
+ * `<C-a>` increment; it ran ahead of the Vim plugin, so normal mode selected
+ * the whole note instead of bumping the number. (Ctrl+X, the decrement, has
+ * no binding here and always reached Vim.) Like the motion keys it defers to
+ * Vim outside insert mode, so insert mode keeps select all. macOS's Cmd+A
+ * never collided.
+ */
+const vimModeKeymapModIsCtrl: readonly KeyBinding[] = deferKeysToVim(
+  vimModeKeymap,
+  new Set(['Mod-a'])
+)
+
+/**
  * CodeMirror's `defaultKeymap`, made Vim-aware: in Vim mode the macOS
  * emacs-style control chords are stripped so Vim's `<C-d>`/`<C-a>`/`<C-v>`/…
  * bindings work, the arrow keys defer to Vim in normal/visual mode so they
- * move/extend like `hjkl`, and Escape defers to Vim in insert/visual mode so it
- * leaves the mode; with Vim off the full keymap is used unchanged.
+ * move/extend like `hjkl`, Escape defers to Vim in insert/visual mode so it
+ * leaves the mode, and off macOS Ctrl+A defers to Vim outside insert mode;
+ * with Vim off the full keymap is used unchanged.
  */
-export function vimAwareDefaultKeymap(vimMode: boolean): readonly KeyBinding[] {
-  return vimMode ? vimModeKeymap : defaultKeymap
+export function vimAwareDefaultKeymap(
+  vimMode: boolean,
+  mac: boolean = isMacPlatform()
+): readonly KeyBinding[] {
+  if (!vimMode) return defaultKeymap
+  return mac ? vimModeKeymap : vimModeKeymapModIsCtrl
 }
 
 /**
