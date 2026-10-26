@@ -3537,7 +3537,7 @@ interface Store {
   openNoteAtOffset: (
     relPath: string,
     offset: number,
-    options?: { scrollMode?: 'center' | 'start' }
+    options?: { scrollMode?: 'center' | 'start'; highlightLine?: boolean }
   ) => Promise<void>
   /** Reload the vault's Typst preamble notes (tag-driven math definitions). */
   refreshTypstPreambles: () => Promise<void>
@@ -7603,7 +7603,8 @@ export const useStore = create<Store>((set, get) => {
       editorSelectionHead: anchor,
       editorScrollTop: 0,
       previewScrollTop: 0,
-      editorScrollMode: options?.scrollMode ?? 'center'
+      editorScrollMode: options?.scrollMode ?? 'center',
+      ...(options?.highlightLine ? { highlightLine: true } : {})
     }
     set({
       pendingJumpLocation,

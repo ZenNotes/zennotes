@@ -1979,8 +1979,9 @@ async function folderOf(root: string, absPath: string): Promise<NoteFolder | nul
  * indentation-tolerant: a fence nested under a list item is still a code block,
  * so its contents (e.g. a C `#include` line) must not be scanned. A
  * column-0-anchored regex missed indented fences and leaked them as tags (#293).
- * Mirrors `stripCodeContent` in packages/app-core/src/lib/tags.ts and
- * internal/vault/parse.go in ZenNotes/znserver — keep the three in sync.
+ * Mirrors `stripCodeContent` in packages/shared-domain/src/tag-scan.ts,
+ * apps/desktop/src/mcp/vault-ops.ts, packages/app-core/src/lib/wikilinks.ts and
+ * internal/vault/parse.go in ZenNotes/znserver: keep all five in sync.
  */
 function stripCodeContent(body: string): string {
   if (!body.includes('`') && !body.includes('~')) return body

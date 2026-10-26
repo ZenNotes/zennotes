@@ -158,6 +158,8 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "tasks.moveTaskUp", group: "view-actions", defaultBinding: "K", title: "Move task up" },
   { id: "tasks.moveTaskDown", group: "view-actions", defaultBinding: "J", title: "Move task down" },
   { id: "tasks.savedFilters", group: "view-actions", defaultBinding: "F", title: "Pick a saved Tasks filter" },
+  { id: "tags.nextNote", group: "view-actions", defaultBinding: "}", title: "Next note in Tags view" },
+  { id: "tags.previousNote", group: "view-actions", defaultBinding: "{", title: "Previous note in Tags view" },
   { id: "editor.hopMarkerForward", group: "view-actions", defaultBinding: "Alt+]", defaultBindingMac: "Ctrl+.", title: "Hop past next marker" },
   { id: "editor.hopMarkerBackward", group: "view-actions", defaultBinding: "Alt+[", defaultBindingMac: "Ctrl+,", title: "Hop before previous marker" },
   { id: "editor.foldHeading", group: "view-actions", defaultBinding: "Alt+Mod+F", title: "Fold heading or list item" },

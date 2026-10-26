@@ -129,6 +129,8 @@ export type KeymapId =
   | "tasks.moveTaskUp"
   | "tasks.moveTaskDown"
   | "tasks.savedFilters"
+  | "tags.nextNote"
+  | "tags.previousNote"
   | "editor.moveLineUp"
   | "editor.moveLineDown"
   | "editor.hopMarkerForward"
@@ -1345,6 +1347,30 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the picker of saved Tasks filters and apply one (Tasks view, Vim mode). Save the current filter with :savefilter <name>.",
     defaultBinding: "F",
+    maxTokens: 1,
+  },
+  {
+    id: "tags.nextNote",
+    kind: "sequence",
+    scope: "views",
+    group: "view-actions",
+    title: "Next note in Tags view",
+    description:
+      "Move past the selected note's tagged blocks to the next note in the Tags view (Vim mode).",
+    defaultBinding: "}",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "tags.previousNote",
+    kind: "sequence",
+    scope: "views",
+    group: "view-actions",
+    title: "Previous note in Tags view",
+    description:
+      "Move to the previous note in the Tags view, or to the top of the current note's blocks (Vim mode).",
+    defaultBinding: "{",
+    vimOnly: true,
     maxTokens: 1,
   },
   {

@@ -8,7 +8,7 @@ const INVALID_NOTE_PATH_CHARS = /[\\:*?"<>|#^\[\]]/
  * Blank out fenced and inline code so [[wikilink]] / mention scanning never
  * reads code as a link. Line-based and indentation-tolerant: a fence nested
  * under a list item is still a code block (#293). Mirrors `stripCodeContent` in
- * tags.ts, apps/desktop/src/main/vault.ts, apps/desktop/src/mcp/vault-ops.ts,
+ * @shared/tag-scan, apps/desktop/src/main/vault.ts, apps/desktop/src/mcp/vault-ops.ts,
  * and internal/vault/parse.go in ZenNotes/znserver — keep all five in sync.
  */
 function stripCodeContent(body: string): string {

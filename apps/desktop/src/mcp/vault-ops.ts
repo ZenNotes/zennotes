@@ -658,7 +658,7 @@ async function folderOf(root: string, abs: string): Promise<NoteFolder | null> {
  * never read code as content. Line-based and indentation-tolerant: a fence
  * nested under a list item is still a code block (#293). Mirrors
  * `stripCodeContent` in apps/desktop/src/main/vault.ts,
- * packages/app-core/src/lib/{tags,wikilinks}.ts, and
+ * packages/shared-domain/src/tag-scan.ts, packages/app-core/src/lib/wikilinks.ts, and
  * internal/vault/parse.go in ZenNotes/znserver — keep all five in sync.
  */
 function stripCodeContent(body: string): string {
