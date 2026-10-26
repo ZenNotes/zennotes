@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { completionStatus } from '@codemirror/autocomplete'
-import { isAtlasViewActive, isTagsViewActive, isTasksViewActive, useStore } from '../store'
+import {
+  isAtlasViewActive,
+  isTagsViewActive,
+  isTasksViewActive,
+  isUnresolvedLinksViewActive,
+  useStore
+} from '../store'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
@@ -338,6 +344,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteOutline'),
         label: 'Note outline',
         detail: 'Jump to any heading in the active note.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderUnresolvedLinks'),
+        label: 'Unresolved links',
+        detail: 'Every link to a note that does not exist yet, with the lines that link to it.'
       },
       ...(canSwitchVaults
         ? [
@@ -925,6 +936,17 @@ export function VimNav(): JSX.Element | null {
       ) {
         return
       }
+      // The Unresolved Links view stands where the editor would, so it holds
+      // the keyboard whenever the editor panel does, through its own
+      // capture handler. The leader still reaches the logic below.
+      if (
+        isUnresolvedLinksViewActive(state) &&
+        (state.focusedPanel == null || state.focusedPanel === 'editor') &&
+        !leaderPending.current &&
+        sequenceTokenFromEvent(e) !== leaderToken
+      ) {
+        return
+      }
 
       // ------- Global leader handling -----------------------------------
       // Runs before per-panel routing so <Space>-prefixed shortcuts work
@@ -1013,6 +1035,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           state.setOutlinePaletteOpen(true)
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderUnresolvedLinks')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void state.openUnresolvedLinksView()
           return
         }
         if (canSwitchVaults && matchesSequenceToken(e, overrides, 'vim.leaderSwitchVault')) {
@@ -2362,7 +2391,7 @@ export function VimNav(): JSX.Element | null {
       })
       return
     }
-    if (type === 'missing' || type === 'attachment') {
+    if (type === 'missing' || type === 'attachment' || type === 'unresolved-all') {
       el.click()
     }
   }

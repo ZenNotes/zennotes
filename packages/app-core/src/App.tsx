@@ -174,6 +174,10 @@ const Editor = lazy(async () => {
   return { default: module.Editor }
 })
 
+const LinkPopover = lazy(async () => {
+  const module = await import('./components/LinkPopover')
+  return { default: module.LinkPopover }
+})
 const PinnedReferencePane = lazy(async () => {
   const module = await import('./components/PinnedReferencePane')
   return { default: module.PinnedReferencePane }
@@ -370,6 +374,7 @@ function App(): JSX.Element {
   const init = useStore((s) => s.init)
   const workspaceRestored = useStore((s) => s.workspaceRestored && !s.workspaceTransitioning)
   const searchOpen = useStore((s) => s.searchOpen)
+  const linkPopoverOpen = useStore((s) => s.linkPopover !== null)
   const setSearchOpen = useStore((s) => s.setSearchOpen)
   const vaultTextSearchOpen = useStore((s) => s.vaultTextSearchOpen)
   const setVaultTextSearchOpen = useStore((s) => s.setVaultTextSearchOpen)
@@ -1338,6 +1343,11 @@ function App(): JSX.Element {
       {whatsNewOpen && (
         <Suspense fallback={null}>
           <WhatsNewModal />
+        </Suspense>
+      )}
+      {linkPopoverOpen && (
+        <Suspense fallback={null}>
+          <LinkPopover />
         </Suspense>
       )}
       <PromptHost />

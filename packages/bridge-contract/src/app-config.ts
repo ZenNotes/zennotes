@@ -27,6 +27,7 @@ export const PORTABLE_PREF_KEYS = [
   'livePreview',
   'showHeadingLevelLabels',
   'listIndentGuides',
+  'linkPopoverOnHover',
   'renderTablesInLivePreview',
   'completedTaskStyle',
   'mathRenderer',

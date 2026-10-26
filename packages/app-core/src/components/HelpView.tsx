@@ -73,6 +73,7 @@ function resolveShortcutKeys(
     if (action === 'Zoom out') return shortcut(overrides, 'global.zoomOut')
     if (action === 'Reset zoom') return shortcut(overrides, 'global.zoomReset')
     if (action === 'Toggle word wrap') return shortcut(overrides, 'global.toggleWordWrap')
+    if (action === 'Open link popover') return shortcut(overrides, 'editor.linkPopover')
   }
 
   if (sectionId === 'quick-capture-window') {
@@ -100,6 +101,7 @@ function resolveShortcutKeys(
     }
     if (action === 'Toggle left sidebar') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
     if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
+    if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
     if (action === 'Review Cloud conflicts') {
@@ -159,6 +161,7 @@ function resolveShortcutKeys(
 function resolveVimCommandLabel(command: string, overrides: KeymapOverrides): string {
   if (command === 'gd') return shortcut(overrides, 'vim.goToDefinition')
   if (command === 'gD') return shortcut(overrides, 'vim.createNoteFromLink')
+  if (command === 'K') return shortcut(overrides, 'vim.linkPopover')
   if (command === 'Mod+L') return shortcut(overrides, 'editor.toggleCheckbox')
   if (command === '<Space> l f') {
     return chord(

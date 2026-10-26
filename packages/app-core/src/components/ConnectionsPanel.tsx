@@ -127,6 +127,8 @@ export function ConnectionsPanel({
     outgoing.resolvedItems.length +
     outgoing.attachmentItems.length +
     outgoing.missingItems.length +
+    // The way to the vault-wide list, under this note's missing links.
+    (outgoing.missingItems.length > 0 ? 1 : 0) +
     backlinks.length +
     mentions.length
 
@@ -339,6 +341,12 @@ export function ConnectionsPanel({
                 rowIndex={rowIndex++}
               />
             ))}
+            {outgoing.missingItems.length > 0 && (
+              <AllUnresolvedLinksRow
+                active={isConnectionsFocused && connectionsCursorIndex === rowIndex}
+                rowIndex={rowIndex++}
+              />
+            )}
           </ConnectionSection>
 
           <div className="my-3 h-px bg-paper-300/60" />
@@ -678,5 +686,33 @@ function ConnectionKeyHint({
       <span className="font-mono text-2xs">{keyLabel}</span>
       <span className="ml-1">{label}</span>
     </span>
+  )
+}
+
+/**
+ * Under a note's missing links: the way to every missing link in the vault,
+ * the Unresolved Links view. A row like the others so `j`/`k` reach it.
+ */
+function AllUnresolvedLinksRow({
+  active,
+  rowIndex
+}: {
+  active: boolean
+  rowIndex: number
+}): JSX.Element {
+  const openUnresolvedLinksView = useStore((s) => s.openUnresolvedLinksView)
+  return (
+    <button
+      type="button"
+      onClick={() => void openUnresolvedLinksView()}
+      data-connections-idx={rowIndex}
+      data-connections-type="unresolved-all"
+      className={[
+        'rounded-xl px-3 py-2 text-left text-xs transition-colors',
+        active ? 'bg-accent text-white' : 'text-ink-500 hover:bg-paper-200/60 hover:text-ink-900'
+      ].join(' ')}
+    >
+      All unresolved links in the vault →
+    </button>
   )
 }

@@ -7,7 +7,14 @@
  * sensitive commands like "Unarchive" only show up when applicable).
  */
 import { requestAgentEditReview } from './agent-review-runtime'
-import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
+import {
+  isTagsViewActive,
+  isTasksViewActive,
+  isTrashViewActive,
+  isUnresolvedLinksViewActive,
+  useStore
+} from '../store'
+import { openLinkPopoverAtCursor } from './link-popover-open'
 import { confirmApp } from './confirm-requests'
 import { requestSettingsTarget } from './settings-navigation'
 import { hideWindowToTray, useTrayStore } from './tray-runtime'
@@ -1007,6 +1014,25 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'editor.link-popover',
+      title: 'Open Link Popover',
+      category: 'Editor',
+      shortcut: getState().vimMode
+        ? [shortcut('vim.linkPopover'), shortcut('editor.linkPopover')].filter(Boolean).join(' / ')
+        : shortcut('editor.linkPopover'),
+      keywords: 'link popover hover preview edit create note wikilink peek floating in place',
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (!view) return
+        // The palette took focus; the cursor the popover reads is the
+        // editor's, which it kept.
+        if (!openLinkPopoverAtCursor(view)) {
+          window.alert('Put the cursor on a [[wikilink]] to open its note in the link popover.')
+        }
+      }
+    },
+    {
       id: 'task.toggle-checkbox',
       title: 'Toggle Checkbox',
       category: 'Editor',
@@ -1306,6 +1332,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       // Hidden entirely when the feature is switched off in Settings
       when: () => getState().atlasEnabled,
       run: () => getState().openAtlasView()
+    },
+    {
+      id: 'view.unresolved-links',
+      title: 'Open Unresolved Links',
+      category: 'View',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderUnresolvedLinks') : ':unresolved',
+      keywords:
+        'unresolved links missing broken dangling wikilinks notes to write later create orphan dead',
+      when: () => !isUnresolvedLinksViewActive(getState()),
+      run: () => getState().openUnresolvedLinksView()
     },
     {
       id: 'view.tags',

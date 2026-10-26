@@ -74,6 +74,15 @@ import { keyBindingsFor, vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { scrollOff } from '../lib/cm-scrolloff'
 import { followLinkTarget } from '../lib/follow-link'
 import { pointerOverRange } from '../lib/cm-pointer-range'
+import {
+  openLinkPopoverAtCursor,
+  pointerLeftWikilink,
+  pointerOverWikilink,
+  rangeRect
+} from '../lib/link-popover-open'
+import { isInsideCode } from '../lib/cm-wikilink-render'
+import { isUnresolvedLinksTabPath } from '@shared/unresolved-links'
+import { UnresolvedLinksView } from './UnresolvedLinksView'
 import { setHoveredLink } from '../lib/hovered-link'
 import {
   setYankToClipboardEnabled,
@@ -251,6 +260,7 @@ import {
   CheckSquareIcon,
   CloseIcon,
   PaperclipIcon,
+  LinkIcon,
   DocumentIcon,
   FileDownIcon,
   FeedbackIcon,
@@ -410,6 +420,9 @@ function buildEditorKeymap(vimMode: boolean, overrides: KeymapOverrides): Extens
     // Join a hard-wrapped paragraph back into one line so the pane wraps it
     // (#676). Mode-agnostic like the line moves; Vim mode also has `gq`.
     ...keyBindingsFor(getKeymapBinding(overrides, 'editor.reflowParagraph'), reflowParagraph),
+    // The note a [[wikilink]] names, in the link popover, keyboard inside.
+    // Mode-agnostic; Vim mode also has it as `K`.
+    ...keyBindingsFor(getKeymapBinding(overrides, 'editor.linkPopover'), openLinkPopoverAtCursor),
     // Step across inline markers, so a formatted word can be finished without
     // reaching for the arrow keys. Mode-agnostic like the line moves. (#490)
     ...keyBindingsFor(getKeymapBinding(overrides, 'editor.hopMarkerForward'), markerHop.forward),
@@ -2215,22 +2228,36 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               }
               const line = view.state.doc.lineAt(pos)
               const link = linkRangeAtCursor(line.text, pos - line.from)
-              setHoveredLink(
-                link &&
-                  pointerOverRange(
-                    view,
-                    line.from + link.from,
-                    line.from + link.to,
-                    event.clientX,
-                    event.clientY
-                  )
-                  ? link.target
-                  : null
-              )
+              const over =
+                !!link &&
+                pointerOverRange(
+                  view,
+                  line.from + link.from,
+                  line.from + link.to,
+                  event.clientX,
+                  event.clientY
+                )
+              setHoveredLink(over && link ? link.target : null)
+              // Resting on a [[wikilink]] opens its note in the link popover.
+              // Not while a button is down (a selection drag crossing a link),
+              // and not for `[[...]]` inside code, which is text.
+              const from = line.from + (link?.from ?? 0)
+              if (
+                over &&
+                link?.kind === 'wikilink' &&
+                event.buttons === 0 &&
+                !isInsideCode(view.state, from)
+              ) {
+                const to = line.from + link.to
+                pointerOverWikilink(link.target, viewPathRef.current, () => rangeRect(view, from, to))
+              } else {
+                pointerLeftWikilink()
+              }
               return false
             },
             mouseleave: () => {
               setHoveredLink(null)
+              pointerLeftWikilink()
               return false
             },
             click: (event) => {
@@ -3276,6 +3303,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isArchive: false,
           isTrash: false,
           isAssetsView: false,
+          isUnresolvedLinks: false,
           isAsset: false,
           isDiagram: false,
           isDatabase: false
@@ -3341,6 +3369,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ...base,
             title: 'Assets',
             isAssetsView: true
+          }
+        }
+        if (isUnresolvedLinksTabPath(path)) {
+          return {
+            ...base,
+            title: 'Unresolved Links',
+            isUnresolvedLinks: true
           }
         }
         if (isAssetTabPath(path)) {
@@ -3441,6 +3476,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isHelpTabPath(path) ||
       isArchiveTabPath(path) ||
       isTrashTabPath(path) ||
+      isUnresolvedLinksTabPath(path) ||
       isAssetTabPath(path) ||
       isDiagramTabPath(path) ||
       isDatabaseTabPath(path)
@@ -3549,6 +3585,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isArchive: boolean
       isTrash: boolean
       isAssetsView: boolean
+      isUnresolvedLinks: boolean
       isAsset: boolean
       isDiagram: boolean
     }) => {
@@ -3562,6 +3599,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         tab.isArchive ||
         tab.isTrash ||
         tab.isAssetsView ||
+        tab.isUnresolvedLinks ||
         tab.isAsset ||
         tab.isDiagram
       return (
@@ -3735,6 +3773,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isAssetsView && (
                 <PaperclipIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isUnresolvedLinks && (
+                <LinkIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isAsset && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -4448,6 +4489,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <TrashView />
           ) : isAssetsViewTabPath(activeTab) ? (
             <AssetsView />
+          ) : isUnresolvedLinksTabPath(activeTab) ? (
+            <UnresolvedLinksView />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
               <DatabaseView

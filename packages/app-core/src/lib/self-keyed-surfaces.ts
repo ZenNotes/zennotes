@@ -29,7 +29,10 @@ export const SELF_KEYED_SURFACES = [
   '[data-workflow-list-pane]',
   '[data-workflow-canvas]',
   // Owns bracket region navigation before global Vim buffer prefixes.
-  '[data-atlas-view]'
+  '[data-atlas-view]',
+  // The link popover: its editor and its Create button own every key, and
+  // its Escape closes it rather than walking the sidebar.
+  '[data-link-popover]'
 ].join(', ')
 
 /**

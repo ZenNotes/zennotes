@@ -73,7 +73,7 @@ export const pinnedRefPaneId = PINNED_REF_PANE_ID
 
 const programmatic = Annotation.define<boolean>()
 
-const paperHighlight = HighlightStyle.define([
+export const paperHighlight = HighlightStyle.define([
   { tag: t.heading1, class: 'tok-heading1' },
   { tag: t.heading2, class: 'tok-heading2' },
   { tag: t.heading3, class: 'tok-heading3' },
@@ -133,7 +133,7 @@ function lineNumberExtension(mode: LineNumberMode): Extension {
   ]
 }
 
-function buildReferenceKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
+export function buildReferenceKeymap(vimMode: boolean, overrides: KeymapOverrides): Extension {
   return keymap.of([
     // Note search must precede the find bar only while its binding is set.
     ...keyBindingsFor(getKeymapBinding(overrides, 'global.searchNotesNonVim'), () => {

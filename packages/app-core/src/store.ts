@@ -96,6 +96,7 @@ import { HELP_TAB_PATH, isHelpTabPath } from '@shared/help'
 import { ARCHIVE_TAB_PATH, isArchiveTabPath } from '@shared/archive'
 import { TRASH_TAB_PATH, isTrashTabPath } from '@shared/trash'
 import { ASSETS_VIEW_TAB_PATH } from '@shared/assets-view'
+import { UNRESOLVED_LINKS_TAB_PATH } from '@shared/unresolved-links'
 import { QUICK_NOTES_TAB_PATH, isQuickNotesTabPath } from '@shared/quick-notes'
 import { isAssetTabPath, assetPathFromTab, assetTabPath } from './lib/asset-tabs'
 import {
@@ -576,6 +577,9 @@ interface Prefs {
   showHeadingLevelLabels: boolean
   /** Vertical guide lines at each nested-list level in the editor (#491). */
   listIndentGuides: boolean
+  /** Resting the pointer on a `[[wikilink]]` in the editor opens the link
+   *  popover. Off leaves the popover to its keys (`K`, the editor shortcut). */
+  linkPopoverOnHover: boolean
   /** Render Markdown tables as interactive WYSIWYG widgets in live preview.
    *  Off keeps tables as plain editable markdown — full keyboard/Vim editing. */
   renderTablesInLivePreview: boolean
@@ -1111,6 +1115,7 @@ export const DEFAULT_PREFS: Prefs = {
   livePreview: true,
   showHeadingLevelLabels: false,
   listIndentGuides: true,
+  linkPopoverOnHover: true,
   renderTablesInLivePreview: true,
   completedTaskStyle: 'none',
   mathRenderer: 'katex',
@@ -1287,6 +1292,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.listIndentGuides === 'boolean'
         ? p.listIndentGuides
         : DEFAULT_PREFS.listIndentGuides,
+    linkPopoverOnHover:
+      typeof p.linkPopoverOnHover === 'boolean'
+        ? p.linkPopoverOnHover
+        : DEFAULT_PREFS.linkPopoverOnHover,
     renderTablesInLivePreview:
       typeof p.renderTablesInLivePreview === 'boolean'
         ? p.renderTablesInLivePreview
@@ -1820,6 +1829,29 @@ export interface ConnectionPreviewState {
   path: string
   title: string
   anchorRect: PreviewAnchorRect
+}
+
+/**
+ * The link popover: the note a `[[wikilink]]` names, editable in place over
+ * the note that links to it (Logseq-style), or an offer to create it when no
+ * note answers the link yet.
+ */
+export interface LinkPopoverState {
+  /** The target as written, `Doc#Heading` included. */
+  target: string
+  /** The note the link opens, or null while no note answers it. */
+  path: string | null
+  /** Screen rect of the link the popover hangs off. */
+  anchorRect: PreviewAnchorRect
+  /** 'hover' closes when the pointer leaves; 'pinned' waits for Escape, a
+   *  click outside or the close button. Working in a hover popover pins it. */
+  mode: 'hover' | 'pinned'
+  /** Take keyboard focus as it shows: it was opened from a key. */
+  focus: boolean
+  /** The note was just created from the popover: start at its end, typing. */
+  created: boolean
+  /** Bumped by every open, so reopening one link reruns the popover's setup. */
+  serial: number
 }
 
 export interface CreateDatabaseOptions {
@@ -2409,6 +2441,7 @@ function collectPrefs(s: {
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
+  linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
@@ -2525,6 +2558,7 @@ function collectPrefs(s: {
     livePreview: s.livePreview,
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     listIndentGuides: s.listIndentGuides,
+    linkPopoverOnHover: s.linkPopoverOnHover,
     renderTablesInLivePreview: s.renderTablesInLivePreview,
     completedTaskStyle: s.completedTaskStyle,
     mathRenderer: s.mathRenderer,
@@ -2946,6 +2980,15 @@ export function isArchiveViewActive(state: {
   return leaf?.activeTab === ARCHIVE_TAB_PATH
 }
 
+/** True when the active pane's active tab is the Unresolved Links view. */
+export function isUnresolvedLinksViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return leaf?.activeTab === UNRESOLVED_LINKS_TAB_PATH
+}
+
 /** True when the active pane's active tab is the built-in Assets view. */
 export function isAssetsViewActive(state: {
   paneLayout: PaneLayout
@@ -3059,6 +3102,7 @@ interface Store {
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
+  linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
@@ -3330,6 +3374,7 @@ interface Store {
    *  pane navigation can restore where you were. (#477) */
   outlineCursorIndex: number
   connectionPreview: ConnectionPreviewState | null
+  linkPopover: LinkPopoverState | null
   editorViewRef: EditorView | null
   editorCursorPosition: EditorCursorPosition | null
   pendingTitleFocusPath: string | null
@@ -3427,6 +3472,8 @@ interface Store {
   /** Open the built-in Archive tab in the active pane. */
   openArchiveView: () => Promise<void>
   openAssetsView: () => Promise<void>
+  /** Open the built-in Unresolved Links view in the active pane. */
+  openUnresolvedLinksView: () => Promise<void>
   /** Open the built-in Trash tab in the active pane. */
   openTrashView: () => Promise<void>
   /** Read a CSV database (CSV + sidecar) into `databases` if not already loaded. */
@@ -3697,6 +3744,7 @@ interface Store {
   setLivePreview: (on: boolean) => void
   setShowHeadingLevelLabels: (on: boolean) => void
   setListIndentGuides: (on: boolean) => void
+  setLinkPopoverOnHover: (on: boolean) => void
   setRenderTablesInLivePreview: (on: boolean) => void
   setCompletedTaskStyle: (style: CompletedTaskStyle) => void
   setMathRenderer: (renderer: MathRenderer) => void
@@ -3898,6 +3946,18 @@ interface Store {
   setConnectionsCursorIndex: (idx: number) => void
   setOutlineCursorIndex: (idx: number) => void
   setConnectionPreview: (preview: ConnectionPreviewState | null) => void
+  /** Show the link popover. An existing note is read into the shared content
+   *  cache first, so the popover edits the same buffer as every pane. */
+  openLinkPopover: (popover: Omit<LinkPopoverState, 'serial'>) => Promise<void>
+  /** Keep a hover popover open once the user works in it. */
+  pinLinkPopover: () => void
+  /** Point the open popover at a note it just created, and focus it. */
+  showNoteInLinkPopover: (path: string) => Promise<void>
+  /** Close the popover; its note is saved first when it has unsaved edits. */
+  closeLinkPopover: () => void
+  /** Create a note without opening it, for the link popover to edit in place.
+   *  Resolves to the new note, or null when it could not be made. */
+  createNoteInPlace: (folder: NoteFolder, subpath: string, title: string) => Promise<NoteMeta | null>
   setEditorViewRef: (view: EditorView | null) => void
   setEditorCursorPosition: (position: EditorCursorPosition | null) => void
 
@@ -4661,6 +4721,7 @@ function rewriteFolderWorkspace(
     pendingJumpLocation: pendingPath ? { ...s.pendingJumpLocation!, path: pendingPath } : null,
     pendingTitleFocusPath: s.pendingTitleFocusPath ? rewrite(s.pendingTitleFocusPath) : null,
     pinnedRefPath: s.pinnedRefPath ? rewrite(s.pinnedRefPath) : null,
+    linkPopover: rewriteLinkPopover(s.linkPopover, rewrite),
     ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
   }
 }
@@ -4881,6 +4942,69 @@ function rememberPrefetchedPath(path: string): void {
   prefetchedNotePaths.push(path)
 }
 
+/**
+ * Notes whose cached content the link popover still needs. The popover edits
+ * a note through `noteContents`, like any pane, but no pane may have that
+ * note open, and every cache prune drops unreferenced paths. A closed
+ * popover keeps its note held until the last edit is saved: dropping the
+ * cache first would leave the debounced save nothing to write.
+ */
+const closingLinkPopoverPaths = new Set<string>()
+
+function linkPopoverHeldPaths(s: Pick<Store, 'linkPopover'>): string[] {
+  const held = [...closingLinkPopoverPaths]
+  if (s.linkPopover?.path) held.push(s.linkPopover.path)
+  return held
+}
+
+function linkPopoverHolds(s: Pick<Store, 'linkPopover'>, path: string): boolean {
+  return s.linkPopover?.path === path || closingLinkPopoverPaths.has(path)
+}
+
+function rewriteLinkPopover(
+  popover: LinkPopoverState | null,
+  rewrite: (path: string) => string | null
+): LinkPopoverState | null {
+  if (!popover?.path) return popover
+  const path = rewrite(popover.path)
+  if (path === null) return null
+  return path === popover.path ? popover : { ...popover, path }
+}
+
+/**
+ * Let go of a note the link popover stopped showing (closed, or replaced by
+ * another link's note): save its last edit, then drop the cached copy unless
+ * something else shows it, so a later open reads it fresh from disk, as
+ * closing a tab does. The caller adds `path` to `closingLinkPopoverPaths`
+ * before clearing the popover, which keeps the cache alive until the save.
+ */
+async function releaseLinkPopoverNote(path: string): Promise<void> {
+  const store = useStore
+  try {
+    if (store.getState().noteDirty[path]) await store.getState().persistNote(path)
+  } finally {
+    closingLinkPopoverPaths.delete(path)
+    store.setState((s) => {
+      const referenced =
+        s.selectedPath === path ||
+        s.pinnedRefPath === path ||
+        linkPopoverHolds(s, path) ||
+        allLeaves(s.paneLayout).some((leaf) => leaf.tabs.includes(path))
+      if (referenced || s.noteDirty[path] || !s.noteContents[path]) return {}
+      const { [path]: _drop, ...contents } = s.noteContents
+      const { [path]: _d, ...dirty } = s.noteDirty
+      void _drop
+      void _d
+      return { noteContents: contents, noteDirty: dirty }
+    })
+  }
+}
+
+/** Bumped by every popover open and close, so a slow note read that loses
+ *  the race to a close (the pointer left first) does not reopen it. */
+let linkPopoverRequest = 0
+let linkPopoverSerial = 0
+
 function prunePrefetchedContents(s: Store): Partial<Store> {
   if (prefetchedNotePaths.length <= MAX_PREFETCHED_NOTE_CONTENTS) return {}
 
@@ -4892,6 +5016,7 @@ function prunePrefetchedContents(s: Store): Partial<Store> {
     const referenced =
       s.selectedPath === path ||
       s.pinnedRefPath === path ||
+      linkPopoverHolds(s, path) ||
       allLeaves(s.paneLayout).some((leaf) => leaf.tabs.includes(path))
     if (referenced || dirty[path]) continue
     delete contents[path]
@@ -4966,6 +5091,7 @@ function withoutNoteInWorkspace(s: Store, path: string): Partial<Store> {
     noteDirty: dirty,
     pendingJumpLocation: null,
     pinnedRefPath: s.pinnedRefPath === path ? null : s.pinnedRefPath,
+    linkPopover: s.linkPopover?.path === path ? null : s.linkPopover,
     ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
   }
 }
@@ -5918,6 +6044,7 @@ export const useStore = create<Store>((set, get) => {
   livePreview: loadPrefs().livePreview,
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   listIndentGuides: loadPrefs().listIndentGuides,
+  linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
   renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
   completedTaskStyle: loadPrefs().completedTaskStyle,
   mathRenderer: loadPrefs().mathRenderer,
@@ -6041,6 +6168,7 @@ export const useStore = create<Store>((set, get) => {
   connectionsCursorIndex: 0,
   outlineCursorIndex: 0,
   connectionPreview: null,
+  linkPopover: null,
   editorViewRef: null,
   editorCursorPosition: null,
   pendingTitleFocusPath: null,
@@ -6318,6 +6446,15 @@ export const useStore = create<Store>((set, get) => {
   openTrashView: async () => {
     const state = get()
     await get().openNoteInPane(state.activePaneId, TRASH_TAB_PATH)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
+  },
+
+  openUnresolvedLinksView: async () => {
+    // A link at a file in the vault is not missing, so the scan needs the
+    // asset list; it is read lazily and may not be there yet.
+    if (!get().assetFilesListed) await get().refreshAssets()
+    await get().openNoteInPane(get().activePaneId, UNRESOLVED_LINKS_TAB_PATH)
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },
@@ -7767,6 +7904,8 @@ export const useStore = create<Store>((set, get) => {
           for (const tab of leaf.tabs) referenced.add(tab)
         }
         if (pinnedRefPath) referenced.add(pinnedRefPath)
+        // The link popover edits a cached note no pane may have open.
+        for (const held of linkPopoverHeldPaths(s)) referenced.add(held)
         const contents: Record<string, NoteContent> = {}
         const dirty: Record<string, boolean> = {}
         for (const [path, content] of Object.entries(s.noteContents)) {
@@ -7944,6 +8083,7 @@ export const useStore = create<Store>((set, get) => {
           noteContents: contents,
           noteDirty: dirty,
           pinnedRefPath: s.pinnedRefPath === notePath ? null : s.pinnedRefPath,
+          linkPopover: s.linkPopover?.path === notePath ? null : s.linkPopover,
           ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
         }
       })
@@ -9190,6 +9330,10 @@ export const useStore = create<Store>((set, get) => {
     set({ listIndentGuides: on })
     savePrefs(collectPrefs(get()))
   },
+  setLinkPopoverOnHover: (on) => {
+    set({ linkPopoverOnHover: on })
+    savePrefs(collectPrefs(get()))
+  },
   setRenderTablesInLivePreview: (on) => {
     set({ renderTablesInLivePreview: on })
     savePrefs(collectPrefs(get()))
@@ -9382,6 +9526,11 @@ export const useStore = create<Store>((set, get) => {
       if (s.pinnedRefPath && s.noteContents[s.pinnedRefPath]) {
         contents[s.pinnedRefPath] = s.noteContents[s.pinnedRefPath]
         dirty[s.pinnedRefPath] = s.noteDirty[s.pinnedRefPath] ?? false
+      }
+      for (const held of linkPopoverHeldPaths(s)) {
+        if (!s.noteContents[held]) continue
+        contents[held] = s.noteContents[held]
+        dirty[held] = s.noteDirty[held] ?? false
       }
       return {
         tabsEnabled: false,
@@ -10323,6 +10472,67 @@ export const useStore = create<Store>((set, get) => {
   setConnectionsCursorIndex: (idx) => set({ connectionsCursorIndex: idx }),
   setOutlineCursorIndex: (idx) => set({ outlineCursorIndex: idx }),
   setConnectionPreview: (preview) => set({ connectionPreview: preview }),
+  openLinkPopover: async (popover) => {
+    const request = ++linkPopoverRequest
+    const path = popover.path
+    if (path && !get().noteContents[path]) {
+      let content: NoteContent
+      try {
+        content = await readNoteContent(path, get())
+      } catch (err) {
+        console.error('openLinkPopover readNote failed', err)
+        return
+      }
+      if (request !== linkPopoverRequest) return
+      set((s) =>
+        s.noteContents[path]
+          ? {}
+          : {
+              noteContents: { ...s.noteContents, [path]: content },
+              noteDirty: { ...s.noteDirty, [path]: false }
+            }
+      )
+    }
+    if (request !== linkPopoverRequest) return
+    const replaced = get().linkPopover?.path
+    if (replaced && replaced !== path) closingLinkPopoverPaths.add(replaced)
+    set({ linkPopover: { ...popover, serial: ++linkPopoverSerial } })
+    if (replaced && replaced !== path) void releaseLinkPopoverNote(replaced)
+  },
+  pinLinkPopover: () => {
+    const popover = get().linkPopover
+    if (!popover || popover.mode === 'pinned') return
+    set({ linkPopover: { ...popover, mode: 'pinned' } })
+  },
+  showNoteInLinkPopover: async (path) => {
+    const popover = get().linkPopover
+    if (!popover) return
+    await get().openLinkPopover({ ...popover, path, mode: 'pinned', focus: true, created: true })
+  },
+  closeLinkPopover: () => {
+    linkPopoverRequest++
+    const popover = get().linkPopover
+    if (!popover) return
+    const path = popover.path
+    if (path) closingLinkPopoverPaths.add(path)
+    set({ linkPopover: null })
+    if (path) void releaseLinkPopoverNote(path)
+  },
+  createNoteInPlace: trackNoteWrite(null, async (folder, subpath, title) => {
+    try {
+      const meta = await window.zen.createNote(folder, title, subpath)
+      rememberEditModeForCreatedNote(meta.path)
+      emitNoteEvent('note-created', meta.path)
+      set((s) => ({
+        notes: s.notes.some((n) => n.path === meta.path) ? s.notes : [...s.notes, meta]
+      }))
+      await get().refreshNotes()
+      return get().notes.find((n) => n.path === meta.path) ?? meta
+    } catch (err) {
+      console.error('createNoteInPlace failed', err)
+      return null
+    }
+  }),
   setEditorViewRef: (view) =>
     set({
       editorViewRef: view,
@@ -10618,6 +10828,7 @@ export const useStore = create<Store>((set, get) => {
       const ensured = ensureActivePane(nextLayout, s.activePaneId)
       const stillOpen =
         s.pinnedRefPath === path ||
+        linkPopoverHolds(s, path) ||
         allLeaves(nextLayout).some((l) => l.tabs.includes(path))
       const contents = { ...s.noteContents }
       const dirty = { ...s.noteDirty }
@@ -10690,6 +10901,7 @@ export const useStore = create<Store>((set, get) => {
       // including the pinned-reference pane.
       const stillOpen =
         cur.pinnedRefPath === path ||
+        linkPopoverHolds(cur, path) ||
         allLeaves(layout).some((l) => l.tabs.includes(path))
       const nextContents = { ...contents }
       const nextDirty = { ...dirty }
@@ -10747,6 +10959,7 @@ export const useStore = create<Store>((set, get) => {
       layout = splitLeaf(layout, targetPaneId, edge, newLeaf)
       const stillOpen =
         cur.pinnedRefPath === path ||
+        linkPopoverHolds(cur, path) ||
         allLeaves(layout).some((l) => l.tabs.includes(path))
       const nextContents = { ...contents }
       const nextDirty = { ...dirty }

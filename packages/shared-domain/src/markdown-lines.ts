@@ -54,11 +54,23 @@ export interface MarkdownLine {
   from: number
 }
 
+export interface ScanMarkdownLinesOptions {
+  /**
+   * Also yield the lines of a leading YAML frontmatter block (its fences
+   * included). Outline and anchor grammars never want them; a link scanner
+   * does, because `related: "[[Doc]]"` is a link the vault index counts.
+   */
+  includeFrontmatter?: boolean
+}
+
 /**
  * Walk the lines of a note body that markdown owns, skipping leading YAML
  * frontmatter and the inside of fenced code blocks.
  */
-export function scanMarkdownLines(body: string): MarkdownLine[] {
+export function scanMarkdownLines(
+  body: string,
+  options: ScanMarkdownLinesOptions = {}
+): MarkdownLine[] {
   const scanned: MarkdownLine[] = []
   if (!body) return scanned
 
@@ -80,7 +92,12 @@ export function scanMarkdownLines(body: string): MarkdownLine[] {
 
     // Skip the leading frontmatter block wholesale: its fences and `key: value`
     // lines are YAML, not markdown, and must never surface as outline entries.
-    if (i <= frontmatterEnd) continue
+    if (i <= frontmatterEnd) {
+      if (options.includeFrontmatter) {
+        scanned.push({ text: raw, next: lines[i + 1], line: i + 1, from: lineStart })
+      }
+      continue
+    }
 
     if (fence) {
       const close = raw.match(FENCE_CLOSE_RE)

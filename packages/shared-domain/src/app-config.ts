@@ -91,6 +91,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   livePreview: true,
   showHeadingLevelLabels: false,
   listIndentGuides: true,
+  linkPopoverOnHover: true,
   renderTablesInLivePreview: true,
   completedTaskStyle: 'none',
   mathRenderer: 'katex',

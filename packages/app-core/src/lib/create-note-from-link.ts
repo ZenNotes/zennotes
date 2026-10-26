@@ -92,6 +92,40 @@ export async function createNoteFromLinkNow(target: string): Promise<void> {
   await createNoteAtPath(suggestCreateNotePath(target))
 }
 
+/**
+ * Create the note a dead link names without opening it, so the link popover
+ * can be the place it is written, over the note that links to it. Same
+ * destination as `createNoteFromLinkNow`: named after the link, in Inbox
+ * unless the link names a top folder, and a link named like a daily note
+ * makes that day's daily note (template included).
+ *
+ * Resolves to the note's path: the new note, or one already at that path.
+ * Null when only opening can make the note (a weekly or monthly note, which
+ * the calendar creates as it opens it) or when creating failed; the caller
+ * falls back to `createNoteFromLinkNow`.
+ */
+export async function createNoteForLinkInPlace(target: string): Promise<string | null> {
+  const dateNote = dateNoteForLink(target)
+  if (dateNote) {
+    if (dateNote.info.kind !== 'daily') return null
+    const daily = await useStore.getState().ensureDailyNoteForDate(dateNote.info.date)
+    return daily?.path ?? null
+  }
+  let parsed: ReturnType<typeof parseCreateNotePath>
+  try {
+    parsed = parseCreateNotePath(suggestCreateNotePath(target))
+  } catch {
+    return null
+  }
+  const state = useStore.getState()
+  const existing = state.notes.find(
+    (note) => note.folder !== 'trash' && note.path.toLowerCase() === parsed.relPath.toLowerCase()
+  )
+  if (existing) return existing.path
+  const created = await state.createNoteInPlace(parsed.folder, parsed.subpath, parsed.title)
+  return created?.path ?? null
+}
+
 async function createNoteAtPath(value: string): Promise<void> {
   const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')

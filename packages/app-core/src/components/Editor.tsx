@@ -95,6 +95,7 @@ import { registerNoteMoveExCommands } from "../lib/vim-ex-commands";
 import { promptImageWidth, setImageWidthFromInput } from "../lib/image-resize";
 import { copyLinkAtCursor } from "../lib/link-copy";
 import { followLinkTarget } from "../lib/follow-link";
+import { openLinkPopoverAtCursor } from "../lib/link-popover-open";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -212,6 +213,13 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
         action: "zenCreateNoteFromLink",
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "vim.createNoteFromLink")),
+        ].filter((binding): binding is string => !!binding),
+      },
+      {
+        id: "vim.linkPopover",
+        action: "zenLinkPopover",
+        bindings: [
+          toVimSequence(getKeymapBinding(overrides, "vim.linkPopover")),
         ].filter((binding): binding is string => !!binding),
       },
       {
@@ -662,6 +670,9 @@ function registerVimCommands(): void {
   Vim.defineEx("tasks", "tasks", () => {
     void useStore.getState().openTasksView();
   });
+  Vim.defineEx("unresolved", "unres", () => {
+    void useStore.getState().openUnresolvedLinksView();
+  });
 
   // Quick-add a whole-note task file. `:newtask` (or `:task`) prompts for a
   // title and creates it at the configured tasks location; `:newtask <folder>`
@@ -821,6 +832,13 @@ function registerVimCommands(): void {
       createWithoutAsking: true,
       kind: link.kind,
     });
+  });
+
+  // `K` on a [[wikilink]]: its note in the link popover, keyboard inside.
+  // Inside the popover's own editor it chains to the next link's note.
+  Vim.defineAction("zenLinkPopover", (cm: ReturnType<typeof getCM>) => {
+    const view = (cm as unknown as { cm6?: EditorView }).cm6;
+    if (view) openLinkPopoverAtCursor(view);
   });
 
   Vim.defineAction("goToDefinition", (cm: ReturnType<typeof getCM>) => {

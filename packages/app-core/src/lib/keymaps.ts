@@ -76,6 +76,7 @@ export type KeymapId =
   | "vim.leaderWeeklyNote"
   | "vim.leaderMonthlyNote"
   | "vim.leaderCalendar"
+  | "vim.leaderUnresolvedLinks"
   | "vim.panePrefix"
   | "vim.paneFocusLeft"
   | "vim.paneFocusDown"
@@ -91,6 +92,7 @@ export type KeymapId =
   | "vim.tabNext"
   | "vim.hintMode"
   | "vim.goToDefinition"
+  | "vim.linkPopover"
   | "vim.createNoteFromLink"
   | "vim.foldCurrent"
   | "vim.unfoldCurrent"
@@ -139,6 +141,7 @@ export type KeymapId =
   | "editor.unfoldHeading"
   | "editor.toggleCheckbox"
   | "editor.reflowParagraph"
+  | "editor.linkPopover"
   | "editor.reviewNextChange"
   | "editor.reviewPreviousChange"
   | "editor.reviewAcceptChange"
@@ -812,6 +815,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 1,
   },
   {
+    id: "vim.leaderUnresolvedLinks",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: unresolved links",
+    // `u` for unresolved: every link in the vault that names a note no one wrote yet.
+    description:
+      "Open the Unresolved Links view: every [[wikilink]] in the vault that points at a note that does not exist yet.",
+    defaultBinding: "u",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
     id: "vim.panePrefix",
     kind: "sequence",
     scope: "pane",
@@ -988,6 +1004,20 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     defaultBinding: "g D",
     vimOnly: true,
     maxTokens: 2,
+  },
+  {
+    id: "vim.linkPopover",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Link popover for link at cursor",
+    // Vim's own `K` looks up the word under the cursor; here the word is a
+    // note, and the lookup shows it.
+    description:
+      "Open the link popover for the [[wikilink]] under the cursor: edit the note it names in place, or create it when it does not exist yet. Escape in normal mode closes it and returns here.",
+    defaultBinding: "K",
+    vimOnly: true,
+    maxTokens: 1,
   },
   {
     id: "vim.foldCurrent",
@@ -1489,6 +1519,16 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
       "Join the hard-wrapped lines of the paragraph under the cursor (or of every paragraph in the selection) into one line, so the editor wraps it to the pane the way the preview does. Headings, list markers, tables, code, and explicit line breaks are left alone. Works with Vim mode on or off; Vim mode also has it as the `gq` operator (`gqip`, `gqj`, `gw` to keep the cursor).",
     defaultBinding: "Alt+Q",
     defaultBindingMac: "Ctrl+Q",
+  },
+  {
+    id: "editor.linkPopover",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Open link popover",
+    description:
+      "Open the link popover for the [[wikilink]] under the cursor and move into it: edit the note it names in place, or create it when it does not exist yet. Escape closes it and returns to the note you were in. Works with Vim mode on or off; Vim mode also has it as `K`.",
+    defaultBinding: "Shift+Mod+K",
   },
   {
     id: "nav.localEx",

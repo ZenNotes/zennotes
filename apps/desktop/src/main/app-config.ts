@@ -184,6 +184,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'list_indent_guides',
     comment: 'vertical guide lines at each nested list level'
   },
+  linkPopoverOnHover: {
+    section: 'editor',
+    tomlKey: 'link_popover_on_hover',
+    comment: 'resting the pointer on a [[wikilink]] opens the link popover'
+  },
   editorScrollOff: {
     section: 'editor',
     tomlKey: 'scroll_off',

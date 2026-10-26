@@ -3837,6 +3837,37 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   text-decoration-color: rgb(var(--z-accent));
 }
 
+/* The link popover's editor. The main editor's 20vh bottom runway, centered
+   measure and 32px gutter are sized for a whole pane; in a floating card they
+   only push the note out of sight. */
+.zn-link-popover .cm-editor {
+  height: auto;
+  max-height: 100%;
+  font-size: calc(var(--z-editor-font-size, 16px) * 0.875);
+}
+/* A card a few lines tall cannot spend most of them on a 2em title. */
+.zn-link-popover .cm-editor .tok-heading1 {
+  font-size: 1.45em;
+}
+.zn-link-popover .cm-editor .tok-heading2 {
+  font-size: 1.3em;
+}
+.zn-link-popover .cm-editor .tok-heading3 {
+  font-size: 1.15em;
+}
+.zn-link-popover .cm-editor .cm-scroller {
+  padding: 8px 0 12px 0;
+}
+.zn-link-popover .cm-editor .cm-content {
+  max-width: none;
+  margin: 0;
+  padding: 0 14px;
+}
+.zn-link-popover [data-link-popover-editor] {
+  display: flex;
+  flex-direction: column;
+}
+
 .prose-hover-preview {
   font-size: 13px;
   line-height: var(--z-editor-line-height, 1.7);

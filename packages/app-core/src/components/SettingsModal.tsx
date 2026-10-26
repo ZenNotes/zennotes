@@ -754,6 +754,8 @@ export function SettingsModal(): JSX.Element {
   const editorTabSize = useStore((s) => s.editorTabSize);
   const setEditorTabSize = useStore((s) => s.setEditorTabSize);
   const setListIndentGuides = useStore((s) => s.setListIndentGuides);
+  const linkPopoverOnHover = useStore((s) => s.linkPopoverOnHover);
+  const setLinkPopoverOnHover = useStore((s) => s.setLinkPopoverOnHover);
   const textReplacementsEnabled = useStore((s) => s.textReplacementsEnabled);
   const setTextReplacementsEnabled = useStore(
     (s) => s.setTextReplacementsEnabled,
@@ -2484,6 +2486,12 @@ export function SettingsModal(): JSX.Element {
           keywords: ["indent", "guides", "list", "nested", "outline", "lines"],
         },
         {
+          id: "link-popover-on-hover",
+          title: "Link popover on hover",
+          description: "Rest the pointer on a [[wikilink]] to edit or create its note in place.",
+          keywords: ["link", "popover", "hover", "preview", "wikilink", "peek", "floating", "create"],
+        },
+        {
           id: "text-replacements-enabled",
           title: "Text replacements",
           description: "Replace typed snippets such as -> with →.",
@@ -2944,6 +2952,7 @@ export function SettingsModal(): JSX.Element {
             "heading-level-labels",
             "editor-tab-size",
             "list-indent-guides",
+            "link-popover-on-hover",
             "auto-pairs",
             "auto-pair-quotes-in-prose",
             "note-tabs",
@@ -3127,6 +3136,13 @@ export function SettingsModal(): JSX.Element {
                   value={listIndentGuides}
                   settingId="list-indent-guides"
                   onChange={setListIndentGuides}
+                />
+                <ToggleRow
+                  label="Link popover on hover"
+                  description={`Rest the pointer on a [[wikilink]] in the editor to open its note in a small floating editor, or to create it when it does not exist yet. Off, the link popover still opens from the keyboard: ${vimMode && getKeymapDisplay(keymapOverrides, "vim.linkPopover") ? `${getKeymapDisplay(keymapOverrides, "vim.linkPopover")} on the link, or ` : ""}${getKeymapDisplay(keymapOverrides, "editor.linkPopover") || "the Open Link Popover command"}.`}
+                  value={linkPopoverOnHover}
+                  settingId="link-popover-on-hover"
+                  onChange={setLinkPopoverOnHover}
                 />
                 <ToggleRow
                   label="Auto-pair brackets and delimiters"
