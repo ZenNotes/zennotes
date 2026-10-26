@@ -2291,6 +2291,16 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   color: rgb(var(--z-accent));
   text-decoration: none;
 }
+/* `tok-link` is a mark around the highlight spans (cm-markdown-links.ts), so a
+   label inside a list, heading, or emphasis sits in a span whose own body color
+   (`.tok-list` and friends above) beats the color the mark passes down. The
+   label span takes the accent back here. `:where()` keeps the specificity of
+   the `.tok-link` class this span carried before 2.50.3, so the tokens declared
+   after this rule (link brackets, titles, labels) keep their own colors, and an
+   undefined `[ref]`, which gets no mark, stays prose. */
+.cm-editor :where(.tok-link) .tok-link-syntax {
+  color: rgb(var(--z-accent));
+}
 .cm-editor .tok-monospace {
   font-family: var(
     --z-mono-font,
