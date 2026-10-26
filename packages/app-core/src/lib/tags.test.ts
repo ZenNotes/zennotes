@@ -24,6 +24,11 @@ describe('extractTags — code fences are never scanned for tags (#293)', () => 
     expect(extractTags('- item\n  ```\n  #include\n  ```\n  #after')).toEqual(['after'])
   })
 
+  it('ignores #tags inside a fence in a note saved with CRLF line endings', () => {
+    expect(extractTags('```c\r\n#include <x>\r\n```\r\nreal #ok\r\n')).toEqual(['ok'])
+    expect(extractTags('- item\r\n  ~~~\r\n  #nope\r\n  ~~~\r\n  #after\r\n')).toEqual(['after'])
+  })
+
   it('includes first-class frontmatter tags', () => {
     expect(extractTags('---\ntags: [frontmatter, "#quoted", project/nested]\ntitle: #ignored\n---\n\n#inline')).toEqual([
       'frontmatter',

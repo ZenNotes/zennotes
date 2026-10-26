@@ -67,6 +67,11 @@ describe('parseOutline — #249 code block with wikilinks', () => {
     expect(parseOutline(body).map((i) => i.text)).toEqual(['Real', 'Also real'])
   })
 
+  it('skips headings inside a fence in a body with CRLF line endings', () => {
+    const body = ['# Real', '```sh', '# fake heading in code', '```', '# Also real', ''].join('\r\n')
+    expect(parseOutline(body).map((i) => i.text)).toEqual(['Real', 'Also real'])
+  })
+
   it('is unaffected by a single-backtick inline code span', () => {
     const body = ['# Section 1', '`[[Linux-Backup]]`', '# Section 2'].join('\n')
     expect(parseOutline(body).map((i) => i.text)).toEqual(['Section 1', 'Section 2'])

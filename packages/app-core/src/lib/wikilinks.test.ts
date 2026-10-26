@@ -21,6 +21,11 @@ describe('extractWikilinkTargets — code fences are not scanned (#293)', () => 
     const body = '- item:\n\n  ```\n  see [[Secret Note]] here\n  ```\n\n[[Real Link]]'
     expect(extractWikilinkTargets(body)).toEqual(['Real Link'])
   })
+
+  it('ignores [[links]] inside a fence in a note saved with CRLF line endings', () => {
+    const body = '```\r\nsee [[Secret Note]] here\r\n```\r\n\r\n[[Real Link]]\r\n'
+    expect(extractWikilinkTargets(body)).toEqual(['Real Link'])
+  })
 })
 
 const notes = [

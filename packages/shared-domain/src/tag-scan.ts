@@ -54,7 +54,8 @@ export function stripCodeContent(body: string): string {
   let fenceLen = 0
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] as string
-    const m = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line)
+    // `.` never matches `\r`, so the `\r?` is what lets a CRLF-saved fence line match.
+    const m = /^[ \t]*(`{3,}|~{3,})(.*)\r?$/.exec(line)
     if (m) {
       const marker = m[1] as string
       const char = marker[0] as string

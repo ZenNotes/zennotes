@@ -151,6 +151,20 @@ describe('mcp task states', () => {
   })
 })
 
+describe('list_notes metadata skips fenced code', () => {
+  it('does not index #tags or [[links]] inside a fence in a CRLF note', async () => {
+    await writeFile(
+      path.join(root, 'inbox', 'Windows.md'),
+      '# Notes\r\n\r\n```c\r\n#include <stdio.h>\r\n// [[Secret Note]]\r\n```\r\n\r\n#realtag [[Real Link]]\r\n'
+    )
+
+    const notes = await listNotes(root)
+    const note = notes.find((n) => n.path === 'inbox/Windows.md')
+    expect(note?.tags).toEqual(['realtag'])
+    expect(note?.wikilinks).toEqual(['Real Link'])
+  })
+})
+
 describe('remapped system folders (#398)', () => {
   it('classifies a remapped trash directory as trash and keeps its tasks out', async () => {
     await mkdir(path.join(root, '.zennotes'), { recursive: true })

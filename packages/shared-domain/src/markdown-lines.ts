@@ -7,11 +7,14 @@
 // export) can consume the same rules as the renderer.
 
 // A fenced code block opens with a run of >=3 backticks or tildes; the second
-// group is the rest of the line (the info string).
-export const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)$/
+// group is the rest of the line (the info string). Callers split at `\n`
+// only, so a CRLF body hands both patterns lines that still end in `\r`, which
+// neither `.` nor `[ \t]` matches: the `\r?` before `$` lets those fences open
+// and close.
+export const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})(.*)\r?$/
 // A closing fence is a run of fence characters alone on its line, save for
 // trailing whitespace (no info string).
-export const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})[ \t]*$/
+export const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})[ \t]*\r?$/
 
 /**
  * A YAML frontmatter fence: `---` alone on its line, surrounding whitespace

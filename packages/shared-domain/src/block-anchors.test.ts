@@ -27,6 +27,12 @@ describe('stripBlockAnchorMarkers (#601 review)', () => {
     expect(stripBlockAnchorMarkers(fm)).toBe(fm)
   })
 
+  it('never touches a code fence in a body with CRLF line endings', () => {
+    const code = '```bash\r\nkill %1 ^Z2\r\n```\r\nafter\r\n'
+    expect(stripBlockAnchorMarkers(code)).toBe(code)
+    expect(parseBlockAnchors(code)).toEqual([])
+  })
+
   it('blanks a standalone marker line without changing the line count', () => {
     const src = 'A paragraph.\n\n^tag\n\nNext.'
     const out = stripBlockAnchorMarkers(src)

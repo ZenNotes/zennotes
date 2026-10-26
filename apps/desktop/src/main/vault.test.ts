@@ -1010,6 +1010,22 @@ describe('listNotes metadata parsing', () => {
     expect(note?.tags).toEqual(['realtag'])
   })
 
+  it('does not index #tags or [[links]] inside a fence in a CRLF note', async () => {
+    const root = await makeTempDir('zennotes-meta-fence-crlf-')
+    await ensureVaultLayout(root)
+    const rel = 'inbox/windows.md'
+    await writeFile(
+      path.join(root, rel),
+      '# Notes\r\n\r\n```c\r\n#include <stdio.h>\r\n// [[Secret Note]]\r\n```\r\n\r\n#realtag [[Real Link]]\r\n',
+      'utf8'
+    )
+
+    const notes = await listNotes(root)
+    const note = notes.find((n) => n.path === rel)
+    expect(note?.tags).toEqual(['realtag'])
+    expect(note?.wikilinks).toEqual(['Real Link'])
+  })
+
   it('indexes frontmatter tags as first-class note tags', async () => {
     const root = await makeTempDir('zennotes-meta-frontmatter-tags-')
     await ensureVaultLayout(root)
