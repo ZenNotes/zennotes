@@ -7,6 +7,7 @@ import {
   type CloudSyncHttpTransport
 } from './cloud-sync-api'
 import { CloudAutoSyncController } from './cloud-auto-sync'
+import { CloudSyncTransportError } from './cloud-sync-stall'
 
 const scope = { baseUrl: 'https://cloud.example.test', accountId: 'account-one' }
 const read: CloudSyncHttpRequest = { method: 'GET', path: '/api/v1/vaults/one/manifest?page=3' }
@@ -409,5 +410,129 @@ describe('account-scoped Cloud request recovery', () => {
         ]
       }))
     )
+  })
+})
+
+describe('replaying a request that got no answer', () => {
+  const stalled = () => new CloudSyncTransportError('timeout', { stalled: true, code: 'SocketTimeoutException' })
+  const phone = (coordinator = new CloudSyncRateLimitCoordinator()) => {
+    const send = vi.fn<CloudSyncHttpTransport['request']>().mockResolvedValue({ ok: true })
+    const transport: CloudSyncHttpTransport = { request: send as CloudSyncHttpTransport['request'] }
+    return { coordinator, send, client: coordinator.wrap(transport, { ...scope, transportRetryDelaysMs: [1_000, 4_000, 15_000] }) }
+  }
+  beforeEach(() => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.999_999)
+  })
+
+  it('sends a stalled read again on a fresh attempt instead of failing the sync', async () => {
+    const f = phone()
+    f.send.mockRejectedValueOnce(stalled()).mockRejectedValueOnce(stalled())
+    const result = f.client.request(read)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(f.send).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(4_000)
+    await expect(result).resolves.toEqual({ ok: true })
+    expect(f.send).toHaveBeenCalledTimes(3)
+    expect(f.send.mock.calls.map(([request]) => request.path)).toEqual([read.path, read.path, read.path])
+  })
+
+  it('gives up after the last wait with the failure the host saw', async () => {
+    const f = phone()
+    const failures = [stalled(), stalled(), stalled(), stalled()]
+    for (const failure of failures) f.send.mockRejectedValueOnce(failure)
+    const result = f.client.request(read)
+    const settled = expect(result).rejects.toBe(failures[3])
+    await vi.advanceTimersByTimeAsync(20_000)
+    await settled
+    expect(f.send).toHaveBeenCalledTimes(4)
+  })
+
+  it('stays off for a host that does not opt in (the desktop)', async () => {
+    const f = fixture()
+    const failure = stalled()
+    f.send.mockRejectedValueOnce(failure)
+    await expect(f.client.request(read)).rejects.toBe(failure)
+    expect(f.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('never sends a request again that the service might apply twice', async () => {
+    const f = phone()
+    const failure = stalled()
+    f.send.mockRejectedValueOnce(failure)
+    await expect(f.client.request({ method: 'POST', path: '/api/v1/vaults', body: { name: 'New' } })).rejects.toBe(failure)
+    expect(f.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves an upload completion to its caller, since the service may still be hashing the object', async () => {
+    const f = phone()
+    const failure = stalled()
+    f.send.mockRejectedValueOnce(failure)
+    await expect(new CloudSyncApiClient(f.client).completeUpload('vault', 'upload-1')).rejects.toBe(failure)
+    expect(f.send).toHaveBeenCalledTimes(1)
+    expect(f.send.mock.calls[0][0]).toMatchObject({ timeoutMs: 300_000, retryOnTransportFailure: false })
+  })
+
+  it('does not retry an answer the service gave, only a missing one', async () => {
+    const f = phone()
+    const refused = Object.assign(new Error('Server error'), { status: 503 })
+    f.send.mockRejectedValueOnce(refused)
+    await expect(f.client.request(read)).rejects.toBe(refused)
+    expect(f.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('replays a mutation with the same operation ids and bytes, so the service applies it once', async () => {
+    const f = phone()
+    const body = {
+      mutations: [{ type: 'delete' as const, item_id: 'item', operation_id: 'op-1', base_revision: 1 }]
+    }
+    const seen: string[] = []
+    f.send
+      .mockImplementationOnce(async (request) => {
+        seen.push(JSON.stringify(request.body))
+        ;(request.body as typeof body).mutations[0].operation_id = 'transport-change'
+        throw stalled()
+      })
+      .mockImplementationOnce(async (request) => {
+        seen.push(JSON.stringify(request.body))
+        return { acknowledged: [], conflicts: [], cursor: 1 } as never
+      })
+    const result = new CloudSyncApiClient(f.client).mutate('vault', body)
+    await vi.advanceTimersByTimeAsync(1_000)
+    await result
+    expect(seen).toHaveLength(2)
+    expect(seen[1]).toBe(seen[0])
+    expect(JSON.parse(seen[0]).mutations[0].operation_id).toBe('op-1')
+  })
+
+  it('keeps 429 retries and stall retries on separate allowances', async () => {
+    const f = phone()
+    f.send.mockRejectedValueOnce(stalled()).mockRejectedValueOnce(limited('2')).mockRejectedValueOnce(stalled())
+    const result = f.client.request(read)
+    await vi.advanceTimersByTimeAsync(1_000 + 2_000 + 4_000)
+    await expect(result).resolves.toEqual({ ok: true })
+    expect(f.send).toHaveBeenCalledTimes(4)
+  })
+
+  it('stops waiting to retry when the client is cancelled', async () => {
+    const controller = new AbortController()
+    const coordinator = new CloudSyncRateLimitCoordinator()
+    const send = vi.fn<CloudSyncHttpTransport['request']>().mockRejectedValue(stalled())
+    const client = coordinator.wrap({ request: send as CloudSyncHttpTransport['request'] }, {
+      ...scope, signal: controller.signal, transportRetryDelaysMs: [60_000]
+    })
+    const result = client.request(read)
+    const settled = expect(result).rejects.toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(100)
+    controller.abort()
+    await settled
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a retry schedule it cannot keep', () => {
+    const coordinator = new CloudSyncRateLimitCoordinator()
+    const transport: CloudSyncHttpTransport = { request: vi.fn() as CloudSyncHttpTransport['request'] }
+    expect(() => coordinator.wrap(transport, { ...scope, transportRetryDelaysMs: [-1] })).toThrow(/retry delays/)
   })
 })

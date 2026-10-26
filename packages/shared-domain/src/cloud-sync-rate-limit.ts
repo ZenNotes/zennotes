@@ -1,4 +1,9 @@
 import type { CloudSyncHttpRequest, CloudSyncHttpTransport } from './cloud-sync-api'
+import {
+  assertCloudTransportRetryDelays,
+  cloudTransportRetryDelayMs,
+  isCloudSyncTransportError
+} from './cloud-sync-stall'
 
 export type CloudSyncResponseHeaders =
   | Readonly<Record<string, string | undefined>>
@@ -14,6 +19,13 @@ export interface CloudSyncRateLimitOptions extends CloudSyncRateLimitScope {
   signal?: AbortSignal
   /** Additional attempts for one request, 0 through 10. Defaults to 3. */
   maxRetries?: number
+  /**
+   * The wait before sending a replayable request again after it got no answer
+   * at all (a CloudSyncTransportError), one retry per entry. Off by default:
+   * only a host whose transport gives up on a stalled connection soon should
+   * opt in, or each retry repeats a long wait (see cloud-sync-stall.ts).
+   */
+  transportRetryDelaysMs?: readonly number[]
 }
 
 interface AccountCooldown {
@@ -58,6 +70,8 @@ export class CloudSyncRateLimitCoordinator {
     if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 10) {
       throw new Error('Cloud rate-limit retries must be an integer from 0 through 10.')
     }
+    const transportRetryDelays = options.transportRetryDelaysMs ?? []
+    assertCloudTransportRetryDelays(transportRetryDelays)
     const key = scopeKey(options)
     let account = this.accounts.get(key)
     if (!account) {
@@ -75,6 +89,7 @@ export class CloudSyncRateLimitCoordinator {
           request,
           cooldown,
           maxRetries,
+          transportRetryDelays,
           combined.signal
         ).finally(combined.dispose)
       }
@@ -102,16 +117,21 @@ export class CloudSyncRateLimitCoordinator {
     request: CloudSyncHttpRequest,
     account: AccountCooldown,
     maxRetries: number,
+    transportRetryDelays: readonly number[],
     signal: AbortSignal
   ): Promise<Response> {
     throwIfCancelled(signal)
     const replayable = request.method === 'GET' || request.retryOnRateLimit === true
+    // A replay is the same request, byte for byte: an encrypted vault's body
+    // was sealed above this layer, so the service sees the same operation.
+    const resendable = replayable && request.retryOnTransportFailure !== false
     const snapshot = {
       ...request,
       ...(replayable && request.body !== undefined ? { body: cloneReplayBody(request.body) } : {}),
       signal
     }
     let retries = 0
+    let transportFailures = 0
     for (;;) {
       while (account.until > Date.now()) {
         await wait(Math.min(account.until - Date.now(), MAX_TIMER_DELAY_MS), signal)
@@ -130,6 +150,13 @@ export class CloudSyncRateLimitCoordinator {
         )
       } catch (error) {
         throwIfCancelled(signal)
+        const pause = resendable && isCloudSyncTransportError(error)
+          ? cloudTransportRetryDelayMs(transportFailures++, transportRetryDelays)
+          : null
+        if (pause !== null) {
+          await wait(pause, signal)
+          continue
+        }
         if (!error || typeof error !== 'object' || !('status' in error) || error.status !== 429) {
           throw error
         }

@@ -22,7 +22,13 @@ import {
 } from './cloud-e2ee-account'
 import { CloudE2eeError, fromBase64, sha256Hex, toBase64 } from './cloud-e2ee'
 import { CLOUD_E2EE_HEADER, CloudE2eeLockedError } from './cloud-e2ee-vault'
-import { CloudSyncApiClient, type CloudSyncHttpRequest, type CloudSyncHttpTransport } from './cloud-sync-api'
+import {
+  CloudSyncApiClient,
+  CloudSyncRateLimitCoordinator,
+  type CloudSyncHttpRequest,
+  type CloudSyncHttpTransport
+} from './cloud-sync-api'
+import { CloudSyncTransportError } from './cloud-sync-stall'
 import { validateCloudSyncContentReference, validateCloudSyncDownloadInstruction } from './cloud-sync-content'
 
 const PASSPHRASE = 'quiet harbor lantern orbit'
@@ -293,6 +299,38 @@ describe('encrypted vault sync through the API client', () => {
     await expect(
       client.mutate(vault.id, { mutations: [{ type: 'move', operation_id: 'op-3', item_id: 'item-1', base_revision: 2, path: 'Bare.md' }] })
     ).rejects.toThrow(/needs the file details/)
+  }, 20_000)
+
+  it('replays a stalled encrypted push with the same sealed bytes, never sealing it again', async () => {
+    const { cloud, keyring, vault } = await encryptedSetup()
+    const sent: Array<{ body: string; header: string | undefined }> = []
+    let stalls = 1
+    const flaky: CloudSyncHttpTransport = {
+      request: async <Response>(request: CloudSyncHttpRequest): Promise<Response> => {
+        if (request.path.endsWith('/mutations')) {
+          sent.push({ body: JSON.stringify(request.body), header: request.headers?.[CLOUD_E2EE_HEADER] })
+          if (stalls-- > 0) throw new CloudSyncTransportError('timeout', { stalled: true })
+        }
+        return cloud.request<Response>(request)
+      }
+    }
+    const transport = new CloudSyncRateLimitCoordinator().wrap(flaky, {
+      baseUrl: 'https://cloud.example.test', accountId: 'account', transportRetryDelaysMs: [0]
+    })
+    const client = new CloudSyncApiClient(transport, { endToEndEncryption: true, vaultCiphers: keyring })
+    const note = await utf8Content('# Secret\n\nMeet at noon.')
+    await client.mutate(vault.id, {
+      mutations: [{ type: 'upsert', operation_id: 'op-1', item_id: 'item-1', base_revision: null, path: 'Secret.md', kind: 'text', content: note }]
+    })
+
+    // Sealing uses fresh nonces, so a second seal would be a different
+    // request under the same operation id, which the service refuses.
+    expect(sent).toHaveLength(2)
+    expect(sent[1].body).toBe(sent[0].body)
+    expect(sent[0].header).toBeDefined()
+    expect(sent[1].header).toBe(sent[0].header)
+    expect(sent[0].body).not.toContain('Meet at noon')
+    expect((await client.manifest(vault.id, { includeContent: true })).data).toMatchObject([{ path: 'Secret.md', content: note }])
   }, 20_000)
 
   it('leaves readable vaults byte for byte as before, minus the client-only hints', async () => {

@@ -16,6 +16,7 @@ import {
 } from './cloud-error-copy'
 import { CLOUD_VAULT_REMOVED_MESSAGE } from './cloud-vault-availability'
 import { CloudE2eeError } from './cloud-e2ee'
+import { CloudSyncTransportError } from './cloud-sync-stall'
 
 /** The shape both the desktop client and the phone shells throw. */
 function serviceError(
@@ -58,6 +59,17 @@ describe('describeCloudError', () => {
     const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError')
     expect(describeCloudError(timeout)).toMatchObject({ message: CLOUD_TIMEOUT_MESSAGE, kind: 'offline' })
     expect(describeCloudError(overIpc('cloud-vault:sync', timeout)).message).toBe(CLOUD_TIMEOUT_MESSAGE)
+  })
+
+  it('words a phone request that stalled or never connected, keeping the host\'s words as details', () => {
+    const stalled = new CloudSyncTransportError('timeout', { stalled: true, code: 'SocketTimeoutException' })
+    expect(describeCloudError(stalled)).toEqual({
+      message: CLOUD_TIMEOUT_MESSAGE,
+      detail: 'SocketTimeoutException · timeout',
+      kind: 'offline'
+    })
+    const refused = new CloudSyncTransportError('Unable to resolve host', { code: 'UnknownHostException' })
+    expect(describeCloudError(refused)).toMatchObject({ message: CLOUD_OFFLINE_MESSAGE, kind: 'offline' })
   })
 
   it('treats a refused sign-in as signed out, whatever the server says', () => {

@@ -121,6 +121,7 @@ describe('CloudSyncApiClient', () => {
         method: 'POST',
         path: '/api/v1/vaults/vault%2F1/uploads/upload%2F1/complete',
         timeoutMs: 300_000,
+        retryOnTransportFailure: false,
         retryOnRateLimit: true
       },
       {

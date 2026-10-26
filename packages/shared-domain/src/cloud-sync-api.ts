@@ -86,8 +86,13 @@ export interface CloudSyncHttpRequest {
   timeoutMs?: number
   signal?: AbortSignal
   /** Only for explicitly idempotent JSON operations with stable operation/session IDs.
-   * GETs are replayable by default. Other requests are never retried implicitly. */
+   * GETs are replayable by default. Other requests are never retried implicitly.
+   * A replayable request is also sent again after a transport failure where the
+   * host opts in (CloudSyncRateLimitOptions.transportRetryDelaysMs). */
   retryOnRateLimit?: boolean
+  /** False where the service may still be working on a request that got no
+   * answer, so sending it again would race the first attempt. */
+  retryOnTransportFailure?: boolean
   /** Extra request headers; transports forward them. */
   headers?: Record<string, string>
 }
@@ -431,6 +436,9 @@ export class CloudSyncApiClient {
       method: 'POST',
       path: `${this.uploadPath(vaultId, uploadId)}/complete`,
       timeoutMs: 300_000,
+      // The service hashes the whole object before it answers; a second
+      // completion sent while that runs is refused. Hosts retry it themselves.
+      retryOnTransportFailure: false,
       ...(uploadId ? { retryOnRateLimit: true } : {})
     })
     if (!cipher) return response

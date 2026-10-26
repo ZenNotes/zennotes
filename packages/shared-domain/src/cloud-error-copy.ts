@@ -224,6 +224,7 @@ interface RawCloudError {
   causeCode: string | null
   issue: CloudIssue | null
   path: string | null
+  stalled: boolean
 }
 
 /**
@@ -249,6 +250,11 @@ export function describeCloudError(error: unknown, fallback = CLOUD_UNEXPECTED_M
 
   if (raw.issue) return worded(issueMessage(raw.issue, raw.path))
   if (raw.name === 'AbortError') return worded(STOPPED)
+  // A phone request that got no answer, after its retries: the host already
+  // knows whether the connection went quiet or failed outright.
+  if (raw.name === 'CloudSyncTransportError') {
+    return worded(raw.stalled ? CLOUD_TIMEOUT_MESSAGE : CLOUD_OFFLINE_MESSAGE, 'offline')
+  }
   if (isTimeout(raw)) return worded(CLOUD_TIMEOUT_MESSAGE, 'offline')
   if (isNetworkFailure(raw)) return worded(CLOUD_OFFLINE_MESSAGE, 'offline')
 
@@ -501,6 +507,7 @@ function rawCloudError(error: unknown): RawCloudError {
     issue?: unknown
     path?: unknown
     relPath?: unknown
+    stalled?: unknown
   }
   const message =
     typeof error === 'string' ? error : typeof value.message === 'string' ? value.message : error == null ? '' : String(error)
@@ -519,7 +526,8 @@ function rawCloudError(error: unknown): RawCloudError {
         : null,
     causeCode: cause && typeof cause === 'object' && typeof cause.code === 'string' ? cause.code : null,
     issue: ownName === 'CloudIssueError' && typeof value.issue === 'string' ? (value.issue as CloudIssue) : null,
-    path: typeof value.path === 'string' ? value.path : typeof value.relPath === 'string' ? value.relPath : null
+    path: typeof value.path === 'string' ? value.path : typeof value.relPath === 'string' ? value.relPath : null,
+    stalled: value.stalled === true
   }
 }
 
