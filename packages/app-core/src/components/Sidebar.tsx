@@ -2855,12 +2855,6 @@ export function Sidebar(): JSX.Element {
   });
 
   useEffect(() => {
-    if (!isSidebarFocused) {
-      // Coming back into the sidebar always lands on the current item.
-      revealedSelectionRef.current = null;
-      return;
-    }
-
     // Follow a new selection, never a re-run for the same one. Selecting a
     // folder clears selectedPath, and almost any store update after it (the
     // first expand's note prefetch landing, a listing refresh) sets it back
@@ -2868,7 +2862,16 @@ export function Sidebar(): JSX.Element {
     // the last note counts through the gap; and a refresh that leaves the
     // selection alone is no reason to move. Both used to drag the cursor off
     // the row Vim keys had moved it to and onto the open note. (#993)
+    // The note is remembered while the sidebar is unfocused too: a folder
+    // clicked before the keys moved in opens the gap before this effect
+    // would otherwise see the note, and the first refresh then read as a pick.
     if (selectedPath) lastSelectedNoteRef.current = selectedPath;
+    if (!isSidebarFocused) {
+      // Coming back into the sidebar always lands on the current item.
+      revealedSelectionRef.current = null;
+      return;
+    }
+
     const selection = [
       lastSelectedNoteRef.current,
       view,
