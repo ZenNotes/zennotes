@@ -58,6 +58,7 @@ export async function packAppCore() {
     const exports = {
       './main': { types: './dist/main.d.ts', import: './dist/main.js' },
       './navigation': { types: './dist/navigation.d.ts', import: './dist/navigation.js' },
+      './calendar': { types: './dist/calendar.d.ts', import: './dist/calendar.js' },
       './notes': { types: './dist/notes.d.ts', import: './dist/notes.js' },
       './shell': { types: './dist/shell.d.ts', import: './dist/shell.js' },
       './browse': { types: './dist/browse.d.ts', import: './dist/browse.js' },

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { useStore } from './store'
+import { requestSettingsTarget } from './lib/settings-navigation'
 
 export interface SettingsSnapshot {
   readonly themeId: string
@@ -30,6 +31,11 @@ export function subscribeSettings(listener: (next: SettingsSnapshot, previous: S
 function subscribeReact(notify: () => void): () => void { return subscribeSettings(() => notify()) }
 export function useSettingsSnapshot(): SettingsSnapshot { return useSyncExternalStore(subscribeReact, getSettingsSnapshot, getSettingsSnapshot) }
 export function setSettingsVisible(open: boolean): void { useStore.getState().setSettingsOpen(open) }
+/** Open Settings on one page: `periodic-notes` is Vault, Periodic notes, where daily notes are turned on. */
+export function showSettingsPage(page: 'periodic-notes'): void {
+  requestSettingsTarget(page)
+  useStore.getState().setSettingsOpen(true)
+}
 export function setEditorFontSize(size: number, options?: { persist?: boolean }): void {
   if (!Number.isFinite(size)) return
   const clamped = Math.max(12, Math.min(28, Math.round(size)))

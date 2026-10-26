@@ -6,6 +6,7 @@
   "exports": {
     "./main": "./src/main.tsx",
     "./navigation": "./src/navigation.ts",
+    "./calendar": "./src/calendar.tsx",
     "./notes": "./src/notes.ts",
     "./shell": "./src/shell.ts",
     "./browse": "./src/browse.ts",

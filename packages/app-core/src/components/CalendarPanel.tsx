@@ -114,25 +114,56 @@ function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean 
 
 export function CalendarPanel({
   note,
-  fitWidth
+  fitWidth,
+  onOpen
 }: {
-  note: NoteContent
+  /** The note beside the calendar, or null where the calendar stands on its
+   *  own with no note open (the phones' Calendar entry); it then orients on
+   *  today. */
+  note: NoteContent | null
   /** Width to render at when the pane has less room than the width the user
    *  chose; see lib/side-panel-fit. (#805) */
   fitWidth?: number
+  /** Called once the calendar has opened a day, a week or a task's line, even
+   *  a note that was already open, so a host that shows it as a sheet can put
+   *  it away. Beside a note it stays open, so the pane passes none. */
+  onOpen?: () => void
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const vimMode = useStore((s) => s.vimMode)
-  const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
-  const openWeeklyNoteForDate = useStore((s) => s.openWeeklyNoteForDate)
+  const storeOpenDailyNote = useStore((s) => s.openDailyNoteForDate)
+  const storeOpenWeeklyNote = useStore((s) => s.openWeeklyNoteForDate)
   const vaultTasks = useStore((s) => s.vaultTasks)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
   const tasksLoading = useStore((s) => s.tasksLoading)
   const refreshTasks = useStore((s) => s.refreshTasks)
   const addTaskForDate = useStore((s) => s.addTaskForDate)
   const toggleTaskFromList = useStore((s) => s.toggleTaskFromList)
-  const openTaskAt = useStore((s) => s.openTaskAt)
+  const storeOpenTask = useStore((s) => s.openTaskAt)
+  const onOpenRef = useRef(onOpen)
+  onOpenRef.current = onOpen
+  const openDailyNoteForDate = useCallback(
+    async (date: Date) => {
+      await storeOpenDailyNote(date)
+      onOpenRef.current?.()
+    },
+    [storeOpenDailyNote]
+  )
+  const openWeeklyNoteForDate = useCallback(
+    async (date: Date) => {
+      await storeOpenWeeklyNote(date)
+      onOpenRef.current?.()
+    },
+    [storeOpenWeeklyNote]
+  )
+  const openTaskAt = useCallback(
+    async (task: VaultTask) => {
+      await storeOpenTask(task)
+      onOpenRef.current?.()
+    },
+    [storeOpenTask]
+  )
   const applyTaskMutation = useStore((s) => s.applyTaskMutation)
   const moveTaskToDate = useStore((s) => s.moveTaskToDate)
   const deleteTaskFromList = useStore((s) => s.deleteTaskFromList)
@@ -153,7 +184,10 @@ export function CalendarPanel({
   )
 
   // The date the active note represents — what the calendar orients around.
-  const active = useMemo(() => classifyDateNote(note, vaultSettings), [note, vaultSettings])
+  const active = useMemo(
+    () => (note ? classifyDateNote(note, vaultSettings) : null),
+    [note, vaultSettings]
+  )
   const refDate = active?.date ?? new Date()
   const activeDayIso = active?.kind === 'daily' ? isoDateStr(active.date) : null
   const activeWeekIso = active?.kind === 'weekly' ? isoWeekStr(active.date) : null
@@ -172,7 +206,7 @@ export function CalendarPanel({
   useEffect(() => {
     setAnchor(new Date(refDate.getFullYear(), refDate.getMonth(), 1))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.path])
+  }, [note?.path])
 
   // Calendar key -> NoteMeta for the daily/weekly notes that exist on disk.
   const { dailyByDate, weeklyByWeek } = useMemo(
@@ -187,8 +221,13 @@ export function CalendarPanel({
   useEffect(() => {
     setSelectedIso(activeDayIso ?? todayIso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [note.path])
+  }, [note?.path])
   const selectedDate = useMemo(() => parseIsoDate(selectedIso), [selectedIso])
+  // A finger has no double-click, so on a touch screen a second tap on the
+  // selected day opens it, the way a phone's own calendar opens the day it
+  // shows. The first tap still only selects, which keeps that week's tasks
+  // below a tap away; a mouse keeps click to select, double-click to open.
+  const touchPressRef = useRef(false)
   const selectedWeekIso = useMemo(() => isoWeekStr(selectedDate), [selectedDate])
 
   // Tasks scheduled for the selected day. Tasks written in a daily note inherit
@@ -1020,7 +1059,16 @@ export function CalendarPanel({
                   key={iso}
                   type="button"
                   data-cal-day={iso}
-                  onClick={() => dailyEnabled && setSelectedIso(iso)}
+                  onPointerDown={(e) => {
+                    touchPressRef.current = e.pointerType === 'touch'
+                  }}
+                  onClick={() => {
+                    const touch = touchPressRef.current
+                    touchPressRef.current = false
+                    if (!dailyEnabled) return
+                    if (touch && iso === selectedIso) void openOrCreateDay(day, iso)
+                    else setSelectedIso(iso)
+                  }}
                   onDoubleClick={() => void openOrCreateDay(day, iso)}
                   onContextMenu={(e) => openDayMenu(e, day, iso)}
                   onMouseEnter={(e) => armHover(e.currentTarget, dayMeta)}

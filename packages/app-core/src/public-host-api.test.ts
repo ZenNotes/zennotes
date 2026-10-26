@@ -69,6 +69,13 @@ describe('public host APIs', () => {
     s.settings.setSettingsVisible(true)
     expect(s.settings.getSettingsSnapshot().open).toBe(true)
   })
+  it('opens Settings on the Periodic notes page for a host', async () => {
+    const s = await setup()
+    const navigation = await import('./lib/settings-navigation')
+    s.settings.showSettingsPage('periodic-notes')
+    expect(s.settings.getSettingsSnapshot().open).toBe(true)
+    expect(navigation.consumeSettingsTarget()).toBe('periodic-notes')
+  })
   it('does not let a second host dialog replace an unresolved prompt', async () => {
     await setup()
     const dialogs = await import('./dialogs'), requests = await import('./lib/prompt-requests')

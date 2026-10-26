@@ -1409,12 +1409,23 @@ export function SettingsModal(): JSX.Element {
   );
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
-    () => initialSettingsTarget === "external-links" ? "editor" : initialSettingsTarget ?? "appearance",
+    () =>
+      initialSettingsTarget === "external-links"
+        ? "editor"
+        : initialSettingsTarget === "periodic-notes"
+          ? "vault"
+          : initialSettingsTarget ?? "appearance",
   );
   // Per-category active sub-tab (dense categories split their content into sub-tabs).
   const [activeSubTabByCategory, setActiveSubTabByCategory] = useState<
     Partial<Record<SettingsCategoryId, string>>
-  >(() => initialSettingsTarget === "external-links" ? { editor: "links" } : {});
+  >(() =>
+    initialSettingsTarget === "external-links"
+      ? { editor: "links" }
+      : initialSettingsTarget === "periodic-notes"
+        ? { vault: "periodic" }
+        : {},
+  );
   const [activeSearchResultId, setActiveSearchResultId] = useState<
     string | null
   >(null);
