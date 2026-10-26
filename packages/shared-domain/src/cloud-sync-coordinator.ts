@@ -29,7 +29,7 @@ import {
 import {
   emptyCloudSyncState,
   planCloudSyncMutations,
-  reduceCloudSyncChange,
+  reduceCloudSyncChangeInto,
   resolveCloudSyncMutations,
   type CloudSyncIdSource,
   type CloudSyncLocalItem,
@@ -892,6 +892,12 @@ export class CloudSyncCoordinator {
     // revision still waiting for the change that lands it) and save that
     // before the error escapes, so a retry resumes at the failing change.
     let landed = initialState
+    // Tracked items change in place, in one copy this pull owns: copying all
+    // of them for every change made each pulled file cost more the bigger the
+    // vault was. What an item held when `landed` was taken is kept until the
+    // next landing, so `landed` can still be saved exactly as it was.
+    let items: Record<string, CloudSyncTrackedItem> | null = null
+    const sinceLanded = new Map<string, CloudSyncTrackedItem | undefined>()
     let hydratedPage = -1
     let pageBodies = new Map<number, CloudSyncChange>()
     try {
@@ -948,12 +954,19 @@ export class CloudSyncCoordinator {
           }
           pulled++
         }
-        state = reduceCloudSyncChange(state, change)
-        if (onDisk.size === 0) landed = state
+        if (change.sequence > state.cursor) {
+          items ??= { ...state.items }
+          if (!sinceLanded.has(change.item_id)) sinceLanded.set(change.item_id, items[change.item_id])
+          state = { ...state, cursor: reduceCloudSyncChangeInto(items, state.cursor, change), items }
+        }
+        if (onDisk.size === 0) {
+          landed = state
+          sinceLanded.clear()
+        }
       }
       throwIfCloudSyncCancelled(this.remote.downloadSignal)
     } catch (error) {
-      if (landed !== initialState) await this.states.save(landed)
+      if (landed !== initialState) await this.states.save(asLanded(landed, sinceLanded))
       throw error
     }
     if (changes.length > 0) await this.states.save(state)
@@ -2008,6 +2021,21 @@ function publicConflictVersion(
 
 function withConflict(state: CloudSyncState, conflict: CloudSyncStoredConflict): CloudSyncState {
   return { ...state, pending_conflicts: { ...state.pending_conflicts, [conflict.id]: conflict } }
+}
+
+/** A pull's landed state as it was taken, undoing what its items have
+ * changed in place since (pullChanges). */
+function asLanded(
+  landed: CloudSyncState,
+  sinceLanded: ReadonlyMap<string, CloudSyncTrackedItem | undefined>
+): CloudSyncState {
+  if (sinceLanded.size === 0) return landed
+  const items = { ...landed.items }
+  for (const [id, item] of sinceLanded) {
+    if (item) items[id] = item
+    else delete items[id]
+  }
+  return { ...landed, items }
 }
 
 /**

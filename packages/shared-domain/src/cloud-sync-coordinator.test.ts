@@ -2032,6 +2032,131 @@ describe('CloudSyncCoordinator: catching up on a file this device never touched'
     expect(server.mutations).toEqual([])
   })
 
+  it('saves only what landed when a change fails while a coalesced revision is still owed', async () => {
+    // Fresh.md lands on its own. Plan.md v2 is then skipped in favour of v3,
+    // and New.md lands while v3 is still owed, so the newest state that can
+    // stand on its own is the one right after Fresh.md. The failing move must
+    // not save Plan.md as v2, nor New.md as tracked.
+    const fs = memoryFileSystem({ [path]: 'v1', 'Other.md': 'other' })
+    const rename = fs.rename
+    let refuse = true
+    fs.rename = async (from, to) => {
+      if (refuse) throw new Error('rename failed: Already exists')
+      return rename(from, to)
+    }
+    const states = memoryState({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 1,
+      items: {
+        plan: tracked('plan', path, 1, 'v1'),
+        other: tracked('other', 'Other.md', 1, 'other')
+      }
+    })
+    const server = remote({
+      changes: [
+        upsert(2, 'fresh', 'Fresh.md', 'fresh'),
+        upsert(3, 'plan', path, 'v2'),
+        upsert(4, 'new', 'New.md', 'new'),
+        {
+          sequence: 5,
+          item_id: 'other',
+          type: 'move',
+          path: 'archive/Other.md',
+          previous_path: 'Other.md',
+          revision: 5
+        },
+        upsert(6, 'plan', path, 'v3')
+      ]
+    })
+    const coordinator = new CloudSyncCoordinator(
+      'vault-1',
+      server,
+      new PortableCloudSyncRepository(fs),
+      states,
+      ids()
+    )
+
+    await expect(coordinator.sync()).rejects.toThrow('Already exists')
+    expect(states.current).toEqual({
+      version: 1,
+      vault_id: 'vault-1',
+      cursor: 2,
+      items: {
+        plan: tracked('plan', path, 1, 'v1'),
+        other: tracked('other', 'Other.md', 1, 'other'),
+        fresh: tracked('fresh', 'Fresh.md', 2, 'fresh')
+      }
+    })
+
+    refuse = false
+    const retry = await coordinator.sync()
+
+    expect(retry.localConflicts).toEqual([])
+    expect([...fs.files.keys()].sort()).toEqual(['Fresh.md', 'New.md', 'archive/Other.md', path])
+    expect(fs.files.get(path)).toBe('v3')
+    expect(states.current?.cursor).toBe(6)
+    expect(states.current?.items.new).toEqual(tracked('new', 'New.md', 4, 'new'))
+    expect(states.current?.pending_conflicts ?? {}).toEqual({})
+    expect(server.mutations).toEqual([])
+  })
+
+  it('pulls each change at the same cost in a large vault as in a small one', async () => {
+    // Every pulled change used to copy the whole tracked state, so a phone
+    // catching up on a big vault paid for its size on every file: 1.7 ms a
+    // change at 10,000 notes against 0.18 ms at 600 (18 µs at both now).
+    async function perChange(vaultSize: number, arriving: number): Promise<number> {
+      const items: CloudSyncState['items'] = {}
+      const files = new Map<string, CloudSyncLocalItem>()
+      for (let index = 0; index < vaultSize; index++) {
+        const notePath = `inbox/Note ${index}.md`
+        const body = content(`note ${index}`)
+        items[`note-${index}`] = {
+          item_id: `note-${index}`, path: notePath, kind: 'text', revision: 1,
+          sha256: body.sha256, byte_length: body.byte_length, media_type: body.media_type
+        }
+        files.set(notePath, { path: notePath, kind: 'text', content: body })
+      }
+      const changes = Array.from({ length: arriving }, (_, index): CloudSyncChange => ({
+        sequence: vaultSize + index + 1,
+        item_id: `new-${index}`,
+        type: 'upsert',
+        path: `inbox/New ${index}.md`,
+        previous_path: null,
+        revision: 1,
+        content: content(`new ${index}`)
+      }))
+      // Timed from the first file written to the last, so the run's one scan
+      // and one save, which do grow with the vault, are left out.
+      let first = 0
+      let last = 0
+      const repository: CloudSyncRepository = {
+        async scan() {
+          return [...files.values()]
+        },
+        async apply(change) {
+          last = performance.now()
+          first ||= last
+          if (change.content) files.set(change.path, { path: change.path, kind: 'text', content: change.content })
+        }
+      }
+      const result = await new CloudSyncCoordinator(
+        'vault-1',
+        remote({ changes }),
+        repository,
+        memoryState({ version: 1, vault_id: 'vault-1', cursor: vaultSize, items }),
+        ids()
+      ).sync()
+      expect(result.pulled).toBe(arriving)
+      return (last - first) / (arriving - 1)
+    }
+
+    await perChange(200, 2000)
+    const small = await perChange(200, 2000)
+    const large = await perChange(20_000, 2000)
+    expect(large).toBeLessThan(small * 5)
+  })
+
   it('queues a real local edit without creating a note beside it', async () => {
     const fs = memoryFileSystem({ [path]: 'edited here while offline' })
     const states = memoryState({

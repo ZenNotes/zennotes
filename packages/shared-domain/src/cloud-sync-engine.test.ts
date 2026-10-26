@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { CloudSyncContent, CloudSyncMutationResponse } from '@zennotes/bridge-contract/cloud-sync'
+import type { CloudSyncChange, CloudSyncContent, CloudSyncMutationResponse } from '@zennotes/bridge-contract/cloud-sync'
 import {
   emptyCloudSyncState,
   planCloudSyncMutations,
   reduceCloudSyncChange,
+  reduceCloudSyncChangeInto,
   resolveCloudSyncMutations,
   type CloudSyncIdSource,
   type CloudSyncState
@@ -272,5 +273,45 @@ describe('reduceCloudSyncChange', () => {
         revision: 2
       })
     ).toThrow('Expected sync sequence 2')
+  })
+})
+
+describe('reduceCloudSyncChangeInto', () => {
+  it('changes the caller’s items in place exactly as reduceCloudSyncChange would', () => {
+    const changes: CloudSyncChange[] = [
+      { sequence: 1, item_id: 'a', type: 'upsert', path: 'a.md', previous_path: null, revision: 1, content: content('a1') },
+      { sequence: 2, item_id: 'b', type: 'upsert', path: 'b.md', previous_path: null, revision: 1, content: content('b1') },
+      { sequence: 3, item_id: 'a', type: 'move', path: 'archive/a.md', previous_path: 'a.md', revision: 2 },
+      { sequence: 4, item_id: 'b', type: 'delete', path: 'b.md', previous_path: null, revision: 2 },
+      { sequence: 5, item_id: 'a', type: 'upsert', path: 'archive/a.md', previous_path: null, revision: 3, content: content('a3') }
+    ]
+    let reduced = emptyCloudSyncState('vault-1')
+    const items: CloudSyncState['items'] = {}
+    let cursor = 0
+    for (const change of changes) {
+      reduced = reduceCloudSyncChange(reduced, change)
+      cursor = reduceCloudSyncChangeInto(items, cursor, change)
+      expect({ cursor, items }).toEqual({ cursor: reduced.cursor, items: reduced.items })
+    }
+    // A change the cursor already covers is left out, as before.
+    expect(reduceCloudSyncChangeInto(items, cursor, changes[1]!)).toBe(5)
+    expect(items).toEqual(reduced.items)
+  })
+
+  it('leaves the items untouched when a change cannot be reduced', () => {
+    const items = {
+      a: { item_id: 'a', path: 'a.md', kind: 'text' as const, revision: 1, sha256: 'hash:a1', byte_length: 2, media_type: 'text/markdown' }
+    }
+    const before = structuredClone(items)
+    expect(() => reduceCloudSyncChangeInto(items, 1, {
+      sequence: 3, item_id: 'a', type: 'delete', path: 'a.md', previous_path: null, revision: 2
+    })).toThrow('Expected sync sequence 2')
+    expect(() => reduceCloudSyncChangeInto(items, 1, {
+      sequence: 2, item_id: 'missing', type: 'move', path: 'b.md', previous_path: 'a.md', revision: 2
+    })).toThrow('Received a move for unknown item missing')
+    expect(() => reduceCloudSyncChangeInto(items, 1, {
+      sequence: 2, item_id: 'a', type: 'upsert', path: 'a.md', previous_path: null, revision: 2
+    })).toThrow('did not include content')
+    expect(items).toEqual(before)
   })
 })

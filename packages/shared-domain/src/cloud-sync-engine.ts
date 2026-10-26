@@ -262,11 +262,26 @@ export function reduceCloudSyncChange(
   change: CloudSyncChange
 ): CloudSyncState {
   if (change.sequence <= state.cursor) return state
-  if (change.sequence !== state.cursor + 1) {
-    throw cloudProtocolError(`Expected sync sequence ${state.cursor + 1}, received ${change.sequence}`)
+  const items = { ...state.items }
+  const cursor = reduceCloudSyncChangeInto(items, state.cursor, change)
+  return { ...state, cursor, items }
+}
+
+/**
+ * reduceCloudSyncChange on tracked items the caller owns, changed in place,
+ * so one change costs the same in a vault of any size. Returns the new
+ * cursor, and leaves `items` as it was when it throws.
+ */
+export function reduceCloudSyncChangeInto(
+  items: Record<string, CloudSyncTrackedItem>,
+  cursor: number,
+  change: CloudSyncChange
+): number {
+  if (change.sequence <= cursor) return cursor
+  if (change.sequence !== cursor + 1) {
+    throw cloudProtocolError(`Expected sync sequence ${cursor + 1}, received ${change.sequence}`)
   }
 
-  const items = { ...state.items }
   if (change.type === 'delete') {
     delete items[change.item_id]
   } else if (change.type === 'move') {
@@ -294,7 +309,7 @@ export function reduceCloudSyncChange(
     }
   }
 
-  return { ...state, cursor: change.sequence, items }
+  return change.sequence
 }
 
 function inferItemKind(content: CloudSyncContentMetadata): CloudSyncItemKind {
