@@ -135,6 +135,12 @@ import {
   isRecentSidebarPointerInteraction,
   sidebarSelectionChanged,
 } from "../lib/sidebar-scroll";
+import {
+  anchorSidebarCursor,
+  findSidebarCursorRow,
+  sidebarCursorFallbackInDom,
+  type SidebarCursorAnchor,
+} from "../lib/sidebar-cursor";
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
 import { appUpdateBadgeLabel, useAppUpdateState } from "../lib/app-update-state";
 import { getISOWeekYear } from "../lib/template-render";
@@ -707,6 +713,9 @@ export function Sidebar(): JSX.Element {
   // note that was selected; see that effect.
   const revealedSelectionRef = useRef<readonly unknown[] | null>(null);
   const lastSelectedNoteRef = useRef<string | null>(null);
+  // Which row the Vim cursor's number named; see the layout effect that
+  // keeps the number on it.
+  const sidebarCursorAnchorRef = useRef<SidebarCursorAnchor | null>(null);
   const pendingSidebarScrollAnchorRef = useRef<{
     selector: string;
     top: number;
@@ -2801,6 +2810,50 @@ export function Sidebar(): JSX.Element {
     }
   };
 
+  // The Vim cursor is a row number, and every render hands the numbers out
+  // again in render order, which puts a folder's notes before the subfolders
+  // it shows above them. A listing change above the cursor (a note written
+  // from outside the app, a sync) renumbers its row, and the cursor used to
+  // stay on the number and so land on another row. Note which row the number
+  // named whenever it changes, while the rows it was read from are still in
+  // the DOM, and put the number back on that row after each render.
+  useEffect(
+    () =>
+      useStore.subscribe((state, previous) => {
+        if (state.sidebarCursorIndex === previous.sidebarCursorIndex) return;
+        sidebarCursorAnchorRef.current = anchorSidebarCursor(
+          document,
+          state.sidebarCursorIndex,
+        );
+      }),
+    [],
+  );
+  useLayoutEffect(() => {
+    // Unfocused, the cursor is not drawn, and focusing the sidebar lands on
+    // the current item anyway (the reveal effect below).
+    if (!isSidebarFocused) return;
+    const { sidebarCursorIndex: index, setSidebarCursorIndex } =
+      useStore.getState();
+    const anchor = sidebarCursorAnchorRef.current;
+    if (anchor?.index !== index) {
+      sidebarCursorAnchorRef.current = anchorSidebarCursor(document, index);
+      return;
+    }
+    // Moving the number re-anchors through the subscription above.
+    const found = findSidebarCursorRow(document, anchor);
+    if (found !== null) {
+      if (found !== index) setSidebarCursorIndex(found);
+      return;
+    }
+    // The row is gone (deleted, moved, renamed elsewhere): the cursor goes to
+    // the row that took its place, or the one before it at a folder's end.
+    const neighbor = sidebarCursorFallbackInDom(document, anchor);
+    if (neighbor === null) return;
+    if (neighbor !== index) setSidebarCursorIndex(neighbor);
+    // Already on it: anchor it, or every render would look for the gone row.
+    else sidebarCursorAnchorRef.current = anchorSidebarCursor(document, index);
+  });
+
   useEffect(() => {
     if (!isSidebarFocused) {
       // Coming back into the sidebar always lands on the current item.
@@ -2829,6 +2882,9 @@ export function Sidebar(): JSX.Element {
       return;
     }
 
+    // Read live: the layout effect above may have moved the cursor in this
+    // very commit, after this render captured sidebarCursorIndex.
+    const cursorIndex = useStore.getState().sidebarCursorIndex;
     const findTarget = (): HTMLElement | null => {
       if (
         isRecentSidebarPointerInteraction(
@@ -2837,7 +2893,7 @@ export function Sidebar(): JSX.Element {
         )
       ) {
         const cursorEl = document.querySelector<HTMLElement>(
-          `[data-sidebar-idx="${sidebarCursorIndex}"]`,
+          `[data-sidebar-idx="${cursorIndex}"]`,
         );
         if (cursorEl) return cursorEl;
       }
@@ -2936,7 +2992,7 @@ export function Sidebar(): JSX.Element {
     revealedSelectionRef.current = selection;
 
     const idx = Number(target.dataset.sidebarIdx);
-    if (Number.isFinite(idx) && idx !== sidebarCursorIndex) {
+    if (Number.isFinite(idx) && idx !== cursorIndex) {
       useStore.getState().setSidebarCursorIndex(idx);
     }
 

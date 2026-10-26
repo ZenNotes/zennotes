@@ -12,6 +12,7 @@
  * and drives it over the Chrome DevTools Protocol:
  *   - windowing is actually active (most rows are placeholders),
  *   - j / k move the cursor one real row at a time,
+ *   - a note written from outside above the cursor leaves it on its row,
  *   - G / gg scroll to the ends and the end rows render as full rows,
  *   - every row exposes a selection key (range-select sees the whole list),
  *   - clicking an off-screen placeholder opens its note,
@@ -283,6 +284,26 @@ async function main() {
       prev = c.idx
     }
     check('k moves up one real row at a time', kOk, kDetail)
+
+    // 5b. A note written from outside the app lands above the cursor, and every
+    // row after it is renumbered. The cursor follows its row, not its number.
+    const cursorRow = `(() => {
+      const el = [...document.querySelectorAll('[data-sidebar-idx]')].find(e => /(^|\\s)vim-cursor/.test(e.className));
+      return el ? { idx: Number(el.getAttribute('data-sidebar-idx')), path: el.getAttribute('data-sidebar-path') } : null;
+    })()`
+    const beforeWrite = await evaluate(client, cursorRow)
+    const outsideFile = '00000a - outside.md'
+    await writeFile(join(vaultRoot, 'inbox', outsideFile), '# Outside\n\nWritten while the sidebar had focus.\n')
+    const outsideIdx = await until(client, `(() => {
+      const el = document.querySelector('[data-sidebar-path$=${JSON.stringify(outsideFile)}]');
+      return el ? Number(el.getAttribute('data-sidebar-idx')) : null;
+    })()`, 8000, 100)
+    await sleep(150)
+    const afterWrite = await evaluate(client, cursorRow)
+    check('an outside write above the cursor leaves it on its row',
+      !!beforeWrite && outsideIdx != null && outsideIdx < beforeWrite.idx &&
+        afterWrite?.path === beforeWrite.path && afterWrite?.idx === beforeWrite.idx + 1,
+      JSON.stringify({ beforeWrite, outsideIdx, afterWrite }))
 
     // 6. G scrolls to the bottom and the last note (a placeholder until now) renders full.
     await pressKey(client, 'G', true)
