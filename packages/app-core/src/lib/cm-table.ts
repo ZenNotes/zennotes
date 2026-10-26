@@ -25,6 +25,7 @@ import {
   Decoration,
   type DecorationSet,
   EditorView,
+  ViewPlugin,
   WidgetType
 } from '@codemirror/view'
 import {
@@ -50,6 +51,7 @@ import { useStore } from '../store'
 import { isMacPlatform, matchesSequenceToken, matchesShortcutBinding, type KeymapId } from './keymaps'
 import { writeClipboardText } from './clipboard-text'
 import { followLinkTarget } from './follow-link'
+import { wikilinkResolves } from './cm-wikilink-render'
 import { TableCellLinkPicker, type CellTextEdit } from './cm-table-link-picker'
 import { linkRangeAtCursor, type LineLinkKind } from './internal-links'
 
@@ -146,8 +148,14 @@ const INSERT_ESCAPE_TIMEOUT_MS = 1000
  * parser as the reading view rather than adding an inline-only copy to keep in
  * sync, and `escapeCell` is the serializer's own escaping, so what the cell
  * shows is what its row will contain on disk.
+ *
+ * `linkResolves`, when given, decides each `[[wikilink]]` the way the editor
+ * does: a link that reaches nothing gets the reading view's `broken` class.
  */
-export function renderInlineCell(text: string): string {
+export function renderInlineCell(
+  text: string,
+  linkResolves?: (target: string) => boolean
+): string {
   const trimmed = text.trim()
   if (!trimmed) return ''
   // A newline would close the synthetic row; cells are single-line by
@@ -158,10 +166,34 @@ export function renderInlineCell(text: string): string {
   const cell = parsed.content.querySelector('th, td')
   // Never swallow the text: if the pipeline returns something unexpected (its
   // error fallback, say), show the source rather than an empty cell.
-  if (cell) return cell.innerHTML
+  if (cell) {
+    if (linkResolves) markUnresolvedCellLinks(cell, linkResolves)
+    return cell.innerHTML
+  }
   const plain = document.createElement('span')
   plain.textContent = trimmed
   return plain.innerHTML
+}
+
+/** Give every rendered `[[wikilink]]` under `root` the `broken` class when its
+ *  target reaches nothing (a click would create the note), and take it off
+ *  when it does. The editor draws those links muted with a dashed underline
+ *  (`.cm-wikilink-broken`), and the reading view marks them `a.wikilink.broken`;
+ *  a table cell used to draw every one as a live link. */
+function markUnresolvedCellLinks(
+  root: ParentNode,
+  linkResolves: (target: string) => boolean
+): void {
+  root.querySelectorAll<HTMLAnchorElement>('a.wikilink').forEach((anchor) => {
+    const target = anchor.dataset.wikilink?.trim()
+    if (!target) return
+    anchor.classList.toggle('broken', !linkResolves(target))
+  })
+}
+
+/** A cell's idle HTML, with its wikilinks decided against the vault. */
+function renderCellHtml(text: string): string {
+  return renderInlineCell(text, wikilinkResolves)
 }
 
 /** If a `<!-- zen:cols=… -->` width marker sits on the line right after the
@@ -654,7 +686,7 @@ class TableWidget extends WidgetType {
     editable.setAttribute('contenteditable', vimEnabled() ? 'false' : 'true')
     // Idle: show rendered inline markdown (code/bold/links). Editing: show the
     // raw source. `data-raw` stays authoritative for commits either way.
-    editable.innerHTML = renderInlineCell(text)
+    editable.innerHTML = renderCellHtml(text)
     editable.dataset.rendered = 'true'
 
     editable.addEventListener('focus', () => {
@@ -717,7 +749,7 @@ class TableWidget extends WidgetType {
       if (editable.dataset.rendered === 'false') {
         const raw = editable.dataset.raw ?? editable.textContent ?? ''
         editable.dataset.raw = raw
-        editable.innerHTML = renderInlineCell(raw)
+        editable.innerHTML = renderCellHtml(raw)
         editable.dataset.rendered = 'true'
       }
     })
@@ -1735,7 +1767,7 @@ class TableWidget extends WidgetType {
       cell.querySelectorAll('.cm-table-cell-sel').forEach((overlay) => overlay.remove())
       cell.classList.remove('is-vim-visual')
       if (!selected.has(cell) && cell !== active && cell.dataset.rendered === 'false') {
-        cell.innerHTML = renderInlineCell(cell.dataset.raw ?? '')
+        cell.innerHTML = renderCellHtml(cell.dataset.raw ?? '')
         cell.dataset.rendered = 'true'
       }
     })
@@ -1782,7 +1814,7 @@ class TableWidget extends WidgetType {
       cell.querySelectorAll('.cm-table-cell-sel').forEach((overlay) => overlay.remove())
       cell.classList.remove('is-vim-visual')
       if (cell !== active && cell.dataset.rendered === 'false') {
-        cell.innerHTML = renderInlineCell(cell.dataset.raw ?? '')
+        cell.innerHTML = renderCellHtml(cell.dataset.raw ?? '')
         cell.dataset.rendered = 'true'
       }
     })
@@ -2499,6 +2531,39 @@ function buildDecorations(state: EditorState): DecorationSet {
 }
 
 /**
+ * Keeps the cells' `[[wikilink]]` look current while the note stays open. A
+ * link's fate depends on vault state that moves under the editor (the notes
+ * list arriving after mount, the missing note created from the link, the asset
+ * list), the same inputs the editor's own wikilinks recompute on. The table's
+ * source has not changed, so its widget is not rebuilt; instead the idle
+ * cells' anchors are re-decided in place, which leaves focus and a cell being
+ * edited alone (that one shows raw source and re-renders on blur anyway).
+ */
+const tableCellLinkStates = ViewPlugin.fromClass(
+  class {
+    private unsubscribe: () => void
+    constructor(view: EditorView) {
+      this.unsubscribe = useStore.subscribe((state, prev) => {
+        if (
+          state.notes !== prev.notes ||
+          state.assetFiles !== prev.assetFiles ||
+          state.folders !== prev.folders ||
+          state.vaultSettings !== prev.vaultSettings ||
+          state.selectedPath !== prev.selectedPath
+        ) {
+          view.contentDOM
+            .querySelectorAll<HTMLElement>('.cm-table-widget .cm-table-cell')
+            .forEach((cell) => markUnresolvedCellLinks(cell, wikilinkResolves))
+        }
+      })
+    }
+    destroy(): void {
+      this.unsubscribe()
+    }
+  }
+)
+
+/**
  * Block widgets (and any decoration that replaces line breaks) must be
  * supplied through a StateField, not a ViewPlugin — CodeMirror needs to know
  * the block structure before the viewport is computed. The field also feeds
@@ -2516,7 +2581,8 @@ export const tablePlugin = StateField.define<DecorationSet>({
   },
   provide: (field) => [
     EditorView.decorations.from(field),
-    EditorView.atomicRanges.of((view) => view.state.field(field, false) ?? Decoration.none)
+    EditorView.atomicRanges.of((view) => view.state.field(field, false) ?? Decoration.none),
+    tableCellLinkStates
   ]
 })
 

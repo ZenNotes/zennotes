@@ -5681,6 +5681,14 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   text-decoration: underline;
   text-decoration-color: rgb(var(--z-accent) / 0.4);
 }
+/* A [[wikilink]] whose note does not exist yet: the editor's
+   `.cm-wikilink-broken` look, muted with a dashed underline, so a cell link
+   that would create a note reads apart from one that opens a note. */
+.cm-table-widget .cm-table-cell a.wikilink.broken {
+  color: theme("colors.ink.500");
+  text-decoration-style: dashed;
+  text-decoration-color: theme("colors.ink.400");
+}
 .cm-table-widget td[align="center"] .cm-table-cell,
 .cm-table-widget th[align="center"] .cm-table-cell {
   text-align: center;

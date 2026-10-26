@@ -60,7 +60,7 @@ interface ResolverCache {
 }
 let resolverCache: ResolverCache | null = null
 
-function wikilinkResolves(target: string): boolean {
+export function wikilinkResolves(target: string): boolean {
   const s = useStore.getState()
   // A surface that mounts the editor with a partial store (tests, the
   // standalone windows) has no vault lists to check against. A link there is
