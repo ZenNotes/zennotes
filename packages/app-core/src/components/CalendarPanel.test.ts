@@ -137,4 +137,26 @@ describe('CalendarPanel: a day on a touch screen', () => {
     expect(confirmApp).not.toHaveBeenCalled()
     expect(openDailyNoteForDate).not.toHaveBeenCalled()
   })
+
+  it("opens on the host's day, in that day's month (the widget's day link)", () => {
+    const later = new Date(today.getFullYear(), today.getMonth() + 2, 15)
+    act(() => root.render(createElement(CalendarPanel, { note: null, initialDate: isoDate(later) })))
+    expect(day(later).className).toContain('ring-accent/60')
+    expect(host.querySelector(`[data-cal-day="${isoDate(today)}"]`)).toBeNull()
+  })
+
+  it('ignores a malformed host day and orients on today', () => {
+    act(() => root.render(createElement(CalendarPanel, { note: null, initialDate: '2026-13-45' })))
+    expect(day(today).className).toContain('ring-accent/60')
+  })
+
+  it('puts the cursor in "Add a task" when asked (the widget\'s add button)', async () => {
+    act(() => root.render(createElement(CalendarPanel, { note: null, focusAdd: true })))
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
+    })
+    const input = host.querySelector('input[placeholder^="Add a task for"]')
+    expect(input).not.toBeNull()
+    expect(document.activeElement).toBe(input)
+  })
 })

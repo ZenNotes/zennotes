@@ -2,7 +2,8 @@ import { captureNavigationContext } from './lib/navigation-context'
 import { useSyncExternalStore } from 'react'
 import type { VaultTask } from '@bridge-contract/tasks'
 import { useStore, type KanbanGroupBy } from './store'
-import { filterTasksForDisplay, inferDailyTaskDueDates } from '@shared/tasks'
+import { filterTasksForDisplay, inferDailyTaskDueDates, parseTasksFromBody } from '@shared/tasks'
+import { TASK_LINE_RE } from '@shared/tasklists'
 import { computeTasksRender } from './lib/tasks-filter'
 import { buildDailyNoteDateByPath } from './lib/vault-layout'
 import { dropMutationsFor } from './lib/task-column-mutations'
@@ -77,6 +78,78 @@ export async function moveTaskToColumn(
   if (!mutations) return false
   if (mutations.length) await state.applyTaskMutation(task, mutations)
   return true
+}
+
+/** 'retry': nothing was written and asking again later may work (the note
+ *  is open with a buffer the app has yet to reload from disk, a read or the
+ *  write failed, another file operation held the writer). */
+export type SetTaskCheckedResult = 'applied' | 'unchanged' | 'stale' | 'retry'
+
+/** A task line with its checkbox state blanked, so a line matches itself
+ *  ticked or not. */
+function lineShape(line: string): string {
+  return line.replace(/\r$/, '').replace(TASK_LINE_RE, '$1 $3')
+}
+
+/** The body `toggleTaskFromList` will edit: the open buffer, else the file.
+ *  Null when that is not safe to decide now: a clean buffer that differs
+ *  from disk is one the foreground resync has yet to reload, and editing it
+ *  would mark it dirty and save it over whatever changed on disk. */
+async function bodyToEdit(path: string): Promise<string | null> {
+  try {
+    const open = useStore.getState().noteContents[path]
+    if (!open) return (await window.zen.readNote(path)).body
+    if (useStore.getState().noteDirty[path]) return open.body
+    const disk = (await window.zen.readNote(path)).body
+    const now = useStore.getState().noteContents[path]
+    return now && now.body === disk && !useStore.getState().noteDirty[path] ? disk : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Tick or untick a task something outside the app saw (the phones'
+ * home-screen widget), through the same queued writer as a checkbox in the
+ * app. `raw` is the line as that caller saw it. The task is looked up in the
+ * very body the toggle will edit, by id, or by the same line elsewhere in
+ * that note when lines above it moved; with neither it is left alone
+ * ('stale'): the note changed since, and a tick guessed onto another line is
+ * worse than a lost one. A cancelled or forwarded task is never ticked: that
+ * would erase the record of the cancel or the move.
+ */
+export async function setTaskChecked(id: string, raw: string, checked: boolean): Promise<SetTaskCheckedResult> {
+  const hash = id.lastIndexOf('#')
+  const path = hash > 0 ? id.slice(0, hash) : ''
+  const meta = useStore.getState().notes.find(note => note.path === path)
+  if (!path || !useStore.getState().vault || !meta || meta.folder === 'trash') return 'stale'
+  try { await useStore.getState().rescanTasksForPath(path) } catch { return 'retry' }
+
+  // A file task's state is its frontmatter, not a line; it has no index to drift.
+  const fileTask = useStore.getState().vaultTasks.find(task => task.id === id && task.kind === 'file')
+  if (fileTask) {
+    if (fileTask.checked === checked) return 'unchanged'
+    if (checked && (fileTask.cancelled || fileTask.forwarded)) return 'stale'
+    await useStore.getState().toggleTaskFromList(fileTask)
+    const after = useStore.getState().vaultTasks.find(task => task.id === id)
+    return after?.checked === checked ? 'applied' : 'retry'
+  }
+
+  const body = await bodyToEdit(path)
+  if (body == null) return 'retry'
+  const ctx = { path, title: meta.title, folder: meta.folder }
+  const shape = lineShape(raw)
+  const same = parseTasksFromBody(body, ctx).filter(task => lineShape(task.rawText) === shape)
+  const task = same.find(task => task.id === id) ?? (same.length === 1 ? same[0] : undefined)
+  if (!task) return 'stale'
+  if (task.checked === checked) return 'unchanged'
+  if (checked && (task.cancelled || task.forwarded)) return 'stale'
+  await useStore.getState().toggleTaskFromList(task)
+
+  // The writer reports nothing when it declines or fails; read back.
+  const written = await bodyToEdit(path)
+  const now = written == null ? undefined : parseTasksFromBody(written, ctx)[task.taskIndex]
+  return now && lineShape(now.rawText) === shape && now.checked === checked ? 'applied' : 'retry'
 }
 
 /** Today/overdue groups use core's filtering and file order, including file tasks. */

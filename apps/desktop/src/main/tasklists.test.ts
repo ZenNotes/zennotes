@@ -318,3 +318,24 @@ describe('setTaskFieldAtIndex', () => {
     expect(setTaskFieldAtIndex(md, 0, 'Bad Key', 'x')).toBe(md)
   })
 })
+
+describe('task index walks on Windows line endings', () => {
+  it('toggles a CRLF task and keeps its ending', () => {
+    const md = '# Saved on Windows\r\n\r\n- [ ] one\r\n- [ ] two\r\n'
+    expect(toggleTaskAtIndex(md, 1, true)).toBe('# Saved on Windows\r\n\r\n- [ ] one\r\n- [x] two\r\n')
+  })
+
+  it('counts tasks like the parser when a note mixes endings', () => {
+    const md = '- [ ] a\n- [ ] b\r\n- [ ] c\n'
+    expect(toggleTaskAtIndex(md, 1, true)).toBe('- [ ] a\n- [x] b\r\n- [ ] c\n')
+  })
+
+  it('takes the right line out of a CRLF note', () => {
+    const md = '- [ ] a\r\n- [ ] b\r\n'
+    expect(takeTaskLineAtIndex(md, 1)).toEqual({ line: '- [ ] b\r', body: '- [ ] a\r\n' })
+  })
+
+  it('moves a CRLF task to the right place', () => {
+    expect(moveTaskLine('- [ ] a\r\n- [ ] b\r\n- [ ] c', 2, 0, 'before')).toBe('- [ ] c\n- [ ] a\r\n- [ ] b\r')
+  })
+})
