@@ -9,6 +9,8 @@
  *                                                        dark, dark dimmed, dark high-contrast
  */
 
+import { rankItems } from './fuzzy-score'
+
 export type ThemeFamily =
   | 'apple'
   | 'gruvbox'
@@ -188,4 +190,20 @@ export function resolveAuto(
   }
   // github
   return targetMode === 'dark' ? 'github-dark' : 'github-light'
+}
+
+/** The Themes picker's ranking. Each field is scored on its own, so a query
+ *  that names a family together with its mode or flavor ("apple light",
+ *  "gruvbox dark hard") matched none of them and the list came up empty. The
+ *  last field reads a row as one phrase, family first, the way people say it. */
+export function rankThemes(query: string, themes: readonly ThemeOption[] = THEMES): ThemeOption[] {
+  return rankItems([...themes], query, [
+    { get: (t) => t.label, weight: 1 },
+    { get: (t) => t.family, weight: 0.9 },
+    { get: (t) => t.variant, weight: 0.6 },
+    {
+      get: (t) => [t.family.replace(/-/g, ' '), t.mode, t.variant, t.label].filter(Boolean).join(' '),
+      weight: 0.8
+    }
+  ])
 }

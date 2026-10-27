@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { THEMES, resolveAuto } from './themes'
+import { THEMES, rankThemes, resolveAuto } from './themes'
 
 const css = readFileSync(
   fileURLToPath(new URL('../styles/index.css', import.meta.url)),
@@ -75,5 +75,19 @@ describe('built-in theme registry ↔ CSS', () => {
         ).toBe(family)
       }
     }
+  })
+})
+
+describe('rankThemes', () => {
+  it('finds a family named together with its mode or flavor', () => {
+    expect(rankThemes('apple light')[0]?.id).toBe('apple-light')
+    expect(rankThemes('apple dark')[0]?.id).toBe('apple-dark')
+    expect(rankThemes('gruvbox dark hard')[0]?.id).toBe('dark-hard')
+    expect(rankThemes('tokyo night')[0]?.family).toBe('tokyo-night')
+  })
+
+  it('still ranks a whole label first, and lists every theme for an empty query', () => {
+    expect(rankThemes('light')[0]?.id).toBe('apple-light')
+    expect(rankThemes('')).toHaveLength(THEMES.length)
   })
 })

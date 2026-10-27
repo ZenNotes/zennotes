@@ -18,7 +18,7 @@ import {
   canReturnToCommandList,
   shouldRefocusEditorAfterCommand
 } from '../lib/command-palette-mode'
-import { THEMES, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
+import { rankThemes, type ThemeFamily, type ThemeMode, type ThemeOption } from '../lib/themes'
 import {
   buildVaultSwitcherEntries,
   newWindowVaultRows,
@@ -104,15 +104,7 @@ export function CommandPalette(): JSX.Element {
     return [...recentCommands, ...ranked.filter((c) => !recentSet.has(c.id))]
   }, [allCommands, query, recentCommands])
 
-  const themeResults = useMemo<ThemeOption[]>(
-    () =>
-      rankItems(THEMES, query, [
-        { get: (t) => t.label, weight: 1 },
-        { get: (t) => t.family, weight: 0.9 },
-        { get: (t) => t.variant, weight: 0.6 }
-      ]),
-    [query]
-  )
+  const themeResults = useMemo<ThemeOption[]>(() => rankThemes(query), [query])
 
   const vaultOptions = useMemo<VaultRow[]>(() => {
     const entries = buildVaultSwitcherEntries({
@@ -208,7 +200,19 @@ export function CommandPalette(): JSX.Element {
   }, [active])
 
   /* -------- Theme preview on active change -------- */
+  // A new filter or mode re-syncs `active` in the effect above, but that lands
+  // on the next render: in this one `active` still indexes the previous list
+  // (or the command list), and previewing it applied a theme nobody had
+  // highlighted (typing `l` from Gruvbox Hard dark switched to Nord Light),
+  // which the next re-sync then locked onto. So a preview waits until `active`
+  // was set against the list it indexes, including on the first render.
+  const previewBasisRef = useRef<{ mode: Mode; results: ThemeOption[] } | null>(null)
   useEffect(() => {
+    const basis = previewBasisRef.current
+    if (!basis || basis.mode !== mode || basis.results !== themeResults) {
+      previewBasisRef.current = { mode, results: themeResults }
+      return
+    }
     if (mode !== 'theme') return
     if (active < 0) return
     const theme = themeResults[active]
