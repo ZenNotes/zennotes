@@ -6,6 +6,18 @@ interface ReadOnlyNoteCoverProps {
   y: number
 }
 
+/** What a read-only cover may load: an http(s) image (the share page's
+ *  uploads, or an https cover), a built-in gradient's `data:image/` URL, and
+ *  Quick Look's `zenql://` resource route. The callers already hand over only
+ *  these, and an `<img>` runs no script whatever its source; the check sits at
+ *  the element anyway, so a future caller cannot point it anywhere else. */
+const READ_ONLY_COVER_URL = /^(?:https?:\/\/|zenql:\/\/|data:image\/)/i
+
+export function readOnlyCoverSource(url: string): string | null {
+  const trimmed = url.trim()
+  return READ_ONLY_COVER_URL.test(trimmed) ? trimmed : null
+}
+
 /**
  * A note's cover where nobody can change it: the public share page and Quick
  * Look. The same frame and focal point as the app's NoteCover, without its
@@ -16,14 +28,15 @@ interface ReadOnlyNoteCoverProps {
 export function ReadOnlyNoteCover({ url, y }: ReadOnlyNoteCoverProps): JSX.Element | null {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [url])
-  if (failed) return null
+  const src = readOnlyCoverSource(url)
+  if (failed || !src) return null
   return (
     <div
       data-note-cover="read-only"
       className="zen-note-cover relative w-full shrink-0 select-none overflow-hidden bg-paper-200"
     >
       <img
-        src={url}
+        src={src}
         alt=""
         draggable={false}
         onError={() => setFailed(true)}
