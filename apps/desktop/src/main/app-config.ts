@@ -313,6 +313,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     comment: 'show disclosure arrows in the sidebar'
   },
   contentAlign: { section: 'appearance', tomlKey: 'content_align', comment: 'center | left' },
+  noteCoverPlacement: {
+    section: 'appearance',
+    tomlKey: 'note_cover_placement',
+    comment: 'scroll | pinned | hidden: where a note cover image sits'
+  },
   unifiedSidebar: {
     section: 'appearance',
     tomlKey: 'unified_sidebar',

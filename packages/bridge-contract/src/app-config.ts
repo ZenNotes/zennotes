@@ -75,6 +75,7 @@ export const PORTABLE_PREF_KEYS = [
   'showWindowTitleBar',
   'showSidebarChevrons',
   'contentAlign',
+  'noteCoverPlacement',
   'unifiedSidebar',
   // typography
   'interfaceFont',

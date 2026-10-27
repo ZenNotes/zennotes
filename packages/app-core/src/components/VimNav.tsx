@@ -65,6 +65,7 @@ import {
 import { requestSettingsTarget } from '../lib/settings-navigation'
 import { hideWindowToTray, useTrayStore } from '../lib/tray-runtime'
 import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
+import { openCoverPicker } from '../lib/note-cover-actions'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
   isExcalidrawPath,
@@ -275,6 +276,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderTableToDatabase'),
         label: 'Table to database',
         detail: 'Turn the table under the cursor into a database, linked from the note.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteCover'),
+        label: 'Cover image',
+        detail: 'Add, change or remove the banner image across the top of the note.'
       }
       ]
     }
@@ -1157,6 +1163,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           if (state.editorViewRef) void convertTableToDatabase(state.editorViewRef)
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderNoteCover')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          openCoverPicker()
           return
         }
         resetLeader()

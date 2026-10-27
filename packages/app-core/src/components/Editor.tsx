@@ -65,6 +65,18 @@ import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
 import { buildVersionReport } from "../lib/version-report";
 import { writeClipboardText } from "../lib/clipboard-text";
 import {
+  coverNotePath,
+  openCoverPicker,
+  removeCover,
+  resolveCoverArgument,
+  setCoverFromBuiltin,
+  setCoverFromClipboard,
+  setCoverPosition,
+  setCoverTarget,
+  startCoverReposition,
+} from "../lib/note-cover-actions";
+import { GRADIENT_COVERS, PHOTO_COVERS } from "../lib/note-cover-gallery";
+import {
   externalFileLink,
   openExternalFileLink,
 } from "../lib/external-file-link";
@@ -540,6 +552,63 @@ function registerVimCommands(): void {
   Vim.defineEx("format", "format", () => {
     void useStore.getState().formatActiveNote();
   });
+  // `:cover` (`:cov`) is the ex twin of Space l c. Bare, it opens the picker;
+  // `:cover!` or `:cover remove` takes the cover off; `paste` uses the
+  // clipboard image; `reposition` enters reposition mode and `40%` sets the
+  // focal point outright. Anything else names the image: an https URL, a
+  // vault image by path or unique file name, or a built-in cover by name.
+  Vim.defineEx(
+    "cover",
+    "cov",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      const arg = (params?.argString ?? "").trim();
+      const path = coverNotePath();
+      if (!arg) {
+        openCoverPicker();
+        return;
+      }
+      if (!path) {
+        useToastStore.getState().addToast("Open a note to give it a cover", "info");
+        return;
+      }
+      const lower = arg.toLowerCase();
+      if (arg === "!" || lower === "remove") {
+        void removeCover(path);
+        return;
+      }
+      if (lower === "paste") {
+        void setCoverFromClipboard(path);
+        return;
+      }
+      if (lower === "reposition") {
+        startCoverReposition();
+        return;
+      }
+      const percent = arg.match(/^(\d{1,3}(?:\.\d+)?)%$/);
+      if (percent) {
+        void setCoverPosition(path, Number(percent[1]) / 100);
+        return;
+      }
+      const target = resolveCoverArgument(arg);
+      if (target) {
+        void setCoverTarget(path, target);
+        return;
+      }
+      const builtin = [...GRADIENT_COVERS, ...PHOTO_COVERS].find(
+        (cover) =>
+          cover.title.toLowerCase() === lower ||
+          cover.id.toLowerCase() === lower ||
+          cover.id.toLowerCase() === `gradient-${lower}`,
+      );
+      if (builtin) {
+        void setCoverFromBuiltin(path, builtin);
+        return;
+      }
+      useToastStore
+        .getState()
+        .addToast(`No image called "${arg}" in this vault`, "info");
+    },
+  );
   // `:imgwidth 480` (`:imgw`) writes the `|480` size hint into the image on
   // the cursor line, the same edit as dragging the widget's handle; `auto`
   // (or 0) strips it, and no argument opens the Resize Image prompt (#684).

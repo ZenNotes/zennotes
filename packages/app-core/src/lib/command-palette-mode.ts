@@ -36,6 +36,15 @@ export const COMMAND_OVERLAY_FLAGS = [
 export type CommandOverlayFlag = (typeof COMMAND_OVERLAY_FLAGS)[number]
 
 /**
+ * The same, for overlays the store tracks as a value that is non-null while
+ * they are up: the cover picker (the note it is for) and a cover in
+ * reposition mode, which takes the keyboard on the cover itself.
+ */
+export const COMMAND_OVERLAY_FIELDS = ['noteCoverPickerPath', 'noteCoverReposition'] as const
+
+export type CommandOverlayField = (typeof COMMAND_OVERLAY_FIELDS)[number]
+
+/**
  * Whether the command palette should hand DOM focus to the editor once a
  * command has run.
  *
@@ -54,9 +63,13 @@ export type CommandOverlayFlag = (typeof COMMAND_OVERLAY_FLAGS)[number]
  * commands await the answer, so they are closed by the time this runs.
  */
 export function shouldRefocusEditorAfterCommand(
-  state: { focusedPanel: string | null } & Record<CommandOverlayFlag, boolean>,
+  state: { focusedPanel: string | null } & Record<CommandOverlayFlag, boolean> &
+    Record<CommandOverlayField, unknown>,
   dialogOutsideStoreOpen: boolean
 ): boolean {
   if (state.focusedPanel !== 'editor' || dialogOutsideStoreOpen) return false
-  return !COMMAND_OVERLAY_FLAGS.some((flag) => state[flag])
+  return (
+    !COMMAND_OVERLAY_FLAGS.some((flag) => state[flag]) &&
+    !COMMAND_OVERLAY_FIELDS.some((field) => state[field] != null)
+  )
 }

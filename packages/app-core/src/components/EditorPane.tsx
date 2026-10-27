@@ -156,6 +156,10 @@ import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
 import { editorCursorPosition } from '../lib/editor-cursor-position'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { CloudConflictNoteBanner } from './CloudConflictNoteBanner'
+import { createPortal } from 'react-dom'
+import { readNoteCover } from '@shared/note-cover'
+import { editorShowsNoteCover, noteCoverExtension } from '../lib/cm-note-cover'
+import { NoteCover } from './NoteCover'
 import {
   AgentEditNoteBanner,
   AgentReviewBar,
@@ -923,6 +927,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const activeTab = pane.activeTab
 
   const content = useStore((s) => (activeTab ? s.noteContents[activeTab] ?? null : null))
+  const noteCoverPlacement = useStore((s) => s.noteCoverPlacement)
+  const noteCover = useMemo(
+    () => (content && /\.md$/i.test(content.path) ? readNoteCover(content.body) : null),
+    [content]
+  )
+  // CodeMirror builds the slot element and may rebuild it; the cover follows
+  // whichever one is current.
+  const [noteCoverSlot, setNoteCoverSlot] = useState<HTMLElement | null>(null)
+  const noteCoverSlotSink = useCallback((slot: HTMLElement, alive: boolean) => {
+    setNoteCoverSlot((current) => (alive ? slot : current === slot ? null : current))
+  }, [])
   const isDirty = useStore((s) => (activeTab ? s.noteDirty[activeTab] ?? false : false))
   const comments = useStore((s) =>
     activeTab ? s.noteComments[activeTab] ?? EMPTY_COMMENTS : EMPTY_COMMENTS
@@ -1172,6 +1187,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // The outgoing note's history is set aside first and handed back when that
   // note returns, see lib/note-undo-history. (#793)
   const historyCompartmentRef = useRef<Compartment | null>(null)
+  // The editor's cover slot: present only while covers scroll with the text.
+  const noteCoverCompartmentRef = useRef<Compartment | null>(null)
   const ignorePreviewScrollRef = useRef(false)
   // Split mode: which pane the reader is driving and until when, and which
   // one they drove last. The follower's scroll events are echoes while the
@@ -1358,6 +1375,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!visible) return null
     const caretLine = view.state.doc.lineAt(view.state.selection.main.head).number
     if (previewShowsSourceLine(visible, caretLine)) return null
+    // A reader at the very top of a note with a cover was looking at the
+    // cover. The first block sits below it (and below the frontmatter, where
+    // the caret usually is), so landing that block at the top would scroll the
+    // cover away; a margin as deep as the block keeps both panes at the top.
+    if (previewEl && previewEl.scrollTop <= 1 && editorShowsNoteCover(view.state)) {
+      const block = view.lineBlockAt(view.state.doc.line(visible.top).from)
+      return { line: visible.top, topMargin: block.bottom + OUTLINE_JUMP_TOP_MARGIN }
+    }
     return { line: visible.top, topMargin: OUTLINE_JUMP_TOP_MARGIN }
   }, [])
 
@@ -2040,7 +2065,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const tabSizeCompartment = new Compartment()
       const historyCompartment = new Compartment()
       const agentReviewCompartment = new Compartment()
+      const noteCoverCompartment = new Compartment()
       agentReviewCompartmentRef.current = agentReviewCompartment
+      noteCoverCompartmentRef.current = noteCoverCompartment
       vimCompartmentRef.current = vimCompartment
       harperCompartmentRef.current = harperCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
@@ -2102,6 +2129,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           }),
           commentDecorationField,
           agentReviewCompartment.of([]),
+          noteCoverCompartment.of(
+            s0.noteCoverPlacement === 'scroll' ? noteCoverExtension(noteCoverSlotSink) : []
+          ),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
           markdownCompartment.of(
@@ -2752,6 +2782,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !comp) return
     view.dispatch({ effects: comp.reconfigure(lineNumberExtension(lineNumberMode)) })
   }, [lineNumberMode])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = noteCoverCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({
+      effects: comp.reconfigure(
+        noteCoverPlacement === 'scroll' ? noteCoverExtension(noteCoverSlotSink) : []
+      )
+    })
+  }, [noteCoverPlacement, noteCoverSlotSink])
   useEffect(() => {
     const view = viewRef.current
     const comp = wordWrapCompartmentRef.current
@@ -4530,6 +4570,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   onDone={agentReview.stopReview}
                 />
               )}
+              {noteCover && noteCoverPlacement === 'pinned' && (
+                <NoteCover
+                  notePath={content.path}
+                  cover={noteCover}
+                  variant="pinned"
+                  claimable={isActive}
+                />
+              )}
+              {noteCover &&
+                noteCoverPlacement === 'scroll' &&
+                noteCoverSlot &&
+                createPortal(
+                  <NoteCover
+                    notePath={content.path}
+                    cover={noteCover}
+                    variant="scroll"
+                    claimable={isActive}
+                  />,
+                  noteCoverSlot
+                )}
               <div
                 className={[
                   'min-h-0 min-w-0 flex-1 overflow-hidden',
@@ -4605,6 +4665,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                         : 'flex-1'
                     ].join(' ')}
                   >
+                    {noteCover && noteCoverPlacement === 'scroll' && (
+                      <NoteCover
+                        notePath={content.path}
+                        cover={noteCover}
+                        variant="scroll"
+                        claimable={isActive}
+                      />
+                    )}
                     <Preview
                       markdown={previewMarkdown}
                       notePath={content.path}

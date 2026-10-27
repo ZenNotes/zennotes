@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { useStore } from '../store'
 import {
+  COMMAND_OVERLAY_FIELDS,
   COMMAND_OVERLAY_FLAGS,
   canReturnToCommandList,
   shouldRefocusEditorAfterCommand
@@ -33,7 +34,9 @@ describe('shouldRefocusEditorAfterCommand', () => {
     outlinePaletteOpen: false,
     templatePaletteOpen: false,
     embedDrawingPaletteOpen: false,
-    whatsNewOpen: false
+    whatsNewOpen: false,
+    noteCoverPickerPath: null,
+    noteCoverReposition: null
   }
 
   it('hands focus to the editor when a command lands on it', () => {
@@ -52,6 +55,14 @@ describe('shouldRefocusEditorAfterCommand', () => {
   // (zennotesandroid#65)
   it.each(COMMAND_OVERLAY_FLAGS)('does not pull focus behind an open %s', (flag) => {
     expect(shouldRefocusEditorAfterCommand({ ...onEditor, [flag]: true }, false)).toBe(false)
+  })
+
+  // "Change Cover…" opens the cover picker and "Reposition Cover" hands the
+  // keyboard to the cover; a refocus would type into the note behind either.
+  it.each(COMMAND_OVERLAY_FIELDS)('does not pull focus behind an open %s', (field) => {
+    expect(shouldRefocusEditorAfterCommand({ ...onEditor, [field]: 'inbox/Trip.md' }, false)).toBe(
+      false
+    )
   })
 
   // The Cloud conflict review and the Publish Note dialog are opened without

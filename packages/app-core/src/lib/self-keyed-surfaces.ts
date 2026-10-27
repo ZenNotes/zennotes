@@ -32,7 +32,10 @@ export const SELF_KEYED_SURFACES = [
   '[data-atlas-view]',
   // The link popover: its editor and its Create button own every key, and
   // its Escape closes it rather than walking the sidebar.
-  '[data-link-popover]'
+  '[data-link-popover]',
+  // A cover being repositioned: the arrows (and j/k with Vim on) move the
+  // image, Enter keeps the position and Escape puts it back.
+  '[data-note-cover-reposition]'
 ].join(', ')
 
 /**

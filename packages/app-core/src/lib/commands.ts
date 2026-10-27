@@ -41,6 +41,14 @@ import {
 import { harperEditorConfig, harperSupported } from './harper-runtime'
 import { reflowParagraph } from './cm-reflow'
 import { convertTableToDatabase } from './table-to-database'
+import {
+  activeNoteCover,
+  coverNotePath,
+  openCoverPicker,
+  removeCover,
+  setCoverFromClipboard,
+  startCoverReposition
+} from './note-cover-actions'
 import { csvPathFromDatabaseTab } from '@shared/databases'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
@@ -372,6 +380,52 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         return !!active && active.folder !== 'trash'
       },
       run: () => getState().toggleFavoriteActiveNote()
+    },
+    {
+      id: 'note.cover',
+      title: activeNoteCover() ? 'Change Cover…' : 'Add Cover…',
+      category: 'Note',
+      keywords: 'banner header image picture gallery gradient',
+      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCover'),
+      when: () => !!coverNotePath(),
+      run: () => {
+        openCoverPicker()
+      }
+    },
+    {
+      id: 'note.cover.paste',
+      title: 'Paste Cover from Clipboard',
+      category: 'Note',
+      keywords: 'banner header image screenshot',
+      shortcut: ':cover paste',
+      when: () => !!coverNotePath(),
+      run: async () => {
+        const path = coverNotePath()
+        if (path) await setCoverFromClipboard(path)
+      }
+    },
+    {
+      id: 'note.cover.reposition',
+      title: 'Reposition Cover',
+      category: 'Note',
+      keywords: 'banner header image move focal',
+      shortcut: ':cover reposition',
+      when: () => !!activeNoteCover(),
+      run: () => {
+        startCoverReposition()
+      }
+    },
+    {
+      id: 'note.cover.remove',
+      title: 'Remove Cover',
+      category: 'Note',
+      keywords: 'banner header image delete',
+      shortcut: ':cover!',
+      when: () => !!activeNoteCover(),
+      run: async () => {
+        const path = coverNotePath()
+        if (path) await removeCover(path)
+      }
     },
     {
       id: 'note.archive',

@@ -794,6 +794,8 @@ export function SettingsModal(): JSX.Element {
   const setPdfEmbedInEditMode = useStore((s) => s.setPdfEmbedInEditMode);
   const contentAlign = useStore((s) => s.contentAlign);
   const setContentAlign = useStore((s) => s.setContentAlign);
+  const noteCoverPlacement = useStore((s) => s.noteCoverPlacement);
+  const setNoteCoverPlacement = useStore((s) => s.setNoteCoverPlacement);
   const vault = useStore((s) => s.vault);
   const workspaceMode = useStore((s) => s.workspaceMode);
   const renameVault = useStore((s) => s.renameVault);
@@ -3755,6 +3757,13 @@ export function SettingsModal(): JSX.Element {
           keywords: ["alignment", "center", "left"],
         },
         {
+          id: "note-covers",
+          title: "Note covers",
+          description:
+            "Where a note's cover image shows: scrolling with the text, pinned above it, or hidden.",
+          keywords: ["cover", "banner", "header", "image", "pinned", "hidden"],
+        },
+        {
           id: "line-numbers",
           title: "Line numbers",
           description: "Show editor gutter numbers.",
@@ -3858,6 +3867,18 @@ export function SettingsModal(): JSX.Element {
                 { value: "left", label: "Left" },
               ]}
               onChange={(next) => setContentAlign(next)}
+            />
+            <SegmentedRow
+              label="Note covers"
+              description="Where a note's cover image (its banner) shows: on top of the text, scrolling away with it; pinned above the editor and Read view; or hidden. Hiding it leaves the note's frontmatter alone."
+              value={noteCoverPlacement}
+              settingId="note-covers"
+              options={[
+                { value: "scroll", label: "Scroll with note" },
+                { value: "pinned", label: "Pinned" },
+                { value: "hidden", label: "Hidden" },
+              ]}
+              onChange={(next) => setNoteCoverPlacement(next)}
             />
             <SegmentedRow
               label="Line numbers"

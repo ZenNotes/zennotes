@@ -294,6 +294,10 @@ export type LineNumberMode = 'off' | 'absolute' | 'relative'
  *  left of the text column ('text', default) or pinned to the editor's far-left
  *  edge ('edge'). No visible effect when content is left-aligned. (#228) */
 export type LineNumberPosition = 'edge' | 'text'
+/** Where a note's cover image sits: on top of the text and scrolling with it
+ *  ('scroll', default), pinned above the editor and preview ('pinned'), or
+ *  not drawn at all ('hidden'; the frontmatter is untouched). */
+export type NoteCoverPlacement = 'scroll' | 'pinned' | 'hidden'
 export type WhichKeyHintMode = 'timed' | 'sticky'
 export type CommandPaletteInitialMode = 'main' | 'vault'
 
@@ -728,6 +732,9 @@ interface Prefs {
   /** Whether the editor and preview content sit centered (with the
    *  width capped) or are left-aligned to the pane edge. */
   contentAlign: 'center' | 'left'
+  /** Where a note's cover image sits: at the top of the text, scrolling
+   *  away with it; pinned above the editor and preview; or not shown. */
+  noteCoverPlacement: NoteCoverPlacement
   /** Sidebar Tags section collapsed — keeps the tag pills hidden
    *  without removing the section entirely. */
   tagsCollapsed: boolean
@@ -1189,6 +1196,7 @@ export const DEFAULT_PREFS: Prefs = {
   pinnedRefKind: 'note',
   noteRefs: {},
   contentAlign: 'center',
+  noteCoverPlacement: 'scroll',
   tagsCollapsed: false,
   nestedTags: true,
   // Off by default, deliberately: workflows can rewrite notes in bulk, and the
@@ -1530,6 +1538,12 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       p.contentAlign === 'left' || p.contentAlign === 'center'
         ? p.contentAlign
         : DEFAULT_PREFS.contentAlign,
+    noteCoverPlacement:
+      p.noteCoverPlacement === 'scroll' ||
+      p.noteCoverPlacement === 'pinned' ||
+      p.noteCoverPlacement === 'hidden'
+        ? p.noteCoverPlacement
+        : DEFAULT_PREFS.noteCoverPlacement,
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
     nestedTags: typeof p.nestedTags === 'boolean' ? p.nestedTags : DEFAULT_PREFS.nestedTags,
@@ -2510,6 +2524,7 @@ function collectPrefs(s: {
   pinnedRefKind: 'note' | 'asset'
   noteRefs: Record<string, { path: string; kind: 'note' | 'asset' }>
   contentAlign: 'center' | 'left'
+  noteCoverPlacement: NoteCoverPlacement
   tagsCollapsed: boolean
   nestedTags: boolean
   workflowsEnabled: boolean
@@ -2627,6 +2642,7 @@ function collectPrefs(s: {
     pinnedRefKind: s.pinnedRefKind,
     noteRefs: s.noteRefs,
     contentAlign: s.contentAlign,
+    noteCoverPlacement: s.noteCoverPlacement,
     tagsCollapsed: s.tagsCollapsed,
     nestedTags: s.nestedTags,
     workflowsEnabled: s.workflowsEnabled,
@@ -3051,6 +3067,11 @@ interface Store {
   templatePaletteOpen: boolean
   /** "Embed existing drawing" picker visibility. */
   embedDrawingPaletteOpen: boolean
+  /** The note the cover picker is open for, or null while it is closed. */
+  noteCoverPickerPath: string | null
+  /** A cover in reposition mode. `owner` is the on-screen copy that took the
+   *  request; null until one does (the palette asks for "the" cover). */
+  noteCoverReposition: { path: string; owner: string | null } | null
   /** Bumped whenever an Excalidraw drawing changes on disk so embed widgets
    *  and preview components invalidate their cached PNG and re-render. */
   excalidrawPreviewVersion: number
@@ -3241,6 +3262,8 @@ interface Store {
   /** Center the editor + preview content (with the width cap) or
    *  left-align it to the pane edge. */
   contentAlign: 'center' | 'left'
+  /** Where a note's cover image sits (Settings, Editor). */
+  noteCoverPlacement: NoteCoverPlacement
 
   /** Sidebar Tags section collapsed — hides the pill rail but keeps
    *  the section header visible as a toggle. Persisted. */
@@ -3864,6 +3887,8 @@ interface Store {
   openThisMonthMonthlyNote: () => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   setEmbedDrawingPaletteOpen: (open: boolean) => void
+  setNoteCoverPickerPath: (path: string | null) => void
+  setNoteCoverReposition: (reposition: { path: string; owner: string | null } | null) => void
   /** Create a new Excalidraw drawing and open it in a dedicated tab. */
   newDrawing: () => Promise<void>
   /** Create a new Excalidraw drawing, embed it at the cursor in the active
@@ -3905,6 +3930,7 @@ interface Store {
   setEditorMaxWidth: (px: number) => void
   setPdfEmbedInEditMode: (mode: 'compact' | 'full') => void
   setContentAlign: (align: 'center' | 'left') => void
+  setNoteCoverPlacement: (placement: NoteCoverPlacement) => void
   setTagsCollapsed: (collapsed: boolean) => void
   setNestedTags: (enabled: boolean) => void
   /** Toggle a nested-tag tree node between expanded and collapsed by its full path. */
@@ -6011,6 +6037,8 @@ export const useStore = create<Store>((set, get) => {
   outlinePaletteOpen: false,
   templatePaletteOpen: false,
   embedDrawingPaletteOpen: false,
+  noteCoverPickerPath: null,
+  noteCoverReposition: null,
   excalidrawPreviewVersion: 0,
   templatePaletteMode: 'create',
   templatePaletteTarget: null,
@@ -6117,6 +6145,7 @@ export const useStore = create<Store>((set, get) => {
   pinnedRefKind: loadPrefs().pinnedRefKind,
   noteRefs: loadPrefs().noteRefs,
   contentAlign: loadPrefs().contentAlign,
+  noteCoverPlacement: loadPrefs().noteCoverPlacement,
   tagsCollapsed: loadPrefs().tagsCollapsed,
   nestedTags: loadPrefs().nestedTags,
   workflowsEnabled: loadPrefs().workflowsEnabled,
@@ -9185,6 +9214,8 @@ export const useStore = create<Store>((set, get) => {
     }),
   setBufferPaletteOpen: (open) => set({ bufferPaletteOpen: open }),
   setEmbedDrawingPaletteOpen: (open) => set({ embedDrawingPaletteOpen: open }),
+  setNoteCoverPickerPath: (path) => set({ noteCoverPickerPath: path }),
+  setNoteCoverReposition: (reposition) => set({ noteCoverReposition: reposition }),
   setOutlinePaletteOpen: (open) => set({ outlinePaletteOpen: open }),
   setQuery: (q) => set({ query: q }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
@@ -10371,6 +10402,10 @@ export const useStore = create<Store>((set, get) => {
 
   setContentAlign: (align) => {
     set({ contentAlign: align })
+    savePrefs(collectPrefs(get()))
+  },
+  setNoteCoverPlacement: (placement) => {
+    set({ noteCoverPlacement: placement })
     savePrefs(collectPrefs(get()))
   },
   setTagsCollapsed: (collapsed) => {

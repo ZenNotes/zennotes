@@ -68,6 +68,7 @@ export type KeymapId =
   | "vim.leaderCopyMarkdown"
   | "vim.leaderToggleFavorite"
   | "vim.leaderTableToDatabase"
+  | "vim.leaderNoteCover"
   | "vim.leaderQuickCapture"
   | "vim.leaderHideToTray"
   | "vim.leaderTemplatePicker"
@@ -722,6 +723,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Turn the Markdown table under the cursor into a database and leave a link to it in the note.",
     defaultBinding: "d",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderNoteCover",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: cover image",
+    description:
+      "Open the cover picker for the active note: add, change or remove the banner image across its top.",
+    defaultBinding: "c",
     vimOnly: true,
     maxTokens: 1,
   },

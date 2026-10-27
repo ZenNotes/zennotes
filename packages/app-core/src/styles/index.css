@@ -1569,6 +1569,30 @@ textarea,
   margin-left: 0;
   margin-right: 0;
 }
+/* Note covers (`banner:` frontmatter). One responsive height everywhere, so
+   the editor and the Read view line up in split mode; pinned covers sit above
+   both surfaces and stay shorter, since they never scroll away. */
+.zen-note-cover {
+  height: clamp(8rem, 26vh, 17.5rem);
+}
+.zen-note-cover.zen-note-cover-pinned {
+  height: clamp(6rem, 18vh, 12rem);
+}
+/* In the editor the cover lives in a block widget inside the capped text
+   column; the bleed variables (measured by cm-note-cover.ts) widen it to the
+   whole pane. The gap under it is padding: CodeMirror measures a block widget
+   by its border box, and a vertical margin would throw its height map off. */
+.cm-editor .cm-note-cover-slot {
+  position: relative;
+  z-index: 201; /* above the sticky line-number gutter */
+  margin-left: calc(-1 * var(--zen-cover-bleed-left, 0px));
+  margin-right: calc(-1 * var(--zen-cover-bleed-right, 0px));
+  padding-bottom: 1.25rem;
+  cursor: default;
+}
+.cm-editor.zen-has-note-cover .cm-scroller {
+  padding-top: 0;
+}
 .cm-editor .cm-line {
   padding: 0;
   line-height: var(--z-editor-line-height, 1.7);

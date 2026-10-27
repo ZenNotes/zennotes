@@ -137,6 +137,11 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
       'A note often starts with a small pipe table that outgrows inline editing. Put the cursor in it and run “Convert Table to Database…” from the command palette (`:table_to_database` on the ex line, or `Space l d` in Vim mode); in a rendered table, the same entry sits at the bottom of the cell menu (right-click, or `m` in Vim mode). Confirm a name (prefilled from the heading above the table, or the note’s title) and ZenNotes creates a `<Name>.base` database where new databases go (Settings → Vault → New Drawings, Databases & Tasks location), then replaces the table in the note with a `[[Name]]` link that opens the grid. Every column becomes a field, typed the way an opened CSV is (checkbox, number, date, text) so the Board and filters work at once; cell text travels verbatim, inline Markdown included, and the CSV layer takes care of commas and quotes. Column widths you dragged in the editor carry over; alignment does not, since a grid has none. The swap is an ordinary edit: `u` (or Undo) brings the table back while the database stays in the vault, and the confirmation toast offers an Open button if you want to jump straight to the grid.'
   },
   {
+    title: 'Give a note a cover image',
+    body:
+      'A cover is a wide banner image across the top of a note. Press `Space l c` in Vim mode, run “Add Cover…” from the command palette, or type `:cover` to open the cover picker. Type to search it, move with the arrow keys and press Enter to pick a gradient, a photograph from the gallery (public-domain works from The Met and NASA), or an image already in the vault. Upload image… takes a file from disk, and an image you paste (⌘V / Ctrl+V) or drop anywhere in the picker becomes the cover; paste an https link into the search field to use a picture from the web. Gradients, gallery photos and uploads are copied into the vault’s `assets/` folder like a pasted image, so the cover works offline, on a self-hosted server and through Cloud sync, end-to-end encrypted vaults included. Hover the cover for Change cover, Reposition and Remove, or drop an image straight onto it. Reposition (also “Reposition Cover” in the palette and `:cover reposition`) lets you drag the picture up or down, or move it with ↑/↓ (j/k in Vim mode, Shift for small steps); Enter keeps the new position and Escape puts the old one back. The cover is plain frontmatter, `banner: "![[assets/photo.jpg]]"` with the focal point in `banner_y` (0 is the top edge, 1 the bottom), the keys Obsidian’s banner plugins read, so a shared vault shows the same banner there; a `cover:` image, or one written as a plain `[[link]]`, shows too. The Assets view counts a cover image as used, renaming or moving the image updates the note, and `u` (or Undo) takes back a cover change made in the editor. Settings → Typography → Note covers decides whether the cover scrolls away with the text, stays pinned above the editor and Read view, or is hidden.'
+  },
+  {
     title: 'Give a vault a name of its own',
     body:
       'A vault is named after its folder, which is fine until several vaults are all called `docs` (one per project repo, say). Rename the vault without touching the folder: run “Rename Vault…” from the command palette (`:vault_rename` on the ex line), pick it from the sidebar’s vault menu (click the vault name at the top of the sidebar), or type the name into Settings → Vault → Location → Vault name. The name shows in the sidebar header, the vault switcher (`Space v`), the title bar and `zn vault list`; the folder keeps its name on disk, and clearing the field goes back to it. It is saved in the vault’s own `.zennotes/vault.json` as `displayName`, so it travels with the folder to every machine that opens it and shows up in the switcher after the vault has been opened there once. A temporary folder session and a remote workspace do not offer it: the first writes nothing into its folder, and the second’s settings belong to its server.'
@@ -613,6 +618,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space i', action: 'Insert template into note', detail: 'Pick a template and insert it at the cursor of the active note, instead of creating a new note from it. Without Vim mode, give “Insert template into current note” a key under Settings → Keymap.' },
       { keys: 'Space c', action: 'Toggle calendar', detail: 'Show or hide the calendar panel for the active pane.' },
       { keys: 'Space l s', action: 'Toggle favorite', detail: 'Add or remove the active note from the Favorites section shown in the sidebar and on the home view. Folders join it from their context menu.' },
+      { keys: 'Space l c', action: 'Cover image', detail: 'Open the cover picker for the active note: a gradient, a gallery photo, an image in the vault, an upload, a pasted image or an https link. Also “Add Cover…” in the command palette and `:cover`.' },
       { keys: 'Space l d', action: 'Convert table to database', detail: 'Turn the Markdown table under the cursor (or the rendered table whose cell you are in) into a `.base` database and leave a `[[link]]` to it in the note. Also “Convert Table to Database…” in the command palette, `:table_to_database`, and the bottom of the table cell menu.' },
       { keys: 'Space, then pause', action: 'Show leader hints', detail: 'If enabled in Settings, open a which-key style guide for the next available leader actions. Sticky mode keeps it open until `Space` or `Esc`.' },
       { keys: 'Mod+3', action: 'Toggle outline panel', detail: 'Show or hide the persistent outline in the active pane. Once focused (Ctrl+W l or Alt+L from the editor), j / k (or the arrows) walk the headings, gg / G jump to the first and last, Enter jumps the editor to the heading under the cursor, and Esc hands focus back.' },
@@ -862,6 +868,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':imgwidth {px}',
     summary: 'Resize the image on the cursor line',
     detail: 'Writes the `|width` size hint into the image embed under the cursor, the same edit as dragging the handle on the picture. `:imgw auto` strips the hint; `:imgw` with no argument opens the Resize Image prompt.'
+  },
+  {
+    command: ':cover [image]',
+    summary: 'Set the note’s cover image',
+    detail: 'Bare `:cover` (or `:cov`) opens the cover picker. With an argument it sets the cover: an https URL, a vault image by path or unique file name, or a built-in cover by name (`:cover dusk`, `:cover earthrise`). `:cover paste` uses the image on the clipboard, `:cover reposition` enters reposition mode, `:cover 30%` sets the focal point, and `:cover!` (or `:cover remove`) removes the cover.'
   },
   {
     command: ':tasks',
@@ -1200,6 +1211,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
       { label: 'Font size and line height', detail: 'Tune reading density in the editor and preview.' },
       { label: 'Reading width and editor width', detail: 'Cap long lines so wide windows stay readable.' },
       { label: 'Content alignment', detail: 'Center note content in its column or left-align it to the pane edge.' },
+      { label: 'Note covers', detail: 'Where a note’s cover image shows: on top of the text, scrolling away with it (the default); pinned above the editor and Read view so it stays in sight; or hidden. Hidden only stops drawing covers; the `banner` frontmatter stays in the note.' },
       { label: 'Line numbers', detail: 'Switch between off, absolute, and relative gutter numbering.' },
       { label: 'Line number position', detail: 'Keep the gutter next to the centered text or pin it to the editor edge.' }
     ]

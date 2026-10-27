@@ -144,6 +144,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   showWindowTitleBar: true,
   showSidebarChevrons: true,
   contentAlign: 'center',
+  noteCoverPlacement: 'scroll',
   unifiedSidebar: true,
   interfaceFont: null,
   textFont: null,
