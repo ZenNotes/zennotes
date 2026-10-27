@@ -4132,7 +4132,11 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
    it again. The roles mirror the mermaid themeVariables they replace: nodes on
    bg-2 with a bg-3 border, subgraphs on bg-softer, edges in grey-1, and the
    chart series in the same order pie slices and git branches used. Fonts are
-   not set here: Pele writes the font it measured with into the SVG. */
+   not set here: Pele writes the font it measured with into the SVG.
+   `--pele-fg-on-light` and `--pele-fg-on-dark` stay at Pele's near-black and
+   white on purpose: they colour text on a fill the author chose (`classDef`,
+   `style`, a sequence `rect`), so they have to contrast with that fill, and no
+   theme token is dark in every theme or light in every theme. */
 .pele {
   --pele-bg: rgb(var(--z-bg));
   --pele-fg: rgb(var(--z-fg-1));
