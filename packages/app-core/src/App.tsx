@@ -9,6 +9,7 @@ import {
 } from './store'
 import { resolveAuto, findTheme } from './lib/themes'
 import { applyTypographyVariables } from './lib/typography-variables'
+import { activeReferencePath } from './lib/pinned-reference'
 import {
   injectActiveTheme,
   injectOverrides,
@@ -429,7 +430,7 @@ function App(): JSX.Element {
   const persistWorkspace = useStore((s) => s.persistWorkspace)
   const flushDirtyNotes = useStore((s) => s.flushDirtyNotes)
   const activePinnedRefPath = useMemo(
-    () => (selectedPath ? noteRefs[selectedPath]?.path ?? pinnedRefPath : pinnedRefPath),
+    () => activeReferencePath({ selectedPath, noteRefs, pinnedRefPath }),
     [noteRefs, pinnedRefPath, selectedPath]
   )
   const showPinnedReferencePane = !zenMode && pinnedRefVisible && !!activePinnedRefPath

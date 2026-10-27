@@ -468,3 +468,37 @@ describe('saved Tasks filters (#731)', () => {
     expect(useStore.getState().tasksFilter).toBe('@project:alpha')
   })
 })
+
+describe('reference pane commands with a per-note pin', () => {
+  // A PDF card pins for its note only. The phones close their full-screen
+  // reference sheet with Hide Reference Pane, and only saw the global pin, so
+  // Done and Back did nothing over a PDF (Dave, Discord, 2026-10-27).
+  it('offers Hide and Focus for a pin on the open note, and Hide hides it', async () => {
+    const { buildCommands, runAppCommand, useStore } = {
+      ...(await loadCommands()),
+      ...(await import('../commands'))
+    }
+    useStore.setState({
+      selectedPath: 'inbox/The trip.md',
+      noteRefs: { 'inbox/The trip.md': { path: 'assets/Tourtickets.pdf', kind: 'asset' } },
+      pinnedRefPath: null,
+      pinnedRefVisible: true
+    })
+    const ids = buildCommands().map((c) => c.id)
+    expect(ids).toContain('ref.toggle')
+    expect(ids).toContain('ref.focus')
+
+    expect(await runAppCommand('ref.toggle')).toBe(true)
+    expect(useStore.getState().pinnedRefVisible).toBe(false)
+  })
+
+  it('stays out of the palette with no pin for the open note or globally', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({
+      selectedPath: 'inbox/Other.md',
+      noteRefs: { 'inbox/The trip.md': { path: 'assets/Tourtickets.pdf', kind: 'asset' } },
+      pinnedRefPath: null
+    })
+    expect(buildCommands().some((c) => c.id === 'ref.toggle')).toBe(false)
+  })
+})

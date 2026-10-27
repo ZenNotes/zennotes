@@ -51,6 +51,7 @@ import { resolveSystemFolderLabels } from './system-folder-labels'
 import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
+import { activeReferencePath } from './pinned-reference'
 import {
   hasCloudVaultRemovalNotice,
   hasPendingCloudReview,
@@ -1772,7 +1773,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         ? 'Hide Reference Pane'
         : 'Show Reference Pane',
       category: 'Reference',
-      when: () => !!getState().pinnedRefPath,
+      when: () => !!activeReferencePath(getState()),
       run: () => {
         getState().togglePinnedRefVisible()
       }
@@ -1782,7 +1783,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Focus Reference Pane',
       category: 'Reference',
       when: () =>
-        !!getState().pinnedRefPath && getState().pinnedRefVisible,
+        !!activeReferencePath(getState()) && getState().pinnedRefVisible,
       run: () => {
         const cm = document.querySelector<HTMLElement>(
           '[data-pane-id="pinned-ref"] .cm-content'
