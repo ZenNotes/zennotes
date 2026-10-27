@@ -3519,6 +3519,9 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 }
 .cm-editor .local-pdf-embed-header {
   display: flex;
+  /* At phone width the actions take a line of their own below the name
+     rather than running past the card's clipped edge. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
@@ -3588,8 +3591,14 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
      truncating text never gets a chance to ellipsis. */
   min-width: 0;
   display: inline-flex;
+  /* A phone-width card has no room for the name and the badge on one line:
+     the badge goes under the name instead of squeezing the name to nothing
+     and spilling over the Preview button beside the card (Dave, Discord,
+     2026-10-27). Nothing inside paints past the dashed edge. */
+  flex-wrap: wrap;
+  overflow: hidden;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
   padding: 8px 12px;
   border-radius: 10px;
   border: 1px dashed rgb(var(--z-accent) / 0.45);
@@ -3617,7 +3626,11 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   font-size: 0.9rem;
 }
 :is(.prose-zen, .cm-editor) .local-asset-pinned-ref-badge {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;

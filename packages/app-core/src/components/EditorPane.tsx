@@ -352,6 +352,8 @@ import {
   isDiagramTabPath
 } from '../lib/diagram-tabs'
 import { classifyLocalAssetHref } from '../lib/local-assets'
+import { canShowPdfInline } from '../lib/pdf-inline'
+import { PdfOpenElsewhere } from './PdfOpenElsewhere'
 import {
   formatKeyToken,
   getKeymapBinding,
@@ -4830,6 +4832,8 @@ function AssetTabView({
         <audio src={assetUrl} controls className="w-full" />
       </div>
     </div>
+  ) : assetKind === 'pdf' && !canShowPdfInline() ? (
+    <PdfOpenElsewhere assetPath={assetPath} title={title} />
   ) : (
     <iframe
       src={assetUrl}

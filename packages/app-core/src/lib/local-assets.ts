@@ -1,6 +1,7 @@
 import { useStore } from '../store'
 import { externalLinkUrl } from './internal-links'
 import { openVaultAssetExternally } from './external-file-link'
+import { canShowPdfInline } from './pdf-inline'
 import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
 import {
   decodeHrefPath,
@@ -398,17 +399,29 @@ export function buildAttachmentChip(
   return figure
 }
 
+const PDF_IN_REFERENCE_PANE = {
+  title: 'Showing in the reference pane (click to focus)',
+  badge: 'in reference pane'
+}
+
+const PDF_OPEN_ELSEWHERE = { title: 'Open this PDF in another app', badge: 'open' }
+
 /**
  * Build a compact "showing in reference pane" placeholder used when an
  * embedded PDF in the note is the same one the user has pinned in the
  * side reference pane — no point repeating the iframe, but we want a
  * visual breadcrumb so the user knows it's there.
+ *
+ * The same card stands in for the whole embed where the engine cannot draw a
+ * PDF at all (`canShowPdfInline`), with `PDF_OPEN_ELSEWHERE`'s words and an
+ * action that hands the file to another app.
  */
 function buildPinnedRefPlaceholder(
   url: string,
   href: string,
   label: string,
-  onActivate: () => void
+  onActivate: () => void,
+  words: { title: string; badge: string } = PDF_IN_REFERENCE_PANE
 ): HTMLElement {
   const figure = document.createElement('figure')
   figure.className = 'local-asset-embed local-asset-pinned-ref not-prose'
@@ -419,7 +432,7 @@ function buildPinnedRefPlaceholder(
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'local-asset-pinned-ref-button'
-  button.title = 'Showing in the reference pane (click to focus)'
+  button.title = words.title
   button.addEventListener('click', (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -436,7 +449,7 @@ function buildPinnedRefPlaceholder(
 
   const badge = document.createElement('span')
   badge.className = 'local-asset-pinned-ref-badge'
-  badge.textContent = 'in reference pane'
+  badge.textContent = words.badge
 
   button.append(icon, text, badge)
   figure.append(button)
@@ -699,6 +712,21 @@ export function enhanceLocalAssetNodes(
       return
     }
     const label = localAssetLabel(raw, anchor.textContent?.trim() || 'Asset')
+    if (kind === 'pdf' && assetVaultRel && !canShowPdfInline()) {
+      paragraph.replaceWith(
+        withCloudNotice(
+          buildPinnedRefPlaceholder(
+            resolved,
+            raw,
+            label,
+            () => void openVaultAssetExternally(assetVaultRel, { confirm: false }),
+            PDF_OPEN_ELSEWHERE
+          ),
+          assetVaultRel
+        )
+      )
+      return
+    }
     if (kind === 'pdf' && pinnedAssetPath) {
       if (assetVaultRel === pinnedAssetPath) {
         paragraph.replaceWith(

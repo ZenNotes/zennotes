@@ -52,8 +52,15 @@ export function externalFileLink(href: string): string | null {
  * the root is a directory on the SERVER. The bridge resolves the vault it
  * actually has — local opens in place, remote downloads to a temp file first
  * — and the confirm shows the vault-relative path, not a foreign server path.
+ *
+ * `confirm: false` skips the question for a document whose opener runs
+ * nothing: a PDF on a phone, whose WebView cannot show it in place, goes
+ * straight to the viewer the user tapped for.
  */
-export async function openVaultAssetExternally(assetVaultRel: string): Promise<void> {
+export async function openVaultAssetExternally(
+  assetVaultRel: string,
+  options: { confirm?: boolean } = {}
+): Promise<void> {
   const open = window.zen?.openAssetExternally
   const toast = useToastStore.getState().addToast
 
@@ -62,12 +69,14 @@ export async function openVaultAssetExternally(assetVaultRel: string): Promise<v
     return
   }
 
-  const ok = await confirmApp({
-    title: 'Open attachment?',
-    description: `This opens ${assetVaultRel} with your system's default app.`,
-    confirmLabel: 'Open'
-  })
-  if (!ok) return
+  if (options.confirm !== false) {
+    const ok = await confirmApp({
+      title: 'Open attachment?',
+      description: `This opens ${assetVaultRel} with your system's default app.`,
+      confirmLabel: 'Open'
+    })
+    if (!ok) return
+  }
 
   try {
     const result = await open(assetVaultRel)
