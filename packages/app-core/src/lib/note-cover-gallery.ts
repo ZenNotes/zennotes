@@ -18,6 +18,12 @@ import greatWaveThumb from '../assets/covers/thumbs/great-wave.webp'
 import oxbowThumb from '../assets/covers/thumbs/oxbow.webp'
 import rockyMountainsThumb from '../assets/covers/thumbs/rocky-mountains.webp'
 import wheatFieldThumb from '../assets/covers/thumbs/wheat-field.webp'
+import {
+  NOTE_COVER_GRADIENTS,
+  gradientCoverDataUrl,
+  gradientCoverFileName,
+  gradientCoverSvg
+} from '@shared/note-cover-gradients'
 
 export interface BuiltinCover {
   id: string
@@ -34,46 +40,6 @@ export interface BuiltinCover {
   bytes: () => Promise<Uint8Array>
 }
 
-interface GradientSpec {
-  id: string
-  title: string
-  from: string
-  to: string
-  /** Soft light from one corner, so a two-stop gradient has some depth. */
-  glow: string
-}
-
-const GRADIENTS: GradientSpec[] = [
-  { id: 'dawn', title: 'Dawn', from: '#f6d365', to: '#fda085', glow: '#fff8e7' },
-  { id: 'dusk', title: 'Dusk', from: '#2b5876', to: '#4e4376', glow: '#c9b6ff' },
-  { id: 'lagoon', title: 'Lagoon', from: '#43cea2', to: '#185a9d', glow: '#e0fff4' },
-  { id: 'moss', title: 'Moss', from: '#134e5e', to: '#71b280', glow: '#e9ffd9' },
-  { id: 'ember', title: 'Ember', from: '#e96443', to: '#904e95', glow: '#ffd7c2' },
-  { id: 'lilac', title: 'Lilac', from: '#a18cd1', to: '#fbc2eb', glow: '#ffffff' },
-  { id: 'sand', title: 'Sand', from: '#f3e7d3', to: '#c8a27a', glow: '#ffffff' },
-  { id: 'slate', title: 'Slate', from: '#232526', to: '#53585d', glow: '#9fb3c8' }
-]
-
-/** A gradient cover as a standalone SVG file. `preserveAspectRatio="none"`
- *  lets it stretch to any banner shape, which a gradient can afford. */
-export function gradientCoverSvg(spec: GradientSpec): string {
-  return [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="480" viewBox="0 0 1600 480" preserveAspectRatio="none">',
-    '<defs>',
-    `<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${spec.from}"/><stop offset="1" stop-color="${spec.to}"/></linearGradient>`,
-    `<radialGradient id="l" cx="0.85" cy="0" r="0.9"><stop offset="0" stop-color="${spec.glow}" stop-opacity="0.35"/><stop offset="1" stop-color="${spec.glow}" stop-opacity="0"/></radialGradient>`,
-    '</defs>',
-    '<rect width="1600" height="480" fill="url(#g)"/>',
-    '<rect width="1600" height="480" fill="url(#l)"/>',
-    '</svg>',
-    ''
-  ].join('')
-}
-
-function svgDataUrl(svg: string): string {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
-}
-
 function dataUrlBytes(dataUrl: string): Uint8Array {
   const comma = dataUrl.indexOf(',')
   const meta = dataUrl.slice(0, comma)
@@ -85,14 +51,16 @@ function dataUrlBytes(dataUrl: string): Uint8Array {
   return bytes
 }
 
-export const GRADIENT_COVERS: BuiltinCover[] = GRADIENTS.map((spec) => {
+// The specs live in shared-domain: the share viewer redraws a published
+// gradient cover from them (see note-cover-gradients.ts).
+export const GRADIENT_COVERS: BuiltinCover[] = NOTE_COVER_GRADIENTS.map((spec) => {
   const svg = gradientCoverSvg(spec)
   return {
     id: `gradient-${spec.id}`,
     title: spec.title,
-    fileName: `cover-gradient-${spec.id}.svg`,
+    fileName: gradientCoverFileName(spec),
     mimeType: 'image/svg+xml',
-    thumbUrl: svgDataUrl(svg),
+    thumbUrl: gradientCoverDataUrl(spec),
     y: 0.5,
     bytes: async () => new TextEncoder().encode(svg)
   }

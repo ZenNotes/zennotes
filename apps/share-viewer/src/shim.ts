@@ -109,7 +109,8 @@ function decodeRef(href: string): string {
   }
 }
 
-function lookupAsset(payload: SharePagePayload, href: string): string | null {
+/** The public URL of a file the publisher uploaded, or null. */
+export function lookupShareAsset(payload: Pick<SharePagePayload, 'assets'>, href: string): string | null {
   const direct = Object.hasOwn(payload.assets, href) ? payload.assets[href] : null
   if (direct && /^https?:\/\//i.test(direct)) return direct
   const ref = decodeRef(href)
@@ -150,9 +151,9 @@ export function installShareViewerBridge(payload: SharePagePayload): void {
     },
 
     resolveVaultAssetUrl: (_vaultRoot: string, assetPath: string): string | null =>
-      lookupAsset(payload, assetPath),
+      lookupShareAsset(payload, assetPath),
     resolveLocalAssetUrl: (_vaultRoot: string, _notePath: string, href: string): string | null =>
-      lookupAsset(payload, href),
+      lookupShareAsset(payload, href),
     getPathForFile: () => null,
 
     clipboardWriteText: (text: string): void => {

@@ -24,7 +24,8 @@ const QUICKLOOK_APP_INFO: ZenAppInfo = {
   runtime: 'web'
 }
 
-function decodeRef(href: string): string {
+/** A reference's file path: no query or fragment, percent-decoded. */
+export function decodeRef(href: string): string {
   const cleaned = href.split('#')[0]?.split('?')[0] ?? href
   try {
     return decodeURIComponent(cleaned)

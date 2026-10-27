@@ -1,9 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import type { AssetMeta, ImportedAssetKind, NoteContent, VaultInfo } from '@shared/ipc'
+import { readNoteCover } from '@shared/note-cover'
+import { readOnlyNoteCoverUrl } from '@shared/note-cover-gradients'
 import { readSharePagePayload, type SharePagePayload } from './payload'
 import { THEMES } from '@renderer/lib/themes'
-import { installShareViewerBridge } from './shim'
+import { ReadOnlyNoteCover } from '@renderer/components/ReadOnlyNoteCover'
+import { installShareViewerBridge, lookupShareAsset } from './shim'
 // The full app stylesheet (prose, themes, KaTeX, highlight, diagram
 // chrome); the same file the PDF export window ships wholesale.
 import '@renderer/styles/index.css'
@@ -93,8 +96,17 @@ async function boot(data: SharePagePayload): Promise<void> {
     root.dataset.viewerReady = 'true'
   }
 
+  // The cover image uploaded with the note (its `![[...]]` counts as an
+  // embed), an https cover as is, and a built-in gradient redrawn here.
+  const cover = readNoteCover(note.body)
+  const coverUrl = readOnlyNoteCoverUrl(cover, {
+    resolveVault: (href) => lookupShareAsset(data, href),
+    remote: true
+  })
+
   ReactDOM.createRoot(rendered).render(
     <React.StrictMode>
+      {cover && coverUrl ? <ReadOnlyNoteCover url={coverUrl} y={cover.y} /> : null}
       <article className="zen-share-note">
         <LazyPreview markdown={note.body} notePath={note.path} onRendered={onRendered} />
       </article>

@@ -18,6 +18,7 @@ theme_family = "catppuccin"
 theme_mode = "light"
 theme_id = "catppuccin-latte"
 content_align = "left"
+note_cover_placement = "hidden"
 
 [typography]
 text_font = "Iowan Old Style"
@@ -33,6 +34,7 @@ mono_font = ""
       themeMode: 'light',
       themeId: 'catppuccin-latte',
       contentAlign: 'left',
+      noteCoverPlacement: 'hidden',
       textFont: 'Iowan Old Style',
       monoFont: null,
       interfaceFont: null
@@ -46,6 +48,7 @@ mono_font = ""
     expect(prefs.editorFontSize).toBe(defaultQuickLookPrefs().editorFontSize)
     expect(prefs.themeMode).toBe(defaultQuickLookPrefs().themeMode)
     expect(prefs.vimMode).toBe(true)
+    expect(readQuickLookPrefs('[appearance]\nnote_cover_placement = "floating"').noteCoverPlacement).toBe('scroll')
   })
 })
 

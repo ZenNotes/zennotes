@@ -7,10 +7,10 @@ Open in ZenNotes button. Three pieces ship inside `ZenNotes.app/Contents/PlugIns
   and fonts from `~/.config/zennotes/config.toml`, read-only. Typst math and the
   plot renderers stay out (KaTeX typesets math), as do the Excalidraw fonts.
 - `macos/Extension/`: `ZenNotesQuickLook.appex`, the sandboxed Quick Look
-  extension. It serves the page and the files the note embeds over its own
-  `zenql://` scheme, behind a Content-Security-Policy that allows nothing else,
-  so a preview never goes online. WebKit's helper processes still need the
-  network-client entitlement to start at all.
+  extension. It serves the page and the files the note embeds (its cover image
+  included) over its own `zenql://` scheme, behind a Content-Security-Policy
+  that allows nothing else, so a preview never goes online. WebKit's helper
+  processes still need the network-client entitlement to start at all.
 - `macos/Opener/`: `ZenNotesQuickLookOpener.xpc`, inside the extension. Quick
   Look's sandbox lets a preview launch nothing, so this unsandboxed service opens
   the note in the ZenNotes that contains it (the same route as a Finder

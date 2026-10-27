@@ -8,6 +8,7 @@ import type {
   CloudPublishNoteInput
 } from '@zennotes/bridge-contract/cloud-sync'
 import { useStore } from '../store'
+import { builtinGradientForAsset } from '@shared/note-cover-gradients'
 import { resolveAssetVaultRelativePath } from './local-assets'
 import { useToastStore } from './toast'
 
@@ -52,7 +53,7 @@ export async function publishCloudNote(
   if (!account.features.publish.active) {
     throw new Error("Publishing isn't part of your current plan. Choose a plan under Billing on zennotes.org to publish notes.")
   }
-  const refs = [...new Set(note.assetEmbeds)]
+  const refs = publishableAssetRefs(note)
   if (refs.length !== assets.length) {
     throw new Error('ZenNotes could not prepare every attachment for publishing.')
   }
@@ -119,6 +120,17 @@ export async function publishCloudNoteWithFeedback(
   return outcome
 }
 
+/**
+ * The attachments a publish uploads: every embed but a built-in gradient
+ * cover. The service refuses SVG files, and that one does not need to travel:
+ * the share viewer draws the gradient its file name names from the same spec
+ * (note-cover-gradients.ts). Any other SVG is still refused, with the message
+ * that says why.
+ */
+function publishableAssetRefs(note: PublishableCloudNote): string[] {
+  return [...new Set(note.assetEmbeds)].filter((ref) => !builtinGradientForAsset(ref))
+}
+
 /** Matches the service's limit for apps that upload attachments ahead of the
  * publish; it checks the count, sizes and types again before anything is sent. */
 const MAX_PUBLISH_ATTACHMENTS = 50
@@ -131,7 +143,7 @@ export function collectCloudPublishAssets(
   note: PublishableCloudNote,
   vaultRoot: string
 ): CloudPublishAssetInput[] {
-  const refs = [...new Set(note.assetEmbeds)]
+  const refs = publishableAssetRefs(note)
   if (refs.length === 0) return []
   if (!vaultRoot) throw new Error('Open a local vault before publishing attachments.')
   if (refs.length > MAX_PUBLISH_ATTACHMENTS) {

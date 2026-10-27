@@ -138,6 +138,33 @@ describe('cloud publishing', () => {
     }))
   })
 
+  it('publishes a note with a built-in gradient cover, leaving the SVG for the viewer to redraw', async () => {
+    const { bridge, createPublishedNote } = setup()
+    const covered = {
+      ...note,
+      body: '---\nbanner: "![[assets/cover-gradient-dusk.svg]]"\n---\n![Photo](photo.png)',
+      assetEmbeds: ['assets/cover-gradient-dusk.svg', 'photo.png']
+    }
+    useStore.setState({
+      assetFiles: [
+        { path: 'assets/cover-gradient-dusk.svg', name: 'cover-gradient-dusk.svg' },
+        { path: 'Notes/photo.png', name: 'photo.png' }
+      ] as never
+    })
+
+    const assets = collectCloudPublishAssets(covered, '/vault')
+    expect(assets.map((asset) => asset.ref)).toEqual(['photo.png'])
+    await publishCloudNote(covered, bridge, assets)
+    expect(createPublishedNote).toHaveBeenCalledWith(expect.objectContaining({ markdown: covered.body }))
+  })
+
+  it('still refuses an SVG of the author’s own, which the service does not accept', () => {
+    useStore.setState({ assetFiles: [{ path: 'Notes/diagram.svg', name: 'diagram.svg' }] as never })
+    expect(() => collectCloudPublishAssets({ ...note, assetEmbeds: ['diagram.svg'] }, '/vault')).toThrow(
+      'not a supported image'
+    )
+  })
+
   it('allows 50 attachments and says how many fit beyond that', () => {
     const refs = (count: number) => Array.from({ length: count }, (_, index) => `photo-${index}.png`)
     useStore.setState({

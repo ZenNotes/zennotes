@@ -16,6 +16,8 @@ export interface QuickLookPrefs {
   previewMaxWidth: number
   contentAlign: 'center' | 'left'
   completedTaskStyle: string
+  /** Hidden keeps a note's cover out of the preview, as in the app. */
+  noteCoverPlacement: 'scroll' | 'pinned' | 'hidden'
   vimMode: boolean
 }
 
@@ -26,6 +28,7 @@ const TOML_KEYS: Record<keyof QuickLookPrefs, [section: string, key: string]> = 
   themeMode: ['appearance', 'theme_mode'],
   themeId: ['appearance', 'theme_id'],
   contentAlign: ['appearance', 'content_align'],
+  noteCoverPlacement: ['appearance', 'note_cover_placement'],
   interfaceFont: ['typography', 'interface_font'],
   textFont: ['typography', 'text_font'],
   monoFont: ['typography', 'mono_font'],
@@ -75,6 +78,9 @@ export function readQuickLookPrefs(configText: string): QuickLookPrefs {
     prefs.themeMode = defaultQuickLookPrefs().themeMode
   }
   if (prefs.contentAlign !== 'left') prefs.contentAlign = 'center'
+  if (!['scroll', 'pinned', 'hidden'].includes(prefs.noteCoverPlacement)) {
+    prefs.noteCoverPlacement = defaultQuickLookPrefs().noteCoverPlacement
+  }
   for (const font of ['interfaceFont', 'textFont', 'monoFont'] as const) {
     if (prefs[font] === '') prefs[font] = null
   }

@@ -22,6 +22,8 @@ struct NotePreview {
     private let viewer: URL
     private let page: Data
     private let assets: [URL]
+    private let noteDirectory: URL
+    private let vaultRoot: URL?
 
     init(fileURL: URL, viewer: URL) throws {
         self.fileURL = fileURL
@@ -37,6 +39,8 @@ struct NotePreview {
 
         let noteDirectory = fileURL.deletingLastPathComponent().standardizedFileURL
         let vaultRoot = Self.vaultRoot(above: noteDirectory)
+        self.noteDirectory = noteDirectory
+        self.vaultRoot = vaultRoot
         var resolver = AssetResolver(noteDirectory: noteDirectory, vaultRoot: vaultRoot)
         var files: [URL] = []
         var urls: [String: String] = [:]
@@ -88,6 +92,18 @@ struct NotePreview {
                 throw URLError(.fileDoesNotExist)
             }
             return try Self.serve(assets[index], for: url, range: range)
+        }
+        if path.hasPrefix("/cover/") {
+            // A cover the embed scan did not find (a plain [[link]] or a bare
+            // path in the frontmatter): the page names it, having read the
+            // frontmatter with the app's own parser, and it resolves here like
+            // any embed, inside the vault and media files only.
+            let reference = String(path.dropFirst("/cover/".count))
+            var resolver = AssetResolver(noteDirectory: noteDirectory, vaultRoot: vaultRoot)
+            guard let file = resolver.resolve(Reference(written: reference, decoded: reference, wikilink: true)) else {
+                throw URLError(.fileDoesNotExist)
+            }
+            return try Self.serve(file, for: url, range: nil)
         }
         let file = viewer.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
         guard file.path.hasPrefix(viewer.path + "/") else { throw URLError(.noPermissionsToReadFile) }

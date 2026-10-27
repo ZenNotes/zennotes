@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import type { AssetMeta, ImportedAssetKind, NoteContent, VaultInfo } from '@shared/ipc'
 import { applyTypographyVariables } from '@renderer/lib/typography-variables'
 import { Button } from '@renderer/components/ui/Button'
+import { ReadOnlyNoteCover } from '@renderer/components/ReadOnlyNoteCover'
 // The full app stylesheet (prose, themes, KaTeX, highlight, diagram chrome),
 // as the share viewer and the PDF export window ship it.
 import '@renderer/styles/index.css'
@@ -11,6 +12,7 @@ import { installQuickLookBridge } from './shim'
 import { quickLookTheme, readQuickLookPrefs, type QuickLookPrefs } from './prefs'
 import { createQuickLookKeys, type QuickLookAction } from './keys'
 import { isOutsideLink, postToHost } from './host'
+import { quickLookCover, type QuickLookCover } from './cover'
 
 const payload = readQuickLookPayload()
 if (payload) {
@@ -78,7 +80,7 @@ async function boot(data: QuickLookPayload): Promise<void> {
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <QuickLookPage title={data.title} vimMode={prefs.vimMode}>
+      <QuickLookPage title={data.title} vimMode={prefs.vimMode} cover={quickLookCover(data, prefs)}>
         <LazyPreview markdown={note.body} notePath={note.path} onRendered={onRendered} />
       </QuickLookPage>
     </React.StrictMode>
@@ -88,10 +90,12 @@ async function boot(data: QuickLookPayload): Promise<void> {
 function QuickLookPage({
   title,
   vimMode,
+  cover,
   children
 }: {
   title: string
   vimMode: boolean
+  cover: QuickLookCover | null
   children: React.ReactNode
 }): React.ReactElement {
   return (
@@ -104,6 +108,7 @@ function QuickLookPage({
           {vimMode ? <KeyHint label="o" /> : null}
         </Button>
       </header>
+      {cover ? <ReadOnlyNoteCover url={cover.url} y={cover.y} /> : null}
       <article className="zen-quicklook-note">{children}</article>
     </>
   )
