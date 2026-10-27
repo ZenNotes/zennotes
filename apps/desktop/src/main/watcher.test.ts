@@ -1,7 +1,9 @@
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { getActiveResourcesInfo } from 'node:process'
+import chokidar from 'chokidar'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VaultChangeEvent, VaultSettings } from '@shared/ipc'
 import { VaultWatcher } from './watcher'
 
@@ -9,8 +11,9 @@ const tempDirs: string[] = []
 const watchers: VaultWatcher[] = []
 
 afterEach(async () => {
-  for (const watcher of watchers.splice(0)) watcher.stop()
+  await Promise.all(watchers.splice(0).map((watcher) => watcher.stop()))
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
+  vi.restoreAllMocks()
 })
 
 async function makeVault(): Promise<string> {
@@ -123,6 +126,70 @@ describe('VaultWatcher atomic saves', () => {
     },
     20_000
   )
+})
+
+describe('VaultWatcher large vaults', () => {
+  it('watches external edits with bounded native handles and releases them on stop', async () => {
+    const root = await makeVault()
+    const directoryCount = 20
+    for (let index = 0; index < directoryCount; index++) {
+      const dir = path.join(root, `folder-${index}`)
+      await mkdir(dir)
+      await Promise.all(Array.from({ length: 50 }, (_, note) =>
+        writeFile(path.join(dir, `Note-${note}.md`), '# Note\n')
+      ))
+    }
+    const nativeHandles = (): number =>
+      getActiveResourcesInfo().filter((resource) => resource === 'FSEventWrap').length
+    const baseline = nativeHandles()
+    const events: VaultChangeEvent[] = []
+    const watcher = new VaultWatcher()
+    watchers.push(watcher)
+    watcher.start(root, (event) => events.push(event))
+
+    // Keep writing until the initial scan has completed, even on a slow disk.
+    await expect.poll(async () => {
+      await writeFile(path.join(root, 'folder-0', 'Note-0.md'), `Updated ${Date.now()}\n`)
+      return events.some((event) => event.path === 'folder-0/Note-0.md')
+    }, { interval: 250, timeout: 10_000 }).toBe(true)
+    // Allow per-directory watching on Linux, but never one handle per file.
+    expect(nativeHandles() - baseline).toBeLessThan(directoryCount * 2 + 10)
+
+    await watcher.stop()
+    await expect.poll(nativeHandles).toBeLessThanOrEqual(baseline)
+
+    const nextRoot = await makeVault()
+    events.length = 0
+    watcher.start(nextRoot, (event) => events.push(event))
+    await expect.poll(async () => {
+      await writeFile(path.join(nextRoot, 'Next.md'), `Updated ${Date.now()}\n`)
+      return events.some((event) => event.path === 'Next.md')
+    }, { interval: 250, timeout: 10_000 }).toBe(true)
+  }, 30_000)
+
+  it('closes a failed watcher without an unhandled error and can start again', async () => {
+    const root = await makeVault()
+    const watch = vi.spyOn(chokidar, 'watch')
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const events: VaultChangeEvent[] = []
+    const watcher = new VaultWatcher()
+    watchers.push(watcher)
+    watcher.start(root, (event) => events.push(event))
+    const active = watch.mock.results.find((result) => result.type === 'return')?.value
+    if (!active) throw new Error('Watcher did not start')
+    const closed = vi.spyOn(active, 'close')
+
+    active.emit('error', Object.assign(new Error('Watch limit reached'), { code: 'EMFILE' }))
+    expect(closed).toHaveBeenCalledOnce()
+    expect(report).toHaveBeenCalledOnce()
+    await active.close()
+
+    watcher.start(root, (event) => events.push(event))
+    await expect.poll(async () => {
+      await writeFile(path.join(root, 'Recovered.md'), `Updated ${Date.now()}\n`)
+      return events.some((event) => event.path === 'Recovered.md')
+    }, { interval: 250, timeout: 10_000 }).toBe(true)
+  }, 15_000)
 })
 
 describe('VaultWatcher custom templates (#723)', () => {

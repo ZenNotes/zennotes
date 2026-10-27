@@ -5,7 +5,7 @@
   "description": "ZenNotes monorepo for desktop, web, and self-hosted server builds",
   "packageManager": "npm@10.9.2",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22"
   },
   "workspaces": [
     "apps/*",

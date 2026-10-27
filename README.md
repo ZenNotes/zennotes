@@ -308,7 +308,7 @@ Read [docs/monorepo-architecture.md](docs/monorepo-architecture.md) for the arch
 
 ### Requirements
 
-- Node.js 22+
+- Node.js 22.22 or newer
 - npm
 - Go 1.22+ for the server build path
 - Docker optional, for self-hosting

@@ -19,7 +19,7 @@
   },
   "homepage": "https://github.com/ZenNotes/zennotes/releases/latest",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -58,7 +58,7 @@
     "@zennotes/app-core": "*",
     "@zennotes/bridge-contract": "*",
     "@zennotes/shared-domain": "*",
-    "chokidar": "^4.0.3",
+    "chokidar": "^6.0.0",
     "codemirror": "^6.0.1",
     "docx": "^9.7.1",
     "dompurify": "^3.3.4",
