@@ -18,8 +18,6 @@ import type { NoteContent, NoteMeta } from '@shared/ipc'
 import {
   filterTasksForDisplay,
   inferDailyTaskDueDates,
-  isTaskOpen,
-  parseTasksFromBody,
   tasksDueOn,
   type VaultTask,
 } from '@shared/tasks'
@@ -31,8 +29,17 @@ import {
   normalizeVaultSettings,
   weeklyNoteTitle,
 } from '../lib/vault-layout'
-import { getISOWeek, getISOWeekYear } from '../lib/template-render'
-import { countWords } from '../lib/word-count'
+import { getISOWeek } from '../lib/template-render'
+import {
+  addMonths,
+  buildGrid,
+  dotsFor,
+  isoDateStr,
+  isoWeekStr,
+  measureNote,
+  parseIsoDate,
+  type NoteStats,
+} from '../lib/calendar-data'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
@@ -45,44 +52,7 @@ import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 
 const FULL_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const WORDS_PER_DOT = 80
-const MAX_DOTS = 3
 const HOVER_DELAY_MS = 280
-
-interface NoteStats {
-  /** `${updatedAt}:${size}` — re-read when this changes. */
-  sig: string
-  words: number
-  openTasks: number
-}
-
-function addMonths(d: Date, n: number): Date {
-  return new Date(d.getFullYear(), d.getMonth() + n, 1)
-}
-
-/** 6-row (42-cell) grid for the month containing `anchor`, starting on `firstDay`. */
-function buildGrid(anchor: Date, firstDay: number): Date[] {
-  const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1)
-  const offset = (first.getDay() - firstDay + 7) % 7
-  const start = new Date(first.getFullYear(), first.getMonth(), 1 - offset)
-  return Array.from({ length: 42 }, (_, i) => {
-    const d = new Date(start)
-    d.setDate(start.getDate() + i)
-    return d
-  })
-}
-
-function isoDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-    d.getDate()
-  ).padStart(2, '0')}`
-}
-
-/** Parse a `YYYY-MM-DD` string back to a local-midnight Date. */
-function parseIsoDate(iso: string): Date {
-  const [y, m, d] = iso.split('-').map((s) => Number.parseInt(s, 10))
-  return new Date(y, m - 1, d)
-}
 
 // Every task state, so the "lossless" promise below actually holds for a `[>]`
 // or `[/]` task too: an unmatched prefix falls back to the token-stripped
@@ -97,25 +67,16 @@ function taskTail(task: VaultTask): string {
   return m ? task.rawText.slice(m[0].length) : task.content
 }
 
-function isoWeekStr(d: Date): string {
-  return `${getISOWeekYear(d)}-W${String(getISOWeek(d)).padStart(2, '0')}`
-}
-
 function monthLabel(d: Date): string {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
-}
-
-/** Number of word-count dots for a note (0 = none/unknown), plus a faint flag. */
-function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean } {
-  if (!stats) return { count: 1, faint: true } // exists but not measured yet
-  if (stats.words === 0) return { count: 1, faint: true }
-  return { count: Math.min(MAX_DOTS, Math.ceil(stats.words / WORDS_PER_DOT)), faint: false }
 }
 
 export function CalendarPanel({
   note,
   fitWidth,
-  onOpen
+  onOpen,
+  initialDate,
+  focusAdd
 }: {
   /** The note beside the calendar, or null where the calendar stands on its
    *  own with no note open (the phones' Calendar entry); it then orients on
@@ -128,6 +89,13 @@ export function CalendarPanel({
    *  a note that was already open, so a host that shows it as a sheet can put
    *  it away. Beside a note it stays open, so the pane passes none. */
   onOpen?: () => void
+  /** A `YYYY-MM-DD` day to open on instead of the active note's date or
+   *  today: the phones' home-screen widget opens the calendar on the day it
+   *  shows. Read when the panel mounts; a host that needs another day
+   *  remounts it. */
+  initialDate?: string
+  /** Focus "Add a task for …" on mount, for the widget's add button. */
+  focusAdd?: boolean
 }): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -191,6 +159,17 @@ export function CalendarPanel({
   const refDate = active?.date ?? new Date()
   const activeDayIso = active?.kind === 'daily' ? isoDateStr(active.date) : null
   const activeWeekIso = active?.kind === 'weekly' ? isoWeekStr(active.date) : null
+  // The host's day wins only beside the note the panel mounted with; once the
+  // active note changes the calendar follows it again. Keyed on the path, not
+  // cleared in an effect, so a re-run effect still sees it.
+  const mountedWith = useRef({
+    path: note?.path,
+    iso: initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) && isoDateStr(parseIsoDate(initialDate)) === initialDate
+      ? initialDate
+      : undefined
+  })
+  const hostIso = mountedWith.current.path === note?.path ? mountedWith.current.iso : undefined
+  const orientDate = hostIso ? parseIsoDate(hostIso) : refDate
 
   const today = useMemo(() => {
     const now = new Date()
@@ -199,12 +178,12 @@ export function CalendarPanel({
   const todayIso = isoDateStr(today)
 
   const [anchor, setAnchor] = useState(
-    () => new Date(refDate.getFullYear(), refDate.getMonth(), 1)
+    () => new Date(orientDate.getFullYear(), orientDate.getMonth(), 1)
   )
 
   // Re-center on the active note whenever it changes.
   useEffect(() => {
-    setAnchor(new Date(refDate.getFullYear(), refDate.getMonth(), 1))
+    setAnchor(new Date(orientDate.getFullYear(), orientDate.getMonth(), 1))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.path])
 
@@ -217,9 +196,9 @@ export function CalendarPanel({
   // The day the user has clicked to inspect (tasks + actions shown below the
   // grid). Defaults to the active daily note's date, else today; follows the
   // active note as it changes.
-  const [selectedIso, setSelectedIso] = useState<string>(() => activeDayIso ?? todayIso)
+  const [selectedIso, setSelectedIso] = useState<string>(() => hostIso ?? activeDayIso ?? todayIso)
   useEffect(() => {
-    setSelectedIso(activeDayIso ?? todayIso)
+    setSelectedIso(hostIso ?? activeDayIso ?? todayIso)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [note?.path])
   const selectedDate = useMemo(() => parseIsoDate(selectedIso), [selectedIso])
@@ -284,6 +263,12 @@ export function CalendarPanel({
   // keys from the editor). Mirrors the big calendar.
   const panelRef = useRef<HTMLElement>(null)
   const addInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!focusAdd) return
+    const frame = requestAnimationFrame(() => addInputRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const focusedTaskRef = useRef<HTMLDivElement | null>(null)
   const [activeTaskIndex, setActiveTaskIndex] = useState(0)
   const [grabbedTask, setGrabbedTask] = useState<VaultTask | null>(null)
@@ -351,12 +336,7 @@ export function CalendarPanel({
           }
         }
         if (cancelled) return
-        const openTasks = parseTasksFromBody(body, {
-          path: n.path,
-          title: n.title,
-          folder: n.folder,
-        }).filter(isTaskOpen).length
-        updates.push([n.path, { sig, words: countWords(body), openTasks }])
+        updates.push([n.path, measureNote(n, body)])
       }
       if (!cancelled && updates.length) {
         setStats((prev) => {
