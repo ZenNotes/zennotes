@@ -62,7 +62,9 @@ import { hashtagSource } from '../lib/cm-hashtag-complete'
 import { frontmatterTagSource } from '../lib/cm-frontmatter-tag-complete'
 import { completionKeymapExtension, completionNavKeymap } from '../lib/cm-completion-nav'
 import { classifyLocalAssetHref, hrefFragment, type LocalAssetKind } from '../lib/local-assets'
+import { canShowPdfInline } from '../lib/pdf-inline'
 import { LazyPreview as Preview } from './LazyPreview'
+import { PdfOpenElsewhere } from './PdfOpenElsewhere'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
@@ -460,7 +462,8 @@ export function PinnedReferencePane(): JSX.Element | null {
   const assetUrlWithFragment = assetUrl ? assetUrl + (pinnedRefFragment ?? '') : null
   const assetKind: LocalAssetKind | null =
     pinnedRefPath && isAsset ? classifyLocalAssetHref(pinnedRefPath) ?? 'file' : null
-  const useAssetIframe = assetKind === 'pdf' || assetKind === 'file'
+  const pdfElsewhere = assetKind === 'pdf' && !canShowPdfInline()
+  const useAssetIframe = (assetKind === 'pdf' && !pdfElsewhere) || assetKind === 'file'
 
   // Track every asset URL the user has pinned this session. One iframe
   // per unique URL stays mounted for the life of the app — show/hide
@@ -626,6 +629,10 @@ export function PinnedReferencePane(): JSX.Element | null {
               <audio src={assetUrl} controls className="w-full" />
             </div>
           </div>
+        )}
+
+        {pinnedRefPath && isAsset && assetUrl && pdfElsewhere && (
+          <PdfOpenElsewhere assetPath={pinnedRefPath} title={title} />
         )}
 
         {/* Asset iframe stack — ALWAYS mounted once any PDF/generic asset has been
