@@ -40,6 +40,27 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.78.0',
+    highlights: [
+      {
+        title: 'Give a note a cover',
+        body: 'A wide image across the top of a note, the way Notion draws one. Add Cover in the command palette, or Space l c in Vim mode, opens the picker: gradients, public-domain photos, your own images or a link. Hover it to reposition or remove it.'
+      },
+      {
+        title: 'Covers stay plain Markdown',
+        body: 'A cover is saved as banner frontmatter, the key Obsidian’s banner plugins read, and its image is an ordinary file in your assets folder. Published notes and Quick Look show it too.'
+      },
+      {
+        title: 'Math in diagram labels',
+        body: 'Mermaid labels typeset $$ math, as on mermaid.live and GitHub, and text on a node’s own fill picks dark or light to stay readable in every theme.'
+      },
+      {
+        title: 'LaTeX in the terminal',
+        body: 'The bundled zn is 0.12.2: with math set to latex, its preview draws display math and TikZ through the TeX on your computer.'
+      }
+    ]
+  },
+  {
     version: '2.77.0',
     highlights: [
       {
