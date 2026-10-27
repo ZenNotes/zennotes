@@ -96,6 +96,27 @@ describe('renderMermaidSvg', () => {
     expect(fresh?.ok).toBe(true)
   })
 
+  it('typesets $$ label math as MathML in a box Pele sizes from the measurement', async () => {
+    const measure = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 48, height: 22, x: 0, y: 0, top: 0, left: 0, right: 48, bottom: 22, toJSON: () => ({})
+    } as DOMRect)
+    try {
+      const root = parse(await drawn('flowchart LR\n  A["$$\\frac{a}{b}$$"] --> B'))
+      const math = root.querySelector('foreignObject.pele-math')
+      expect(math?.getAttribute('width')).toBe('48')
+      expect(math?.getAttribute('height')).toBe('22')
+      expect(math?.querySelector('math')).not.toBeNull()
+    } finally {
+      measure.mockRestore()
+    }
+  })
+
+  it('shows label math as written when it cannot be typeset', async () => {
+    const root = parse(await drawn('flowchart LR\n  A["$$\\frac{c}{$$"] --> B'))
+    expect(root.querySelector('foreignObject')).toBeNull()
+    expect(root.textContent).toContain('$$\\frac{c}{$$')
+  })
+
   it('shares one drawing between Preview (trailing newline kept) and the editor (body trimmed)', async () => {
     const fromPreview = await renderMermaidSvg('flowchart LR\n  split --> view\n')
     expect(peekMermaidSvg('flowchart LR\n  split --> view')).toBe(fromPreview)

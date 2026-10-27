@@ -7,7 +7,9 @@
  * self-contained SVG string. It replaced mermaid.js: the syntax notes already
  * hold keeps working, while the drawing is synchronous, a fraction of the size,
  * and labels are SVG text rather than HTML inside `foreignObject`, which is the
- * layer every clipped-label bug here came from (#529, #911).
+ * layer every clipped-label bug here came from (#529, #911). The one exception
+ * is `$$…$$` math in a label, typeset as MathML by `mermaid-label-math`, which
+ * measures each formula itself so its box fits.
  *
  * It lives here rather than beside either caller because a second copy of the
  * render options is a second answer to "what does this diagram look like", and
@@ -135,8 +137,9 @@ function remember(key: string, result: MermaidRenderResult): MermaidRenderResult
 
 let renderSeq = 0;
 
-function renderOptions(fonts: DiagramFonts, idPrefix: string) {
+function renderOptions(pele: PeleRuntime, fonts: DiagramFonts, idPrefix: string) {
   return {
+    math: pele.typesetLabelMath,
     fontFamily: fonts.text,
     fontFamilyMono: fonts.mono,
     fontSize: DIAGRAM_FONT_SIZE,
@@ -168,7 +171,7 @@ export function peekMermaidSvg(rawSource: string, idPrefix = "zen-mermaid-live")
   if (cached) return cached;
   if (!runtime || !fontsSettled() || !runtime.supports(source)) return null;
   try {
-    return remember(key, { ok: true, svg: runtime.render(source, renderOptions(fonts, idPrefix)).svg });
+    return remember(key, { ok: true, svg: runtime.render(source, renderOptions(runtime, fonts, idPrefix)).svg });
   } catch (error) {
     return remember(key, failure(error));
   }
@@ -192,7 +195,7 @@ export function renderMermaidSvg(
   const task = (async (): Promise<MermaidRenderResult> => {
     try {
       const [pele] = await Promise.all([loadPele(), waitForFonts()]);
-      const { svg } = await pele.renderAsync(source, renderOptions(fonts, idPrefix));
+      const { svg } = await pele.renderAsync(source, renderOptions(pele, fonts, idPrefix));
       return { ok: true, svg };
     } catch (error) {
       return failure(error);
