@@ -13,6 +13,16 @@ export const TASK_LINE_RE = /^(\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[)( |x|X|>|-|\/)
 
 export type TaskPriority = 'high' | 'med' | 'low'
 
+/** A line without the `\r` a Windows file ends it with. TASK_LINE_RE's `$`
+ *  fails on that `\r`, while `parseTasksFromBody` turns `\r\n` into `\n`
+ *  first, so a walk that matched raw lines counted a CRLF note's tasks
+ *  differently from the index it was handed: a toggle did nothing, and in a
+ *  note mixing endings it ticked the wrong task. Every index walk below
+ *  matches the bare line and keeps the ending on whatever it writes back. */
+function bareLine(line: string): string {
+  return line.endsWith('\r') ? line.slice(0, -1) : line
+}
+
 /** Internal: walk to the task line at `taskIndex`, hand its
  *  TASK_LINE_RE match to `mutate`, and splice the result back in.
  *  Returns the markdown unchanged if `mutate` returns null/the same
@@ -30,7 +40,7 @@ function editTaskAtIndex(
   let fenceMarker: string | null = null
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+    const line = bareLine(lines[i])
     const fenceMatch = line.match(FENCE_RE)
     if (fenceMatch) {
       const marker = fenceMatch[2]
@@ -54,7 +64,7 @@ function editTaskAtIndex(
 
     const next = mutate(taskMatch)
     if (next == null || next === line) return markdown
-    lines[i] = next
+    lines[i] = next + lines[i].slice(line.length)
     return lines.join('\n')
   }
   return markdown
@@ -68,7 +78,7 @@ function taskLineNumbers(lines: string[]): number[] {
   let inFence = false
   let fenceMarker: string | null = null
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+    const line = bareLine(lines[i])
     const fenceMatch = line.match(FENCE_RE)
     if (fenceMatch) {
       const marker = fenceMatch[2]
@@ -406,7 +416,7 @@ export function takeTaskLineAtIndex(
   let inFence = false
   let fenceMarker: string | null = null
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
+    const line = bareLine(lines[i])
     const fenceMatch = line.match(FENCE_RE)
     if (fenceMatch) {
       const marker = fenceMatch[2]
