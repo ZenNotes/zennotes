@@ -40,6 +40,27 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.79.0',
+    highlights: [
+      {
+        title: 'A timeline of what’s due',
+        body: 'The Timeline panel lays every open task with a date down one line: overdue work in red, today, then each day that has work. Tag a task #milestone to mark it with a diamond. Mod+7, or Space n in Vim mode.'
+      },
+      {
+        title: 'Any command can take a key',
+        body: 'Every command in the palette can be given a key of its own, a leader sequence in Vim mode included. Highlight one and press Alt+Enter, or use the Commands group in Settings, Keymap.'
+      },
+      {
+        title: 'Share to ZenNotes on macOS',
+        body: 'Choose Share, ZenNotes in Safari or any app to save a page or the text you selected as a note. Each vault picks where shares land.'
+      },
+      {
+        title: 'Unsplash covers with your own key',
+        body: 'Add your Unsplash Access Key in Settings to search millions of photos for a note’s cover. Searches go straight from your computer to Unsplash, and the photo is credited to its photographer.'
+      }
+    ]
+  },
+  {
     version: '2.78.0',
     highlights: [
       {
