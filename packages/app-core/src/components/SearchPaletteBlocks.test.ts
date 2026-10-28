@@ -12,12 +12,12 @@ import { SearchPalette } from './SearchPalette'
 const confirmApp = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('../lib/confirm-requests', () => ({ confirmApp }))
 const focusEditorNormalMode = vi.hoisted(() => vi.fn())
-const focusEditorAfterPick = vi.hoisted(() => vi.fn())
-const focusEditorAfterSearchClose = vi.hoisted(() => vi.fn())
+const focusEditorAfterReadOpen = vi.hoisted(() => vi.fn())
+const focusEditorAfterPaletteClose = vi.hoisted(() => vi.fn())
 vi.mock('../lib/editor-focus', () => ({
   focusEditorNormalMode,
-  focusEditorAfterPick,
-  focusEditorAfterSearchClose
+  focusEditorAfterReadOpen,
+  focusEditorAfterPaletteClose
 }))
 
 function note(title: string, tags: string[], updatedAt: number): NoteMeta {
@@ -62,7 +62,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
   beforeEach(() => {
     originalState = useStore.getState()
     focusEditorNormalMode.mockClear()
-    focusEditorAfterPick.mockClear()
+    focusEditorAfterReadOpen.mockClear()
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
@@ -160,7 +160,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
       { scrollMode: 'center', highlightLine: true }
     )
     // A block is a pick like a note: read on a phone, edited on desktop.
-    expect(focusEditorAfterPick).toHaveBeenCalledTimes(1)
+    expect(focusEditorAfterReadOpen).toHaveBeenCalledTimes(1)
     expect(focusEditorNormalMode).not.toHaveBeenCalled()
   })
 

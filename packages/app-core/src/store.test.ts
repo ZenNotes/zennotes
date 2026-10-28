@@ -340,6 +340,54 @@ describe('daily note patterns', () => {
   })
 })
 
+describe('daily note focus request', () => {
+  const settings = {
+    primaryNotesLocation: 'inbox' as const,
+    dailyNotes: { enabled: true, directory: 'Daily Notes' },
+    weeklyNotes: { enabled: false, directory: 'Weekly Notes' },
+    monthlyNotes: { enabled: false, directory: 'Monthly Notes' },
+    folderIcons: {},
+    folderColors: {},
+    favorites: []
+  }
+  const date = new Date(2026, 5, 9)
+  const path = 'inbox/Daily Notes/2026-06-09.md'
+
+  async function focusRequestsWhileOpening(exists: boolean, readIfExisting?: boolean) {
+    const note = makeNote('# 2026-06-09\n', path)
+    installZen({
+      createNote: vi.fn().mockResolvedValue(note),
+      listNotes: vi.fn().mockResolvedValue([note]),
+      readNote: vi.fn().mockResolvedValue(note),
+      writeNote: vi.fn(async () => note)
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({ notes: exists ? [note] : [], customTemplates: [], vaultSettings: settings as never })
+    const requests: unknown[] = []
+    const listen = (event: Event): void => {
+      requests.push((event as CustomEvent).detail ?? null)
+    }
+    window.addEventListener('zen:focus-editor', listen)
+    try {
+      await useStore
+        .getState()
+        .openDailyNoteForDate(date, readIfExisting === undefined ? undefined : { readIfExisting })
+    } finally {
+      window.removeEventListener('zen:focus-editor', listen)
+    }
+    return requests
+  }
+
+  it('asks for a read landing when the caller opens an existing note to read', async () => {
+    expect(await focusRequestsWhileOpening(true, true)).toEqual([{ read: true }])
+  })
+
+  it('asks for the plain editor focus otherwise: no option, or a note it had to create', async () => {
+    expect(await focusRequestsWhileOpening(true)).toEqual([null])
+    expect(await focusRequestsWhileOpening(false, true)).toEqual([null])
+  })
+})
+
 describe('daily task rollover', () => {
   it.each([false, true])('replaces empty template tasks and preserves real work (open: %s)', async (open) => {
     const iso = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),

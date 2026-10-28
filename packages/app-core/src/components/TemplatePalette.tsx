@@ -11,7 +11,7 @@ import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import { focusEditorAfterPaletteClose } from '../lib/editor-focus'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import { mergeTemplates } from '@shared/template-files'
 import type { NoteTemplate } from '@bridge-contract/templates'
@@ -70,7 +70,7 @@ export function TemplatePalette(): JSX.Element {
 
   const close = (): void => {
     setOpen(false)
-    focusEditorNormalMode()
+    focusEditorAfterPaletteClose()
   }
 
   return (

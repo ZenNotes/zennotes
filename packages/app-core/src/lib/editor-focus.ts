@@ -50,23 +50,28 @@ export function focusEditorNormalMode(
 }
 
 /**
- * The hand-off after a pick in one of core's searches (the note search, Search
- * in all notes, the outline, the buffer switcher) put a note on screen or moved
- * within one. Desktop gives the editor the keyboard, so the next keystroke
- * edits or moves in the note. A host that opens notes to read (a phone; the
- * editor host's `openNotesToRead`) keeps it down: there the focus is the soft
- * keyboard over half the note, and the user came to read what they found. The
- * note stays at the pick with every line rendered, and a tap into the text
- * raises the keyboard as always.
+ * The hand-off after a note was opened to be read, or a place in one: a pick
+ * in one of core's searches (the note search, Search in all notes, the
+ * outline, the buffer switcher), or a command that only goes to a note that
+ * already exists (Go Back, Reopen Closed Tab, today's daily note when it is
+ * there already; see `Command.opensToRead`). Desktop gives the editor the
+ * keyboard, so the next keystroke edits or moves in the note, with the same
+ * retries the caller would have asked of `focusEditorNormalMode`. A host that
+ * opens notes to read (a phone; the editor host's `openNotesToRead`) keeps it
+ * down: there the focus is the soft keyboard over half the note, and the user
+ * came to read it. The note stays where it opened with every line rendered,
+ * and a tap into the text raises the keyboard as always.
  *
  * A palette closing hands the focus back to whatever had it when it opened,
  * which can be the editor itself (an iPhone keeps the focus in the text under
- * a tap on a button). The pick still ends with the note read and the keyboard
- * down: that hand-back is undone, a frame on, once the pick has landed.
+ * a tap on a button). The open still ends with the note read and the keyboard
+ * down: that hand-back is undone, a frame on, once the note has landed.
  */
-export function focusEditorAfterPick(): void {
+export function focusEditorAfterReadOpen(
+  options: { attempts?: number; delayMs?: number } = {}
+): void {
   if (!hostOpensNotesToRead()) {
-    focusEditorNormalMode()
+    focusEditorNormalMode(options)
     return
   }
   requestAnimationFrame(() => {
@@ -78,11 +83,13 @@ export function focusEditorAfterPick(): void {
 }
 
 /**
- * Closing one of those searches without a pick. Desktop gives the editor the
+ * Closing a palette without a pick: the searches above, the command palette,
+ * the template palette, the drawing palette. Desktop gives the editor the
  * keyboard back, as it always has; a host that opens notes to read leaves the
- * focus where the palette returns it, to what had it before the search, so
- * backing out of a search over a note being read keeps the keyboard down.
+ * focus where the palette returns it, to what had it before the palette
+ * opened, so backing out over a note being read keeps the keyboard down and
+ * backing out over a note being written keeps it up.
  */
-export function focusEditorAfterSearchClose(): void {
+export function focusEditorAfterPaletteClose(): void {
   if (!hostOpensNotesToRead()) focusEditorNormalMode()
 }

@@ -26,8 +26,8 @@ vi.mock('@replit/codemirror-vim', () => ({
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import {
-  focusEditorAfterPick,
-  focusEditorAfterSearchClose,
+  focusEditorAfterReadOpen,
+  focusEditorAfterPaletteClose,
   focusEditorNormalMode
 } from './editor-focus'
 import { installNoteEditorHost } from './editor-host'
@@ -101,11 +101,23 @@ describe('search hand-offs', () => {
     document.body.innerHTML = ''
   })
 
-  it('a pick focuses the editor where the host does not open notes to read (desktop)', async () => {
-    focusEditorAfterPick()
+  it('a read open focuses the editor where the host does not open notes to read (desktop)', async () => {
+    focusEditorAfterReadOpen()
     await vi.advanceTimersByTimeAsync(0)
     expect(view!.hasFocus).toBe(true)
     expect(storeState.current.setFocusedPanel).toHaveBeenCalledWith('editor')
+  })
+
+  it('on desktop a read open keeps the retries its caller asked for', async () => {
+    // The daily-note request retries 10 times, 24 ms apart: the note's editor
+    // can mount after the first frames.
+    storeState.current.editorViewRef = null
+    focusEditorAfterReadOpen({ attempts: 10, delayMs: 24 })
+    await vi.advanceTimersByTimeAsync(24 * 5)
+    expect(view!.hasFocus).toBe(false)
+    storeState.current.editorViewRef = view as never
+    await vi.advanceTimersByTimeAsync(24 * 2)
+    expect(view!.hasFocus).toBe(true)
   })
 
   it('a host that answers no, or throws, keeps the desktop hand-off', async () => {
@@ -114,14 +126,14 @@ describe('search hand-offs', () => {
         throw new Error('gone')
       }
     })
-    focusEditorAfterPick()
+    focusEditorAfterReadOpen()
     await vi.advanceTimersByTimeAsync(0)
     expect(view!.hasFocus).toBe(true)
   })
 
-  it('a pick on a host that opens notes to read leaves the keyboard down and the note read', async () => {
+  it('a read open on a host that opens notes to read leaves the keyboard down and the note read', async () => {
     host = installNoteEditorHost({ openNotesToRead: () => true })
-    focusEditorAfterPick()
+    focusEditorAfterReadOpen()
     await vi.advanceTimersByTimeAsync(50)
     expect(view!.hasFocus).toBe(false)
     expect(storeState.current.setFocusedPanel).not.toHaveBeenCalled()
@@ -133,20 +145,20 @@ describe('search hand-offs', () => {
     view!.focus()
     await vi.advanceTimersByTimeAsync(0)
     expect(revealedSelectionRanges(view!.state)).not.toEqual([])
-    focusEditorAfterPick()
+    focusEditorAfterReadOpen()
     await vi.advanceTimersByTimeAsync(50)
     expect(view!.hasFocus).toBe(false)
     expect(revealedSelectionRanges(view!.state)).toEqual([])
   })
 
-  it('closing a search gives the editor the keyboard on desktop, and leaves the focus alone on a reading host', async () => {
-    focusEditorAfterSearchClose()
+  it('closing a palette gives the editor the keyboard on desktop, and leaves the focus alone on a reading host', async () => {
+    focusEditorAfterPaletteClose()
     await vi.advanceTimersByTimeAsync(0)
     expect(view!.hasFocus).toBe(true)
     view!.contentDOM.blur()
 
     host = installNoteEditorHost({ openNotesToRead: () => true })
-    focusEditorAfterSearchClose()
+    focusEditorAfterPaletteClose()
     await vi.advanceTimersByTimeAsync(50)
     expect(view!.hasFocus).toBe(false)
   })

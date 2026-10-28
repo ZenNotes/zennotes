@@ -20,7 +20,7 @@ import { isWorkflowsTabPath } from '@shared/workflows-view'
 import { isAtlasTabPath } from '@shared/atlas-view'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
-import { focusEditorAfterPick, focusEditorAfterSearchClose } from '../lib/editor-focus'
+import { focusEditorAfterReadOpen, focusEditorAfterPaletteClose } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
 function isVirtualPath(path: string | null): boolean {
@@ -75,12 +75,12 @@ export function OutlinePalette(): JSX.Element {
         detail: { line: item.line }
       })
     )
-    focusEditorAfterPick()
+    focusEditorAfterReadOpen()
   }
 
   const close = (): void => {
     setOpen(false)
-    focusEditorAfterSearchClose()
+    focusEditorAfterPaletteClose()
   }
 
   return (

@@ -58,7 +58,13 @@ import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
-import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
+import {
+  findDailyNoteForDate,
+  findMonthlyNoteForDate,
+  findWeeklyNoteForDate,
+  isCalendarToggleAvailable,
+  noteFolderSubpath
+} from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
 import { activeReferencePath } from './pinned-reference'
@@ -107,6 +113,16 @@ export interface Command {
   when?: () => boolean
   /** Runs when the user picks this entry. Async is fine. */
   run: () => void | Promise<void>
+  /**
+   * Asked just before the command runs: true when all it does is take the
+   * user to a note that already exists, to read it (Go Back, Reopen Closed
+   * Tab, today's daily note when it is there already). The palette then hands
+   * over the way a search pick does: the editor takes the keyboard on desktop,
+   * and a host that opens notes to read (a phone) keeps it down. Commands that
+   * create a note to be written in, or act on the note in place, leave it out
+   * and keep focusing the editor.
+   */
+  opensToRead?: () => boolean
 }
 
 export function buildCommands(options?: { includeUnavailable?: boolean }): Command[] {
@@ -121,6 +137,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     const parts = ids.map(shortcut)
     return parts.every(Boolean) ? parts.join(' ') : ''
   }
+  // Whether this period's daily, weekly or monthly note is already there:
+  // such a note opens to read, one the command creates is written in.
+  const periodicNoteExists = (find: typeof findDailyNoteForDate): boolean =>
+    !!find(getState().notes, getState().vaultSettings, new Date())
   const leaderShortcut = (id: KeymapId): string =>
     getLeaderChordDisplay(getState().keymapOverrides, id)
   const paneShortcut = (id: KeymapId): string => chord('vim.panePrefix', id)
@@ -195,7 +215,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'daily journal date today log',
       shortcut: leaderShortcut('vim.leaderDailyNote'),
       when: () => getState().vaultSettings.dailyNotes.enabled,
-      run: () => getState().openTodayDailyNote()
+      // Read when today's note is there already; one created here is written in.
+      opensToRead: () => periodicNoteExists(findDailyNoteForDate),
+      run: () => getState().openTodayDailyNote({ readIfExisting: true })
     },
     {
       id: 'note.daily.rollover',
@@ -203,6 +225,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Note',
       keywords: 'daily tasks rollover roll over migrate unfinished carry forward today',
       when: () => getState().vaultSettings.dailyNotes.enabled,
+      // Like today's daily note: read when it is there already, focused when
+      // the rollover creates it.
+      opensToRead: () => periodicNoteExists(findDailyNoteForDate),
       run: () => {
         void getState().rolloverUnfinishedTasksIntoToday({ force: true, open: true })
       }
@@ -214,7 +239,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'weekly week review date log',
       shortcut: leaderShortcut('vim.leaderWeeklyNote'),
       when: () => getState().vaultSettings.weeklyNotes.enabled,
-      run: () => getState().openThisWeekWeeklyNote()
+      opensToRead: () => periodicNoteExists(findWeeklyNoteForDate),
+      run: () => getState().openThisWeekWeeklyNote({ readIfExisting: true })
     },
     {
       id: 'note.monthly.thisMonth',
@@ -223,7 +249,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'monthly month review reflection date log',
       shortcut: leaderShortcut('vim.leaderMonthlyNote'),
       when: () => getState().vaultSettings.monthlyNotes.enabled,
-      run: () => getState().openThisMonthMonthlyNote()
+      opensToRead: () => periodicNoteExists(findMonthlyNoteForDate),
+      run: () => getState().openThisMonthMonthlyNote({ readIfExisting: true })
     },
     {
       id: 'template.create',
@@ -694,6 +721,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       // save shows `:w`. Outside Vim, the real Mod+W binding is correct.
       shortcut: getState().vimMode ? ':q' : shortcut('global.closeActiveTab'),
       when: () => !!getState().selectedPath,
+      opensToRead: () => true,
       run: () => getState().closeActiveNote()
     },
     {
@@ -703,6 +731,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'restore last undo closed reopen',
       shortcut: shortcut('global.reopenClosedTab'),
       when: () => getState().closedTabStack.length > 0,
+      opensToRead: () => true,
       run: () => getState().reopenLastClosedTab()
     },
     {
@@ -715,6 +744,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const s = getState()
         return getTabStepTarget(s.paneLayout, s.activePaneId, 1).kind !== 'none'
       },
+      opensToRead: () => true,
       run: () => stepActiveTab(getState(), 1)
     },
     {
@@ -727,6 +757,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const s = getState()
         return getTabStepTarget(s.paneLayout, s.activePaneId, -1).kind !== 'none'
       },
+      opensToRead: () => true,
       run: () => stepActiveTab(getState(), -1)
     },
     {
@@ -1191,6 +1222,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Tabs',
       shortcut: shortcut('vim.historyBack'),
       keywords: 'history previous',
+      opensToRead: () => true,
       run: () => getState().jumpToPreviousNote()
     },
     {
@@ -1199,6 +1231,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Tabs',
       shortcut: shortcut('vim.historyForward'),
       keywords: 'history next',
+      opensToRead: () => true,
       run: () => getState().jumpToNextNote()
     },
     {
@@ -1207,6 +1240,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Tabs',
       shortcut: shortcut('global.toggleRecentNote'),
       keywords: 'recent last previous alternate toggle switch note',
+      opensToRead: () => true,
       run: () => getState().toggleRecentNote()
     }
   )
