@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { leadingTitleHeading } from '@shared/note-heading-sync'
 import { retitleLeadingHeading } from './note-heading-sync'
 
 describe('retitleLeadingHeading (#455)', () => {
@@ -75,5 +76,25 @@ describe('retitleLeadingHeading (#455)', () => {
   it('refuses a title that would break the heading across lines', () => {
     expect(retitleLeadingHeading('# Untitled\n', 'One\nTwo')).toBe('# Untitled\n')
     expect(retitleLeadingHeading('# Untitled\n', '')).toBe('# Untitled\n')
+  })
+})
+
+// The same line, located rather than rewritten: what select all leaves out (#1006).
+describe('leadingTitleHeading', () => {
+  const at = (body: string): string | null => {
+    const found = leadingTitleHeading(body)
+    return found ? body.slice(found.from, found.to) : null
+  }
+
+  it('finds the title past frontmatter and blank lines, without the line break', () => {
+    expect(at('# Groceries\n\nmilk\n')).toBe('# Groceries')
+    expect(at('---\ntags: [x]\n---\n\n  # Groceries\r\nmilk\r\n')).toBe('  # Groceries')
+    expect(at('#\n')).toBe('#')
+  })
+
+  it('has no title when the first line is anything but an H1', () => {
+    for (const body of ['', '\n\n', 'milk\n# Groceries\n', '## Groceries\n', '#Groceries\n', '    # code\n']) {
+      expect(leadingTitleHeading(body), JSON.stringify(body)).toBeNull()
+    }
   })
 })

@@ -47,13 +47,13 @@ import {
   moveLineUp,
   redo,
   redoDepth,
-  selectAll,
   undo,
   undoDepth
 } from '@codemirror/commands'
 import { isImeComposing } from '../lib/ime'
 import { displayRowBoundaryKeymap } from '../lib/cm-display-row'
 import { scrollerClickFocus } from '../lib/cm-scroller-click-focus'
+import { selectNoteText } from '../lib/cm-select-note'
 import { appHistoryKeymap } from '../lib/history-keymap'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
@@ -4983,7 +4983,8 @@ function buildEditorContextItems(
       label: 'Select All',
       hint: formatKeyToken('Mod+A'),
       onSelect: async () => {
-        selectAll(view)
+        // The same select all as Mod+A, title left out first (#1006).
+        selectNoteText(view)
         view.focus()
       }
     },

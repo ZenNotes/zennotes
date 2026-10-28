@@ -1,4 +1,4 @@
-import { defaultKeymap } from '@codemirror/commands'
+import { defaultKeymap, selectAll } from '@codemirror/commands'
 import { markdownKeymap } from '@codemirror/lang-markdown'
 import { Prec, type Extension } from '@codemirror/state'
 import { keymap, type Command, type EditorView, type KeyBinding } from '@codemirror/view'
@@ -12,6 +12,7 @@ import {
 import { getCM } from '@replit/codemirror-vim'
 import { insertNewlineContinueFencedCodeIndent } from './cm-code-fence-indent'
 import { insertNewlineContinueFrontmatterList } from './cm-frontmatter'
+import { selectNoteText } from './cm-select-note'
 import { isMacPlatform } from './keymaps'
 
 /**
@@ -56,8 +57,17 @@ const MAC_EMACS_CHORDS = new Set([
 const isMacEmacsChord = (binding: KeyBinding): boolean =>
   typeof binding.mac === 'string' && MAC_EMACS_CHORDS.has(binding.mac)
 
+/**
+ * `defaultKeymap` with select all stopping short of the note's title the
+ * first time (#1006, see cm-select-note). Every keymap below starts here, so
+ * Vim on or off, macOS or not, Mod-a selects the same way.
+ */
+const noteDefaultKeymap: readonly KeyBinding[] = defaultKeymap.map((binding) =>
+  binding.run === selectAll ? { ...binding, run: selectNoteText } : binding
+)
+
 /** `defaultKeymap` with the macOS emacs-style control chords removed. */
-const defaultKeymapWithoutMacEmacs: readonly KeyBinding[] = defaultKeymap.filter(
+const defaultKeymapWithoutMacEmacs: readonly KeyBinding[] = noteDefaultKeymap.filter(
   (binding) => !isMacEmacsChord(binding)
 )
 
@@ -167,6 +177,12 @@ const vimModeKeymap: readonly KeyBinding[] = deferEscapeToVim(
  * no binding here and always reached Vim.) Like the motion keys it defers to
  * Vim outside insert mode, so insert mode keeps select all. macOS's Cmd+A
  * never collided.
+ *
+ * With no number on the rest of the line, `<C-a>` does nothing, as in Vim,
+ * and Vim still consumes the key. It deliberately does not fall back to
+ * select all (#1006): whether Ctrl+A increments or selects the note would then
+ * hang on where the cursor sits, and a missed increment would leave a visual
+ * selection for the next `x` or `c` to delete. `ggVG` selects in Vim.
  */
 const vimModeKeymapModIsCtrl: readonly KeyBinding[] = deferKeysToVim(
   vimModeKeymap,
@@ -179,13 +195,14 @@ const vimModeKeymapModIsCtrl: readonly KeyBinding[] = deferKeysToVim(
  * bindings work, the arrow keys defer to Vim in normal/visual mode so they
  * move/extend like `hjkl`, Escape defers to Vim in insert/visual mode so it
  * leaves the mode, and off macOS Ctrl+A defers to Vim outside insert mode;
- * with Vim off the full keymap is used unchanged.
+ * with Vim off the full keymap is used. In every case select all leaves the
+ * note's title out on its first press (#1006).
  */
 export function vimAwareDefaultKeymap(
   vimMode: boolean,
   mac: boolean = isMacPlatform()
 ): readonly KeyBinding[] {
-  if (!vimMode) return defaultKeymap
+  if (!vimMode) return noteDefaultKeymap
   return mac ? vimModeKeymap : vimModeKeymapModIsCtrl
 }
 
