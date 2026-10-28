@@ -69,6 +69,7 @@ export type KeymapId =
   | "vim.leaderToggleFavorite"
   | "vim.leaderTableToDatabase"
   | "vim.leaderNoteCover"
+  | "vim.leaderNoteCoverUnsplash"
   | "vim.leaderQuickCapture"
   | "vim.leaderHideToTray"
   | "vim.leaderTemplatePicker"
@@ -735,6 +736,18 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the cover picker for the active note: add, change or remove the banner image across its top.",
     defaultBinding: "c",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderNoteCoverUnsplash",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: cover from Unsplash",
+    description:
+      "Open the cover picker on its Unsplash tab, to search free photos for the active note's cover.",
+    defaultBinding: "u",
     vimOnly: true,
     maxTokens: 1,
   },

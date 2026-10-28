@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
+import type { NoteCoverCreditLine } from '@shared/unsplash'
+import { NoteCoverCredit } from './NoteCoverCredit'
 
 interface ReadOnlyNoteCoverProps {
   url: string
   /** Vertical focal point, 0 (top) to 1 (bottom). */
   y: number
+  /** Who made the picture; always in view here, since nothing hovers on a
+   *  page nobody edits. */
+  credit?: NoteCoverCreditLine | null
 }
 
 /** What a read-only cover may load: an http(s) image (the share page's
@@ -25,7 +30,7 @@ export function readOnlyCoverSource(url: string): string | null {
  * imports, which would carry the cover gallery into those bundles. An image
  * that does not load takes its frame with it: a reader cannot fix it.
  */
-export function ReadOnlyNoteCover({ url, y }: ReadOnlyNoteCoverProps): JSX.Element | null {
+export function ReadOnlyNoteCover({ url, y, credit }: ReadOnlyNoteCoverProps): JSX.Element | null {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [url])
   const src = readOnlyCoverSource(url)
@@ -43,6 +48,7 @@ export function ReadOnlyNoteCover({ url, y }: ReadOnlyNoteCoverProps): JSX.Eleme
         className="pointer-events-none h-full w-full object-cover"
         style={{ objectPosition: `50% ${Math.round(y * 1000) / 10}%` }}
       />
+      {credit && <NoteCoverCredit line={credit} persistent />}
     </div>
   )
 }

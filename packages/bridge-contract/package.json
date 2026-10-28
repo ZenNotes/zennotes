@@ -17,7 +17,8 @@
     "./application-links": "./src/application-links.ts",
     "./custom-code-languages": "./src/custom-code-languages.ts",
     "./app-config": "./src/app-config.ts",
-    "./platform": "./src/platform.ts"
+    "./platform": "./src/platform.ts",
+    "./unsplash": "./src/unsplash.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",

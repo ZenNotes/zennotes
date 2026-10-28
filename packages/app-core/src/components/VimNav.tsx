@@ -65,7 +65,8 @@ import {
 import { requestSettingsTarget } from '../lib/settings-navigation'
 import { hideWindowToTray, useTrayStore } from '../lib/tray-runtime'
 import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
-import { openCoverPicker } from '../lib/note-cover-actions'
+import { openCoverPicker, openUnsplashCoverPicker } from '../lib/note-cover-actions'
+import { unsplashSearchAvailable } from '../lib/unsplash-search'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
   isExcalidrawPath,
@@ -281,7 +282,16 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteCover'),
         label: 'Cover image',
         detail: 'Add, change or remove the banner image across the top of the note.'
-      }
+      },
+      ...(unsplashSearchAvailable()
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteCoverUnsplash'),
+              label: 'Cover from Unsplash',
+              detail: 'Search free Unsplash photos for the cover.'
+            }
+          ]
+        : [])
       ]
     }
     if (whichKeyState.stage === 'leader-s') {
@@ -1170,6 +1180,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           openCoverPicker()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderNoteCoverUnsplash')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          openUnsplashCoverPicker()
           return
         }
         resetLeader()

@@ -122,6 +122,42 @@ describe('editing the cover', () => {
   })
 })
 
+describe('the credit under a cover', () => {
+  const unsplash = 'https://images.unsplash.com/photo-1?ixid=abc&w=2400&q=80&auto=format'
+  const credit = { name: 'Jane Doe', url: 'https://unsplash.com/@janedoe' }
+
+  it('writes the name and link on the lines under the image', () => {
+    const body = '---\ntitle: Trip\nbanner: "[[old.png]]"\ntags: [a]\n---\nBody\n'
+    expect(setNoteCover(body, { kind: 'url', url: unsplash }, credit)).toBe(
+      '---\ntitle: Trip\nbanner: "' +
+        unsplash +
+        '"\nbanner_credit: Jane Doe\nbanner_credit_url: "https://unsplash.com/@janedoe"\ntags: [a]\n---\nBody\n'
+    )
+  })
+
+  it('reads it back, and leaves out a link that is not a web page', () => {
+    const body = setNoteCover('# Trip\n', { kind: 'url', url: unsplash }, credit)
+    expect(readNoteCover(body)).toEqual({ key: 'banner', target: { kind: 'url', url: unsplash }, y: 0.5, credit })
+    expect(readNoteCover('---\nbanner: a.png\nbanner_credit: "Me: myself"\nbanner_credit_url: javascript:x\n---\n')?.credit).toEqual({
+      name: 'Me: myself',
+      url: null
+    })
+    expect(readNoteCover('---\nbanner: a.png\nbanner_credit: ""\n---\n')?.credit).toBeUndefined()
+  })
+
+  it('goes with the picture: a new image or a removed cover takes it away', () => {
+    const body = setNoteCoverPosition(setNoteCover('# Trip\n', { kind: 'url', url: unsplash }, credit), 0.3)
+    expect(setNoteCover(body, { kind: 'vault', href: 'assets/a.png' })).toBe('---\nbanner: "![[assets/a.png]]"\n---\n# Trip\n')
+    expect(removeNoteCover(body)).toBe('# Trip\n')
+  })
+
+  it('follows the key the note uses', () => {
+    const body = setNoteCover('---\ncover: "[[c.png]]"\n---\n', { kind: 'url', url: unsplash }, { name: 'A', url: null })
+    expect(body).toBe('---\ncover: "' + unsplash + '"\ncover_credit: A\n---\n')
+    expect(readNoteCover(body)?.credit).toEqual({ name: 'A', url: null })
+  })
+})
+
 describe('a cover follows its file through an asset rename', () => {
   it('is rewritten by the same rewriter that updates embeds', () => {
     const body = '---\nbanner: "![[assets/old.png]]"\nbanner_y: 0.3\n---\n# Trip\n'

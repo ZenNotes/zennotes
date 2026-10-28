@@ -1578,6 +1578,14 @@ textarea,
 .zen-note-cover.zen-note-cover-pinned {
   height: clamp(6rem, 18vh, 12rem);
 }
+/* A cover's credit shows with its buttons, on hover or focus. A screen that
+   cannot hover (a phone, a tablet) shows it all the time, or it would never
+   show at all. */
+@media (hover: none) {
+  .zen-note-cover .zen-note-cover-credit {
+    opacity: 1;
+  }
+}
 /* In the editor the cover lives in a block widget inside the capped text
    column; the bleed variables (measured by cm-note-cover.ts) widen it to the
    whole pane. The gap under it is padding: CodeMirror measures a block widget

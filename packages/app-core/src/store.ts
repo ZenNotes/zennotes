@@ -3069,6 +3069,9 @@ interface Store {
   embedDrawingPaletteOpen: boolean
   /** The note the cover picker is open for, or null while it is closed. */
   noteCoverPickerPath: string | null
+  /** The tab and search the picker opens on (`:cover unsplash fog`, Space l u);
+   *  null for the Covers tab with an empty field. */
+  noteCoverPickerStart: { tab: 'covers' | 'unsplash'; query: string } | null
   /** A cover in reposition mode. `owner` is the on-screen copy that took the
    *  request; null until one does (the palette asks for "the" cover). */
   noteCoverReposition: { path: string; owner: string | null } | null
@@ -3887,7 +3890,10 @@ interface Store {
   openThisMonthMonthlyNote: () => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   setEmbedDrawingPaletteOpen: (open: boolean) => void
-  setNoteCoverPickerPath: (path: string | null) => void
+  setNoteCoverPickerPath: (
+    path: string | null,
+    start?: { tab: 'covers' | 'unsplash'; query: string } | null
+  ) => void
   setNoteCoverReposition: (reposition: { path: string; owner: string | null } | null) => void
   /** Create a new Excalidraw drawing and open it in a dedicated tab. */
   newDrawing: () => Promise<void>
@@ -6038,6 +6044,7 @@ export const useStore = create<Store>((set, get) => {
   templatePaletteOpen: false,
   embedDrawingPaletteOpen: false,
   noteCoverPickerPath: null,
+  noteCoverPickerStart: null,
   noteCoverReposition: null,
   excalidrawPreviewVersion: 0,
   templatePaletteMode: 'create',
@@ -9214,7 +9221,8 @@ export const useStore = create<Store>((set, get) => {
     }),
   setBufferPaletteOpen: (open) => set({ bufferPaletteOpen: open }),
   setEmbedDrawingPaletteOpen: (open) => set({ embedDrawingPaletteOpen: open }),
-  setNoteCoverPickerPath: (path) => set({ noteCoverPickerPath: path }),
+  setNoteCoverPickerPath: (path, start = null) =>
+    set({ noteCoverPickerPath: path, noteCoverPickerStart: path ? start : null }),
   setNoteCoverReposition: (reposition) => set({ noteCoverReposition: reposition }),
   setOutlinePaletteOpen: (open) => set({ outlinePaletteOpen: open }),
   setQuery: (q) => set({ query: q }),

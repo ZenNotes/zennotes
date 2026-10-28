@@ -286,6 +286,7 @@ import {
   installRaycastExtension,
 } from "./raycast-integration";
 import { sendUsageCount } from "./usage-count";
+import { searchUnsplash, trackUnsplashDownload } from "./unsplash";
 import {
   hideTray,
   parseTraySyncStatus,
@@ -3618,6 +3619,10 @@ function registerIpc(): void {
   handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState());
   handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates());
   handle(IPC.APP_USAGE_COUNT, async (_e, event: unknown) => await sendUsageCount(event));
+  handle(IPC.UNSPLASH_SEARCH, async (_e, query: unknown, page: unknown) => await searchUnsplash(query, page));
+  handle(IPC.UNSPLASH_TRACK_DOWNLOAD, async (_e, downloadLocation: unknown) => {
+    await trackUnsplashDownload(downloadLocation);
+  });
   handle(IPC.APP_UPDATER_CHECK_WITH_UI, async () => {
     await runMenuUpdateCheck();
   });

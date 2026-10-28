@@ -45,10 +45,12 @@ import {
   activeNoteCover,
   coverNotePath,
   openCoverPicker,
+  openUnsplashCoverPicker,
   removeCover,
   setCoverFromClipboard,
   startCoverReposition
 } from './note-cover-actions'
+import { unsplashSearchAvailable } from './unsplash-search'
 import { csvPathFromDatabaseTab } from '@shared/databases'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
@@ -391,6 +393,17 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () => !!coverNotePath(),
       run: () => {
         openCoverPicker()
+      }
+    },
+    {
+      id: 'note.cover.unsplash',
+      title: 'Add Cover from Unsplash…',
+      category: 'Note',
+      keywords: 'banner header image picture photo stock unsplash',
+      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCoverUnsplash'),
+      when: () => !!coverNotePath() && unsplashSearchAvailable(),
+      run: () => {
+        openUnsplashCoverPicker()
       }
     },
     {

@@ -23,7 +23,19 @@
 // notes the asset-rename rewriter (asset-link-rename.ts and its Go port)
 // rewrites, so a cover follows its file through a rename or a move. A plain
 // `[[...]]` link would get none of that. Reading accepts both.
-import { FRONTMATTER_BLOCK_RE, unquote, updateFrontmatterFields } from './frontmatter'
+//
+// A cover may also say who made the picture, on the two lines under it:
+//
+//   banner: "https://images.unsplash.com/photo-...?ixid=...&w=2400"
+//   banner_credit: Jane Doe
+//   banner_credit_url: "https://unsplash.com/@janedoe"
+//
+// An Unsplash cover always carries them: Unsplash's API terms require the
+// photographer's name and a link to their profile wherever the photo shows,
+// and the picture itself has to stay on images.unsplash.com (unsplash.ts).
+// The credit belongs to the picture, so a new image or a removed cover takes
+// it away with the focal point.
+import { FRONTMATTER_BLOCK_RE, unquote, updateFrontmatterFields, yamlValue } from './frontmatter'
 
 export type NoteCoverKey = 'banner' | 'cover'
 
@@ -35,12 +47,20 @@ export const NOTE_COVER_DEFAULT_Y = 0.5
 
 export type NoteCoverTarget = { kind: 'vault'; href: string } | { kind: 'url'; url: string }
 
+/** Who made the picture, and where the credit links (an http(s) page). */
+export interface NoteCoverCredit {
+  name: string
+  url: string | null
+}
+
 export interface NoteCover {
   /** The frontmatter key holding the image. */
   key: NoteCoverKey
   target: NoteCoverTarget
   /** Vertical focal point, 0 (top) to 1 (bottom). */
   y: number
+  /** Present only when the note names one. */
+  credit?: NoteCoverCredit
 }
 
 /** Top-level `key: value` lines of the leading frontmatter block, keys
@@ -115,6 +135,17 @@ export function clampNoteCoverY(y: number): number {
   return Math.min(1, Math.max(0, y))
 }
 
+/** The credit lines under a cover, when there is a name. A link that is not
+ *  an http(s) page is dropped: it becomes a clickable link on the cover. */
+function readNoteCoverCredit(fields: Map<string, string>, key: NoteCoverKey): NoteCoverCredit | null {
+  const raw = fields.get(`${key}_credit`)
+  const name = raw == null ? '' : scalarText(raw)
+  if (!name) return null
+  const rawUrl = fields.get(`${key}_credit_url`)
+  const url = rawUrl == null ? '' : scalarText(rawUrl)
+  return { name, url: /^https?:\/\/\S+$/i.test(url) ? url : null }
+}
+
 /** The note's cover, or null when its frontmatter names none. */
 export function readNoteCover(body: string): NoteCover | null {
   const fields = topLevelFields(body)
@@ -123,7 +154,10 @@ export function readNoteCover(body: string): NoteCover | null {
     if (raw == null) continue
     const target = parseNoteCoverTarget(scalarText(raw))
     if (!target) continue
-    return { key, target, y: parseNoteCoverY(fields.get(`${key}_y`) ?? fields.get(`${key}-y`)) }
+    const cover: NoteCover = { key, target, y: parseNoteCoverY(fields.get(`${key}_y`) ?? fields.get(`${key}-y`)) }
+    const credit = readNoteCoverCredit(fields, key)
+    if (credit) cover.credit = credit
+    return cover
   }
   return null
 }
@@ -152,18 +186,37 @@ function dropEmptyFrontmatter(body: string): string {
   return body.slice(m[0].length)
 }
 
+/** Put the credit lines right under the cover's own line, where a reader of
+ *  the file looks for them; updateFrontmatterFields would append them at the
+ *  end of the block. */
+function insertCreditLines(body: string, key: NoteCoverKey, credit: NoteCoverCredit): string {
+  const m = FRONTMATTER_BLOCK_RE.exec(body)
+  if (!m) return body
+  const lines = m[1].split('\n')
+  const at = lines.findIndex((line) => new RegExp(`^${key}\\s*:`, 'i').test(line))
+  if (at < 0) return body
+  const added = [`${key}_credit: ${yamlValue(credit.name)}`]
+  if (credit.url) added.push(`${key}_credit_url: ${yamlValue(credit.url)}`)
+  lines.splice(at + 1, 0, ...added)
+  return `---\n${lines.join('\n')}\n---\n` + body.slice(m[0].length)
+}
+
 /**
  * Set the note's cover image, keeping every other frontmatter line as it was.
- * A new image starts at the default focal point: the old one's position was
- * chosen for a different picture.
+ * A new image starts at the default focal point and with only the credit it
+ * is given: the old position and credit were for a different picture.
  */
-export function setNoteCover(body: string, target: NoteCoverTarget): string {
+export function setNoteCover(body: string, target: NoteCoverTarget, credit?: NoteCoverCredit | null): string {
   const key = coverKeyFor(body)
-  return updateFrontmatterFields(body, {
+  const next = updateFrontmatterFields(body, {
     [key]: noteCoverValue(target),
     [`${key}_y`]: null,
-    [`${key}-y`]: null
+    [`${key}-y`]: null,
+    [`${key}_credit`]: null,
+    [`${key}_credit_url`]: null
   })
+  const name = credit?.name.trim()
+  return name ? insertCreditLines(next, key, { name, url: credit?.url ?? null }) : next
 }
 
 /** Move the focal point of the note's existing cover; no cover, no change. */
@@ -176,7 +229,7 @@ export function setNoteCoverPosition(body: string, y: number): string {
   })
 }
 
-/** Remove the cover and its position. */
+/** Remove the cover, its position and its credit. */
 export function removeNoteCover(body: string): string {
   const cover = readNoteCover(body)
   if (!cover) return body
@@ -184,7 +237,9 @@ export function removeNoteCover(body: string): string {
     updateFrontmatterFields(body, {
       [cover.key]: null,
       [`${cover.key}_y`]: null,
-      [`${cover.key}-y`]: null
+      [`${cover.key}-y`]: null,
+      [`${cover.key}_credit`]: null,
+      [`${cover.key}_credit_url`]: null
     })
   )
 }

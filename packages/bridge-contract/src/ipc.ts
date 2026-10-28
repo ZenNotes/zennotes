@@ -112,6 +112,8 @@ export const IPC = {
   APP_UPDATER_GET_STATE: 'app-updater:get-state',
   APP_UPDATER_CHECK: 'app-updater:check',
   APP_USAGE_COUNT: 'app:usage-count',
+  UNSPLASH_SEARCH: 'unsplash:search',
+  UNSPLASH_TRACK_DOWNLOAD: 'unsplash:track-download',
   APP_UPDATER_CHECK_WITH_UI: 'app-updater:check-with-ui',
   APP_UPDATER_DOWNLOAD: 'app-updater:download',
   APP_UPDATER_INSTALL: 'app-updater:install',

@@ -43,6 +43,7 @@ import type {
   VaultTextSearchToolPaths
 } from './ipc.js'
 import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
+import type { UnsplashSearchResult } from './unsplash.js'
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
@@ -179,6 +180,12 @@ export interface ZenBridge {
    *  no identifier. The caller checks the setting; the host refuses
    *  development builds and test runs, and sends each event once per run. */
   sendUsageCount?(event: 'install' | 'update'): Promise<void>
+  /** Unsplash photo search for the cover picker, through the proxy on
+   *  zennotes.org (no host holds an Unsplash key). A host without it shows no
+   *  Unsplash tab. Never rejects: a failure comes back as its reason. */
+  searchUnsplash?(query: string, page: number): Promise<UnsplashSearchResult>
+  /** Unsplash's download tracking: a photo became a cover. Fire and forget. */
+  trackUnsplashDownload?(downloadLocation: string): Promise<void>
   checkForAppUpdatesWithUi(): Promise<void>
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdate(): Promise<void>

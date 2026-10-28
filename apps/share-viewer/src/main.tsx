@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import type { AssetMeta, ImportedAssetKind, NoteContent, VaultInfo } from '@shared/ipc'
 import { readNoteCover } from '@shared/note-cover'
 import { readOnlyNoteCoverUrl } from '@shared/note-cover-gradients'
+import { noteCoverCreditLine } from '@shared/unsplash'
 import { readSharePagePayload, type SharePagePayload } from './payload'
 import { THEMES } from '@renderer/lib/themes'
 import { ReadOnlyNoteCover } from '@renderer/components/ReadOnlyNoteCover'
@@ -106,7 +107,9 @@ async function boot(data: SharePagePayload): Promise<void> {
 
   ReactDOM.createRoot(rendered).render(
     <React.StrictMode>
-      {cover && coverUrl ? <ReadOnlyNoteCover url={coverUrl} y={cover.y} /> : null}
+      {cover && coverUrl ? (
+        <ReadOnlyNoteCover url={coverUrl} y={cover.y} credit={noteCoverCreditLine(cover)} />
+      ) : null}
       <article className="zen-share-note">
         <LazyPreview markdown={note.body} notePath={note.path} onRendered={onRendered} />
       </article>

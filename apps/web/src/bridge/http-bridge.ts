@@ -75,6 +75,12 @@ import { createDatabaseOps, type DatabaseVaultLayout } from '@shared/database-op
 import { isUnknownRouteResponse, parseServerErrorBody } from '@shared/server-error-shape'
 import { pastedImageFilename } from '@shared/pasted-image'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
+import {
+  searchUnsplashThroughProxy,
+  trackUnsplashDownloadThroughProxy,
+  type UnsplashFetch
+} from '@shared/unsplash'
+import type { UnsplashSearchResult } from '@zennotes/bridge-contract/unsplash'
 import type {
   McpClientId,
   McpClientStatus,
@@ -608,6 +614,19 @@ async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
   // The browser can't fetch arbitrary cross-origin pages (CORS); a bookmark on
   // web falls back to a bare link card until a server-side proxy is added.
   return { url, ok: false }
+}
+
+// The cover picker's Unsplash search goes straight from the browser to the
+// proxy on zennotes.org, which answers any origin and gets no cookies; the
+// server this client is served from takes no part (and holds no key).
+const unsplashFetch: UnsplashFetch = (url, init) => fetch(url, init)
+
+async function searchUnsplash(query: string, page: number): Promise<UnsplashSearchResult> {
+  return await searchUnsplashThroughProxy(unsplashFetch, { query, page })
+}
+
+async function trackUnsplashDownload(downloadLocation: string): Promise<void> {
+  await trackUnsplashDownloadThroughProxy(unsplashFetch, downloadLocation)
 }
 
 async function revealFolder(_folder: NoteFolder, _subpath: string): Promise<void> {
@@ -1588,6 +1607,8 @@ export const httpBridge: ZenBridge = {
   openExternalUrl: async () => ({ ok: false, error: 'desktop-only' }),
   openAssetExternally,
   fetchLinkMetadata,
+  searchUnsplash,
+  trackUnsplashDownload,
   revealNoteTarget,
   revealFilePath,
   moveNote,

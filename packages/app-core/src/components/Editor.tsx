@@ -67,6 +67,7 @@ import { writeClipboardText } from "../lib/clipboard-text";
 import {
   coverNotePath,
   openCoverPicker,
+  openUnsplashCoverPicker,
   removeCover,
   resolveCoverArgument,
   setCoverFromBuiltin,
@@ -555,8 +556,10 @@ function registerVimCommands(): void {
   // `:cover` (`:cov`) is the ex twin of Space l c. Bare, it opens the picker;
   // `:cover!` or `:cover remove` takes the cover off; `paste` uses the
   // clipboard image; `reposition` enters reposition mode and `40%` sets the
-  // focal point outright. Anything else names the image: an https URL, a
-  // vault image by path or unique file name, or a built-in cover by name.
+  // focal point outright. `unsplash fog` opens the picker's Unsplash tab on
+  // that search (Enter then picks the first photo; nothing is picked unseen).
+  // Anything else names the image: an https URL, a vault image by path or
+  // unique file name, or a built-in cover by name.
   Vim.defineEx(
     "cover",
     "cov",
@@ -582,6 +585,11 @@ function registerVimCommands(): void {
       }
       if (lower === "reposition") {
         startCoverReposition();
+        return;
+      }
+      const unsplash = arg.match(/^unsplash(?:\s+([\s\S]*))?$/i);
+      if (unsplash) {
+        openUnsplashCoverPicker((unsplash[1] ?? "").trim());
         return;
       }
       const percent = arg.match(/^(\d{1,3}(?:\.\d+)?)%$/);

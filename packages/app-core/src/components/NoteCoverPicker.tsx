@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { readNoteCover } from '@shared/note-cover'
+import { UNSPLASH_HOME_URL, unsplashReferralUrl } from '@shared/unsplash'
+import type { UnsplashPhoto } from '@zennotes/bridge-contract/unsplash'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
@@ -14,8 +16,10 @@ import {
   setCoverFromBuiltin,
   setCoverFromClipboard,
   setCoverFromFile,
+  setCoverFromUnsplash,
   setCoverTarget
 } from '../lib/note-cover-actions'
+import { unsplashSearchAvailable, useUnsplashSearch, type UnsplashSearchState } from '../lib/unsplash-search'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -26,10 +30,40 @@ type Choice =
   | { kind: 'builtin'; key: string; label: string; detail?: string; thumb: string; cover: BuiltinCover }
   | { kind: 'vault'; key: string; label: string; detail: string; thumb: string | null; path: string }
   | { kind: 'link'; key: string; label: string; detail: string; thumb: string; url: string }
+  | { kind: 'unsplash'; key: string; label: string; detail: string; thumb: string; photo: UnsplashPhoto }
 
 interface Section {
   title: string
   choices: Choice[]
+}
+
+type PickerTab = 'covers' | 'unsplash'
+
+/** Tiles in a row at the picker's width: reaching the last row of Unsplash
+ *  results asks for the next page. */
+const UNSPLASH_ROW = 4
+
+/** What the Unsplash tab says instead of tiles, or null when it has tiles. */
+function unsplashMessage(state: UnsplashSearchState, count: number): string | null {
+  switch (state.status) {
+    case 'idle':
+      return 'Search free photos from Unsplash. Searches go through zennotes.org.'
+    case 'loading':
+      return 'Searching Unsplash…'
+    case 'failed':
+      if (state.reason === 'offline') {
+        return 'Unsplash could not be reached. Check your connection; the Covers tab works offline.'
+      }
+      if (state.reason === 'rate-limited') {
+        const until = state.retryAt
+          ? ` until ${new Date(state.retryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+          : ' for now'
+        return `Unsplash search is resting${until}: its hourly limit is shared by everyone using ZenNotes. The Covers tab still works.`
+      }
+      return 'Unsplash search is not available right now. The Covers tab still works.'
+    case 'ready':
+      return count === 0 ? `No Unsplash photos match “${state.query}”.` : null
+  }
 }
 
 /**
@@ -42,17 +76,29 @@ interface Section {
  * The field keeps focus the whole time, like every palette here: ↑/↓ (and
  * Ctrl+N/P, Ctrl+J/K) move a row at a time through the tiles, ←/→ step
  * through them while the field is empty, Enter picks, Escape closes.
+ *
+ * Unsplash is a second tab (Tab switches, keeping the text), not another
+ * section: a section would send every search typed here to the network,
+ * vault image names included, and spend the hourly budget every ZenNotes
+ * user shares on people who never wanted a photo. On the tab, searching is
+ * the user's own choice each time.
  */
 export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element {
   const setPickerPath = useStore((s) => s.setNoteCoverPickerPath)
+  const start = useStore((s) => s.noteCoverPickerStart)
   const vaultRoot = useStore((s) => s.vault?.root ?? null)
   const assetFiles = useStore((s) => s.assetFiles)
   const hasCover = useStore((s) => {
     const body = s.noteContents[notePath]?.body
     return body != null && readNoteCover(body) !== null
   })
-  const [query, setQuery] = useState('')
+  const unsplashAvailable = unsplashSearchAvailable()
+  const [tab, setTab] = useState<PickerTab>(() =>
+    start?.tab === 'unsplash' && unsplashAvailable ? 'unsplash' : 'covers'
+  )
+  const [query, setQuery] = useState(() => start?.query ?? '')
   const [active, setActive] = useState(0)
+  const { state: unsplash, loadMore } = useUnsplashSearch(query, tab === 'unsplash')
   const [busy, setBusy] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -62,6 +108,21 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
   const sections = useMemo<Section[]>(() => {
     const trimmed = query.trim()
     const out: Section[] = []
+    if (tab === 'unsplash') {
+      if (unsplash.status !== 'ready' || unsplash.photos.length === 0) return out
+      out.push({
+        title: 'Unsplash',
+        choices: unsplash.photos.map((photo) => ({
+          kind: 'unsplash',
+          key: `unsplash:${photo.id}`,
+          label: photo.photographer.name,
+          detail: `${photo.alt ? `${photo.alt}\n` : ''}Photo by ${photo.photographer.name} on Unsplash`,
+          thumb: photo.thumbUrl,
+          photo
+        }))
+      })
+      return out
+    }
     if (/^https:\/\/\S+$/i.test(trimmed)) {
       out.push({
         title: 'Link',
@@ -105,15 +166,23 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
     if (photos.length) out.push({ title: 'Gallery', choices: photos })
     if (vault.length) out.push({ title: 'Images in this vault', choices: vault })
     return out
-  }, [assetFiles, query, vaultRoot])
+  }, [assetFiles, query, tab, unsplash, vaultRoot])
 
   const choices = useMemo(() => sections.flatMap((s) => s.choices), [sections])
+  const unsplashQuery = unsplash.status === 'idle' ? '' : unsplash.query
 
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  useEffect(() => setActive(0), [query])
+  // A new search or tab starts at the first tile; a page of results added to
+  // the same search leaves the selection where it is.
+  useEffect(() => setActive(0), [query, tab, unsplashQuery])
+
+  // Nearing the end of the Unsplash results asks for the next page.
+  useEffect(() => {
+    if (tab === 'unsplash' && choices.length > 0 && active >= choices.length - UNSPLASH_ROW) loadMore()
+  }, [active, choices.length, loadMore, tab])
 
   useEffect(() => {
     gridRef.current
@@ -140,6 +209,7 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
     if (!choice) return
     if (choice.kind === 'builtin') void run(() => setCoverFromBuiltin(notePath, choice.cover))
     else if (choice.kind === 'vault') void run(() => setCoverTarget(notePath, { kind: 'vault', href: choice.path }))
+    else if (choice.kind === 'unsplash') void run(() => setCoverFromUnsplash(notePath, choice.photo))
     else void run(() => setCoverTarget(notePath, { kind: 'url', url: choice.url }))
   }
 
@@ -169,9 +239,16 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
     setActive(row[0]!.index)
   }
 
+  const switchTab = (): void => setTab((t) => (t === 'covers' ? 'unsplash' : 'covers'))
+
   const onInputKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
     if (isImeComposing(e)) return
-    if (isPaletteNextKey(e)) {
+    if (e.key === 'Tab' && unsplashAvailable && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      // Two tabs, so Shift+Tab goes to the other one as well.
+      e.preventDefault()
+      e.stopPropagation()
+      switchTab()
+    } else if (isPaletteNextKey(e)) {
       e.preventDefault()
       e.stopPropagation()
       moveRow(1)
@@ -241,26 +318,53 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search covers, or paste an https link…"
-            aria-label="Search covers"
+            placeholder={tab === 'unsplash' ? 'Search Unsplash photos…' : 'Search covers, or paste an https link…'}
+            aria-label={tab === 'unsplash' ? 'Search Unsplash photos' : 'Search covers'}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onInputKeyDown}
             className="w-full bg-transparent text-base text-ink-900 outline-none placeholder:text-ink-400"
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-paper-300/70 px-4 py-2.5">
-          <Button onClick={() => fileRef.current?.click()} disabled={busy}>
-            Upload image…
-          </Button>
-          <Button onClick={() => void run(() => setCoverFromClipboard(notePath))} disabled={busy}>
-            Paste from clipboard
-          </Button>
+          {unsplashAvailable && (
+            <div role="tablist" aria-label="Cover sources" className="mr-1 flex gap-1 border-r border-paper-300/70 pr-3">
+              {(['covers', 'unsplash'] as const).map((id) => (
+                <Button
+                  key={id}
+                  role="tab"
+                  aria-selected={tab === id}
+                  data-cover-picker-tab={id}
+                  tabIndex={-1}
+                  variant={tab === id ? 'secondary' : 'ghost'}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setTab(id)
+                    inputRef.current?.focus()
+                  }}
+                >
+                  {id === 'covers' ? 'Covers' : 'Unsplash'}
+                </Button>
+              ))}
+            </div>
+          )}
+          {tab === 'covers' && (
+            <>
+              <Button onClick={() => fileRef.current?.click()} disabled={busy}>
+                Upload image…
+              </Button>
+              <Button onClick={() => void run(() => setCoverFromClipboard(notePath))} disabled={busy}>
+                Paste from clipboard
+              </Button>
+            </>
+          )}
           {hasCover && (
             <Button variant="ghost" onClick={() => void run(() => removeCover(notePath))} disabled={busy}>
               Remove cover
             </Button>
           )}
-          <span className="ml-auto text-xs text-ink-400">or drop or paste an image here</span>
+          <span className="ml-auto text-xs text-ink-400">
+            {tab === 'unsplash' ? 'Photos stay on Unsplash and load from there' : 'or drop or paste an image here'}
+          </span>
           <input
             ref={fileRef}
             type="file"
@@ -273,9 +377,18 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
             }}
           />
         </div>
-        <div ref={gridRef} className="max-h-[56vh] overflow-y-auto px-4 pb-4">
+        <div
+          ref={gridRef}
+          className="max-h-[56vh] overflow-y-auto px-4 pb-4"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            if (tab === 'unsplash' && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) loadMore()
+          }}
+        >
           {sections.length === 0 ? (
-            <div className="py-8 text-center text-sm text-ink-400">No covers match.</div>
+            <div data-cover-picker-message="" className="px-6 py-8 text-center text-sm text-ink-400">
+              {tab === 'unsplash' ? unsplashMessage(unsplash, choices.length) : 'No covers match.'}
+            </div>
           ) : (
             sections.map((section) => (
               <div key={section.title}>
@@ -300,7 +413,10 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
                           selected ? 'ring-2 ring-accent' : 'ring-paper-300 hover:ring-paper-400'
                         ].join(' ')}
                       >
-                        <span className="block h-16 w-full overflow-hidden bg-paper-200">
+                        <span
+                          className="block h-16 w-full overflow-hidden bg-paper-200"
+                          style={choice.kind === 'unsplash' && choice.photo.color ? { backgroundColor: choice.photo.color } : undefined}
+                        >
                           {choice.thumb && (
                             <img src={choice.thumb} alt="" loading="lazy" draggable={false} className="h-full w-full object-cover" />
                           )}
@@ -315,6 +431,12 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
           )}
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
+          {tab === 'unsplash' && <UnsplashCreditLine choice={choices[active]} />}
+          {unsplashAvailable && (
+            <span>
+              <kbd className="rounded bg-paper-200 px-1">tab</kbd> {tab === 'covers' ? 'Unsplash' : 'covers'}
+            </span>
+          )}
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓←→</kbd> move
           </span>
@@ -327,5 +449,36 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
         </div>
       </div>
     </Modal>
+  )
+}
+
+/** The footer's credit for the selected photo, both links the way Unsplash
+ *  asks: the photographer's profile and Unsplash, with the referral tags. */
+function UnsplashCreditLine({ choice }: { choice: Choice | undefined }): JSX.Element {
+  const home = unsplashReferralUrl(UNSPLASH_HOME_URL)
+  const unsplashLink = (
+    <a href={home} target="_blank" rel="noreferrer" className="text-ink-700 hover:underline">
+      Unsplash
+    </a>
+  )
+  return (
+    <span data-cover-picker-credit="" className="mr-auto min-w-0 truncate">
+      {choice?.kind === 'unsplash' ? (
+        <>
+          Photo by{' '}
+          <a
+            href={unsplashReferralUrl(choice.photo.photographer.profileUrl)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-ink-700 hover:underline"
+          >
+            {choice.photo.photographer.name}
+          </a>{' '}
+          on {unsplashLink}
+        </>
+      ) : (
+        <>Photos from {unsplashLink}</>
+      )}
+    </span>
   )
 }

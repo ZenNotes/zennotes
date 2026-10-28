@@ -11,7 +11,9 @@
  * New images arrive through `importPastedImage`, the one import every host
  * has (local and remote desktop vaults, the web client over the Go server,
  * the phone shells), so the file lands in the vault's `assets/` folder by
- * the same rules a pasted screenshot does.
+ * the same rules a pasted screenshot does. An Unsplash photo is the one
+ * exception: Unsplash's terms keep it on images.unsplash.com, so it is an
+ * https cover with its photographer's credit (shared-domain unsplash.ts).
  */
 import {
   readNoteCover,
@@ -22,11 +24,14 @@ import {
   type NoteCoverTarget
 } from '@shared/note-cover'
 import { IMAGE_FILE_EXTENSIONS } from '@shared/pasted-image'
+import { unsplashCoverUrl, unsplashPhotoCredit } from '@shared/unsplash'
+import type { UnsplashPhoto } from '@zennotes/bridge-contract/unsplash'
 import { useStore } from '../store'
 import { useToastStore } from './toast'
 import { minimalTextChange } from './minimal-text-change'
 import { isClipboardImageFile, readSystemClipboard } from './editor-paste-images'
 import type { BuiltinCover } from './note-cover-gallery'
+import { unsplashSearchAvailable } from './unsplash-search'
 
 /** The note whose cover the cover commands act on: the active note, unless it
  *  is in the Trash, where nothing gets edited. */
@@ -37,16 +42,26 @@ export function coverNotePath(): string | null {
   return active.path
 }
 
-/** Open the cover picker for the active note. False (with a word why) when
- *  there is no note to give a cover. */
-export function openCoverPicker(): boolean {
+/** Open the cover picker for the active note, on the Covers tab unless told
+ *  otherwise. False (with a word why) when there is no note to give a cover. */
+export function openCoverPicker(start?: { tab: 'covers' | 'unsplash'; query: string }): boolean {
   const path = coverNotePath()
   if (!path) {
     useToastStore.getState().addToast('Open a note to give it a cover', 'info')
     return false
   }
-  useStore.getState().setNoteCoverPickerPath(path)
+  useStore.getState().setNoteCoverPickerPath(path, start ?? null)
   return true
+}
+
+/** The picker on its Unsplash tab, searching for `query` when there is one
+ *  (`Space l u`, `:cover unsplash fog`, the palette). */
+export function openUnsplashCoverPicker(query = ''): boolean {
+  if (!unsplashSearchAvailable()) {
+    useToastStore.getState().addToast('Unsplash covers are not available in this app yet', 'info')
+    return false
+  }
+  return openCoverPicker({ tab: 'unsplash', query })
 }
 
 /** Put the active note's cover into reposition mode; the first visible copy
@@ -178,6 +193,20 @@ export async function setCoverFromBuiltin(path: string, cover: BuiltinCover): Pr
     reportError(err, `Could not add ${cover.title} as the cover`)
     return false
   }
+}
+
+/** An Unsplash photo as the cover: hotlinked at a cover's width, never
+ *  copied into the vault, with its photographer's credit on the lines under
+ *  it. Unsplash hears that the photo was used (their download tracking) only
+ *  once the note has it, and a ping that fails changes nothing. */
+export async function setCoverFromUnsplash(path: string, photo: UnsplashPhoto): Promise<boolean> {
+  const url = unsplashCoverUrl(photo.rawUrl)
+  if (!url) return false
+  const changed = await editNoteCover(path, (body) =>
+    setNoteCover(body, { kind: 'url', url }, unsplashPhotoCredit(photo))
+  )
+  if (changed) void window.zen.trackUnsplashDownload?.(photo.downloadLocation)?.catch(() => {})
+  return changed
 }
 
 /** `:cover <arg>`: an https URL, or an image already in the vault, matched by

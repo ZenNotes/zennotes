@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { clampNoteCoverY, type NoteCover as NoteCoverValue } from '@shared/note-cover'
+import { noteCoverCreditLine } from '@shared/unsplash'
 import { useStore } from '../store'
 import { resolveLocalAsset } from '../lib/local-assets'
 import { focusEditorNormalMode } from '../lib/editor-focus'
@@ -14,6 +15,7 @@ import {
   setCoverTarget
 } from '../lib/note-cover-actions'
 import { Button } from './ui/Button'
+import { NoteCoverCredit } from './NoteCoverCredit'
 
 /** One arrow press moves the focal point this far; Shift moves it finely. */
 const STEP = 0.05
@@ -28,6 +30,15 @@ interface NoteCoverProps {
   /** Whether this copy may answer the palette's "Reposition cover" (the
    *  active pane's, visible one). A button press always acts on its own. */
   claimable: boolean
+}
+
+/** A web cover's host, for the line shown when it cannot load (offline, say). */
+function webCoverHost(url: string): string {
+  try {
+    return new URL(url).hostname || url
+  } catch {
+    return url
+  }
 }
 
 function resolveCoverUrl(
@@ -126,7 +137,7 @@ export function NoteCover({ notePath, cover, variant, claimable }: NoteCoverProp
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (!repositioning || e.button !== 0) return
-    if ((e.target as HTMLElement).closest('button')) return
+    if ((e.target as HTMLElement).closest('button, a')) return
     e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
     dragRef.current = { startY: e.clientY, startFocal: y, overflow: verticalOverflow() }
@@ -211,6 +222,7 @@ export function NoteCover({ notePath, cover, variant, claimable }: NoteCoverProp
     cover.target.kind === 'url'
       ? cover.target.url
       : cover.target.href.slice(cover.target.href.lastIndexOf('/') + 1)
+  const credit = noteCoverCreditLine(cover)
 
   return (
     <div
@@ -250,9 +262,12 @@ export function NoteCover({ notePath, cover, variant, claimable }: NoteCoverProp
         <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-ink-500">
           {url === null && !missing && cover.target.kind === 'vault'
             ? 'Loading cover…'
-            : `Cover image not found: ${name}`}
+            : cover.target.kind === 'url'
+              ? `Could not load the cover from ${webCoverHost(cover.target.url)}`
+              : `Cover image not found: ${name}`}
         </div>
       )}
+      {credit && !repositioning && <NoteCoverCredit line={credit} persistent={false} />}
       {repositioning ? (
         <>
           <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
