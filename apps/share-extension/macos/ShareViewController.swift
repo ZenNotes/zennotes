@@ -19,6 +19,8 @@ private struct VaultChoice {
     let name: String
     let kind: String
     let detail: String?
+    /// Where a share to this vault is filed, as the app names it.
+    let destination: String?
 
     var label: String {
         guard kind == "remote" else { return name }
@@ -35,10 +37,11 @@ private extension String {
 /// Share > ZenNotes. The sheet previews what is shared, takes an optional
 /// note line and a vault, and on Save leaves the share as one JSON file in
 /// the share inbox, the one folder its sandbox opens to it. The extension
-/// reaches no vault: ZenNotes files the share in Quick Notes, at once when it
+/// reaches no vault: ZenNotes files the share where the vault says, at once when it
 /// is running and the next time it opens when it is not.
 @objc(ShareViewController)
 final class ShareViewController: NSViewController {
+    private let headingLabel = NSTextField(labelWithString: "Save to ZenNotes")
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(labelWithString: "")
     private let excerptLabel = NSTextField(wrappingLabelWithString: "")
@@ -67,9 +70,9 @@ final class ShareViewController: NSViewController {
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.widthAnchor.constraint(equalToConstant: 28).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 28).isActive = true
-        let heading = NSTextField(labelWithString: "Save to Quick Notes")
-        heading.font = .boldSystemFont(ofSize: 14)
-        let header = NSStackView(views: [icon, heading])
+        headingLabel.font = .boldSystemFont(ofSize: 14)
+        headingLabel.lineBreakMode = .byTruncatingMiddle
+        let header = NSStackView(views: [icon, headingLabel])
         header.spacing = 8
 
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -391,7 +394,10 @@ final class ShareViewController: NSViewController {
               let list = file["vaults"] as? [[String: Any]] else { return }
         vaults = list.compactMap { entry in
             guard let id = entry["id"] as? String, let name = entry["name"] as? String else { return nil }
-            return VaultChoice(id: id, name: name, kind: entry["kind"] as? String ?? "local", detail: entry["detail"] as? String)
+            return VaultChoice(
+                id: id, name: name, kind: entry["kind"] as? String ?? "local",
+                detail: entry["detail"] as? String, destination: entry["destination"] as? String
+            )
         }
         guard !vaults.isEmpty else { return }
         vaultMenu.removeAllItems()
@@ -420,6 +426,7 @@ final class ShareViewController: NSViewController {
     }
 
     private func updateNotice(error: String? = nil) {
+        headingLabel.stringValue = "Save to \(selectedVault?.destination ?? "ZenNotes")"
         if let error {
             notice.stringValue = error
             notice.textColor = .systemRed
@@ -428,9 +435,9 @@ final class ShareViewController: NSViewController {
         }
         notice.textColor = .secondaryLabelColor
         if selectedVault?.kind == "remote" {
-            notice.stringValue = "ZenNotes files it in Quick Notes once it is connected to this server."
+            notice.stringValue = "ZenNotes files it once it is connected to this server."
         } else if !appRunning {
-            notice.stringValue = "ZenNotes files it in Quick Notes the next time it opens."
+            notice.stringValue = "ZenNotes files it the next time it opens."
         } else {
             notice.stringValue = ""
         }

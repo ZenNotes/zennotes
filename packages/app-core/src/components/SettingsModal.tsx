@@ -798,6 +798,12 @@ export function SettingsModal(): JSX.Element {
   const setNoteCoverPlacement = useStore((s) => s.setNoteCoverPlacement);
   const vault = useStore((s) => s.vault);
   const workspaceMode = useStore((s) => s.workspaceMode);
+  // Share > ZenNotes is a macOS share extension inside the desktop app, and a
+  // self-hosted server does not keep the setting yet (share-inbox.ts).
+  const sharesLocationAvailable =
+    appInfo.runtime === "desktop" &&
+    zenBridge.platformSync() === "darwin" &&
+    workspaceMode !== "remote";
   const renameVault = useStore((s) => s.renameVault);
   const vaultDisplayName = useStore((s) => s.vaultSettings.displayName ?? "");
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
@@ -4056,6 +4062,22 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "shares-location",
+          title: "Default shares location",
+          description:
+            "Where pages and text shared from Safari and other apps (Share > ZenNotes) are filed: Quick Notes, your primary notes area, or a folder you name.",
+          keywords: [
+            "share",
+            "shares",
+            "share menu",
+            "share extension",
+            "safari",
+            "clippings",
+            "web clipper",
+          ],
+          available: sharesLocationAvailable,
+        },
+        {
           id: "view-settings-scope",
           title: "View settings",
           description:
@@ -4647,6 +4669,7 @@ export function SettingsModal(): JSX.Element {
             "drawings-location",
             "databases-location",
             "tasks-location",
+            ...(sharesLocationAvailable ? ["shares-location"] : []),
             "view-settings-scope",
           ],
           content: (
@@ -4787,6 +4810,42 @@ export function SettingsModal(): JSX.Element {
                     }
                   />
                 )}
+                {sharesLocationAvailable && (
+                  <SegmentedRow
+                    label="Default shares location"
+                    description="Where a page or text shared from Safari and other apps with Share > ZenNotes is filed. `Specific folder` uses a folder you name inside your primary notes area."
+                    value={vaultSettings.sharesLocation?.mode ?? "quick"}
+                    settingId="shares-location"
+                    options={[
+                      { value: "quick", label: "Quick Notes" },
+                      { value: "primary", label: "Primary location" },
+                      { value: "folder", label: "Specific folder" },
+                    ]}
+                    onChange={(mode) =>
+                      void persistVaultSettings({
+                        ...vaultSettings,
+                        sharesLocation: { ...vaultSettings.sharesLocation, mode },
+                      })
+                    }
+                  />
+                )}
+                {sharesLocationAvailable &&
+                  vaultSettings.sharesLocation?.mode === "folder" && (
+                    <TextInputRow
+                      label="Shares folder"
+                      description={`A folder inside your primary notes area, e.g. \`Clippings\`. Shares go to ${specificFolderDestinationLabel(vaultSettings.sharesLocation?.folder, vaultSettings)}.`}
+                      value={vaultSettings.sharesLocation?.folder ?? ""}
+                      placeholder="Clippings"
+                      settingId="shares-folder"
+                      commitOnBlur
+                      onChange={(next) =>
+                        void persistVaultSettings({
+                          ...vaultSettings,
+                          sharesLocation: { mode: "folder", folder: next ?? "" },
+                        })
+                      }
+                    />
+                  )}
               </Section>
               <Section
                 title="View settings"

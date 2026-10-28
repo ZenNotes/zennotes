@@ -24,6 +24,7 @@ export const VAULT_SETTINGS_SECTION_LABELS: Record<VaultSettingsSection, string>
   drawingsLocation: "New drawings location",
   databasesLocation: "New databases location",
   tasksLocation: "New tasks location",
+  sharesLocation: "Shares location",
   view: "View settings",
   folderIcons: "Folder icons",
   folderColors: "Folder colors",

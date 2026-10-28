@@ -63,6 +63,7 @@ import {
 } from '@shared/ipc'
 import { currentDemoTourPath, DEMO_TOUR_DIR, demoTourNestedDirs } from '@shared/demo-tour'
 import { normalizeNoteComments } from '@shared/note-comments'
+import { normalizeShareLocation } from '@shared/share-location'
 import { FRONTMATTER_BLOCK_RE, frontmatterTags } from '@shared/frontmatter'
 import { rewriteAssetReferences } from '@shared/asset-link-rename'
 import { resolveAssetPathAmong } from '@shared/asset-path-resolution'
@@ -906,6 +907,7 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
     // The value handed back is what the renderer keeps until its next full
     // reload, so every optional field that was written has to come back too.
     ...(settings.tasksLocation ? { tasksLocation: { ...settings.tasksLocation } } : {}),
+    ...(settings.sharesLocation ? { sharesLocation: { ...settings.sharesLocation } } : {}),
     ...(settings.systemFolderPaths
       ? { systemFolderPaths: { ...settings.systemFolderPaths } }
       : {}),
@@ -1130,6 +1132,7 @@ function normalizeVaultSettings(
       drawingsLocation: { mode: 'primary' },
       databasesLocation: { mode: 'primary' },
       tasksLocation: { mode: 'primary' },
+      sharesLocation: { mode: 'quick' },
       folderIcons: {},
       folderColors: {},
       favorites: []
@@ -1167,6 +1170,7 @@ function normalizeVaultSettings(
     drawingsLocation?: unknown
     databasesLocation?: unknown
     tasksLocation?: unknown
+    sharesLocation?: unknown
     folderIcons?: Record<string, unknown> | null
     folderColors?: Record<string, unknown> | null
     favorites?: unknown
@@ -1228,6 +1232,7 @@ function normalizeVaultSettings(
     drawingsLocation: normalizeFileLocation(candidate.drawingsLocation),
     databasesLocation: normalizeFileLocation(candidate.databasesLocation),
     tasksLocation: normalizeFileLocation(candidate.tasksLocation),
+    sharesLocation: normalizeShareLocation(candidate.sharesLocation),
     folderIcons,
     folderColors: normalizeFolderColors(candidate.folderColors),
     favorites: normalizeFavorites(candidate.favorites),
