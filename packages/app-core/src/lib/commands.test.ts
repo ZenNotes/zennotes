@@ -374,6 +374,30 @@ describe('New Note in Current Folder (#403)', () => {
   })
 })
 
+describe('New Quick Note title (#1008)', () => {
+  it('titles with the bare timestamp after the prefix field is cleared', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const createAndOpen = vi.fn()
+    useStore.setState({ notes: [], quickNoteDateTitle: false, createAndOpen })
+    // The Settings field calls the setter with null once it is empty.
+    useStore.getState().setQuickNoteTitlePrefix(null)
+    expect(useStore.getState().quickNoteTitlePrefix).toBeNull()
+    buildCommands().find((c) => c.id === 'note.new.quick')?.run()
+    const title = createAndOpen.mock.calls[0]?.[2]?.title as string
+    expect(title).toMatch(/^\d{4}-\d{2}-\d{2} \d{4}$/)
+  })
+
+  it('keeps the prefix the field holds', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const createAndOpen = vi.fn()
+    useStore.setState({ notes: [], quickNoteDateTitle: true, createAndOpen })
+    useStore.getState().setQuickNoteTitlePrefix('  Scratch  ')
+    buildCommands().find((c) => c.id === 'note.new.quick')?.run()
+    const title = createAndOpen.mock.calls[0]?.[2]?.title as string
+    expect(title).toMatch(/^Scratch \d{4}-\d{2}-\d{2}$/)
+  })
+})
+
 describe('note commands for a trashed note (#712)', () => {
   const note = {
     path: 'trash/Old idea.md',

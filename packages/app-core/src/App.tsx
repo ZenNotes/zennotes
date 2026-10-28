@@ -825,7 +825,7 @@ function App(): JSX.Element {
         const title = resolveQuickNoteTitle(
           state.notes,
           state.quickNoteDateTitle,
-          state.quickNoteTitlePrefix ?? undefined
+          state.quickNoteTitlePrefix
         )
         void state.createAndOpen('quick', '', { title, focusTitle: true })
         return

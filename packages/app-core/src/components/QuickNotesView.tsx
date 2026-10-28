@@ -91,7 +91,7 @@ export function QuickNotesView(): JSX.Element {
     const title = resolveQuickNoteTitle(
       useStore.getState().notes,
       quickNoteDateTitle,
-      quickNoteTitlePrefix ?? undefined
+      quickNoteTitlePrefix
     )
     await createAndOpen('quick', '', { title, focusTitle: true })
   }, [createAndOpen, quickNoteDateTitle, quickNoteTitlePrefix])

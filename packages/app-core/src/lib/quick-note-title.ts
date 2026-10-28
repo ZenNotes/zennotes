@@ -8,6 +8,12 @@
  *    with " (2)", " (3)", … appended for additional notes the same day.
  *
  * When the prefix is blank, titles fall back to the raw timestamp/date.
+ *
+ * The prefix has no default, and `null` means no prefix: it is how the store
+ * keeps a field the user cleared. It used to default to "Quick Note" while
+ * every caller passed `prefix ?? undefined`, so a cleared field became the
+ * default again on its way in and the bare timestamp Settings promised never
+ * appeared (#1008).
  */
 import type { NoteMeta } from '@shared/ipc'
 
@@ -15,7 +21,7 @@ function pad(n: number): string {
   return n.toString().padStart(2, '0')
 }
 
-function normalizePrefix(prefix: string | null | undefined): string {
+function normalizePrefix(prefix: string | null): string {
   return (prefix ?? '').trim()
 }
 
@@ -23,10 +29,7 @@ function joinPrefix(prefix: string, suffix: string): string {
   return prefix ? `${prefix} ${suffix}` : suffix
 }
 
-export function nowTimestamped(
-  prefix = 'Quick Note',
-  date = new Date()
-): string {
+export function nowTimestamped(prefix: string | null, date = new Date()): string {
   const stem =
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
     ` ${pad(date.getHours())}${pad(date.getMinutes())}`
@@ -35,7 +38,7 @@ export function nowTimestamped(
 
 export function dateTitleForToday(
   notes: NoteMeta[],
-  prefix = '',
+  prefix: string | null,
   date = new Date()
 ): string {
   const today = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
@@ -52,7 +55,7 @@ export function dateTitleForToday(
 export function resolveQuickNoteTitle(
   notes: NoteMeta[],
   useDateTitle: boolean,
-  prefix = 'Quick Note',
+  prefix: string | null,
   date = new Date()
 ): string {
   return useDateTitle
