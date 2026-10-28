@@ -37,6 +37,22 @@ export function retitleLeadingHeading(body: string, title: string): string {
   // sanitizing strips control chars, so this is belt-and-braces.
   if (!title || /[\r\n]/.test(title)) return body
 
+  const heading = leadingTitleHeading(body)
+  if (!heading) return body
+  const line = body.slice(heading.from, heading.to)
+  const next = `${H1_LINE_RE.exec(line)?.[1] ?? ''}# ${title}`
+  if (next === line) return body
+  return body.slice(0, heading.from) + next + body.slice(heading.to)
+}
+
+/**
+ * Where the note's title heading sits: the first non-blank line after any
+ * frontmatter, when it is a `# ` heading, as offsets into `body` that leave
+ * out the line break (and a CRLF's `\r`). Null when that line is anything
+ * else, or when there is no such line. It is the line a rename retitles, and
+ * the line the editor's select all leaves out (#1006).
+ */
+export function leadingTitleHeading(body: string): { from: number; to: number } | null {
   const fm = FRONTMATTER_BLOCK_RE.exec(body)
   let lineStart = fm ? fm[0].length : 0
 
@@ -46,14 +62,10 @@ export function retitleLeadingHeading(body: string, title: string): string {
     const raw = body.slice(lineStart, lineEnd)
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw
     if (line.trim()) {
-      const m = H1_LINE_RE.exec(line)
-      if (!m) return body
-      const next = `${m[1]}# ${title}`
-      if (next === line) return body
-      return body.slice(0, lineStart) + next + body.slice(lineStart + line.length)
+      return H1_LINE_RE.test(line) ? { from: lineStart, to: lineStart + line.length } : null
     }
     if (nl === -1) break
     lineStart = nl + 1
   }
-  return body
+  return null
 }
