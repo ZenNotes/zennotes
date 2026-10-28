@@ -168,9 +168,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   // such a note opens to read, one the command creates is written in.
   const periodicNoteExists = (find: typeof findDailyNoteForDate): boolean =>
     !!find(getState().notes, getState().vaultSettings, new Date())
+  // Leader chords, the Ctrl+W pane prefix and ex commands exist only in Vim
+  // mode, so with it off the palette names none of them: a row must not
+  // advertise a key that does nothing (the Vim-off hint rule).
+  const vimOnly = (display: string): string => (getState().vimMode ? display : '')
   const leaderShortcut = (id: KeymapId): string =>
-    getLeaderChordDisplay(getState().keymapOverrides, id)
-  const paneShortcut = (id: KeymapId): string => chord('vim.panePrefix', id)
+    vimOnly(getLeaderChordDisplay(getState().keymapOverrides, id))
+  const paneShortcut = (id: KeymapId): string => vimOnly(chord('vim.panePrefix', id))
   const searchShortcut = (): string => {
     const state = getState()
     const primary = shortcut('global.searchNotes')
@@ -399,7 +403,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.save',
       title: 'Save Note',
       category: 'Note',
-      shortcut: ':w',
+      shortcut: vimOnly(':w'),
       keywords: 'persist write',
       when: hasSelection,
       run: () => getState().persistActive()
@@ -408,7 +412,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'note.format',
       title: 'Format Markdown',
       category: 'Note',
-      shortcut: ':format',
+      shortcut: vimOnly(':format'),
       keywords: 'prettier',
       when: hasSelection,
       run: () => getState().formatActiveNote()
@@ -441,7 +445,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: isActiveNoteFavorite() ? 'Remove Note from Favorites' : 'Add Note to Favorites',
       category: 'Note',
       keywords: 'favourite star bookmark home sidebar',
-      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderToggleFavorite'),
+      shortcut: vimOnly(chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderToggleFavorite')),
       when: () => {
         const active = getState().activeNote
         return !!active && active.folder !== 'trash'
@@ -455,7 +459,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: activeNoteCover() ? 'Change Cover…' : 'Add Cover…',
       category: 'Note',
       keywords: 'banner header image picture gallery gradient',
-      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCover'),
+      shortcut: vimOnly(chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCover')),
       when: () => !!coverNotePath(),
       run: () => {
         openCoverPicker()
@@ -467,7 +471,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Add Cover from Unsplash…',
       category: 'Note',
       keywords: 'banner header image picture photo stock unsplash',
-      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCoverUnsplash'),
+      shortcut: vimOnly(chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderNoteCoverUnsplash')),
       when: () => !!coverNotePath() && unsplashSearchAvailable(),
       run: () => {
         openUnsplashCoverPicker()
@@ -479,7 +483,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Paste Cover from Clipboard',
       category: 'Note',
       keywords: 'banner header image screenshot',
-      shortcut: ':cover paste',
+      shortcut: vimOnly(':cover paste'),
       when: () => !!coverNotePath(),
       run: async () => {
         const path = coverNotePath()
@@ -492,7 +496,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Reposition Cover',
       category: 'Note',
       keywords: 'banner header image move focal',
-      shortcut: ':cover reposition',
+      shortcut: vimOnly(':cover reposition'),
       when: () => !!activeNoteCover(),
       run: () => {
         startCoverReposition()
@@ -504,7 +508,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Remove Cover',
       category: 'Note',
       keywords: 'banner header image delete',
-      shortcut: ':cover!',
+      shortcut: vimOnly(':cover!'),
       when: () => !!activeNoteCover(),
       run: async () => {
         const path = coverNotePath()
@@ -1120,7 +1124,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.heading',
       title: 'Fold Heading or List Item at Cursor',
       category: 'Editor',
-      shortcut: shortcut('vim.foldCurrent'),
+      shortcut: vimOnly(shortcut('vim.foldCurrent')),
       keywords: 'collapse fold heading section list item task bullet children callout',
       when: hasEditorNote,
       run: () => runFoldCommand('foldAtCursor')
@@ -1129,7 +1133,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.unfold-heading',
       title: 'Unfold Heading or List Item at Cursor',
       category: 'Editor',
-      shortcut: shortcut('vim.unfoldCurrent'),
+      shortcut: vimOnly(shortcut('vim.unfoldCurrent')),
       keywords: 'expand unfold heading section list item task bullet children callout',
       when: hasEditorNote,
       run: () => runFoldCommand('unfoldAtCursor')
@@ -1138,7 +1142,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.all',
       title: 'Fold All Headings and Lists',
       category: 'Editor',
-      shortcut: shortcut('vim.foldAll'),
+      shortcut: vimOnly(shortcut('vim.foldAll')),
       keywords: 'collapse fold all every heading list item task outline callout',
       when: hasEditorNote,
       run: () => runFoldCommand('foldAllOutline')
@@ -1147,7 +1151,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'fold.unfold-all',
       title: 'Unfold All Headings and Lists',
       category: 'Editor',
-      shortcut: shortcut('vim.unfoldAll'),
+      shortcut: vimOnly(shortcut('vim.unfoldAll')),
       keywords: 'expand unfold all every reset heading list item task outline callout',
       when: hasEditorNote,
       run: () => runFoldCommand('unfoldAll')
@@ -1321,7 +1325,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.back',
       title: 'Go Back',
       category: 'Tabs',
-      shortcut: shortcut('vim.historyBack'),
+      shortcut: getState().vimMode ? shortcut('vim.historyBack') : shortcut('global.historyBack'),
       keywords: 'history previous',
       opensToRead: () => true,
       run: () => getState().jumpToPreviousNote()
@@ -1330,7 +1334,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'nav.forward',
       title: 'Go Forward',
       category: 'Tabs',
-      shortcut: shortcut('vim.historyForward'),
+      shortcut: getState().vimMode ? shortcut('vim.historyForward') : shortcut('global.historyForward'),
       keywords: 'history next',
       opensToRead: () => true,
       run: () => getState().jumpToNextNote()
@@ -1352,7 +1356,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'split.right',
       title: 'Split Right',
       category: 'Panes',
-      shortcut: ':vsplit',
+      shortcut: vimOnly(':vsplit'),
       keywords: 'vsplit vertical',
       when: hasSelection,
       run: () => {
@@ -1370,7 +1374,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'split.down',
       title: 'Split Down',
       category: 'Panes',
-      shortcut: ':split',
+      shortcut: vimOnly(':split'),
       keywords: 'split horizontal',
       when: hasSelection,
       run: () => {
@@ -1511,7 +1515,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       unavailableReason: () => `The ${labels().tasks} view is already open`,
       title: `Open ${labels().tasks}`,
       category: 'View',
-      shortcut: ':tasks',
+      shortcut: vimOnly(':tasks'),
       keywords: 'tasks todo checklist due waiting done vault',
       when: () => !isTasksViewActive(getState()),
       run: () => getState().openTasksView()
@@ -1521,7 +1525,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       unavailableReason: () => 'Workflows are off: turn them on under Settings, Workflows',
       title: 'Open Workflows',
       category: 'View',
-      shortcut: ':workflows',
+      shortcut: vimOnly(':workflows'),
       keywords: 'workflow automation pipeline graph canvas nodes run dry',
       // Hidden entirely when the feature is switched off in Settings, so the
       // palette never offers a command that would open nothing.
@@ -1544,7 +1548,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       unavailableReason: () => 'The Unresolved Links view is already open',
       title: 'Open Unresolved Links',
       category: 'View',
-      shortcut: getState().vimMode ? leaderShortcut('vim.leaderUnresolvedLinks') : ':unresolved',
+      shortcut: leaderShortcut('vim.leaderUnresolvedLinks'),
       keywords:
         'unresolved links missing broken dangling wikilinks notes to write later create orphan dead',
       when: () => !isUnresolvedLinksViewActive(getState()),
@@ -1555,7 +1559,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       unavailableReason: () => 'The Tags view is already open',
       title: 'Open Tags',
       category: 'View',
-      shortcut: ':tag',
+      shortcut: vimOnly(':tag'),
       keywords: 'tags browse filter vault',
       when: () => !isTagsViewActive(getState()),
       run: () => getState().openTagView()

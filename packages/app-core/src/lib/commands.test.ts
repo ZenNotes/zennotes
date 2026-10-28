@@ -677,3 +677,50 @@ describe('a key the user gave a command (#971)', () => {
     expect(reason('note.unarchive')).toBe('Unarchive Note only works on a note in the Archive')
   })
 })
+
+describe('Vim-only keys in the palette', () => {
+  it('names no leader chord, pane prefix, ex command or Vim key with Vim mode off', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const { getKeymapDisplay } = await import('./keymaps')
+    useStore.setState({ vimMode: false, activeNote: null })
+    const overrides = useStore.getState().keymapOverrides
+    const leader = getKeymapDisplay(overrides, 'vim.leaderPrefix')
+    const pane = getKeymapDisplay(overrides, 'vim.panePrefix')
+    const vimKeys = (
+      ['vim.foldCurrent', 'vim.unfoldCurrent', 'vim.foldAll', 'vim.unfoldAll', 'vim.historyBack', 'vim.historyForward'] as const
+    ).map((id) => getKeymapDisplay(overrides, id))
+    const leaks = buildCommands({ includeUnavailable: true })
+      .filter((command) => {
+        const shown = command.shortcut ?? ''
+        if (!shown) return false
+        return (
+          shown.startsWith(':') ||
+          (!!leader && shown.startsWith(`${leader} `)) ||
+          (!!pane && shown.startsWith(`${pane} `)) ||
+          vimKeys.includes(shown)
+        )
+      })
+      .map((command) => `${command.id}: ${command.shortcut}`)
+    expect(leaks).toEqual([])
+  })
+
+  it('still names them with Vim mode on', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ vimMode: true })
+    const shown = new Map(buildCommands({ includeUnavailable: true }).map((c) => [c.id, c.shortcut ?? '']))
+    expect(shown.get('note.format')).toBe(':format')
+    expect(shown.get('note.favorite')).toMatch(/\S+ \S+ \S+/)
+  })
+})
+
+describe('Go Back and Go Forward keys', () => {
+  it('show the global keys with Vim mode off', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const { getKeymapDisplay } = await import('./keymaps')
+    useStore.setState({ vimMode: false })
+    const overrides = useStore.getState().keymapOverrides
+    const shown = new Map(buildCommands({ includeUnavailable: true }).map((c) => [c.id, c.shortcut ?? '']))
+    expect(shown.get('nav.back')).toBe(getKeymapDisplay(overrides, 'global.historyBack'))
+    expect(shown.get('nav.forward')).toBe(getKeymapDisplay(overrides, 'global.historyForward'))
+  })
+})
