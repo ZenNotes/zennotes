@@ -45,7 +45,7 @@ import {
   type KanbanGroupBy,
   type TaskMutation
 } from '../store'
-import { filterTasks } from '../lib/tasks-filter'
+import { filterTasks, type NoteTagsByPath } from '../lib/tasks-filter'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
@@ -67,6 +67,9 @@ interface Props {
    *  column set, group-by options, and card-order persistence keep working
    *  from the full task list. (#583) */
   filter?: string
+  /** Each note's tags, so the filter finds a file task by a tag in its body,
+   *  as the list and calendar do (#1008). */
+  noteTags?: NoteTagsByPath | null
   today: Date
   onOpenTask: (task: VaultTask) => void
   onToggleTask: (task: VaultTask) => void
@@ -671,7 +674,14 @@ interface DragPreview {
 
 const POINTER_DRAG_THRESHOLD = 5
 
-export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: Props): JSX.Element {
+export function TasksKanban({
+  tasks,
+  filter,
+  noteTags,
+  today,
+  onOpenTask,
+  onToggleTask
+}: Props): JSX.Element {
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const cardSort = useStore((s) => s.kanbanCardSort)
   const setCardSort = useStore((s) => s.setKanbanCardSort)
@@ -849,7 +859,7 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
   const columns = useMemo(() => {
     if (!filterQuery) return fullColumns
     return fullColumns.map((column) => {
-      const visible = filterTasks(column.tasks, filterQuery)
+      const visible = filterTasks(column.tasks, filterQuery, noteTags)
       if (visible.length === column.tasks.length) return column
       let badge = column.badge
       if (badge?.kind === 'overdue') {
@@ -858,7 +868,7 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
       }
       return { ...column, tasks: visible, badge }
     })
-  }, [fullColumns, filterQuery, today])
+  }, [fullColumns, filterQuery, noteTags, today])
   columnsRef.current = columns
   fullColumnsRef.current = fullColumns
 

@@ -1,23 +1,50 @@
+import type { NoteMeta } from '@shared/ipc'
 import type { VaultTask, VaultTaskGroups } from '@shared/tasks'
-import { groupTasks, isOverdue } from '@shared/tasks'
+import { TASK_FILE_TAG, groupTasks, isOverdue } from '@shared/tasks'
+
+/** Each note's tags by vault path: what `filterTasks` reads for a file task's
+ *  body. Built from the note list the Tags view reads, so the two agree. */
+export type NoteTagsByPath = ReadonlyMap<string, readonly string[]>
+
+export function noteTagsByPath(notes: readonly Pick<NoteMeta, 'path' | 'tags'>[]): NoteTagsByPath {
+  return new Map(notes.map((note) => [note.path, note.tags]))
+}
 
 /** Simple substring filter across content, note title, tags, fields, and
  *  priority. Tags match with the leading `#` so `#proj` narrows the way it
  *  reads in a note. `@key:value` fields are stripped from the display content,
  *  so they match against the reassembled token: `@project`, `project:alpha`,
- *  and plain `alpha` all reach a task carrying `@project:alpha`. */
-export function filterTasks(tasks: VaultTask[], query: string): VaultTask[] {
+ *  and plain `alpha` all reach a task carrying `@project:alpha`.
+ *
+ *  A file task (a note with `tags: [task]`) is its whole note, so a `#tag`
+ *  written in the note's body narrows to it too, read from `noteTags` (#1008).
+ *  Its `tags` hold only the frontmatter list, which is what every parser copy
+ *  (MCP, zn, the server) reports, so this widens the filter and nothing else.
+ *  A checkbox task keeps to its own line: a tag elsewhere in its note says
+ *  nothing about that one task. */
+export function filterTasks(
+  tasks: VaultTask[],
+  query: string,
+  noteTags?: NoteTagsByPath | null
+): VaultTask[] {
   const q = query.trim().toLowerCase()
   if (!q) return tasks
+  const tagMatches = (tag: string): boolean => `#${tag.toLowerCase()}`.includes(q)
   return tasks.filter((task) => {
     if (task.content.toLowerCase().includes(q)) return true
     if (task.noteTitle.toLowerCase().includes(q)) return true
     if (task.priority && `!${task.priority}`.includes(q)) return true
-    if (task.tags.some((t) => `#${t.toLowerCase()}`.includes(q))) return true
+    if (task.tags.some(tagMatches)) return true
     if (task.fields) {
       for (const [key, value] of Object.entries(task.fields)) {
         if (`@${key}:${value}`.toLowerCase().includes(q)) return true
       }
+    }
+    if (task.kind === 'file' && noteTags) {
+      // The `task` marker itself is left out, as parseTaskFile leaves it out
+      // of `tags`: "#task" should not narrow to every file task.
+      const bodyTags = noteTags.get(task.sourcePath)
+      if (bodyTags?.some((t) => t.toLowerCase() !== TASK_FILE_TAG && tagMatches(t))) return true
     }
     return false
   })
@@ -151,9 +178,10 @@ export function computeTasksRender(
     done: boolean
     cancelled: boolean
   },
-  order: 'note' | 'priority' = 'note'
+  order: 'note' | 'priority' = 'note',
+  noteTags?: NoteTagsByPath | null
 ): TasksRender {
-  const filtered = filterTasks(tasks, filter)
+  const filtered = filterTasks(tasks, filter, noteTags)
   const grouped = groupTasks(filtered, today)
   const groups = order === 'priority' ? applyPriorityOrder(grouped) : applyFileOrder(grouped)
   const rows = flattenRows(groups, collapsed)

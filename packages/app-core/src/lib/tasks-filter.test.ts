@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import type { VaultTask, VaultTaskGroups } from '@shared/tasks'
-import { applyFileOrder, applyPriorityOrder, computeTasksRender, filterTasks } from './tasks-filter'
+import { parseTaskFile, type VaultTask, type VaultTaskGroups } from '@shared/tasks'
+import {
+  applyFileOrder,
+  applyPriorityOrder,
+  computeTasksRender,
+  filterTasks,
+  noteTagsByPath
+} from './tasks-filter'
 
 function task(sourcePath: string, taskIndex: number, overrides?: Partial<VaultTask>): VaultTask {
   return {
@@ -68,6 +74,75 @@ describe('filterTasks', () => {
   it('drops tasks nothing matches', () => {
     const a = task('a.md', 0, { fields: { project: 'alpha' } })
     expect(filterTasks([a], '@project:zeta')).toEqual([])
+  })
+})
+
+describe('filterTasks: tags in a file task\'s body (#1008)', () => {
+  // A task made with New task: the title is frontmatter, the body is the note.
+  const body = [
+    '---',
+    'title: Renew the passport',
+    'status: open',
+    'tags: [task]',
+    '---',
+    '',
+    'Book the appointment first. #errands #Admin/Paperwork',
+    ''
+  ].join('\n')
+  const fileTask = parseTaskFile(body, {
+    path: 'inbox/Renew the passport.md',
+    title: 'Renew the passport',
+    folder: 'inbox'
+  })!
+  // What the note list carries for that note (the Tags view's source): the
+  // frontmatter tags and the body's inline tags.
+  const notes = [
+    { path: 'inbox/Renew the passport.md', tags: ['task', 'errands', 'Admin/Paperwork'] },
+    { path: 'inbox/Week.md', tags: ['errands'] }
+  ]
+  // A checkbox in another note that mentions #errands on a different line.
+  const checkbox = task('inbox/Week.md', 0, { content: 'water the plants' })
+
+  it('leaves the parsed task\'s own tags to the frontmatter', () => {
+    expect(fileTask.kind).toBe('file')
+    expect(fileTask.tags).toEqual([])
+  })
+
+  it('finds a file task by a tag written in its body', () => {
+    const tags = noteTagsByPath(notes)
+    expect(filterTasks([fileTask, checkbox], '#errands', tags)).toEqual([fileTask])
+    expect(filterTasks([fileTask, checkbox], 'errands', tags)).toEqual([fileTask])
+    expect(filterTasks([fileTask, checkbox], '#admin', tags)).toEqual([fileTask])
+    expect(filterTasks([fileTask, checkbox], '#admin/paperwork', tags)).toEqual([fileTask])
+  })
+
+  it('keeps a checkbox task to its own line', () => {
+    const tags = noteTagsByPath(notes)
+    expect(filterTasks([checkbox], '#errands', tags)).toEqual([])
+  })
+
+  it('does not treat the task marker as a body tag', () => {
+    const tags = noteTagsByPath(notes)
+    expect(filterTasks([fileTask], '#task', tags)).toEqual([])
+  })
+
+  it('reads only the task line without the note tags, as before', () => {
+    expect(filterTasks([fileTask], '#errands')).toEqual([])
+  })
+
+  it('carries the body tags through the list render', () => {
+    const tags = noteTagsByPath(notes)
+    const collapsed = {
+      today: false,
+      upcoming: false,
+      undated: false,
+      waiting: false,
+      forwarded: false,
+      done: false,
+      cancelled: false
+    }
+    const render = computeTasksRender([fileTask, checkbox], '#errands', new Date(), collapsed, 'note', tags)
+    expect(render.filtered).toEqual([fileTask])
   })
 })
 
