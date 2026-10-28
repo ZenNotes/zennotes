@@ -16,6 +16,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import { calloutGroupFor } from './callout-types'
 import { CALLOUT_HEAD_RE, CalloutFoldChevron } from './cm-callout-fold'
 import { foldedExactly } from './cm-list-fold'
@@ -93,7 +94,7 @@ class CalloutTitleWidget extends WidgetType {
 
 function activeLineSet(view: EditorView): Set<number> {
   const lines = new Set<number>()
-  for (const r of view.state.selection.ranges) {
+  for (const r of revealedSelectionRanges(view.state)) {
     const from = view.state.doc.lineAt(r.from).number
     const to = view.state.doc.lineAt(r.to).number
     for (let l = from; l <= to; l++) lines.add(l)
@@ -269,6 +270,7 @@ export const wysiwygBlocksPlugin = ViewPlugin.fromClass(
       if (
         update.docChanged ||
         update.selectionSet ||
+        sourceRevealChanged(update) ||
         update.viewportChanged ||
         // A parse cut short by its time budget finishes in a later update that
         // changes nothing else; without this the cards and hidden fences stay

@@ -48,6 +48,7 @@ import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
 import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { sourceRevealExtension } from '../lib/cm-source-reveal'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PinIcon } from './icons'
@@ -346,6 +347,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
         doc: dirtyBodyRef.current ?? content?.body ?? '',
         extensions: [
           appMarkdownSnippetExtension(),
+          sourceRevealExtension,
           new Compartment().of(prefs.vimMode ? vim() : []),
           vimImeGuard(() => prefs.vimBlockImeInNormalMode && !isTouchPrimaryDevice()),
           vimVisualHighlightExtension,

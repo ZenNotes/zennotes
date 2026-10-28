@@ -35,6 +35,7 @@ import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languag
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { listIndentWidth, markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { sourceRevealExtension } from '../lib/cm-source-reveal'
 import { frontmatterStyle, frontmatterTagExtension } from '../lib/cm-frontmatter'
 import { slashCommandRender, slashCommandSource } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
@@ -429,6 +430,7 @@ function PopoverNoteEditor({
         extensions: [
           noteEditingLockExtension(() => ({ vault: useStore.getState().vault, path: pathRef.current })),
           appMarkdownSnippetExtension(),
+          sourceRevealExtension,
           s0.vimMode ? vim() : [],
           vimImeGuard(() => useStore.getState().vimBlockImeInNormalMode && !isTouchPrimaryDevice()),
           vimVisualHighlightExtension,

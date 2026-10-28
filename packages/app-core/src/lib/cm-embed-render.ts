@@ -15,6 +15,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import { renderBookmarkElement, renderEmbedElement } from './embed-renderers'
 
 const FENCE_INFO_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)/
@@ -87,7 +88,7 @@ class EmbedBlockWidget extends WidgetType {
 
 /** Cursor/selection overlaps (or just touches an edge of) `[from, to]`. */
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (Math.max(range.from, from) <= Math.min(range.to, to)) return true
   }
   return false
@@ -152,7 +153,12 @@ function buildEmbedDecorations(state: EditorState): EmbedRenderValue {
 const embedRenderField = StateField.define<EmbedRenderValue>({
   create: (state) => buildEmbedDecorations(state),
   update(value, tr) {
-    if (tr.docChanged || tr.selection || syntaxTree(tr.startState) !== syntaxTree(tr.state)) {
+    if (
+      tr.docChanged ||
+      tr.selection ||
+      sourceRevealChanged(tr) ||
+      syntaxTree(tr.startState) !== syntaxTree(tr.state)
+    ) {
       return buildEmbedDecorations(tr.state)
     }
     return value

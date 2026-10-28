@@ -29,6 +29,7 @@
 import { syntaxTree, syntaxTreeAvailable } from '@codemirror/language'
 import { Facet, RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 
 import { peekD2Svg, renderD2Svg, withUniqueD2Ids } from './d2-render'
 import { peekMermaidSvg, renderMermaidSvg } from './mermaid-render'
@@ -100,7 +101,7 @@ function paint(
 
 /** Cursor/selection overlaps (or just touches an edge of) `[from, to]`. */
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (Math.max(range.from, from) <= Math.min(range.to, to)) return true
   }
   return false
@@ -271,6 +272,7 @@ const mermaidRenderField = StateField.define<MermaidRenderValue>({
     if (
       tr.docChanged ||
       tr.selection ||
+      sourceRevealChanged(tr) ||
       syntaxTree(tr.startState) !== syntaxTree(tr.state) ||
       tr.startState.facet(diagramThemeFacet).key !== tr.state.facet(diagramThemeFacet).key
     ) {

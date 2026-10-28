@@ -26,6 +26,7 @@ import { useCloudSyncStatusStore } from './cloud-auto-sync'
 import { oversizedCloudFileNotice, oversizedCloudFiles } from './cloud-oversized-files'
 import { noteEditorPath } from './note-editor-context'
 import { isResolvedMarkdownLink, terminatedLinkTailEnd } from './cm-markdown-links'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import { parseBlockAnchors } from './block-anchors'
 import { setImageBlockDragPayload } from './image-block-dnd'
 import { imageCacheKey, rememberImageOnLoad, takeCachedImage } from './image-element-cache'
@@ -47,7 +48,8 @@ import {
  * Obsidian-style WYSIWYG feel. When you move off a line the `#`, `**`,
  * `[`, `](url)`, backticks, etc. fade away and the heading/bold/link
  * renders cleanly. When you land on that line again, the markers come
- * back so you can edit them.
+ * back so you can edit them. A note that is being read, not edited,
+ * renders every line, the selection's too (cm-source-reveal.ts).
  */
 
 /** Node names from @lezer/markdown that correspond to syntax markers. */
@@ -159,7 +161,7 @@ function selectionTouchesRange(
   from: number,
   to: number
 ): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (range.empty) {
       if (range.from >= from && range.from <= to) return true
       continue
@@ -1318,9 +1320,10 @@ function computeDecorations(view: EditorView): DecorationSet {
   const { state } = view
 
   // Every line that holds part of a selection range is "active" and
-  // therefore keeps its syntax markers visible for editing.
+  // therefore keeps its syntax markers visible for editing, once the note is
+  // being edited rather than read.
   const activeLines = new Set<number>()
-  for (const r of state.selection.ranges) {
+  for (const r of revealedSelectionRanges(state)) {
     const fromLine = state.doc.lineAt(r.from).number
     const toLine = state.doc.lineAt(r.to).number
     for (let l = fromLine; l <= toLine; l++) activeLines.add(l)
@@ -1856,6 +1859,7 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
         update.selectionSet ||
         update.viewportChanged ||
         update.focusChanged ||
+        sourceRevealChanged(update) ||
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
         externalRefresh
       ) {

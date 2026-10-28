@@ -19,6 +19,7 @@ import {
   ViewPlugin,
   type ViewUpdate
 } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import { useStore } from '../store'
 import { isSameFileBlockLink, isSameFileHeadingLink, resolveWikilinkTarget } from './wikilinks'
 import { openDatabaseFromWikilink, openWikilinkTarget } from './wikilink-navigation'
@@ -132,7 +133,7 @@ function selectionTouches(
   from: number,
   to: number
 ): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (range.empty) {
       if (range.from >= from && range.from <= to) return true
     } else if (Math.max(range.from, from) < Math.min(range.to, to)) {
@@ -227,6 +228,7 @@ const wikilinkRenderPlugin = ViewPlugin.fromClass(
         refreshed ||
         update.docChanged ||
         update.selectionSet ||
+        sourceRevealChanged(update) ||
         update.viewportChanged ||
         // A parse cut short by its time budget finishes in a later update
         // that changes nothing else.

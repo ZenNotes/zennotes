@@ -30,6 +30,7 @@ import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import type { ExternalFileContent } from '@shared/ipc'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { sourceRevealExtension } from '../lib/cm-source-reveal'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, InboxIcon } from './icons'
@@ -167,6 +168,7 @@ export function ExternalFileApp(): JSX.Element {
         doc: bodyRef.current ?? '',
         extensions: [
           appMarkdownSnippetExtension(),
+          sourceRevealExtension,
           new Compartment().of(prefs.vimMode ? vim() : []),
           // No text input outside Vim insert mode, as in every other editor:
           // without it a CJK input method composed over hjkl and typed `ia`
