@@ -14,6 +14,7 @@ import {
   shareCaptureTitle,
   shareInboxFromInfoPlist,
   shareVaultsFile,
+  withShareDestinations,
   writeShareVaults,
   type ShareCapture,
   type ShareConfig,
@@ -137,6 +138,18 @@ describe('share vaults', () => {
     expect(resolveShareTarget('remote:gone', BASE_CONFIG)).toEqual(current)
     expect(resolveShareTarget(null, BASE_CONFIG)).toEqual(current)
     expect(resolveShareTarget(null, { ...BASE_CONFIG, vaultRoot: null, localVaults: [] })).toBeNull()
+  })
+})
+
+describe('withShareDestinations', () => {
+  it('names where each vault files a share, and skips a vault it cannot read', async () => {
+    const file = await withShareDestinations(shareVaultsFile(BASE_CONFIG), async (choice) => {
+      if (choice.kind === 'remote') return 'Quick Notes'
+      if (choice.name === 'Home') throw new Error('gone')
+      return 'Clippings'
+    })
+    expect(file.vaults.map((vault) => vault.destination)).toEqual(['Clippings', undefined, 'Quick Notes'])
+    expect(file.current).toBe(localShareKey('/vaults/Work'))
   })
 })
 

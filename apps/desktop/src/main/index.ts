@@ -258,8 +258,10 @@ import {
   SHARE_CAPTURES_FOLDER,
   shareInboxFromInfoPlist,
   shareVaultsFile,
+  withShareDestinations,
   writeShareVaults,
 } from "./share-inbox";
+import { resolveShareLocation, shareLocationLabel } from "@shared/share-location";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
 import {
   getMcpClientStatuses,
@@ -427,7 +429,10 @@ const windowVaults = new WindowVaultRegistry({
     // Only for events that can actually change the settings: this cache backs
     // a whole-root readdir that every note read and write already awaits, so
     // dropping it per event made a save burst pay for one listing per file.
-    if (vaultChangeAffectsSettings(ev)) invalidateVaultSettingsCache(root);
+    if (vaultChangeAffectsSettings(ev)) {
+      invalidateVaultSettingsCache(root);
+      scheduleShareVaultsRefresh();
+    }
   },
   sendVaultChange: (windowId, ev) => {
     const win = BrowserWindow.fromId(windowId);
@@ -829,9 +834,10 @@ function handleStartupDeepLinks(argv: string[]): ExternalOpenUrlResult {
 }
 
 // Share > ZenNotes from the macOS Share menu (share-inbox.ts). The share
-// extension leaves each share in the share inbox; they are filed in
-// Quick Notes at startup, as they arrive, and when a server one names
-// connects. A share made while the app was closed waits for the next launch.
+// extension leaves each share in the share inbox; they are filed where each
+// vault says (Quick Notes by default) at startup, as they arrive, and when a
+// server one names connects. A share made while the app was closed waits for
+// the next launch.
 let shareInboxDir: string | null = null;
 let shareDrainRunning = false;
 let shareDrainAgain = false;
@@ -892,8 +898,13 @@ async function runShareDrain(): Promise<void> {
           const meta = await fetchLinkMetadata(url);
           return meta.ok ? meta.title : undefined;
         },
+        // Each vault says where its shares go (Settings > Notes > Default
+        // shares location); Quick Notes when it says nothing.
         fileLocal: async (root, title, body) => {
-          const meta = await createNote(root, "quick", title);
+          const { folder, subpath } = resolveShareLocation(
+            (await getVaultSettings(root)).sharesLocation,
+          );
+          const meta = await createNote(root, folder, title, subpath);
           await writeNote(root, meta.path, body);
           return meta.path;
         },
@@ -902,7 +913,10 @@ async function runShareDrain(): Promise<void> {
           if (!client || currentRemoteWorkspaceProfileId !== profileId) {
             return null;
           }
-          const meta = await client.createNote("quick", title);
+          const { folder, subpath } = resolveShareLocation(
+            (await client.getVaultSettings()).sharesLocation,
+          );
+          const meta = await client.createNote(folder, title, subpath);
           await client.writeNote(meta.path, body);
           return meta.path;
         },
@@ -925,23 +939,52 @@ async function runShareDrain(): Promise<void> {
   }
 }
 
+let shareVaultsTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Rewrites the sheet's vault list: the remembered vaults, the current one,
+ *  and where each files a share. A server vault always says Quick Notes: the
+ *  server does not keep the setting yet. */
+async function refreshShareVaults(): Promise<void> {
+  const dir = shareInboxDir;
+  if (!dir) return;
+  try {
+    const file = await withShareDestinations(
+      shareVaultsFile(await loadConfig()),
+      async (choice) => {
+        if (choice.kind === "remote") return shareLocationLabel(undefined, "inbox", choice.name);
+        const root = choice.id.slice("local:".length);
+        const settings = await getVaultSettings(root);
+        return shareLocationLabel(settings.sharesLocation, settings.primaryNotesLocation, choice.name);
+      },
+    );
+    await writeShareVaults(dir, file);
+  } catch (err) {
+    console.warn("Could not update the share sheet's vaults", err);
+  }
+}
+
+function scheduleShareVaultsRefresh(): void {
+  if (!shareInboxDir) return;
+  if (shareVaultsTimer) clearTimeout(shareVaultsTimer);
+  shareVaultsTimer = setTimeout(() => {
+    shareVaultsTimer = null;
+    void refreshShareVaults();
+  }, 300);
+}
+
 async function startShareInbox(): Promise<void> {
   const dir = await resolveShareInboxDir();
   if (!dir) return;
   const captures = path.join(dir, SHARE_CAPTURES_FOLDER);
   try {
     await fsp.mkdir(captures, { recursive: true });
-    await writeShareVaults(dir, shareVaultsFile(await loadConfig()));
   } catch (err) {
     console.warn("Share inbox unavailable", err);
     return;
   }
   shareInboxDir = dir;
-  onConfigSaved((cfg) => {
-    writeShareVaults(dir, shareVaultsFile(cfg)).catch((err) =>
-      console.warn("Could not update the share sheet's vaults", err),
-    );
-  });
+  await refreshShareVaults();
+  onConfigSaved(() => scheduleShareVaultsRefresh());
   try {
     // An unhandled watcher error (the inbox deleted under it) would throw in
     // main; shares made after it still file at the next launch.
@@ -3876,6 +3919,7 @@ function registerIpc(): void {
     // The display name may have moved with this save (#692); the windows on
     // this root and the remembered list follow before the renderer hears back.
     await syncLocalVaultName(v.root);
+    scheduleShareVaultsRefresh();
     return saved;
   });
 

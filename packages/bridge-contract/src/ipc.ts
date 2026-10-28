@@ -436,6 +436,16 @@ export interface FileLocationSetting {
   folder?: string
 }
 export const DEFAULT_FILE_LOCATION: FileLocationSetting = { mode: 'primary' }
+/** Where a share from the macOS Share menu is filed: `quick` → Quick Notes
+ *  (the default); `primary` → the primary notes location root; `folder` → the
+ *  `folder` subfolder of the primary location. No `active-note`: the app
+ *  files a share with no note in view. */
+export type ShareLocationMode = 'quick' | 'primary' | 'folder'
+export interface ShareLocationSetting {
+  mode: ShareLocationMode
+  /** Vault-relative subfolder used when `mode === 'folder'`, e.g. `Clippings`. */
+  folder?: string
+}
 export type FolderIconId =
   | 'folder'
   | 'bolt'
@@ -592,6 +602,10 @@ export interface VaultSettings {
   /** Where new task files (`#task`-tagged notes) are created; absent means the
    *  default (`primary`, i.e. the inbox). */
   tasksLocation?: FileLocationSetting
+  /** Where shares from the macOS Share menu are filed (share-inbox.ts); absent
+   *  means Quick Notes. The Go server does not mirror it yet, so a vault on a
+   *  self-hosted server files shares in Quick Notes. */
+  sharesLocation?: ShareLocationSetting
   /** Per-vault view overrides (#292); absent/empty means "inherit global". */
   view?: VaultViewSettings
   folderIcons: Record<string, FolderIconId>
@@ -679,6 +693,7 @@ export const DEFAULT_VAULT_SETTINGS: VaultSettings = {
   drawingsLocation: { mode: 'primary' },
   databasesLocation: { mode: 'primary' },
   tasksLocation: { mode: 'primary' },
+  sharesLocation: { mode: 'quick' },
   folderIcons: {},
   folderColors: {},
   favorites: [],

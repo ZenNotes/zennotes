@@ -104,6 +104,7 @@ describe('diffVaultSettings', () => {
       drawingsLocation: true,
       databasesLocation: true,
       tasksLocation: true,
+      sharesLocation: true,
       view: true,
       folderIcons: true,
       folderColors: true,

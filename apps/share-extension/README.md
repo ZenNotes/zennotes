@@ -1,7 +1,8 @@
 # Share extension (macOS)
 
 Share > ZenNotes in Safari and any other app with a Share menu saves the page
-(its link and title), the selected text, or both into Quick Notes.
+(its link and title), the selected text, or both as a note: in Quick Notes, or
+where the vault's Default shares location (Settings → Vault → Notes) says.
 `ZenNotesShare.appex` ships inside `ZenNotes.app/Contents/PlugIns`.
 
 - `macos/ShareViewController.swift`: the sheet. It previews what is shared,
@@ -12,7 +13,8 @@ Share > ZenNotes in Safari and any other app with a Share menu saves the page
 - The app files the shares: `apps/desktop/src/main/share-inbox.ts` drains
   `Captures/` at startup, as files arrive while it runs, and when a server a
   share names connects. It creates the note with the vault code every other
-  note goes through, so a remapped Quick Notes folder is honored, and deletes
+  note goes through, in the place the vault's `sharesLocation` names (Quick
+  Notes by default, see `@shared/share-location`), so a remapped folder is honored, and deletes
   a share only after its note is written. It keeps `vaults.json` in the same
   folder for the sheet's vault menu.
 

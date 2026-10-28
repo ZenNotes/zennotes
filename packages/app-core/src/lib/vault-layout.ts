@@ -31,6 +31,7 @@ import {
 } from '@shared/tasks-excluded-folders'
 import { normalizeTypstPreambleSettings } from '@shared/typst-preamble-folder'
 import { normalizeHarperVaultState } from '@shared/harper-settings'
+import { normalizeShareLocation } from '@shared/share-location'
 import { normalizeVaultDisplayName } from '@shared/vault-display-name'
 import { getISOWeek, getISOWeekYear, mondayOfISOWeek } from './template-render'
 
@@ -685,6 +686,7 @@ export function normalizeVaultSettings(
     drawingsLocation: normalizeFileLocation(settings?.drawingsLocation),
     databasesLocation: normalizeFileLocation(settings?.databasesLocation),
     tasksLocation: normalizeFileLocation(settings?.tasksLocation),
+    sharesLocation: normalizeShareLocation(settings?.sharesLocation),
     folderIcons: normalizedFolderIcons,
     folderColors: normalizedFolderColors,
     favorites: normalizedFavorites,

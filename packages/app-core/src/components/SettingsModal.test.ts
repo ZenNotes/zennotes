@@ -105,6 +105,7 @@ const mocks = vi.hoisted(() => {
   return {
     state,
     runtime: "desktop" as "desktop" | "web",
+    platform: "linux" as string,
     capabilities: {} as Record<string, boolean>,
     setSettingsOpen: state.setSettingsOpen,
     setVaultSettings: state.setVaultSettings,
@@ -129,7 +130,7 @@ vi.mock("../lib/app-update-state", () => ({
 
 vi.mock("@zennotes/bridge-contract/bridge", () => ({
   getZenBridge: () => ({
-    platformSync: () => "linux",
+    platformSync: () => mocks.platform,
     getAppInfo: () => ({
       runtime: mocks.runtime,
       version: "2.4.0",
@@ -165,6 +166,7 @@ const REACHED_THROUGH_LOCATION_ROW = new Set([
   "drawings-folder",
   "databases-folder",
   "tasks-folder",
+  "shares-folder",
 ]);
 
 type BuiltSettingsCategory = SettingsSearchCategory & {
@@ -208,6 +210,7 @@ describe("SettingsModal date note directories", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.runtime = "desktop";
+    mocks.platform = "linux";
     originalScrollIntoView = Object.getOwnPropertyDescriptor(Element.prototype, "scrollIntoView");
     Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
     mocks.state.vimMode = false;
@@ -323,6 +326,37 @@ describe("SettingsModal date note directories", () => {
       await act(async () => result!.click());
       expect(host.querySelector(`[data-settings-search-id="${settingId}"]`), query).toBeTruthy();
     }
+  });
+
+  it("offers the shares location on macOS and saves a specific folder", async () => {
+    mocks.platform = "darwin";
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, "safari"));
+    const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+      (button) => button.textContent?.includes("Default shares location"),
+    );
+    expect(result).toBeTruthy();
+    await act(async () => result!.click());
+    const row = host.querySelector('[data-settings-search-id="shares-location"]');
+    const folder = [...(row?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(
+      (button) => button.textContent === "Specific folder",
+    );
+    expect(folder).toBeTruthy();
+    await act(async () => folder!.click());
+    expect(mocks.setVaultSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ sharesLocation: { mode: "folder" } }),
+    );
+  });
+
+  it("leaves the shares location out where there is no Share menu extension", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, "safari"));
+    const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+      (button) => button.textContent?.includes("Default shares location"),
+    );
+    expect(result).toBeFalsy();
   });
 
   it("says where a specific tasks folder really lands for the vault's layout", async () => {

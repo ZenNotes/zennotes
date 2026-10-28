@@ -3,7 +3,8 @@
  * app. The share extension (apps/share-extension) is sandboxed and can reach
  * no vault, so it leaves each share as one JSON file in the share inbox, the
  * one folder its sandbox opens to it (inside the app's Application Support),
- * and the app files them in Quick Notes: at startup, and as they arrive while
+ * and the app files them as notes (in Quick Notes unless the vault's
+ * sharesLocation names another place): at startup, and as they arrive while
  * it runs. The app leaves `vaults.json` there in turn, so the share sheet can
  * offer the vaults it knows.
  *
@@ -190,6 +191,9 @@ export interface ShareVaultChoice {
   kind: 'local' | 'remote'
   /** The server's host for a remote vault. */
   detail?: string
+  /** Where a share to this vault is filed, as the sheet's heading names it
+   *  ("Save to Clippings"); see shareLocationLabel. */
+  destination?: string
 }
 
 export interface ShareVaultsFile {
@@ -242,6 +246,21 @@ export function shareVaultsFile(cfg: ShareConfig): ShareVaultsFile {
   return { version: 1, vaults, current: currentShareTarget(cfg)?.key ?? null }
 }
 
+/** The vault list with each vault's share destination filled in. A vault
+ *  whose label cannot be read (its folder is gone) is listed without one. */
+export async function withShareDestinations(
+  file: ShareVaultsFile,
+  destinationFor: (choice: ShareVaultChoice) => Promise<string | undefined>
+): Promise<ShareVaultsFile> {
+  const vaults = await Promise.all(
+    file.vaults.map(async (choice) => {
+      const destination = await destinationFor(choice).catch(() => undefined)
+      return destination ? { ...choice, destination } : choice
+    })
+  )
+  return { ...file, vaults }
+}
+
 /** The vault a share names, when the app still remembers it; otherwise the
  *  app's current vault. */
 export function resolveShareTarget(key: string | null, cfg: ShareConfig): ShareTarget | null {
@@ -265,7 +284,7 @@ export interface ShareInboxDeps {
   loadConfig: () => Promise<ShareConfig>
   /** The page title for a link shared without one; undefined when offline. */
   fetchTitle: (url: string) => Promise<string | undefined>
-  /** Creates the note in the local vault's Quick Notes; resolves its path. */
+  /** Creates the note where the local vault files shares; resolves its path. */
   fileLocal: (root: string, title: string, body: string) => Promise<string>
   /** Creates the note on a server, or null while that server is not the
    *  connected workspace: the share then waits. */

@@ -206,6 +206,15 @@ describe('file-location settings round-trip (#446)', () => {
     const settings = await getVaultSettings(root)
     expect(settings.tasksLocation).toEqual({ mode: 'primary' })
   })
+
+  it('keeps where shares are filed through set/get, Quick Notes when unset', async () => {
+    const root = await makeTempDir('zennotes-vault-sharesloc-')
+    await mkdir(root, { recursive: true })
+    const base = await getVaultSettings(root)
+    expect(base.sharesLocation).toEqual({ mode: 'quick' })
+    await setVaultSettings(root, { ...base, sharesLocation: { mode: 'folder', folder: '/Clippings/' } })
+    expect((await getVaultSettings(root)).sharesLocation).toEqual({ mode: 'folder', folder: 'Clippings' })
+  })
 })
 
 describe('remapped system folders (#398)', () => {
