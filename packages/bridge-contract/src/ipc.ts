@@ -603,8 +603,9 @@ export interface VaultSettings {
    *  default (`primary`, i.e. the inbox). */
   tasksLocation?: FileLocationSetting
   /** Where shares from the macOS Share menu are filed (share-inbox.ts); absent
-   *  means Quick Notes. The Go server does not mirror it yet, so a vault on a
-   *  self-hosted server files shares in Quick Notes. */
+   *  means Quick Notes. A self-hosted server keeps it from 2.79
+   *  (`supportsSharesLocation`); an older one drops it on every save, so a
+   *  vault there files shares in Quick Notes. */
   sharesLocation?: ShareLocationSetting
   /** Per-vault view overrides (#292); absent/empty means "inherit global". */
   view?: VaultViewSettings
@@ -985,6 +986,11 @@ export interface ServerCapabilities {
    *  before 2.46, which keeps Settings, Templates read-only on the web client
    *  and on a desktop connected to that server (#723). */
   supportsCustomTemplates?: boolean
+  /** vault.json's `sharesLocation` survives the server's settings round
+   *  trip. Absent before 2.79, whose settings save drops it, so the desktop
+   *  keeps Default shares location hidden and the Share sheet says Quick
+   *  Notes for a vault on such a server. */
+  supportsSharesLocation?: boolean
 }
 
 export interface ServerSessionStatus {

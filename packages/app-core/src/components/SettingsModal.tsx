@@ -808,15 +808,17 @@ export function SettingsModal(): JSX.Element {
   const setNoteCoverPlacement = useStore((s) => s.setNoteCoverPlacement);
   const vault = useStore((s) => s.vault);
   const workspaceMode = useStore((s) => s.workspaceMode);
-  // Share > ZenNotes is a macOS share extension inside the desktop app, and a
-  // self-hosted server does not keep the setting yet (share-inbox.ts).
-  const sharesLocationAvailable =
-    appInfo.runtime === "desktop" &&
-    zenBridge.platformSync() === "darwin" &&
-    workspaceMode !== "remote";
   const renameVault = useStore((s) => s.renameVault);
   const vaultDisplayName = useStore((s) => s.vaultSettings.displayName ?? "");
   const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
+  // Share > ZenNotes is a macOS share extension inside the desktop app. A
+  // self-hosted server keeps the setting from 2.79 (supportsSharesLocation);
+  // an older one drops it on every save, so the row stays hidden there.
+  const sharesLocationAvailable =
+    appInfo.runtime === "desktop" &&
+    zenBridge.platformSync() === "darwin" &&
+    (workspaceMode !== "remote" ||
+      remoteWorkspaceInfo?.capabilities?.supportsSharesLocation === true);
   const remoteWorkspaceProfiles = useStore((s) => s.remoteWorkspaceProfiles);
   const vaultSettings = useStore((s) => s.vaultSettings);
   const persistVaultSettings = useStore((s) => s.setVaultSettings);

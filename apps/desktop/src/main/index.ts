@@ -255,6 +255,7 @@ import { renderTikz } from "./tikz";
 import { fetchLinkMetadata } from "./link-metadata";
 import {
   drainShareInbox,
+  remoteShareKey,
   SHARE_CAPTURES_FOLDER,
   shareInboxFromInfoPlist,
   shareVaultsFile,
@@ -942,8 +943,12 @@ async function runShareDrain(): Promise<void> {
 let shareVaultsTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Rewrites the sheet's vault list: the remembered vaults, the current one,
- *  and where each files a share. A server vault always says Quick Notes: the
- *  server does not keep the setting yet. */
+ *  and where each files a share. A server vault names its own setting only
+ *  while it is the connected one and keeps the setting (2.79 and later,
+ *  `supportsSharesLocation`); otherwise it says Quick Notes, which is where an
+ *  older server files shares. A server that is not connected may have chosen
+ *  another place: its shares wait for the connection, and the label is
+ *  corrected as it connects. */
 async function refreshShareVaults(): Promise<void> {
   const dir = shareInboxDir;
   if (!dir) return;
@@ -951,7 +956,25 @@ async function refreshShareVaults(): Promise<void> {
     const file = await withShareDestinations(
       shareVaultsFile(await loadConfig()),
       async (choice) => {
-        if (choice.kind === "remote") return shareLocationLabel(undefined, "inbox", choice.name);
+        if (choice.kind === "remote") {
+          const client = remoteWorkspaceClient;
+          if (
+            client &&
+            remoteServerCapabilities?.supportsSharesLocation === true &&
+            currentRemoteWorkspaceProfileId !== null &&
+            choice.id === remoteShareKey(currentRemoteWorkspaceProfileId)
+          ) {
+            const settings = await client.getVaultSettings().catch(() => null);
+            if (settings) {
+              return shareLocationLabel(
+                settings.sharesLocation,
+                settings.primaryNotesLocation,
+                choice.name,
+              );
+            }
+          }
+          return shareLocationLabel(undefined, "inbox", choice.name);
+        }
         const root = choice.id.slice("local:".length);
         const settings = await getVaultSettings(root);
         return shareLocationLabel(settings.sharesLocation, settings.primaryNotesLocation, choice.name);
@@ -2575,8 +2598,10 @@ async function setRemoteWorkspace(
     baseUrl: client.baseUrl,
   };
   startRemoteWatch(client, capabilities);
-  // Shares sent to this server while it was not connected file now.
+  // Shares sent to this server while it was not connected file now, and the
+  // sheet learns where this server files them.
   scheduleShareDrain();
+  scheduleShareVaultsRefresh();
 
   if (options.persist !== false) {
     await updateConfig((cfg) => ({
@@ -3912,7 +3937,9 @@ function registerIpc(): void {
 
   handle(IPC.VAULT_SET_SETTINGS, async (_e, next: VaultSettings) => {
     if (isRemoteWorkspaceActive()) {
-      return await requireRemoteWorkspaceClient().setVaultSettings(next);
+      const saved = await requireRemoteWorkspaceClient().setVaultSettings(next);
+      scheduleShareVaultsRefresh();
+      return saved;
     }
     const v = requireVault();
     const saved = await setVaultSettings(v.root, next);

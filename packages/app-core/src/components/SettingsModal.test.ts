@@ -349,6 +349,31 @@ describe("SettingsModal date note directories", () => {
     );
   });
 
+  it("offers the shares location on a server vault only when the server keeps it", async () => {
+    mocks.platform = "darwin";
+    mocks.state.workspaceMode = "remote";
+    const serverWith = (capabilities: Record<string, unknown>) => ({
+      mode: "remote",
+      baseUrl: "http://localhost:7878",
+      authConfigured: true,
+      capabilities,
+      profileId: null,
+      bootError: null,
+    });
+    const sharesRowFound = async () => {
+      await act(async () => root.render(createElement(SettingsModal)));
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+      await act(async () => changeInput(search, "safari"));
+      return [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].some(
+        (button) => button.textContent?.includes("Default shares location"),
+      );
+    };
+    mocks.state.remoteWorkspaceInfo = serverWith({ supportsCustomTemplates: true });
+    expect(await sharesRowFound()).toBe(false);
+    mocks.state.remoteWorkspaceInfo = serverWith({ supportsSharesLocation: true });
+    expect(await sharesRowFound()).toBe(true);
+  });
+
   it("leaves the shares location out where there is no Share menu extension", async () => {
     await act(async () => root.render(createElement(SettingsModal)));
     const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
