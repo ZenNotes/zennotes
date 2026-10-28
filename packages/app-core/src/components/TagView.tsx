@@ -14,10 +14,29 @@ import { resolveTypstPreambleFolder } from '../lib/typst-preamble'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TaggedBlockText } from './TaggedBlockText'
-import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { advanceSequence, getKeymapBinding, type KeymapId } from '../lib/keymaps'
+import {
+  listViewBindingMatches,
+  listViewKey,
+  listViewSequencesLive,
+  listViewYieldsKey
+} from '../lib/list-view-keys'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { isImeComposing } from '../lib/ime'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+
+// Every action this view answers, so a chord bound to one reaches it.
+const TAG_VIEW_ACTIONS: readonly KeymapId[] = [
+  'nav.filter',
+  'nav.localEx',
+  'nav.moveDown',
+  'nav.moveUp',
+  'nav.jumpBottom',
+  'tags.nextNote',
+  'tags.previousNote',
+  'nav.jumpTop',
+  'nav.openResult'
+]
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -307,14 +326,16 @@ export function TagView(): JSX.Element {
         const t = focused.tagName
         if (t === 'INPUT' || t === 'TEXTAREA' || focused.isContentEditable) return
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-
-      const k = e.key
       const overrides = keymapOverrides
+      // A chord gets through only as the key of one of this view's actions,
+      // and never past a global shortcut (#972, lib/list-view-keys.ts).
+      if (listViewYieldsKey(e, overrides, TAG_VIEW_ACTIONS, vimMode)) return
+
+      const k = listViewKey(e)
       // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o//…) are
-      // disabled — only arrows/Enter/Escape navigate. (songgenqing report)
-      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
-        vimMode && matchesSequenceToken(e, overrides, id)
+      // disabled: only arrows/Enter/Escape navigate, plus any action the user
+      // bound to a chord. (songgenqing report)
+      const seq = (id: KeymapId): boolean => listViewBindingMatches(e, overrides, id, vimMode)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -370,7 +391,7 @@ export function TagView(): JSX.Element {
         return
       }
       if (
-        vimMode &&
+        listViewSequencesLive(e, vimMode) &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),

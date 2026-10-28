@@ -1,3 +1,5 @@
+import { isMacPlatform } from './keymaps'
+
 function toVimKeyName(base: string): string {
   if (base === 'Space') return 'Space'
   if (base === 'Enter') return 'CR'
@@ -25,12 +27,17 @@ function toVimSequenceToken(token: string): string | null {
       if (part === 'Ctrl') return 'C'
       if (part === 'Alt') return 'A'
       if (part === 'Shift') return 'S'
-      if (part === 'Meta' || part === 'Mod') return 'D'
+      if (part === 'Meta') return 'D'
+      // A sequence binding keeps the portable `Mod` (#972): Cmd on macOS,
+      // Ctrl everywhere else, as in the shortcut format.
+      if (part === 'Mod') return isMacPlatform() ? 'D' : 'C'
       return null
     })
     .filter(Boolean) as string[]
+  // Ctrl+Mod on Linux and Windows is one Ctrl.
+  const unique = [...new Set(modifiers)]
   const normalizedKey = base.length === 1 ? base.toLowerCase() : keyName
-  return `<${[...modifiers, normalizedKey].join('-')}>`
+  return `<${[...unique, normalizedKey].join('-')}>`
 }
 
 export function toVimSequence(binding: string): string | null {

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   advanceSequence,
+  appShortcutForEvent,
   eventMatchesUserOverride,
   findKeymapConflict,
   getDefaultKeymapBinding,
@@ -15,11 +16,15 @@ import {
   matchesSequenceToken,
   matchesShortcut,
   matchesShortcutBinding,
+  normalizeKeymapBinding,
   normalizeKeymapOverrides,
+  normalizeSequenceToken,
   normalizeShortcutBinding,
+  resolveSequenceToken,
   shortcutBindingFromEvent,
   sequenceTokenFromEvent
 } from './keymaps'
+import { toVimSequence } from './vim-key-sequence'
 
 interface FakeEventInit {
   key: string
@@ -646,5 +651,116 @@ describe('Timeline panel keymaps (#1007)', () => {
       const shiftT = fakeEvent({ key: 'T', code: 'KeyT', shiftKey: true })
       expect(matchesSequenceToken(shiftT, rebound, 'vim.leaderTimeline')).toBe(true)
     })
+  })
+})
+
+describe('Mod in sequence bindings (#972)', () => {
+  const cmdBackspace = (): KeyboardEvent =>
+    fakeEvent({ key: 'Backspace', code: 'Backspace', metaKey: true })
+  const ctrlBackspace = (): KeyboardEvent =>
+    fakeEvent({ key: 'Backspace', code: 'Backspace', ctrlKey: true })
+
+  it('keeps Mod in the stored token instead of dropping it to a bare key', () => {
+    for (const platform of ['darwin', 'linux', 'win32'] as const) {
+      withPlatform(platform, () => {
+        expect(normalizeSequenceToken('Mod+Backspace')).toBe('Mod+Backspace')
+        expect(normalizeKeymapBinding('nav.delete', 'Mod+Backspace')).toBe('Mod+Backspace')
+        // A letter under Mod is canonical uppercase, like under Ctrl.
+        expect(normalizeSequenceToken('Mod+d')).toBe('Mod+D')
+        expect(normalizeSequenceToken('Shift+Mod+Backspace')).toBe('Shift+Mod+Backspace')
+      })
+    }
+  })
+
+  it('leaves tokens without Mod exactly as before', () => {
+    expect(normalizeSequenceToken('x')).toBe('x')
+    expect(normalizeSequenceToken('G')).toBe('G')
+    expect(normalizeSequenceToken('Ctrl+w')).toBe('Ctrl+W')
+    expect(normalizeSequenceToken('Cmd+Backspace')).toBe('Meta+Backspace')
+    expect(normalizeSequenceToken('Backspace')).toBe('Backspace')
+  })
+
+  it('resolves Mod to Cmd on macOS and Ctrl elsewhere when matching', () => {
+    expect(resolveSequenceToken('Mod+Backspace', true)).toBe('Meta+Backspace')
+    expect(resolveSequenceToken('Mod+Backspace', false)).toBe('Ctrl+Backspace')
+    expect(resolveSequenceToken('Shift+Mod+K', true)).toBe('Shift+Meta+K')
+    expect(resolveSequenceToken('Alt+Mod+K', false)).toBe('Ctrl+Alt+K')
+    expect(resolveSequenceToken('Ctrl+Mod+K', false)).toBe('Ctrl+K')
+    expect(resolveSequenceToken('x', true)).toBe('x')
+    expect(resolveSequenceToken('Ctrl+W', true)).toBe('Ctrl+W')
+  })
+
+  it('matches Cmd+Backspace on macOS and Ctrl+Backspace on Linux and Windows', () => {
+    const overrides = normalizeKeymapOverrides({ 'nav.delete': 'Mod+Backspace' })
+    expect(overrides).toEqual({ 'nav.delete': 'Mod+Backspace' })
+    withPlatform('darwin', () => {
+      expect(getSequenceTokens(overrides, 'nav.delete')).toEqual(['Meta+Backspace'])
+      expect(matchesSequenceToken(cmdBackspace(), overrides, 'nav.delete')).toBe(true)
+      expect(matchesSequenceToken(ctrlBackspace(), overrides, 'nav.delete')).toBe(false)
+      // A plain Backspace is no longer the key.
+      const plain = fakeEvent({ key: 'Backspace', code: 'Backspace' })
+      expect(matchesSequenceToken(plain, overrides, 'nav.delete')).toBe(false)
+    })
+    for (const platform of ['linux', 'win32'] as const) {
+      withPlatform(platform, () => {
+        expect(getSequenceTokens(overrides, 'nav.delete')).toEqual(['Ctrl+Backspace'])
+        expect(matchesSequenceToken(ctrlBackspace(), overrides, 'nav.delete')).toBe(true)
+        expect(matchesSequenceToken(cmdBackspace(), overrides, 'nav.delete')).toBe(false)
+      })
+    }
+  })
+
+  it('keeps an entry already saved as the bare key bare, and explicit Ctrl/Cmd spellings as written', () => {
+    withPlatform('darwin', () => {
+      const bare = normalizeKeymapOverrides({ 'nav.delete': 'Backspace' })
+      expect(bare).toEqual({ 'nav.delete': 'Backspace' })
+      const plain = fakeEvent({ key: 'Backspace', code: 'Backspace' })
+      expect(matchesSequenceToken(plain, bare, 'nav.delete')).toBe(true)
+      expect(matchesSequenceToken(cmdBackspace(), bare, 'nav.delete')).toBe(false)
+      const ctrl = normalizeKeymapOverrides({ 'nav.delete': 'Ctrl+Backspace' })
+      expect(matchesSequenceToken(ctrlBackspace(), ctrl, 'nav.delete')).toBe(true)
+      const cmd = normalizeKeymapOverrides({ 'nav.delete': 'Cmd+Backspace' })
+      expect(cmd).toEqual({ 'nav.delete': 'Meta+Backspace' })
+      expect(matchesSequenceToken(cmdBackspace(), cmd, 'nav.delete')).toBe(true)
+    })
+  })
+
+  it('event tokens never spell Mod, on either platform', () => {
+    withPlatform('darwin', () => {
+      expect(sequenceTokenFromEvent(cmdBackspace())).toBe('Meta+Backspace')
+      expect(sequenceTokenFromEvent(ctrlBackspace())).toBe('Ctrl+Backspace')
+    })
+    withPlatform('linux', () => {
+      expect(sequenceTokenFromEvent(ctrlBackspace())).toBe('Ctrl+Backspace')
+    })
+  })
+
+  it('walks a sequence whose first key carries Mod', () => {
+    withPlatform('linux', () => {
+      const pending = { current: 0 }
+      const timer: { current?: ReturnType<typeof setTimeout> } = {}
+      const onMatch = vi.fn()
+      const first = fakeEvent({ key: 'g', code: 'KeyG', ctrlKey: true })
+      const second = fakeEvent({ key: 'g', code: 'KeyG' })
+      expect(advanceSequence(first, 'Mod+G g', pending, timer, onMatch, () => {})).toBe(true)
+      expect(advanceSequence(second, 'Mod+G g', pending, timer, onMatch, () => {})).toBe(true)
+      expect(onMatch).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('names the global shortcut that has a chord', () => {
+    withPlatform('darwin', () => {
+      const cmdP = fakeEvent({ key: 'p', code: 'KeyP', metaKey: true })
+      expect(appShortcutForEvent(cmdP, {})?.id).toBe('global.searchNotes')
+      expect(appShortcutForEvent(cmdBackspace(), {})).toBeNull()
+      // Moved off its key, Search notes no longer has it.
+      expect(appShortcutForEvent(cmdP, { 'global.searchNotes': '' })).toBeNull()
+    })
+  })
+
+  it('hands Vim Cmd on macOS and Ctrl elsewhere for a Mod token', () => {
+    withPlatform('darwin', () => expect(toVimSequence('Mod+D')).toBe('<D-d>'))
+    withPlatform('linux', () => expect(toVimSequence('Mod+D')).toBe('<C-d>'))
+    withPlatform('linux', () => expect(toVimSequence('Ctrl+Mod+D')).toBe('<C-d>'))
   })
 })

@@ -4,10 +4,28 @@ import type { DeletedAsset, NoteMeta } from '@shared/ipc'
 import { isTrashViewActive, useStore } from '../store'
 import { ArrowUpRightIcon, TrashIcon } from './icons'
 import { CollectionViewHeader } from './CollectionViewHeader'
-import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { advanceSequence, getKeymapBinding, type KeymapId } from '../lib/keymaps'
+import {
+  listViewBindingMatches,
+  listViewKey,
+  listViewSequencesLive,
+  listViewYieldsKey
+} from '../lib/list-view-keys'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { confirmApp } from '../lib/confirm-requests'
 import { isAppOverlayOpen } from '../lib/overlay-open'
+
+// Every action this view answers, so a chord bound to one reaches it.
+const TRASH_VIEW_ACTIONS: readonly KeymapId[] = [
+  'nav.filter',
+  'nav.moveDown',
+  'nav.moveUp',
+  'nav.jumpBottom',
+  'nav.jumpTop',
+  'nav.openResult',
+  'nav.restore',
+  'nav.delete'
+]
 
 function formatDate(ms: number): string {
   const d = new Date(ms)
@@ -185,14 +203,16 @@ export function TrashView(): JSX.Element {
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-
-      const key = e.key
       const overrides = keymapOverrides
+      // A chord gets through only as the key of one of this view's actions,
+      // and never past a global shortcut (#972, lib/list-view-keys.ts).
+      if (listViewYieldsKey(e, overrides, TRASH_VIEW_ACTIONS, vimMode)) return
+
+      const key = listViewKey(e)
       // When Vim mode is off, the single-key Vim shortcuts (j/k/x/d/gg/G/o/r//…)
-      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
-      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
-        vimMode && matchesSequenceToken(e, overrides, id)
+      // are disabled: only arrows/Enter/Escape navigate, plus any action the
+      // user bound to a chord. (songgenqing report)
+      const seq = (id: KeymapId): boolean => listViewBindingMatches(e, overrides, id, vimMode)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -232,7 +252,7 @@ export function TrashView(): JSX.Element {
         return
       }
       if (
-        vimMode &&
+        listViewSequencesLive(e, vimMode) &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),

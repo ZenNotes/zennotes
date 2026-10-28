@@ -95,8 +95,14 @@ import {
   formatKeyToken,
   getKeymapBinding,
   isMacPlatform,
-  matchesSequenceToken
+  type KeymapId
 } from '../lib/keymaps'
+import {
+  listViewBindingMatches,
+  listViewKey,
+  listViewSequencesLive,
+  listViewYieldsKey
+} from '../lib/list-view-keys'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 // One way to open a context menu from the keyboard, shared with the sidebar and
 // the tab strip: the row's own `contextmenu` handler answers, so the mouse and
@@ -175,6 +181,16 @@ import {
   CATEGORY_CHIP,
   CATEGORY_TITLE
 } from './workflows/node-presentation'
+
+// Every action the workflow list answers, so a chord bound to one reaches it.
+const WORKFLOWS_LIST_ACTIONS: readonly KeymapId[] = [
+  'nav.moveDown',
+  'nav.moveUp',
+  'nav.jumpBottom',
+  'nav.jumpTop',
+  'nav.delete',
+  'nav.openResult'
+]
 
 /* -------------------------------------------------------------------------- */
 /*  Grid                                                                      */
@@ -4206,29 +4222,34 @@ export function WorkflowsView(): JSX.Element {
   // The list owns its own keys rather than a window listener: this view can be
   // open in two panes, and only the focused list should move.
   const onListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
-    if (event.metaKey || event.ctrlKey || event.altKey) return
     const native = event.nativeEvent
+    // A chord gets through only as the key of one of the list's actions, and
+    // never past a global shortcut (#972, lib/list-view-keys.ts).
+    if (listViewYieldsKey(native, keymapOverrides, WORKFLOWS_LIST_ACTIONS, vimMode)) return
+    // Empty for a chord, so the hard-coded keys below never answer one.
+    const pressed = listViewKey(native)
     const consume = (): void => {
       event.preventDefault()
       event.stopPropagation()
     }
     // Vim off means the single-key shortcuts are off; arrows and Enter always
-    // work, so the list is never mouse-only.
-    const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
-      vimMode && matchesSequenceToken(native, keymapOverrides, id)
+    // work, so the list is never mouse-only. A chord bound to an action works
+    // in either mode.
+    const seq = (id: KeymapId): boolean =>
+      listViewBindingMatches(native, keymapOverrides, id, vimMode)
     // The authoring keys are plain letters, so they follow the same rule: with
     // Vim off they are off, and the header hint stops offering them.
-    const letter = (key: string): boolean => vimMode && !event.shiftKey && event.key === key
+    const letter = (key: string): boolean => vimMode && !event.shiftKey && pressed === key
     // `R` runs, `r` reloads. Shift is the entire difference between the two, so
     // they are matched apart and neither can ever fire the other.
-    const shifted = (key: string): boolean => vimMode && event.shiftKey && event.key === key
+    const shifted = (key: string): boolean => vimMode && event.shiftKey && pressed === key
 
-    if (event.key === 'ArrowDown' || seq('nav.moveDown')) {
+    if (pressed === 'ArrowDown' || seq('nav.moveDown')) {
       consume()
       moveCursor(1)
       return
     }
-    if (event.key === 'ArrowUp' || seq('nav.moveUp')) {
+    if (pressed === 'ArrowUp' || seq('nav.moveUp')) {
       consume()
       moveCursor(-1)
       return
@@ -4236,24 +4257,24 @@ export function WorkflowsView(): JSX.Element {
     // Escape closes a panel and leaves the workflow alone. Never handled when
     // there is nothing open, so it still falls through to whatever owns Escape
     // outside this view.
-    if (event.key === 'Escape') {
+    if (pressed === 'Escape') {
       if (selectedNodeId === null) return
       consume()
       setSelectedNodeId(null)
       return
     }
-    if (event.key === 'Home') {
+    if (pressed === 'Home') {
       consume()
       setCursor(0)
       return
     }
-    if (event.key === 'End' || seq('nav.jumpBottom')) {
+    if (pressed === 'End' || seq('nav.jumpBottom')) {
       consume()
       setCursor(Math.max(0, list.length - 1))
       return
     }
     if (
-      vimMode &&
+      listViewSequencesLive(native, vimMode) &&
       advanceSequence(
         native,
         getKeymapBinding(keymapOverrides, 'nav.jumpTop'),
@@ -4271,7 +4292,7 @@ export function WorkflowsView(): JSX.Element {
     // every other letter; the OS keys do NOT, because with Vim off they are the
     // only way to reach Duplicate and Reveal without a mouse, and this view may
     // never become mouse-only.
-    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10') || letter('m')) {
+    if (pressed === 'ContextMenu' || (event.shiftKey && pressed === 'F10') || letter('m')) {
       consume()
       openRowMenuAtCursor()
       return
@@ -4298,7 +4319,7 @@ export function WorkflowsView(): JSX.Element {
     }
     // `?` is the reference. Shifted like `R`, and Vim-gated like every other
     // single-key shortcut in this view.
-    if (vimMode && event.key === '?') {
+    if (vimMode && pressed === '?') {
       consume()
       setReferenceOpen((open) => !open)
       return
@@ -4348,7 +4369,7 @@ export function WorkflowsView(): JSX.Element {
       if (item) void removeWorkflow(item)
       return
     }
-    if (event.key === 'Enter' || seq('nav.openResult')) {
+    if (pressed === 'Enter' || seq('nav.openResult')) {
       consume()
       const item = list[cursor]
       if (!item) return

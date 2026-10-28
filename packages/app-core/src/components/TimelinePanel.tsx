@@ -34,9 +34,12 @@ import {
 import {
   getKeymapDisplay,
   getSequenceTokens,
+  isChordEvent,
   matchesSequenceToken,
-  sequenceTokenFromEvent
+  sequenceTokenFromEvent,
+  type KeymapId
 } from '../lib/keymaps'
+import { listViewBindingMatches, listViewKey, listViewYieldsKey } from '../lib/list-view-keys'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { taskTail } from '../lib/task-tail'
@@ -51,6 +54,16 @@ import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { Button } from './ui/Button'
 
 const HOVER_DELAY_MS = 280
+// Every action the panel answers, so a chord bound to one reaches it.
+const TIMELINE_PANEL_ACTIONS: readonly KeymapId[] = [
+  'nav.moveDown',
+  'nav.moveUp',
+  'nav.contextMenu',
+  'nav.toggleTask',
+  'nav.filter',
+  'nav.jumpBottom',
+  'nav.jumpTop'
+]
 /** How long the rail's task list counts as fresh after the panel closes. A
  *  pane remounts its panels while a newly opened note loads, and a full vault
  *  scan on each of those would be waste; past this, edits made while no task
@@ -265,15 +278,20 @@ export function TimelinePanel({
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
       return
     }
-    if (event.metaKey || event.ctrlKey || event.altKey) return
+    const native = event.nativeEvent
+    // A chord gets through only as the key of one of the panel's actions,
+    // and never past a global shortcut (#972, lib/list-view-keys.ts).
+    if (listViewYieldsKey(native, keymapOverrides, TIMELINE_PANEL_ACTIONS, vimMode)) return
+    // Empty for a chord, so the hard-coded keys below never answer one.
+    const key = listViewKey(native)
     // A focused control keeps its own Enter and Space.
     const onControl = target !== panel && !!target.closest('button, a, [role="checkbox"]')
-    if (onControl && (event.key === 'Enter' || event.key === ' ')) return
+    if (onControl && (key === 'Enter' || key === ' ')) return
     // With Vim off the single-character keys are not the panel's: arrows,
-    // Home/End, Enter and Escape are universal, the letters belong to Vim.
-    if (!vimMode && event.key.length === 1) return
+    // Home/End, Enter and Escape are universal, the letters belong to Vim. A
+    // chord bound to one of the panel's actions works in either mode.
+    if (!vimMode && !isChordEvent(native) && key.length === 1) return
 
-    const native = event.nativeEvent
     const rows = rail.rows
     const current: TimelineRow | undefined = rows[cursorIdx]
     const consume = (): void => {
@@ -285,35 +303,35 @@ export function TimelinePanel({
       setCursor(Math.max(0, Math.min(rows.length - 1, to)))
     }
 
-    if (event.key === 'Escape' || event.key === 'ArrowLeft') {
+    if (key === 'Escape' || key === 'ArrowLeft') {
       consume()
       focusEditor()
       return
     }
-    if (event.key === 'ArrowDown' || (vimMode && matchesSequenceToken(native, keymapOverrides, 'nav.moveDown'))) {
+    if (key === 'ArrowDown' || listViewBindingMatches(native, keymapOverrides, 'nav.moveDown', vimMode)) {
       consume()
       move(cursorIdx + 1)
       return
     }
-    if (event.key === 'ArrowUp' || (vimMode && matchesSequenceToken(native, keymapOverrides, 'nav.moveUp'))) {
+    if (key === 'ArrowUp' || listViewBindingMatches(native, keymapOverrides, 'nav.moveUp', vimMode)) {
       consume()
       move(cursorIdx - 1)
       return
     }
-    if (event.key === 'Home' || event.key === 'End') {
+    if (key === 'Home' || key === 'End') {
       consume()
-      move(event.key === 'Home' ? 0 : rows.length - 1)
+      move(key === 'Home' ? 0 : rows.length - 1)
       return
     }
-    if (event.key === 'Enter') {
+    if (key === 'Enter') {
       consume()
       if (current) void openTaskAt(current.task)
       return
     }
     if (
-      (event.shiftKey && event.key === 'F10') ||
-      event.key === 'ContextMenu' ||
-      (vimMode && matchesSequenceToken(native, keymapOverrides, 'nav.contextMenu'))
+      (event.shiftKey && key === 'F10') ||
+      key === 'ContextMenu' ||
+      listViewBindingMatches(native, keymapOverrides, 'nav.contextMenu', vimMode)
     ) {
       consume()
       if (!current) return
@@ -321,7 +339,7 @@ export function TimelinePanel({
       openMenuAt(row ? row.left + 24 : 0, row ? row.bottom : 0, current.task)
       return
     }
-    if (!vimMode) return
+    if (!vimMode && !isChordEvent(native)) return
 
     if (matchesSequenceToken(native, keymapOverrides, 'nav.toggleTask')) {
       consume()

@@ -1686,7 +1686,8 @@ export function getSequenceTokens(
   return getKeymapBinding(overrides, id)
     .split(/\s+/)
     .map((token) => token.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((token) => resolveSequenceToken(token));
 }
 
 type RuntimeZenApi = { platformSync?: () => NodeJS.Platform };
@@ -1890,13 +1891,17 @@ export function normalizeSequenceToken(input: string): string | null {
   if (!rawKey) return null;
   let base = normalizeSequenceBaseToken(rawKey);
   if (!base) return null;
+  // `Mod` stays `Mod`: it is the portable spelling of "Cmd on macOS, Ctrl
+  // elsewhere", so a config.toml that says `"nav.delete" = "Mod+Backspace"`
+  // means the same chord on every machine it syncs to. It used to be dropped
+  // here, which stored that binding as a bare Backspace (#972); keydowns never
+  // spell `Mod`, so matching resolves it per platform (resolveSequenceToken).
   const modifiers = normalizeModifiers(
     parts
       .map((part) => normalizeModifierToken(part))
-      .filter((part): part is NonNullable<typeof part> => !!part)
-      .filter((part) => part !== "Mod"),
+      .filter((part): part is NonNullable<typeof part> => !!part),
   );
-  // When a non-Shift modifier (Ctrl/Alt/Meta) is combined with a single
+  // When a non-Shift modifier (Ctrl/Alt/Meta/Mod) is combined with a single
   // ASCII letter, canonicalize to uppercase. Event-produced tokens come
   // out lowercase (e.g. Ctrl+w → `'w'` since Shift isn't held), but the
   // convention in default bindings and user-written keymaps is uppercase
@@ -1904,11 +1909,32 @@ export function normalizeSequenceToken(input: string): string | null {
   if (
     base.length === 1 &&
     /[a-zA-Z]/.test(base) &&
-    modifiers.some((m) => m === "Ctrl" || m === "Alt" || m === "Meta")
+    modifiers.some(
+      (m) => m === "Ctrl" || m === "Alt" || m === "Meta" || m === "Mod",
+    )
   ) {
     base = base.toUpperCase();
   }
   return modifiers.length > 0 ? `${modifiers.join("+")}+${base}` : base;
+}
+
+/**
+ * A stored sequence token as a keydown on this platform reads: `Mod` becomes
+ * `Meta` (Cmd) on macOS and `Ctrl` elsewhere, the way the shortcut format
+ * reads it. `sequenceTokenFromEvent` never produces `Mod`, so every place that
+ * compares a binding's token with an event's goes through this first
+ * (getSequenceTokens and advanceSequence do it for their callers).
+ */
+export function resolveSequenceToken(token: string, mac?: boolean): string {
+  const parts = token.split("+");
+  if (parts.length < 2) return token;
+  const base = parts.pop() as string;
+  if (!parts.includes("Mod")) return token;
+  mac ??= isMacPlatform();
+  const modifiers = normalizeModifiers(
+    parts.map((part) => (part === "Mod" ? (mac ? "Meta" : "Ctrl") : part)),
+  );
+  return `${modifiers.join("+")}+${base}`;
 }
 
 export function normalizeSequenceBinding(input: string): string | null {
@@ -2108,6 +2134,31 @@ export function eventMatchesUserOverride(
   return false;
 }
 
+/**
+ * The app-wide shortcut (an `app`-scope action: the global and tab
+ * shortcuts) this keydown is, under these overrides, or null. Surfaces that
+ * let a chord through to one of their own actions step aside for these, so
+ * a global shortcut keeps its key everywhere.
+ */
+export function appShortcutForEvent(
+  event: KeyboardEvent,
+  overrides: KeymapOverrides | null | undefined,
+): KeymapDefinition | null {
+  for (const definition of KEYMAP_DEFINITIONS) {
+    if (definition.scope !== "app" || definition.kind !== "shortcut") continue;
+    if (matchesShortcut(event, overrides, definition.id)) return definition;
+  }
+  return null;
+}
+
+/** Ctrl, Alt or Cmd/Meta is down: a chord, not a typed key. Shift alone
+ *  types a capital, so it does not count. */
+export function isChordEvent(
+  event: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey">,
+): boolean {
+  return event.ctrlKey || event.metaKey || event.altKey;
+}
+
 export function matchesSequenceToken(
   event: KeyboardEvent,
   overrides: KeymapOverrides | null | undefined,
@@ -2235,7 +2286,8 @@ export function advanceSequence(
   const tokens = binding
     .split(/\s+/)
     .map((token) => token.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .map((token) => resolveSequenceToken(token));
   if (tokens.length === 0) return false;
   const token = sequenceTokenFromEvent(event);
   if (!token) return false;

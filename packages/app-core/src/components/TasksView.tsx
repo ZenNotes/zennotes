@@ -8,7 +8,13 @@ import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban } from './TasksKanban'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
-import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/keymaps'
+import { advanceSequence, getKeymapBinding, matchesSequenceToken, type KeymapId } from '../lib/keymaps'
+import {
+  listViewBindingMatches,
+  listViewKey,
+  listViewSequencesLive,
+  listViewYieldsKey
+} from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { isImeComposing } from '../lib/ime'
@@ -16,6 +22,21 @@ import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { promptApp } from '../lib/prompt-requests'
 import { useToastStore } from '../lib/toast'
 import { findSavedTaskFilterName, savedTaskFilterNameForQuery } from '../lib/saved-task-filters'
+
+// Every action this view answers, so a chord bound to one reaches it.
+const TASKS_VIEW_ACTIONS: readonly KeymapId[] = [
+  'nav.filter',
+  'tasks.savedFilters',
+  'nav.localEx',
+  'nav.moveDown',
+  'nav.moveUp',
+  'tasks.moveTaskUp',
+  'tasks.moveTaskDown',
+  'nav.jumpBottom',
+  'nav.jumpTop',
+  'nav.openResult',
+  'nav.toggleTask'
+]
 
 type GroupKey = 'today' | 'upcoming' | 'undated' | 'waiting' | 'forwarded' | 'done' | 'cancelled'
 
@@ -641,14 +662,16 @@ export function TasksView(): JSX.Element {
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-
-      const key = e.key
       const overrides = keymapOverrides
+      // A chord gets through only as the key of one of this view's actions,
+      // and never past a global shortcut (#972, lib/list-view-keys.ts).
+      if (listViewYieldsKey(e, overrides, TASKS_VIEW_ACTIONS, vimMode)) return
+
+      const key = listViewKey(e)
       // When Vim mode is off, the single-key Vim shortcuts (j/k/gg/G/o/Space/1-3/…)
-      // are disabled — only arrows/Enter/Escape navigate. (songgenqing report)
-      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
-        vimMode && matchesSequenceToken(e, overrides, id)
+      // are disabled: only arrows/Enter/Escape navigate, plus any action the
+      // user bound to a chord. (songgenqing report)
+      const seq = (id: KeymapId): boolean => listViewBindingMatches(e, overrides, id, vimMode)
       const consume = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -753,7 +776,7 @@ export function TasksView(): JSX.Element {
         return
       }
       if (
-        vimMode &&
+        listViewSequencesLive(e, vimMode) &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),

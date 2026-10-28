@@ -73,6 +73,7 @@ import {
   UNBOUND_BINDING,
   UNBOUND_LABEL,
 } from "../lib/keymaps";
+import { keymapBindingTakenBy } from "../lib/list-view-keys";
 import { COMMAND_CATALOG } from "@shared/commands-catalog";
 import {
   commandBindingKind,
@@ -6589,6 +6590,14 @@ function KeymapSettings({
                   const inactive =
                     (definition.vimOnly && !vimMode) ||
                     (definition.nonVimOnly && vimMode);
+                  // A list action's chord that an app-wide key takes first
+                  // can never fire where the action lives (#972).
+                  const takenBy = keymapBindingTakenBy(
+                    overrides,
+                    definition.id,
+                    current,
+                    vimMode,
+                  );
                   // The binding and its buttons wrap under the title on a
                   // narrow pane instead of squeezing it to a word per line.
                   return (
@@ -6622,6 +6631,15 @@ function KeymapSettings({
                               title={`Also bound to “${conflict.title}”. Two global shortcuts on one key means one is ignored. Reassign one to resolve.`}
                             >
                               Conflicts with {conflict.title}
+                            </span>
+                          )}
+                          {takenBy && (
+                            <span
+                              data-keymap-conflict="never-fires"
+                              className={`${KEYMAP_CHIP} border-warning/35 bg-warning/10 text-ink-700`}
+                              title={`“${takenBy.title}” has this key everywhere in the app, so it never reaches this action. Pick another key, or move that one.`}
+                            >
+                              Never fires: {takenBy.title} has this key
                             </span>
                           )}
                           {commandHits.map((hit) =>
