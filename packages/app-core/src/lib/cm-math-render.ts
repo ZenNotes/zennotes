@@ -18,6 +18,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { Facet, RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import katex from 'katex'
 import type { MathRenderer } from '@shared/app-config'
 import { peekTypstMathSvg, renderTypstMathToSvg } from './typst-math-render'
@@ -220,7 +221,7 @@ class BlockMathWidget extends WidgetType {
 
 /** Cursor/selection overlaps (or just touches an edge of) `[from, to]`. */
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (Math.max(range.from, from) <= Math.min(range.to, to)) return true
   }
   return false
@@ -342,6 +343,7 @@ const mathRenderField = StateField.define<MathRenderValue>({
     if (
       tr.docChanged ||
       tr.selection ||
+      sourceRevealChanged(tr) ||
       syntaxTree(tr.startState) !== syntaxTree(tr.state) ||
       tr.startState.facet(mathRendererFacet) !== tr.state.facet(mathRendererFacet) ||
       tr.startState.facet(typstPreambleFacet) !== tr.state.facet(typstPreambleFacet)

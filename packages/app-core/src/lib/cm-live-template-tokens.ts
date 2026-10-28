@@ -15,6 +15,7 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 import { useStore } from '../store'
 import { LIVE_TOKEN_RE, formatLiveToken, liveTokenFromMatch } from './live-template-tokens'
 
@@ -52,7 +53,7 @@ function isInsideCode(state: EditorView['state'], pos: number): boolean {
 }
 
 function selectionTouches(state: EditorView['state'], from: number, to: number): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (range.empty) {
       if (range.from >= from && range.from <= to) return true
     } else if (Math.max(range.from, from) < Math.min(range.to, to)) {
@@ -126,6 +127,7 @@ const liveTemplateTokenPlugin = ViewPlugin.fromClass(
         refreshed ||
         update.docChanged ||
         update.selectionSet ||
+        sourceRevealChanged(update) ||
         update.viewportChanged ||
         // A parse cut short by its time budget finishes in a later update
         // that changes nothing else.

@@ -340,6 +340,11 @@ and writing suggestions through the editor's content attributes. The native
 keyboard decides which features to provide. It does not install keyboard plugins
 or change the host's spelling capabilities.
 
+Live preview reveals a line's Markdown source (a heading's `#`, `**`, `[[ ]]`)
+only on lines the user is editing: once an editor has taken the focus since its
+note opened. A note opened to be read renders every line, the caret's too, with
+no host configuration.
+
 The measurement callback receives frozen copies of editor and scroll-viewport
 bounds (`top`, `bottom`, `left`, `right`, `width`, `height`) in CSS pixels. It receives
 no DOM element or CodeMirror object. Read host geometry there; do not mutate layout
