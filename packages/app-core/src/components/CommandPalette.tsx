@@ -336,8 +336,22 @@ export function CommandPalette(): JSX.Element {
     setOpen(false)
     // Asked before the run: afterwards today's note exists either way.
     const landing = commandLanding(cmd)
+    const panelBefore = useStore.getState().focusedPanel
     try {
-      await cmd.run()
+      const ran = cmd.run()
+      // A command that moves the keyboard to a panel as it runs (Focus
+      // Sidebar) is read here, before the await: by then the palette has
+      // closed and given the focus back to whatever held it, and when that
+      // was the editor, the editor claimed its panel again. Read afterwards,
+      // the command looked as if it had landed on the editor, and the refocus
+      // below took the keyboard straight back from the sidebar.
+      const panelHandedTo = useStore.getState().focusedPanel
+      await ran
+      const latest = useStore.getState()
+      const landedPanel =
+        panelHandedTo !== panelBefore && panelHandedTo != null && panelHandedTo !== 'editor'
+          ? panelHandedTo
+          : latest.focusedPanel
       // A command that opens a note (or otherwise lands on the editor) should
       // move DOM focus there — not just set focusedPanel. Closing the palette
       // otherwise leaves focus on whatever was focused before (e.g. the
@@ -355,7 +369,7 @@ export function CommandPalette(): JSX.Element {
       // three focus the editor.
       if (
         shouldRefocusEditorAfterCommand(
-          useStore.getState(),
+          { ...latest, focusedPanel: landedPanel },
           useCloudSyncStatusStore.getState().conflictReviewOpen ||
             useCloudSyncStatusStore.getState().settingsConflictPromptOpen ||
             getPublishNoteRequest() !== null

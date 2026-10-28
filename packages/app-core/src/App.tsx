@@ -345,8 +345,13 @@ function AppUpdateNotice({
  *
  * Returns nothing; the event is consumed only when a panel actually handled it,
  * so unrelated keys still reach the app.
+ *
+ * The sidebar is not one of these panels: its rows are folders to expand and
+ * collapse, not a flat list, so ← there collapses rather than leaving, and its
+ * keys go through VimNav's sidebar handler in both modes.
  */
 function handlePanelKeyWithoutVim(e: KeyboardEvent, focusedPanel: string | null): void {
+  if (focusedPanel === 'sidebar') return
   if (e.metaKey || e.ctrlKey || e.altKey) return
   // A dialog over the panel owns its keys: the focused panel stays set while
   // one is open, so arrows would move the row behind it and Enter would open

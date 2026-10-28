@@ -342,6 +342,18 @@ function noteSelectionKey(path: string): string {
   return `note:${encodeURIComponent(path)}`;
 }
 
+/**
+ * A row in the multi-selection keeps the selection's tint, and when the
+ * cursor is on it too, the cursor's ring is drawn over that tint. The tint
+ * used to replace the cursor's style outright, so a cursor walking through a
+ * selection vanished on every selected row, and the trash keys acted on a
+ * row you could not see. The note list draws its cursor on a selected row
+ * the same way; a background of the cursor's own would only fight the tint.
+ */
+export function sidebarSelectedRowClass(cursorHere: boolean | undefined): string {
+  return `${cursorHere ? "vim-cursor-on-selected " : ""}bg-accent/[0.09] text-ink-900`;
+}
+
 function folderSelectionKey(folder: NoteFolder, subpath: string): string {
   return `folder:${folder}:${encodeURIComponent(subpath)}`;
 }
@@ -5318,7 +5330,7 @@ const NoteLeaf = memo(function NoteLeaf({
                 ? "text-accent"
                 : "bg-paper-300/70 text-ink-900 font-medium"
           : selected
-            ? "bg-accent/[0.09] text-ink-900"
+            ? sidebarSelectedRowClass(vimHighlight)
             : vimHighlight
               ? "vim-cursor"
               : "text-ink-700 hover:bg-paper-200/70",
@@ -5643,7 +5655,7 @@ function TreeRow({
           : dropTarget
             ? "bg-accent/20 text-ink-900 ring-1 ring-accent/60"
             : selected
-              ? "bg-accent/[0.09] text-ink-900"
+              ? sidebarSelectedRowClass(vimHighlight)
             : vimHighlight
               ? "vim-cursor"
               : "text-ink-800 hover:bg-paper-200/70",
