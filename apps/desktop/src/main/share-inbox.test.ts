@@ -247,6 +247,16 @@ describe('drainShareInbox', () => {
     expect(filed).toEqual([])
   })
 
+  it('sets a capture over the 2 MB cap aside without filing it', async () => {
+    const huge = { version: 1, id: 'big', text: 'x'.repeat(2 * 1024 * 1024 + 1) }
+    await write('100-big.json', huge)
+    const result = await drainShareInbox(deps())
+    expect(result).toMatchObject({ setAside: 1, filed: [] })
+    expect(filed).toEqual([])
+    expect(await pendingShareFiles(dir)).toEqual([])
+    expect(await fs.readdir(path.join(dir, SHARE_UNREADABLE_FOLDER))).toEqual(['100-big.json'])
+  })
+
   it('sets unreadable files aside, leaves newer ones and drops empty ones', async () => {
     await write('100-a.json', '{broken')
     await write('200-b.json', { version: 9, id: 'b', text: 'from the future' })

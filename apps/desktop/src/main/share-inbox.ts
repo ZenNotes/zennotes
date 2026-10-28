@@ -336,18 +336,28 @@ export async function drainShareInbox(deps: ShareInboxDeps): Promise<ShareDrainR
 
   for (const name of names) {
     const file = path.join(deps.capturesDir, name)
-    let raw: string
+    // One handle for the size check and the read, so the file checked is the
+    // file read: a capture swapped or grown between a stat and a separate
+    // read could slip past the size cap.
+    let raw: string | null = null
+    let tooLarge = false
     try {
-      const stat = await fs.stat(file)
-      if (!stat.isFile()) continue
-      if (stat.size > MAX_FILE_BYTES) {
-        await setAside(deps.capturesDir, name)
-        result.setAside++
-        continue
+      const handle = await fs.open(file, 'r')
+      try {
+        const stat = await handle.stat()
+        if (!stat.isFile()) continue
+        if (stat.size > MAX_FILE_BYTES) tooLarge = true
+        else raw = await handle.readFile('utf8')
+      } finally {
+        await handle.close()
       }
-      raw = await fs.readFile(file, 'utf8')
     } catch {
       continue // gone already, or unreadable for now: the next drain retries
+    }
+    if (tooLarge || raw === null || Buffer.byteLength(raw, 'utf8') > MAX_FILE_BYTES) {
+      await setAside(deps.capturesDir, name)
+      result.setAside++
+      continue
     }
     const parsed = parseShareCapture(raw)
     if (parsed.kind === 'newer') {
