@@ -15,12 +15,12 @@ vi.mock('../lib/confirm-requests', () => ({ confirmApp }))
 // Closing the palette hands focus back to the editor with a few timed retries;
 // there is no editor here and the retries would outlive the jsdom window.
 const focusEditorNormalMode = vi.hoisted(() => vi.fn())
-const focusEditorAfterPick = vi.hoisted(() => vi.fn())
-const focusEditorAfterSearchClose = vi.hoisted(() => vi.fn())
+const focusEditorAfterReadOpen = vi.hoisted(() => vi.fn())
+const focusEditorAfterPaletteClose = vi.hoisted(() => vi.fn())
 vi.mock('../lib/editor-focus', () => ({
   focusEditorNormalMode,
-  focusEditorAfterPick,
-  focusEditorAfterSearchClose
+  focusEditorAfterReadOpen,
+  focusEditorAfterPaletteClose
 }))
 
 function note(title: string): NoteMeta {
@@ -184,8 +184,8 @@ describe('SearchPalette: the create row opens a New note form', () => {
     createAndOpen = vi.fn(async () => {})
     selectNote = vi.fn(async () => {})
     focusEditorNormalMode.mockClear()
-    focusEditorAfterPick.mockClear()
-    focusEditorAfterSearchClose.mockClear()
+    focusEditorAfterReadOpen.mockClear()
+    focusEditorAfterPaletteClose.mockClear()
     useStore.setState({
       notes: [
         { ...note('Alpha'), tags: ['ops', 'prod'] },
@@ -325,7 +325,7 @@ describe('SearchPalette: the create row opens a New note form', () => {
     expect(form()).toBeNull()
     // A pick hands over through the pick's own path, which decides between
     // focusing the editor (desktop) and leaving the note to be read (phones).
-    expect(focusEditorAfterPick).toHaveBeenCalledTimes(1)
+    expect(focusEditorAfterReadOpen).toHaveBeenCalledTimes(1)
     expect(focusEditorNormalMode).not.toHaveBeenCalled()
   })
 
@@ -333,9 +333,9 @@ describe('SearchPalette: the create row opens a New note form', () => {
     type(search(), 'Alph')
     await key(search(), 'Escape')
     expect(useStore.getState().searchOpen).toBe(false)
-    expect(focusEditorAfterSearchClose).toHaveBeenCalledTimes(1)
+    expect(focusEditorAfterPaletteClose).toHaveBeenCalledTimes(1)
     expect(focusEditorNormalMode).not.toHaveBeenCalled()
-    expect(focusEditorAfterPick).not.toHaveBeenCalled()
+    expect(focusEditorAfterReadOpen).not.toHaveBeenCalled()
   })
 
   it('a typed path fills the Folder field, and the Folder picker filters, picks and moves on to Tags', async () => {

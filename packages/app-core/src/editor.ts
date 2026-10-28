@@ -36,11 +36,14 @@ export interface EditorHostOptions {
   readonly measureBottomInsets?: (viewport: EditorViewport) => EditorBottomInsets
   /**
    * Asked as a pick in one of core's searches (the note search, Search in all
-   * notes, the outline, the buffer switcher) lands: true opens the note to be
-   * read, at the pick, without handing the editor the keyboard focus, so a
-   * soft keyboard stays down until the user taps into the text. Closing such
-   * a search then leaves the focus where it was too. Absent or false, the
-   * editor takes the focus, as on desktop.
+   * notes, the outline, the buffer switcher) lands, and as a command-palette
+   * command that only goes to a note already there (Go Back, Reopen Closed
+   * Tab, today's daily note when it exists) finishes: true opens the note to
+   * be read, without handing the editor the keyboard focus, so a soft
+   * keyboard stays down until the user taps into the text. Closing one of
+   * those palettes, or the template or drawing palette, without a pick then
+   * leaves the focus where it was too. Absent or false, the editor takes the
+   * focus, as on desktop.
    */
   readonly openNotesToRead?: () => boolean
 }
