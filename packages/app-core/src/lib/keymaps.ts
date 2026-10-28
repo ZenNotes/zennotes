@@ -22,6 +22,7 @@ export type KeymapId =
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
   | "global.toggleCommentsPanel"
+  | "global.toggleTimelinePanel"
   | "global.addComment"
   | "global.focusPaneLeft"
   | "global.focusPaneRight"
@@ -78,6 +79,7 @@ export type KeymapId =
   | "vim.leaderWeeklyNote"
   | "vim.leaderMonthlyNote"
   | "vim.leaderCalendar"
+  | "vim.leaderTimeline"
   | "vim.leaderUnresolvedLinks"
   | "vim.panePrefix"
   | "vim.paneFocusLeft"
@@ -325,6 +327,17 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Toggle comments panel",
     description: "Toggle the comments panel in the active pane.",
     defaultBinding: "Mod+Shift+C",
+  },
+  {
+    id: "global.toggleTimelinePanel",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Toggle timeline panel",
+    // 7 because 1 to 6 are taken (sidebar, connections, outline, and the
+    // three pane modes): the next free digit beside its neighbours. (#1007)
+    description: "Toggle the Timeline panel in the active pane: open tasks in date order.",
+    defaultBinding: "Mod+7",
   },
   {
     id: "global.addComment",
@@ -837,6 +850,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Leader: toggle calendar",
     description: "Toggle the calendar panel for the active daily or weekly note.",
     defaultBinding: "c",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderTimeline",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: toggle timeline",
+    // `n` for "next": what is coming up. Unbound at the leader before this.
+    description:
+      "Toggle the Timeline panel and move the keyboard into it: open tasks in date order, overdue and milestones marked.",
+    defaultBinding: "n",
     vimOnly: true,
     maxTokens: 1,
   },

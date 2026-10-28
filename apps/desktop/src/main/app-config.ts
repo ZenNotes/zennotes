@@ -407,7 +407,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   keepPanelsAcrossNotes: {
     section: 'view',
     tomlKey: 'keep_panels_across_notes',
-    comment: 'true = Connections / Outline / Comments / Calendar stay as set while you switch notes; false = each note remembers its own panels (saved with the workspace, so they survive a restart)'
+    comment: 'true = Connections / Outline / Comments / Calendar / Timeline stay as set while you switch notes; false = each note remembers its own panels (saved with the workspace, so they survive a restart)'
   },
   calendarWeekStart: {
     section: 'view',
@@ -439,6 +439,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'view',
     tomlKey: 'tasks_list_order',
     comment: 'note | priority: each Tasks list group keeps its notes\' line order, or puts high priority first'
+  },
+  timelineRange: {
+    section: 'view',
+    tomlKey: 'timeline_range',
+    comment: 'two-weeks | month | all: how far ahead the Timeline panel reaches; overdue tasks always show'
   },
   kanbanFolderRoot: {
     section: 'view',

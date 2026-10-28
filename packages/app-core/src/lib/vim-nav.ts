@@ -50,6 +50,7 @@ export type Panel =
   | 'comments'
   | 'outline'
   | 'calendar'
+  | 'timeline'
   | 'hoverpreview'
   | 'tasks'
   | 'tags'
@@ -63,6 +64,7 @@ export interface PanelVisibility {
   commentsOpen: boolean
   outlineOpen: boolean
   calendarOpen: boolean
+  timelineOpen?: boolean
   tasksViewOpen: boolean
   atlasViewOpen?: boolean
   tagsViewOpen?: boolean
@@ -70,7 +72,8 @@ export interface PanelVisibility {
 
 /** Every panel on screen, ordered left to right — the focus order both pane
  *  navigations walk. The editor-pane side panels follow the order EditorPane
- *  renders them in: connections, comments, outline, calendar. (#285, #477) */
+ *  renders them in: connections, comments, outline, calendar, timeline.
+ *  (#285, #477, #1007) */
 export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   const panels: Panel[] = []
   if (visibility.sidebarOpen) panels.push('sidebar')
@@ -88,6 +91,7 @@ export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   if (visibility.commentsOpen) panels.push('comments')
   if (visibility.outlineOpen) panels.push('outline')
   if (visibility.calendarOpen) panels.push('calendar')
+  if (visibility.timelineOpen) panels.push('timeline')
   return panels
 }
 
@@ -98,7 +102,8 @@ const PANEL_MARKERS = {
   connections: '[data-connections-panel]',
   comments: '[data-comments-panel]',
   outline: '[data-outline-panel]',
-  calendar: '[data-calendar-panel]'
+  calendar: '[data-calendar-panel]',
+  timeline: '[data-timeline-panel]'
 } as const
 
 /**
@@ -128,7 +133,8 @@ export function getVisiblePanelsNow(state: {
     connectionsOpen: onScreen(PANEL_MARKERS.connections),
     commentsOpen: onScreen(PANEL_MARKERS.comments),
     outlineOpen: onScreen(PANEL_MARKERS.outline),
-    calendarOpen: onScreen(PANEL_MARKERS.calendar)
+    calendarOpen: onScreen(PANEL_MARKERS.calendar),
+    timelineOpen: onScreen(PANEL_MARKERS.timeline)
   })
 }
 

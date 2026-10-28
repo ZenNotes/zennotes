@@ -264,6 +264,11 @@ import {
   type SavedTaskFilters
 } from './lib/saved-task-filters'
 import { normalizeIgnoredKeys } from './lib/ignored-keys'
+import {
+  DEFAULT_TIMELINE_RANGE,
+  normalizeTimelineRange,
+  type TimelineRange
+} from './lib/timeline-rail'
 import { normalizeApplicationSchemes } from '@shared/application-links'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
@@ -522,12 +527,13 @@ export interface PeriodicNoteOpenOptions {
 const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
-export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
+export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar' | 'timeline'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
   calendar: number
+  timeline: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
 export const MAX_RIGHT_PANEL_WIDTH = 640
@@ -535,7 +541,8 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
-  calendar: 280
+  calendar: 280,
+  timeline: 290
 }
 
 function clampPanelWidth(px: number): number {
@@ -550,7 +557,8 @@ function normalizePanelWidths(value: unknown): PanelWidths {
     outline: pick('outline'),
     connections: pick('connections'),
     comments: pick('comments'),
-    calendar: pick('calendar')
+    calendar: pick('calendar'),
+    timeline: pick('timeline')
   }
 }
 
@@ -795,6 +803,8 @@ interface Prefs {
   kanbanCardSort: KanbanCardSort
   /** Tasks list groups in their notes' line order or by priority. (#989) */
   tasksListOrder: TasksListOrder
+  /** How far ahead the Timeline panel reaches. (#1007) */
+  timelineRange: TimelineRange
   /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
   kanbanColumnTitles: Record<string, string>
   /** Manual Kanban column arrangement per board. Keyed by groupBy → ordered
@@ -1233,6 +1243,7 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
   tasksListOrder: 'note',
+  timelineRange: DEFAULT_TIMELINE_RANGE,
   kanbanColumnTitles: {},
   kanbanColumnOrder: {},
   kanbanCardOrder: {},
@@ -1604,6 +1615,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanGroupBy: normalizeKanbanGroupBy(p.kanbanGroupBy),
     kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
+    timelineRange: normalizeTimelineRange(p.timelineRange),
     kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles),
     kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanCardOrder: normalizeKanbanCardOrder(p.kanbanCardOrder),
@@ -2564,6 +2576,7 @@ function collectPrefs(s: {
   kanbanGroupBy: KanbanGroupBy
   kanbanCardSort: KanbanCardSort
   tasksListOrder: TasksListOrder
+  timelineRange: TimelineRange
   kanbanColumnTitles: Record<string, string>
   kanbanColumnOrder: Record<string, string[]>
   kanbanCardOrder: Record<string, string[]>
@@ -2680,6 +2693,7 @@ function collectPrefs(s: {
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanCardSort: s.kanbanCardSort,
     tasksListOrder: s.tasksListOrder,
+    timelineRange: s.timelineRange,
     kanbanColumnTitles: s.kanbanColumnTitles,
     kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanCardOrder: s.kanbanCardOrder,
@@ -2973,12 +2987,12 @@ function hasTasksViewOpen(state: { paneLayout: PaneLayout }): boolean {
 
 /** True when a surface backed by `vaultTasks` is on screen and therefore needs
  *  the shared task cache kept fresh on note edits. Tasks tabs are in the pane
- *  tree; Home and calendar expose the navigation markers also read by VimNav. */
+ *  tree; Home, the calendar and the Timeline expose DOM markers. */
 function tasksSurfaceVisible(state: { paneLayout: PaneLayout }): boolean {
   if (hasTasksViewOpen(state)) return true
   return (
     typeof document !== 'undefined' &&
-    document.querySelector('[data-calendar-panel], [data-home-nav]') !== null
+    document.querySelector('[data-calendar-panel], [data-timeline-panel], [data-home-nav]') !== null
   )
 }
 
@@ -3353,6 +3367,12 @@ interface Store {
   kanbanCardSort: KanbanCardSort
   /** Tasks list groups in note order or by priority. (#989) */
   tasksListOrder: TasksListOrder
+  /** How far ahead the Timeline panel reaches: two weeks, a month, or every
+   *  dated task. Portable (`timeline_range` under [view]). (#1007) */
+  timelineRange: TimelineRange
+  /** The Timeline panel's filter, in the Tasks filter syntax. Session state:
+   *  shared by every pane's Timeline, cleared on restart. (#1007) */
+  timelineFilter: string
   /** Display-only column title overrides for the Tasks Kanban view. */
   kanbanColumnTitles: Record<string, string>
   /** Manual column arrangement per board (groupBy → ordered column ids). */
@@ -3623,6 +3643,8 @@ interface Store {
   setKanbanGroupBy: (group: KanbanGroupBy) => void
   setKanbanCardSort: (sort: KanbanCardSort) => void
   setTasksListOrder: (order: TasksListOrder) => void
+  setTimelineRange: (range: TimelineRange) => void
+  setTimelineFilter: (query: string) => void
   setKanbanColumnTitle: (
     group: KanbanGroupBy,
     columnId: string,
@@ -6194,6 +6216,8 @@ export const useStore = create<Store>((set, get) => {
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanCardSort: loadPrefs().kanbanCardSort,
   tasksListOrder: loadPrefs().tasksListOrder,
+  timelineRange: loadPrefs().timelineRange,
+  timelineFilter: '',
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanCardOrder: loadPrefs().kanbanCardOrder,
@@ -7696,6 +7720,11 @@ export const useStore = create<Store>((set, get) => {
     set({ tasksListOrder: order })
     savePrefs(collectPrefs(get()))
   },
+  setTimelineRange: (range) => {
+    set({ timelineRange: normalizeTimelineRange(range) })
+    savePrefs(collectPrefs(get()))
+  },
+  setTimelineFilter: (query) => set({ timelineFilter: query }),
   setKanbanColumnTitle: (group, columnId, title) => {
     const key = `${group}:${columnId}`
     const normalized = typeof title === 'string' ? normalizeKanbanColumnTitle(title) : null

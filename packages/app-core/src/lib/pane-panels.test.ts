@@ -141,3 +141,26 @@ describe('per-note panels in the workspace snapshot (#794)', () => {
     expect(prunePanePanels(live, () => true)).toBe(live)
   })
 })
+
+describe('the Timeline panel in per-note memory (#1007)', () => {
+  const panes = new Set(['pane-a'])
+
+  it('remembers an open Timeline on a note and nothing when it is closed', () => {
+    const open = { ...PANE_PANELS_CLOSED, timeline: true }
+    const byPath = panePanelsWithPath({}, 'inbox/A.md', open)
+    expect(panePanelsForPath(byPath, 'inbox/A.md').timeline).toBe(true)
+    expect(panePanelsWithPath(byPath, 'inbox/A.md', PANE_PANELS_CLOSED)).toEqual({})
+  })
+
+  it('survives the workspace snapshot, spelled as a single flag', () => {
+    const live = { 'pane-a': { 'inbox/A.md': { ...PANE_PANELS_CLOSED, timeline: true } } }
+    const snapshot = panePanelsForSnapshot(live, panes)
+    expect(snapshot).toEqual({ 'pane-a': { 'inbox/A.md': { timeline: true } } })
+    expect(panePanelsFromSnapshot(JSON.parse(JSON.stringify(snapshot)), panes)).toEqual(live)
+  })
+
+  it('reads a snapshot written before the Timeline existed as closed', () => {
+    const restored = panePanelsFromSnapshot({ 'pane-a': { a: { outline: true } } }, panes)
+    expect(restored['pane-a'].a.timeline).toBe(false)
+  })
+})

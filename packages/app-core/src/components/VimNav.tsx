@@ -221,6 +221,9 @@ export function VimNav(): JSX.Element | null {
   const calendarToggleAvailable = useStore((s) =>
     isCalendarToggleAvailable(s.vaultSettings, s.activeNote)
   )
+  // The Timeline sits beside a note like the other right-hand panels, so its
+  // hint shows only where a note is open to sit beside. (#1007)
+  const timelineToggleAvailable = useStore((s) => s.activeNote != null)
   const cloudConflictsWaiting = useCloudSyncStatusStore(
     (s) => resolvableCloudConflictCount(s.lastSummary) > 0 || s.settingsConflict !== null
   )
@@ -422,6 +425,15 @@ export function VimNav(): JSX.Element | null {
               detail: 'Show or hide the calendar for the active daily/weekly note.'
             }
           ]
+        : []),
+      ...(timelineToggleAvailable
+        ? [
+            {
+              keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderTimeline'),
+              label: 'Toggle timeline',
+              detail: 'Open tasks in date order, with overdue tasks and milestones marked.'
+            }
+          ]
         : [])
     ]
     if (whichKeyState.allowEditorActions) {
@@ -557,6 +569,21 @@ export function VimNav(): JSX.Element | null {
         calendarPanelEl.contains(target) &&
         !ctrlWPending.current &&
         sequenceTokenFromEvent(e) !== panePrefixToken
+      ) {
+        return
+      }
+      // #1007: the Timeline panel owns its keys the same way, through its own
+      // onKeyDown, which runs after this capture handler. Unlike the calendar
+      // it lets the leader through as well, so `<leader>n` closes the panel
+      // from inside it and `<leader>h` hints over its rows; everything that is
+      // not a leader sequence goes back to the panel below.
+      const inTimelinePanel = !!target?.closest('[data-timeline-panel]')
+      if (
+        inTimelinePanel &&
+        !ctrlWPending.current &&
+        sequenceTokenFromEvent(e) !== panePrefixToken &&
+        sequenceTokenFromEvent(e) !== leaderToken &&
+        !leaderPending.current
       ) {
         return
       }
@@ -1142,6 +1169,27 @@ export function VimNav(): JSX.Element | null {
           }
           return
         }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderTimeline')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          // Like the calendar: opening hands the keyboard to the panel (it
+          // focuses itself once it sees focusedPanel 'timeline'), so j/k work
+          // at once; closing leaves focus where it is, or brings it back to
+          // the editor when it was in the panel. (#1007)
+          if (state.activeNote) {
+            const panelEl = document.querySelector('[data-timeline-panel]')
+            const wasOpen = panelEl !== null
+            const focusWasInside = !!panelEl && panelEl.contains(document.activeElement)
+            window.dispatchEvent(new Event('zen:toggle-timeline'))
+            if (!wasOpen) state.setFocusedPanel('timeline')
+            else if (focusWasInside) {
+              state.setFocusedPanel('editor')
+              state.editorViewRef?.focus()
+            }
+          }
+          return
+        }
         // Any other key cancels leader and falls through to normal routing.
         resetLeader()
       }
@@ -1210,6 +1258,11 @@ export function VimNav(): JSX.Element | null {
       // (e.g. Ctrl+W h → sidebar), fall through so the sidebar/etc. handlers
       // below run instead of the keys going to nobody. (#151, #412)
       if (panelViewActive && panelViewFocused && sequenceTokenFromEvent(e) !== leaderToken) {
+        return
+      }
+      // Same for the Timeline panel (#1007): a key that ended a leader
+      // sequence without matching it belongs to the panel again.
+      if (inTimelinePanel && sequenceTokenFromEvent(e) !== leaderToken) {
         return
       }
 

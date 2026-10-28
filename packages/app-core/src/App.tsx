@@ -1028,6 +1028,12 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:toggle-comments'))
         return
       }
+      // ⌘7: toggle the Timeline panel in the active pane (#1007)
+      if (matchesShortcut(e, overrides, 'global.toggleTimelinePanel')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:toggle-timeline'))
+        return
+      }
       // ⌥⌘M — comment the current selection (or line) without the mouse
       if (matchesShortcut(e, overrides, 'global.addComment')) {
         e.preventDefault()

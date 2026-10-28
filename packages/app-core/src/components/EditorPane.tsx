@@ -172,6 +172,7 @@ import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
 import { OutlinePanel } from './OutlinePanel'
 import { CalendarPanel } from './CalendarPanel'
+import { TimelinePanel } from './TimelinePanel'
 import { selectTypstPreambleFor } from '../lib/typst-preamble-select'
 import { CommentsPanel, type CommentDraft } from './CommentsPanel'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -262,6 +263,7 @@ import {
   ArrowRightIcon,
   ArrowUpRightIcon,
   CalendarIcon,
+  TimelineIcon,
   CheckSquareIcon,
   CloseIcon,
   PaperclipIcon,
@@ -1056,11 +1058,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     outline: outlineOpen,
     comments: commentsOpen,
     calendar: calendarPanel,
+    timeline: timelineOpen,
     calendarAutoOpenAllowed,
     setConnectionsOpen: setConnectionsOpenRaw,
     setOutlineOpen: setOutlineOpenRaw,
     setCommentsOpen: setCommentsOpenRaw,
-    setCalendarPanel: setCalendarPanelRaw
+    setCalendarPanel: setCalendarPanelRaw,
+    setTimelineOpen: setTimelineOpenRaw
   } = usePanePanels(paneId, activeTab)
   // Which panel was asked for last, most recent first. In a pane too narrow
   // for all the open panels the most recent ones are shown and the rest are
@@ -1101,6 +1105,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setCalendarPanelRaw(next)
     },
     [revealSidePanel, setCalendarPanelRaw]
+  )
+  const setTimelineOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('timeline')
+      setTimelineOpenRaw(next)
+    },
+    [revealSidePanel, setTimelineOpenRaw]
   )
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const calendarOpen = calendarPanel.open
@@ -1357,6 +1368,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setCalendarPanel(calendarPanelOnToggle)
   }, [revealSidePanel, setCalendarPanel])
 
+  const toggleTimelinePanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('timeline')) return revealSidePanel('timeline')
+    setTimelineOpen((open) => !open)
+  }, [revealSidePanel, setTimelineOpen])
+
 
   const lockOutlinePreviewSync = useCallback((durationMs = OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS): void => {
     // Outline jumps target a rendered heading; ratio sync can otherwise override them.
@@ -1499,6 +1515,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     return () => window.removeEventListener('zen:toggle-calendar', handler)
   }, [panelShortcutsApply, toggleCalendarPanel])
 
+  // `zen:toggle-timeline` (Mod+7, leader n, :timeline, the palette): the
+  // same active-pane routing. (#1007)
+  useEffect(() => {
+    if (!panelShortcutsApply) return
+    const handler = (): void => {
+      toggleTimelinePanel()
+    }
+    window.addEventListener('zen:toggle-timeline', handler)
+    return () => window.removeEventListener('zen:toggle-timeline', handler)
+  }, [panelShortcutsApply, toggleTimelinePanel])
+
   // `zen:close-right-panel` — Esc (when a right panel is focused) or the
   // "Close right panel" command dismiss whichever right-hand panel is open in
   // the active pane and return focus to the editor.
@@ -1509,9 +1536,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setOutlineOpen(false)
       setCommentsOpen(false)
       setCalendarPanel(CALENDAR_PANEL_CLOSED)
+      setTimelineOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
-      if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
+      if (
+        panel === 'connections' ||
+        panel === 'comments' ||
+        panel === 'timeline' ||
+        panel === 'hoverpreview'
+      ) {
         setFocusedPanel('editor')
       }
     }
@@ -3902,6 +3935,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (commentsOpen) open.push('comments')
     if (outlineOpen) open.push('outline')
     if (calendarOpen && calendarAvailable) open.push('calendar')
+    if (timelineOpen) open.push('timeline')
     return open
   }, [
     calendarAvailable,
@@ -3911,6 +3945,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     content,
     isActive,
     outlineOpen,
+    timelineOpen,
     zenMode
   ])
   useEffect(() => {
@@ -3999,6 +4034,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 <CalendarIcon />
               </IconBtn>
             )}
+            <IconBtn
+              title={
+                timelineOpen && !tucked.includes('timeline') ? 'Hide timeline' : 'Show timeline'
+              }
+              active={timelineOpen}
+              onClick={toggleTimelinePanel}
+            >
+              <TimelineIcon />
+            </IconBtn>
             <IconBtn title="Export as PDF (⇧⌘E)" onClick={() => void exportActiveNotePdf()}>
               <FileDownIcon />
             </IconBtn>
@@ -4044,6 +4088,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     calendarAvailable,
     calendarOpen,
     toggleCalendarPanel,
+    timelineOpen,
+    toggleTimelinePanel,
     sidePanelFit.tucked,
     trashActive,
     deleteActivePermanently,
@@ -4403,7 +4449,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         if (
           e.target instanceof HTMLElement &&
           e.target.closest(
-            '[data-connections-panel],[data-comments-panel],[data-outline-panel],[data-calendar-panel]'
+            '[data-connections-panel],[data-comments-panel],[data-outline-panel],[data-calendar-panel],[data-timeline-panel]'
           )
         ) {
           return
@@ -4740,6 +4786,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         )}
         {content && sidePanelShown('calendar') && (
           <CalendarPanel note={content} fitWidth={sidePanelFit.widths.calendar} />
+        )}
+        {content && sidePanelShown('timeline') && (
+          <TimelinePanel fitWidth={sidePanelFit.widths.timeline} />
         )}
         <TuckedPanelsRail
           tucked={sidePanelFit.tucked}

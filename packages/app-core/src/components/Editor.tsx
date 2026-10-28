@@ -1242,9 +1242,13 @@ function registerVimNoteCommands(): void {
   };
   Vim.defineEx("outline", "outline", openOutline);
   // `:closepanel` / `:closep` closes whichever right-hand panel (connections,
-  // outline, comments, or calendar) is open in the active pane.
+  // outline, comments, calendar, or timeline) is open in the active pane.
   Vim.defineEx("closepanel", "closep", () => {
     window.dispatchEvent(new Event("zen:close-right-panel"));
+  });
+  // `:timeline` toggles the Timeline panel in the active pane (#1007).
+  Vim.defineEx("timeline", "timeline", () => {
+    window.dispatchEvent(new Event("zen:toggle-timeline"));
   });
   const setZenMode = (next: "toggle" | "on" | "off"): void => {
     requestAnimationFrame(() => {
@@ -1413,6 +1417,7 @@ const MANUAL_EX_NAMES = new Set([
   "buffers",
   "ls",
   "outline",
+  "timeline",
   "view",
   "zen",
   "zenmode",

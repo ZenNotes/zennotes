@@ -134,6 +134,7 @@ describe('TOML serialization', () => {
       kanbanGroupBy: 'folder',
       kanbanCardSort: 'due',
       tasksListOrder: 'priority',
+      timelineRange: 'month',
       kanbanFolderRoot: 'Projects',
       externalApplicationSchemes: ['zotero', 'obsidian'],
       ignoredKeys: ['KanaMode', 'F24']
@@ -172,6 +173,9 @@ describe('TOML serialization', () => {
     expect(round.kanbanCardSort).toBe('due')
     expect(text).toContain('tasks_list_order = "priority"')
     expect(round.tasksListOrder).toBe('priority')
+    // The Timeline panel's reach travels as [view].timeline_range (#1007).
+    expect(text).toMatch(/\[view\][^[]*timeline_range = "month"/)
+    expect(round.timelineRange).toBe('month')
     expect(round.kanbanFolderRoot).toBe('Projects')
     expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
     expect(round.externalApplicationSchemes).toEqual(['zotero', 'obsidian'])

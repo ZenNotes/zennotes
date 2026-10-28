@@ -587,3 +587,64 @@ describe('keymapAvailableOnHost', () => {
     for (const id of rest) expect(keymapAvailableOnHost(id, {})).toBe(true)
   })
 })
+
+describe('Timeline panel keymaps (#1007)', () => {
+  it('binds Mod+7 and leader n, like the other right-hand panels', () => {
+    expect(getKeymapDefinition('global.toggleTimelinePanel')).toMatchObject({
+      kind: 'shortcut',
+      scope: 'app',
+      group: 'global',
+      title: 'Toggle timeline panel',
+      defaultBinding: 'Mod+7'
+    })
+    expect(getKeymapDefinition('vim.leaderTimeline')).toMatchObject({
+      kind: 'sequence',
+      scope: 'leader',
+      group: 'vim',
+      title: 'Leader: toggle timeline',
+      defaultBinding: 'n',
+      vimOnly: true
+    })
+  })
+
+  it('takes a key no other global shortcut or leader action holds', () => {
+    expect(findKeymapConflict({}, 'global.toggleTimelinePanel', 'Mod+7')).toBeNull()
+    // No leader binding at any depth uses n, so nothing else answers it.
+    const leaderKeys = getKeymapDefinitions()
+      .filter((def) => def.scope === 'leader' && def.id !== 'vim.leaderTimeline')
+      .map((def) => def.defaultBinding)
+    expect(leaderKeys).not.toContain('n')
+  })
+
+  it('fires on Cmd+7 on the Mac and Ctrl+7 elsewhere, and not on the tab digits', () => {
+    withPlatform('darwin', () => {
+      const cmd7 = fakeEvent({ key: '7', code: 'Digit7', metaKey: true })
+      expect(matchesShortcut(cmd7, {}, 'global.toggleTimelinePanel')).toBe(true)
+      expect(matchesShortcut(cmd7, {}, 'tabs.select7')).toBe(false)
+      const ctrl7 = fakeEvent({ key: '7', code: 'Digit7', ctrlKey: true })
+      expect(matchesShortcut(ctrl7, {}, 'global.toggleTimelinePanel')).toBe(false)
+    })
+    withPlatform('linux', () => {
+      const ctrl7 = fakeEvent({ key: '7', code: 'Digit7', ctrlKey: true })
+      expect(matchesShortcut(ctrl7, {}, 'global.toggleTimelinePanel')).toBe(true)
+      const alt7 = fakeEvent({ key: '7', code: 'Digit7', altKey: true })
+      expect(matchesShortcut(alt7, {}, 'global.toggleTimelinePanel')).toBe(false)
+    })
+  })
+
+  it('can be rebound or unbound like its neighbours', () => {
+    withPlatform('darwin', () => {
+      const unbound = { 'global.toggleTimelinePanel': '', 'vim.leaderTimeline': '' }
+      expect(normalizeKeymapOverrides(unbound)).toEqual(unbound)
+      expect(getKeymapDisplay(unbound, 'global.toggleTimelinePanel')).toBe('')
+      const cmd7 = fakeEvent({ key: '7', code: 'Digit7', metaKey: true })
+      expect(matchesShortcut(cmd7, unbound, 'global.toggleTimelinePanel')).toBe(false)
+      const n = fakeEvent({ key: 'n', code: 'KeyN' })
+      expect(matchesSequenceToken(n, {}, 'vim.leaderTimeline')).toBe(true)
+      expect(matchesSequenceToken(n, unbound, 'vim.leaderTimeline')).toBe(false)
+      const rebound = { 'vim.leaderTimeline': 'T' }
+      const shiftT = fakeEvent({ key: 'T', code: 'KeyT', shiftKey: true })
+      expect(matchesSequenceToken(shiftT, rebound, 'vim.leaderTimeline')).toBe(true)
+    })
+  })
+})

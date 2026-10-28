@@ -211,6 +211,17 @@ export const CalendarIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** Tabler's `timeline`: a line through four points, for the Timeline panel. */
+export const TimelineIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M4 16l6-7 5 5 5-6" />
+    <circle cx="15" cy="14" r="1" />
+    <circle cx="10" cy="9" r="1" />
+    <circle cx="4" cy="16" r="1" />
+    <circle cx="20" cy="8" r="1" />
+  </I>
+)
+
 export const KanbanIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <rect x="3" y="4" width="5" height="16" rx="1" />
