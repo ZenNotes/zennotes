@@ -36,6 +36,7 @@ import { findLeaf } from '../lib/pane-layout'
 import { boundedIndexCount, clampIndex, moveIndex } from '../lib/index-navigation'
 import {
   advanceSequence,
+  formatKeyToken,
   getKeymapBinding,
   getKeymapDisplay,
   getSequenceTokens,
@@ -46,6 +47,8 @@ import {
   sequenceTokenFromEvent
 } from '../lib/keymaps'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
+import { commandLeaderHints, stepCommandLeader } from '../lib/command-keymaps'
+import { runBoundCommand } from '../lib/command-keymap-dispatch'
 import { convertTableToDatabase } from '../lib/table-to-database'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
@@ -92,9 +95,14 @@ function escapeForAttr(value: string): string {
 // Tuned so a deliberate hold-to-pan clears it while a natural tap stays under it.
 const EXCALIDRAW_LEADER_TAP_MS = 250
 
+/** Where an armed leader stands: right after the leader, inside the note
+ *  actions or search group, or partway through a command's own sequence. */
+type LeaderStage = 'leader' | 'leader-l' | 'leader-s' | 'leader-cmd'
+
 export function VimNav(): JSX.Element | null {
   const vimMode = useStore((s) => s.vimMode)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const commandKeymaps = useStore((s) => s.commandKeymaps)
   // All control-flow flags are refs so the handler never stales.
   const ctrlWPending = useRef(false)
   const jumpTopPending = useRef(0)
@@ -104,7 +112,10 @@ export function VimNav(): JSX.Element | null {
   // because `g` is shared with gg/gd, so it must NOT be consumed on the `g` press.
   const gTabPending = useRef(false)
   const bufferCount = useRef<{ n: number; at: number } | null>(null)
-  const leaderPending = useRef<'leader' | 'leader-l' | 'leader-s' | null>(null)
+  const leaderPending = useRef<LeaderStage | null>(null)
+  // The keys pressed after the leader so far in a command's sequence, while
+  // the stage is 'leader-cmd' (#971).
+  const commandLeaderPrefix = useRef<string[]>([])
   const ctrlWTimer = useRef<ReturnType<typeof setTimeout>>()
   const jumpTopTimer = useRef<ReturnType<typeof setTimeout>>()
   const previousBufferTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -119,8 +130,9 @@ export function VimNav(): JSX.Element | null {
   // Hint mode needs a render (to mount HintOverlay), so it's state.
   const [hintActive, setHintActive] = useState(false)
   const [whichKeyState, setWhichKeyState] = useState<{
-    stage: 'leader' | 'leader-l' | 'leader-s'
+    stage: LeaderStage
     allowEditorActions: boolean
+    commandPrefix?: string[]
   } | null>(null)
   const hintRef = useRef(false)
   const setHint = useCallback((v: boolean) => {
@@ -239,17 +251,20 @@ export function VimNav(): JSX.Element | null {
       window.zen.getCapabilities().supportsRemoteWorkspace)
   const resetLeader = useCallback(() => {
     leaderPending.current = null
+    commandLeaderPrefix.current = []
     if (leaderTimer.current) clearTimeout(leaderTimer.current)
     setWhichKeyState(null)
   }, [])
   const armLeader = useCallback(
-    (stage: 'leader' | 'leader-l' | 'leader-s', allowEditorActions: boolean) => {
+    (stage: LeaderStage, allowEditorActions: boolean, commandPrefix: string[] = []) => {
       leaderPending.current = stage
-      setWhichKeyState({ stage, allowEditorActions })
+      commandLeaderPrefix.current = commandPrefix
+      setWhichKeyState({ stage, allowEditorActions, commandPrefix })
       if (leaderTimer.current) clearTimeout(leaderTimer.current)
       if (!stickyWhichKeyHints) {
         leaderTimer.current = setTimeout(() => {
           leaderPending.current = null
+          commandLeaderPrefix.current = []
           setWhichKeyState(null)
         }, whichKeyHintTimeoutMs)
       }
@@ -296,6 +311,13 @@ export function VimNav(): JSX.Element | null {
           ]
         : [])
       ]
+    }
+    if (whichKeyState.stage === 'leader-cmd') {
+      return commandLeaderHints(commandKeymaps, whichKeyState.commandPrefix ?? []).map((hint) => ({
+        keyLabel: formatKeyToken(hint.key),
+        label: hint.label,
+        detail: hint.detail
+      }))
     }
     if (whichKeyState.stage === 'leader-s') {
       return [
@@ -442,6 +464,10 @@ export function VimNav(): JSX.Element | null {
         label: 'Note actions',
         detail: 'Open the note-local leader group. `f` formats the current note.'
       })
+    }
+    // The sequences the user gave commands (#971), after the built-in keys.
+    for (const hint of commandLeaderHints(commandKeymaps, [])) {
+      items.push({ keyLabel: formatKeyToken(hint.key), label: hint.label, detail: hint.detail })
     }
     return items
     // An unbound leader action has no key to press, so it leaves the hints.
@@ -1190,7 +1216,43 @@ export function VimNav(): JSX.Element | null {
           }
           return
         }
+        // A key the user gave a command's sequence (#971). Checked after
+        // every built-in key above: built-in leader keys always win.
+        {
+          const token = sequenceTokenFromEvent(e)
+          const step = token ? stepCommandLeader(state.commandKeymaps, [], token) : null
+          if (step) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            if (step.kind === 'run') {
+              resetLeader()
+              void runBoundCommand(step.id)
+            } else {
+              armLeader('leader-cmd', editorNormalMode, step.prefix)
+            }
+            return
+          }
+        }
         // Any other key cancels leader and falls through to normal routing.
+        resetLeader()
+      }
+
+      if (leaderPending.current === 'leader-cmd') {
+        const token = sequenceTokenFromEvent(e)
+        const step = token
+          ? stepCommandLeader(state.commandKeymaps, commandLeaderPrefix.current, token)
+          : null
+        if (step) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          if (step.kind === 'run') {
+            resetLeader()
+            void runBoundCommand(step.id)
+          } else {
+            armLeader('leader-cmd', editorNormalMode, step.prefix)
+          }
+          return
+        }
         resetLeader()
       }
 
@@ -2611,7 +2673,11 @@ export function VimNav(): JSX.Element | null {
     const noteActionsDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderNoteActions')
     const searchGroupDisplay = getKeymapDisplay(keymapOverrides, 'vim.leaderSearchGroup')
     const subPrefix =
-      whichKeyState.stage === 'leader-s' ? searchGroupDisplay : noteActionsDisplay
+      whichKeyState.stage === 'leader-cmd'
+        ? (whichKeyState.commandPrefix ?? []).map((key) => formatKeyToken(key)).join(' ')
+        : whichKeyState.stage === 'leader-s'
+          ? searchGroupDisplay
+          : noteActionsDisplay
     return (
       <WhichKeyOverlay
         prefix={whichKeyState.stage === 'leader' ? leaderDisplay : `${leaderDisplay} ${subPrefix}`}
@@ -2620,7 +2686,9 @@ export function VimNav(): JSX.Element | null {
             ? 'Leader'
             : whichKeyState.stage === 'leader-s'
               ? 'Leader · Search'
-              : 'Leader · Note Actions'
+              : whichKeyState.stage === 'leader-cmd'
+                ? 'Leader · Commands'
+                : 'Leader · Note Actions'
         }
         detail={
           stickyWhichKeyHints

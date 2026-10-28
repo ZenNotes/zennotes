@@ -55,6 +55,8 @@ const mocks = vi.hoisted(() => {
       kanbanFolderRoot: "",
       kanbanStatuses: [] as string[],
       keymapOverrides: {} as Record<string, string>,
+      commandKeymaps: {} as Record<string, string>,
+      setCommandKeymapBinding: vi.fn(),
       lineNumberMode: "off",
       mathRenderer: "katex" as "katex" | "typst",
       monoFont: null,
@@ -860,6 +862,101 @@ describe("SettingsModal date note directories", () => {
     const recorder = document.body.textContent ?? "";
     expect(recorder).toContain("Current: Unbound");
   });
+  function pressOnWindow(init: KeyboardEventInit & { key: string; code: string }): void {
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+    );
+  }
+
+  describe("the Commands group (#971)", () => {
+    beforeEach(() => {
+      mocks.state.commandKeymaps = {};
+      (window.zen as unknown as { platformSync: () => string }).platformSync = () =>
+        mocks.platform;
+    });
+
+    it("lists a palette command with its category and id, unbound, and records a key for it", async () => {
+      const row = await openKeymapRow("Move Note to Trash");
+      expect(row.dataset.commandKeymapRow).toBe("note.trash");
+      expect(row.textContent).toContain("Note");
+      expect(row.textContent).toContain("note.trash");
+      expect(row.textContent).toContain("Unbound");
+      expect(rowButton(row, "Unbind").disabled).toBe(true);
+      expect(rowButton(row, "Reset").disabled).toBe(true);
+
+      await act(async () => rowButton(row, "Change…").click());
+      expect(document.querySelector('[data-keymap-recorder="command"]')).toBeTruthy();
+      await act(async () =>
+        pressOnWindow({ key: "Backspace", code: "Backspace", ctrlKey: true }),
+      );
+      expect(
+        document.querySelector("[data-keymap-recorder-binding]")?.textContent,
+      ).toBe("Ctrl+Backspace");
+      await act(async () => pressOnWindow({ key: "Enter", code: "Enter" }));
+      expect(mocks.state.setCommandKeymapBinding).toHaveBeenCalledWith(
+        "note.trash",
+        "Mod+Backspace",
+      );
+    });
+
+    it("finds a command by its id in the filter", async () => {
+      const row = await openKeymapRow("Restore Note from Trash");
+      expect(row.dataset.commandKeymapRow).toBe("note.restore");
+      const filter = host.querySelector<HTMLInputElement>(
+        'input[placeholder="Filter keymaps…"]',
+      )!;
+      await act(async () => changeInput(filter, "note.delete-permanently"));
+      expect(
+        [...host.querySelectorAll("[data-command-keymap-row]")].map(
+          (el) => (el as HTMLElement).dataset.commandKeymapRow,
+        ),
+      ).toEqual(["note.delete-permanently"]);
+    });
+
+    it("unbinds and resets a command from its row", async () => {
+      mocks.state.commandKeymaps = { "note.trash": "Mod+Backspace" };
+      const row = await openKeymapRow("Move Note to Trash");
+      expect(row.textContent).toContain("Ctrl+Backspace");
+      await act(async () => rowButton(row, "Unbind").click());
+      expect(mocks.state.setCommandKeymapBinding).toHaveBeenCalledWith("note.trash", "");
+      await act(async () => rowButton(row, "Reset").click());
+      expect(mocks.state.setCommandKeymapBinding).toHaveBeenCalledWith("note.trash", null);
+    });
+
+    it("marks clashes both ways: another command, a default it wins over, and the action that lost its key", async () => {
+      mocks.state.commandKeymaps = {
+        "note.trash": "Mod+L",
+        "note.archive": "Mod+L",
+      };
+      const trash = await openKeymapRow("Move Note to Trash");
+      expect(trash.textContent).toContain("Conflicts with Move Note to Archive");
+      expect(trash.textContent).toContain("Wins over Toggle checkbox");
+      const filter = host.querySelector<HTMLInputElement>(
+        'input[placeholder="Filter keymaps…"]',
+      )!;
+      await act(async () => changeInput(filter, "Toggle checkbox"));
+      const action = host.querySelector<HTMLElement>(
+        '[data-keymap-row="editor.toggleCheckbox"]',
+      )!;
+      expect(action.textContent).toContain("Taken by command Move Note to Trash");
+    });
+
+    it("marks a leader sequence inert while Vim mode is off", async () => {
+      mocks.state.vimMode = false;
+      mocks.state.commandKeymaps = { "note.archive": "Leader x a" };
+      const row = await openKeymapRow("Move Note to Archive");
+      expect(row.textContent).toContain("Space x a");
+      expect(row.querySelector("[data-command-keymap-inert]")).toBeTruthy();
+    });
+
+    it("lets Settings search find a command row by its title", async () => {
+      await act(async () => root.render(createElement(SettingsModal)));
+      expect(await openSearchHit("move note to trash", "Move Note to Trash")).toBe(
+        "command-keymap:note.trash",
+      );
+    });
+  });
+
   async function openTemplatesSection(): Promise<void> {
     await act(async () => {
       root.render(createElement(SettingsModal));

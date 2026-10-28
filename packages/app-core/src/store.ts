@@ -143,6 +143,7 @@ import {
 import { composeNewNoteBody } from './lib/search-create'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
+import { normalizeCommandKeymaps, type CommandKeymaps } from './lib/command-keymaps'
 import {
   PORTABLE_PREF_KEYS,
   pickPortablePrefs,
@@ -304,7 +305,7 @@ export type LineNumberPosition = 'edge' | 'text'
  *  not drawn at all ('hidden'; the frontmatter is untouched). */
 export type NoteCoverPlacement = 'scroll' | 'pinned' | 'hidden'
 export type WhichKeyHintMode = 'timed' | 'sticky'
-export type CommandPaletteInitialMode = 'main' | 'vault'
+export type CommandPaletteInitialMode = 'main' | 'vault' | 'theme' | 'workflow'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const WORKSPACE_KEY = 'zen:workspace:v1'
@@ -580,6 +581,10 @@ interface Prefs {
    *  or the complete logical line when word wrap is enabled. */
   vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
+  /** Keys the user gave command palette commands (#971): command id to a
+   *  chord or a `Leader x t` sequence; "" is a deliberate unbind. Kept apart
+   *  from `keymapOverrides`, whose ids name built-in actions. */
+  commandKeymaps: CommandKeymaps
   /** Enabled CSS overrides, keyed by filename (e.g. `"focus.css": "on"`). Persisted. */
   enabledOverrides: Record<string, string>
   /** Visual color tweaks from the picker UI, keyed by token slug (e.g. `"accent": "#ff3b30"`). Persisted. */
@@ -1139,6 +1144,7 @@ export const DEFAULT_PREFS: Prefs = {
   vimBlockImeInNormalMode: true,
   vimWrappedLineMotions: 'display',
   keymapOverrides: {},
+  commandKeymaps: {},
   whichKeyHints: true,
   whichKeyHintMode: 'timed',
   whichKeyHintTimeoutMs: 900,
@@ -1288,6 +1294,13 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         ? p.vimWrappedLineMotions
         : DEFAULT_PREFS.vimWrappedLineMotions,
     keymapOverrides: normalizeKeymapOverrides(p.keymapOverrides),
+    // Read against the overrides above: a sequence that would start on a
+    // built-in leader key is refused, and the leader in use is the one
+    // these overrides set.
+    commandKeymaps: normalizeCommandKeymaps(
+      p.commandKeymaps,
+      normalizeKeymapOverrides(p.keymapOverrides)
+    ),
     enabledOverrides: normalizeEnabledOverrides(p.enabledOverrides),
     themeTweaks: normalizeThemeTweaks(p.themeTweaks),
     whichKeyHints:
@@ -2475,6 +2488,7 @@ function collectPrefs(s: {
   vimBlockImeInNormalMode: boolean
   vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
+  commandKeymaps: CommandKeymaps
   enabledOverrides: Record<string, string>
   themeTweaks: Record<string, string>
   whichKeyHints: boolean
@@ -2595,6 +2609,7 @@ function collectPrefs(s: {
     vimBlockImeInNormalMode: s.vimBlockImeInNormalMode,
     vimWrappedLineMotions: s.vimWrappedLineMotions,
     keymapOverrides: s.keymapOverrides,
+    commandKeymaps: s.commandKeymaps,
     enabledOverrides: s.enabledOverrides,
     themeTweaks: s.themeTweaks,
     whichKeyHints: s.whichKeyHints,
@@ -3148,6 +3163,7 @@ interface Store {
   /** Display-row or logical-line semantics for $, I, A and dependent operators. */
   vimWrappedLineMotions: VimWrappedLineMotionMode
   keymapOverrides: KeymapOverrides
+  commandKeymaps: CommandKeymaps
   /** Enabled CSS overrides, keyed by filename. Persisted to config [overrides]. */
   enabledOverrides: Record<string, string>
   /** Visual color tweaks (token slug → color). Persisted to config [tweaks]. */
@@ -3805,6 +3821,10 @@ interface Store {
   setVimBlockImeInNormalMode: (on: boolean) => void
   setVimWrappedLineMotions: (mode: VimWrappedLineMotionMode) => void
   setKeymapBinding: (id: KeymapId, binding: string | null) => void
+  /** Give a command palette command a key (#971): a canonical binding from
+   *  `parseCommandBinding`, "" to unbind it, null to clear the entry. */
+  setCommandKeymapBinding: (id: string, binding: string | null) => void
+  /** Reset every action to its default and take every command's key away. */
   resetAllKeymaps: () => void
   setWhichKeyHints: (on: boolean) => void
   setWhichKeyHintMode: (mode: WhichKeyHintMode) => void
@@ -6114,6 +6134,7 @@ export const useStore = create<Store>((set, get) => {
   vimBlockImeInNormalMode: loadPrefs().vimBlockImeInNormalMode,
   vimWrappedLineMotions: loadPrefs().vimWrappedLineMotions,
   keymapOverrides: loadPrefs().keymapOverrides,
+  commandKeymaps: loadPrefs().commandKeymaps,
   enabledOverrides: loadPrefs().enabledOverrides,
   themeTweaks: loadPrefs().themeTweaks,
   whichKeyHints: loadPrefs().whichKeyHints,
@@ -9357,8 +9378,18 @@ export const useStore = create<Store>((set, get) => {
     })
     savePrefs(collectPrefs(get()))
   },
+  setCommandKeymapBinding: (id, binding) => {
+    set((s) => {
+      const next = { ...s.commandKeymaps }
+      // As with the actions: null clears the entry, "" is a stored unbind.
+      if (binding === null) delete next[id]
+      else next[id] = binding
+      return { commandKeymaps: next }
+    })
+    savePrefs(collectPrefs(get()))
+  },
   resetAllKeymaps: () => {
-    set({ keymapOverrides: {} })
+    set({ keymapOverrides: {}, commandKeymaps: {} })
     savePrefs(collectPrefs(get()))
   },
   setOverrideEnabled: (name, on) => {

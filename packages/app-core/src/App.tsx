@@ -71,12 +71,19 @@ import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-
 import { loadKeepRunningInTray, startTraySyncStatusReporter } from './lib/tray-runtime'
 import { installHarperRuntime } from './lib/harper-runtime'
 import { installIgnoredKeysGuard } from './lib/ignored-keys'
+import { installCommandKeymapDispatcher } from './lib/command-keymap-dispatch'
 
 // The ignored-keys guard (#732) has to be on `window` before any component
 // registers a capture listener there, so it is installed at import time,
 // not from an effect: children's effects run before App's, and VimNav's
 // would otherwise see the stray key first. Reads the live list on each key.
 installIgnoredKeysGuard(() => useStore.getState().ignoredKeys)
+// Keys the user gave command palette commands (#971) go next, for the same
+// reason: a binding the user chose wins over every default, VimNav's and the
+// editor's included, so its listener has to be ahead of theirs. Leader
+// sequences are not handled here but in VimNav, after the built-in leader
+// keys. See lib/command-keymap-dispatch.ts.
+installCommandKeymapDispatcher(() => useStore.getState())
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
 const EDITOR_MODULE_WARMUP_GRACE_MS = 40
