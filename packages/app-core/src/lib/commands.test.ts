@@ -608,3 +608,12 @@ describe('Toggle Status Bar (Piotr on Discord)', () => {
     expect(useStore.getState().showStatusBar).toBe(true)
   })
 })
+
+describe('commands that give a phone editor the keyboard', () => {
+  it('names only commands that exist', async () => {
+    const { buildCommands } = await loadCommands()
+    const { EDITOR_FOCUS_COMMAND_IDS } = await import('./command-landing')
+    const ids = new Set(buildCommands({ includeUnavailable: true }).map((c) => c.id))
+    for (const id of EDITOR_FOCUS_COMMAND_IDS) expect(ids.has(id), id).toBe(true)
+  })
+})

@@ -6,6 +6,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { buildCommands, type Command } from '../lib/commands'
+import { commandLanding } from '../lib/command-landing'
 import {
   loadRecentCommandIds,
   recordCommandUse,
@@ -309,7 +310,7 @@ export function CommandPalette(): JSX.Element {
     }
     setOpen(false)
     // Asked before the run: afterwards today's note exists either way.
-    const toRead = cmd.opensToRead?.() === true
+    const landing = commandLanding(cmd)
     try {
       await cmd.run()
       // A command that opens a note (or otherwise lands on the editor) should
@@ -322,8 +323,11 @@ export function CommandPalette(): JSX.Element {
       // outline, …) so we don't pull focus behind it, and likewise for the Cloud
       // conflict queue, the Cloud settings prompt and the Publish Note dialog,
       // which claim focus themselves and are tracked outside the store.
-      // A command that only went to a note that was already there hands over
-      // like a search pick: on a phone the note is left to read.
+      // On a phone the command decides where the keyboard goes
+      // (lib/command-landing.ts): a note that was already there is left to
+      // read, a command whose point is typing takes the editor, and anything
+      // else (a toggle, a view) leaves the focus where it was. On desktop all
+      // three focus the editor.
       if (
         shouldRefocusEditorAfterCommand(
           useStore.getState(),
@@ -332,8 +336,9 @@ export function CommandPalette(): JSX.Element {
             getPublishNoteRequest() !== null
         )
       ) {
-        if (toRead) focusEditorAfterReadOpen()
-        else focusEditorNormalMode()
+        if (landing === 'read') focusEditorAfterReadOpen()
+        else if (landing === 'edit') focusEditorNormalMode()
+        else focusEditorAfterPaletteClose()
       }
     } catch (err) {
       console.error('command failed', cmd.id, err)
