@@ -41,6 +41,8 @@ const mocks = vi.hoisted(() => {
       darkSidebar: false,
       showWindowTitleBar: true,
       setShowWindowTitleBar: vi.fn(),
+      showStatusBar: true,
+      setShowStatusBar: vi.fn(),
       editorFontSize: 16,
       editorLineHeight: 1.6,
       editorScrollOff: 0,
@@ -288,6 +290,16 @@ describe("SettingsModal date note directories", () => {
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     await act(async () => toggle!.click());
     expect(mocks.state.setShowWindowTitleBar).toHaveBeenCalledWith(false);
+  });
+
+  it("finds the status bar by the Cloud row it carries and turns it off", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]');
+    await act(async () => changeInput(search!, "cloud connected"));
+    const toggle = host.querySelector<HTMLButtonElement>('[data-settings-search-id="status-bar"] [role="switch"]');
+    expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle!.click());
+    expect(mocks.state.setShowStatusBar).toHaveBeenCalledWith(false);
   });
 
   it("finds the new-file location rows by the words people search for", async () => {

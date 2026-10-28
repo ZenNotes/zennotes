@@ -956,6 +956,8 @@ export function SettingsModal(): JSX.Element {
   const showWindowTitleBar = useStore((s) => s.showWindowTitleBar);
   const keepRunningInTray = useTrayStore((s) => s.keepRunningInTray);
   const setShowWindowTitleBar = useStore((s) => s.setShowWindowTitleBar);
+  const showStatusBar = useStore((s) => s.showStatusBar);
+  const setShowStatusBar = useStore((s) => s.setShowStatusBar);
   const setDarkSidebar = useStore((s) => s.setDarkSidebar);
   const showSidebarChevrons = useStore((s) => s.showSidebarChevrons);
   const setShowSidebarChevrons = useStore((s) => s.setShowSidebarChevrons);
@@ -1602,6 +1604,25 @@ export function SettingsModal(): JSX.Element {
           keywords: ["decorations", "frameless", "traffic lights", "tiling", "hyprland", "linux", "header"],
         },
         {
+          id: "status-bar",
+          title: "Status bar",
+          description:
+            "Show the bar along the bottom with Cloud sync status and the note's backlinks, words and position. Turned off, it still appears while Cloud needs you.",
+          keywords: [
+            "status bar",
+            "footer",
+            "bottom bar",
+            "cloud",
+            "sync",
+            "cloud connected",
+            "set up",
+            "word count",
+            "backlinks",
+            "cursor position",
+            "hide",
+          ],
+        },
+        {
           id: "keep-running-in-tray",
           title: "Keep running in the tray",
           description:
@@ -2046,6 +2067,13 @@ export function SettingsModal(): JSX.Element {
                 onChange={setShowWindowTitleBar}
               />
             )}
+            <ToggleRow
+              label="Status bar"
+              description="Show the bar along the bottom with Cloud sync status and the note’s backlinks, words and position. Turned off, it still appears while Cloud needs you: a sync that stopped or failed, files to review, or a sign-in to redo."
+              value={showStatusBar}
+              settingId="status-bar"
+              onChange={setShowStatusBar}
+            />
             <ToggleRow
               label="Dark sidebar"
               description="Tint the sidebar one step darker than the canvas so the chrome reads as a separate surface."

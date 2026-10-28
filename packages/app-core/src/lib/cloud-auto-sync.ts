@@ -788,6 +788,42 @@ function announceNewCloudConflicts(
   );
 }
 
+/**
+ * The phase the status row draws. A device whose Cloud vault went away, or
+ * that Cloud signed out, stopped syncing without the person choosing to, so
+ * it reads as attention rather than as a quiet unlinked or disconnected row.
+ */
+export function cloudSyncShownPhase(
+  state: Pick<CloudSyncStatusStore, "phase" | "removedVault" | "errorKind">,
+): CloudSyncPhase {
+  if (state.phase === "unlinked" && state.removedVault !== null) return "attention";
+  if (state.phase === "disconnected" && state.errorKind === "signed-out") return "attention";
+  return state.phase;
+}
+
+/**
+ * True while Cloud needs the person: a run that stopped for them or failed
+ * (including a Cloud vault that went away and a device Cloud signed out), or
+ * files or the vault settings question waiting for a decision. The status
+ * bar shows for these even when it is turned off, so nothing that needs an
+ * answer goes silent; the phone shells key their Cloud row on the same set
+ * (the attention and error phases and the review hook).
+ */
+export function cloudSyncNeedsUser(
+  state: Pick<
+    CloudSyncStatusStore,
+    "phase" | "removedVault" | "errorKind" | "lastSummary" | "settingsConflict"
+  > = useCloudSyncStatusStore.getState(),
+): boolean {
+  const shown = cloudSyncShownPhase(state);
+  return (
+    shown === "attention" ||
+    shown === "error" ||
+    resolvableCloudConflictCount(state.lastSummary) > 0 ||
+    state.settingsConflict !== null
+  );
+}
+
 /** Conflicts the queue can actually resolve. Bootstrap conflicts are no longer
  *  emitted by the coordinator, so only the durable pending queue counts. */
 export function resolvableCloudConflictCount(

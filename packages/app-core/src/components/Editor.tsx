@@ -81,7 +81,9 @@ import {
   openExternalFileLink,
 } from "../lib/external-file-link";
 import { StatusBar } from "./StatusBar";
-import { useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
+import { cloudSyncNeedsUser, useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
+import { statusBarVisible } from "../lib/status-bar-visibility";
+import { defineStatusBarOption } from "../lib/vim-status-bar-option";
 import { EditorPane } from "./EditorPane";
 import { focusPaneInDirection, focusPaneOrEdgePanel } from "../lib/pane-nav";
 import { requestPaneMode } from "../lib/pane-mode";
@@ -642,6 +644,7 @@ function registerVimCommands(): void {
       return undefined;
     },
   );
+  defineStatusBarOption();
   // `:harper on|off` (or bare `:harper` to toggle) is the ex twin of the
   // Settings toggle "Grammar and spelling with Harper".
   Vim.defineEx(
@@ -1817,6 +1820,15 @@ export function Editor(): JSX.Element {
   const cloudSyncVisible = useCloudSyncStatusStore(
     (state) => state.phase !== "hidden",
   );
+  const showStatusBar = useStore((s) => s.showStatusBar);
+  const cloudNeedsUser = useCloudSyncStatusStore(cloudSyncNeedsUser);
+  const statusBarShown = statusBarVisible({
+    zenMode,
+    hasNote: activeNote !== null,
+    cloudShown: cloudSyncVisible,
+    showStatusBar,
+    cloudNeedsUser,
+  });
 
   useEffect(() => {
     registerVimCommands();
@@ -1836,9 +1848,7 @@ export function Editor(): JSX.Element {
       <div className="flex min-h-0 min-w-0 flex-1">
         <PaneTreeView node={paneLayout} />
       </div>
-      {!zenMode && (activeNote || cloudSyncVisible) && (
-        <StatusBar note={activeNote} />
-      )}
+      {statusBarShown && <StatusBar note={activeNote} />}
     </section>
   );
 }

@@ -307,6 +307,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'show_window_title_bar',
     comment: 'show the main window title bar and window controls'
   },
+  showStatusBar: {
+    section: 'appearance',
+    tomlKey: 'show_status_bar',
+    comment: 'show the bar along the bottom; while hidden it still appears when Cloud needs you'
+  },
   showSidebarChevrons: {
     section: 'appearance',
     tomlKey: 'show_sidebar_chevrons',

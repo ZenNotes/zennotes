@@ -7,6 +7,7 @@ import { setHoveredLink, useHoveredLinkStore } from "../lib/hovered-link";
 import {
   cloudSyncAttentionLabel,
   cloudSyncAttentionIsSettingsOnly,
+  cloudSyncShownPhase,
   cloudVaultRemovalLabel,
   cloudVaultRemovalMessage,
   connectCloudAccountFromStatusBar,
@@ -142,9 +143,11 @@ function CloudSyncStatus({
   // while its sync had stopped.
   const removal = phase === "unlinked" ? removedVault : null;
   // Signed out because Cloud refused this device: the same, it stopped
-  // syncing without the person choosing to.
-  const signedOut = phase === "disconnected" && errorKind === "signed-out";
-  const shownPhase = removal || signedOut ? "attention" : phase;
+  // syncing without the person choosing to (cloudSyncShownPhase).
+  const shownPhase = cloudSyncShownPhase({ phase, removedVault, errorKind }) as Exclude<
+    CloudSyncPhase,
+    "hidden"
+  >;
 
   const label = removal
     ? cloudVaultRemovalLabel(removal)
