@@ -164,6 +164,7 @@ import {
 import { CustomCodeLanguagesSettings } from "./CustomCodeLanguagesSettings";
 import { TextReplacementsSettings } from "./TextReplacementsSettings";
 import { CloudSettings } from "./CloudSettings";
+import { ErrorDetails } from "./ErrorDetails";
 import { consumeSettingsTarget } from "../lib/settings-navigation";
 import { normalizeApplicationSchemes } from "@shared/application-links";
 
@@ -594,10 +595,19 @@ function AppUpdatesCard({ homepage }: { homepage?: string }): JSX.Element {
           </a>
         </div>
       </div>
-      <p className="mt-3 text-sm leading-6 text-ink-600">
+      <p
+        data-app-update-message=""
+        className="mt-3 text-sm leading-6 text-ink-600"
+      >
         {appUpdateState?.message ??
           "Check GitHub releases for a newer ZenNotes build."}
       </p>
+      {appUpdateState?.phase === "error" && appUpdateState.detail && (
+        <ErrorDetails
+          detail={appUpdateState.detail}
+          data-app-update-details=""
+        />
+      )}
       {appUpdateState?.phase === "downloading" && (
         <div className="mt-3">
           <div className="h-2 overflow-hidden rounded-full bg-paper-200/90">

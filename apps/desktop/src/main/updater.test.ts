@@ -3,11 +3,36 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // What Chromium's network change notifier would answer; tests flip it to
 // play a link going down and coming back.
 const network = vi.hoisted(() => ({ online: true }))
+// Whether the stubbed app is a packaged build, which is what lets the
+// installing updaters (NSIS, Squirrel.Mac, AppImage) run at all.
+const packaged = vi.hoisted(() => ({ value: false }))
+
+/** electron-updater's autoUpdater, reduced to events and a check. */
+const installer = vi.hoisted(() => {
+  const handlers = new Map<string, Array<(...args: unknown[]) => void>>()
+  return {
+    handlers,
+    on(event: string, cb: (...args: unknown[]) => void) {
+      handlers.set(event, [...(handlers.get(event) ?? []), cb])
+      return this
+    },
+    emit(event: string, ...args: unknown[]) {
+      for (const cb of handlers.get(event) ?? []) cb(...args)
+    },
+    checkForUpdates: async (): Promise<unknown> => null
+  }
+})
 
 // updater.ts imports electron and electron-updater at module load. Stub both so
 // we can unit-test the pure Linux-install helpers without an Electron runtime.
 vi.mock('electron', () => ({
-  app: { getVersion: () => '2.0.2' },
+  app: {
+    getVersion: () => '2.0.2',
+    get isPackaged() {
+      return packaged.value
+    },
+    runningUnderARM64Translation: false
+  },
   BrowserWindow: { getAllWindows: () => [] },
   Notification: { isSupported: () => false },
   net: { isOnline: () => network.online },
@@ -15,7 +40,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('electron-updater', () => ({
   default: {
-    autoUpdater: {},
+    autoUpdater: installer,
     AppImageUpdater: class {},
     DebUpdater: class {},
     RpmUpdater: class {},
@@ -364,18 +389,24 @@ function fetchFailed(code: string, detail: string): TypeError {
   })
 }
 
+/** A feed body, a thrown error, or an HTTP answer that is not a feed. */
+type FeedAnswer = string | Error | { status: number; url: string }
+
 /**
  * A fresh updater module on the package-manager (notify-only) path, its feed
- * served by `feed`: a fixed body, a fixed error, or a function answering per
- * call so a test can bring the network back partway through.
+ * served by `feed`: a fixed answer, or a function answering per call so a
+ * test can bring the network back partway through.
  */
-async function loadManagedUpdater(feed: string | Error | (() => string | Error)) {
+async function loadManagedUpdater(feed: FeedAnswer | (() => FeedAnswer)) {
   vi.resetModules()
   process.env.ZENNOTES_UPDATER_FORMAT = 'managed'
   process.env.ZENNOTES_UPDATE_FEED_URL = 'http://127.0.0.1:1/latest-linux.yml'
   const fetchMock = vi.fn(async () => {
     const body = typeof feed === 'function' ? feed() : feed
     if (body instanceof Error) throw body
+    if (typeof body !== 'string') {
+      return { ok: false, status: body.status, url: body.url, text: async () => 'Not Found' }
+    }
     return { ok: true, status: 200, text: async () => body }
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -417,10 +448,55 @@ describe('checkForAppUpdates on a package-manager install', () => {
   })
 
   it('surfaces a feed failure instead of staying on checking', async () => {
-    const { mod } = await loadManagedUpdater(new Error('GitHub answered 404 for the release feed.'))
+    const { mod } = await loadManagedUpdater(new Error('The release feed carried no version.'))
     const state = await mod.checkForAppUpdates()
     expect(state.phase).toBe('error')
-    expect(state.message).toMatch(/404/)
+    expect(state.message).toBe(
+      "ZenNotes couldn't check for updates. Try again later, or open the latest release directly."
+    )
+    expect(state.detail).toBe('The release feed carried no version.')
+  })
+
+  it('says the newest release is still being published when its feed answers 404 (#1003)', async () => {
+    const { mod, fetchMock } = await loadManagedUpdater({
+      status: 404,
+      // Where GitHub's redirect from releases/latest/download lands.
+      url: 'https://github.com/ZenNotes/zennotes/releases/download/v2.0.3/latest-linux.yml'
+    })
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('error')
+    expect(state.message).toBe('ZenNotes 2.0.3 is still being published. Try again in a few minutes.')
+    expect(state.detail).toMatch(/GitHub answered 404 for the release feed/)
+    // Publishing takes minutes: no instant retries.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a server error, then words it without the raw answer', async () => {
+    vi.useFakeTimers()
+    try {
+      const { mod, fetchMock } = await loadManagedUpdater({ status: 503, url: 'http://127.0.0.1:1/latest-linux.yml' })
+      const pending = mod.checkForAppUpdates()
+      await vi.advanceTimersByTimeAsync(10_000)
+      const state = await pending
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+      expect(state.phase).toBe('error')
+      expect(state.message).toBe(
+        'GitHub returned a temporary network or server error while checking for updates. Try again in a moment, or open the latest release directly.'
+      )
+      expect(state.detail).toMatch(/503/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the details once a later check succeeds', async () => {
+    let answer: FeedAnswer = { status: 404, url: 'http://127.0.0.1:1/latest-linux.yml' }
+    const { mod } = await loadManagedUpdater(() => answer)
+    expect((await mod.checkForAppUpdates()).detail).toBeTruthy()
+    answer = FEED('2.0.3')
+    const state = await mod.checkForAppUpdates()
+    expect(state.phase).toBe('available')
+    expect(state.detail).toBeNull()
   })
 })
 
@@ -615,5 +691,86 @@ describe('background update checks repeat while the app runs (#947)', () => {
     for (const phase of ['checking', 'available', 'downloading', 'downloaded', 'installing', 'offline', 'unsupported'] as const) {
       expect(mod.canRecheckInBackground(phase)).toBe(false)
     }
+  })
+})
+
+// #1003: a Windows copy (NSIS) checked while the newest release was still
+// uploading its files, and the dialog showed electron-updater's whole 404.
+describe('checkForAppUpdates on an installing updater (#1003)', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+
+  afterEach(() => {
+    packaged.value = false
+    installer.handlers.clear()
+    installer.checkForUpdates = async () => null
+    Object.defineProperty(process, 'platform', platform)
+    vi.restoreAllMocks()
+  })
+
+  it('answers a missing feed with one sentence, at once, and logs the raw answer', async () => {
+    vi.resetModules()
+    packaged.value = true
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const url = 'https://github.com/ZenNotes/zennotes/releases/download/v2.78.0/latest.yml'
+    const missing = Object.assign(
+      new Error(
+        `Cannot find latest.yml in the latest release artifacts (${url}): HttpError: 404 \n"method: GET url: ${url}"\nHeaders: {\n  "strict-transport-security": "max-age=31536000; includeSubdomains; preload"\n}\n    at createHttpError (app.asar/node_modules/builder-util-runtime/out/httpExecutor.js:53:12)`
+      ),
+      { code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' }
+    )
+    const check = vi.fn(async () => {
+      // electron-updater emits the error, then rejects the same check.
+      installer.emit('error', missing)
+      throw missing
+    })
+    installer.checkForUpdates = check
+
+    const mod = await import('./updater')
+    const state = await mod.checkForAppUpdates()
+
+    expect(state.phase).toBe('error')
+    expect(state.message).toBe('ZenNotes 2.78.0 is still being published. Try again in a few minutes.')
+    expect(state.detail).toContain('max-age=31536000')
+    expect(state.detail).toContain('at createHttpError')
+    // The old 5xx test matched "536" in max-age and retried three times.
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith(
+      '[updater] check failed (still-publishing):',
+      expect.stringContaining('ERR_UPDATER_CHANNEL_FILE_NOT_FOUND')
+    )
+  })
+})
+
+describe('downloadAppUpdate with no network', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+
+  afterEach(() => {
+    packaged.value = false
+    installer.handlers.clear()
+    installer.checkForUpdates = async () => null
+    delete (installer as { downloadUpdate?: unknown }).downloadUpdate
+    Object.defineProperty(process, 'platform', platform)
+  })
+
+  it('asks for the connection in a sentence, with the cause under Details', async () => {
+    vi.resetModules()
+    packaged.value = true
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    installer.checkForUpdates = async () => {
+      installer.emit('update-available', { version: '2.0.3', files: [], path: '', sha512: '', releaseDate: '' })
+      return null
+    }
+    Object.assign(installer, {
+      downloadUpdate: async () => {
+        throw new Error('net::ERR_INTERNET_DISCONNECTED')
+      }
+    })
+    const mod = await import('./updater')
+    expect((await mod.checkForAppUpdates()).phase).toBe('available')
+    const state = await mod.downloadAppUpdate()
+    expect(state.phase).toBe('error')
+    expect(state.message).toBe("ZenNotes couldn't reach GitHub. Check the connection and try again.")
+    expect(state.detail).toBe('net::ERR_INTERNET_DISCONNECTED')
   })
 })
