@@ -66,8 +66,7 @@ import {
   findDailyNoteForDate,
   findMonthlyNoteForDate,
   findWeeklyNoteForDate,
-  isCalendarToggleAvailable,
-  noteFolderSubpath
+  isCalendarToggleAvailable
 } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
