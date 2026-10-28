@@ -44,8 +44,11 @@ import {
   matchesShortcut,
   matchesShortcutBinding,
   UNBOUND_BINDING,
-  sequenceTokenFromEvent
+  sequenceTokenFromEvent,
+  type KeymapId
 } from '../lib/keymaps'
+import { listViewBindingMatches } from '../lib/list-view-keys'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
 import { commandLeaderHints, stepCommandLeader } from '../lib/command-keymaps'
 import { runBoundCommand } from '../lib/command-keymap-dispatch'
@@ -1597,11 +1600,54 @@ export function VimNav(): JSX.Element | null {
     whichKeyHintTimeoutMs
   ]) // ← stable dep, handler never re-registers unnecessarily
 
+  // With Vim off the listener above is not installed, yet a focused sidebar
+  // still answers the keys every list answers: the arrows, Enter, Escape,
+  // Home / End, the page keys and the menu keys. They go through the same
+  // handleSidebarKey, which keeps the typed Vim keys off in this mode.
+  // Installed once rather than per mode, so it keeps its early place among
+  // the window's capture listeners: a list view left active behind the
+  // sidebar (Archive, Trash) listens there too, and must not take the
+  // sidebar's arrows first.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent): void => {
+      const state = useStore.getState()
+      if (state.vimMode || !sidebarHoldsFocus(state)) return
+      // A chord is the app's (the trash chord has a listener of its own).
+      if (e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return
+      if (
+        state.searchOpen ||
+        state.vaultTextSearchOpen ||
+        state.settingsOpen ||
+        state.whatsNewOpen ||
+        state.commandPaletteOpen ||
+        state.bufferPaletteOpen ||
+        isOverlayOrDialogOpen() ||
+        document.querySelector('[data-workflow-import]')
+      ) {
+        return
+      }
+      const target = e.target instanceof HTMLElement ? e.target : null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          target.closest(SELF_KEYED_SURFACES))
+      ) {
+        return
+      }
+      handleSidebarKey(e, state)
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [])
+
   // ---- Key handlers (called from the single persistent handler) --------
 
   function handleSidebarKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
     const overrides = state.keymapOverrides
+    const vimMode = state.vimMode
     // Read before the line below claims the panel: the trash keys act only
     // when the sidebar already held the keyboard, where its cursor is drawn,
     // never on a key that merely fell through to the sidebar.
@@ -1611,14 +1657,33 @@ export function VimNav(): JSX.Element | null {
     const count = items.length
     const max = count - 1
     const currentPos = findPositionByIndex(items, 'sidebarIdx', state.sidebarCursorIndex)
+    // This handler serves the sidebar in both modes. With Vim off the typed
+    // keys of these actions (j, k, l, h, o, m, /, gg, G) stay off, as in
+    // every list: only the arrows, Enter, Escape, the page keys and the
+    // menu keys answer. With Vim on this is matchesSequenceToken.
+    const bound = (id: KeymapId): boolean => listViewBindingMatches(e, overrides, id, vimMode)
     const wantsContextMenu =
-      matchesSequenceToken(e, overrides, 'nav.contextMenu') ||
+      bound('nav.contextMenu') ||
       key === 'ContextMenu' ||
       (e.shiftKey && key === 'F10')
     // `x` (#972). The chord form (Mod+Backspace) is taken earlier, in either
     // mode, by installSidebarTrashKeys; a typed key lands here, after the
     // leader and pane-prefix handling above.
-    const wantsTrash = isSidebarTrashKey(e, overrides, state.vimMode)
+    const wantsTrash = isSidebarTrashKey(e, overrides, vimMode)
+    // With Vim off, where gg and G are off, Home and End jump to the ends and
+    // the page keys move a screenful of rows. Vim mode leaves all four as
+    // they were.
+    const pageMove = vimMode
+      ? null
+      : key === 'Home'
+        ? 'first'
+        : key === 'End'
+          ? 'last'
+          : key === 'PageDown'
+            ? 'pageDown'
+            : key === 'PageUp'
+              ? 'pageUp'
+              : null
 
     // Always consume single-char nav keys when sidebar is focused,
     // even if the sidebar is empty — prevents them leaking to the editor.
@@ -1626,14 +1691,14 @@ export function VimNav(): JSX.Element | null {
     // Trash), which listens on the window too, never acts on its own row
     // for a key meant for the sidebar.
     const wantsHandledKey =
-      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
-      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
-      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
-      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
-      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
-      matchesSequenceToken(e, overrides, 'nav.back') ||
-      matchesSequenceToken(e, overrides, 'nav.toggleFolder') ||
-      matchesSequenceToken(e, overrides, 'nav.filter') ||
+      bound('nav.moveDown') ||
+      bound('nav.moveUp') ||
+      bound('nav.jumpBottom') ||
+      (vimMode && sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0]) ||
+      bound('nav.openSideItem') ||
+      bound('nav.back') ||
+      bound('nav.toggleFolder') ||
+      bound('nav.filter') ||
       key === 'Enter' ||
       key === 'Escape' ||
       key === 'ArrowDown' ||
@@ -1641,7 +1706,8 @@ export function VimNav(): JSX.Element | null {
       key === 'ArrowLeft' ||
       key === 'ArrowRight' ||
       wantsContextMenu ||
-      wantsTrash
+      wantsTrash ||
+      pageMove !== null
     if (wantsHandledKey) {
       e.preventDefault()
       e.stopImmediatePropagation()
@@ -1656,19 +1722,34 @@ export function VimNav(): JSX.Element | null {
       return
     }
 
-    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+    if (pageMove) {
+      const target =
+        pageMove === 'first'
+          ? 0
+          : pageMove === 'last'
+            ? max
+            : moveIndex(
+                currentPos,
+                count,
+                (pageMove === 'pageDown' ? 1 : -1) * sidebarPageRows(items[currentPos])
+              )
+      scrollToIndexedElement(items[target], 'sidebarIdx', state.setSidebarCursorIndex)
+      return
+    }
+    if (bound('nav.moveDown') || key === 'ArrowDown') {
       scrollToIndexedElement(items[Math.min(currentPos + 1, max)], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
-    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+    if (bound('nav.moveUp') || key === 'ArrowUp') {
       scrollToIndexedElement(items[Math.max(currentPos - 1, 0)], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
-    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+    if (bound('nav.jumpBottom')) {
       scrollToIndexedElement(items[max], 'sidebarIdx', state.setSidebarCursorIndex)
       return
     }
     if (
+      vimMode &&
       advanceSequence(
         e,
         getKeymapBinding(overrides, 'nav.jumpTop'),
@@ -1686,15 +1767,15 @@ export function VimNav(): JSX.Element | null {
     ) {
       return
     }
-    if (key === 'Enter' || matchesSequenceToken(e, overrides, 'nav.openSideItem') || key === 'ArrowRight') {
+    if (key === 'Enter' || bound('nav.openSideItem') || key === 'ArrowRight') {
       activateSidebarItem(items[currentPos], state)
       return
     }
-    if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft') {
+    if (bound('nav.back') || key === 'ArrowLeft') {
       collapseSidebarItem(items[currentPos], state)
       return
     }
-    if (matchesSequenceToken(e, overrides, 'nav.toggleFolder')) {
+    if (bound('nav.toggleFolder')) {
       toggleSidebarItem(items[currentPos], state)
       return
     }
@@ -1702,7 +1783,7 @@ export function VimNav(): JSX.Element | null {
       focusEditor()
       return
     }
-    if (matchesSequenceToken(e, overrides, 'nav.filter')) {
+    if (bound('nav.filter')) {
       state.setSearchOpen(true)
       return
     }
@@ -1710,6 +1791,15 @@ export function VimNav(): JSX.Element | null {
       openContextMenuForIndexedElement(items[currentPos])
       return
     }
+  }
+
+  // A page in the sidebar is the rows its scroll box shows, less one, so the
+  // row the cursor leaves is still on screen where it lands.
+  function sidebarPageRows(row: HTMLElement | undefined): number {
+    const rowHeight = row?.getBoundingClientRect().height ?? 0
+    const boxHeight = row?.closest<HTMLElement>('.zn-sidebar-scroll')?.clientHeight ?? 0
+    if (rowHeight <= 0 || boxHeight <= 0) return 1
+    return Math.max(1, Math.floor(boxHeight / rowHeight) - 1)
   }
 
   function handleNoteListKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {

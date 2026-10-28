@@ -589,7 +589,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Mod+Alt+M', action: 'Add comment', detail: 'Start a comment on the selected text (or the current line) without reaching for the mouse.' },
       { keys: 'a', action: 'Reply in a comment thread', detail: 'Comments panel: open a reply box under the selected comment; `Mod+Enter` sends it, `Esc` cancels.' },
       { keys: 'Alt+H / Alt+J / Alt+K / Alt+L', action: 'Focus pane left / down / up / right', detail: 'Always-on pane-focus motions: they work even with Vim mode off and skip the Ctrl+W prefix some Linux setups intercept. (Ctrl+W h/j/k/l still works in Vim mode.) Both walk the same cycle, in the order the panels appear on screen: sidebar → note list → editor → connections → comments → outline → calendar → timeline, and back again.' },
-      { keys: '↑ / ↓ / Enter / Esc', action: 'Move inside a focused panel', detail: 'Once a panel has focus, the arrows move its row cursor, Home and End jump to the ends, Enter opens the row under the cursor, and Esc (or ←) returns focus to the editor. These work with Vim mode off; the single-key motions (j / k, gg / G) stay Vim-only.' },
+      { keys: '↑ / ↓ / Enter / Esc', action: 'Move inside a focused panel', detail: 'Once a panel has focus, the arrows move its row cursor, Home and End jump to the ends, Enter opens the row under the cursor, and Esc (or ←) returns focus to the editor. The sidebar, reached with Alt+H or Focus Sidebar in the command palette, works like a tree: → opens the row or expands its folder, ← collapses a folder, or from a note folds its folder and lands on it (Esc still returns to the editor), Page Up / Page Down move a screenful of rows, and Shift+F10 or the Context Menu key opens the row’s menu. These work with Vim mode off; the single-key motions (j / k, gg / G) stay Vim-only.' },
       { keys: 'Mod+.', action: 'Toggle Zen mode', detail: 'Hide or restore the app chrome so only the active editor, preview, or split view stays on screen.' },
       { keys: 'Mod+W', action: 'Close active tab', detail: 'Close the current note or virtual tab. With Settings open it closes Settings instead, and in a floating window or the quick capture window it closes that window, like its close button. While a dialog, palette or menu is open it does nothing, so it never closes the tab behind it; press Esc to dismiss those first. With Vim mode on, Linux and Windows keep Ctrl+W as the pane prefix while a tab is open: close the tab with :q or :bd, from the tab menu, or rebind this.' },
       { keys: 'Ctrl+Tab', action: 'Switch to previous note', detail: 'Switch to the most recently used note. Press again to alternate between the last two notes.' },
@@ -685,7 +685,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'lists-and-sidebar',
     title: 'Sidebar and list navigation',
-    description: 'These bindings work when the sidebar or note list owns focus in Vim mode. Mod+Backspace works with Vim mode off too.',
+    description: 'These bindings work when the sidebar or note list owns focus in Vim mode. With Vim mode off the sidebar keeps the arrows, Enter, Esc, Home / End, Page Up / Page Down and Shift+F10 (see Move inside a focused panel), and Mod+Backspace works there too.',
     items: [
       { keys: 'j / k', action: 'Move selection', detail: 'Move down or up one visible item.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Fast travel to the first or last visible row.' },
