@@ -641,3 +641,39 @@ describe('commands that give a phone editor the keyboard', () => {
     for (const id of EDITOR_FOCUS_COMMAND_IDS) expect(ids.has(id), id).toBe(true)
   })
 })
+
+describe('a key the user gave a command (#971)', () => {
+  const active = { folder: 'inbox', path: 'inbox/Plan.md', title: 'Plan', body: '' } as never
+
+  it('shows on the palette row, ahead of the key the command already had', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ activeNote: active, commandKeymaps: { 'note.favorite': 'F5' } })
+    const favorite = buildCommands().find((c) => c.id === 'note.favorite')
+    expect(favorite?.shortcut).toBe('F5 / Space l s')
+    expect(favorite?.builtinShortcut).toBe('Space l s')
+    const trash = buildCommands().find((c) => c.id === 'note.trash')
+    expect(trash?.shortcut).toBeUndefined()
+  })
+
+  it('shows a leader sequence only while Vim mode is on', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ activeNote: active, commandKeymaps: { 'note.trash': 'Leader x t' } })
+    expect(buildCommands().find((c) => c.id === 'note.trash')?.shortcut).toBe('Space x t')
+    useStore.setState({ vimMode: false })
+    expect(buildCommands().find((c) => c.id === 'note.trash')?.shortcut).toBeUndefined()
+  })
+
+  it('gives the shared guards a reason, and the note family its own', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    useStore.setState({ activeNote: null, selectedPath: null, editorViewRef: null })
+    const all = buildCommands({ includeUnavailable: true })
+    const reason = (id: string): string | undefined =>
+      all.find((c) => c.id === id)?.unavailableReason?.()
+    expect(reason('note.rename')).toBe('Rename Note… needs an open note')
+    expect(reason('editor.reflow-paragraph')).toBe('Reflow Paragraph needs a note open in the editor')
+    expect(reason('note.trash')).toBe('Move Note to Trash needs an open note')
+    useStore.setState({ activeNote: { ...(active as object), folder: 'trash' } as never })
+    expect(reason('note.trash')).toBe('This note is already in the Trash')
+    expect(reason('note.unarchive')).toBe('Unarchive Note only works on a note in the Archive')
+  })
+})

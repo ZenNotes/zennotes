@@ -57,13 +57,10 @@ import {
 } from "@shared/workflows/presets";
 import { startWorkflowTutorial } from "../lib/workflow-tutorial-flow";
 import type { LineNumberMode, WhichKeyHintMode } from "../store";
-import type {
-  KeymapDefinition,
-  KeymapId,
-  KeymapOverrides,
-} from "../lib/keymaps";
+import type { KeymapId, KeymapOverrides } from "../lib/keymaps";
 import {
   findKeymapConflict,
+  formatKeyToken,
   formatKeymapBinding,
   getDefaultKeymapBinding,
   getKeymapBinding,
@@ -72,11 +69,23 @@ import {
   isMacPlatform,
   isUnboundBinding,
   keymapAvailableOnHost,
-  sequenceTokenFromEvent,
   shortcutBindingFromEvent,
   UNBOUND_BINDING,
   UNBOUND_LABEL,
 } from "../lib/keymaps";
+import { COMMAND_CATALOG } from "@shared/commands-catalog";
+import {
+  commandBindingKind,
+  findActionCommandConflicts,
+  findCommandBindingConflicts,
+  formatCommandBinding,
+  type CommandKeymaps,
+} from "../lib/command-keymaps";
+import { buildCommands } from "../lib/commands";
+import {
+  KeymapRecorderModal,
+  type KeymapRecorderTarget,
+} from "./KeymapRecorder";
 import {
   resolveAuto,
   THEMES,
@@ -692,6 +701,8 @@ export function SettingsModal(): JSX.Element {
   );
   const keymapOverrides = useStore((s) => s.keymapOverrides);
   const setKeymapBinding = useStore((s) => s.setKeymapBinding);
+  const commandKeymaps = useStore((s) => s.commandKeymaps);
+  const setCommandKeymapBinding = useStore((s) => s.setCommandKeymapBinding);
   const resetAllKeymaps = useStore((s) => s.resetAllKeymaps);
   const whichKeyHints = useStore((s) => s.whichKeyHints);
   const setWhichKeyHints = useStore((s) => s.setWhichKeyHints);
@@ -3514,6 +3525,14 @@ export function SettingsModal(): JSX.Element {
             "keyboard",
           ],
         },
+        // One row per palette command (#971), found by its title or id and
+        // landing on the command's row in the Commands group.
+        ...COMMAND_CATALOG.map((entry) => ({
+          id: `command-keymap:${entry.id}`,
+          title: entry.title,
+          description: `Give the ${entry.category} command a key · ${entry.id}`,
+          keywords: [entry.id],
+        })),
       ],
       content: (
         <div
@@ -3523,7 +3542,11 @@ export function SettingsModal(): JSX.Element {
           <KeymapSettings
             vimMode={vimMode}
             overrides={keymapOverrides}
+            commandKeymaps={commandKeymaps ?? {}}
             onSetBinding={(id, binding) => setKeymapBinding(id, binding)}
+            onSetCommandBinding={(id, binding) =>
+              setCommandKeymapBinding(id, binding)
+            }
             onResetAll={resetAllKeymaps}
           />
         </div>
@@ -6405,19 +6428,56 @@ export function SettingsModal(): JSX.Element {
   );
 }
 
+/** The key a command already has from elsewhere (a leader chord, `:w`), read
+ *  off the live command list. Empty where that list cannot be built. */
+function liveBuiltinShortcuts(): Map<string, string> {
+  try {
+    return new Map(
+      buildCommands({ includeUnavailable: true }).map((command) => [
+        command.id,
+        command.builtinShortcut ?? "",
+      ]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const KEYMAP_CHIP =
+  "rounded-full border px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em]";
+const KEYMAP_ROW_BUTTON =
+  "rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors";
+const KEYMAP_ROW_BUTTON_ON =
+  "border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200";
+const KEYMAP_ROW_BUTTON_OFF =
+  "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400";
+
 function KeymapSettings({
   vimMode,
   overrides,
+  commandKeymaps,
   onSetBinding,
+  onSetCommandBinding,
   onResetAll,
 }: {
   vimMode: boolean;
   overrides: KeymapOverrides;
+  commandKeymaps: CommandKeymaps;
   onSetBinding: (id: KeymapId, binding: string | null) => void;
+  onSetCommandBinding: (id: string, binding: string | null) => void;
   onResetAll: () => void;
 }): JSX.Element {
   const [query, setQuery] = useState("");
-  const [recording, setRecording] = useState<KeymapDefinition | null>(null);
+  const [recording, setRecording] = useState<KeymapRecorderTarget | null>(
+    null,
+  );
+  const conflictContext = { overrides, commandKeymaps };
+  const builtinShortcuts = useMemo(
+    () => liveBuiltinShortcuts(),
+    // The composed chords follow the leader and Vim mode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [overrides, vimMode],
+  );
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -6426,14 +6486,6 @@ function KeymapSettings({
       .map((group) => {
         const items = group.items.filter((definition) => {
           if (!keymapAvailableOnHost(definition.id, capabilities)) return false;
-          if (
-            definition.vimOnly &&
-            !vimMode &&
-            definition.id !== "global.searchNotesNonVim"
-          ) {
-            // Keep Vim-only bindings visible so users can prep their layout
-            // before turning Vim mode back on, but still let the filter work.
-          }
           if (!q) return true;
           const display =
             getKeymapDisplay(overrides, definition.id) || UNBOUND_LABEL;
@@ -6451,9 +6503,24 @@ function KeymapSettings({
         ): group is ReturnType<typeof getKeymapDefinitionsByGroup>[number] =>
           !!group,
       );
-  }, [overrides, query, vimMode]);
+  }, [overrides, query]);
 
-  const hasOverrides = Object.keys(overrides).length > 0;
+  // The fifth group (#971): every palette command with a fixed id. Found by
+  // its title, category, keywords or id, and by the key it has.
+  const commandRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return COMMAND_CATALOG.filter((entry) => {
+      if (!q) return true;
+      const display =
+        formatCommandBinding(commandKeymaps[entry.id], overrides) ||
+        UNBOUND_LABEL;
+      return [entry.title, entry.category, entry.keywords ?? "", entry.id, display]
+        .some((part) => part.toLowerCase().includes(q));
+    });
+  }, [commandKeymaps, overrides, query]);
+
+  const hasOverrides =
+    Object.keys(overrides).length > 0 || Object.keys(commandKeymaps).length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -6467,9 +6534,9 @@ function KeymapSettings({
               </div>
               <div className="mt-1 text-xs leading-5 text-ink-500">
                 Record a new key or sequence for the app’s keyboard-first
-                actions, or unbind one so no key triggers it. Standard
-                accessibility fallbacks like arrows, Enter, and Escape still
-                work.
+                actions, give any command in the palette a key of its own, or
+                unbind one so no key triggers it. Standard accessibility
+                fallbacks like arrows, Enter, and Escape still work.
               </div>
             </div>
             <div className="flex max-w-full flex-wrap items-center gap-2">
@@ -6512,6 +6579,13 @@ function KeymapSettings({
                     definition.id,
                     current,
                   );
+                  // A command's key on this action's key (#971), seen from
+                  // the action's side.
+                  const commandHits = findActionCommandConflicts(
+                    definition.id,
+                    current,
+                    conflictContext,
+                  );
                   const inactive =
                     (definition.vimOnly && !vimMode) ||
                     (definition.nonVimOnly && vimMode);
@@ -6520,6 +6594,7 @@ function KeymapSettings({
                   return (
                     <div
                       key={definition.id}
+                      data-keymap-row={definition.id}
                       className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-4"
                     >
                       <div className="min-w-0 flex-1 basis-56">
@@ -6528,22 +6603,56 @@ function KeymapSettings({
                             {definition.title}
                           </span>
                           {inactive && (
-                            <span className="rounded-full border border-paper-300/70 bg-paper-100/85 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-ink-500">
+                            <span
+                              className={`${KEYMAP_CHIP} border-paper-300/70 bg-paper-100/85 text-ink-500`}
+                            >
                               {definition.vimOnly ? "Vim only" : "Non-Vim only"}
                             </span>
                           )}
                           {custom && (
-                            <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-accent">
+                            <span
+                              className={`${KEYMAP_CHIP} border-accent/25 bg-accent/10 text-accent`}
+                            >
                               Custom
                             </span>
                           )}
                           {conflict && (
                             <span
-                              className="rounded-full border border-danger/35 bg-danger/10 px-2 py-0.5 text-2xs font-medium uppercase tracking-[0.14em] text-danger"
+                              className={`${KEYMAP_CHIP} border-danger/35 bg-danger/10 text-danger`}
                               title={`Also bound to “${conflict.title}”. Two global shortcuts on one key means one is ignored. Reassign one to resolve.`}
                             >
                               Conflicts with {conflict.title}
                             </span>
+                          )}
+                          {commandHits.map((hit) =>
+                            definition.scope === "leader" ? (
+                              <span
+                                key={hit.id}
+                                data-keymap-conflict="blocks-command"
+                                className={`${KEYMAP_CHIP} border-warning/35 bg-warning/10 text-ink-700`}
+                                title={`Your key sequence for the command “${hit.title}” starts with this leader key. Built-in leader keys always win, so that command cannot be reached until one of them moves.`}
+                              >
+                                Blocks command {hit.title}
+                              </span>
+                            ) : custom ? (
+                              <span
+                                key={hit.id}
+                                data-keymap-conflict="command"
+                                className={`${KEYMAP_CHIP} border-danger/35 bg-danger/10 text-danger`}
+                                title={`Your key for the command “${hit.title}” is the same. The command wins; reassign one to resolve.`}
+                              >
+                                Conflicts with command {hit.title}
+                              </span>
+                            ) : (
+                              <span
+                                key={hit.id}
+                                data-keymap-conflict="taken-by-command"
+                                className={`${KEYMAP_CHIP} border-warning/35 bg-warning/10 text-ink-700`}
+                                title={`Your key for the command “${hit.title}” wins over this default, so this action does not answer it.`}
+                              >
+                                Taken by command {hit.title}
+                              </span>
+                            ),
                           )}
                         </div>
                         <div className="mt-1 text-xs leading-5 text-ink-500">
@@ -6565,8 +6674,10 @@ function KeymapSettings({
                         </span>
                         <button
                           type="button"
-                          onClick={() => setRecording(definition)}
-                          className="rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 transition-colors hover:bg-paper-200"
+                          onClick={() =>
+                            setRecording({ kind: "action", definition })
+                          }
+                          className={`${KEYMAP_ROW_BUTTON} border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200`}
                         >
                           Change…
                         </button>
@@ -6577,12 +6688,7 @@ function KeymapSettings({
                             onSetBinding(definition.id, UNBOUND_BINDING)
                           }
                           title="Remove the key entirely. Nothing triggers this action until it is rebound or reset."
-                          className={[
-                            "rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-                            unbound
-                              ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
-                              : "border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200",
-                          ].join(" ")}
+                          className={`${KEYMAP_ROW_BUTTON} ${unbound ? KEYMAP_ROW_BUTTON_OFF : KEYMAP_ROW_BUTTON_ON}`}
                         >
                           Unbind
                         </button>
@@ -6590,12 +6696,7 @@ function KeymapSettings({
                           type="button"
                           disabled={!custom}
                           onClick={() => onSetBinding(definition.id, null)}
-                          className={[
-                            "rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors",
-                            custom
-                              ? "border-paper-300/70 bg-paper-100/80 text-ink-700 hover:bg-paper-200"
-                              : "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400",
-                          ].join(" ")}
+                          className={`${KEYMAP_ROW_BUTTON} ${custom ? KEYMAP_ROW_BUTTON_ON : KEYMAP_ROW_BUTTON_OFF}`}
                         >
                           Reset
                         </button>
@@ -6606,7 +6707,146 @@ function KeymapSettings({
               </div>
             </div>
           ))}
-          {groups.length === 0 && (
+          {commandRows.length > 0 && (
+            <div data-keymap-group="commands">
+              <div className="px-5 pt-4 text-xs font-medium uppercase tracking-[0.18em] text-ink-500">
+                Commands
+              </div>
+              <div className="px-5 pt-1 text-xs leading-5 text-ink-500">
+                Every command in the palette can take a key: a chord with
+                Ctrl, Alt or {isMacPlatform() ? "Cmd" : "Meta"}, a function
+                key, or with Vim mode on a leader sequence. All start unbound.{" "}
+                {formatKeyToken("Alt+Enter")} on a palette row records one there
+                too.
+              </div>
+              <div className="pb-4">
+                {commandRows.map((entry) => {
+                  const binding = commandKeymaps[entry.id];
+                  const custom = binding !== undefined;
+                  const kind = commandBindingKind(binding);
+                  const unbound = !kind;
+                  const { blocking, shadows } = findCommandBindingConflicts(
+                    entry.id,
+                    binding ?? "",
+                    conflictContext,
+                  );
+                  const inert = kind === "sequence" && !vimMode;
+                  const builtin = builtinShortcuts.get(entry.id) ?? "";
+                  return (
+                    <div
+                      key={entry.id}
+                      data-command-keymap-row={entry.id}
+                      {...settingsSearchTargetProps(`command-keymap:${entry.id}`)}
+                      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-4"
+                    >
+                      <div className="min-w-0 flex-1 basis-56">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-sm font-medium text-ink-900">
+                            {entry.title}
+                          </span>
+                          <span
+                            className={`${KEYMAP_CHIP} border-paper-300/70 bg-paper-100/85 text-ink-500`}
+                          >
+                            {entry.category}
+                          </span>
+                          {inert && (
+                            <span
+                              data-command-keymap-inert=""
+                              className={`${KEYMAP_CHIP} border-paper-300/70 bg-paper-100/85 text-ink-500`}
+                              title="A leader sequence runs through Vim mode's leader key, so it does nothing while Vim mode is off."
+                            >
+                              Inert with Vim off
+                            </span>
+                          )}
+                          {custom && (
+                            <span
+                              className={`${KEYMAP_CHIP} border-accent/25 bg-accent/10 text-accent`}
+                            >
+                              Custom
+                            </span>
+                          )}
+                          {blocking.map((hit) => (
+                            <span
+                              key={`b-${hit.id}`}
+                              data-keymap-conflict="blocking"
+                              className={`${KEYMAP_CHIP} border-danger/35 bg-danger/10 text-danger`}
+                              title={`Also bound to “${hit.title}”. Reassign one to resolve.`}
+                            >
+                              Conflicts with {hit.title}
+                            </span>
+                          ))}
+                          {shadows.map((hit) => (
+                            <span
+                              key={`s-${hit.id}`}
+                              data-keymap-conflict="shadows"
+                              className={`${KEYMAP_CHIP} border-warning/35 bg-warning/10 text-ink-700`}
+                              title={`This is the default key of “${hit.title}”. Your key wins, so that action does not answer it.`}
+                            >
+                              Wins over {hit.title}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="mt-1 text-xs leading-5 text-ink-500">
+                          <code className="font-mono">{entry.id}</code>
+                          {builtin && <> · also {builtin}</>}
+                        </div>
+                      </div>
+                      <div className="flex max-w-full flex-wrap items-center gap-2">
+                        <span
+                          data-command-keymap-binding=""
+                          className={[
+                            "rounded-xl border px-3 py-1.5 text-xs font-medium",
+                            unbound
+                              ? "border-dashed border-paper-300/70 bg-paper-100/45 text-ink-500"
+                              : "border-paper-300/70 bg-paper-100/85 text-ink-900",
+                          ].join(" ")}
+                        >
+                          {unbound
+                            ? UNBOUND_LABEL
+                            : formatCommandBinding(binding, overrides)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setRecording({
+                              kind: "command",
+                              id: entry.id,
+                              title: entry.title,
+                              category: entry.category,
+                              builtinShortcut: builtin || undefined,
+                            })
+                          }
+                          className={`${KEYMAP_ROW_BUTTON} border-paper-300/70 bg-paper-100/80 text-ink-800 hover:bg-paper-200`}
+                        >
+                          Change…
+                        </button>
+                        <button
+                          type="button"
+                          disabled={unbound}
+                          onClick={() =>
+                            onSetCommandBinding(entry.id, UNBOUND_BINDING)
+                          }
+                          title="Remove the key entirely."
+                          className={`${KEYMAP_ROW_BUTTON} ${unbound ? KEYMAP_ROW_BUTTON_OFF : KEYMAP_ROW_BUTTON_ON}`}
+                        >
+                          Unbind
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!custom}
+                          onClick={() => onSetCommandBinding(entry.id, null)}
+                          className={`${KEYMAP_ROW_BUTTON} ${custom ? KEYMAP_ROW_BUTTON_ON : KEYMAP_ROW_BUTTON_OFF}`}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {groups.length === 0 && commandRows.length === 0 && (
             <div className="px-5 py-10 text-center text-sm text-ink-500">
               No keymaps match your filter.
             </div>
@@ -6616,21 +6856,30 @@ function KeymapSettings({
 
       {recording && (
         <KeymapRecorderModal
-          definition={recording}
+          target={recording}
           overrides={overrides}
-          currentBinding={getKeymapBinding(overrides, recording.id)}
+          commandKeymaps={commandKeymaps}
+          vimMode={vimMode}
           onClose={() => setRecording(null)}
           onSave={(binding) => {
-            onSetBinding(
-              recording.id,
-              binding === getDefaultKeymapBinding(recording.id)
-                ? null
-                : binding,
-            );
+            if (recording.kind === "action") {
+              onSetBinding(
+                recording.definition.id,
+                binding === getDefaultKeymapBinding(recording.definition.id)
+                  ? null
+                  : binding,
+              );
+            } else {
+              onSetCommandBinding(recording.id, binding);
+            }
             setRecording(null);
           }}
           onUnbind={() => {
-            onSetBinding(recording.id, UNBOUND_BINDING);
+            if (recording.kind === "action") {
+              onSetBinding(recording.definition.id, UNBOUND_BINDING);
+            } else {
+              onSetCommandBinding(recording.id, UNBOUND_BINDING);
+            }
             setRecording(null);
           }}
         />
@@ -6720,172 +6969,6 @@ function IgnoredKeysRow({ settingId }: { settingId?: string }): JSX.Element {
         </div>
       )}
     </div>
-  );
-}
-
-function KeymapRecorderModal({
-  definition,
-  overrides,
-  currentBinding,
-  onClose,
-  onSave,
-  onUnbind,
-}: {
-  definition: KeymapDefinition;
-  overrides: KeymapOverrides;
-  currentBinding: string;
-  onClose: () => void;
-  onSave: (binding: string) => void;
-  onUnbind: () => void;
-}): JSX.Element {
-  const [binding, setBinding] = useState(currentBinding);
-  const mac = isMacPlatform();
-  // Block saving a global shortcut that another action already owns (#298).
-  const conflict = binding
-    ? findKeymapConflict(overrides, definition.id, binding)
-    : null;
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
-      )
-        return;
-      const key = event.key;
-      if (key === "Backspace" || key === "Delete") {
-        event.preventDefault();
-        event.stopPropagation();
-        if (definition.kind === "shortcut") {
-          setBinding("");
-          return;
-        }
-        setBinding((current) => {
-          const tokens = current.split(/\s+/).filter(Boolean);
-          tokens.pop();
-          return tokens.join(" ");
-        });
-        return;
-      }
-
-      const next =
-        definition.kind === "shortcut"
-          ? shortcutBindingFromEvent(event)
-          : sequenceTokenFromEvent(event);
-      if (!next) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (definition.kind === "shortcut") {
-        setBinding(next);
-        return;
-      }
-
-      setBinding((current) => {
-        const limit = definition.maxTokens ?? 2;
-        const tokens = current.split(/\s+/).filter(Boolean);
-        if (limit <= 1) return next;
-        if (tokens.length >= limit) return next;
-        return [...tokens, next].join(" ");
-      });
-    };
-
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [definition]);
-
-  const display = binding
-    ? formatKeymapBinding(binding, definition.kind)
-    : "Press a key…";
-
-  return createPortal(
-    <div className="fixed inset-0 z-toast flex items-center justify-center bg-black/35 px-4 backdrop-blur-sm">
-      <div className="w-[min(440px,92vw)] overflow-hidden rounded-2xl border border-paper-300/70 bg-paper-100 shadow-float">
-        <div className="border-b border-paper-300/60 px-5 py-4">
-          <div className="text-base font-semibold text-ink-900">
-            {definition.title}
-          </div>
-          <div className="mt-1 text-sm text-ink-500">
-            {definition.description}
-          </div>
-        </div>
-        <div className="px-5 py-4">
-          <div className="rounded-xl border border-paper-300/70 bg-paper-50/80 px-4 py-4">
-            <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-              Recording
-            </div>
-            <div className="mt-2 text-2xl font-semibold text-ink-900">
-              {display}
-            </div>
-            <div className="mt-2 text-xs leading-5 text-ink-500">
-              {definition.kind === "shortcut"
-                ? `Press the shortcut you want; Backspace clears it. ${mac ? "Command" : "Ctrl"}-style chords are saved in the app’s cross-platform format. Unbind leaves the action with no key at all.`
-                : `Press the sequence you want. Backspace removes the last token, and multi-step sequences stop at ${definition.maxTokens ?? 2} key${(definition.maxTokens ?? 2) === 1 ? "" : "s"}. Unbind leaves the action with no key at all.`}
-            </div>
-          </div>
-          {conflict && (
-            <div className="mt-3 flex items-start gap-2 rounded-xl border border-danger/35 bg-danger/10 px-3 py-2.5 text-xs leading-5 text-danger">
-              <span aria-hidden>⚠</span>
-              <span>
-                Already used by{" "}
-                <strong className="font-semibold">{conflict.title}</strong>. Two
-                global shortcuts can’t share a key. Reset or reassign that one
-                first.
-              </span>
-            </div>
-          )}
-          <div className="mt-3 text-xs text-ink-500">
-            Current:{" "}
-            {isUnboundBinding(currentBinding)
-              ? UNBOUND_LABEL
-              : formatKeymapBinding(currentBinding, definition.kind)}
-          </div>
-          <div className="mt-1 text-xs text-ink-500">
-            Default:{" "}
-            {formatKeymapBinding(
-              getDefaultKeymapBinding(definition.id),
-              definition.kind,
-            )}
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-3 border-t border-paper-300/60 px-5 py-3">
-          <button
-            type="button"
-            onClick={onUnbind}
-            disabled={isUnboundBinding(currentBinding)}
-            title="Save this action with no key at all."
-            className={[
-              "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
-              isUnboundBinding(currentBinding)
-                ? "cursor-not-allowed border-paper-300/60 bg-paper-100/45 text-ink-400"
-                : "border-paper-300 bg-paper-100 text-ink-700 hover:bg-paper-200",
-            ].join(" ")}
-          >
-            Unbind
-          </button>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-paper-300 bg-paper-100 px-3 py-1.5 text-xs font-medium text-ink-700 transition-colors hover:bg-paper-200"
-            >
-              Cancel
-            </button>
-            <Button
-              variant="primary"
-              size="sm"
-              disabled={!binding || !!conflict}
-              onClick={() => onSave(binding)}
-            >
-              Save
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 

@@ -1,5 +1,8 @@
 export type CommandPaletteMode = 'main' | 'theme' | 'vault' | 'workflow'
-export type CommandPaletteInitialMode = 'main' | 'vault'
+/** The list the palette opens on. Besides the command list: the vault
+ *  switcher (`<leader>v`), and the theme and workflow pickers, which a key
+ *  bound to Themes… or Run Workflow… opens directly (#971). */
+export type CommandPaletteInitialMode = 'main' | 'vault' | 'theme' | 'workflow'
 
 /**
  * Whether Escape (and the "‹ Back" affordance) should step the command

@@ -90,15 +90,13 @@ import { focusPaneInDirection, focusPaneOrEdgePanel } from "../lib/pane-nav";
 import { requestPaneMode } from "../lib/pane-mode";
 import {
   getKeymapBinding,
-  getKeymapDefinitions,
-  getKeymapDisplay,
   getSequenceTokens,
-  UNBOUND_BINDING,
   type KeymapId,
   type KeymapOverrides,
 } from "../lib/keymaps";
 import { requestSettingsTarget } from "../lib/settings-navigation";
 import { useToastStore } from "../lib/toast";
+import { runBindEx, runUnbindEx } from "../lib/command-keymap-ex";
 import {
   navigateActiveBuffer,
   selectActiveBuffer,
@@ -687,36 +685,25 @@ function registerVimCommands(): void {
     },
   );
   // `:unbind <action.id>` removes an action's key entirely, the ex twin of
-  // the Unbind button under Settings, Keymaps. Without an argument, or with
-  // an id the catalog does not know, it opens that page, where every id is
-  // listed, instead of guessing.
+  // the Unbind button under Settings, Keymaps; `:unbind command <id>` does
+  // the same for a command palette command (#971). Without an argument, or
+  // with an id nothing knows, it opens that page, where every id is listed,
+  // instead of guessing.
   Vim.defineEx(
     "unbind",
     "unbind",
     (_cm: unknown, params: { argString?: string } | undefined) => {
-      const arg = (params?.argString ?? "").trim();
-      const state = useStore.getState();
-      const definition = getKeymapDefinitions().find((d) => d.id === arg);
-      if (!definition) {
-        if (arg) {
-          useToastStore
-            .getState()
-            .addToast(`No keymap action is called "${arg}"`, "info");
-        }
-        requestSettingsTarget("keymaps");
-        state.setSettingsOpen(true);
-        return;
-      }
-      const before = getKeymapDisplay(state.keymapOverrides, definition.id);
-      state.setKeymapBinding(definition.id, UNBOUND_BINDING);
-      useToastStore
-        .getState()
-        .addToast(
-          before
-            ? `Unbound ${definition.title} (was ${before})`
-            : `${definition.title} is already unbound`,
-          "success",
-        );
+      runUnbindEx(params?.argString ?? "");
+    },
+  );
+  // `:bind <keys> <command.id>` gives a command palette command a key (#971):
+  // `:bind <C-BS> note.trash`, `:bind <leader>xa note.archive`, or the
+  // Settings spelling, `:bind Mod+Backspace note.trash`.
+  Vim.defineEx(
+    "bind",
+    "bind",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      runBindEx(params?.argString ?? "");
     },
   );
   Vim.defineEx("quit", "q", () => {
@@ -1386,6 +1373,7 @@ const MANUAL_EX_NAMES = new Set([
   "wq",
   "format",
   "unbind",
+  "bind",
   "tasks",
   "tag",
   "template",

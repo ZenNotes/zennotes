@@ -24,6 +24,7 @@ import {
   KEYMAP_GROUP_ORDER,
   KEYMAP_GROUP_LABELS
 } from '@shared/keymaps-catalog'
+import { COMMAND_CATALOG, isBindableCommandId } from '@shared/commands-catalog'
 import { writeFileAtomic } from './vault'
 
 const CONFIG_FILE_NAME = 'config.toml'
@@ -665,6 +666,7 @@ export function serializeConfig(portable: AppConfigPortable): string {
   }
 
   lines.push(...keymapSectionLines(portable.keymapOverrides))
+  lines.push(...commandKeymapSectionLines(portable.commandKeymaps))
 
   for (const key of Object.keys(MAP_TABLE_FIELDS) as PortablePrefKey[]) {
     if (key === 'keymapOverrides') continue // emitted with its full reference above
@@ -743,6 +745,83 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
   return lines
 }
 
+/** Build the `[keymaps.commands]` block (#971): the keys given to command
+ *  palette commands, then every bindable command as a commented reference.
+ *  Every command starts unbound, so the reference shows `""`: uncomment a
+ *  line and fill in a key. Static, so it reads the same on every OS (#901). */
+function commandKeymapSectionLines(rawBindings: unknown): string[] {
+  const bindings: Record<string, string> = {}
+  if (rawBindings && typeof rawBindings === 'object' && !Array.isArray(rawBindings)) {
+    for (const [key, value] of Object.entries(rawBindings as Record<string, unknown>)) {
+      if (typeof value === 'string') bindings[key] = value
+    }
+  }
+
+  const lines = [
+    '',
+    '# Keys for command palette commands. Add or uncomment "<command.id>" = "<key>".',
+    '# Every command starts unbound. A key is a chord with Ctrl, Alt or Cmd',
+    '# ("Mod+Backspace", "Alt+Mod+T") or a function key ("F5"), or, with Vim',
+    '# mode on, a leader sequence of one to three keys ("Leader x t", which',
+    '# reads as Space x t while Space is the leader). A sequence may not start',
+    '# on a key the built-in leader uses. "" leaves a command with no key.',
+    '[keymaps.commands]'
+  ]
+
+  for (const [key, value] of Object.entries(bindings)) {
+    const line = `${tomlKey(key)} = ${tomlValue(value)}`
+    lines.push(value === '' ? `${line}  # unbound` : line)
+  }
+
+  lines.push('', '# --- All commands (uncomment + add a key to bind one) ---')
+  for (const entry of COMMAND_CATALOG) {
+    if (entry.id in bindings) continue
+    lines.push(`# ${tomlKey(entry.id)} = ""  # ${entry.category}: ${entry.title}`)
+  }
+
+  return lines
+}
+
+/**
+ * Split the parsed `[keymaps]` table: built-in action overrides stay
+ * `keymapOverrides`, the `[keymaps.commands]` sub-table is `commandKeymaps`.
+ * A command id written straight under `[keymaps]` (`"note.trash" = "..."`,
+ * which the old docs suggested and nothing read) counts as a command binding
+ * when no action has that id; `nav.back`, both, stays the action. The
+ * canonical table wins over such a line, and the next write moves the line
+ * into it.
+ */
+function readKeymapsTable(table: unknown): {
+  keymapOverrides?: Record<string, unknown>
+  commandKeymaps?: Record<string, string>
+} {
+  if (!table || typeof table !== 'object' || Array.isArray(table)) return {}
+  const actionIds = new Set(KEYMAP_CATALOG.map((entry) => entry.id))
+  const overrides: Record<string, unknown> = {}
+  const commands: Record<string, string> = {}
+  const courtesy: Record<string, string> = {}
+  let sawCommands = false
+  for (const [key, value] of Object.entries(table as Record<string, unknown>)) {
+    if (key === 'commands' && value && typeof value === 'object' && !Array.isArray(value)) {
+      sawCommands = true
+      for (const [id, binding] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof binding === 'string') commands[id] = binding
+      }
+      continue
+    }
+    if (!actionIds.has(key) && isBindableCommandId(key) && typeof value === 'string') {
+      courtesy[key] = value
+      continue
+    }
+    overrides[key] = value
+  }
+  const merged = { ...courtesy, ...commands }
+  return {
+    keymapOverrides: overrides,
+    ...(sawCommands || Object.keys(merged).length > 0 ? { commandKeymaps: merged } : {})
+  }
+}
+
 /** Parse TOML text into a portable config object plus its version. Throws on
  *  malformed TOML — callers fall back to the last good config. */
 export function deserializeConfig(text: string): { version: number; portable: AppConfigPortable } {
@@ -767,6 +846,12 @@ export function deserializeConfig(text: string): { version: number; portable: Ap
   for (const [key, def] of Object.entries(MAP_TABLE_FIELDS)) {
     if (!def) continue
     const value = parsed[def.table]
+    if (key === 'keymapOverrides') {
+      const { keymapOverrides, commandKeymaps } = readKeymapsTable(value)
+      if (keymapOverrides) portable.keymapOverrides = keymapOverrides
+      if (commandKeymaps) portable.commandKeymaps = commandKeymaps
+      continue
+    }
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       portable[key as PortablePrefKey] = value
     }

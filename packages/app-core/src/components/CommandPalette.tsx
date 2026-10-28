@@ -36,6 +36,10 @@ import {
 import { useCloudSyncStatusStore } from '../lib/cloud-auto-sync'
 import { getPublishNoteRequest } from '../lib/publish-note-requests'
 import { Modal } from './ui/Modal'
+import { KeymapRecorderModal } from './KeymapRecorder'
+import { isBindableCommandId } from '../lib/command-keymaps'
+import { formatKeyToken } from '../lib/keymaps'
+import { useToastStore } from '../lib/toast'
 
 type Mode = 'main' | 'theme' | 'vault' | 'workflow'
 
@@ -76,11 +80,30 @@ export function CommandPalette(): JSX.Element {
   const listRef = useRef<HTMLDivElement | null>(null)
 
   // Original theme snapshot captured when entering the theme picker.
-  // Used to revert if the user cancels with Escape or clicks outside.
-  const originalThemeRef = useRef<ThemeSnapshot | null>(null)
+  // Used to revert if the user cancels with Escape or clicks outside. A
+  // palette opened straight on the theme list (a key bound to Themes…)
+  // takes it as it opens.
+  const originalThemeRef = useRef<ThemeSnapshot | null>(
+    initialMode === 'theme'
+      ? {
+          id: useStore.getState().themeId,
+          family: useStore.getState().themeFamily,
+          mode: useStore.getState().themeMode
+        }
+      : null
+  )
   const committedRef = useRef(false)
 
-  const allCommands = useMemo(() => buildCommands(), [])
+  const commandKeymaps = useStore((s) => s.commandKeymaps)
+  const keymapOverrides = useStore((s) => s.keymapOverrides)
+  const vimMode = useStore((s) => s.vimMode)
+  const setCommandKeymapBinding = useStore((s) => s.setCommandKeymapBinding)
+  // Alt+Enter on a row records a key for that command right here (#971).
+  const [recordingFor, setRecordingFor] = useState<Command | null>(null)
+
+  // Rebuilt when a command gets a key, so its row shows it straight away.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allCommands = useMemo(() => buildCommands(), [commandKeymaps])
 
   // Recently-used commands surfaced at the top — only with an empty query, in
   // command mode. `allCommands` is already filtered by each command's `when`
@@ -174,6 +197,8 @@ export function CommandPalette(): JSX.Element {
       void refreshLocalVaults()
       if (supportsRemoteWorkspace) void refreshRemoteWorkspaceProfiles()
     }
+    // The same re-read the picker does when drilled into from the list.
+    if (initialMode === 'workflow') void useStore.getState().loadWorkflowIndex()
   }, [initialMode, refreshLocalVaults, refreshRemoteWorkspaceProfiles, supportsRemoteWorkspace])
   // Selection sync:
   //  - Main mode: start at the top of the results on every query change.
@@ -345,6 +370,27 @@ export function CommandPalette(): JSX.Element {
     }
   }
 
+  /**
+   * Alt+Enter: record a key for the highlighted command without leaving the
+   * palette. The recorder opens over it, Enter saves, Escape comes back to
+   * the same row and query, and the row shows its new key. Inline rather
+   * than a jump to Settings → Keymap, which would drop the query, land on a
+   * page of three hundred rows and take two Escapes to come back from; the
+   * recorder is the same one Settings uses, conflict checks and all.
+   */
+  const startRecording = (cmd: Command): void => {
+    if (!isBindableCommandId(cmd.id)) {
+      useToastStore
+        .getState()
+        .addToast(
+          `${cmd.title} can't take a key: the palette makes it for what is in this vault, so it comes and goes`,
+          'info'
+        )
+      return
+    }
+    setRecordingFor(cmd)
+  }
+
   const commitTheme = (theme: ThemeOption): void => {
     setTheme({ id: theme.id, family: theme.family, mode: theme.mode })
     committedRef.current = true
@@ -387,6 +433,7 @@ export function CommandPalette(): JSX.Element {
             : 'Pick a vault'
 
   return (
+    <>
     <Modal size="md" layer="palette" onClose={() => closePalette()} closeOnEsc={false}>
       {canReturnToCommandList(mode, initialMode) && (
           <div className="flex items-center gap-2 border-b border-paper-300/70 bg-paper-200/40 px-4 py-2 text-xs text-ink-500">
@@ -427,6 +474,16 @@ export function CommandPalette(): JSX.Element {
                 e.preventDefault()
                 e.stopPropagation()
                 setActive((a) => Math.max(0, a - 1))
+              } else if (
+                e.key === 'Enter' &&
+                e.altKey &&
+                !e.metaKey &&
+                !e.ctrlKey &&
+                mode === 'main'
+              ) {
+                e.preventDefault()
+                const cmd = commandResults[active]
+                if (cmd) startRecording(cmd)
               } else if (e.key === 'Enter') {
                 e.preventDefault()
                 if (mode === 'main') {
@@ -623,6 +680,11 @@ export function CommandPalette(): JSX.Element {
                 ? 'keep theme'
                 : 'switch'}
           </span>
+          {mode === 'main' && (
+            <span data-palette-bind-hint="">
+              <kbd className="rounded bg-paper-200 px-1">{formatKeyToken('Alt+Enter')}</kbd> set key
+            </span>
+          )}
           <span>
             <kbd className="rounded bg-paper-200 px-1">esc</kbd>{' '}
             {!canReturnToCommandList(mode, initialMode)
@@ -633,5 +695,29 @@ export function CommandPalette(): JSX.Element {
           </span>
         </div>
     </Modal>
+    {recordingFor && (
+      <KeymapRecorderModal
+        target={{
+          kind: 'command',
+          id: recordingFor.id,
+          title: recordingFor.bindTitle ?? recordingFor.title,
+          category: recordingFor.category,
+          builtinShortcut: recordingFor.builtinShortcut || undefined
+        }}
+        overrides={keymapOverrides}
+        commandKeymaps={commandKeymaps}
+        vimMode={vimMode}
+        onClose={() => setRecordingFor(null)}
+        onSave={(binding) => {
+          setCommandKeymapBinding(recordingFor.id, binding)
+          setRecordingFor(null)
+        }}
+        onUnbind={() => {
+          setCommandKeymapBinding(recordingFor.id, '')
+          setRecordingFor(null)
+        }}
+      />
+    )}
+    </>
   )
 }
