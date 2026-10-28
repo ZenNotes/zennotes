@@ -148,7 +148,10 @@ final class ShareViewController: NSViewController {
         }
         stack.translatesAutoresizingMaskIntoConstraints = false
 
-        let root = NSView()
+        // A frame from the start: the share sheet takes the view's size when it
+        // presents, before Auto Layout has run, and a zero frame showed an
+        // empty sheet that only dimmed the host window.
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 240))
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             root.widthAnchor.constraint(equalToConstant: 440),
@@ -158,6 +161,17 @@ final class ShareViewController: NSViewController {
             stack.bottomAnchor.constraint(equalTo: root.bottomAnchor)
         ])
         view = root
+        fitToContent()
+    }
+
+    /// Sizes the sheet to what it shows: the preview grows with the shared
+    /// text, and the vault row and notice come and go.
+    private func fitToContent() {
+        view.layoutSubtreeIfNeeded()
+        let size = NSSize(width: 440, height: ceil(view.fittingSize.height))
+        guard size.height > 0, size != preferredContentSize else { return }
+        view.setFrameSize(size)
+        preferredContentSize = size
     }
 
     override func viewDidLoad() {
@@ -307,7 +321,9 @@ final class ShareViewController: NSViewController {
             .split(separator: "\n", omittingEmptySubsequences: true)
             .first.map { $0.trimmingCharacters(in: .whitespaces) }
         titleLabel.stringValue = content.title ?? (url == nil ? firstLine : nil) ?? url?.host ?? "Shared text"
-        detailLabel.stringValue = url.map { $0.host ?? $0.absoluteString } ?? ""
+        // The address without its scheme, so a page shown by its host alone
+        // still says which page it is.
+        detailLabel.stringValue = url.map { $0.absoluteString.replacingOccurrences(of: #"^https?://(www\.)?"#, with: "", options: .regularExpression) } ?? ""
         detailLabel.isHidden = url == nil
         let excerptText = url == nil && content.title == nil
             ? content.text?.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: true).dropFirst().first.map(String.init)
@@ -316,6 +332,7 @@ final class ShareViewController: NSViewController {
         (excerptLabel.superview as? NSStackView)?.isHidden = (excerptText ?? "").isEmpty
         saveButton.isEnabled = url != nil || content.text != nil
         updateNotice()
+        fitToContent()
         #if SHARE_SELFTEST
         let marker = [content.title, content.text, url?.absoluteString].compactMap { $0 }.joined(separator: " ")
         log.error("selftest received: title=\(self.content.title ?? "-", privacy: .public) url=\(url?.absoluteString ?? "-", privacy: .public) text=\(self.content.text?.prefix(80) ?? "-", privacy: .public)")
@@ -418,6 +435,7 @@ final class ShareViewController: NSViewController {
             notice.stringValue = ""
         }
         notice.isHidden = notice.stringValue.isEmpty
+        if isViewLoaded { fitToContent() }
     }
 
     // MARK: Save and cancel
