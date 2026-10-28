@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- macOS loads only sandboxed app extensions. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <!-- The one folder the extension may touch, inside the app's own
+       Application Support: shares wait there until the app files them, next
+       to the vault list the app keeps for the sheet. Not an App Group: macOS
+       creates a group's folder only for a process that asks through
+       Foundation, which Electron's main process cannot. -->
+  <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+  <array>
+    <string>/__SHARE_INBOX__/</string>
+  </array>
+</dict>
+</plist>

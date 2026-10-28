@@ -715,6 +715,22 @@ export async function saveConfig(cfg: PersistedConfig): Promise<void> {
     }
     throw err
   }
+  for (const listener of configSavedListeners) {
+    try {
+      listener(sanitized)
+    } catch (err) {
+      console.warn('Config listener failed', err)
+    }
+  }
+}
+
+const configSavedListeners = new Set<(cfg: PersistedConfig) => void>()
+
+/** Hears each config save once it is on disk. The macOS share sheet's vault
+ *  list follows the remembered vaults this way (share-inbox.ts). */
+export function onConfigSaved(listener: (cfg: PersistedConfig) => void): () => void {
+  configSavedListeners.add(listener)
+  return () => configSavedListeners.delete(listener)
 }
 
 /** The scratch file `writeFileAtomic` renames from: `<name>.<pid>.<stamp>.tmp`.

@@ -18,7 +18,7 @@ import {
 import { AsyncLocalStorage } from "node:async_hooks";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { openAsBlob, promises as fsp } from "node:fs";
+import { openAsBlob, promises as fsp, watch as watchPath } from "node:fs";
 import { homedir, hostname } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -88,6 +88,7 @@ import {
   listFolders,
   listNotes,
   loadConfig,
+  onConfigSaved,
   moveNote,
   moveAsset,
   moveToTrash,
@@ -252,6 +253,13 @@ import {
 } from "./undo-history-store";
 import { renderTikz } from "./tikz";
 import { fetchLinkMetadata } from "./link-metadata";
+import {
+  drainShareInbox,
+  SHARE_CAPTURES_FOLDER,
+  shareInboxFromInfoPlist,
+  shareVaultsFile,
+  writeShareVaults,
+} from "./share-inbox";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
 import {
   getMcpClientStatuses,
@@ -817,6 +825,132 @@ function handleStartupDeepLinks(argv: string[]): ExternalOpenUrlResult {
     }
   }
   return result;
+}
+
+// Share > ZenNotes from the macOS Share menu (share-inbox.ts). The share
+// extension leaves each share in the share inbox; they are filed in
+// Quick Notes at startup, as they arrive, and when a server one names
+// connects. A share made while the app was closed waits for the next launch.
+let shareInboxDir: string | null = null;
+let shareDrainRunning = false;
+let shareDrainAgain = false;
+let shareDrainTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function resolveShareInboxDir(): Promise<string | null> {
+  if (process.platform !== "darwin") return null;
+  // A scratch inbox for tests, gated like the user-data override: a packaged
+  // app honors it only with ZEN_PERF=1.
+  const override = process.env["ZENNOTES_SHARE_INBOX_DIR"]?.trim();
+  if (override && (process.env["ZEN_PERF"] === "1" || !app.isPackaged)) {
+    return path.resolve(override);
+  }
+  if (!app.isPackaged) return null;
+  try {
+    const plist = await fsp.readFile(
+      path.join(
+        process.resourcesPath,
+        "..",
+        "PlugIns",
+        "ZenNotesShare.appex",
+        "Contents",
+        "Info.plist",
+      ),
+      "utf8",
+    );
+    const inbox = shareInboxFromInfoPlist(plist);
+    return inbox ? path.join(app.getPath("home"), inbox) : null;
+  } catch {
+    return null; // this build carries no share extension
+  }
+}
+
+function scheduleShareDrain(): void {
+  if (!shareInboxDir) return;
+  if (shareDrainTimer) clearTimeout(shareDrainTimer);
+  shareDrainTimer = setTimeout(() => {
+    shareDrainTimer = null;
+    void runShareDrain();
+  }, 150);
+}
+
+async function runShareDrain(): Promise<void> {
+  const dir = shareInboxDir;
+  if (!dir) return;
+  if (shareDrainRunning) {
+    shareDrainAgain = true;
+    return;
+  }
+  shareDrainRunning = true;
+  try {
+    do {
+      shareDrainAgain = false;
+      const result = await drainShareInbox({
+        capturesDir: path.join(dir, SHARE_CAPTURES_FOLDER),
+        loadConfig,
+        fetchTitle: async (url) => {
+          const meta = await fetchLinkMetadata(url);
+          return meta.ok ? meta.title : undefined;
+        },
+        fileLocal: async (root, title, body) => {
+          const meta = await createNote(root, "quick", title);
+          await writeNote(root, meta.path, body);
+          return meta.path;
+        },
+        fileRemote: async (profileId, title, body) => {
+          const client = remoteWorkspaceClient;
+          if (!client || currentRemoteWorkspaceProfileId !== profileId) {
+            return null;
+          }
+          const meta = await client.createNote("quick", title);
+          await client.writeNote(meta.path, body);
+          return meta.path;
+        },
+        isDirectory: (candidate) =>
+          fsp.stat(candidate).then(
+            (stat) => stat.isDirectory(),
+            () => false,
+          ),
+      });
+      if (result.filed.length > 0 || result.setAside > 0) {
+        console.log(
+          `[share] filed ${result.filed.length}, waiting ${result.waiting}, set aside ${result.setAside}`,
+        );
+      }
+    } while (shareDrainAgain);
+  } catch (err) {
+    console.warn("Share inbox drain failed", err);
+  } finally {
+    shareDrainRunning = false;
+  }
+}
+
+async function startShareInbox(): Promise<void> {
+  const dir = await resolveShareInboxDir();
+  if (!dir) return;
+  const captures = path.join(dir, SHARE_CAPTURES_FOLDER);
+  try {
+    await fsp.mkdir(captures, { recursive: true });
+    await writeShareVaults(dir, shareVaultsFile(await loadConfig()));
+  } catch (err) {
+    console.warn("Share inbox unavailable", err);
+    return;
+  }
+  shareInboxDir = dir;
+  onConfigSaved((cfg) => {
+    writeShareVaults(dir, shareVaultsFile(cfg)).catch((err) =>
+      console.warn("Could not update the share sheet's vaults", err),
+    );
+  });
+  try {
+    // An unhandled watcher error (the inbox deleted under it) would throw in
+    // main; shares made after it still file at the next launch.
+    watchPath(captures, () => scheduleShareDrain()).on("error", (err) =>
+      console.warn("Share inbox watch stopped", err),
+    );
+  } catch (err) {
+    console.warn("Share inbox watch failed", err);
+  }
+  await runShareDrain();
 }
 
 function focusWindow(win: BrowserWindow): void {
@@ -2397,6 +2531,8 @@ async function setRemoteWorkspace(
     baseUrl: client.baseUrl,
   };
   startRemoteWatch(client, capabilities);
+  // Shares sent to this server while it was not connected file now.
+  scheduleShareDrain();
 
   if (options.persist !== false) {
     await updateConfig((cfg) => ({
@@ -6227,6 +6363,7 @@ app.whenReady().then(async () => {
   });
 
   appStartupComplete = true;
+  void startShareInbox();
   // A second instance that arrived while startup was still running queued its
   // paths (the eager flush stands down until here, #178) and nothing else
   // drains that queue: without this, `zn open` during app launch is silently
