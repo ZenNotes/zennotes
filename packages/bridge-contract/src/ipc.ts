@@ -412,9 +412,16 @@ export interface AppUpdateState {
   totalBytes: number | null
   bytesPerSecond: number | null
   message: string
+  /**
+   * The original text of a failed check or download (headers, stack and
+   * all), for a Details disclosure and bug reports. Never part of `message`,
+   * which stays a sentence a person can act on (#1003). Optional because a
+   * host that never updates itself has nothing to put here.
+   */
+  detail?: string | null
 }
 
-export type NoteFolder = 'inbox' | 'quick' | 'archive' | 'trash'
+export type NoteFolder ='inbox' | 'quick' | 'archive' | 'trash'
 
 export type PrimaryNotesLocation = 'inbox' | 'root'
 

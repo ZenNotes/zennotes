@@ -2,6 +2,7 @@ import { app, BrowserWindow, net, Notification, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { fetchLatestRelease, isNewerVersion } from './update-feed'
+import { describeUpdateError, UPDATE_OFFLINE_MESSAGE, type UpdateAction } from './update-error-copy'
 import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import electronUpdater, {
@@ -56,6 +57,7 @@ function makeState(overrides: Partial<AppUpdateState> = {}): AppUpdateState {
     totalBytes: null,
     bytesPerSecond: null,
     message: 'Check GitHub releases for a newer ZenNotes build.',
+    detail: null,
     ...overrides
   }
 }
@@ -138,29 +140,31 @@ function describeError(error: unknown): string {
   return messages.at(-1) ?? parts.at(-1) ?? 'Unknown updater error.'
 }
 
-function humanizeUpdateError(error: unknown): string {
-  const message = describeError(error)
-  if (isNetworkUnreachableError(error)) {
-    return `${message} ZenNotes could not reach GitHub. Check the connection and try again.`
-  }
-  if (/5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(message)) {
-    return `${message} GitHub returned a temporary network or server error while checking for updates. Try again in a moment, or open the latest release directly.`
-  }
-  if (/404|401|403|forbidden|unauthorized/i.test(message)) {
-    return `${message} GitHub-hosted end-user updates require public releases, or a special private-repo token setup.`
-  }
-  if (process.platform === 'darwin' && /sign|signature/i.test(message)) {
-    return `${message} macOS auto-updates require a signed app build.`
-  }
-  return message
+/**
+ * The error state for a failed check or download: a sentence for the person
+ * (#1003), and the original text kept apart as `detail` for Settings'
+ * Details disclosure and for the log, never in the message or a dialog.
+ */
+function updateErrorState(error: unknown, action: UpdateAction): AppUpdateState {
+  const copy = describeUpdateError(error, action)
+  const message = isNetworkUnreachableError(error) ? UPDATE_OFFLINE_MESSAGE : copy.message
+  return managedInstall
+    ? makeState({ phase: 'error', message, detail: copy.detail })
+    : nextStateFromInfo('error', lastInfo, message, { detail: copy.detail })
 }
 
-function isRetryableUpdateError(error: unknown): boolean {
-  const message =
-    error instanceof Error ? error.message : String(error)
-  return /5\d\d|gateway time-?out|timed out|econnreset|eai_again|socket hang up/i.test(
-    message
-  )
+/** The original text of a failure into the main process log. A missing
+ *  network is left out: the offline state already names its cause. */
+function logUpdateError(error: unknown, action: UpdateAction): void {
+  if (isNetworkUnreachableError(error)) return
+  const copy = describeUpdateError(error, action)
+  console.warn(`[updater] ${action} failed (${copy.kind}):`, copy.detail ?? copy.message)
+}
+
+/** Worth another attempt in a moment: GitHub answered 5xx or timed out. A
+ *  missing feed is not: the release takes minutes to finish publishing. */
+function isRetryableUpdateError(error: unknown, action: UpdateAction): boolean {
+  return describeUpdateError(error, action).retryable
 }
 
 function sleep(ms: number): Promise<void> {
@@ -436,14 +440,14 @@ export function initAppUpdater(): void {
     }
   })
   updater.on('error', (error) => {
+    const action: UpdateAction = updateState.phase === 'downloading' ? 'download' : 'check'
+    logUpdateError(error, action)
     // electron-updater emits this and rejects the same promise. Let the check
     // or download that owns the promise decide what an unreachable network
     // means (a wait, not an error); reporting it here first would flash the
     // error state through the renderer on the way.
     if (isNetworkUnreachableError(error)) return
-    setUpdateState(
-      nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
-    )
+    setUpdateState(updateErrorState(error, action))
   })
 
   setUpdateState(makeState())
@@ -464,7 +468,7 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
       await updater.checkForUpdates()
       return getAppUpdateState()
     } catch (error) {
-      const retryable = isRetryableUpdateError(error)
+      const retryable = isRetryableUpdateError(error, 'check')
       const hasAttemptsLeft = attempt < UPDATE_CHECK_MAX_ATTEMPTS
       if (retryable && hasAttemptsLeft) {
         setUpdateState(
@@ -482,9 +486,7 @@ export async function checkForAppUpdates(): Promise<AppUpdateState> {
         waitForNetwork(error)
         break
       }
-      setUpdateState(
-        nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
-      )
+      setUpdateState(updateErrorState(error, 'check'))
       break
     }
   }
@@ -536,7 +538,9 @@ async function checkManagedInstallForUpdates(): Promise<AppUpdateState> {
       }
       return getAppUpdateState()
     } catch (error) {
-      if (isRetryableUpdateError(error) && attempt < UPDATE_CHECK_MAX_ATTEMPTS) {
+      // No electron-updater here to emit and log the error for us.
+      logUpdateError(error, 'check')
+      if (isRetryableUpdateError(error, 'check') && attempt < UPDATE_CHECK_MAX_ATTEMPTS) {
         setUpdateState(
           makeState({
             phase: 'checking',
@@ -550,7 +554,7 @@ async function checkManagedInstallForUpdates(): Promise<AppUpdateState> {
         waitForNetwork(error)
         return getAppUpdateState()
       }
-      setUpdateState(makeState({ phase: 'error', message: humanizeUpdateError(error) }))
+      setUpdateState(updateErrorState(error, 'check'))
       return getAppUpdateState()
     }
   }
@@ -612,9 +616,7 @@ export async function downloadAppUpdate(): Promise<AppUpdateState> {
   try {
     await updater.downloadUpdate()
   } catch (error) {
-    setUpdateState(
-      nextStateFromInfo('error', lastInfo, humanizeUpdateError(error))
-    )
+    setUpdateState(updateErrorState(error, 'download'))
   }
 
   return getAppUpdateState()

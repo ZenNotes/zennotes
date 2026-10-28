@@ -16,6 +16,8 @@
  * carry.
  */
 
+import { ReleaseFeedHttpError } from './update-error-copy'
+
 export const LATEST_LINUX_FEED_URL =
   'https://github.com/ZenNotes/zennotes/releases/latest/download/latest-linux.yml'
 
@@ -61,16 +63,21 @@ export function isNewerVersion(candidate: string, current: string): boolean {
   return compareVersions(candidate, current) > 0
 }
 
-export type FeedFetch = (url: string) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>
+export type FeedFetch = (
+  url: string
+) => Promise<{ ok: boolean; status: number; url?: string; text(): Promise<string> }>
 
-/** The newest published release, from the feed at `url`. */
+/** The newest published release, from the feed at `url`. A failed answer
+ *  throws with its status and the URL it ended at: GitHub redirects
+ *  `releases/latest/download/...` to the release's tag, so a 404 there names
+ *  the release that has no feed yet (#1003). */
 export async function fetchLatestRelease(
   fetchImpl: FeedFetch = (url) => fetch(url, { headers: { 'user-agent': 'ZenNotes update check' } }),
   url: string = LATEST_LINUX_FEED_URL
 ): Promise<LatestRelease> {
   const response = await fetchImpl(url)
   if (!response.ok) {
-    throw new Error(`GitHub answered ${response.status} for the release feed.`)
+    throw new ReleaseFeedHttpError(response.status, response.url || url)
   }
   return parseLatestFeed(await response.text())
 }
