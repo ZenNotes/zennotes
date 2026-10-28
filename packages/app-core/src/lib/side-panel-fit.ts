@@ -1,8 +1,8 @@
 /**
  * How the right-hand panels of an editor pane share its width with the note.
  *
- * Connections, Comments, Outline and Calendar each have a width the user
- * chose (200 to 640 px) and can all be open at once, and nothing used to
+ * Connections, Comments, Outline, Calendar and Timeline each have a width the
+ * user chose (200 to 640 px) and can all be open at once, and nothing used to
  * reserve room for the note itself. In a full-width window that is fine. In a
  * split pane two panels left the note a column a few characters wide, and a
  * third left it none. (#805)
@@ -13,7 +13,7 @@
  * longest ago are tucked away (they stay open, a rail lists them, and their
  * shortcut brings one forward) until the rest fits.
  */
-export type SidePanelId = 'connections' | 'comments' | 'outline' | 'calendar'
+export type SidePanelId = 'connections' | 'comments' | 'outline' | 'calendar' | 'timeline'
 
 /** Below this an editor column stops being readable. */
 export const MIN_NOTE_WIDTH = 320

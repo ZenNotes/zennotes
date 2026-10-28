@@ -128,8 +128,9 @@ function resolveNeighborPanel(
  *
  * Row-list panels (sidebar / note list / connections / outline) don't take DOM
  * focus: their keys are handled centrally off `focusedPanel`, so we only blur
- * whatever held focus and scroll their cursor row back into view. The comments
- * and calendar panels own their keyboard handling, so they take real DOM focus.
+ * whatever held focus and scroll their cursor row back into view. The comments,
+ * calendar and timeline panels own their keyboard handling, so they take real
+ * DOM focus.
  */
 export function focusPanel(panel: Panel, direction?: PaneDirection): void {
   const state = useStore.getState()
@@ -146,7 +147,7 @@ export function focusPanel(panel: Panel, direction?: PaneDirection): void {
   ;(document.activeElement as HTMLElement | null)?.blur()
   if (panel === 'tasks' || panel === 'tags') return
   requestAnimationFrame(() => {
-    if (panel === 'comments' || panel === 'calendar') {
+    if (panel === 'comments' || panel === 'calendar' || panel === 'timeline') {
       document
         .querySelector<HTMLElement>(`[data-${panel}-panel]`)
         ?.focus({ preventScroll: true })

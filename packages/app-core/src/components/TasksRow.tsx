@@ -3,6 +3,7 @@ import type { VaultTask } from '@shared/tasks'
 import { ArrowUpRightIcon } from './icons'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { TaskStateBox } from './TaskStateBox'
+import { priorityClass, priorityLabel } from '../lib/task-priority'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { getCurrentDragPayload, readDragPayload, setDragPayload } from '../lib/dnd'
 
@@ -23,20 +24,6 @@ interface Props {
   toggleKeyLabel?: string | null
   /** Whether Vim's single-letter keys are live, so a tooltip may name them. */
   vimMode?: boolean
-}
-
-function priorityLabel(p: VaultTask['priority']): string {
-  if (p === 'high') return '!high'
-  if (p === 'med') return '!med'
-  if (p === 'low') return '!low'
-  return ''
-}
-
-function priorityClass(p: VaultTask['priority']): string {
-  if (p === 'high') return 'text-rose-400'
-  if (p === 'med') return 'text-amber-400'
-  if (p === 'low') return 'text-sky-400'
-  return 'text-current/50'
 }
 
 function formatDue(iso: string | undefined): string {

@@ -202,6 +202,29 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
     document.body.innerHTML = ''
   })
 
+  it('puts the Timeline right of the calendar, as it renders, and reads it off the DOM (#1007)', () => {
+    expect(
+      getVisiblePanels(visibility({ outlineOpen: true, calendarOpen: true, timelineOpen: true }))
+    ).toEqual(['sidebar', 'notelist', 'editor', 'outline', 'calendar', 'timeline'])
+    const panels = getVisiblePanels(visibility({ timelineOpen: true }))
+    expect(resolveNextPanel('editor', 'right', panels)).toBe('timeline')
+    expect(resolveNextPanel('timeline', 'right', panels)).toBe('timeline')
+    expect(resolveNextPanel('timeline', 'left', panels)).toBe('editor')
+    document.body.innerHTML = `
+      <div data-calendar-panel></div>
+      <section data-timeline-panel></section>
+    `
+    expect(
+      getVisiblePanelsNow({
+        sidebarOpen: false,
+        noteListOpen: false,
+        unifiedSidebar: true,
+        tasksViewOpen: false
+      })
+    ).toEqual(['editor', 'calendar', 'timeline'])
+    document.body.innerHTML = ''
+  })
+
   it('walks every open panel in order, so no panel is a dead end (#477)', () => {
     const panels = getVisiblePanels(
       visibility({ connectionsOpen: true, commentsOpen: true, outlineOpen: true, calendarOpen: true })

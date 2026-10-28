@@ -66,6 +66,7 @@ function resolveShortcutKeys(
     if (action === 'Open Settings') return shortcut(overrides, 'global.openSettings')
     if (action === 'Toggle sidebar') return shortcut(overrides, 'global.toggleSidebar')
     if (action === 'Toggle connections') return shortcut(overrides, 'global.toggleConnections')
+    if (action === 'Toggle timeline panel') return shortcut(overrides, 'global.toggleTimelinePanel')
     if (action === 'Toggle Zen mode') return shortcut(overrides, 'global.toggleZenMode')
     if (action === 'Close active tab') return shortcut(overrides, 'global.closeActiveTab')
     if (action === 'Export note as PDF') return shortcut(overrides, 'global.exportNotePdf')
@@ -101,6 +102,7 @@ function resolveShortcutKeys(
     }
     if (action === 'Toggle left sidebar') return leaderShortcut(overrides, 'vim.leaderToggleSidebar')
     if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
+    if (action === 'Toggle timeline') return leaderShortcut(overrides, 'vim.leaderTimeline')
     if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')

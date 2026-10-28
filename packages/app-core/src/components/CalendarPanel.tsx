@@ -50,22 +50,10 @@ import { PanelResizeHandle } from './PanelResizeHandle'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { LazyNoteHoverPreview as NoteHoverPreview } from './LazyNoteHoverPreview'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
+import { taskTail } from '../lib/task-tail'
 
 const FULL_DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HOVER_DELAY_MS = 280
-
-// Every task state, so the "lossless" promise below actually holds for a `[>]`
-// or `[/]` task too: an unmatched prefix falls back to the token-stripped
-// `content`, which an inline edit would then write back over the real line.
-// (#512)
-const TASK_PREFIX_RE = /^\s*(?:>\s*)*(?:[-+*]|\d+[.)])\s+\[[ xX>/-]\]\s?/
-
-/** The raw text after the checkbox (content + any `due:`/`!priority` tokens) —
- *  what an inline edit field prefills with so editing is lossless. */
-function taskTail(task: VaultTask): string {
-  const m = task.rawText.match(TASK_PREFIX_RE)
-  return m ? task.rawText.slice(m[0].length) : task.content
-}
 
 function monthLabel(d: Date): string {
   return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })

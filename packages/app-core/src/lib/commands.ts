@@ -882,10 +882,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'view.timeline-panel',
+      title: 'Toggle Timeline',
+      category: 'View',
+      shortcut: shortcut('global.toggleTimelinePanel'),
+      keywords: 'timeline tasks due dates overdue milestones upcoming agenda schedule panel right',
+      // Like the other right-hand panels it sits beside a note, so it needs
+      // one in the pane; the tasks it lists are the whole vault's. (#1007)
+      when: () => !!getState().activeNote,
+      run: () => {
+        window.dispatchEvent(new Event('zen:toggle-timeline'))
+      }
+    },
+    {
       id: 'view.close-right-panel',
       title: 'Close Right Panel',
       category: 'View',
-      keywords: 'close hide dismiss right panel pane connections comments outline calendar',
+      keywords: 'close hide dismiss right panel pane connections comments outline calendar timeline',
       when: () => !!getState().activeNote,
       run: () => {
         window.dispatchEvent(new Event('zen:close-right-panel'))

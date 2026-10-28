@@ -170,6 +170,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
   tasksListOrder: 'note',
+  timelineRange: 'two-weeks',
   kanbanFolderRoot: '',
   kanbanColumnTitles: {},
   kanbanStatuses: [],

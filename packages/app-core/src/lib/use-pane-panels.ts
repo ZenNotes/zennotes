@@ -23,6 +23,7 @@ export interface PanePanels extends Omit<PanePanelsState, 'calendarDismissed'> {
   setOutlineOpen: (next: SetStateAction<boolean>) => void
   setCommentsOpen: (next: SetStateAction<boolean>) => void
   setCalendarPanel: (next: SetStateAction<CalendarPanelState>) => void
+  setTimelineOpen: (next: SetStateAction<boolean>) => void
 }
 
 /**
@@ -94,6 +95,12 @@ export function usePanePanels(paneId: string, path: string | null): PanePanels {
     [update]
   )
 
+  const setTimelineOpen = useCallback(
+    (next: SetStateAction<boolean>) =>
+      update((p) => ({ ...p, timeline: resolve(next, p.timeline) })),
+    [update]
+  )
+
   const { calendarDismissed, ...shown } = panels
   return {
     ...shown,
@@ -101,6 +108,7 @@ export function usePanePanels(paneId: string, path: string | null): PanePanels {
     setConnectionsOpen,
     setOutlineOpen,
     setCommentsOpen,
-    setCalendarPanel
+    setCalendarPanel,
+    setTimelineOpen
   }
 }

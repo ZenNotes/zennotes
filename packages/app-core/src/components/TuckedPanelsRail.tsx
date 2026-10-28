@@ -1,11 +1,12 @@
 import { TUCKED_RAIL_WIDTH, type SidePanelId } from '../lib/side-panel-fit'
-import { CalendarIcon, FeedbackIcon, ListTreeIcon, PanelRightIcon } from './icons'
+import { CalendarIcon, FeedbackIcon, ListTreeIcon, PanelRightIcon, TimelineIcon } from './icons'
 
 const PANELS: Record<SidePanelId, { label: string; icon: typeof PanelRightIcon }> = {
   connections: { label: 'Connections', icon: PanelRightIcon },
   comments: { label: 'Comments', icon: FeedbackIcon },
   outline: { label: 'Outline', icon: ListTreeIcon },
-  calendar: { label: 'Calendar', icon: CalendarIcon }
+  calendar: { label: 'Calendar', icon: CalendarIcon },
+  timeline: { label: 'Timeline', icon: TimelineIcon }
 }
 
 /**

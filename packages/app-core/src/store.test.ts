@@ -1924,6 +1924,44 @@ describe('tasksListOrder (#989)', () => {
   })
 })
 
+describe('timeline panel state (#1007)', () => {
+  it('reaches two weeks by default and round-trips the range', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().timelineRange).toBe('two-weeks')
+    expect(useStore.getState().panelWidths.timeline).toBe(290)
+
+    useStore.getState().setTimelineRange('month')
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.timelineRange).toBe('month')
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().timelineRange).toBe('month')
+  })
+
+  it('normalizes an unknown stored range, and keeps the filter out of the saved prefs', async () => {
+    installZen()
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ timelineRange: 'year' }))
+    const { useStore } = await loadStore()
+    expect(useStore.getState().timelineRange).toBe('two-weeks')
+    useStore.getState().setTimelineFilter('#milestone')
+    useStore.getState().setTimelineRange('all')
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.timelineFilter).toBeUndefined()
+    expect(saved.timelineRange).toBe('all')
+  })
+
+  it('remembers the panel width like its neighbours', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    useStore.getState().setPanelWidth('timeline', 1000)
+    expect(useStore.getState().panelWidths.timeline).toBe(640)
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.panelWidths.timeline).toBe(640)
+  })
+})
+
 describe('kanbanCardSort (#889)', () => {
   it('defaults to the manual order and round-trips due-date ordering', async () => {
     installZen()

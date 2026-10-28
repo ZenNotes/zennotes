@@ -1,8 +1,9 @@
 import { CALENDAR_PANEL_CLOSED, type CalendarPanelState } from './calendar-panel-auto'
 
 /**
- * Which right-hand panels an editor pane shows: Connections, Outline, Comments
- * and the Calendar (whose open carries the provenance bit from #502).
+ * Which right-hand panels an editor pane shows: Connections, Outline, Comments,
+ * the Calendar (whose open carries the provenance bit from #502) and the
+ * Timeline (#1007).
  *
  * Panels have always been sticky per pane, Obsidian-style: open the Outline
  * and it stays while you browse. With "Keep panels when switching notes" off,
@@ -16,6 +17,7 @@ export interface PanePanelsState {
   outline: boolean
   comments: boolean
   calendar: CalendarPanelState
+  timeline: boolean
   /**
    * The user closed the calendar on this note. Only written per note: there it
    * keeps the auto-open for daily and weekly notes from reopening a calendar
@@ -33,6 +35,7 @@ export const PANE_PANELS_CLOSED: PanePanelsState = {
   outline: false,
   comments: false,
   calendar: CALENDAR_PANEL_CLOSED,
+  timeline: false,
   calendarDismissed: false
 }
 
@@ -43,6 +46,7 @@ export function samePanePanels(a: PanePanelsState, b: PanePanelsState): boolean 
     a.comments === b.comments &&
     a.calendar.open === b.calendar.open &&
     a.calendar.auto === b.calendar.auto &&
+    a.timeline === b.timeline &&
     a.calendarDismissed === b.calendarDismissed
   )
 }
@@ -105,6 +109,7 @@ export interface PanePanelsSnapshotEntry {
   outline?: true
   comments?: true
   calendar?: { open: true; auto?: true }
+  timeline?: true
   calendarDismissed?: true
 }
 
@@ -136,6 +141,7 @@ export function panePanelsForSnapshot(
           ...(panels.calendar.open && {
             calendar: panels.calendar.auto ? { open: true, auto: true } : { open: true }
           }),
+          ...(panels.timeline && { timeline: true }),
           ...(panels.calendarDismissed && { calendarDismissed: true })
         }
       ])
@@ -169,6 +175,7 @@ export function panePanelsFromSnapshot(
         outline: value.outline === true,
         comments: value.comments === true,
         calendar: { open: calendar.open === true, auto: calendar.open === true && calendar.auto === true },
+        timeline: value.timeline === true,
         calendarDismissed: value.calendarDismissed === true
       })
     }
