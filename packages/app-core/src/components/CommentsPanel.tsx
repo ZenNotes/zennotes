@@ -333,7 +333,7 @@ export function CommentsPanel({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div data-panel-scroll className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {comments.length === 0 && !draft ? (
           <div className="rounded-lg border border-dashed border-paper-300/75 bg-paper-100/42 px-4 py-6 text-center">
             <FeedbackIcon className="mx-auto text-ink-400" width={20} height={20} />

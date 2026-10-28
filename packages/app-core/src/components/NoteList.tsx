@@ -768,6 +768,7 @@ export function NoteList(): JSX.Element {
       <div
         ref={scrollRef}
         data-notelist-count={view.kind === 'assets' ? assetFiles.length : orderedFolderEntries.length}
+        data-panel-scroll
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         onScroll={(event) => setListScrollTop(event.currentTarget.scrollTop)}
       >
@@ -968,6 +969,7 @@ function NoteRow({
       }
       {...(noteListIdx != null ? {
         'data-notelist-idx': noteListIdx,
+        'data-notelist-type': 'note',
         'data-notelist-path': note.path
       } : {})}
     >
@@ -1015,6 +1017,7 @@ function FolderAssetRow({
       {...(noteListIdx != null
         ? {
             'data-notelist-idx': noteListIdx,
+            'data-notelist-type': 'asset',
             'data-notelist-path': asset.path
           }
         : {})}
