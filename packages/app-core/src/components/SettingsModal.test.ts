@@ -59,7 +59,8 @@ const mocks = vi.hoisted(() => {
       mathRenderer: "katex" as "katex" | "typst",
       monoFont: null,
       previewMaxWidth: 760,
-      quickNoteTitlePrefix: null,
+      quickNoteTitlePrefix: null as string | null,
+      setQuickNoteTitlePrefix: vi.fn(),
       remoteWorkspaceInfo: null as null | { mode: string; baseUrl: string | null; authConfigured: boolean; capabilities: Record<string, unknown> | null; profileId: string | null; bootError: string | null },
       remoteWorkspaceProfiles: [],
       ripgrepBinaryPath: null,
@@ -581,6 +582,38 @@ describe("SettingsModal date note directories", () => {
       monthlyNotes: { enabled: false, directory: "Monthly Notes" },
       folderIcons: {},
     });
+  });
+
+  it("keeps a typed space in the Quick Note prefix and saves a cleared field as no prefix (#1008)", async () => {
+    mocks.state.quickNoteTitlePrefix = "Quick Note";
+    await act(async () => root.render(createElement(SettingsModal)));
+    expect(await openSearchHit("quick note prefix", "Quick Note prefix")).toBe("quick-note-prefix");
+    const input = host.querySelector<HTMLInputElement>(
+      '[data-settings-search-id="quick-note-prefix"] input',
+    )!;
+    expect(input.value).toBe("Quick Note");
+    // A blank field shows what blank means, not the old default in grey.
+    expect(input.placeholder).toBe("No prefix");
+
+    await act(async () => {
+      input.focus();
+      input.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    await act(async () => changeInput(input, "My "));
+    expect(mocks.state.setQuickNoteTitlePrefix).toHaveBeenLastCalledWith("My");
+    expect(input.value).toBe("My ");
+    await act(async () => changeInput(input, "My Notes"));
+    expect(mocks.state.setQuickNoteTitlePrefix).toHaveBeenLastCalledWith("My Notes");
+
+    await act(async () => changeInput(input, ""));
+    expect(mocks.state.setQuickNoteTitlePrefix).toHaveBeenLastCalledWith(null);
+    expect(input.value).toBe("");
+
+    // Leaving the field shows the stored value again (this mock store never
+    // takes the writes, so it still holds "Quick Note").
+    await act(async () => blurInput(input));
+    expect(input.value).toBe("Quick Note");
+    mocks.state.quickNoteTitlePrefix = null;
   });
 
   it("opens the text replacements tab and saves edited rules", async () => {

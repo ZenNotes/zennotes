@@ -3266,11 +3266,14 @@ export function SettingsModal(): JSX.Element {
                   settingId="date-titled-quick-notes"
                   onChange={setQuickNoteDateTitle}
                 />
+                {/* A cleared field means no prefix, so the placeholder says so
+                    rather than showing the old default in grey, which read as
+                    if "Quick Note" were still set (#1008). */}
                 <TextInputRow
                   label="Quick Note prefix"
                   description="Used when naming new Quick Notes. Leave blank for a bare timestamp or date."
                   value={quickNoteTitlePrefix ?? ""}
-                  placeholder="Quick Note"
+                  placeholder="No prefix"
                   settingId="quick-note-prefix"
                   onChange={setQuickNoteTitlePrefix}
                 />
@@ -7375,9 +7378,14 @@ function TextInputRow({
   const [draft, setDraft] = useState(value);
   const [focused, setFocused] = useState(false);
 
+  // The field shows what was typed while it has focus, and the stored value
+  // otherwise. A live row commits the trimmed text on every keystroke; drawing
+  // the stored copy back into the field dropped a space the moment it was
+  // typed, so a two-word value such as "Quick Note" could not be typed key by
+  // key (#1008).
   useEffect(() => {
-    if (!commitOnBlur || !focused) setDraft(value);
-  }, [commitOnBlur, focused, value]);
+    if (!focused) setDraft(value);
+  }, [focused, value]);
 
   const commit = (raw: string): void => {
     const next = raw.trim();
@@ -7411,19 +7419,15 @@ function TextInputRow({
         )}
       </div>
       <input
-        value={commitOnBlur ? draft : value}
+        value={draft}
         onFocus={() => setFocused(true)}
         onChange={(e) => {
-          if (commitOnBlur) {
-            setDraft(e.target.value);
-            return;
-          }
-          commit(e.target.value);
+          setDraft(e.target.value);
+          if (!commitOnBlur) commit(e.target.value);
         }}
         onBlur={(e) => {
-          if (!commitOnBlur) return;
           setFocused(false);
-          commit(e.target.value);
+          if (commitOnBlur) commit(e.target.value);
         }}
         onKeyDown={(e) => {
           if (!commitOnBlur) return;

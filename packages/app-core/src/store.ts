@@ -3253,7 +3253,8 @@ interface Store {
   /** Auto-title new Quick Notes to today's date instead of the
    *  default "Quick Note <ts>" pattern. */
   quickNoteDateTitle: boolean
-  /** Prefix used when generating new Quick Note titles. */
+  /** Prefix used when generating new Quick Note titles. `null` is a
+   *  cleared field: no prefix, a bare timestamp or date (#1008). */
   quickNoteTitlePrefix: string | null
 
   /** Whether long lines wrap or scroll horizontally in the editor. */

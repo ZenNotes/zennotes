@@ -174,7 +174,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const title = resolveQuickNoteTitle(
           s.notes,
           s.quickNoteDateTitle,
-          s.quickNoteTitlePrefix ?? undefined
+          s.quickNoteTitlePrefix
         )
         return s.createAndOpen('quick', '', { title, focusTitle: true })
       }

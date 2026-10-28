@@ -185,11 +185,19 @@ describe('TOML serialization', () => {
   })
 
   it('persists null as empty string and reads it back as null', () => {
-    const text = serializeConfig({ ripgrepBinaryPath: null, fzfBinaryPath: null, monoFont: null })
+    const text = serializeConfig({
+      ripgrepBinaryPath: null,
+      fzfBinaryPath: null,
+      monoFont: null,
+      quickNoteTitlePrefix: null
+    })
+    expect(text).toContain('quick_note_title_prefix = ""')
     const { portable } = deserializeConfig(text)
     expect(portable.ripgrepBinaryPath).toBeNull()
     expect(portable.fzfBinaryPath).toBeNull()
     expect(portable.monoFont).toBeNull()
+    // A cleared Quick Note prefix stays cleared across machines (#1008).
+    expect(portable.quickNoteTitlePrefix).toBeNull()
   })
 
   it('always lists every option with allowed-value comments, even from empty input', () => {

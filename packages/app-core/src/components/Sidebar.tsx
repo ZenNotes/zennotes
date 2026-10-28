@@ -3441,7 +3441,7 @@ export function Sidebar(): JSX.Element {
                   const title = resolveQuickNoteTitle(
                     notes,
                     quickNoteDateTitle,
-                    quickNoteTitlePrefix ?? undefined,
+                    quickNoteTitlePrefix,
                   );
                   void createAndOpen("quick", "", { title, focusTitle: true });
                 }}

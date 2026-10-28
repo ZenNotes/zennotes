@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTasksViewActive, useStore, type KanbanCardSort, type TasksListOrder, type TasksViewMode } from '../store'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
-import { computeTasksRender, filterTasks, isOverdue } from '../lib/tasks-filter'
+import { computeTasksRender, filterTasks, isOverdue, noteTagsByPath } from '../lib/tasks-filter'
 import { forwardTaskWithPicker } from '../lib/forward-task'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
@@ -88,7 +88,12 @@ export function TasksView(): JSX.Element {
   // the calendar takes this pre-filtered list, and the Kanban receives the raw
   // query so it can narrow cards without losing the full board (its group-by
   // options and card-order persistence must keep seeing every task).
-  const filteredTasks = useMemo(() => filterTasks(tasks, filter), [tasks, filter])
+  // A file task also matches the tags written in its note's body (#1008).
+  const noteTags = useMemo(() => noteTagsByPath(notes), [notes])
+  const filteredTasks = useMemo(
+    () => filterTasks(tasks, filter, noteTags),
+    [tasks, filter, noteTags]
+  )
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
   const listOrder = useStore((s) => s.tasksListOrder)
@@ -141,14 +146,16 @@ export function TasksView(): JSX.Element {
 
   const render = useMemo(() => {
     const linger = lingerRef.current
-    if (linger.size === 0) return computeTasksRender(tasks, filter, today, collapsed, listOrder)
+    if (linger.size === 0) {
+      return computeTasksRender(tasks, filter, today, collapsed, listOrder, noteTags)
+    }
     // Group lingering tasks by their PRE-toggle checked state so a just-checked
     // task stays in its current group instead of jumping straight to Done.
     const source = tasks.map((t) => {
       const l = linger.get(t.id)
       return l ? { ...t, checked: l.groupChecked } : t
     })
-    const r = computeTasksRender(source, filter, today, collapsed, listOrder)
+    const r = computeTasksRender(source, filter, today, collapsed, listOrder, noteTags)
     // Render the real task so the checkbox reflects the actual (new) state while
     // the row lingers in place.
     const byId = new Map(tasks.map((t) => [t.id, t]))
@@ -157,7 +164,7 @@ export function TasksView(): JSX.Element {
     )
     return { ...r, rows }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, filter, today, collapsed, lingerVersion, listOrder])
+  }, [tasks, filter, today, collapsed, lingerVersion, listOrder, noteTags])
 
   // Index-into-rows map for just the 'task' rows (what the cursor navigates).
   const taskRowIndices = useMemo(() => {
@@ -1064,6 +1071,7 @@ export function TasksView(): JSX.Element {
         <TasksKanban
           tasks={tasks}
           filter={filter}
+          noteTags={noteTags}
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}
