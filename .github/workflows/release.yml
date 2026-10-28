@@ -55,6 +55,11 @@ jobs:
       - name: Create release if missing
         env:
           GH_TOKEN: ${{ github.token }}
+        # Public from the start, so per-tag download URLs work for the AUR,
+        # Nix and Homebrew steps, but not "latest": the in-app updater and the
+        # website's download buttons follow releases/latest, and until the
+        # last feed is up an update check answers 404 (#1003). promote-latest
+        # moves "latest" once every feed is on the release.
         run: |
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             echo "Release ${RELEASE_TAG} already exists."
@@ -62,6 +67,7 @@ jobs:
             gh release create "${RELEASE_TAG}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "ZenNotes ${RELEASE_TAG}" \
+              --latest=false \
               --notes "Download the installer for your platform from the assets below."
           fi
 
@@ -285,3 +291,38 @@ jobs:
           for file in "${installers[@]}" "${manifests[@]}"; do
             upload "${file}"
           done
+
+  promote-latest:
+    name: Mark the release latest
+    needs: [create-release, build-and-upload]
+    # Also after a failed platform job: the release becomes latest once every
+    # feed is on it, whichever run (this one, or a dispatch that rebuilt the
+    # missing platform) uploaded the last one.
+    if: ${{ !cancelled() && needs.create-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark latest once every update feed is up
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # One feed per platform job; keep in step with the matrix above.
+          feeds=(latest.yml latest-arm64.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml)
+          assets=$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')
+          missing=()
+          for feed in "${feeds[@]}"; do
+            grep -qxF "${feed}" <<<"${assets}" || missing+=("${feed}")
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::warning::${RELEASE_TAG} stays off latest until these feeds are up: ${missing[*]}"
+            exit 0
+          fi
+          # A dispatch that rebuilds an older release must not take "latest"
+          # from a newer one.
+          current=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          newest=$(printf '%s\n%s\n' "${current#v}" "${RELEASE_TAG#v}" | sort -V | tail -n 1)
+          if [ "${newest}" != "${RELEASE_TAG#v}" ]; then
+            echo "${current} is newer than ${RELEASE_TAG}; latest stays on ${current}."
+            exit 0
+          fi
+          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --latest
+          echo "${RELEASE_TAG} is latest."
