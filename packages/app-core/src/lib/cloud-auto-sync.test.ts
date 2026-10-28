@@ -18,6 +18,7 @@ import {
   cloudSyncAttentionItems,
   cloudSyncAttentionLabel,
   cloudSyncAttentionMessage,
+  cloudSyncNeedsUser,
   cloudVaultGoneReason,
   cloudVaultRemovalLabel,
   cloudVaultRemovalMessage,
@@ -1403,5 +1404,43 @@ describe("a Cloud vault that went away", () => {
     expect(useCloudSyncStatusStore.getState().removedVault).toBeNull();
     runtime.stop();
     expect(values.size).toBe(0);
+  });
+});
+
+describe("cloudSyncNeedsUser (the status bar shows for it even when turned off)", () => {
+  const quiet = {
+    phase: "ready" as const,
+    removedVault: null,
+    errorKind: null,
+    lastSummary: null,
+    settingsConflict: null,
+  };
+
+  it("is quiet for the everyday phases", () => {
+    for (const phase of ["hidden", "disconnected", "connecting", "unlinked", "ready", "syncing"] as const) {
+      expect(cloudSyncNeedsUser({ ...quiet, phase })).toBe(false);
+    }
+  });
+
+  it("needs the user for a stopped or failed run", () => {
+    expect(cloudSyncNeedsUser({ ...quiet, phase: "attention" })).toBe(true);
+    expect(cloudSyncNeedsUser({ ...quiet, phase: "error", errorKind: "offline" })).toBe(true);
+  });
+
+  it("needs the user for a vault that went away and a device Cloud signed out", () => {
+    expect(
+      cloudSyncNeedsUser({
+        ...quiet,
+        phase: "unlinked",
+        removedVault: { vaultName: "Notes", reason: "deleted" },
+      }),
+    ).toBe(true);
+    expect(cloudSyncNeedsUser({ ...quiet, phase: "disconnected", errorKind: "signed-out" })).toBe(true);
+  });
+
+  it("needs the user while files or the settings question wait, even mid-sync", () => {
+    const summary = { pending_conflicts: [{ id: "c1" }] } as never;
+    expect(cloudSyncNeedsUser({ ...quiet, phase: "syncing", lastSummary: summary })).toBe(true);
+    expect(cloudSyncNeedsUser({ ...quiet, phase: "ready", settingsConflict: {} as never })).toBe(true);
   });
 });

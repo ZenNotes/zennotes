@@ -116,6 +116,7 @@ describe('TOML serialization', () => {
       themeFamily: 'nord',
       themeMode: 'dark',
       showWindowTitleBar: false,
+      showStatusBar: false,
       autoPairs: false,
       autoPairQuotesInProse: true,
       showHeadingLevelLabels: true,
@@ -151,6 +152,9 @@ describe('TOML serialization', () => {
     expect(round.themeFamily).toBe('nord')
     expect(text).toContain('show_window_title_bar = false')
     expect(round.showWindowTitleBar).toBe(false)
+    // Piotr's status bar switch travels as [appearance].show_status_bar.
+    expect(text).toMatch(/\[appearance\][^[]*show_status_bar = false/)
+    expect(round.showStatusBar).toBe(false)
     expect(round.autoPairs).toBe(false)
     expect(round.autoPairQuotesInProse).toBe(true)
     expect(round.showHeadingLevelLabels).toBe(true)

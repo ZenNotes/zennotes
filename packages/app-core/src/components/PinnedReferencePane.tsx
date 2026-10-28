@@ -48,6 +48,7 @@ import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { sourceRevealExtension, sourceRevealForNewNote } from '../lib/cm-source-reveal'
 import { frontmatterStyle, frontmatterTagExtension } from '../lib/cm-frontmatter'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { slashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
@@ -245,6 +246,7 @@ export function PinnedReferencePane(): JSX.Element | null {
         extensions: [
           noteEditingLockExtension(() => ({ vault: useStore.getState().vault, path: viewPathRef.current })),
           appMarkdownSnippetExtension(),
+          sourceRevealExtension,
           vimCompartment.of(s0.vimMode ? vim() : []),
           // The same input-method guard as the main editor (#84, #464, #921).
           vimImeGuard(
@@ -335,7 +337,8 @@ export function PinnedReferencePane(): JSX.Element | null {
     view.dispatch({
       changes: { from: 0, to: view.state.doc.length, insert: nextBody },
       annotations: [programmatic.of(true), noteEditingSync.of(true)],
-      selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead }
+      selection: pathChanged ? { anchor: 0 } : { anchor: clampedAnchor, head: clampedHead },
+      effects: pathChanged ? sourceRevealForNewNote(view) : undefined
     })
     viewPathRef.current = nextPath
   }, [content?.body, content?.path])

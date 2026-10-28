@@ -40,7 +40,7 @@ import {
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
 import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
 import { registerNoteEditor } from '../lib/note-editor-context'
-import { noteEditorHostExtension } from '../lib/editor-host'
+import { hostOpensNotesToRead, noteEditorHostExtension } from '../lib/editor-host'
 import {
   indentWithTab,
   moveLineDown,
@@ -114,6 +114,7 @@ import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
+import { sourceRevealExtension, sourceRevealForNewNote } from '../lib/cm-source-reveal'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
 import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
@@ -1773,7 +1774,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       })
     })
     setFocusedPanel('editor')
-    view.focus()
+    // An outline jump is a search pick too: where the host opens notes to
+    // read, the heading is shown without raising the keyboard.
+    if (!hostOpensNotesToRead()) view.focus()
     return true
   }, [schedulePreviewOutlineJump, setFocusedPanel])
 
@@ -2101,6 +2104,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         extensions: [
           noteEditingLockExtension(() => ({ vault: useStore.getState().vault, path: viewPathRef.current })),
           noteEditorHostExtension(),
+          // Outside the live-preview compartment, so toggling it keeps whether
+          // the note is being edited or read.
+          sourceRevealExtension,
           appMarkdownSnippetExtension(),
           vimCompartment.of(s0.vimMode ? vim() : []),
           // No text input outside Vim insert mode, so a CJK input method
@@ -2534,6 +2540,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       !!markdownCompartment &&
       !!markdownSyntaxCompartment
     const effects: StateEffect<unknown>[] = []
+    // Another note is read until the editor takes the focus (on desktop, the
+    // focus every opener hands over right after), unless it holds it now.
+    if (switched) effects.push(sourceRevealForNewNote(view))
     if (deferRichMarkdown && markdownCompartment && markdownSyntaxCompartment) {
       richMarkdownDeferredRef.current = true
       effects.push(

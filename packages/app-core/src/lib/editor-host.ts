@@ -143,7 +143,8 @@ export function installNoteEditorHost(options: EditorHostOptions): EditorHostReg
   const owner = {
     options: {
       nativeTyping: options.nativeTyping,
-      measureBottomInsets: options.measureBottomInsets
+      measureBottomInsets: options.measureBottomInsets,
+      openNotesToRead: options.openNotesToRead
     }
   }
   active = owner
@@ -157,6 +158,16 @@ export function installNoteEditorHost(options: EditorHostOptions): EditorHostReg
       active = null
       reconfigure()
     }
+  }
+}
+
+/** Whether the host wants a search pick to open its note to be read
+ *  (`openNotesToRead`). A host that throws answers no, which is desktop's way. */
+export function hostOpensNotesToRead(): boolean {
+  try {
+    return active?.options.openNotesToRead?.() === true
+  } catch {
+    return false
   }
 }
 

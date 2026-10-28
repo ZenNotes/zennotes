@@ -51,7 +51,11 @@ import {
 } from './lib/panel-rows'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
-import { focusEditorNormalMode } from './lib/editor-focus'
+import {
+  focusEditorAfterPaletteClose,
+  focusEditorAfterReadOpen,
+  focusEditorNormalMode
+} from './lib/editor-focus'
 import { isAppOverlayOpen, isOverlayOrDialogOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
@@ -482,7 +486,15 @@ function App(): JSX.Element {
   // pane jump or mouse click. Routed through a DOM event to keep the store free
   // of an editor-focus import cycle. (#353)
   useEffect(() => {
-    const handler = (): void => focusEditorNormalMode({ attempts: 10, delayMs: 24 })
+    // A request marked `read` (a periodic note that already existed, opened
+    // from the command palette) lands the way a search pick does: focused on
+    // desktop, left to read on a phone.
+    const handler = (event: Event): void => {
+      const options = { attempts: 10, delayMs: 24 }
+      const detail = (event as CustomEvent<{ read?: boolean } | null>).detail
+      if (detail?.read) focusEditorAfterReadOpen(options)
+      else focusEditorNormalMode(options)
+    }
     window.addEventListener('zen:focus-editor', handler)
     return () => window.removeEventListener('zen:focus-editor', handler)
   }, [])
@@ -955,39 +967,41 @@ function App(): JSX.Element {
         void state.reopenLastClosedTab()
         return
       }
+      // A palette closed here hands back the focus the way its own Escape and
+      // Cancel do: on a phone, that leaves the keyboard where it was.
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.vaultTextSearchOpen) {
         setVaultTextSearchOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.commandPaletteOpen) {
         setCommandPaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.bufferPaletteOpen) {
         setBufferPaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.templatePaletteOpen) {
         setTemplatePaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.embedDrawingPaletteOpen) {
         setEmbedDrawingPaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       if (e.key === 'Escape' && state.outlinePaletteOpen) {
         setOutlinePaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterPaletteClose()
         return
       }
       // ⌘1 — toggle sidebar

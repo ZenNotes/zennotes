@@ -502,3 +502,118 @@ describe('reference pane commands with a per-note pin', () => {
     expect(buildCommands().some((c) => c.id === 'ref.toggle')).toBe(false)
   })
 })
+
+describe('commands that open a note to read', () => {
+  const today = new Date()
+  const iso = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, '0'),
+    String(today.getDate()).padStart(2, '0')
+  ].join('-')
+  const daily = {
+    path: `inbox/Daily Notes/${iso}.md`,
+    title: iso,
+    folder: 'inbox',
+    siblingOrder: 0,
+    createdAt: 0,
+    updatedAt: 1,
+    size: 0,
+    tags: [],
+    wikilinks: [],
+    assetEmbeds: [],
+    hasAttachments: false,
+    excerpt: ''
+  } as never
+
+  async function commandsWith(notes: never[]) {
+    const { buildCommands, useStore } = await loadCommands()
+    const settings = useStore.getState().vaultSettings
+    useStore.setState({
+      notes,
+      selectedPath: 'inbox/Plan.md',
+      activeNote: { folder: 'inbox', path: 'inbox/Plan.md', title: 'Plan', body: '' } as never,
+      closedTabStack: [{ path: 'inbox/Old.md' }] as never,
+      vaultSettings: {
+        ...settings,
+        dailyNotes: { ...settings.dailyNotes, enabled: true, directory: 'Daily Notes' },
+        weeklyNotes: { ...settings.weeklyNotes, enabled: true },
+        monthlyNotes: { ...settings.monthlyNotes, enabled: true }
+      }
+    })
+    return { commands: buildCommands({ includeUnavailable: true }), useStore }
+  }
+
+  it('marks only the commands that go to a note already there', async () => {
+    const { commands } = await commandsWith([])
+    const marked = commands.filter((c) => c.opensToRead).map((c) => c.id).sort()
+    expect(marked).toEqual([
+      'nav.back',
+      'nav.forward',
+      'nav.toggle-recent',
+      'note.daily.rollover',
+      'note.daily.today',
+      'note.monthly.thisMonth',
+      'note.weekly.thisWeek',
+      'tab.close',
+      'tab.next',
+      'tab.previous',
+      'tab.reopen'
+    ])
+    // History and tabs only ever land on notes that exist.
+    const navigation = ['nav.back', 'nav.forward', 'nav.toggle-recent', 'tab.close', 'tab.next']
+    for (const id of [...navigation, 'tab.previous', 'tab.reopen']) {
+      expect(commands.find((c) => c.id === id)?.opensToRead?.()).toBe(true)
+    }
+    // Writing commands keep the editor focus.
+    const writing = ['note.new.inbox', 'note.new.quick', 'note.new.here', 'task.new', 'template.create']
+    for (const id of [...writing, 'database.new', 'drawing.new', 'embed.drawing.new', 'nav.focus.editor']) {
+      expect(commands.find((c) => c.id === id)?.opensToRead).toBeUndefined()
+    }
+  })
+
+  it("reads today's daily note when it is there, and writes in one the command creates", async () => {
+    let { commands } = await commandsWith([])
+    expect(commands.find((c) => c.id === 'note.daily.today')?.opensToRead?.()).toBe(false)
+    expect(commands.find((c) => c.id === 'note.daily.rollover')?.opensToRead?.()).toBe(false)
+    ;({ commands } = await commandsWith([daily]))
+    expect(commands.find((c) => c.id === 'note.daily.today')?.opensToRead?.()).toBe(true)
+    expect(commands.find((c) => c.id === 'note.daily.rollover')?.opensToRead?.()).toBe(true)
+  })
+
+  it('asks the periodic openers to open an existing note to read', async () => {
+    const { commands, useStore } = await commandsWith([daily])
+    const openTodayDailyNote = vi.fn().mockResolvedValue(undefined)
+    const openThisWeekWeeklyNote = vi.fn().mockResolvedValue(undefined)
+    const openThisMonthMonthlyNote = vi.fn().mockResolvedValue(undefined)
+    useStore.setState({ openTodayDailyNote, openThisWeekWeeklyNote, openThisMonthMonthlyNote })
+    await commands.find((c) => c.id === 'note.daily.today')?.run()
+    await commands.find((c) => c.id === 'note.weekly.thisWeek')?.run()
+    await commands.find((c) => c.id === 'note.monthly.thisMonth')?.run()
+    expect(openTodayDailyNote).toHaveBeenCalledWith({ readIfExisting: true })
+    expect(openThisWeekWeeklyNote).toHaveBeenCalledWith({ readIfExisting: true })
+    expect(openThisMonthMonthlyNote).toHaveBeenCalledWith({ readIfExisting: true })
+  })
+})
+
+describe('Toggle Status Bar (Piotr on Discord)', () => {
+  it('flips the setting and saves it with the other preferences', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    expect(useStore.getState().showStatusBar).toBe(true)
+    const toggle = buildCommands().find((c) => c.id === 'view.status-bar')
+    expect(toggle?.title).toBe('Toggle Status Bar')
+    await toggle?.run()
+    expect(useStore.getState().showStatusBar).toBe(false)
+    expect(JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}').showStatusBar).toBe(false)
+    await buildCommands().find((c) => c.id === 'view.status-bar')?.run()
+    expect(useStore.getState().showStatusBar).toBe(true)
+  })
+})
+
+describe('commands that give a phone editor the keyboard', () => {
+  it('names only commands that exist', async () => {
+    const { buildCommands } = await loadCommands()
+    const { EDITOR_FOCUS_COMMAND_IDS } = await import('./command-landing')
+    const ids = new Set(buildCommands({ includeUnavailable: true }).map((c) => c.id))
+    for (const id of EDITOR_FOCUS_COMMAND_IDS) expect(ids.has(id), id).toBe(true)
+  })
+})

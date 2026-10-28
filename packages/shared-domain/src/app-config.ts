@@ -142,6 +142,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   themeTweaks: {},
   darkSidebar: true,
   showWindowTitleBar: true,
+  showStatusBar: true,
   showSidebarChevrons: true,
   contentAlign: 'center',
   noteCoverPlacement: 'scroll',

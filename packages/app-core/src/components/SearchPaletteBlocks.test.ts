@@ -12,7 +12,13 @@ import { SearchPalette } from './SearchPalette'
 const confirmApp = vi.hoisted(() => vi.fn(async () => true))
 vi.mock('../lib/confirm-requests', () => ({ confirmApp }))
 const focusEditorNormalMode = vi.hoisted(() => vi.fn())
-vi.mock('../lib/editor-focus', () => ({ focusEditorNormalMode }))
+const focusEditorAfterReadOpen = vi.hoisted(() => vi.fn())
+const focusEditorAfterPaletteClose = vi.hoisted(() => vi.fn())
+vi.mock('../lib/editor-focus', () => ({
+  focusEditorNormalMode,
+  focusEditorAfterReadOpen,
+  focusEditorAfterPaletteClose
+}))
 
 function note(title: string, tags: string[], updatedAt: number): NoteMeta {
   return {
@@ -55,6 +61,8 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
 
   beforeEach(() => {
     originalState = useStore.getState()
+    focusEditorNormalMode.mockClear()
+    focusEditorAfterReadOpen.mockClear()
     host = document.createElement('div')
     document.body.append(host)
     root = createRoot(host)
@@ -151,6 +159,9 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
       BODIES['inbox/Ideas.md']!.indexOf('Recipe gallery'),
       { scrollMode: 'center', highlightLine: true }
     )
+    // A block is a pick like a note: read on a phone, edited on desktop.
+    expect(focusEditorAfterReadOpen).toHaveBeenCalledTimes(1)
+    expect(focusEditorNormalMode).not.toHaveBeenCalled()
   })
 
   it('opens the Tags view on the query tags from the "+N more" row', async () => {

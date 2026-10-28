@@ -20,6 +20,7 @@ import {
   ViewPlugin,
   type ViewUpdate
 } from '@codemirror/view'
+import { revealedSelectionRanges, sourceRevealChanged } from './cm-source-reveal'
 
 export type HighlightColorId =
   | 'yellow'
@@ -123,7 +124,7 @@ function colorClass(color: string | undefined): string {
 /** True when the cursor or a selection overlaps `[from, to]` — reveal the raw
  *  syntax then, like the rest of the live-preview. */
 function selectionTouches(state: EditorView['state'], from: number, to: number): boolean {
-  for (const range of state.selection.ranges) {
+  for (const range of revealedSelectionRanges(state)) {
     if (range.empty) {
       if (range.from >= from && range.from <= to) return true
       continue
@@ -247,6 +248,7 @@ const highlightPlugin = ViewPlugin.fromClass(
         update.selectionSet ||
         update.viewportChanged ||
         update.focusChanged ||
+        sourceRevealChanged(update) ||
         // A parse cut short by its time budget finishes in a later update
         // that changes nothing else.
         syntaxTree(update.startState) !== syntaxTree(update.state)

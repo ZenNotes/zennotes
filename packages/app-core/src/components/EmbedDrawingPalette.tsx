@@ -5,7 +5,7 @@ import { isExcalidrawPath, isObsidianExcalidrawPath } from '@shared/excalidraw'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import { focusEditorAfterPaletteClose, focusEditorNormalMode } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
 /**
@@ -55,7 +55,7 @@ export function EmbedDrawingPalette(): JSX.Element {
 
   const close = (): void => {
     setOpen(false)
-    focusEditorNormalMode()
+    focusEditorAfterPaletteClose()
   }
 
   return (

@@ -321,6 +321,8 @@ import { installEditorHost, revealEditorCaret } from '@zennotes/app-core/editor'
 
 const host = installEditorHost({
   nativeTyping: true,
+  // A phone layout reads what a search finds; the keyboard waits for a tap.
+  openNotesToRead: () => isPhoneLayout(),
   measureBottomInsets: ({ editor, scroll }) => ({
     // These geometry helpers and overlay elements belong to the native shell.
     layout: bottomOverlap(editor, selectionToolbarBounds()),
@@ -339,6 +341,23 @@ host.dispose()
 and writing suggestions through the editor's content attributes. The native
 keyboard decides which features to provide. It does not install keyboard plugins
 or change the host's spelling capabilities.
+
+`openNotesToRead` is asked each time a pick in one of core's searches lands
+(the note search, Search in all notes, the outline, the buffer switcher), and
+each time a command-palette command that only goes to a note already there
+finishes (Go Back, Go Forward, Switch to Previous Note, the tab commands, and
+today's daily, weekly or monthly note when it exists). When it returns true the
+note opens without taking the keyboard focus, so a soft keyboard stays down
+until the user taps into the text. Commands whose point is typing (a new note,
+Format Markdown, Reflow Paragraph) keep focusing the editor; every other
+command (a toggle, a view, a theme), and closing any of those palettes or the
+template or drawing palette without a pick, leaves the focus where it was.
+Absent, false or throwing, the editor takes the focus as on desktop.
+
+Live preview reveals a line's Markdown source (a heading's `#`, `**`, `[[ ]]`)
+only on lines the user is editing: once an editor has taken the focus since its
+note opened. A note opened to be read renders every line, the caret's too, with
+no host configuration.
 
 The measurement callback receives frozen copies of editor and scroll-viewport
 bounds (`top`, `bottom`, `left`, `right`, `width`, `height`) in CSS pixels. It receives

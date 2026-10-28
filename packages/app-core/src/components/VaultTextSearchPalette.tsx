@@ -9,7 +9,7 @@ import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
 import { recordRendererPerf } from '../lib/perf'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import { focusEditorAfterReadOpen, focusEditorAfterPaletteClose } from '../lib/editor-focus'
 import { Modal } from './ui/Modal'
 
 type ResolvedVaultTextSearchBackend = 'builtin' | 'ripgrep' | 'fzf'
@@ -365,12 +365,12 @@ export function VaultTextSearchPalette(): JSX.Element {
   const openMatch = async (match: VaultTextSearchMatch): Promise<void> => {
     setOpen(false)
     await openNoteAtOffset(match.path, match.offset, { scrollMode: 'center' })
-    focusEditorNormalMode()
+    focusEditorAfterReadOpen()
   }
 
   const close = (): void => {
     setOpen(false)
-    focusEditorNormalMode()
+    focusEditorAfterPaletteClose()
   }
 
   return (

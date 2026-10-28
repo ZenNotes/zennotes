@@ -34,6 +34,20 @@ export interface EditorHostOptions {
   readonly nativeTyping?: boolean
   /** Read-only measurement callback. Return CSS pixels; do not change layout here. */
   readonly measureBottomInsets?: (viewport: EditorViewport) => EditorBottomInsets
+  /**
+   * Asked as a pick in one of core's searches (the note search, Search in all
+   * notes, the outline, the buffer switcher) lands, and as a command-palette
+   * command finishes. True opens a note to be read without handing the editor
+   * the keyboard focus, so a soft keyboard stays down until the user taps
+   * into the text: a search pick, or a command that only goes to a note
+   * already there (Go Back, Reopen Closed Tab, today's daily note when it
+   * exists). A command whose point is typing (a new note, Format Markdown)
+   * still focuses the editor; any other command (a toggle, a view, a theme),
+   * and closing one of those palettes or the template or drawing palette
+   * without a pick, leaves the focus where it was. Absent or false, the
+   * editor takes the focus after all of them, as on desktop.
+   */
+  readonly openNotesToRead?: () => boolean
 }
 
 export interface EditorHostRegistration {

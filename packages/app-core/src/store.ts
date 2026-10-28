@@ -308,9 +308,15 @@ const WORKSPACE_KEY = 'zen:workspace:v1'
  *  event (handled in App.tsx via `focusEditorNormalMode`) so the store doesn't
  *  have to import editor-focus, which imports the store. Used when a focused
  *  panel (Tasks/Tags) closes so typing lands in the editor again. (#353) */
-function requestEditorFocus(): void {
+function requestEditorFocus(options: { read?: boolean } = {}): void {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new Event('zen:focus-editor'))
+  // `read`: the note already existed and was opened to be read, which App
+  // hands over like a search pick (left unfocused on a phone).
+  window.dispatchEvent(
+    options.read
+      ? new CustomEvent('zen:focus-editor', { detail: { read: true } })
+      : new Event('zen:focus-editor')
+  )
 }
 /** Debounce for mirroring the workspace snapshot to the synced vault file —
  *  localStorage updates immediately; the file lags to bound sync churn. (#292) */
@@ -505,6 +511,14 @@ function isDeletedAssetRecord(value: unknown): value is DeletedAsset {
 /** Which weekday the calendar grid starts on. `locale` derives it from the
  *  user's locale (falling back to Monday). */
 export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
+
+/** How a daily, weekly or monthly note opener lands. `readIfExisting`: a note
+ *  that is already there opens to be read (the command palette's Open Today's
+ *  Daily Note and friends), so a phone keeps its keyboard down; one the opener
+ *  has to create still takes the focus, to be written in. */
+export interface PeriodicNoteOpenOptions {
+  readIfExisting?: boolean
+}
 const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
@@ -684,6 +698,9 @@ interface Prefs {
   /** Tint the sidebar surface a step darker than the main canvas. */
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  /** Show the bar along the bottom of the workspace (Cloud sync status and the
+   *  note's stats). Off, it still shows while Cloud needs the user. */
+  showStatusBar: boolean
   /** Show disclosure arrows for collapsible sidebar folders and sections. */
   showSidebarChevrons: boolean
   /** Keys of collapsed folders in the sidebar tree. */
@@ -1179,6 +1196,7 @@ export const DEFAULT_PREFS: Prefs = {
   unifiedSidebar: true,
   darkSidebar: true,
   showWindowTitleBar: true,
+  showStatusBar: true,
   showSidebarChevrons: true,
   collapsedFolders: [],
   pinnedRefPath: null,
@@ -1461,6 +1479,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.showWindowTitleBar === 'boolean'
         ? p.showWindowTitleBar
         : DEFAULT_PREFS.showWindowTitleBar,
+    showStatusBar:
+      typeof p.showStatusBar === 'boolean' ? p.showStatusBar : DEFAULT_PREFS.showStatusBar,
     darkSidebar:
       typeof p.darkSidebar === 'boolean'
         ? p.darkSidebar
@@ -2507,6 +2527,7 @@ function collectPrefs(s: {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  showStatusBar: boolean
   showSidebarChevrons: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
@@ -2625,6 +2646,7 @@ function collectPrefs(s: {
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
     showWindowTitleBar: s.showWindowTitleBar,
+    showStatusBar: s.showStatusBar,
     showSidebarChevrons: s.showSidebarChevrons,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
@@ -3205,6 +3227,7 @@ interface Store {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  showStatusBar: boolean
   showSidebarChevrons: boolean
   /** Manual (drag-to-reorder) note order for `noteSortOrder: 'manual'`, keyed
    *  by parent directory → ordered note paths. Persisted per vault (#224). */
@@ -3857,6 +3880,7 @@ interface Store {
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
   setShowWindowTitleBar: (on: boolean) => void
+  setShowStatusBar: (on: boolean) => void
   setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
@@ -3882,9 +3906,9 @@ interface Store {
 
   setQuickNoteDateTitle: (on: boolean) => void
   setQuickNoteTitlePrefix: (prefix: string | null) => void
-  openTodayDailyNote: () => Promise<void>
-  openThisWeekWeeklyNote: () => Promise<void>
-  openThisMonthMonthlyNote: () => Promise<void>
+  openTodayDailyNote: (options?: PeriodicNoteOpenOptions) => Promise<void>
+  openThisWeekWeeklyNote: (options?: PeriodicNoteOpenOptions) => Promise<void>
+  openThisMonthMonthlyNote: (options?: PeriodicNoteOpenOptions) => Promise<void>
   setTemplatePaletteOpen: (open: boolean) => void
   setEmbedDrawingPaletteOpen: (open: boolean) => void
   setNoteCoverPickerPath: (path: string | null) => void
@@ -3938,9 +3962,9 @@ interface Store {
   setAutoCalendarPanel: (enabled: boolean) => void
   setCalendarWeekStart: (start: CalendarWeekStart) => void
   setCalendarShowWeekNumbers: (show: boolean) => void
-  openDailyNoteForDate: (date: Date) => Promise<void>
-  openWeeklyNoteForDate: (date: Date) => Promise<void>
-  openMonthlyNoteForDate: (date: Date) => Promise<void>
+  openDailyNoteForDate: (date: Date, options?: PeriodicNoteOpenOptions) => Promise<void>
+  openWeeklyNoteForDate: (date: Date, options?: PeriodicNoteOpenOptions) => Promise<void>
+  openMonthlyNoteForDate: (date: Date, options?: PeriodicNoteOpenOptions) => Promise<void>
   /** Find the daily note for `date`, creating it on disk (template-aware)
    *  WITHOUT navigating to it. Returns its meta, or null if daily notes are
    *  disabled or creation failed. */
@@ -6127,6 +6151,7 @@ export const useStore = create<Store>((set, get) => {
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
   showWindowTitleBar: loadPrefs().showWindowTitleBar,
+  showStatusBar: loadPrefs().showStatusBar,
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
@@ -9758,6 +9783,10 @@ export const useStore = create<Store>((set, get) => {
     set({ showWindowTitleBar: on })
     savePrefs(collectPrefs(get()))
   },
+  setShowStatusBar: (on) => {
+    set({ showStatusBar: on })
+    savePrefs(collectPrefs(get()))
+  },
   setDarkSidebar: (on) => {
     set({ darkSidebar: on })
     savePrefs(collectPrefs(get()))
@@ -9926,7 +9955,7 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
 
-  openDailyNoteForDate: async (date) => {
+  openDailyNoteForDate: async (date, options) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.dailyNotes.enabled) return
@@ -9947,7 +9976,8 @@ export const useStore = create<Store>((set, get) => {
     // instead of leaving focus on the sidebar item that just got selected. The
     // command is a jump-and-type flow and is often fired from outside the
     // editor (leader key, palette), where focus would otherwise stay put. (#353)
-    requestEditorFocus()
+    // A caller that opens it to read asks for that when the note was there.
+    requestEditorFocus({ read: !!existing && options?.readIfExisting === true })
     // Opening *today's* note rolls unfinished tasks forward from past daily
     // notes (Obsidian-style) when enabled. Fire-and-forget so the note shows
     // right away; the rollover appends into the now-open buffer.
@@ -9956,8 +9986,8 @@ export const useStore = create<Store>((set, get) => {
     }
   },
 
-  openTodayDailyNote: async () => {
-    await get().openDailyNoteForDate(new Date())
+  openTodayDailyNote: async (options) => {
+    await get().openDailyNoteForDate(new Date(), options)
   },
 
   ensureDailyNoteForDate: trackNoteWrite(null, async (date) => {
@@ -10141,7 +10171,7 @@ export const useStore = create<Store>((set, get) => {
     return movedLines.length
   }),
 
-  openWeeklyNoteForDate: async (date) => {
+  openWeeklyNoteForDate: async (date, options) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.weeklyNotes.enabled) return
@@ -10159,14 +10189,14 @@ export const useStore = create<Store>((set, get) => {
       }
     }
     // Focus the editor so `i` starts insert immediately (see openDailyNoteForDate).
-    requestEditorFocus()
+    requestEditorFocus({ read: !!existing && options?.readIfExisting === true })
   },
 
-  openThisWeekWeeklyNote: async () => {
-    await get().openWeeklyNoteForDate(new Date())
+  openThisWeekWeeklyNote: async (options) => {
+    await get().openWeeklyNoteForDate(new Date(), options)
   },
 
-  openMonthlyNoteForDate: async (date) => {
+  openMonthlyNoteForDate: async (date, options) => {
     const state = get()
     const settings = normalizeVaultSettings(state.vaultSettings)
     if (!settings.monthlyNotes.enabled) return
@@ -10184,11 +10214,11 @@ export const useStore = create<Store>((set, get) => {
       }
     }
     // Focus the editor so `i` starts insert immediately (see openDailyNoteForDate).
-    requestEditorFocus()
+    requestEditorFocus({ read: !!existing && options?.readIfExisting === true })
   },
 
-  openThisMonthMonthlyNote: async () => {
-    await get().openMonthlyNoteForDate(new Date())
+  openThisMonthMonthlyNote: async (options) => {
+    await get().openMonthlyNoteForDate(new Date(), options)
   },
 
   setTemplatePaletteOpen: (open) =>
