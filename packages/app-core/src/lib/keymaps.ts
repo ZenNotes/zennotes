@@ -128,6 +128,7 @@ export type KeymapId =
   | "nav.peekPreview"
   | "nav.restore"
   | "nav.delete"
+  | "nav.sidebarTrash"
   | "nav.toggleTask"
   | "nav.localEx"
   | "nav.newQuickNote"
@@ -1384,9 +1385,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Delete selected result",
     description:
-      "Permanently delete or move the selected item to trash, depending on the view.",
+      "Permanently delete or move the selected item to trash, depending on the view. In the sidebar it moves the note under the cursor (or the selection that includes it) to the Trash, after a confirm.",
     defaultBinding: "x",
     maxTokens: 1,
+  },
+  {
+    id: "nav.sidebarTrash",
+    kind: "shortcut",
+    scope: "lists",
+    group: "view-actions",
+    title: "Move sidebar note to Trash",
+    description:
+      "With the sidebar focused, move the note under its cursor to the Trash after a confirm, or every selected note when the selection includes that row. Works with Vim mode on or off.",
+    defaultBinding: "Mod+Backspace",
   },
   {
     id: "nav.toggleTask",

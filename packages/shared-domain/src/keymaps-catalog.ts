@@ -160,6 +160,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "nav.peekPreview", group: "view-actions", defaultBinding: "p", title: "Peek preview" },
   { id: "nav.restore", group: "view-actions", defaultBinding: "r", title: "Restore trashed note" },
   { id: "nav.delete", group: "view-actions", defaultBinding: "x", title: "Delete selected result" },
+  { id: "nav.sidebarTrash", group: "view-actions", defaultBinding: "Mod+Backspace", title: "Move sidebar note to Trash" },
   { id: "nav.toggleTask", group: "view-actions", defaultBinding: "x", title: "Toggle task" },
   { id: "tasks.moveTaskUp", group: "view-actions", defaultBinding: "K", title: "Move task up" },
   { id: "tasks.moveTaskDown", group: "view-actions", defaultBinding: "J", title: "Move task down" },

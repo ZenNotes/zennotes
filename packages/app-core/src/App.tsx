@@ -71,7 +71,8 @@ import { ensureCloudAutoSyncStarted, stopCloudAutoSync } from './lib/cloud-auto-
 import { loadKeepRunningInTray, startTraySyncStatusReporter } from './lib/tray-runtime'
 import { installHarperRuntime } from './lib/harper-runtime'
 import { installIgnoredKeysGuard } from './lib/ignored-keys'
-import { installCommandKeymapDispatcher } from './lib/command-keymap-dispatch'
+import { installCommandKeymapDispatcher, isMainAppWindow } from './lib/command-keymap-dispatch'
+import { installSidebarTrashKeys } from './lib/sidebar-note-actions'
 
 // The ignored-keys guard (#732) has to be on `window` before any component
 // registers a capture listener there, so it is installed at import time,
@@ -84,6 +85,12 @@ installIgnoredKeysGuard(() => useStore.getState().ignoredKeys)
 // sequences are not handled here but in VimNav, after the built-in leader
 // keys. See lib/command-keymap-dispatch.ts.
 installCommandKeymapDispatcher(() => useStore.getState())
+// The sidebar's Mod+Backspace (#972) after those, ahead of every component:
+// a list view left active behind a focused sidebar listens on the window too,
+// and must not see the chord first. Only the main window has a sidebar.
+if (typeof window !== 'undefined' && isMainAppWindow(window.location.search)) {
+  installSidebarTrashKeys(() => useStore.getState())
+}
 
 let editorModulePromise: Promise<typeof import('./components/Editor')> | null = null
 const EDITOR_MODULE_WARMUP_GRACE_MS = 40

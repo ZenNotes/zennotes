@@ -184,6 +184,13 @@ describe('keymapBindingTakenBy, the Settings warning (#972)', () => {
     })
   })
 
+  it('covers the sidebar chord too, which is a shortcut-format binding', () => {
+    withPlatform('darwin', () => {
+      expect(keymapBindingTakenBy({}, 'nav.sidebarTrash', 'Mod+Backspace', true)).toBeNull()
+      expect(keymapBindingTakenBy({}, 'nav.sidebarTrash', 'Mod+W', true)?.id).toBe('global.closeActiveTab')
+    })
+  })
+
   it('leaves free chords, typed keys, unbound actions and other scopes alone', () => {
     withPlatform('darwin', () => {
       expect(keymapBindingTakenBy({}, 'nav.delete', 'Mod+Backspace', true)).toBeNull()

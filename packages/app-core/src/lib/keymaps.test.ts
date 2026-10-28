@@ -764,3 +764,22 @@ describe('Mod in sequence bindings (#972)', () => {
     withPlatform('linux', () => expect(toVimSequence('Ctrl+Mod+D')).toBe('<C-d>'))
   })
 })
+
+describe('Move sidebar note to Trash (#972)', () => {
+  it('is a Mod+Backspace chord in either mode, rebindable and unbindable', () => {
+    const definition = getKeymapDefinition('nav.sidebarTrash')
+    expect(definition).toMatchObject({ kind: 'shortcut', defaultBinding: 'Mod+Backspace' })
+    expect(definition.vimOnly).toBeUndefined()
+    withPlatform('darwin', () => {
+      const cmd = fakeEvent({ key: 'Backspace', code: 'Backspace', metaKey: true })
+      expect(matchesShortcut(cmd, {}, 'nav.sidebarTrash')).toBe(true)
+      expect(matchesShortcut(cmd, { 'nav.sidebarTrash': '' }, 'nav.sidebarTrash')).toBe(false)
+      const del = fakeEvent({ key: 'Delete', code: 'Delete' })
+      expect(matchesShortcut(del, { 'nav.sidebarTrash': 'Delete' }, 'nav.sidebarTrash')).toBe(true)
+    })
+    withPlatform('linux', () => {
+      const ctrl = fakeEvent({ key: 'Backspace', code: 'Backspace', ctrlKey: true })
+      expect(matchesShortcut(ctrl, {}, 'nav.sidebarTrash')).toBe(true)
+    })
+  })
+})
