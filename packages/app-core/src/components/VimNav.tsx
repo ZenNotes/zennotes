@@ -2609,10 +2609,17 @@ export function VimNav(): JSX.Element | null {
     if (!id) return
     void confirmDeleteComment().then((confirmed) => {
       if (!confirmed) return
-      const card = document.querySelector<HTMLElement>(
-        `[data-comments-idx][data-comment-id="${escapeForAttr(id)}"]`
-      )
-      clickCommentAction(card ?? undefined, 'delete')
+      const items = getCommentItems()
+      const at = items.findIndex((item) => item.dataset.commentId === id)
+      const card = at >= 0 ? items[at] : undefined
+      // Deleting the active comment clears it in the store, and a cleared
+      // cursor lands on the first comment. The cursor takes the next one in
+      // the panel's order instead (the previous one after the last), so a
+      // run of deletes walks down the list rather than back to the top.
+      const neighbour = at >= 0 ? (items[at + 1] ?? items[at - 1]) : undefined
+      clickCommentAction(card, 'delete')
+      const next = neighbour?.dataset.commentId
+      if (next) useStore.getState().setActiveCommentId(next)
     })
   }
 

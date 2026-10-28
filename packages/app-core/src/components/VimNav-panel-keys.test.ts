@@ -647,6 +647,18 @@ describe('comments keys in VimNav', () => {
       expect(confirmTitle()).toBe('Delete this comment?')
       await answerConfirm(true)
       expect(clicks).toEqual(['c1:delete'])
+      // The cursor takes the next comment, not the first one.
+      expect(active()).toBe('c2')
+    })
+
+    it('puts the cursor on the previous comment after deleting the last one', async () => {
+      mount(false)
+      press('End', 'End')
+      expect(active()).toBe('c7')
+      press('Delete', 'Delete')
+      await answerConfirm(true)
+      expect(clicks).toEqual(['c7:delete'])
+      expect(active()).toBe('c6')
     })
 
     it('returns to the editor with ArrowLeft and Escape, as h does', () => {
