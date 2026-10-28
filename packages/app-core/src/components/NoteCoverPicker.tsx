@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { readNoteCover } from '@shared/note-cover'
-import { UNSPLASH_HOME_URL, unsplashReferralUrl } from '@shared/unsplash'
-import type { UnsplashPhoto } from '@zennotes/bridge-contract/unsplash'
+import { UNSPLASH_DEVELOPERS_URL, UNSPLASH_HOME_URL, unsplashReferralUrl } from '@shared/unsplash'
+import type { UnsplashKeyStore, UnsplashPhoto } from '@zennotes/bridge-contract/unsplash'
 import { useStore } from '../store'
 import { rankItems } from '../lib/fuzzy-score'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
@@ -20,6 +20,13 @@ import {
   setCoverTarget
 } from '../lib/note-cover-actions'
 import { unsplashSearchAvailable, useUnsplashSearch, type UnsplashSearchState } from '../lib/unsplash-search'
+import {
+  openUnsplashKeySettings,
+  refreshUnsplashKeyStatus,
+  unsplashKeySupported,
+  unsplashRateLimitSentence,
+  useUnsplashKeyStatus
+} from '../lib/unsplash-key'
 import { Modal } from './ui/Modal'
 import { Button } from './ui/Button'
 
@@ -44,26 +51,49 @@ type PickerTab = 'covers' | 'unsplash'
 const UNSPLASH_ROW = 4
 
 /** What the Unsplash tab says instead of tiles, or null when it has tiles. */
-function unsplashMessage(state: UnsplashSearchState, count: number): string | null {
+export function unsplashMessage(state: UnsplashSearchState, count: number): string | null {
   switch (state.status) {
     case 'idle':
-      return 'Search free photos from Unsplash. Searches go through zennotes.org.'
+      return 'Search free photos from Unsplash, with your own access key.'
     case 'loading':
       return 'Searching Unsplash…'
     case 'failed':
-      if (state.reason === 'offline') {
-        return 'Unsplash could not be reached. Check your connection; the Covers tab works offline.'
+      switch (state.reason) {
+        case 'offline':
+          return 'Unsplash could not be reached. Check your connection; the Covers tab works offline.'
+        case 'invalid-key':
+          return 'Unsplash did not accept your access key. It may have been revoked, or part of it was lost when it was pasted.'
+        case 'rate-limited':
+          if (state.retryAt) {
+            const at = new Date(state.retryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+            return `Unsplash search is pausing until ${at}: ZenNotes sends at most 40 requests a minute. The Covers tab still works.`
+          }
+          return `${unsplashRateLimitSentence(state.limit)} The Covers tab still works.`
+        case 'no-key':
+          return 'Unsplash search needs an access key of your own.'
+        default:
+          return 'Unsplash search is not available right now. The Covers tab still works.'
       }
-      if (state.reason === 'rate-limited') {
-        const until = state.retryAt
-          ? ` until ${new Date(state.retryAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-          : ' for now'
-        return `Unsplash search is resting${until}: its hourly limit is shared by everyone using ZenNotes. The Covers tab still works.`
-      }
-      return 'Unsplash search is not available right now. The Covers tab still works.'
     case 'ready':
       return count === 0 ? `No Unsplash photos match “${state.query}”.` : null
   }
+}
+
+/** Something the Unsplash tab offers in place of photos (Open Settings, the
+ *  developers page, Change key). The field keeps focus: ↑/↓ choose, Enter
+ *  runs it. */
+interface PanelAction {
+  id: string
+  label: string
+  /** The footer's word for Enter while this action is chosen. */
+  hint: string
+  run: () => void
+}
+
+function openWebPage(url: string): void {
+  // Desktop main hands a window.open to the default browser; the web client
+  // opens a tab.
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 /**
@@ -98,7 +128,14 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
   )
   const [query, setQuery] = useState(() => start?.query ?? '')
   const [active, setActive] = useState(0)
-  const { state: unsplash, loadMore } = useUnsplashSearch(query, tab === 'unsplash')
+  // The tab searches with the person's own key. Until one is set it shows how
+  // to get one, and sends nothing; the status is known before anything is.
+  const keyStatus = useUnsplashKeyStatus()
+  const keySupported = unsplashKeySupported()
+  const needsKey = keySupported && keyStatus?.set === false
+  const keyReady = !keySupported || keyStatus?.set === true
+  const { state: unsplash, loadMore } = useUnsplashSearch(query, tab === 'unsplash' && keyReady)
+  const [panelActive, setPanelActive] = useState(0)
   const [busy, setBusy] = useState(false)
   const [dropActive, setDropActive] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -170,6 +207,37 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
 
   const choices = useMemo(() => sections.flatMap((s) => s.choices), [sections])
   const unsplashQuery = unsplash.status === 'idle' ? '' : unsplash.query
+  const failure = unsplash.status === 'failed' ? unsplash.reason : null
+
+  // A search that finds no key (cleared in another window) or a refused one
+  // asks the host again, so the tab shows the setup panel when it should.
+  useEffect(() => {
+    if (failure === 'no-key' || failure === 'invalid-key') void refreshUnsplashKeyStatus()
+  }, [failure])
+
+  const openKeySettings = (): void => {
+    // Settings takes the keyboard; the editor does not get it back first.
+    setPickerPath(null)
+    openUnsplashKeySettings()
+  }
+  const panelActions: PanelAction[] =
+    tab !== 'unsplash' || choices.length > 0
+      ? []
+      : needsKey || failure === 'no-key'
+        ? [
+            { id: 'settings', label: 'Open Settings', hint: 'open settings', run: openKeySettings },
+            {
+              id: 'developers',
+              label: 'unsplash.com/developers',
+              hint: 'open unsplash.com',
+              run: () => openWebPage(UNSPLASH_DEVELOPERS_URL)
+            }
+          ]
+        : failure === 'invalid-key'
+          ? [{ id: 'settings', label: 'Change key', hint: 'change key', run: openKeySettings }]
+          : []
+  const panelActionsKey = panelActions.map((a) => a.id).join(' ')
+  useEffect(() => setPanelActive(0), [panelActionsKey])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -248,6 +316,14 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
       e.preventDefault()
       e.stopPropagation()
       switchTab()
+    } else if (panelActions.length > 0 && (isPaletteNextKey(e) || isPalettePreviousKey(e))) {
+      e.preventDefault()
+      e.stopPropagation()
+      const step = isPaletteNextKey(e) ? 1 : -1
+      setPanelActive((a) => Math.min(panelActions.length - 1, Math.max(0, a + step)))
+    } else if (panelActions.length > 0 && e.key === 'Enter') {
+      e.preventDefault()
+      panelActions[Math.min(panelActive, panelActions.length - 1)]?.run()
     } else if (isPaletteNextKey(e)) {
       e.preventDefault()
       e.stopPropagation()
@@ -385,9 +461,23 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
             if (tab === 'unsplash' && el.scrollTop + el.clientHeight >= el.scrollHeight - 80) loadMore()
           }}
         >
-          {sections.length === 0 ? (
+          {sections.length === 0 && tab === 'unsplash' && (needsKey || failure === 'no-key') ? (
+            <UnsplashKeySetupPanel
+              store={keyStatus?.store}
+              actions={panelActions}
+              active={panelActive}
+              onHover={setPanelActive}
+            />
+          ) : sections.length === 0 ? (
             <div data-cover-picker-message="" className="px-6 py-8 text-center text-sm text-ink-400">
-              {tab === 'unsplash' ? unsplashMessage(unsplash, choices.length) : 'No covers match.'}
+              {tab === 'unsplash'
+                ? keyStatus == null && keySupported
+                  ? null
+                  : unsplashMessage(unsplash, choices.length)
+                : 'No covers match.'}
+              {panelActions.length > 0 && (
+                <PanelActionButtons actions={panelActions} active={panelActive} onHover={setPanelActive} />
+              )}
             </div>
           ) : (
             sections.map((section) => (
@@ -441,7 +531,10 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
             <kbd className="rounded bg-paper-200 px-1">↑↓←→</kbd> move
           </span>
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↵</kbd> set cover
+            <kbd className="rounded bg-paper-200 px-1">↵</kbd>{' '}
+            {panelActions.length > 0
+              ? panelActions[Math.min(panelActive, panelActions.length - 1)]?.hint
+              : 'set cover'}
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
@@ -449,6 +542,70 @@ export function NoteCoverPicker({ notePath }: { notePath: string }): JSX.Element
         </div>
       </div>
     </Modal>
+  )
+}
+
+/** The Unsplash tab without a key: what the key is for and how to get one,
+ *  with Open Settings (the field) and the page where an app is made. */
+function UnsplashKeySetupPanel({
+  store,
+  actions,
+  active,
+  onHover
+}: {
+  store: UnsplashKeyStore | undefined
+  actions: PanelAction[]
+  active: number
+  onHover: (index: number) => void
+}): JSX.Element {
+  return (
+    <div data-cover-picker-setup="" className="mx-auto max-w-xl px-6 py-7 text-sm leading-6 text-ink-600">
+      <p className="font-medium text-ink-900">Unsplash search needs an access key of your own</p>
+      <p className="mt-1 text-ink-500">
+        ZenNotes searches Unsplash with a free key you create, so your searches go from{' '}
+        {store === 'browser' ? 'this browser' : 'this computer'} straight to Unsplash. It takes a minute:
+      </p>
+      <ol className="mt-3 list-decimal space-y-1 pl-5">
+        <li>At unsplash.com/developers, open Your apps and create a New Application (a free Unsplash account is all it needs).</li>
+        <li>Copy its Access Key. The Secret Key is not needed.</li>
+        <li>Paste it into Settings → Typography → Covers → Unsplash access key.</li>
+      </ol>
+      <PanelActionButtons actions={actions} active={active} onHover={onHover} />
+      <p className="mt-3 text-xs text-ink-400">
+        A new Unsplash app allows 50 requests an hour, plenty for picking covers. The Covers tab needs no key.
+      </p>
+    </div>
+  )
+}
+
+function PanelActionButtons({
+  actions,
+  active,
+  onHover
+}: {
+  actions: PanelAction[]
+  active: number
+  onHover: (index: number) => void
+}): JSX.Element {
+  return (
+    <div className="mt-4 flex flex-wrap justify-center gap-2">
+      {actions.map((action, i) => (
+        <Button
+          key={action.id}
+          data-cover-picker-action={action.id}
+          aria-current={i === active ? 'true' : undefined}
+          // The field keeps focus, as with the tiles: ↑/↓ choose, Enter runs.
+          tabIndex={-1}
+          variant={i === 0 ? 'primary' : 'secondary'}
+          className={i === active ? 'ring-2 ring-accent' : ''}
+          onMouseDown={(e) => e.preventDefault()}
+          onMouseMove={() => onHover(i)}
+          onClick={action.run}
+        >
+          {action.label}
+        </Button>
+      ))}
+    </div>
   )
 }
 

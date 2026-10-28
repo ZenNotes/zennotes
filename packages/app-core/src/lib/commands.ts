@@ -53,6 +53,7 @@ import {
   startCoverReposition
 } from './note-cover-actions'
 import { unsplashSearchAvailable } from './unsplash-search'
+import { openUnsplashKeySettings, unsplashKeySupported } from './unsplash-key'
 import { csvPathFromDatabaseTab } from '@shared/databases'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
@@ -475,6 +476,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () => !!coverNotePath() && unsplashSearchAvailable(),
       run: () => {
         openUnsplashCoverPicker()
+      }
+    },
+    {
+      // Settings, in the field: the cover picker's Unsplash tab searches with
+      // the person's own key.
+      id: 'note.cover.unsplashKey',
+      title: 'Set Unsplash Access Key…',
+      category: 'Note',
+      keywords: 'unsplash api key access cover banner photo settings',
+      when: () => unsplashKeySupported(),
+      run: () => {
+        openUnsplashKeySettings()
       }
     },
     {

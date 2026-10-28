@@ -43,7 +43,12 @@ import type {
   VaultTextSearchToolPaths
 } from './ipc.js'
 import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
-import type { UnsplashSearchResult } from './unsplash.js'
+import type {
+  UnsplashKeyCheck,
+  UnsplashKeySaveResult,
+  UnsplashKeyStatus,
+  UnsplashSearchResult
+} from './unsplash.js'
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
@@ -180,12 +185,21 @@ export interface ZenBridge {
    *  no identifier. The caller checks the setting; the host refuses
    *  development builds and test runs, and sends each event once per run. */
   sendUsageCount?(event: 'install' | 'update'): Promise<void>
-  /** Unsplash photo search for the cover picker, through the proxy on
-   *  zennotes.org (no host holds an Unsplash key). A host without it shows no
-   *  Unsplash tab. Never rejects: a failure comes back as its reason. */
+  /** Unsplash photo search for the cover picker, sent straight to
+   *  api.unsplash.com with the person's own access key. A host without it
+   *  shows no Unsplash tab. Never rejects: a failure comes back as its reason. */
   searchUnsplash?(query: string, page: number): Promise<UnsplashSearchResult>
   /** Unsplash's download tracking: a photo became a cover. Fire and forget. */
   trackUnsplashDownload?(downloadLocation: string): Promise<void>
+  /** Whether an Unsplash access key is set. The key itself never crosses
+   *  the bridge: the host keeps it and answers only this. */
+  getUnsplashKeyStatus?(): Promise<UnsplashKeyStatus>
+  /** Check a pasted access key with one request, then keep it unless
+   *  Unsplash refused it. */
+  saveUnsplashKey?(key: string): Promise<UnsplashKeySaveResult>
+  /** One request with the saved key. */
+  testUnsplashKey?(): Promise<UnsplashKeyCheck>
+  clearUnsplashKey?(): Promise<void>
   checkForAppUpdatesWithUi(): Promise<void>
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdate(): Promise<void>

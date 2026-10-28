@@ -10,7 +10,12 @@ import type {
   CustomTemplateFile,
   WriteTemplateInput
 } from '@zennotes/bridge-contract/templates'
-import type { UnsplashSearchResult } from '@zennotes/bridge-contract/unsplash'
+import type {
+  UnsplashKeyCheck,
+  UnsplashKeySaveResult,
+  UnsplashKeyStatus,
+  UnsplashSearchResult
+} from '@zennotes/bridge-contract/unsplash'
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
@@ -269,6 +274,10 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.UNSPLASH_SEARCH, query, page),
   trackUnsplashDownload: (downloadLocation: string): Promise<void> =>
     ipcRenderer.invoke(IPC.UNSPLASH_TRACK_DOWNLOAD, downloadLocation),
+  getUnsplashKeyStatus: (): Promise<UnsplashKeyStatus> => ipcRenderer.invoke(IPC.UNSPLASH_KEY_STATUS),
+  saveUnsplashKey: (key: string): Promise<UnsplashKeySaveResult> => ipcRenderer.invoke(IPC.UNSPLASH_KEY_SAVE, key),
+  testUnsplashKey: (): Promise<UnsplashKeyCheck> => ipcRenderer.invoke(IPC.UNSPLASH_KEY_TEST),
+  clearUnsplashKey: (): Promise<void> => ipcRenderer.invoke(IPC.UNSPLASH_KEY_CLEAR),
   checkForAppUpdatesWithUi: (): Promise<void> =>
     ipcRenderer.invoke(IPC.APP_UPDATER_CHECK_WITH_UI),
   downloadAppUpdate: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_DOWNLOAD),

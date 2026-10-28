@@ -1,55 +1,141 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('electron', () => ({ app: { isPackaged: true }, net: { fetch: vi.fn() } }))
+const machine = vi.hoisted(() => ({ userData: '', encryption: true }))
 
+vi.mock('electron', () => ({
+  app: { isPackaged: true, getPath: () => machine.userData },
+  net: { fetch: vi.fn() },
+  // A stand-in for the OS cipher. What matters is that the secrets file never
+  // holds the key as written, and that a key comes back out unchanged.
+  safeStorage: {
+    isEncryptionAvailable: () => machine.encryption,
+    encryptString: (text: string) => Buffer.from(`sealed:${Buffer.from(text).toString('hex').split('').reverse().join('')}`),
+    decryptString: (sealed: Buffer) => {
+      const body = sealed.toString()
+      if (!body.startsWith('sealed:')) throw new Error('not sealed')
+      return Buffer.from(body.slice('sealed:'.length).split('').reverse().join(''), 'hex').toString()
+    }
+  }
+}))
+
+import { PORTABLE_PREF_KEYS } from '@shared/app-config'
 import type { UnsplashFetch } from '@shared/unsplash'
-import { createUnsplashClient, unsplashProxyBaseUrl, UNSPLASH_REQUESTS_PER_MINUTE } from './unsplash'
+import {
+  deleteUnsplashAccessKeySecret,
+  getUnsplashAccessKeySecret,
+  setUnsplashAccessKeySecret
+} from './secret-store'
+import { createDesktopUnsplashClient, unsplashApiBaseUrl } from './unsplash'
 
-const ok = (json: unknown) => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => json })
+const KEY = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
+const ok = (json: unknown) => ({
+  ok: true,
+  status: 200,
+  headers: { get: (name: string) => ({ 'x-ratelimit-limit': '50', 'x-ratelimit-remaining': '49' })[name.toLowerCase()] ?? null },
+  json: async () => json
+})
 
-describe('unsplashProxyBaseUrl', () => {
-  it('is zennotes.org unless a test run names another', () => {
-    expect(unsplashProxyBaseUrl({}, true)).toBe('https://zennotes.org/api/v1/unsplash')
-    expect(unsplashProxyBaseUrl({ ZENNOTES_UNSPLASH_PROXY_URL: 'http://127.0.0.1:7/u/' }, false)).toBe(
-      'http://127.0.0.1:7/u'
-    )
+/** Every file under `dir`, read as text. */
+async function filesUnder(dir: string): Promise<Array<{ path: string; text: string }>> {
+  const out: Array<{ path: string; text: string }> = []
+  for (const name of await readdir(dir)) {
+    const path = join(dir, name)
+    if ((await stat(path)).isDirectory()) out.push(...(await filesUnder(path)))
+    else out.push({ path, text: await readFile(path, 'utf8') })
+  }
+  return out
+}
+
+beforeEach(async () => {
+  machine.userData = await mkdtemp(join(tmpdir(), 'zn-unsplash-key-'))
+  machine.encryption = true
+})
+
+afterEach(async () => {
+  await rm(machine.userData, { recursive: true, force: true })
+})
+
+describe('unsplashApiBaseUrl', () => {
+  it('is api.unsplash.com unless a test run names a stand-in', () => {
+    expect(unsplashApiBaseUrl({}, true)).toBe('https://api.unsplash.com')
+    expect(unsplashApiBaseUrl({ ZENNOTES_UNSPLASH_API_URL: 'http://127.0.0.1:7/' }, false)).toBe('http://127.0.0.1:7')
     // A packaged copy honors the override only for a test run.
-    expect(unsplashProxyBaseUrl({ ZENNOTES_UNSPLASH_PROXY_URL: 'http://127.0.0.1:7/u' }, true)).toBe(
-      'https://zennotes.org/api/v1/unsplash'
-    )
-    expect(unsplashProxyBaseUrl({ ZENNOTES_UNSPLASH_PROXY_URL: 'http://127.0.0.1:7/u', ZEN_PERF: '1' }, true)).toBe(
-      'http://127.0.0.1:7/u'
+    expect(unsplashApiBaseUrl({ ZENNOTES_UNSPLASH_API_URL: 'http://127.0.0.1:7' }, true)).toBe('https://api.unsplash.com')
+    expect(unsplashApiBaseUrl({ ZENNOTES_UNSPLASH_API_URL: 'http://127.0.0.1:7', ZEN_PERF: '1' }, true)).toBe(
+      'http://127.0.0.1:7'
     )
   })
 })
 
-describe('createUnsplashClient', () => {
-  it('sends a search with no cookies, a bare user agent and no language', async () => {
+describe('the Unsplash key in the secure store', () => {
+  it('round-trips, sealed by the OS on disk', async () => {
+    expect(await getUnsplashAccessKeySecret()).toBeNull()
+    expect(await setUnsplashAccessKeySecret(` ${KEY} `)).toBe(true)
+    expect(await getUnsplashAccessKeySecret()).toBe(KEY)
+    const files = await filesUnder(machine.userData)
+    expect(files.map((f) => f.path)).toEqual([join(machine.userData, 'remote-workspace-secrets.json')])
+    const sealed = JSON.parse(files[0]!.text) as Record<string, string>
+    expect(Object.keys(sealed)).toEqual(['unsplash:access-key'])
+    expect(files[0]!.text).not.toContain(KEY)
+  })
+
+  it('is gone once cleared, leaving the other secrets alone', async () => {
+    await setUnsplashAccessKeySecret(KEY)
+    await deleteUnsplashAccessKeySecret()
+    expect(await getUnsplashAccessKeySecret()).toBeNull()
+    const text = await readFile(join(machine.userData, 'remote-workspace-secrets.json'), 'utf8')
+    expect(JSON.parse(text)).toEqual({})
+    // Clearing again is fine.
+    await expect(deleteUnsplashAccessKeySecret()).resolves.toBeUndefined()
+  })
+
+  it('is refused, and nothing written, without OS encryption', async () => {
+    machine.encryption = false
+    expect(await setUnsplashAccessKeySecret(KEY)).toBe(false)
+    expect(await readdir(machine.userData)).toEqual([])
+  })
+})
+
+describe('the desktop Unsplash client', () => {
+  it('never puts the key in config, prefs or any answer the renderer sees', async () => {
+    const fetch = vi.fn<UnsplashFetch>(async () => ok([]))
+    const client = createDesktopUnsplashClient(fetch, () => 'https://api.unsplash.com')
+    const saved = await client.save(KEY)
+    expect(saved).toEqual({ saved: true, check: { ok: true, remaining: 49, limit: 50 } })
+    const status = await client.status()
+    expect(status).toEqual({ set: true, store: 'system', canStore: true })
+    for (const answer of [saved, status, await client.test(), await client.search('fog', 1)]) {
+      expect(JSON.stringify(answer)).not.toContain(KEY)
+    }
+    // The only file is the sealed secrets file, and the key is in no file as written.
+    for (const file of await filesUnder(machine.userData)) expect(file.text).not.toContain(KEY)
+    expect(PORTABLE_PREF_KEYS.filter((k) => /unsplash/i.test(k))).toEqual([])
+  })
+
+  it('sends the key only to Unsplash, with a bare user agent and no language', async () => {
     const fetch = vi.fn<UnsplashFetch>(async () => ok({ total_pages: 0, results: [] }))
-    const client = createUnsplashClient({ fetch, baseUrl: () => 'https://p.test' })
+    const client = createDesktopUnsplashClient(fetch, () => 'https://api.unsplash.com')
+    await setUnsplashAccessKeySecret(KEY)
     expect(await client.search('fog', 1)).toMatchObject({ ok: true })
-    const init = fetch.mock.calls[0]![1]
+    const [url, init] = fetch.mock.calls[0]!
+    expect(new URL(url).origin).toBe('https://api.unsplash.com')
     expect(init.credentials).toBe('omit')
-    expect(init.headers).toMatchObject({ 'user-agent': 'ZenNotes', 'accept-language': '*' })
+    expect(init.headers).toMatchObject({
+      authorization: `Client-ID ${KEY}`,
+      'user-agent': 'ZenNotes',
+      'accept-language': '*'
+    })
   })
 
-  it('refuses arguments that are not a search', async () => {
+  it('says it cannot store a key where the OS has no encryption', async () => {
+    machine.encryption = false
     const fetch = vi.fn<UnsplashFetch>()
-    const client = createUnsplashClient({ fetch, baseUrl: () => 'https://p.test' })
-    expect(await client.search({ query: 'fog' }, 1)).toEqual({ ok: false, reason: 'unavailable', retryAt: null })
-    await client.trackDownload(42)
-    await client.trackDownload('https://example.com/photos/a/download')
+    const client = createDesktopUnsplashClient(fetch, () => 'https://api.unsplash.com')
+    expect(await client.status()).toEqual({ set: false, store: 'system', canStore: false })
+    expect(await client.save(KEY)).toEqual({ saved: false, reason: 'cannot-store' })
     expect(fetch).not.toHaveBeenCalled()
-  })
-
-  it('caps one run at a minute’s worth of requests, whatever the renderer asks', async () => {
-    let now = 0
-    const fetch = vi.fn<UnsplashFetch>(async () => ok({ total_pages: 1, results: [] }))
-    const client = createUnsplashClient({ fetch, baseUrl: () => 'https://p.test', now: () => now })
-    for (let i = 0; i < UNSPLASH_REQUESTS_PER_MINUTE; i++) await client.search(`fog ${i}`, 1)
-    expect(await client.search('one more', 1)).toEqual({ ok: false, reason: 'rate-limited', retryAt: 60_000 })
-    expect(fetch).toHaveBeenCalledTimes(UNSPLASH_REQUESTS_PER_MINUTE)
-    now = 60_000
-    expect(await client.search('later', 1)).toMatchObject({ ok: true })
   })
 })
