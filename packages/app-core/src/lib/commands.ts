@@ -18,6 +18,7 @@ import { openLinkPopoverAtCursor } from './link-popover-open'
 import { confirmApp } from './confirm-requests'
 import { requestSettingsTarget } from './settings-navigation'
 import { hideWindowToTray, useTrayStore } from './tray-runtime'
+import { hostOpensNotesToRead } from './editor-host'
 import { promptApp } from './prompt-requests'
 import { captureNavigationContext } from './navigation-context'
 import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './move-note'
@@ -93,7 +94,8 @@ async function runFoldCommand(command: FoldCommand): Promise<void> {
     const folding = await import('./cm-heading-fold')
     folding[command](view)
   }
-  view.focus()
+  // A fold is a view of the note, not typing: a phone keeps its keyboard down.
+  if (!hostOpensNotesToRead()) view.focus()
 }
 
 export interface Command {
@@ -1188,7 +1190,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const view = getState().editorViewRef
         if (!view) return
         copyLinkAtCursor(view)
-        view.focus()
+        // Copying is not typing: a phone keeps its keyboard down.
+        if (!hostOpensNotesToRead()) view.focus()
       }
     },
     {

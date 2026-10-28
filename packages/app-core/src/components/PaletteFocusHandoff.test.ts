@@ -19,10 +19,11 @@ vi.mock('../lib/editor-focus', () => ({
   focusEditorAfterPaletteClose
 }))
 
-// The command palette lists whatever buildCommands gives it: two stand-ins,
-// one that goes to a note already there and one that writes.
+// The command palette lists whatever buildCommands gives it: stand-ins for a
+// command that goes to a note already there, one that writes, and a toggle.
 const goBack = vi.hoisted(() => vi.fn())
 const newNote = vi.hoisted(() => vi.fn())
+const toggle = vi.hoisted(() => vi.fn())
 vi.mock('../lib/commands', () => ({
   buildCommands: () => [
     {
@@ -32,7 +33,8 @@ vi.mock('../lib/commands', () => ({
       run: goBack,
       opensToRead: () => true
     },
-    { id: 'test.write', title: 'Write Something', category: 'Note', run: newNote }
+    { id: 'note.new.inbox', title: 'Write Something', category: 'Note', run: newNote },
+    { id: 'view.status-bar', title: 'Toggle Something', category: 'View', run: toggle }
   ]
 }))
 
@@ -62,6 +64,7 @@ beforeEach(() => {
   }
   goBack.mockClear()
   newNote.mockClear()
+  toggle.mockClear()
   // The refocus after a command only happens when the editor was the panel
   // and nothing else is open over it.
   useStore.setState({
@@ -124,6 +127,16 @@ describe('palette hand-offs', () => {
     await key('Enter')
     expect(newNote).toHaveBeenCalledTimes(1)
     expect(focusEditorNormalMode).toHaveBeenCalledTimes(1)
+    expect(focusEditorAfterReadOpen).not.toHaveBeenCalled()
+  })
+
+  it('a toggle hands back like a close: focused on desktop, left where it was on a phone', async () => {
+    render(CommandPalette)
+    type('Toggle Something')
+    await key('Enter')
+    expect(toggle).toHaveBeenCalledTimes(1)
+    expect(focusEditorAfterPaletteClose).toHaveBeenCalledTimes(1)
+    expect(focusEditorNormalMode).not.toHaveBeenCalled()
     expect(focusEditorAfterReadOpen).not.toHaveBeenCalled()
   })
 

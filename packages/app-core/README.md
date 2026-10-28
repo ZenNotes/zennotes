@@ -348,10 +348,11 @@ each time a command-palette command that only goes to a note already there
 finishes (Go Back, Go Forward, Switch to Previous Note, the tab commands, and
 today's daily, weekly or monthly note when it exists). When it returns true the
 note opens without taking the keyboard focus, so a soft keyboard stays down
-until the user taps into the text. Closing any of those palettes, or the
-template or drawing palette, without a pick leaves the focus where it was.
-Commands that create a note to write in keep focusing the editor. Absent,
-false or throwing, the editor takes the focus as on desktop.
+until the user taps into the text. Commands whose point is typing (a new note,
+Format Markdown, Reflow Paragraph) keep focusing the editor; every other
+command (a toggle, a view, a theme), and closing any of those palettes or the
+template or drawing palette without a pick, leaves the focus where it was.
+Absent, false or throwing, the editor takes the focus as on desktop.
 
 Live preview reveals a line's Markdown source (a heading's `#`, `**`, `[[ ]]`)
 only on lines the user is editing: once an editor has taken the focus since its
