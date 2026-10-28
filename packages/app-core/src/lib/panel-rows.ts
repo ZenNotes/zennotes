@@ -7,8 +7,8 @@
  * That mechanism used to exist three times over (VimNav's closures, pane-nav's
  * own copy, and nothing at all for non-Vim mode), which is how the two pane
  * navigations drifted apart in the first place (#477). It lives here once now,
- * so the Vim handlers, pane navigation, and the always-on key handling all
- * agree about where a cursor is and where it goes next.
+ * so VimNav's panel handlers (which serve the panels in both modes) and pane
+ * navigation agree about where a cursor is and where it goes next.
  */
 import { useStore } from '../store'
 
@@ -21,7 +21,7 @@ export type IndexedDatasetKey =
 
 /** Panels whose rows are addressed by a numeric cursor held in the store. The
  *  comments panel is deliberately absent: it tracks the active comment by id,
- *  not by row index, so it gets its own pair of helpers below. */
+ *  not by row index, and VimNav walks it by that id. */
 export type RowPanel = 'sidebar' | 'notelist' | 'connections' | 'outline'
 
 export const ROW_PANEL_DEFS: Record<
@@ -131,80 +131,87 @@ export function rowCursor(
   }
 }
 
-export type CursorMove = 'up' | 'down' | 'first' | 'last'
+/** What a page key asks of a panel's cursor. */
+export type PageMove = 'first' | 'last' | 'pageDown' | 'pageUp'
 
 /**
- * Move a row panel's cursor and scroll the landing row into view. Returns false
- * when the panel has no rows, so callers can leave the key unhandled rather than
- * swallowing it.
+ * Home, End, Page Up and Page Down in a focused panel, with Vim mode off: the
+ * ends and a screenful of rows. Vim mode leaves all four as they were (gg and
+ * G are its keys), so this is null there, and for a chord.
  */
-export function movePanelCursor(panel: RowPanel, move: CursorMove): boolean {
-  const state = useStore.getState()
-  const { selector, datasetKey } = ROW_PANEL_DEFS[panel]
-  const items = getIndexedElements(selector, datasetKey)
-  if (items.length === 0) return false
-  const { index, setIndex } = rowCursor(panel, state)
-  const current = findPositionByIndex(items, datasetKey, index)
-  const next =
-    move === 'up'
-      ? Math.max(current - 1, 0)
-      : move === 'down'
-        ? Math.min(current + 1, items.length - 1)
-        : move === 'first'
-          ? 0
-          : items.length - 1
-  scrollToIndexedElement(items[next], datasetKey, setIndex)
-  return true
+export function pageMoveForKey(event: KeyboardEvent, vimMode: boolean): PageMove | null {
+  if (vimMode || event.metaKey || event.ctrlKey || event.altKey) return null
+  switch (event.key) {
+    case 'Home':
+      return 'first'
+    case 'End':
+      return 'last'
+    case 'PageDown':
+      return 'pageDown'
+    case 'PageUp':
+      return 'pageUp'
+    default:
+      return null
+  }
 }
 
-/** Activate the row under the cursor by clicking it — the row itself owns what
- *  "open" means (jump to a heading, open a note, reveal a comment). */
-export function activatePanelRow(panel: RowPanel): boolean {
-  const state = useStore.getState()
-  const { selector, datasetKey } = ROW_PANEL_DEFS[panel]
-  const items = getIndexedElements(selector, datasetKey)
-  if (items.length === 0) return false
-  const { index } = rowCursor(panel, state)
-  const row = items[findPositionByIndex(items, datasetKey, index)]
-  if (!row) return false
-  row.click()
-  return true
+/** The box a panel's rows scroll in: the sidebar's, or one a panel marks. */
+const PANEL_SCROLL_BOX = '.zn-sidebar-scroll, [data-panel-scroll]'
+
+/**
+ * A page in a list of same-height rows (the sidebar, the note list): the rows
+ * the scroll box shows, less one, so the row the cursor leaves is still on
+ * screen where it lands. A count rather than a row, because both lists render
+ * only the rows near the viewport. A row is measured by its step to the next
+ * one, gap included (the smallest step among the rows on screen, since a
+ * section header makes some steps longer), and the box by the height inside
+ * its padding: the note list's rows are 4 px apart in a padded box, and
+ * counting them by their own height paged one row too far.
+ */
+export function pageRowCount(items: HTMLElement[], position: number): number {
+  const row = items[position] ?? items[0]
+  const box = row?.closest<HTMLElement>(PANEL_SCROLL_BOX)
+  if (!row || !box) return 1
+  let pitch = Infinity
+  for (let i = 1; i < items.length; i++) {
+    const step = items[i].getBoundingClientRect().top - items[i - 1].getBoundingClientRect().top
+    if (step > 2 && step < pitch) pitch = step
+  }
+  if (!Number.isFinite(pitch)) pitch = row.getBoundingClientRect().height
+  const style = window.getComputedStyle(box)
+  const inner =
+    box.clientHeight - (parseFloat(style.paddingTop) || 0) - (parseFloat(style.paddingBottom) || 0)
+  if (pitch <= 0 || inner <= 0) return 1
+  return Math.max(1, Math.floor(inner / pitch) - 1)
 }
 
-// ---------------------------------------------------------------------------
-// Comments — same rows, but the cursor is the active comment's id
-// ---------------------------------------------------------------------------
-
-const COMMENT_ROW_SELECTOR = '[data-comments-idx]'
-
-function getCommentRows(): HTMLElement[] {
-  return getIndexedElements(COMMENT_ROW_SELECTOR, 'commentsIdx')
-}
-
-function commentPosition(items: HTMLElement[], activeCommentId: string | null): number {
-  if (items.length === 0 || !activeCommentId) return 0
-  const exact = items.findIndex((item) => item.dataset.commentId === activeCommentId)
-  return exact >= 0 ? exact : 0
-}
-
-/** Move the comments panel's selection, mirroring `movePanelCursor`. */
-export function moveCommentCursor(move: CursorMove): boolean {
-  const state = useStore.getState()
-  const items = getCommentRows()
-  if (items.length === 0) return false
-  const current = commentPosition(items, state.activeCommentId)
-  const next =
-    move === 'up'
-      ? Math.max(current - 1, 0)
-      : move === 'down'
-        ? Math.min(current + 1, items.length - 1)
-        : move === 'first'
-          ? 0
-          : items.length - 1
-  const el = items[next]
-  if (!el) return false
-  const commentId = el.dataset.commentId
-  if (commentId) state.setActiveCommentId(commentId)
-  el.scrollIntoView({ block: 'nearest' })
-  return true
+/**
+ * A page in a list whose rows are all rendered and may differ in height (the
+ * connections and comments cards, the outline): the furthest row that still
+ * fits on one screen together with the row the cursor leaves. With rows of
+ * one height this is the page `pageRowCount` gives, and a tall card never
+ * makes the cursor skip a row the screen has not shown. At least one row;
+ * clamped at the ends.
+ */
+export function pageTargetPosition(
+  items: HTMLElement[],
+  current: number,
+  direction: 1 | -1
+): number {
+  const last = items.length - 1
+  if (last < 0) return 0
+  const from = Math.max(0, Math.min(current, last))
+  const step = Math.max(0, Math.min(from + direction, last))
+  const row = items[from]
+  const boxHeight = row?.closest<HTMLElement>(PANEL_SCROLL_BOX)?.clientHeight ?? 0
+  if (!row || boxHeight <= 0) return step
+  const leaving = row.getBoundingClientRect()
+  let target = step
+  for (let i = from + direction; i >= 0 && i <= last; i += direction) {
+    const rect = items[i].getBoundingClientRect()
+    const span = direction === 1 ? rect.bottom - leaving.top : leaving.bottom - rect.top
+    if (span > boxHeight) break
+    target = i
+  }
+  return target
 }

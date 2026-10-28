@@ -301,7 +301,11 @@ export function ConnectionsPanel({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3" onScroll={() => setConnectionPreview(null)}>
+        <div
+          data-panel-scroll
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+          onScroll={() => setConnectionPreview(null)}
+        >
           <ConnectionSection
             title="Links From Here"
             subtitle="Notes, files and missing wikilinks from this page."

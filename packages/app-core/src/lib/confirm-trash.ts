@@ -25,3 +25,16 @@ export function confirmDeletePermanently(title?: string | null): Promise<boolean
     danger: true
   })
 }
+
+/** Deleting a comment from the Comments panel's keys (d with Vim on, Backspace
+ *  or Delete in either mode). A comment has no Trash to come back from, and
+ *  Backspace is the key most often pressed by accident. The card's own Delete
+ *  button does not ask. */
+export function confirmDeleteComment(): Promise<boolean> {
+  return confirmApp({
+    title: 'Delete this comment?',
+    description: 'This cannot be undone.',
+    confirmLabel: 'Delete comment',
+    danger: true
+  })
+}

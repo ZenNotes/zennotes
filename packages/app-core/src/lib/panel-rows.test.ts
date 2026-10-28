@@ -32,12 +32,12 @@ vi.mock('../store', () => ({
 }))
 
 import {
-  activatePanelRow,
   findPositionByIndex,
   getIndexedElements,
   isRowPanel,
-  moveCommentCursor,
-  movePanelCursor
+  pageMoveForKey,
+  pageRowCount,
+  pageTargetPosition
 } from './panel-rows'
 
 /** jsdom has no layout: every element reports no client rects (which the row
@@ -78,77 +78,119 @@ describe('panel row cursors (#477 follow-up)', () => {
     expect(isRowPanel(null)).toBe(false)
   })
 
-  it('moves the cursor down and up, stopping at both ends', () => {
-    renderRows('data-outline-idx', 3)
-    expect(movePanelCursor('outline', 'down')).toBe(true)
-    expect(storeMock.state.outlineCursorIndex).toBe(1)
-    movePanelCursor('outline', 'down')
-    movePanelCursor('outline', 'down')
-    expect(storeMock.state.outlineCursorIndex).toBe(2) // clamped at the last row
-    movePanelCursor('outline', 'up')
-    expect(storeMock.state.outlineCursorIndex).toBe(1)
-    movePanelCursor('outline', 'up')
-    movePanelCursor('outline', 'up')
-    expect(storeMock.state.outlineCursorIndex).toBe(0) // clamped at the first row
-  })
-
-  it('jumps to the first and last rows', () => {
-    renderRows('data-outline-idx', 5)
-    movePanelCursor('outline', 'last')
-    expect(storeMock.state.outlineCursorIndex).toBe(4)
-    movePanelCursor('outline', 'first')
-    expect(storeMock.state.outlineCursorIndex).toBe(0)
-  })
-
-  it('reports no move when the panel has no rows, so the key stays unhandled', () => {
-    expect(movePanelCursor('outline', 'down')).toBe(false)
-    expect(activatePanelRow('outline')).toBe(false)
-  })
-
   it('re-seats a cursor left past the end of a shrunken list', () => {
     renderRows('data-outline-idx', 2)
-    storeMock.state.outlineCursorIndex = 7 // headings were edited away while we were gone
     const items = getIndexedElements('[data-outline-idx]', 'outlineIdx')
+    // Headings were edited away while the panel was not looking.
     expect(findPositionByIndex(items, 'outlineIdx', 7)).toBe(1)
-    movePanelCursor('outline', 'up')
-    expect(storeMock.state.outlineCursorIndex).toBe(0)
+  })
+})
+
+/** Rows of the given heights, one under the other, in a scroll box that
+ *  shows `boxHeight` pixels. */
+function renderStack(heights: number[], boxHeight: number): HTMLElement[] {
+  document.body.innerHTML = `<div data-panel-scroll>${heights
+    .map((_, i) => `<button data-comments-idx="${i}">card ${i}</button>`)
+    .join('')}</div>`
+  Object.defineProperty(document.querySelector('[data-panel-scroll]'), 'clientHeight', {
+    configurable: true,
+    value: boxHeight
+  })
+  let top = 0
+  const rows = [...document.querySelectorAll<HTMLElement>('[data-comments-idx]')]
+  rows.forEach((el, i) => {
+    const rowTop = top
+    const height = heights[i]
+    el.getBoundingClientRect = (() =>
+      ({ top: rowTop, bottom: rowTop + height, left: 0, right: 200, width: 200, height }) as DOMRect) as never
+    top += height
+  })
+  return rows
+}
+
+describe('page keys in a panel', () => {
+  const keydown = (key: string, init: KeyboardEventInit = {}): KeyboardEvent =>
+    new KeyboardEvent('keydown', { key, ...init })
+
+  it('reads Home, End and the page keys with Vim off only', () => {
+    expect(pageMoveForKey(keydown('Home'), false)).toBe('first')
+    expect(pageMoveForKey(keydown('End'), false)).toBe('last')
+    expect(pageMoveForKey(keydown('PageDown'), false)).toBe('pageDown')
+    expect(pageMoveForKey(keydown('PageUp'), false)).toBe('pageUp')
+    expect(pageMoveForKey(keydown('ArrowDown'), false)).toBeNull()
+    expect(pageMoveForKey(keydown('G', { shiftKey: true }), false)).toBeNull()
+    // Vim mode keeps gg and G, and leaves these four alone.
+    expect(pageMoveForKey(keydown('PageDown'), true)).toBeNull()
+    expect(pageMoveForKey(keydown('Home'), true)).toBeNull()
+    // A chord is never a page key.
+    expect(pageMoveForKey(keydown('PageDown', { metaKey: true }), false)).toBeNull()
+    expect(pageMoveForKey(keydown('End', { altKey: true }), false)).toBeNull()
   })
 
-  it('activates the row under the cursor by clicking it', () => {
-    renderRows('data-outline-idx', 3)
-    const clicked: number[] = []
-    document.querySelectorAll<HTMLElement>('[data-outline-idx]').forEach((el) => {
-      el.addEventListener('click', () => clicked.push(Number(el.dataset.outlineIdx)))
+  it('counts a page of same-height rows as the rows on screen, less one', () => {
+    const rows = renderStack([24, 24, 24, 24, 24, 24, 24, 24], 24 * 5)
+    expect(pageRowCount(rows, 0)).toBe(4)
+    expect(pageRowCount(rows, 7)).toBe(4)
+    // No rows, no box or no layout: one row, never zero.
+    expect(pageRowCount([], 0)).toBe(1)
+    Object.defineProperty(document.querySelector('[data-panel-scroll]'), 'clientHeight', {
+      configurable: true,
+      value: 0
     })
-    storeMock.state.outlineCursorIndex = 2
-    expect(activatePanelRow('outline')).toBe(true)
-    expect(clicked).toEqual([2])
+    expect(pageRowCount(rows, 0)).toBe(1)
   })
 
-  it('keeps each panel on its own cursor', () => {
-    document.body.innerHTML = `
-      <button data-outline-idx="0">h1</button>
-      <button data-outline-idx="1">h2</button>
-      <button data-connections-idx="0">note a</button>
-      <button data-connections-idx="1">note b</button>
-    `
-    layOutRows()
-    movePanelCursor('outline', 'down')
-    expect(storeMock.state.outlineCursorIndex).toBe(1)
-    expect(storeMock.state.connectionsCursorIndex).toBe(0)
-    movePanelCursor('connections', 'down')
-    expect(storeMock.state.connectionsCursorIndex).toBe(1)
-    expect(storeMock.state.outlineCursorIndex).toBe(1)
+  it('measures a row by its step to the next, inside the box’s padding', () => {
+    // The note list: 72 px rows 76 px apart in a box with 8 px of padding
+    // above and below, 808 px tall. Ten rows fit (792 / 76), so a page is
+    // nine; by the rows' own height it would be ten, one too far.
+    document.body.innerHTML = `<div data-panel-scroll style="padding: 8px 0">${Array.from(
+      { length: 14 },
+      (_, i) => `<button data-notelist-idx="${i}">row ${i}</button>`
+    ).join('')}</div>`
+    Object.defineProperty(document.querySelector('[data-panel-scroll]'), 'clientHeight', {
+      configurable: true,
+      value: 808
+    })
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-notelist-idx]')]
+    rows.forEach((el, i) => {
+      el.getBoundingClientRect = (() =>
+        ({ top: 8 + i * 76, bottom: 8 + i * 76 + 72, left: 0, right: 200, width: 200, height: 72 }) as DOMRect) as never
+    })
+    expect(pageRowCount(rows, 3)).toBe(9)
+    // A section header between two rows does not stretch the step.
+    rows.slice(5).forEach((el, n) => {
+      const top = 8 + (5 + n) * 76 + 120
+      el.getBoundingClientRect = (() =>
+        ({ top, bottom: top + 72, left: 0, right: 200, width: 200, height: 72 }) as DOMRect) as never
+    })
+    expect(pageRowCount(rows, 5)).toBe(9)
   })
 
-  it('moves the comments selection by comment id', () => {
-    renderRows('data-comments-idx', 3, 'data-comment-id="c%i"')
-    expect(moveCommentCursor('down')).toBe(true)
-    expect(storeMock.state.activeCommentId).toBe('c1')
-    moveCommentCursor('down')
-    moveCommentCursor('down')
-    expect(storeMock.state.activeCommentId).toBe('c2')
-    moveCommentCursor('first')
-    expect(storeMock.state.activeCommentId).toBe('c0')
+  it('gives the same page as the row count when the rows share a height', () => {
+    const rows = renderStack(Array(12).fill(24), 24 * 5)
+    expect(pageTargetPosition(rows, 0, 1)).toBe(4)
+    expect(pageTargetPosition(rows, 4, 1)).toBe(8)
+    expect(pageTargetPosition(rows, 10, 1)).toBe(11)
+    expect(pageTargetPosition(rows, 11, -1)).toBe(7)
+    expect(pageTargetPosition(rows, 2, -1)).toBe(0)
+  })
+
+  it('never pages past a tall card the screen has not shown', () => {
+    // A 300 px box: from card 0 (80), the 260 px card 2 does not fit with it.
+    const rows = renderStack([80, 60, 260, 40, 40], 300)
+    expect(pageTargetPosition(rows, 0, 1)).toBe(1)
+    // From the tall card itself it still moves one card.
+    expect(pageTargetPosition(rows, 2, 1)).toBe(3)
+    expect(pageTargetPosition(rows, 3, 1)).toBe(4)
+    expect(pageTargetPosition(rows, 4, -1)).toBe(3)
+    expect(pageTargetPosition(rows, 3, -1)).toBe(2)
+  })
+
+  it('stays put at the ends and on an empty list', () => {
+    const rows = renderStack([24, 24, 24], 24 * 5)
+    expect(pageTargetPosition(rows, 2, 1)).toBe(2)
+    expect(pageTargetPosition(rows, 0, -1)).toBe(0)
+    expect(pageTargetPosition([], 0, 1)).toBe(0)
   })
 })
