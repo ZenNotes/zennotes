@@ -172,6 +172,16 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
       'Use Cmd-click on macOS or Ctrl-click on Windows/Linux to toggle notes and folders in the sidebar. Use Shift-click to select a visible range. The context menu then applies to the selected set, including open in tabs, move, archive, trash, restore, delete folders, copy paths, and drag/drop moves where those actions make sense.'
   },
   {
+    title: 'Trash notes from the sidebar',
+    body:
+      'With the sidebar focused, `Mod+Backspace` (⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux) moves the note under the sidebar cursor to the Trash, after the same confirm Move Note to Trash shows; in Vim mode `x` does the same. When that note is part of a multi-selection, the whole selection goes, with one confirm (“Move 3 notes to Trash?”). Escape on the confirm leaves everything as it was, and after the move the cursor sits on the row that took the note’s place, still in the sidebar. A folder is not trashed this way, since deleting a folder takes everything inside and cannot be undone: delete it from its menu (`m`, or right-click). The palette’s Move Note to Trash and Move Note to Archive, and any key you gave them, follow the sidebar the same way: with the sidebar focused and its cursor on a note, they act on that note (or the selection it is in) rather than the note open in the editor. Rebind the chord as Move sidebar note to Trash (`nav.sidebarTrash`) under Settings → Keymap, or unbind it; `x` is Delete selected result (`nav.delete`).'
+  },
+  {
+    title: 'Ctrl, Alt and Cmd keys in list views',
+    body:
+      'An action in a list view (Archive, Trash, Quick Notes, Tags, Tasks, Unresolved Links, Workflows, the Timeline) can take a chord such as `"nav.delete" = "Ctrl+Backspace"` or `"nav.delete" = "Mod+Backspace"` in `config.toml`, or from Settings → Keymap, and so can the sidebar’s Delete selected result. Unlike the single letters, such a chord works with Vim mode on or off. `Mod` means ⌘ on macOS and Ctrl on Windows and Linux, so one config.toml serves both. A global shortcut keeps its key everywhere, though: an action bound to Mod+P would lose to Search notes, so Settings marks such a binding “Never fires” and names the shortcut that has the key.'
+  },
+  {
     title: 'Read a note beside its source',
     body:
       'Switch the active pane to Split mode when you want markdown on one side and rendered output on the other. Use Preview when you only want the rendered view, or keep Edit when you want the least visual noise while writing.'
@@ -675,7 +685,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'lists-and-sidebar',
     title: 'Sidebar and list navigation',
-    description: 'These bindings work when the sidebar or note list owns focus in Vim mode.',
+    description: 'These bindings work when the sidebar or note list owns focus in Vim mode. Mod+Backspace works with Vim mode off too.',
     items: [
       { keys: 'j / k', action: 'Move selection', detail: 'Move down or up one visible item.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Fast travel to the first or last visible row.' },
@@ -686,6 +696,8 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'o', action: 'Toggle folder', detail: 'Expand or collapse the selected folder in the sidebar.' },
       { keys: '/', action: 'Search notes', detail: 'Open note search directly from keyboard navigation mode.' },
       { keys: 'm', action: 'Open context menu', detail: 'Open the right-click menu for the selected sidebar or note-list row, including move, archive, trash, floating-window, and reveal actions where they apply.' },
+      { keys: 'x', action: 'Move to Trash', detail: 'Move the note under the cursor to the Trash after a confirm, or the whole multi-selection when that note is part of it. The cursor stays in the sidebar, on the row that took the note’s place. Folders are left alone: delete one from its menu (`m`).' },
+      { keys: 'Mod+Backspace', action: 'Move to Trash, Vim on or off', detail: 'The same as `x`, with Vim mode on or off: ⌘⌫ on macOS, Ctrl+Backspace on Windows and Linux. Rebind or unbind it as Move sidebar note to Trash under Settings → Keymap.' },
       { keys: 'Esc', action: 'Return to editor', detail: 'Drop back into the main editor focus path.' }
     ]
   },
@@ -743,7 +755,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
   {
     id: 'tasks-tags-trash',
     title: 'Tasks, tags, and trash views',
-    description: 'These virtual views each run their own keyboard loop in the main pane, and the Vim leader works here too (for example Space h for hint mode). The single keys below belong to Vim mode: with it off only the arrows, Enter and Escape stay live everywhere, plus Shift+J/K to reorder in the list, Tab to pick a task on the calendar and Space to toggle one on the board or the calendar; everything else sits in the right-click menu.',
+    description: 'These virtual views each run their own keyboard loop in the main pane, and the Vim leader works here too (for example Space h for hint mode). The single keys below belong to Vim mode: with it off only the arrows, Enter and Escape stay live everywhere, plus Shift+J/K to reorder in the list, Tab to pick a task on the calendar and Space to toggle one on the board or the calendar; everything else sits in the right-click menu. An action you rebind to a chord with Ctrl, Alt or Cmd works with Vim mode on or off.',
     items: [
       { keys: 'j / k', action: 'Move row cursor', detail: 'Step through task rows, tagged notes and their tagged blocks, or trashed notes.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Move to the first or last visible result.' },
