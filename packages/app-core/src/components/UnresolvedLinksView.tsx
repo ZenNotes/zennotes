@@ -16,12 +16,29 @@ import {
   getKeymapBinding,
   getKeymapDisplay,
   matchesSequenceToken,
-  matchesShortcut
+  matchesShortcut,
+  type KeymapId
 } from '../lib/keymaps'
+import {
+  listViewBindingMatches,
+  listViewKey,
+  listViewSequencesLive,
+  listViewYieldsKey
+} from '../lib/list-view-keys'
 import { linkCreateDestination } from '../lib/link-popover'
 import { getSystemFolderLabel } from '../lib/system-folder-labels'
 import { Button } from './ui'
 import { LinkIcon, SearchIcon } from './icons'
+
+// Every action this view answers, so a chord bound to one reaches it.
+const UNRESOLVED_LINKS_VIEW_ACTIONS: readonly KeymapId[] = [
+  'nav.filter',
+  'nav.moveDown',
+  'nav.moveUp',
+  'nav.jumpBottom',
+  'nav.jumpTop',
+  'nav.openResult'
+]
 
 /**
  * The Unresolved Links view: every `[[wikilink]]` in the vault that names a
@@ -269,11 +286,13 @@ export function UnresolvedLinksView(): JSX.Element {
         writeInPopover(current)
         return
       }
-      if (e.metaKey || e.ctrlKey || e.altKey) return
-      // With Vim off, single-key shortcuts stay off: arrows, Enter, Escape.
-      const seq = (id: Parameters<typeof matchesSequenceToken>[2]): boolean =>
-        vimMode && matchesSequenceToken(e, overrides, id)
-      const key = e.key
+      // A chord gets through only as the key of one of this view's actions,
+      // and never past a global shortcut (#972, lib/list-view-keys.ts).
+      if (listViewYieldsKey(e, overrides, UNRESOLVED_LINKS_VIEW_ACTIONS, vimMode)) return
+      // With Vim off, single-key shortcuts stay off: arrows, Enter, Escape,
+      // plus any action the user bound to a chord.
+      const seq = (id: KeymapId): boolean => listViewBindingMatches(e, overrides, id, vimMode)
+      const key = listViewKey(e)
       if (key === 'Escape') {
         if (!filter) return
         consume()
@@ -302,7 +321,7 @@ export function UnresolvedLinksView(): JSX.Element {
         return
       }
       if (
-        vimMode &&
+        listViewSequencesLive(e, vimMode) &&
         advanceSequence(
           e,
           getKeymapBinding(overrides, 'nav.jumpTop'),

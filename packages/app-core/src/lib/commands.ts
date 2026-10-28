@@ -24,6 +24,7 @@ import { captureNavigationContext } from './navigation-context'
 import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { focusSidebarPanel } from './sidebar-focus'
+import { runSidebarNotePlan, sidebarCommandPlan } from './sidebar-note-actions'
 import { findLeaf } from './pane-layout'
 import { getTabStepTarget, stepActiveTab } from './buffer-navigation'
 import { requestPaneMode } from './pane-mode'
@@ -512,14 +513,30 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.archive',
-      unavailableReason: () => getState().activeNote ? `Move Note to ${labels().archive} works on a note in ${labels().inbox} or ${labels().quick}` : `Move Note to ${labels().archive} needs an open note`,
+      // With the sidebar focused and its cursor on a note, that note (or the
+      // selection it is part of) is the one this acts on, not the open note
+      // (#972); everywhere else it is the open note, as before.
+      unavailableReason: () => {
+        const plan = sidebarCommandPlan('archive')
+        if (plan?.kind === 'refuse') return plan.reason
+        return getState().activeNote ? `Move Note to ${labels().archive} works on a note in ${labels().inbox} or ${labels().quick}` : `Move Note to ${labels().archive} needs an open note`
+      },
       title: `Move Note to ${labels().archive}`,
       category: 'Note',
       when: () => {
+        const plan = sidebarCommandPlan('archive')
+        if (plan) return plan.kind === 'run'
         const f = getState().activeNote?.folder
         return f === 'inbox' || f === 'quick'
       },
-      run: () => getState().archiveActive()
+      run: async () => {
+        const plan = sidebarCommandPlan('archive')
+        if (plan) {
+          await runSidebarNotePlan(plan)
+          return
+        }
+        await getState().archiveActive()
+      }
     },
     {
       id: 'note.unarchive',
@@ -531,12 +548,28 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     },
     {
       id: 'note.trash',
-      unavailableReason: () => getState().activeNote ? `This note is already in the ${labels().trash}` : `Move Note to ${labels().trash} needs an open note`,
+      // Follows the sidebar the same way as Move Note to Archive above (#972).
+      unavailableReason: () => {
+        const plan = sidebarCommandPlan('trash')
+        if (plan?.kind === 'refuse') return plan.reason
+        return getState().activeNote ? `This note is already in the ${labels().trash}` : `Move Note to ${labels().trash} needs an open note`
+      },
       title: `Move Note to ${labels().trash}`,
       category: 'Note',
       keywords: 'delete',
-      when: () => !!getState().activeNote && getState().activeNote?.folder !== 'trash',
-      run: () => getState().trashActive()
+      when: () => {
+        const plan = sidebarCommandPlan('trash')
+        if (plan) return plan.kind === 'run'
+        return !!getState().activeNote && getState().activeNote?.folder !== 'trash'
+      },
+      run: async () => {
+        const plan = sidebarCommandPlan('trash')
+        if (plan) {
+          await runSidebarNotePlan(plan)
+          return
+        }
+        await getState().trashActive()
+      }
     },
     {
       id: 'note.restore',

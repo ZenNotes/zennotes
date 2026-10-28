@@ -5,6 +5,7 @@ import {
   getDefaultKeymapBinding,
   getKeymapBinding,
   getKeymapDisplay,
+  isChordEvent,
   isMacPlatform,
   isUnboundBinding,
   sequenceTokenFromEvent,
@@ -26,6 +27,7 @@ import {
   type CommandKeymapConflict,
   type CommandKeymaps
 } from '../lib/command-keymaps'
+import { keymapBindingTakenBy } from '../lib/list-view-keys'
 import { Button } from './ui/Button'
 import { Modal } from './ui/Modal'
 
@@ -77,6 +79,7 @@ export function KeymapRecorderModal({
       definition={target.definition}
       overrides={overrides}
       commandKeymaps={commandKeymaps}
+      vimMode={vimMode}
       onClose={onClose}
       onSave={onSave}
       onUnbind={onUnbind}
@@ -211,6 +214,7 @@ function ActionRecorder({
   definition,
   overrides,
   commandKeymaps,
+  vimMode,
   onClose,
   onSave,
   onUnbind
@@ -218,6 +222,7 @@ function ActionRecorder({
   definition: KeymapDefinition
   overrides: KeymapOverrides
   commandKeymaps: CommandKeymaps
+  vimMode: boolean
   onClose: () => void
   onSave: (binding: string) => void
   onUnbind: () => void
@@ -235,13 +240,22 @@ function ActionRecorder({
     : []
   const leaderKey = definition.scope === 'leader'
   const blockingCommand = leaderKey ? null : commandHits[0] ?? null
+  // A list action's chord that an app-wide key takes first never fires
+  // (#972). Said before Save, not refused: the user may be about to move the
+  // other key.
+  const takenBy = binding
+    ? keymapBindingTakenBy(overrides, definition.id, binding, vimMode)
+    : null
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       const target = event.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
       const key = event.key
-      if (key === 'Backspace' || key === 'Delete') {
+      // A bare Backspace or Delete edits the recording; with Ctrl, Alt or Cmd
+      // held it is a key to record. Mod+Backspace for Delete selected result
+      // could not be recorded at all (#972).
+      if ((key === 'Backspace' || key === 'Delete') && !isChordEvent(event)) {
         event.preventDefault()
         event.stopPropagation()
         if (definition.kind === 'shortcut') {
@@ -282,8 +296,14 @@ function ActionRecorder({
   }, [definition])
 
   const notices =
-    conflict || blockingCommand || (leaderKey && commandHits.length > 0) ? (
+    conflict || blockingCommand || takenBy || (leaderKey && commandHits.length > 0) ? (
       <>
+        {takenBy && !conflict && !blockingCommand && (
+          <Notice tone="warning">
+            <strong className="font-semibold">{takenBy.title}</strong> has this key everywhere in
+            the app, so it would never reach this action. Pick another key, or move that one first.
+          </Notice>
+        )}
         {conflict && (
           <Notice tone="danger">
             Already used by <strong className="font-semibold">{conflict.title}</strong>. Two global

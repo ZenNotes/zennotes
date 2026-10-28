@@ -49,6 +49,11 @@ import {
 import { toggleWrap, wrapLink } from '../lib/cm-format'
 import { commandLeaderHints, stepCommandLeader } from '../lib/command-keymaps'
 import { runBoundCommand } from '../lib/command-keymap-dispatch'
+import {
+  isSidebarTrashKey,
+  sidebarHoldsFocus,
+  trashSidebarCursorRow
+} from '../lib/sidebar-note-actions'
 import { convertTableToDatabase } from '../lib/table-to-database'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
@@ -1597,6 +1602,10 @@ export function VimNav(): JSX.Element | null {
   function handleSidebarKey(e: KeyboardEvent, state: ReturnType<typeof useStore.getState>): void {
     const key = e.key
     const overrides = state.keymapOverrides
+    // Read before the line below claims the panel: the trash keys act only
+    // when the sidebar already held the keyboard, where its cursor is drawn,
+    // never on a key that merely fell through to the sidebar.
+    const sidebarHeldFocus = sidebarHoldsFocus(state)
     if (state.focusedPanel !== 'sidebar') state.setFocusedPanel('sidebar')
     const items = getIndexedElements('[data-sidebar-idx]', 'sidebarIdx')
     const count = items.length
@@ -1606,9 +1615,16 @@ export function VimNav(): JSX.Element | null {
       matchesSequenceToken(e, overrides, 'nav.contextMenu') ||
       key === 'ContextMenu' ||
       (e.shiftKey && key === 'F10')
+    // `x` (#972). The chord form (Mod+Backspace) is taken earlier, in either
+    // mode, by installSidebarTrashKeys; a typed key lands here, after the
+    // leader and pane-prefix handling above.
+    const wantsTrash = isSidebarTrashKey(e, overrides, state.vimMode)
 
     // Always consume single-char nav keys when sidebar is focused,
     // even if the sidebar is empty — prevents them leaking to the editor.
+    // `x` included, so a list view left active behind the sidebar (Archive,
+    // Trash), which listens on the window too, never acts on its own row
+    // for a key meant for the sidebar.
     const wantsHandledKey =
       matchesSequenceToken(e, overrides, 'nav.moveDown') ||
       matchesSequenceToken(e, overrides, 'nav.moveUp') ||
@@ -1624,7 +1640,8 @@ export function VimNav(): JSX.Element | null {
       key === 'ArrowUp' ||
       key === 'ArrowLeft' ||
       key === 'ArrowRight' ||
-      wantsContextMenu
+      wantsContextMenu ||
+      wantsTrash
     if (wantsHandledKey) {
       e.preventDefault()
       e.stopImmediatePropagation()
@@ -1633,6 +1650,11 @@ export function VimNav(): JSX.Element | null {
     }
 
     if (count === 0) return // nothing to navigate
+
+    if (wantsTrash) {
+      if (sidebarHeldFocus && !e.repeat) void trashSidebarCursorRow()
+      return
+    }
 
     if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
       scrollToIndexedElement(items[Math.min(currentPos + 1, max)], 'sidebarIdx', state.setSidebarCursorIndex)

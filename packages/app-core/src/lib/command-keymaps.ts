@@ -31,6 +31,7 @@ import {
   isUnboundBinding,
   matchesShortcutBinding,
   normalizeSequenceToken,
+  resolveSequenceToken,
   normalizeShortcutBinding,
   UNBOUND_BINDING,
   type KeymapDefinition,
@@ -108,7 +109,8 @@ export function parseCommandBinding(
   const leader = leaderTokenOf(overrides)
   const first = tokens[0]
   const startsWithLeader =
-    isLeaderWord(first) || (!!leader && normalizeSequenceToken(first) === leader && tokens.length > 1)
+    isLeaderWord(first) ||
+    (!!leader && resolveSequenceToken(normalizeSequenceToken(first) ?? '') === leader && tokens.length > 1)
   if (startsWithLeader) {
     const keys = tokens.slice(1)
     if (keys.length === 0) {

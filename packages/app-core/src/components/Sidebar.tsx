@@ -142,6 +142,10 @@ import {
   type SidebarCursorAnchor,
 } from "../lib/sidebar-cursor";
 import { buildVaultSwitcherEntries } from "../lib/vault-switcher";
+import {
+  registerSidebarActionHost,
+  type SidebarSelectionSnapshot,
+} from "../lib/sidebar-note-actions";
 import { appUpdateBadgeLabel, useAppUpdateState } from "../lib/app-update-state";
 import { getISOWeekYear } from "../lib/template-render";
 import { requestPublishNote } from "../lib/publish-note-requests";
@@ -731,6 +735,54 @@ export function Sidebar(): JSX.Element {
     selectedSidebarItemsRef.current = selectedSidebarItems;
     selectedSidebarCountRef.current = selectedSidebarCount;
   }, [selectedSidebarCount, selectedSidebarItems, selectedSidebarKeys]);
+
+  // The keyboard's trash and archive (#972) act on this selection from
+  // outside the component (VimNav, the palette): hand them a snapshot of it,
+  // a way to clear it after a batch, and a hold on the cursor while they run.
+  const sidebarSelectionForActionsRef = useRef({
+    count: selectedSidebarCount,
+    notes: selectedNoteMetas,
+    actionNotes: selectedNoteMetasForAction,
+    folderCount: selectedFolderItems.length,
+  });
+  sidebarSelectionForActionsRef.current = {
+    count: selectedSidebarCount,
+    notes: selectedNoteMetas,
+    actionNotes: selectedNoteMetasForAction,
+    folderCount: selectedFolderItems.length,
+  };
+  const sidebarCursorHoldsRef = useRef(0);
+  useEffect(
+    () =>
+      registerSidebarActionHost({
+        selection: (): SidebarSelectionSnapshot => {
+          const current = sidebarSelectionForActionsRef.current;
+          return {
+            count: current.count,
+            notePaths: new Set(current.notes.map((note) => note.path)),
+            actionNotePaths: current.actionNotes.map((note) => note.path),
+            folderCount: current.folderCount,
+          };
+        },
+        clearSelection: () => {
+          setSelectedSidebarKeys(new Set());
+          setSelectionAnchorKey(null);
+        },
+        holdCursor: async (run) => {
+          sidebarCursorHoldsRef.current += 1;
+          try {
+            return await run();
+          } finally {
+            // The last store write of the action can commit after the
+            // promise settles; release once that render has run.
+            window.setTimeout(() => {
+              sidebarCursorHoldsRef.current -= 1;
+            }, 0);
+          }
+        },
+      }),
+    [],
+  );
 
   const captureSidebarScrollAnchor = useCallback((target: EventTarget | null): void => {
     const scroller = sidebarScrollRef.current;
@@ -2882,6 +2934,14 @@ export function Sidebar(): JSX.Element {
       quickNotesViewActive,
     ];
     if (!sidebarSelectionChanged(revealedSelectionRef.current, selection)) {
+      return;
+    }
+    // A note trashed or archived from the sidebar closes its tab, and the
+    // open note becomes the next tab's: a side effect, not a pick. The cursor
+    // stays where the anchoring put it, on the row that took the gone row's
+    // place, instead of jumping to that other note. (#972)
+    if (sidebarCursorHoldsRef.current > 0) {
+      revealedSelectionRef.current = selection;
       return;
     }
 
