@@ -456,3 +456,93 @@ describe('keymap reference across platforms (#901)', () => {
     expect(deserializeConfig(text).portable.keymapOverrides ?? {}).toEqual({})
   })
 })
+
+describe('command keys in [keymaps.commands] (#971)', () => {
+  it('round-trips command bindings, unbinds included, beside the action overrides', () => {
+    const portable: AppConfigPortable = {
+      keymapOverrides: { 'global.zoomIn': 'Mod+K' },
+      commandKeymaps: { 'note.trash': 'Mod+Backspace', 'note.archive': 'Leader x a', 'note.restore': '' }
+    }
+    const text = serializeConfig(portable)
+    expect(text).toContain('[keymaps.commands]\n"note.trash" = "Mod+Backspace"\n"note.archive" = "Leader x a"\n"note.restore" = ""  # unbound\n')
+    const { portable: back } = deserializeConfig(text)
+    expect(back.keymapOverrides).toEqual({ 'global.zoomIn': 'Mod+K' })
+    expect(back.commandKeymaps).toEqual(portable.commandKeymaps)
+    // Canonical: writing what was read gives the same bytes.
+    expect(serializeConfig(back)).toBe(text)
+  })
+
+  it('lists every bindable command with its title, and only commented', () => {
+    const text = serializeConfig({})
+    expect(text).toContain('# "note.trash" = ""  # Note: Move Note to Trash\n')
+    expect(text).toContain('# "note.favorite" = ""  # Note: Toggle Note Favorite\n')
+    // The id that is also an action is listed in both, each in its own table.
+    expect(text).toContain('# "nav.back" = ""  # Tabs: Go Back\n')
+    expect(text).toContain('# "nav.back" = "h"  # Back out\n')
+    // Runtime-made commands are not in the list.
+    expect(text).not.toContain('"workflow.run.')
+    const { portable } = deserializeConfig(text)
+    expect(portable.commandKeymaps).toEqual({})
+    expect(portable.keymapOverrides).toEqual({})
+  })
+
+  it('reads a command id written straight under [keymaps], and the next write moves it', () => {
+    const handWritten = [
+      'config_version = 1',
+      '',
+      '[keymaps]',
+      '"global.zoomIn" = "Mod+K"',
+      '"note.trash" = "Mod+Backspace"',
+      '"nav.back" = "Ctrl+H"',
+      ''
+    ].join('\n')
+    const { portable } = deserializeConfig(handWritten)
+    // nav.back is an action id first: it stays the back-out action.
+    expect(portable.keymapOverrides).toEqual({ 'global.zoomIn': 'Mod+K', 'nav.back': 'Ctrl+H' })
+    expect(portable.commandKeymaps).toEqual({ 'note.trash': 'Mod+Backspace' })
+    const rewritten = serializeConfig(portable)
+    expect(rewritten).toContain('[keymaps.commands]\n"note.trash" = "Mod+Backspace"\n')
+    expect(rewritten.split('[keymaps.commands]')[0]).not.toMatch(/^"note\.trash"/m)
+  })
+
+  it('lets the canonical table win over a stray line for the same command', () => {
+    const text = [
+      '[keymaps]',
+      '"note.trash" = "F6"',
+      '',
+      '[keymaps.commands]',
+      '"note.trash" = "Mod+Backspace"',
+      ''
+    ].join('\n')
+    expect(deserializeConfig(text).portable.commandKeymaps).toEqual({ 'note.trash': 'Mod+Backspace' })
+  })
+
+  it('renders the same bytes on every OS', () => {
+    const realPlatform = process.platform
+    const portable: AppConfigPortable = { commandKeymaps: { 'note.trash': 'Mod+Backspace' } }
+    const renders = (['darwin', 'linux', 'win32'] as const).map((platform) => {
+      Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+      try {
+        return serializeConfig(portable)
+      } finally {
+        Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+      }
+    })
+    expect(new Set(renders).size).toBe(1)
+  })
+
+  it('moves a bare command id into its table when the app opens the file', async () => {
+    const dir = await tmp('zen-cfg-')
+    process.env.ZENNOTES_CONFIG_DIR = dir
+    await writeFile(
+      getConfigFilePath(),
+      'config_version = 1\n\n[keymaps]\n"note.trash" = "Mod+Backspace"\n',
+      'utf8'
+    )
+    await initAppConfig(() => {})
+    expect(getPortableConfigSnapshot().commandKeymaps).toEqual({ 'note.trash': 'Mod+Backspace' })
+    const onDisk = await readFile(getConfigFilePath(), 'utf8')
+    expect(onDisk).toContain('[keymaps.commands]\n"note.trash" = "Mod+Backspace"\n')
+    expect(onDisk.split('[keymaps.commands]')[0]).not.toMatch(/^"note\.trash"/m)
+  })
+})

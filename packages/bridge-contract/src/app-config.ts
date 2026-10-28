@@ -16,6 +16,7 @@ export const PORTABLE_PREF_KEYS = [
   'whichKeyHintTimeoutMs',
   // keymaps (overrides only)
   'keymapOverrides',
+  'commandKeymaps',
   'ignoredKeys',
   'externalApplicationSchemes',
   // search

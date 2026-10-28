@@ -82,6 +82,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   whichKeyHintMode: 'timed',
   whichKeyHintTimeoutMs: 900,
   keymapOverrides: {},
+  commandKeymaps: {},
   ignoredKeys: [],
   externalApplicationSchemes: [],
   vaultTextSearchBackend: 'auto',
