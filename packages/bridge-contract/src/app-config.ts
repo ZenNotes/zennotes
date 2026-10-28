@@ -73,6 +73,7 @@ export const PORTABLE_PREF_KEYS = [
   'themeTweaks',
   'darkSidebar',
   'showWindowTitleBar',
+  'showStatusBar',
   'showSidebarChevrons',
   'contentAlign',
   'noteCoverPlacement',

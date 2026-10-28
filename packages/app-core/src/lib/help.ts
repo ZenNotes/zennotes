@@ -229,7 +229,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'When Cloud reports a problem',
     body:
-      'When ZenNotes Cloud can\'t finish something, the status bar and Settings → Cloud say what happened and what you can do, in plain words: **Can\'t reach Cloud** when this device is offline or Cloud is unreachable, or **Signed out of Cloud** when this device was removed from your account on the website. Your notes stay on this device either way. Under the message, **Details** holds the technical line (Cloud\'s answer, its HTTP status and code); **Copy details** puts it on the clipboard, and **Report an Issue** opens the ZenNotes issue tracker on GitHub so you can paste it into a report.'
+      'When ZenNotes Cloud can\'t finish something, the status bar and Settings → Cloud say what happened and what you can do, in plain words: **Can\'t reach Cloud** when this device is offline or Cloud is unreachable, or **Signed out of Cloud** when this device was removed from your account on the website. Your notes stay on this device either way. Under the message, **Details** holds the technical line (Cloud\'s answer, its HTTP status and code); **Copy details** puts it on the clipboard, and **Report an Issue** opens the ZenNotes issue tracker on GitHub so you can paste it into a report. The status bar shows these even when you have turned it off under Settings → Appearance → Chrome.'
   },
   {
     title: 'Customize the look: themes vs. overrides',
@@ -821,6 +821,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Flush the current buffer to disk immediately.'
   },
   {
+    command: ':set [no]statusbar',
+    summary: 'Show or hide the status bar',
+    detail: 'The same switch as Settings, Appearance, Chrome, Status bar: `:set nostatusbar` hides the bar along the bottom, `:set statusbar` brings it back and `:set statusbar?` says which it is (`stb` for short). Hidden, the bar still shows while ZenNotes Cloud needs you.'
+  },
+  {
     command: ':harper [on|off]',
     summary: 'Grammar and spelling with Harper',
     detail: 'Turn Harper on or off for the editor, or toggle it with no argument. The same switch as Settings, Editor, Grammar and spelling with Harper.'
@@ -1178,6 +1183,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     items: [
       { label: 'Theme, mode, and variant', detail: 'Pick a theme family: Apple, Gruvbox, Catppuccin, GitHub, Solarized, One, Nord, Tokyo Night, Kanagawa (Wave / Dragon / Paper Ink (Custom) / Lotus), Rosé Pine (Rosé Pine / Moon / Dawn), or the monochrome, true-black (OLED-friendly) Black Metal, plus light or dark mode and the active flavor or contrast where the theme supports it.' },
       { label: 'Window title bar', detail: 'Under Settings → Appearance → Chrome, turn off Window title bar to remove the main window title and controls on macOS, Windows, and Linux, including tiling desktops such as Hyprland. The sidebar and editor stay visible, and the change applies to open vault windows without a restart. Drag blank space in the tab strip, the sidebar header or the note list header to move the window, or use your window manager shortcuts. Press Cmd/Ctrl+, to restore the setting. The preference is saved as [appearance].show_window_title_bar in config.toml. In the browser app the same switch is called Title bar: it hides the bar with the open note’s title, in that browser.' },
+      { label: 'Status bar', detail: 'Under Settings → Appearance → Chrome, Status bar shows or hides the bar along the bottom of the window: the ZenNotes Cloud status (Synced, Sync now, Set up) and, on desktop, the open note’s backlinks, words, characters, reading time and cursor position. It is on by default. Turned off, the bar stays hidden except while Cloud needs you: a sync that stopped or failed, files or vault settings waiting for review, a Cloud vault that went away, or a device that was signed out. Then it comes back until that is dealt with, so nothing that needs an answer goes silent. On Android the bar is the Cloud row at the bottom of the screen, and turning it off gives that row back to the note; the iPhone already shows that row only while Cloud needs you. Toggle it from the command palette (Toggle Status Bar) or, in Vim mode, with `:set nostatusbar` and `:set statusbar`. The preference is saved as [appearance].show_status_bar in config.toml.' },
       { label: 'Keep running in the tray', detail: 'Off by default. Under Settings → Appearance → Window, turn it on and closing the last window hides it instead of ending the session: a ZenNotes icon in the system tray (the menu bar on macOS) stays, Cloud sync and the Quick capture hotkey keep working, and the icon\'s tooltip and menu show the sync state while a Cloud vault is linked. Click the icon, or choose Open ZenNotes in its menu, to bring the window back; on macOS the Dock icon does too. Quit from the icon\'s menu, with Quit ZenNotes in the command palette, or with Cmd+Q on macOS. On a desktop with no tray host the icon does not appear: open ZenNotes again and the window comes back. `Space b` (Hide Window to Tray in the palette) hides the window on purpose, which a tiling window manager cannot do with minimise. The setting belongs to this computer and is not part of config.toml. While ZenNotes runs it also checks for updates every six hours, not only at launch.' },
       { label: 'Dark sidebar', detail: 'Tint the sidebar slightly darker than the canvas so the chrome reads as a distinct surface.' },
       { label: 'Sidebar arrows', detail: 'Show or hide disclosure arrows for collapsible sidebar folders and sections.' },

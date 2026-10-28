@@ -594,3 +594,17 @@ describe('commands that open a note to read', () => {
     expect(openThisMonthMonthlyNote).toHaveBeenCalledWith({ readIfExisting: true })
   })
 })
+
+describe('Toggle Status Bar (Piotr on Discord)', () => {
+  it('flips the setting and saves it with the other preferences', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    expect(useStore.getState().showStatusBar).toBe(true)
+    const toggle = buildCommands().find((c) => c.id === 'view.status-bar')
+    expect(toggle?.title).toBe('Toggle Status Bar')
+    await toggle?.run()
+    expect(useStore.getState().showStatusBar).toBe(false)
+    expect(JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}').showStatusBar).toBe(false)
+    await buildCommands().find((c) => c.id === 'view.status-bar')?.run()
+    expect(useStore.getState().showStatusBar).toBe(true)
+  })
+})

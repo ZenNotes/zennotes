@@ -1585,6 +1585,15 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setDarkSidebar(!getState().darkSidebar)
     },
     {
+      // Settings, Appearance, Chrome, Status bar. Hidden, the bar still shows
+      // while Cloud needs the user (lib/status-bar-visibility.ts).
+      id: 'view.status-bar',
+      title: 'Toggle Status Bar',
+      category: 'View',
+      keywords: 'status bar footer bottom bar hide show cloud sync word count backlinks chrome',
+      run: () => getState().setShowStatusBar(!getState().showStatusBar)
+    },
+    {
       id: 'view.line-numbers.off',
       title: 'Line Numbers: Off',
       category: 'View',

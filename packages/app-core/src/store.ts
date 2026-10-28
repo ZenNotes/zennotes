@@ -698,6 +698,9 @@ interface Prefs {
   /** Tint the sidebar surface a step darker than the main canvas. */
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  /** Show the bar along the bottom of the workspace (Cloud sync status and the
+   *  note's stats). Off, it still shows while Cloud needs the user. */
+  showStatusBar: boolean
   /** Show disclosure arrows for collapsible sidebar folders and sections. */
   showSidebarChevrons: boolean
   /** Keys of collapsed folders in the sidebar tree. */
@@ -1193,6 +1196,7 @@ export const DEFAULT_PREFS: Prefs = {
   unifiedSidebar: true,
   darkSidebar: true,
   showWindowTitleBar: true,
+  showStatusBar: true,
   showSidebarChevrons: true,
   collapsedFolders: [],
   pinnedRefPath: null,
@@ -1475,6 +1479,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.showWindowTitleBar === 'boolean'
         ? p.showWindowTitleBar
         : DEFAULT_PREFS.showWindowTitleBar,
+    showStatusBar:
+      typeof p.showStatusBar === 'boolean' ? p.showStatusBar : DEFAULT_PREFS.showStatusBar,
     darkSidebar:
       typeof p.darkSidebar === 'boolean'
         ? p.darkSidebar
@@ -2521,6 +2527,7 @@ function collectPrefs(s: {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  showStatusBar: boolean
   showSidebarChevrons: boolean
   collapsedFolders: string[]
   pinnedRefPath: string | null
@@ -2639,6 +2646,7 @@ function collectPrefs(s: {
     unifiedSidebar: s.unifiedSidebar,
     darkSidebar: s.darkSidebar,
     showWindowTitleBar: s.showWindowTitleBar,
+    showStatusBar: s.showStatusBar,
     showSidebarChevrons: s.showSidebarChevrons,
     collapsedFolders: s.collapsedFolders,
     pinnedRefPath: s.pinnedRefPath,
@@ -3222,6 +3230,7 @@ interface Store {
   unifiedSidebar: boolean
   darkSidebar: boolean
   showWindowTitleBar: boolean
+  showStatusBar: boolean
   showSidebarChevrons: boolean
   /** Manual (drag-to-reorder) note order for `noteSortOrder: 'manual'`, keyed
    *  by parent directory → ordered note paths. Persisted per vault (#224). */
@@ -3874,6 +3883,7 @@ interface Store {
   setUnifiedSidebar: (on: boolean) => void
   setDarkSidebar: (on: boolean) => void
   setShowWindowTitleBar: (on: boolean) => void
+  setShowStatusBar: (on: boolean) => void
   setShowSidebarChevrons: (on: boolean) => void
   toggleCollapseFolder: (key: string) => void
   setCollapsedFolders: (keys: string[]) => void
@@ -6148,6 +6158,7 @@ export const useStore = create<Store>((set, get) => {
   unifiedSidebar: loadPrefs().unifiedSidebar,
   darkSidebar: loadPrefs().darkSidebar,
   showWindowTitleBar: loadPrefs().showWindowTitleBar,
+  showStatusBar: loadPrefs().showStatusBar,
   showSidebarChevrons: loadPrefs().showSidebarChevrons,
   collapsedFolders: DEFAULT_PREFS.collapsedFolders,
   pinnedRefPath: loadPrefs().pinnedRefPath,
@@ -9778,6 +9789,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setShowWindowTitleBar: (on) => {
     set({ showWindowTitleBar: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setShowStatusBar: (on) => {
+    set({ showStatusBar: on })
     savePrefs(collectPrefs(get()))
   },
   setDarkSidebar: (on) => {
