@@ -4005,7 +4005,13 @@ export function SettingsModal(): JSX.Element {
 
           <Section
             title="Covers"
-            description="How a note's cover shows, and the Unsplash key the cover picker searches with."
+            description={
+              // A host without the Unsplash bridge (the phones) shows no key
+              // row below, so the section does not promise one.
+              unsplashKeySupported()
+                ? "How a note's cover shows, and the Unsplash key the cover picker searches with."
+                : "How a note's cover shows."
+            }
           >
             <SegmentedRow
               label="Note covers"

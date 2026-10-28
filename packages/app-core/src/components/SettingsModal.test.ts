@@ -376,6 +376,29 @@ describe("SettingsModal date note directories", () => {
     expect(await sharesRowFound()).toBe(true);
   });
 
+  it("names the Unsplash key in the Covers section only where the key row exists", async () => {
+    const coversDescription = async (): Promise<string> => {
+      await act(async () => root.render(createElement(SettingsModal)));
+      const typography = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent?.trim() === "Typography",
+      );
+      expect(typography).toBeTruthy();
+      await act(async () => typography!.click());
+      return host.textContent ?? "";
+    };
+    // The phones' bridge has no Unsplash methods.
+    let text = await coversDescription();
+    expect(text).toContain("How a note's cover shows.");
+    expect(text).not.toContain("Unsplash key the cover picker searches with");
+
+    await act(async () => root.render(createElement("div")));
+    Object.assign(window.zen, {
+      getUnsplashKeyStatus: vi.fn().mockResolvedValue({ set: false, store: "system", canStore: true }),
+    });
+    text = await coversDescription();
+    expect(text).toContain("and the Unsplash key the cover picker searches with.");
+  });
+
   it("leaves the shares location out where there is no Share menu extension", async () => {
     await act(async () => root.render(createElement(SettingsModal)));
     const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
