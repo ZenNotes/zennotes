@@ -196,7 +196,15 @@ try {
     await client.send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, modifiers: modifier })
     await client.send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, modifiers: modifier })
   }
-  await shortcut('a', 'KeyA')
+  // Select-all leaves a note's leading `# Title` out on the first press and
+  // takes the whole note on the second (#1006), so every step that replaces a
+  // note's text presses it twice. On a note without a title both presses
+  // select everything.
+  async function selectAll() {
+    await shortcut('a', 'KeyA')
+    await shortcut('a', 'KeyA')
+  }
+  await selectAll()
   const saved = '# Package test\n\nSaved from the installed editor: café 日本語.  \n\n- [ ] Preserve this task\n'
   await client.send('Input.insertText', { text: saved })
   await until(async () => (await readFile(join(vault, path), 'utf8')) === saved, 'exact UTF-8 save')
@@ -228,7 +236,7 @@ try {
   await client.evaluate(`window.packageNavigation.openNote(${JSON.stringify(path)})`)
   await until(() => client.evaluate(`!!document.querySelector('.cm-content')`), 'reloaded editor')
   await client.evaluate(`document.querySelector('.cm-content').focus()`)
-  await shortcut('a', 'KeyA')
+  await selectAll()
   await client.send('Input.insertText', { text: '# Grammar\n\nThis is an mispelled sentense.\n' })
   await until(() => client.evaluate(`!!document.querySelector('.cm-harper-lint')`), 'Harper worker diagnostics', 60000)
   const grammarShot = await client.send('Page.captureScreenshot', { format: 'png' })
@@ -246,7 +254,7 @@ try {
     importPastedImage: input => window.zen.importPastedImage(input)
   }`)
   await client.evaluate(`document.querySelector('.cm-content').focus()`)
-  await shortcut('a', 'KeyA')
+  await selectAll()
   const attachmentBody = '# Attachments\n\nKeep this note.\n'
   await client.send('Input.insertText', { text: attachmentBody })
   await until(async () => (await readFile(join(vault, path), 'utf8')) === attachmentBody, 'attachment baseline save')
@@ -313,7 +321,7 @@ try {
     assert.deepEqual(await client.evaluate('window.lastHostCommand'), { command, handled: true })
   }
   await client.evaluate(`document.querySelector('.cm-content').focus()`)
-  await shortcut('a', 'KeyA')
+  await selectAll()
   assert.equal(await client.evaluate('window.packageEditor.hasEditorSelection()'), true)
   await clickHostCommand('toggle-bold')
   await until(async () => (await readFile(join(vault, commandPath), 'utf8')) === '**Format me**', 'public bold save')
@@ -333,7 +341,7 @@ try {
   assert.equal(await client.evaluate(`window.packageEditor.runEditorCommand('close-search')`), true)
   assert.equal(await client.evaluate(`document.activeElement.classList.contains('cm-content')`), true)
   assert.equal(await client.evaluate(`window.packageEditor.runEditorCommand('close-search')`), false)
-  await shortcut('a', 'KeyA')
+  await selectAll()
   await client.send('Input.insertText', { text: '  ' })
   assert.equal(await client.evaluate('window.packageEditor.hasEditorSelection()'), false)
   await clickHostCommand('set-task-list')
@@ -412,7 +420,7 @@ try {
   await until(() => client.evaluate(`document.querySelector('[data-consumer-title]').textContent === 'Note 10'`), 'next Browse sibling')
   await until(() => client.evaluate(`document.querySelector('.cm-content')?.textContent.includes('Original inbox/Order/Note 10.md')`), 'adjacent editor ready')
   await client.evaluate(`document.querySelector('.cm-content').focus()`)
-  await shortcut('a', 'KeyA')
+  await selectAll()
   await client.send('Input.insertText', { text: 'Edited via public sibling navigation: café.' })
   await clickAdjacent('next')
   await until(() => client.evaluate(`document.querySelector('[data-consumer-title]').textContent === 'Note 20'`), 'second Browse sibling')
@@ -566,7 +574,7 @@ try {
   await clickBrowse(`[data-browse-note="${movingNote}"]`)
   await until(() => client.evaluate(`document.querySelector('[data-consumer-selection]').textContent === ${JSON.stringify(movingNote)} && !!document.querySelector('.cm-content')`), 'note before move')
   await client.evaluate(`document.querySelector('.cm-content').focus()`)
-  await shortcut('a','KeyA')
+  await selectAll()
   const movedBody = '# Read me\n\nMove this edited note: café 日本語.  \n'
   await client.send('Input.insertText', {text:movedBody})
   const movingComment = await fetch(`${api}/api/comments/write`, {method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({path:movingNote,comments:[{id:'moving-note-comment',body:'Move my discussion',createdAt:1,updatedAt:1}]})})

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -41,10 +41,10 @@ const ok = (json: unknown) => ({
 /** Every file under `dir`, read as text. */
 async function filesUnder(dir: string): Promise<Array<{ path: string; text: string }>> {
   const out: Array<{ path: string; text: string }> = []
-  for (const name of await readdir(dir)) {
-    const path = join(dir, name)
-    if ((await stat(path)).isDirectory()) out.push(...(await filesUnder(path)))
-    else out.push({ path, text: await readFile(path, 'utf8') })
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...(await filesUnder(path)))
+    else if (entry.isFile()) out.push({ path, text: await readFile(path, 'utf8') })
   }
   return out
 }

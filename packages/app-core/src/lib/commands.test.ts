@@ -686,9 +686,18 @@ describe('Vim-only keys in the palette', () => {
     const overrides = useStore.getState().keymapOverrides
     const leader = getKeymapDisplay(overrides, 'vim.leaderPrefix')
     const pane = getKeymapDisplay(overrides, 'vim.panePrefix')
-    const vimKeys = (
-      ['vim.foldCurrent', 'vim.unfoldCurrent', 'vim.foldAll', 'vim.unfoldAll', 'vim.historyBack', 'vim.historyForward'] as const
-    ).map((id) => getKeymapDisplay(overrides, id))
+    // The commands whose key is a Vim-group key, checked by id: on Linux and
+    // Windows a Vim key can read the same as a global one (Vim's Ctrl+O and
+    // Open File's Mod+O both show as Ctrl+O), so a display match alone would
+    // flag a key that works in both modes.
+    const vimKeyed: Record<string, string> = {
+      'fold.heading': getKeymapDisplay(overrides, 'vim.foldCurrent'),
+      'fold.unfold-heading': getKeymapDisplay(overrides, 'vim.unfoldCurrent'),
+      'fold.all': getKeymapDisplay(overrides, 'vim.foldAll'),
+      'fold.unfold-all': getKeymapDisplay(overrides, 'vim.unfoldAll'),
+      'nav.back': getKeymapDisplay(overrides, 'vim.historyBack'),
+      'nav.forward': getKeymapDisplay(overrides, 'vim.historyForward')
+    }
     const leaks = buildCommands({ includeUnavailable: true })
       .filter((command) => {
         const shown = command.shortcut ?? ''
@@ -697,7 +706,7 @@ describe('Vim-only keys in the palette', () => {
           shown.startsWith(':') ||
           (!!leader && shown.startsWith(`${leader} `)) ||
           (!!pane && shown.startsWith(`${pane} `)) ||
-          vimKeys.includes(shown)
+          (command.id in vimKeyed && shown === vimKeyed[command.id])
         )
       })
       .map((command) => `${command.id}: ${command.shortcut}`)
