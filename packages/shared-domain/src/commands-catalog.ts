@@ -53,6 +53,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "note.favorite", title: "Toggle Note Favorite", category: "Note", keywords: "favourite star bookmark home sidebar" },
   { id: "note.cover", title: "Add or Change Cover…", category: "Note", keywords: "banner header image picture gallery gradient" },
   { id: "note.cover.unsplash", title: "Add Cover from Unsplash…", category: "Note", keywords: "banner header image picture photo stock unsplash" },
+  { id: "note.cover.unsplashKey", title: "Set Unsplash Access Key…", category: "Note", keywords: "unsplash api key access cover banner photo settings" },
   { id: "note.cover.paste", title: "Paste Cover from Clipboard", category: "Note", keywords: "banner header image screenshot" },
   { id: "note.cover.reposition", title: "Reposition Cover", category: "Note", keywords: "banner header image move focal" },
   { id: "note.cover.remove", title: "Remove Cover", category: "Note", keywords: "banner header image delete" },

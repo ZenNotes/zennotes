@@ -1,8 +1,8 @@
 /**
- * Unsplash photo search for the cover picker. The app never holds an
- * Unsplash key: every host asks the proxy on zennotes.org, which signs the
- * request, trims the answer to these fields and keeps the shared hourly
- * budget (see shared-domain unsplash.ts for the rules this follows).
+ * Unsplash photo search for the cover picker, with the person's own Unsplash
+ * access key: every host asks api.unsplash.com directly and keeps the key
+ * itself (see shared-domain unsplash.ts for the rules this follows). The key
+ * never comes back across the bridge; a host says only whether one is set.
  */
 
 /** One photo, as the picker needs it. */
@@ -30,11 +30,47 @@ export interface UnsplashSearchPage {
   photos: UnsplashPhoto[]
 }
 
-/** Why a search came back empty-handed: no connection, the shared hourly
- *  budget is spent (until `retryAt`, epoch ms, when the proxy says), or the
- *  service could not answer. */
-export type UnsplashSearchFailure = 'offline' | 'rate-limited' | 'unavailable'
+/** Why a request to Unsplash came back empty-handed:
+ *  - `no-key`: no access key is set yet;
+ *  - `invalid-key`: Unsplash refused the key (401);
+ *  - `rate-limited`: the key's hourly allowance is spent (403 with
+ *    X-Ratelimit-Remaining at 0), or the app's own per-minute cap is (until
+ *    `retryAt`, epoch ms);
+ *  - `offline`: Unsplash could not be reached;
+ *  - `unavailable`: any other answer. */
+export type UnsplashSearchFailure = 'no-key' | 'invalid-key' | 'rate-limited' | 'offline' | 'unavailable'
 
 export type UnsplashSearchResult =
   | { ok: true; page: UnsplashSearchPage }
-  | { ok: false; reason: UnsplashSearchFailure; retryAt: number | null }
+  | {
+      ok: false
+      reason: UnsplashSearchFailure
+      retryAt: number | null
+      /** The key's hourly allowance, when Unsplash said (X-Ratelimit-Limit). */
+      limit: number | null
+    }
+
+/** Where a host keeps the key: the system's secure storage (desktop), or
+ *  this browser's storage (the web client). */
+export type UnsplashKeyStore = 'system' | 'browser'
+
+export interface UnsplashKeyStatus {
+  set: boolean
+  store: UnsplashKeyStore
+  /** False when the host has nowhere safe to keep a key (a Linux desktop
+   *  without a keyring, a browser with storage turned off). */
+  canStore: boolean
+}
+
+/** One real request with a key: it works, with what is left of the hour's
+ *  allowance when Unsplash says, or why not. */
+export type UnsplashKeyCheck =
+  | { ok: true; remaining: number | null; limit: number | null }
+  | { ok: false; reason: UnsplashSearchFailure; limit: number | null }
+
+/** Saving a pasted key. It is checked with one request first and kept
+ *  unless Unsplash refuses it; a key that could not be checked (offline,
+ *  rate-limited) is kept, with the check saying why. */
+export type UnsplashKeySaveResult =
+  | { saved: true; check: UnsplashKeyCheck }
+  | { saved: false; reason: 'malformed' | 'invalid-key' | 'cannot-store' }

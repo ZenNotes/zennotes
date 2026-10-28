@@ -1,6 +1,6 @@
 /**
- * The cover picker's Unsplash tab: search as you type, gentle on the one
- * hourly budget every ZenNotes user shares through the zennotes.org proxy.
+ * The cover picker's Unsplash tab: search as you type, gentle on the hourly
+ * allowance of the person's own Unsplash key (50 requests for a new app).
  * A query waits for a pause in typing and needs two characters; an answer
  * that arrives after a newer query is dropped; the last answers are kept for
  * the session, so switching tabs or reopening the picker asks nothing again.
@@ -31,7 +31,14 @@ export type UnsplashSearchState =
       totalPages: number
       loadingMore: boolean
     }
-  | { status: 'failed'; query: string; reason: UnsplashSearchFailure; retryAt: number | null }
+  | {
+      status: 'failed'
+      query: string
+      reason: UnsplashSearchFailure
+      retryAt: number | null
+      /** The key's hourly allowance, when Unsplash said. */
+      limit: number | null
+    }
 
 export type UnsplashSearchFn = (query: string, page: number) => Promise<UnsplashSearchResult>
 
@@ -106,7 +113,7 @@ export function createUnsplashSearch(deps: {
     try {
       result = await deps.search(query, page)
     } catch {
-      result = { ok: false, reason: 'unavailable', retryAt: null }
+      result = { ok: false, reason: 'unavailable', retryAt: null, limit: null }
     }
     if (result.ok) cache.set(result.page)
     return result
@@ -116,7 +123,7 @@ export function createUnsplashSearch(deps: {
     const result = await ask(query, 1)
     if (mine !== generation || disposed) return
     if (!result.ok) {
-      emit({ status: 'failed', query, reason: result.reason, retryAt: result.retryAt })
+      emit({ status: 'failed', query, reason: result.reason, retryAt: result.retryAt, limit: result.limit })
       return
     }
     emit({

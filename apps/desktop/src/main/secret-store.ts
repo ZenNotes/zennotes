@@ -343,3 +343,52 @@ export async function deleteCloudAccountKeySecrets(baseUrl: string): Promise<voi
     for (const name of stale) delete fallback[name]
   })
 }
+
+const UNSPLASH_KEYTAR_SERVICE = 'ZenNotes Unsplash'
+const UNSPLASH_ACCESS_KEY_NAME = 'unsplash:access-key'
+
+/**
+ * The person's own Unsplash Access Key, for the cover picker's Unsplash tab.
+ * Kept only in the OS-protected store, like the Cloud credential: never in
+ * config.toml, vault.json or anything the renderer keeps (main tells the
+ * renderer only whether there is one).
+ */
+export async function getUnsplashAccessKeySecret(): Promise<string | null> {
+  const keytar = await loadKeytar()
+  if (keytar) return keytar.getPassword(UNSPLASH_KEYTAR_SERVICE, UNSPLASH_ACCESS_KEY_NAME)
+  const encoded = (await loadFallbackSecrets())[UNSPLASH_ACCESS_KEY_NAME]
+  return encoded ? decodeSecret(encoded) : null
+}
+
+export async function setUnsplashAccessKeySecret(key: string): Promise<boolean> {
+  const normalized = key.trim()
+  if (!normalized) return false
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.setPassword(UNSPLASH_KEYTAR_SERVICE, UNSPLASH_ACCESS_KEY_NAME, normalized)
+    return true
+  }
+  const encoded = encodeSecret(normalized)
+  if (!encoded) return false
+  await updateFallbackSecrets((fallback) => {
+    fallback[UNSPLASH_ACCESS_KEY_NAME] = encoded
+  })
+  return true
+}
+
+export async function deleteUnsplashAccessKeySecret(): Promise<void> {
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.deletePassword(UNSPLASH_KEYTAR_SERVICE, UNSPLASH_ACCESS_KEY_NAME)
+    return
+  }
+  if (!(UNSPLASH_ACCESS_KEY_NAME in (await loadFallbackSecrets()))) return
+  await updateFallbackSecrets((fallback) => {
+    delete fallback[UNSPLASH_ACCESS_KEY_NAME]
+  })
+}
+
+/** Whether a secret saved now would be encrypted by the OS. */
+export function canStoreSecretsSecurely(): boolean {
+  return safeStorage.isEncryptionAvailable()
+}

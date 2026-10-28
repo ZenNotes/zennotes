@@ -112,12 +112,12 @@ describe('createUnsplashSearch', () => {
   it('reports a failure, and asks again when the same search comes back', async () => {
     const search = vi
       .fn<UnsplashSearchFn>()
-      .mockResolvedValueOnce({ ok: false, reason: 'rate-limited', retryAt: 5_000 })
+      .mockResolvedValueOnce({ ok: false, reason: 'rate-limited', retryAt: null, limit: 50 })
       .mockImplementation(async (q, page) => answer(q, page, ['a']))
     const { controller, last } = setup(search)
     controller.setQuery('fog')
     await vi.advanceTimersByTimeAsync(400)
-    expect(last()).toEqual({ status: 'failed', query: 'fog', reason: 'rate-limited', retryAt: 5_000 })
+    expect(last()).toEqual({ status: 'failed', query: 'fog', reason: 'rate-limited', retryAt: null, limit: 50 })
     controller.setQuery('fog')
     await vi.advanceTimersByTimeAsync(400)
     expect(last()).toMatchObject({ status: 'ready', query: 'fog' })

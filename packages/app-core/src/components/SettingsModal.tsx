@@ -176,6 +176,8 @@ import { TextReplacementsSettings } from "./TextReplacementsSettings";
 import { CloudSettings } from "./CloudSettings";
 import { ErrorDetails } from "./ErrorDetails";
 import { consumeSettingsTarget } from "../lib/settings-navigation";
+import { unsplashKeySupported } from "../lib/unsplash-key";
+import { UnsplashKeySetting } from "./UnsplashKeySetting";
 import { normalizeApplicationSchemes } from "@shared/application-links";
 
 type SettingsCategoryId =
@@ -1431,6 +1433,11 @@ export function SettingsModal(): JSX.Element {
   const opensOnCloudVault =
     supportsCloudSync && initialSettingsTarget === "cloud";
   const [cloudVaultReveal, setCloudVaultReveal] = useState(opensOnCloudVault);
+  // The cover picker's Unsplash tab sends the person here to paste a key, so
+  // the keyboard lands in the field itself rather than the settings search.
+  const opensOnUnsplashKey =
+    initialSettingsTarget === "unsplash" && unsplashKeySupported();
+  const unsplashKeyInputRef = useRef<HTMLInputElement>(null);
   const settleCloudVaultReveal = useCallback(() => setCloudVaultReveal(false), []);
   // Settings draws its own backdrop and panel, so it never got the focus
   // handling the shared Modal shell gives every other dialog: the keyboard
@@ -1441,7 +1448,11 @@ export function SettingsModal(): JSX.Element {
   // search is not what was asked for, so the panel holds focus instead.
   useDialogFocus(
     ref,
-    isTouchPrimaryDevice() || opensOnCloudVault ? ref : navSearchRef,
+    isTouchPrimaryDevice() || opensOnCloudVault
+      ? ref
+      : opensOnUnsplashKey
+        ? unsplashKeyInputRef
+        : navSearchRef,
   );
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
@@ -1450,7 +1461,9 @@ export function SettingsModal(): JSX.Element {
         ? "editor"
         : initialSettingsTarget === "periodic-notes"
           ? "vault"
-          : initialSettingsTarget ?? "appearance",
+          : initialSettingsTarget === "unsplash"
+            ? "typography"
+            : initialSettingsTarget ?? "appearance",
   );
   // Per-category active sub-tab (dense categories split their content into sub-tabs).
   const [activeSubTabByCategory, setActiveSubTabByCategory] = useState<
@@ -1557,6 +1570,12 @@ export function SettingsModal(): JSX.Element {
         }, 2000);
       });
     });
+  }, []);
+
+  useEffect(() => {
+    if (opensOnUnsplashKey) jumpToSettingsSearchTarget("unsplash-access-key");
+    // Once, for the page another surface asked for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const leaderKeyHintsTargetId = vimMode ? "leader-key-hints" : "vim-mode";
@@ -3769,7 +3788,7 @@ export function SettingsModal(): JSX.Element {
       id: "typography",
       title: "Typography",
       description:
-        "Fonts, line height, reading width, alignment, and line numbers.",
+        "Fonts, line height, reading width, alignment, line numbers, and note covers.",
       keywords: [
         "font",
         "size",
@@ -3777,6 +3796,7 @@ export function SettingsModal(): JSX.Element {
         "width",
         "alignment",
         "numbers",
+        "cover",
       ],
       searchItems: [
         {
@@ -3835,6 +3855,21 @@ export function SettingsModal(): JSX.Element {
           description:
             "Where a note's cover image shows: scrolling with the text, pinned above it, or hidden.",
           keywords: ["cover", "banner", "header", "image", "pinned", "hidden"],
+        },
+        {
+          id: "unsplash-access-key",
+          title: "Unsplash access key",
+          description:
+            "Your own Unsplash key, which the cover picker's Unsplash tab searches with.",
+          keywords: [
+            "unsplash",
+            "cover",
+            "api key",
+            "access key",
+            "photo",
+            "banner",
+          ],
+          available: unsplashKeySupported(),
         },
         {
           id: "line-numbers",
@@ -3942,18 +3977,6 @@ export function SettingsModal(): JSX.Element {
               onChange={(next) => setContentAlign(next)}
             />
             <SegmentedRow
-              label="Note covers"
-              description="Where a note's cover image (its banner) shows: on top of the text, scrolling away with it; pinned above the editor and Read view; or hidden. Hiding it leaves the note's frontmatter alone."
-              value={noteCoverPlacement}
-              settingId="note-covers"
-              options={[
-                { value: "scroll", label: "Scroll with note" },
-                { value: "pinned", label: "Pinned" },
-                { value: "hidden", label: "Hidden" },
-              ]}
-              onChange={(next) => setNoteCoverPlacement(next)}
-            />
-            <SegmentedRow
               label="Line numbers"
               description="Show editor gutter numbers. Relative uses Vim-style numbering with the current line shown normally."
               value={lineNumberMode}
@@ -3977,6 +4000,27 @@ export function SettingsModal(): JSX.Element {
                 ]}
                 onChange={(next) => setLineNumberPosition(next)}
               />
+            )}
+          </Section>
+
+          <Section
+            title="Covers"
+            description="How a note's cover shows, and the Unsplash key the cover picker searches with."
+          >
+            <SegmentedRow
+              label="Note covers"
+              description="Where a note's cover image (its banner) shows: on top of the text, scrolling away with it; pinned above the editor and Read view; or hidden. Hiding it leaves the note's frontmatter alone."
+              value={noteCoverPlacement}
+              settingId="note-covers"
+              options={[
+                { value: "scroll", label: "Scroll with note" },
+                { value: "pinned", label: "Pinned" },
+                { value: "hidden", label: "Hidden" },
+              ]}
+              onChange={(next) => setNoteCoverPlacement(next)}
+            />
+            {unsplashKeySupported() && (
+              <UnsplashKeySetting inputRef={unsplashKeyInputRef} />
             )}
           </Section>
         </div>

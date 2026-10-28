@@ -75,12 +75,13 @@ import { createDatabaseOps, type DatabaseVaultLayout } from '@shared/database-op
 import { isUnknownRouteResponse, parseServerErrorBody } from '@shared/server-error-shape'
 import { pastedImageFilename } from '@shared/pasted-image'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
-import {
-  searchUnsplashThroughProxy,
-  trackUnsplashDownloadThroughProxy,
-  type UnsplashFetch
-} from '@shared/unsplash'
-import type { UnsplashSearchResult } from '@zennotes/bridge-contract/unsplash'
+import { createUnsplashClient } from '@shared/unsplash'
+import type {
+  UnsplashKeyCheck,
+  UnsplashKeySaveResult,
+  UnsplashKeyStatus,
+  UnsplashSearchResult
+} from '@zennotes/bridge-contract/unsplash'
 import type {
   McpClientId,
   McpClientStatus,
@@ -616,18 +617,47 @@ async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
   return { url, ok: false }
 }
 
-// The cover picker's Unsplash search goes straight from the browser to the
-// proxy on zennotes.org, which answers any origin and gets no cookies; the
-// server this client is served from takes no part (and holds no key).
-const unsplashFetch: UnsplashFetch = (url, init) => fetch(url, init)
+// The cover picker's Unsplash search goes straight from this browser to
+// api.unsplash.com (which answers any origin) with the person's own access
+// key. A browser has no system keychain to offer, so the key stays in this
+// browser's storage under its own entry, read only here; the app's prefs and
+// the server this client is served from never see it.
+const UNSPLASH_KEY_STORAGE = 'zennotes:unsplash-access-key'
 
-async function searchUnsplash(query: string, page: number): Promise<UnsplashSearchResult> {
-  return await searchUnsplashThroughProxy(unsplashFetch, { query, page })
+function browserStorage(): Storage | null {
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
 }
 
-async function trackUnsplashDownload(downloadLocation: string): Promise<void> {
-  await trackUnsplashDownloadThroughProxy(unsplashFetch, downloadLocation)
-}
+const unsplash = createUnsplashClient({
+  fetch: (url, init) => fetch(url, init),
+  store: 'browser',
+  keys: {
+    get: async () => browserStorage()?.getItem(UNSPLASH_KEY_STORAGE) ?? null,
+    set: async (key) => {
+      const storage = browserStorage()
+      if (!storage) return false
+      try {
+        storage.setItem(UNSPLASH_KEY_STORAGE, key)
+        return true
+      } catch {
+        return false
+      }
+    },
+    delete: async () => browserStorage()?.removeItem(UNSPLASH_KEY_STORAGE),
+    canStore: () => browserStorage() !== null
+  }
+})
+
+const searchUnsplash = (query: string, page: number): Promise<UnsplashSearchResult> => unsplash.search(query, page)
+const trackUnsplashDownload = (downloadLocation: string): Promise<void> => unsplash.trackDownload(downloadLocation)
+const getUnsplashKeyStatus = (): Promise<UnsplashKeyStatus> => unsplash.status()
+const saveUnsplashKey = (key: string): Promise<UnsplashKeySaveResult> => unsplash.save(key)
+const testUnsplashKey = (): Promise<UnsplashKeyCheck> => unsplash.test()
+const clearUnsplashKey = (): Promise<void> => unsplash.clear()
 
 async function revealFolder(_folder: NoteFolder, _subpath: string): Promise<void> {
   // No OS file manager on the web.
@@ -1609,6 +1639,10 @@ export const httpBridge: ZenBridge = {
   fetchLinkMetadata,
   searchUnsplash,
   trackUnsplashDownload,
+  getUnsplashKeyStatus,
+  saveUnsplashKey,
+  testUnsplashKey,
+  clearUnsplashKey,
   revealNoteTarget,
   revealFilePath,
   moveNote,
