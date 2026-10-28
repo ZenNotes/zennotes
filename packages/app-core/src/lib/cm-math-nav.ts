@@ -6,14 +6,16 @@
  * (`cursorLineUp`/`cursorLineDown`) skips clean over it — only a mouse click
  * could reveal the source. When the next logical line sits inside a rendered
  * block, step the cursor there directly; cm-math-render reveals the source in
- * the same transaction. Covers insert-mode and non-Vim editing; Vim's `j`/`k`
- * get the equivalent treatment in cm-vim-display-line.ts.
+ * the same transaction. A cover's folded frontmatter lines (cm-cover-fold.ts)
+ * are stepped into the same way. Covers insert-mode and non-Vim editing;
+ * Vim's `j`/`k` get the equivalent treatment in cm-vim-display-line.ts.
  */
 import { completionStatus } from '@codemirror/autocomplete'
 import type { EditorView, KeyBinding } from '@codemirror/view'
 import { mathBlockLineRanges } from './cm-math-render'
 import { embedBlockLineRanges } from './cm-embed-render'
 import { mermaidBlockLineRanges } from './cm-mermaid-render'
+import { coverFoldLineRanges } from './cm-cover-fold'
 
 function moveIntoRenderedMathBlock(view: EditorView, dir: 1 | -1): boolean {
   const state = view.state
@@ -27,7 +29,8 @@ function moveIntoRenderedMathBlock(view: EditorView, dir: 1 | -1): boolean {
   const block = [
     ...mathBlockLineRanges(state),
     ...embedBlockLineRanges(state),
-    ...mermaidBlockLineRanges(state)
+    ...mermaidBlockLineRanges(state),
+    ...coverFoldLineRanges(state)
   ].find((r) => targetNumber >= r.fromLine && targetNumber <= r.toLine)
   if (!block) return false
   // Inside the same (already revealed) block the default motion works; only

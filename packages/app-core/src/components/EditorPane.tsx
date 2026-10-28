@@ -110,7 +110,7 @@ import {
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
 import { MIN_RIGHT_PANEL_WIDTH, noteDiskRevision, useStore } from '../store'
-import type { LineNumberMode } from '../store'
+import type { LineNumberMode, NoteCoverPlacement } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
@@ -159,7 +159,13 @@ import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { CloudConflictNoteBanner } from './CloudConflictNoteBanner'
 import { createPortal } from 'react-dom'
 import { readNoteCover } from '@shared/note-cover'
-import { editorShowsNoteCover, noteCoverExtension } from '../lib/cm-note-cover'
+import {
+  editorShowsNoteCover,
+  noteCoverExtension,
+  pinnedNoteCoverExtension,
+  type NoteCoverSlotSink
+} from '../lib/cm-note-cover'
+import { coverFoldExtension } from '../lib/cm-cover-fold'
 import { NoteCover } from './NoteCover'
 import {
   AgentEditNoteBanner,
@@ -480,6 +486,14 @@ function markdownEditingExtensions(showHeadingLevelLabels = false): Extension[] 
   ]
 }
 
+/** The editor's part of the note cover: the slot it is drawn in when it
+ *  scrolls with the text, and in any placement that draws it, the notice
+ *  that lets the cover's frontmatter fold (cm-cover-fold.ts). */
+function noteCoverEditorExtension(placement: NoteCoverPlacement, sink: NoteCoverSlotSink): Extension {
+  if (placement === 'scroll') return noteCoverExtension(sink)
+  return placement === 'pinned' ? pinnedNoteCoverExtension : []
+}
+
 function markdownSyntaxHighlightExtensions(): Extension[] {
   return [
     syntaxHighlighting(paperHighlight),
@@ -509,6 +523,8 @@ function wysiwygExtensions(
     // Frontmatter renders as compact properties only while Live Preview is
     // on; with it off the block reads as plain --- markdown. (#616)
     frontmatterStyle,
+    // A cover's frontmatter lines fold to one line in that card.
+    coverFoldExtension,
     codeBlockFlairPlugin,
     // Table widgets are gated on a setting — off keeps tables as plain editable
     // markdown for full keyboard/Vim editing (#232).
@@ -2170,9 +2186,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           }),
           commentDecorationField,
           agentReviewCompartment.of([]),
-          noteCoverCompartment.of(
-            s0.noteCoverPlacement === 'scroll' ? noteCoverExtension(noteCoverSlotSink) : []
-          ),
+          noteCoverCompartment.of(noteCoverEditorExtension(s0.noteCoverPlacement, noteCoverSlotSink)),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
           markdownCompartment.of(
@@ -2831,9 +2845,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const comp = noteCoverCompartmentRef.current
     if (!view || !comp) return
     view.dispatch({
-      effects: comp.reconfigure(
-        noteCoverPlacement === 'scroll' ? noteCoverExtension(noteCoverSlotSink) : []
-      )
+      effects: comp.reconfigure(noteCoverEditorExtension(noteCoverPlacement, noteCoverSlotSink))
     })
   }, [noteCoverPlacement, noteCoverSlotSink])
   useEffect(() => {

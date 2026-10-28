@@ -20,6 +20,7 @@ import rockyMountainsThumb from '../assets/covers/thumbs/rocky-mountains.webp'
 import wheatFieldThumb from '../assets/covers/thumbs/wheat-field.webp'
 import {
   NOTE_COVER_GRADIENTS,
+  builtinCoverFileKey,
   gradientCoverDataUrl,
   gradientCoverFileName,
   gradientCoverSvg
@@ -136,3 +137,10 @@ export const PHOTO_COVERS: BuiltinCover[] = [
     () => import('../assets/covers/blue-marble.webp?inline')
   )
 ]
+
+/** The built-in cover a vault reference names by the file name a pick wrote,
+ *  in whichever folder it landed, or null for any other image. */
+export function builtinCoverForAsset(ref: string): BuiltinCover | null {
+  const name = builtinCoverFileKey(ref)
+  return [...GRADIENT_COVERS, ...PHOTO_COVERS].find((cover) => cover.fileName === name) ?? null
+}
