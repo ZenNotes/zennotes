@@ -8,7 +8,11 @@ import {
   parseNoteSearchQuery,
   searchNoteIndex
 } from '../lib/note-search'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import {
+  focusEditorAfterPick,
+  focusEditorAfterSearchClose,
+  focusEditorNormalMode
+} from '../lib/editor-focus'
 import {
   destinationLabel,
   parseDestinationText,
@@ -144,7 +148,7 @@ export function SearchPalette(): JSX.Element {
   const open = async (note: NoteMeta): Promise<void> => {
     setSearchOpen(false)
     await selectNote(note.path)
-    focusEditorNormalMode()
+    focusEditorAfterPick()
   }
 
   // A block opens its note at the block's line, highlighted, and records the
@@ -155,7 +159,7 @@ export function SearchPalette(): JSX.Element {
     setSearchOpen(false)
     if (row.kind === 'block') {
       await openTaggedBlock(row.note.path, row.block.startLine)
-      focusEditorNormalMode()
+      focusEditorAfterPick()
       return
     }
     await openTagViewFor(tagTokens, freeText)
@@ -174,7 +178,7 @@ export function SearchPalette(): JSX.Element {
 
   const close = (): void => {
     setSearchOpen(false)
-    focusEditorNormalMode()
+    focusEditorAfterSearchClose()
   }
 
   // Trash the highlighted note without leaving the palette (Discord ask: a

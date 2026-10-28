@@ -321,6 +321,8 @@ import { installEditorHost, revealEditorCaret } from '@zennotes/app-core/editor'
 
 const host = installEditorHost({
   nativeTyping: true,
+  // A phone layout reads what a search finds; the keyboard waits for a tap.
+  openNotesToRead: () => isPhoneLayout(),
   measureBottomInsets: ({ editor, scroll }) => ({
     // These geometry helpers and overlay elements belong to the native shell.
     layout: bottomOverlap(editor, selectionToolbarBounds()),
@@ -339,6 +341,13 @@ host.dispose()
 and writing suggestions through the editor's content attributes. The native
 keyboard decides which features to provide. It does not install keyboard plugins
 or change the host's spelling capabilities.
+
+`openNotesToRead` is asked each time a pick in one of core's searches lands
+(the note search, Search in all notes, the outline, the buffer switcher). When
+it returns true the note opens at the pick without taking the keyboard focus,
+so a soft keyboard stays down until the user taps into the text, and closing
+such a search leaves the focus where it was. Absent, false or throwing, the
+editor takes the focus as on desktop. Core's other openers are unaffected.
 
 Live preview reveals a line's Markdown source (a heading's `#`, `**`, `[[ ]]`)
 only on lines the user is editing: once an editor has taken the focus since its

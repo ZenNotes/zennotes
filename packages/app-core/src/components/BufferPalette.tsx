@@ -28,7 +28,7 @@ import { isArchiveTabPath } from '@shared/archive'
 import { isTrashTabPath } from '@shared/trash'
 import { isQuickNotesTabPath } from '@shared/quick-notes'
 import { resolveSystemFolderLabels, type SystemFolderLabels } from '../lib/system-folder-labels'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import { focusEditorAfterPick, focusEditorAfterSearchClose } from '../lib/editor-focus'
 import { noteFolderLabel } from '../lib/vault-layout'
 import { Modal } from './ui/Modal'
 
@@ -323,12 +323,12 @@ export function BufferPalette(): JSX.Element {
       setActivePane(targetPaneId)
     }
 
-    focusEditorNormalMode()
+    focusEditorAfterPick()
   }
 
   const close = (): void => {
     setOpen(false)
-    focusEditorNormalMode()
+    focusEditorAfterSearchClose()
   }
 
   const closeSelected = async (): Promise<void> => {

@@ -40,7 +40,7 @@ import {
 import { Vim, getCM, vim } from '@replit/codemirror-vim'
 import type { AssetMeta, ImportedAsset, NoteComment, NoteFolder } from '@shared/ipc'
 import { registerNoteEditor } from '../lib/note-editor-context'
-import { noteEditorHostExtension } from '../lib/editor-host'
+import { hostOpensNotesToRead, noteEditorHostExtension } from '../lib/editor-host'
 import {
   indentWithTab,
   moveLineDown,
@@ -1774,7 +1774,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       })
     })
     setFocusedPanel('editor')
-    view.focus()
+    // An outline jump is a search pick too: where the host opens notes to
+    // read, the heading is shown without raising the keyboard.
+    if (!hostOpensNotesToRead()) view.focus()
     return true
   }, [schedulePreviewOutlineJump, setFocusedPanel])
 
