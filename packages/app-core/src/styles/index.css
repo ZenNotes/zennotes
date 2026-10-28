@@ -2268,6 +2268,19 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
+/* A cover's lines folded into one (cm-cover-fold.ts): muted like a key, and
+ * always one row. A name too long for the card ends in an ellipsis, with the
+ * whole line in the tooltip. */
+.cm-editor .cm-frontmatter-cover {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+  color: rgb(var(--z-grey-1));
+  cursor: text;
+}
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,
 .cm-editor .tok-heading2,

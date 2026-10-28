@@ -6,6 +6,7 @@ import { displayRowEdge } from './cm-display-row'
 import { mathBlockLineRanges } from './cm-math-render'
 import { embedBlockLineRanges } from './cm-embed-render'
 import { mermaidBlockLineRanges } from './cm-mermaid-render'
+import { coverFoldLineRanges } from './cm-cover-fold'
 
 // Minimal shape of the CodeMirror-Vim adapter + state the display-line motion
 // touches (the package's own types don't surface these helpers).
@@ -173,7 +174,9 @@ function isWrapPoint(view: EditorView, offset: number): boolean {
  *    has no cursor coordinates, so it would skip clean over the block — and the
  *    reveal-induced height changes made consecutive blocks compound into
  *    multi-line jumps. Inside an already-revealed block (plain source text),
- *    normal display-line movement applies.
+ *    normal display-line movement applies. A cover's folded frontmatter lines
+ *    (cm-cover-fold) are stepped into the same way: the folded line stands
+ *    for several lines, and lines folded further down take no row at all.
  * `gj`/`gk` are untouched. Mirrors codemirror-vim's own `moveByDisplayLines`,
  * including maintaining the horizontal goal column across consecutive presses.
  * The whole pixel path runs inside `pixelMotionFallback` (#574): if any CM6
@@ -217,7 +220,8 @@ export function zenMoveByDisplayLine(
     ? [
         ...mathBlockLineRanges(cm.cm6.state),
         ...embedBlockLineRanges(cm.cm6.state),
-        ...mermaidBlockLineRanges(cm.cm6.state)
+        ...mermaidBlockLineRanges(cm.cm6.state),
+        ...coverFoldLineRanges(cm.cm6.state)
       ]
     : []
   const logicalTarget = Math.max(

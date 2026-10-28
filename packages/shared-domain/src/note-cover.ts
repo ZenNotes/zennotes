@@ -63,17 +63,28 @@ export interface NoteCover {
   credit?: NoteCoverCredit
 }
 
+/** A top-level `key: value` line. Indented lines (list items, nested maps)
+ *  are not keys. */
+const TOP_LEVEL_FIELD_RE = /^([A-Za-z0-9_][\w-]*)\s*:\s*(.*)$/
+
 /** Top-level `key: value` lines of the leading frontmatter block, keys
- *  lower-cased. Indented lines (list items, nested maps) are not keys. */
+ *  lower-cased. When a key repeats, its first line wins. */
 function topLevelFields(body: string): Map<string, string> {
   const fields = new Map<string, string>()
   const block = FRONTMATTER_BLOCK_RE.exec(body)?.[1]
   if (block == null) return fields
   for (const line of block.split(/\r?\n/)) {
-    const kv = line.match(/^([A-Za-z0-9_][\w-]*)\s*:\s*(.*)$/)
+    const kv = line.match(TOP_LEVEL_FIELD_RE)
     if (kv && !fields.has(kv[1].toLowerCase())) fields.set(kv[1].toLowerCase(), kv[2])
   }
   return fields
+}
+
+/** Every key a cover under `key` owns: the image, its focal point in both
+ *  spellings, and the credit. Setting a new image clears the rest, removing
+ *  the cover clears them all, and the editor folds exactly these lines. */
+export function noteCoverFieldKeys(key: NoteCoverKey): readonly string[] {
+  return [key, `${key}_y`, `${key}-y`, `${key}_credit`, `${key}_credit_url`]
 }
 
 /** A YAML scalar's text. A double-quoted one is JSON-compatible the way
@@ -177,6 +188,11 @@ function coverKeyFor(body: string): NoteCoverKey {
   return readNoteCover(body)?.key ?? 'banner'
 }
 
+/** Every key the cover owns, set to be removed. */
+function clearedFields(key: NoteCoverKey): Record<string, null> {
+  return Object.fromEntries(noteCoverFieldKeys(key).map((field) => [field, null]))
+}
+
 /** Drop a frontmatter block that the edit left with nothing in it, so a cover
  *  added to a note without frontmatter and then removed leaves the note as it
  *  was. */
@@ -209,11 +225,8 @@ function insertCreditLines(body: string, key: NoteCoverKey, credit: NoteCoverCre
 export function setNoteCover(body: string, target: NoteCoverTarget, credit?: NoteCoverCredit | null): string {
   const key = coverKeyFor(body)
   const next = updateFrontmatterFields(body, {
-    [key]: noteCoverValue(target),
-    [`${key}_y`]: null,
-    [`${key}-y`]: null,
-    [`${key}_credit`]: null,
-    [`${key}_credit_url`]: null
+    ...clearedFields(key),
+    [key]: noteCoverValue(target)
   })
   const name = credit?.name.trim()
   return name ? insertCreditLines(next, key, { name, url: credit?.url ?? null }) : next
@@ -233,13 +246,48 @@ export function setNoteCoverPosition(body: string, y: number): string {
 export function removeNoteCover(body: string): string {
   const cover = readNoteCover(body)
   if (!cover) return body
-  return dropEmptyFrontmatter(
-    updateFrontmatterFields(body, {
-      [cover.key]: null,
-      [`${cover.key}_y`]: null,
-      [`${cover.key}-y`]: null,
-      [`${cover.key}_credit`]: null,
-      [`${cover.key}_credit_url`]: null
-    })
-  )
+  return dropEmptyFrontmatter(updateFrontmatterFields(body, clearedFields(cover.key)))
+}
+
+export interface NoteCoverLines {
+  cover: NoteCover
+  /** Line numbers in the body, counting the opening `---` as line 0. */
+  lines: number[]
+}
+
+/**
+ * The note's cover and the frontmatter lines that hold it: the line of each
+ * key the cover owns (a repeated key's first line, the one `readNoteCover`
+ * reads), with the indented lines under it where YAML lets a value run on.
+ * The editor folds these lines; a cover no surface shows (a `banner:` with
+ * nothing usable in it) has none.
+ */
+export function readNoteCoverLines(body: string): NoteCoverLines | null {
+  const cover = readNoteCover(body)
+  const block = FRONTMATTER_BLOCK_RE.exec(body)?.[1]
+  if (!cover || block == null) return null
+  const owned = new Set(noteCoverFieldKeys(cover.key))
+  const lines: number[] = []
+  // Blank lines inside a value count only when an indented line follows.
+  let pending: number[] = []
+  let inCover = false
+  block.split(/\r?\n/).forEach((text, index) => {
+    const line = index + 1
+    const kv = text.match(TOP_LEVEL_FIELD_RE)
+    if (kv) {
+      const key = kv[1].toLowerCase()
+      inCover = owned.delete(key)
+      pending = []
+      if (inCover) lines.push(line)
+    } else if (!text.trim()) {
+      if (inCover) pending.push(line)
+    } else if (inCover && /^\s/.test(text)) {
+      lines.push(...pending, line)
+      pending = []
+    } else {
+      inCover = false
+      pending = []
+    }
+  })
+  return { cover, lines }
 }

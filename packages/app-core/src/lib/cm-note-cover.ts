@@ -29,6 +29,14 @@ import { readNoteCover } from '@shared/note-cover'
 /** Told about each slot element the widget creates (`alive`) or destroys. */
 export type NoteCoverSlotSink = (slot: HTMLElement, alive: boolean) => void
 
+/** True in an editor whose pane draws the note's cover, in the slot above the
+ *  first line or pinned above the editor. The cover's frontmatter folds only
+ *  there (cm-cover-fold.ts): with covers hidden, those lines are the only
+ *  place the cover shows. */
+export const noteCoverDrawn = Facet.define<boolean, boolean>({
+  combine: (values) => values.some(Boolean)
+})
+
 const noteCoverSlotSink = Facet.define<NoteCoverSlotSink, NoteCoverSlotSink | null>({
   combine: (sinks) => sinks[0] ?? null
 })
@@ -62,7 +70,7 @@ class NoteCoverSlotWidget extends WidgetType {
 /** Where the leading frontmatter ends, or 0 without one. Same fence rule as
  *  the frontmatter card, so a cover never shows for a block the editor does
  *  not treat as frontmatter. */
-function frontmatterEnd(state: EditorState): number {
+export function frontmatterEnd(state: EditorState): number {
   const doc = state.doc
   if (doc.lines < 2 || !isFrontmatterFence(doc.line(1).text)) return 0
   for (let i = 2; i <= doc.lines; i++) {
@@ -162,5 +170,8 @@ export function editorShowsNoteCover(state: EditorState): boolean {
 
 /** The cover slot, for an editor whose pane portals the cover into it. */
 export function noteCoverExtension(sink: NoteCoverSlotSink): Extension {
-  return [noteCoverSlotSink.of(sink), noteCoverField, coverBleed]
+  return [noteCoverSlotSink.of(sink), noteCoverField, coverBleed, noteCoverDrawn.of(true)]
 }
+
+/** For an editor whose pane pins the cover above it instead. */
+export const pinnedNoteCoverExtension: Extension = noteCoverDrawn.of(true)

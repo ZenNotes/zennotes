@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { rewriteAssetReferences } from './asset-link-rename'
 import {
   formatNoteCoverY,
+  noteCoverFieldKeys,
   parseNoteCoverTarget,
   parseNoteCoverY,
   readNoteCover,
+  readNoteCoverLines,
   removeNoteCover,
   setNoteCover,
   setNoteCoverPosition
@@ -170,5 +172,41 @@ describe('a cover follows its file through an asset rename', () => {
     )
     expect(result.changed).toBe(1)
     expect(readNoteCover(result.body)?.target).toEqual({ kind: 'vault', href: 'assets/trip.png' })
+  })
+})
+
+describe('the lines a cover owns', () => {
+  const unsplash = 'https://images.unsplash.com/photo-1?ixid=abc&w=2400&q=80&auto=format'
+
+  it('names every key the cover writes, under the key the note uses', () => {
+    expect(noteCoverFieldKeys('banner')).toEqual(['banner', 'banner_y', 'banner-y', 'banner_credit', 'banner_credit_url'])
+    expect(noteCoverFieldKeys('cover')).toEqual(['cover', 'cover_y', 'cover-y', 'cover_credit', 'cover_credit_url'])
+  })
+
+  it('finds the image, focal point and credit lines, and none of the others', () => {
+    const body =
+      '---\ntags: [travel]\nbanner: "' +
+      unsplash +
+      '"\nbanner_credit: Kalen Emsley\nbanner_credit_url: "https://unsplash.com/@kalenemsley"\ndue: 2026-11-02\nbanner_y: 0.4\n---\n# Trip\n'
+    const found = readNoteCoverLines(body)
+    expect(found?.cover.credit?.name).toBe('Kalen Emsley')
+    expect(found?.lines).toEqual([2, 3, 4, 6])
+  })
+
+  it('follows `cover:` and leaves a `banner` line it does not read alone', () => {
+    expect(readNoteCoverLines('---\ncover: "[[c.png]]"\ncover_y: 0.2\nbanner_y: 0.9\n---\n')?.lines).toEqual([1, 2])
+    // banner wins over cover, so the cover lines are the banner's.
+    expect(readNoteCoverLines('---\ncover: "[[c.png]]"\nbanner: "[[b.png]]"\n---\n')?.lines).toEqual([2])
+  })
+
+  it('takes the lines a value runs on to, and only the first line of a repeated key', () => {
+    const body = '---\nbanner: a.png\nbanner_credit: >-\n  Jane\n\n  Doe\n\ntitle: Trip\nbanner: b.png\n---\n'
+    expect(readNoteCoverLines(body)?.lines).toEqual([1, 2, 3, 4, 5])
+  })
+
+  it('is null when there is no cover to show', () => {
+    expect(readNoteCoverLines('# Trip\n')).toBeNull()
+    expect(readNoteCoverLines('---\nbanner:\n---\n')).toBeNull()
+    expect(readNoteCoverLines('---\nbanner: file:///x.png\nbanner_y: 0.2\n---\n')).toBeNull()
   })
 })

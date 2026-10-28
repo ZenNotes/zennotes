@@ -54,9 +54,10 @@ export function gradientCoverDataUrl(gradient: NoteCoverGradient): string {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(gradientCoverSvg(gradient))}`
 }
 
-/** The built-in gradient a vault reference names by its file name, wherever
- *  the assets folder lives, or null for any other file. */
-export function builtinGradientForAsset(ref: string): NoteCoverGradient | null {
+/** The file name a vault reference ends in, the way a built-in cover is
+ *  known by it: wherever the assets folder lives, lower-cased, decoded, and
+ *  without a query or fragment. */
+export function builtinCoverFileKey(ref: string): string {
   const path = ref.split(/[?#]/, 1)[0] ?? ref
   let name = path.slice(path.lastIndexOf('/') + 1).toLowerCase()
   try {
@@ -64,6 +65,13 @@ export function builtinGradientForAsset(ref: string): NoteCoverGradient | null {
   } catch {
     // Keep the name as written.
   }
+  return name
+}
+
+/** The built-in gradient a vault reference names by its file name, wherever
+ *  the assets folder lives, or null for any other file. */
+export function builtinGradientForAsset(ref: string): NoteCoverGradient | null {
+  const name = builtinCoverFileKey(ref)
   return NOTE_COVER_GRADIENTS.find((gradient) => gradientCoverFileName(gradient) === name) ?? null
 }
 
