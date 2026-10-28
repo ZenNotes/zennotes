@@ -14,28 +14,9 @@
  * unit-testable; the component just executes the returned plan.
  */
 
-/** Derive the note title from the body's first non-empty line. A leading
- *  `# ` heading or list/quote marker is stripped so the title reads
- *  cleanly. Returns '' for an empty buffer — callers decide the fallback;
- *  this never invents a timestamp. */
-export function deriveTitleFromBody(body: string): string {
-  for (const raw of body.split('\n')) {
-    const line = raw.trim()
-    if (!line) continue
-    const heading = line.match(/^#{1,6}\s+(.+)$/u)
-    if (heading) return heading[1].trim().slice(0, 80)
-    return line.replace(/^[*\-+>\s]+/u, '').slice(0, 80)
-  }
-  return ''
-}
+import { deriveTitleFromBody, timestampTitle } from '@shared/quick-note-title'
 
-/** Fallback title for a buffer with no usable first line — unreachable in
- *  practice (saves are guarded on a non-empty body) but keeps a note from
- *  ever landing as "Untitled". */
-export function timestampTitle(now = new Date()): string {
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `Quick capture ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}${pad(now.getMinutes())}`
-}
+export { deriveTitleFromBody, timestampTitle }
 
 /** Minimal shape of a loaded note — structurally satisfied by NoteMeta. */
 export interface QuickCaptureNote {

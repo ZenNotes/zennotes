@@ -38,11 +38,11 @@ async function rewriteAsFreshFiles(dir) {
 
 /**
  * The identity the app will be signed with, decided the way electron-builder
- * decides it for the app itself (MacPackager.sign), so the Quick Look
- * extension carries the same one; null when the app is not signed, and the
- * extension is then signed ad hoc.
+ * decides it for the app itself (MacPackager.sign), so the extensions in
+ * Contents/PlugIns carry the same one; null when the app is not signed, and
+ * the extensions are then signed ad hoc.
  */
-async function quickLookSigning(context) {
+async function appSigning(context) {
   const { findIdentity, isSignAllowed } = require('app-builder-lib/out/codeSign/macCodeSign')
   const config = context.packager.platformSpecificBuildOptions
   if (!isSignAllowed(false) || config.identity === null) return null
@@ -75,14 +75,27 @@ exports.default = async function afterPack(context) {
     // Contents/PlugIns, which electron-builder never signs, so it is signed
     // here, before the app's own signature seals it in.
     const arch = { 1: 'x64', 3: 'arm64' }[context.arch]
+    const appPath = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
+    const signing = await appSigning(context)
     const { buildQuickLookExtension } = await import(pathToFileURL(path.resolve(__dirname, '../../quicklook/scripts/build-extension.mjs')).href)
     await buildQuickLookExtension({
-      appPath: path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+      appPath,
       arch,
       appId: context.packager.appInfo.id,
       version: context.packager.appInfo.version,
-      signing: await quickLookSigning(context),
+      signing,
       selfTest: process.env.ZENNOTES_QUICKLOOK_SELFTEST === '1' && !process.env.CI
+    })
+    // Share > ZenNotes in Safari and other apps (apps/share-extension).
+    const { buildShareExtension } = await import(pathToFileURL(path.resolve(__dirname, '../../share-extension/scripts/build-share-extension.mjs')).href)
+    await buildShareExtension({
+      appPath,
+      arch,
+      appId: context.packager.appInfo.id,
+      version: context.packager.appInfo.version,
+      iconPath: path.resolve(context.packager.projectDir, context.packager.platformSpecificBuildOptions.icon || 'build/icon.icns'),
+      signing,
+      selfTest: process.env.ZENNOTES_SHARE_SELFTEST === '1' && !process.env.CI
     })
   }
   if (platform !== 'linux') return
