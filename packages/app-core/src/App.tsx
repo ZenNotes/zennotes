@@ -51,7 +51,7 @@ import {
 } from './lib/panel-rows'
 import { requestPaneMode } from './lib/pane-mode'
 import { recordRendererPerf } from './lib/perf'
-import { focusEditorNormalMode } from './lib/editor-focus'
+import { focusEditorAfterSearchClose, focusEditorNormalMode } from './lib/editor-focus'
 import { isAppOverlayOpen, isOverlayOrDialogOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
@@ -955,14 +955,16 @@ function App(): JSX.Element {
         void state.reopenLastClosedTab()
         return
       }
+      // A search closed here hands back the focus the way its own Escape and
+      // Cancel do: on a phone, that leaves the keyboard where it was.
       if (e.key === 'Escape' && state.searchOpen) {
         setSearchOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterSearchClose()
         return
       }
       if (e.key === 'Escape' && state.vaultTextSearchOpen) {
         setVaultTextSearchOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterSearchClose()
         return
       }
       if (e.key === 'Escape' && state.commandPaletteOpen) {
@@ -972,7 +974,7 @@ function App(): JSX.Element {
       }
       if (e.key === 'Escape' && state.bufferPaletteOpen) {
         setBufferPaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterSearchClose()
         return
       }
       if (e.key === 'Escape' && state.templatePaletteOpen) {
@@ -987,7 +989,7 @@ function App(): JSX.Element {
       }
       if (e.key === 'Escape' && state.outlinePaletteOpen) {
         setOutlinePaletteOpen(false)
-        focusEditorNormalMode()
+        focusEditorAfterSearchClose()
         return
       }
       // ⌘1 — toggle sidebar

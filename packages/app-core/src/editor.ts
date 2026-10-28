@@ -34,6 +34,15 @@ export interface EditorHostOptions {
   readonly nativeTyping?: boolean
   /** Read-only measurement callback. Return CSS pixels; do not change layout here. */
   readonly measureBottomInsets?: (viewport: EditorViewport) => EditorBottomInsets
+  /**
+   * Asked as a pick in one of core's searches (the note search, Search in all
+   * notes, the outline, the buffer switcher) lands: true opens the note to be
+   * read, at the pick, without handing the editor the keyboard focus, so a
+   * soft keyboard stays down until the user taps into the text. Closing such
+   * a search then leaves the focus where it was too. Absent or false, the
+   * editor takes the focus, as on desktop.
+   */
+  readonly openNotesToRead?: () => boolean
 }
 
 export interface EditorHostRegistration {
