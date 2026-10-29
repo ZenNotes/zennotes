@@ -122,6 +122,17 @@ import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { sourceRevealExtension, sourceRevealForNewNote } from '../lib/cm-source-reveal'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
+import { codeLanguageDetection, detectedCodeLanguage } from '../lib/cm-code-language-detect'
+import {
+  codeFenceAt,
+  codeFenceStartingAt,
+  codeLanguagePickerItems,
+  setCodeFenceLanguage
+} from '../lib/code-language-menu'
+import {
+  ZEN_OPEN_CODE_LANGUAGE_PICKER_EVENT,
+  type CodeLanguagePickerRequest
+} from '../lib/code-language-request'
 import { tablePlugin, tableVimEntry } from '../lib/cm-table'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { calloutFolding } from '../lib/cm-callout-fold'
@@ -537,7 +548,8 @@ function wysiwygExtensions(
   renderTables: boolean,
   mathRenderer: MathRenderer,
   typstPreamble: string,
-  diagramTheme: DiagramTheme
+  diagramTheme: DiagramTheme,
+  detectCodeLanguages: boolean
 ): Extension[] {
   return [
     livePreviewPlugin,
@@ -547,6 +559,9 @@ function wysiwygExtensions(
     // A cover's frontmatter lines fold to one line in that card.
     coverFoldExtension,
     codeBlockFlairPlugin,
+    // An unlabeled code block is highlighted with a guess its label owns up
+    // to ("python · detected"), so the two load together (#1014).
+    ...(detectCodeLanguages ? [codeLanguageDetection()] : []),
     // Table widgets are gated on a setting — off keeps tables as plain editable
     // markdown for full keyboard/Vim editing (#232).
     ...(renderTables ? [tablePlugin, tableVimEntry] : []),
@@ -577,7 +592,8 @@ function currentWysiwygExtensions(notePath: string | null): Extension[] {
     s.renderTablesInLivePreview,
     s.mathRenderer,
     selectTypstPreambleFor(s, notePath),
-    documentDiagramTheme()
+    documentDiagramTheme(),
+    s.detectCodeLanguages
   )
 }
 
@@ -664,6 +680,9 @@ const paperHighlight = HighlightStyle.define([
  *  switch) so the update listener skips the save schedule. */
 const programmatic = Annotation.define<boolean>()
 const OUTLINE_JUMP_TOP_MARGIN = 24
+/** The code block language picker's width (ContextMenu's `w-72`), to line its
+ *  right edge up with the label's. */
+const CODE_LANGUAGE_PICKER_WIDTH = 288
 const OUTLINE_JUMP_SCROLL_SYNC_LOCK_MS = 450
 const OUTLINE_JUMP_SCROLL_SYNC_SETTLE_MS = 120
 const TASK_JUMP_HIGHLIGHT_MS = 1400
@@ -1063,6 +1082,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const harperVaultState = useStore((s) => s.vaultSettings.harper)
   const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
   const renderTablesInLivePreview = useStore((s) => s.renderTablesInLivePreview)
+  const detectCodeLanguages = useStore((s) => s.detectCodeLanguages)
   // Diagrams carry their palette inside the SVG, so a theme switch has to
   // reconfigure this pane and redraw them (#530).
   const diagramTheme = useDiagramTheme()
@@ -1226,6 +1246,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     y: number
     range: CalloutRange
     current: string | null
+  } | null>(null)
+  // The code block language picker (#1014), opened from a block's label, the
+  // palette or `Space l l`. `fenceFrom` is where the block's fence starts;
+  // `current` is its language as written and `detected` the guess, if any.
+  const [codeLanguageMenu, setCodeLanguageMenu] = useState<{
+    x: number
+    y: number
+    /** The label's top, to open above it when there is no room below. */
+    anchorTop?: number
+    fenceFrom: number
+    current: string | null
+    detected: string | null
   } | null>(null)
   // The selection when a right-button press began. A right-click on Mac
   // selects the word under the pointer before the menu opens, so the
@@ -1394,6 +1426,73 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       current: target.kind === 'callout' ? target.callout.type : null
     })
   }, [paneId, setActivePane, setFocusedPanel])
+
+  /** Open the code block language picker (#1014): under a block's label when
+   *  the label was pressed, else for the block at the caret (the palette and
+   *  `Space l l`), or say the caret is in none. */
+  const openCodeLanguagePicker = useCallback(
+    (detail: CodeLanguagePickerRequest | undefined): void => {
+      const view = viewRef.current
+      if (!view || !viewPathRef.current) return
+      const { state } = view
+      const fence =
+        detail?.fenceFrom != null
+          ? codeFenceStartingAt(state, detail.fenceFrom)
+          : codeFenceAt(state, state.selection.main.head)
+      if (!fence) {
+        if (!detail?.view) useToastStore.getState().addToast('The cursor is not in a code block.', 'info')
+        return
+      }
+      // Under the block's label, right edges lined up, when the label is on
+      // screen (Edit mode); at the caret otherwise (Split has no label).
+      const label =
+        detail?.anchor ??
+        view.dom
+          .querySelector<HTMLElement>(`[data-code-fence-from="${fence.from}"] .cm-code-flair`)
+          ?.getBoundingClientRect()
+      const at: { x: number; y: number; anchorTop?: number } =
+        label && label.width > 0
+          ? { x: Math.max(8, label.right - CODE_LANGUAGE_PICKER_WIDTH), y: label.bottom + 4, anchorTop: label.top }
+          : getEditorContextMenuPosition(view)
+      setActivePane(paneId)
+      setFocusedPanel('editor')
+      setSelectionCommentAction(null)
+      setCodeLanguageMenu({
+        x: at.x,
+        y: at.y,
+        anchorTop: at.anchorTop,
+        fenceFrom: fence.from,
+        current: fence.language,
+        detected: fence.language === null ? detectedCodeLanguage(state, fence.from) : null
+      })
+    },
+    [paneId, setActivePane, setFocusedPanel]
+  )
+
+  const codeLanguageMenuItems = useMemo((): ContextMenuItem[] => {
+    if (!codeLanguageMenu) return []
+    const picks = codeLanguagePickerItems(codeLanguageMenu.current, codeLanguageMenu.detected)
+    const items: ContextMenuItem[] = []
+    picks.forEach((pick, index) => {
+      if (pick.role === 'language' && picks[index - 1]?.role !== 'language') {
+        items.push({ kind: 'separator' })
+      }
+      items.push({
+        label: pick.label,
+        hint: pick.hint,
+        keywords: pick.keywords,
+        checked: pick.checked,
+        onSelect: () => {
+          const view = viewRef.current
+          if (!view) return
+          setCodeFenceLanguage(view, codeLanguageMenu.fenceFrom, pick.tag)
+          // A phone that opened the note to read keeps its keyboard down.
+          if (!hostOpensNotesToRead()) view.focus()
+        }
+      })
+    })
+    return items
+  }, [codeLanguageMenu])
 
   const rememberCurrentTabScroll = useCallback((path = viewPathRef.current): void => {
     if (!path) return
@@ -1691,6 +1790,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener(ZEN_OPEN_CALLOUT_MENU_EVENT, openCalloutMenuAtCaret)
     return () => window.removeEventListener(ZEN_OPEN_CALLOUT_MENU_EVENT, openCalloutMenuAtCaret)
   }, [isActive, openCalloutMenuAtCaret])
+
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<CodeLanguagePickerRequest | undefined>).detail
+      // A label belongs to one editor, active pane or not; the keyboard's
+      // request is the active pane's.
+      if (detail?.view ? detail.view !== viewRef.current : !isActive) return
+      openCodeLanguagePicker(detail)
+    }
+    window.addEventListener(ZEN_OPEN_CODE_LANGUAGE_PICKER_EVENT, handler)
+    return () => window.removeEventListener(ZEN_OPEN_CODE_LANGUAGE_PICKER_EVENT, handler)
+  }, [isActive, openCodeLanguagePicker])
 
   // `zen:set-pane-mode` — active-pane-only route for command palette and
   // vim ex commands that switch the current note between Edit / Split /
@@ -2299,7 +2410,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   s0.renderTablesInLivePreview,
                   s0.mathRenderer,
                   selectTypstPreambleFor(s0, initialPath),
-                  documentDiagramTheme()
+                  documentDiagramTheme(),
+                  s0.detectCodeLanguages
                 )
               : []
           ),
@@ -2921,7 +3033,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     // `typstPreamble` is in the deps so retagging a note — or editing the
     // preamble note it points at — reconfigures this pane and repaints its
     // formulas with the new definitions. (#486)
-  }, [livePreview, renderTablesInLivePreview, mathRenderer, typstPreamble, diagramTheme.key])
+  }, [livePreview, renderTablesInLivePreview, detectCodeLanguages, mathRenderer, typstPreamble, diagramTheme.key])
   useEffect(() => {
     const view = viewRef.current
     const comp = markdownCompartmentRef.current
@@ -5035,6 +5147,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             })
           )}
           onClose={() => setCalloutMenu(null)}
+        />
+      )}
+      {codeLanguageMenu && (
+        <ContextMenu
+          x={codeLanguageMenu.x}
+          y={codeLanguageMenu.y}
+          title="Code block language"
+          findPlaceholder="Find a language"
+          anchorTop={codeLanguageMenu.anchorTop}
+          items={codeLanguageMenuItems}
+          onClose={() => setCodeLanguageMenu(null)}
         />
       )}
     </section>

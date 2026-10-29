@@ -621,6 +621,10 @@ interface Prefs {
   /** Render Markdown tables as interactive WYSIWYG widgets in live preview.
    *  Off keeps tables as plain editable markdown — full keyboard/Vim editing. */
   renderTablesInLivePreview: boolean
+  /** Guess the language of a code block that names none, and highlight it
+   *  with the guess, in Edit mode and the reading view alike (#1014). The
+   *  guess is never written to the note. */
+  detectCodeLanguages: boolean
   /** How a completed task's text is styled (strike / gray / both / none) in the
    *  editor and preview. Applied via `html[data-completed-task-style]`. */
   completedTaskStyle: CompletedTaskStyle
@@ -1170,6 +1174,7 @@ export const DEFAULT_PREFS: Prefs = {
   listIndentGuides: true,
   linkPopoverOnHover: true,
   renderTablesInLivePreview: true,
+  detectCodeLanguages: true,
   completedTaskStyle: 'none',
   mathRenderer: 'katex',
   typstTagPreambles: false,
@@ -1365,6 +1370,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.renderTablesInLivePreview === 'boolean'
         ? p.renderTablesInLivePreview
         : DEFAULT_PREFS.renderTablesInLivePreview,
+    detectCodeLanguages:
+      typeof p.detectCodeLanguages === 'boolean'
+        ? p.detectCodeLanguages
+        : DEFAULT_PREFS.detectCodeLanguages,
     completedTaskStyle:
       p.completedTaskStyle === 'strikethrough' ||
       p.completedTaskStyle === 'gray' ||
@@ -2529,6 +2538,7 @@ function collectPrefs(s: {
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
+  detectCodeLanguages: boolean
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
   typstTagPreambles: boolean
@@ -2652,6 +2662,7 @@ function collectPrefs(s: {
     listIndentGuides: s.listIndentGuides,
     linkPopoverOnHover: s.linkPopoverOnHover,
     renderTablesInLivePreview: s.renderTablesInLivePreview,
+    detectCodeLanguages: s.detectCodeLanguages,
     completedTaskStyle: s.completedTaskStyle,
     mathRenderer: s.mathRenderer,
     typstTagPreambles: s.typstTagPreambles,
@@ -3219,6 +3230,7 @@ interface Store {
   listIndentGuides: boolean
   linkPopoverOnHover: boolean
   renderTablesInLivePreview: boolean
+  detectCodeLanguages: boolean
   completedTaskStyle: CompletedTaskStyle
   mathRenderer: MathRenderer
   typstTagPreambles: boolean
@@ -3886,6 +3898,7 @@ interface Store {
   setListIndentGuides: (on: boolean) => void
   setLinkPopoverOnHover: (on: boolean) => void
   setRenderTablesInLivePreview: (on: boolean) => void
+  setDetectCodeLanguages: (on: boolean) => void
   setCompletedTaskStyle: (style: CompletedTaskStyle) => void
   setMathRenderer: (renderer: MathRenderer) => void
   setTypstTagPreambles: (on: boolean) => void
@@ -6199,6 +6212,7 @@ export const useStore = create<Store>((set, get) => {
   listIndentGuides: loadPrefs().listIndentGuides,
   linkPopoverOnHover: loadPrefs().linkPopoverOnHover,
   renderTablesInLivePreview: loadPrefs().renderTablesInLivePreview,
+  detectCodeLanguages: loadPrefs().detectCodeLanguages,
   completedTaskStyle: loadPrefs().completedTaskStyle,
   mathRenderer: loadPrefs().mathRenderer,
   typstTagPreambles: loadPrefs().typstTagPreambles,
@@ -9530,6 +9544,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setRenderTablesInLivePreview: (on) => {
     set({ renderTablesInLivePreview: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setDetectCodeLanguages: (on) => {
+    set({ detectCodeLanguages: on })
     savePrefs(collectPrefs(get()))
   },
   setCompletedTaskStyle: (style) => {

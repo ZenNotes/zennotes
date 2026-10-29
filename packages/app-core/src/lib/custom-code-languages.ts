@@ -94,6 +94,24 @@ class CustomCodeLanguageRegistry {
     return this.byAlias.get(normalizeCodeFenceTag(tag)) ?? null;
   }
 
+  /** Every installed language that highlights right now, once each, with the
+   *  fence tags it answers to (the code block language picker lists them). */
+  languages(): Array<{ id: string; name: string; aliases: string[] }> {
+    const byId = new Map<string, { id: string; name: string; aliases: string[] }>();
+    for (const [alias, loaded] of this.byAlias) {
+      const { id, name, aliases } = loaded.definition;
+      let entry = byId.get(id);
+      if (!entry) {
+        // The definition's own order first, so its first alias is the tag a
+        // pick writes; then any alias the registry holds beyond those.
+        entry = { id, name, aliases: aliases.map(normalizeCodeFenceTag) };
+        byId.set(id, entry);
+      }
+      if (!entry.aliases.includes(alias)) entry.aliases.push(alias);
+    }
+    return [...byId.values()];
+  }
+
   tokenize(tag: string, source: string): CodeHighlightToken[] {
     const loaded = this.resolve(tag);
     if (!loaded || !this.engine || !source || source.length > MAX_BLOCK_CHARS)

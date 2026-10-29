@@ -5552,31 +5552,84 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
 }
-/* Language label pinned top-right of the block; clicking it copies the code,
-   so there is no separate copy or fold control. */
-.cm-wysiwyg .cm-code-flair {
+/* Language button and copy button pinned top-right of the block (#1014). The
+   language button opens the code block language picker; a guessed language
+   reads muted, in a dashed outline, since it is not in the file. */
+.cm-wysiwyg .cm-code-flair-bar {
   position: absolute;
   top: 3px;
   right: 8px;
   z-index: 2;
-  padding: 1px 7px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   font-family: var(--z-interface-font, system-ui, sans-serif);
   font-size: 11px;
   line-height: 1.5;
+  /* One line however narrow the pane: "python · detected" must not wrap a
+     letter per line. */
+  white-space: nowrap;
+}
+.cm-wysiwyg .cm-code-flair,
+.cm-wysiwyg .cm-code-copy {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   color: rgb(var(--z-grey-1));
+  font: inherit;
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
-.cm-wysiwyg .cm-code-flair:hover {
+.cm-wysiwyg .cm-code-flair {
+  gap: 3px;
+  padding: 0 5px 0 7px;
+}
+.cm-wysiwyg .cm-code-copy {
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+}
+.cm-wysiwyg .cm-code-flair svg,
+.cm-wysiwyg .cm-code-copy svg {
+  flex-shrink: 0;
+}
+.cm-wysiwyg .cm-code-flair svg {
+  opacity: 0.7;
+}
+.cm-wysiwyg .cm-code-flair:hover,
+.cm-wysiwyg .cm-code-copy:hover {
   background: rgb(var(--z-bg-3) / 0.85);
   color: rgb(var(--z-fg));
 }
-.cm-wysiwyg .cm-code-flair.is-copied {
+.cm-wysiwyg .cm-code-flair.is-detected {
+  border-style: dashed;
+  border-color: rgb(var(--z-grey-1) / 0.45);
+  color: rgb(var(--z-grey-1) / 0.85);
+  font-style: italic;
+}
+.cm-wysiwyg .cm-code-flair.is-detected:hover {
+  border-color: rgb(var(--z-grey-1) / 0.7);
+}
+.cm-wysiwyg .cm-code-copy.is-copied {
   color: rgb(var(--z-accent));
+}
+/* A finger needs more than the 18px a pointer does: grow the hit area to
+   44px tall past the button, without moving the code under it. */
+@media (pointer: coarse) {
+  .cm-wysiwyg .cm-code-flair-bar {
+    gap: 6px;
+  }
+  .cm-wysiwyg .cm-code-flair::after,
+  .cm-wysiwyg .cm-code-copy::after {
+    content: '';
+    position: absolute;
+    inset: -13px -3px;
+  }
 }
 
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */

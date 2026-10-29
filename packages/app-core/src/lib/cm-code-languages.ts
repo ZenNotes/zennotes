@@ -32,6 +32,7 @@ import { xml } from '@codemirror/lang-xml'
 import { yaml } from '@codemirror/lang-yaml'
 import { markdown } from '@codemirror/lang-markdown'
 import { php } from '@codemirror/lang-php'
+import { isPlainTextFenceTag } from './code-fence-language'
 
 /** Map from fence-tag alias (lowercased, no dashes) to an eagerly loaded grammar. */
 type Entry = { aliases: string[]; support: LanguageSupport }
@@ -68,6 +69,12 @@ for (const entry of EAGER) {
   for (const a of entry.aliases) aliasMap.set(a, entry.support)
 }
 
+/** The eager grammars' fence tags, first one the grammar's own name. The
+ *  language picker folds these into its rows, so `golang` finds Go. */
+export const EAGER_CODE_LANGUAGE_ALIASES: ReadonlyArray<readonly string[]> = EAGER.map(
+  (entry) => entry.aliases
+)
+
 function normalize(info: string): string {
   return info.trim().toLowerCase().replace(/[^a-z0-9+#]/g, '')
 }
@@ -83,6 +90,9 @@ export function resolveCodeLanguage(
 ): Language | LanguageDescription | null {
   const key = normalize(info)
   if (!key) return null
+  // `text` and friends mean "no highlighting". Left to the fuzzy fallback
+  // below, `text` contains `tex` and came back as LaTeX.
+  if (isPlainTextFenceTag(info.trim().split(/\s/)[0] ?? '')) return null
   const eager = aliasMap.get(key)
   if (eager) return eager.language
   // Fall back to language-data's lazy list for less common fence tags

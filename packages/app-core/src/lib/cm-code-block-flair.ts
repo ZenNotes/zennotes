@@ -1,11 +1,15 @@
 /**
- * Code-block "flair" for the WYSIWYG (Edit) editor: a small label pinned to
- * the top-right of each fenced code block showing its language (or "text"
- * when none is given). Clicking the label copies the block's contents — it
- * doubles as the copy button, so there's no separate copy/fold chrome.
+ * Code-block "flair" for the WYSIWYG (Edit) editor, pinned to the top-right
+ * of each fenced code block (#1014):
  *
- * WYSIWYG-only: this lives in `wysiwygExtensions()` and never loads in the
- * Split (source) editor.
+ * - a language button reading "typescript ▾" (or "text ▾" when the fence
+ *   names none) that opens the code block language picker. An unlabeled block
+ *   whose language was guessed reads "python · detected", muted, with a
+ *   dashed border: the guess colours the block but is not in the file.
+ * - a copy button beside it, which copies the block's contents.
+ *
+ * Pressing either leaves the caret where it was. WYSIWYG-only: this lives in
+ * `wysiwygExtensions()` and never loads in the Split (source) editor.
  */
 import { syntaxTree } from '@codemirror/language'
 import { RangeSetBuilder } from '@codemirror/state'
@@ -17,12 +21,51 @@ import {
   type ViewUpdate,
   WidgetType
 } from '@codemirror/view'
+import { codeLanguageGuessesChanged, detectedCodeLanguage } from './cm-code-language-detect'
+import { codeFenceFromNode } from './code-language-menu'
+import { requestCodeLanguagePicker } from './code-language-request'
 
-const FENCE_RE = /^\s*(?:`{3,}|~{3,})\s*([^\s`]*)/
+const SVG_NS = 'http://www.w3.org/2000/svg'
+
+function icon(paths: string[], size: number): SVGSVGElement {
+  const svg = document.createElementNS(SVG_NS, 'svg')
+  svg.setAttribute('width', String(size))
+  svg.setAttribute('height', String(size))
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '2')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  svg.setAttribute('aria-hidden', 'true')
+  for (const d of paths) {
+    const path = document.createElementNS(SVG_NS, 'path')
+    path.setAttribute('d', d)
+    svg.append(path)
+  }
+  return svg
+}
+
+const CHEVRON = ['m6 9 6 6 6-6']
+const COPY = ['M8 8h11a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1z', 'M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3']
+const CHECK = ['M20 6 9 17l-5-5']
+
+/** Keep a press on the flair from moving the caret or starting a selection:
+ *  picking a language or copying should not disturb where the user was. */
+function holdCaret(button: HTMLElement): void {
+  button.addEventListener('mousedown', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  })
+}
 
 class CodeFlairWidget extends WidgetType {
   constructor(
+    /** The language as the label shows it: the fence's, or the guess. */
     private readonly language: string,
+    private readonly detected: boolean,
+    /** Where the block's opening fence starts. */
+    private readonly fenceFrom: number,
     /** Doc offsets of the block content to copy (fences excluded). */
     private readonly contentFrom: number,
     private readonly contentTo: number
@@ -33,27 +76,54 @@ class CodeFlairWidget extends WidgetType {
   eq(other: CodeFlairWidget): boolean {
     return (
       other.language === this.language &&
+      other.detected === this.detected &&
+      other.fenceFrom === this.fenceFrom &&
       other.contentFrom === this.contentFrom &&
       other.contentTo === this.contentTo
     )
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'cm-code-flair'
-    button.textContent = this.language
-    button.title = 'Copy code'
-    button.setAttribute('aria-label', `Copy ${this.language} code block`)
-    button.setAttribute('contenteditable', 'false')
+    const bar = document.createElement('span')
+    bar.className = 'cm-code-flair-bar'
+    bar.setAttribute('contenteditable', 'false')
+    bar.dataset.codeFenceFrom = String(this.fenceFrom)
 
-    // Don't let the editor move the caret / start a selection when the label
-    // is pressed — copying shouldn't disturb where the user was typing.
-    button.addEventListener('mousedown', (event) => {
+    const label = document.createElement('button')
+    label.type = 'button'
+    label.className = this.detected ? 'cm-code-flair is-detected' : 'cm-code-flair'
+    label.setAttribute('aria-haspopup', 'menu')
+    const name = document.createElement('span')
+    name.textContent = this.detected ? `${this.language} · detected` : this.language
+    label.append(name, icon(CHEVRON, 11))
+    label.title = this.detected
+      ? 'Detected language, not saved in the note. Choose a language'
+      : 'Choose a language'
+    label.setAttribute(
+      'aria-label',
+      this.detected
+        ? `Code block language: ${this.language}, detected. Choose a language`
+        : `Code block language: ${this.language}. Choose a language`
+    )
+    holdCaret(label)
+    label.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
+      requestCodeLanguagePicker({
+        view,
+        fenceFrom: this.fenceFrom,
+        anchor: label.getBoundingClientRect()
+      })
     })
-    button.addEventListener('click', (event) => {
+
+    const copy = document.createElement('button')
+    copy.type = 'button'
+    copy.className = 'cm-code-copy'
+    copy.title = 'Copy code'
+    copy.setAttribute('aria-label', 'Copy code')
+    copy.append(icon(COPY, 13))
+    holdCaret(copy)
+    copy.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
       const text =
@@ -62,19 +132,25 @@ class CodeFlairWidget extends WidgetType {
           : ''
       void navigator.clipboard?.writeText(text).then(
         () => {
-          button.classList.add('is-copied')
-          button.textContent = 'Copied'
+          copy.classList.add('is-copied')
+          copy.replaceChildren(icon(CHECK, 13))
+          copy.title = 'Copied'
+          copy.setAttribute('aria-label', 'Copied')
           window.setTimeout(() => {
-            button.classList.remove('is-copied')
-            button.textContent = this.language
+            copy.classList.remove('is-copied')
+            copy.replaceChildren(icon(COPY, 13))
+            copy.title = 'Copy code'
+            copy.setAttribute('aria-label', 'Copy code')
           }, 1100)
         },
         () => {
-          /* clipboard denied — leave the label as-is */
+          /* clipboard denied: leave the button as it is */
         }
       )
     })
-    return button
+
+    bar.append(label, copy)
+    return bar
   }
 
   ignoreEvent(): boolean {
@@ -94,12 +170,15 @@ function buildDecorations(view: EditorView): DecorationSet {
       to,
       enter: (node) => {
         if (node.name !== 'FencedCode') return
-        const beginLine = state.doc.lineAt(node.from)
+        const fence = codeFenceFromNode(state, node.node)
+        if (!fence) return false
+        const beginLine = state.doc.lineAt(fence.markEnd)
         if (seen.has(beginLine.from)) return false
         seen.add(beginLine.from)
 
-        const langMatch = beginLine.text.match(FENCE_RE)
-        const language = (langMatch?.[1] || 'text').toLowerCase()
+        const written = fence.language?.toLowerCase() ?? null
+        const guess = written === null ? detectedCodeLanguage(state, fence.from) : null
+        const language = written ?? guess ?? 'text'
 
         const lastLine = state.doc.lineAt(Math.max(node.from, node.to - 1))
         // Content sits between the opening and closing fence lines. When the
@@ -117,7 +196,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           at: beginLine.to,
           deco: Decoration.widget({
             side: 1,
-            widget: new CodeFlairWidget(language, contentFrom, contentTo)
+            widget: new CodeFlairWidget(language, guess !== null, fence.from, contentFrom, contentTo)
           })
         })
         return false
@@ -143,6 +222,7 @@ export const codeBlockFlairPlugin = ViewPlugin.fromClass(
       if (
         update.docChanged ||
         update.viewportChanged ||
+        codeLanguageGuessesChanged(update) ||
         // A parse cut short by its time budget finishes in a later update
         // that changes nothing else.
         syntaxTree(update.startState) !== syntaxTree(update.state)
