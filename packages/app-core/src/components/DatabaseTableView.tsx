@@ -19,6 +19,8 @@ import {
   deleteField,
   moveColumn,
   moveColumnToField,
+  setColumnHidden,
+  isLastVisibleColumn,
   ensureSelectOption,
   setFieldOptionsSource,
   updateView,
@@ -36,6 +38,7 @@ import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpR
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { isImeComposing } from '../lib/ime'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { resolveWikilinkTarget } from '../lib/wikilinks'
 import { followLinkTarget } from '../lib/follow-link'
 import { NoteSuggestRows, stepSuggestIndex, useNoteSuggestions } from './DatabaseNoteSuggest'
@@ -58,9 +61,11 @@ interface Props {
   view: DbView
   /** True when this grid is the active pane's content — drives auto-focus. */
   isActive: boolean
+  /** Open the header's Columns popover for this view. */
+  onOpenColumns?: () => void
 }
 
-export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.Element {
+export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const deleteDatabaseRows = useStore((s) => s.deleteDatabaseRows)
@@ -338,6 +343,16 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         e.preventDefault()
         return openPage(c.row.id)
       }
+      case 'c': {
+        // The Columns popover, to pick the few columns this view shows. A
+        // single-key shortcut, so it stays off with Vim mode off (the
+        // header's Columns button and the palette's Choose Database Columns
+        // remain), and it never fires behind a menu or a dialog.
+        if (!useStore.getState().vimMode || isOverlayOrDialogOpen()) return
+        e.preventDefault()
+        onOpenColumns?.()
+        return
+      }
       case 'O': {
         // Every record's page at once (o opens one). A new single-key
         // shortcut, so it stays off with Vim mode off.
@@ -419,6 +434,18 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
       hint: 'L',
       disabled: columns[columns.length - 1]?.id === field.id,
       onSelect: () => updateDatabaseSchema(csvPath, moveColumn(doc, view.id, field.id, 'right'))
+    },
+    {
+      // In this view only: another saved view keeps its own columns.
+      label: 'Hide column',
+      disabled: isLastVisibleColumn(doc, view, field.id),
+      onSelect: () => updateDatabaseSchema(csvPath, setColumnHidden(doc, view.id, field.id, true))
+    },
+    {
+      label: 'Choose columns…',
+      hint: useStore.getState().vimMode ? 'c' : undefined,
+      disabled: !onOpenColumns,
+      onSelect: () => onOpenColumns?.()
     },
     { kind: 'separator' },
     { label: 'Rename field', onSelect: () => setRenamingField(field.id) },

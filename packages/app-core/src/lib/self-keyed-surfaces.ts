@@ -26,6 +26,9 @@
 export const SELF_KEYED_SURFACES = [
   // Runs its own vim-style motion grid.
   '[data-zen-db-grid]',
+  // The grid's Columns popover: j / k and x with Vim on, the arrows and
+  // Space with it off, and its Escape closes it rather than leaving the grid.
+  '[data-db-columns-menu]',
   '[data-workflow-list-pane]',
   '[data-workflow-canvas]',
   // Owns bracket region navigation before global Vim buffer prefixes.
