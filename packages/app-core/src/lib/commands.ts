@@ -54,7 +54,13 @@ import {
 } from './note-cover-actions'
 import { unsplashSearchAvailable } from './unsplash-search'
 import { openUnsplashKeySettings, unsplashKeySupported } from './unsplash-key'
-import { csvPathFromDatabaseTab } from '@shared/databases'
+import { csvPathFromDatabaseTab, type DbView } from '@shared/databases'
+import {
+  databaseCsvPathForTab,
+  requestDatabaseViewCommand,
+  type DatabaseViewCommand
+} from './database-view-commands'
+import { viewHasPicks } from './database-cells'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
@@ -783,6 +789,19 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     const s = getState()
     return findLeaf(s.paneLayout, s.activePaneId)
   }
+  // The database the active pane shows (as a database tab or a .csv asset
+  // tab), with its active view, once it has loaded.
+  const activeDatabaseView = (): { csvPath: string; view: DbView } | null => {
+    const csvPath = databaseCsvPathForTab(getActiveLeaf()?.activeTab)
+    const doc = csvPath ? getState().databases[csvPath] : undefined
+    if (!csvPath || !doc) return null
+    const view = doc.views.find((v) => v.id === doc.activeViewId) ?? doc.views[0]
+    return view ? { csvPath, view } : null
+  }
+  const runDatabaseViewCommand = (command: DatabaseViewCommand): void => {
+    const active = activeDatabaseView()
+    if (active) requestDatabaseViewCommand(active.csvPath, command)
+  }
   const getActiveTabContext = () => {
     const leaf = getActiveLeaf()
     if (!leaf?.activeTab) return null
@@ -1288,6 +1307,53 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const csvPath = tab ? csvPathFromDatabaseTab(tab) : null
         if (csvPath) await getState().createAllRecordPages(csvPath)
       }
+    },
+    // The open database's views (charles b.'s saved views). Each acts on the
+    // active pane's database and its active view, and lists only where it
+    // can do something there.
+    {
+      id: 'database.columns',
+      title: 'Choose Database Columns',
+      category: 'Database',
+      shortcut: getState().vimMode ? 'c' : undefined,
+      keywords: 'database base table columns fields show hide visible choose pick view',
+      when: () => activeDatabaseView()?.view.type === 'table',
+      run: () => runDatabaseViewCommand('columns')
+    },
+    {
+      id: 'database.new-table-view',
+      title: 'New Table View',
+      category: 'Database',
+      keywords: 'database base view table add create new saved columns',
+      when: () => !!activeDatabaseView(),
+      run: () => runDatabaseViewCommand('new-table-view')
+    },
+    {
+      id: 'database.duplicate-view',
+      title: 'Duplicate View',
+      category: 'Database',
+      keywords: 'database base view copy duplicate clone saved table board',
+      when: () => !!activeDatabaseView(),
+      run: () => runDatabaseViewCommand('duplicate-view')
+    },
+    {
+      id: 'database.pick-selected',
+      title: 'Show Only Selected Rows',
+      category: 'Database',
+      keywords: 'database base rows records pick picked picks selected selection only view subset',
+      when: () => activeDatabaseView()?.view.type === 'table',
+      run: () => runDatabaseViewCommand('pick-selected')
+    },
+    {
+      id: 'database.show-all-rows',
+      title: 'Show All Rows',
+      category: 'Database',
+      keywords: 'database base rows records picks picked clear reset all every view',
+      when: () => {
+        const active = activeDatabaseView()
+        return !!active && viewHasPicks(active.view)
+      },
+      run: () => runDatabaseViewCommand('show-all-rows')
     },
     {
       id: 'table.to-database',

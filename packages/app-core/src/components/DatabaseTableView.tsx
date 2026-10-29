@@ -45,6 +45,8 @@ import { focusEditorNormalMode } from '../lib/editor-focus'
 import { isImeComposing } from '../lib/ime'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
+import { useDatabaseViewCommand } from '../lib/database-view-commands'
+import { useToastStore } from '../lib/toast'
 import { resolveWikilinkTarget } from '../lib/wikilinks'
 import { followLinkTarget } from '../lib/follow-link'
 import { NoteSuggestRows, stepSuggestIndex, useNoteSuggestions } from './DatabaseNoteSuggest'
@@ -199,6 +201,18 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     updateDatabaseSchema(csvPath, clearViewPicks(doc, view.id))
     cancelEditPicks()
   }
+  // Show Only Selected Rows from the palette (or a key bound to it).
+  useDatabaseViewCommand(csvPath, isActive, (command) => {
+    if (command !== 'pick-selected') return
+    if (selected.size === 0) {
+      useToastStore
+        .getState()
+        .addToast('Select rows first: Space or x in the grid, or the row checkboxes.', 'info')
+      return
+    }
+    pickSelected()
+  })
+
   /** Add a row; in a picks view it joins the picks so it does not vanish the
    *  moment it is made. */
   const addRowHere = (): void => {

@@ -7,6 +7,7 @@ import {
   addField,
   addRowInView,
   addView,
+  clearViewPicks,
   duplicateView,
   setActiveView,
   removeView,
@@ -15,6 +16,7 @@ import {
   visibleColumnIds
 } from '../lib/database-cells'
 import { isImeComposing } from '../lib/ime'
+import { useDatabaseViewCommand } from '../lib/database-view-commands'
 import { DatabaseTableView } from './DatabaseTableView'
 import { DatabaseBoardView } from './DatabaseBoardView'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
@@ -98,6 +100,23 @@ export function DatabaseView({
     setRawMode(false)
     setColumnsRequest((n) => n + 1)
   }, [])
+
+  // Palette commands for this database's views (Show Only Selected Rows is
+  // the Table's: the selection lives there).
+  useDatabaseViewCommand(csvPath, isActive, (command) => {
+    if (!csvPath || !doc || !activeViewId) return
+    if (command === 'columns') {
+      if (activeViewType === 'table') openColumnsFor(activeViewId)
+    } else if (command === 'new-table-view') {
+      const next = addView(doc, 'table')
+      updateDatabaseSchema(csvPath, next)
+      openColumnsFor(next.activeViewId)
+    } else if (command === 'duplicate-view') {
+      updateDatabaseSchema(csvPath, duplicateView(doc, activeViewId))
+    } else if (command === 'show-all-rows') {
+      updateDatabaseSchema(csvPath, clearViewPicks(doc, activeViewId))
+    }
+  })
 
   // Back to the grid when the popover closes with nothing else focused (its
   // focused row unmounts with it); a click elsewhere keeps what it focused.
