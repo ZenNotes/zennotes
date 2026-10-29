@@ -180,7 +180,7 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
   {
     heading: 'MCP',
     rows: [
-      { name: 'mcp', description: 'Start the MCP stdio server (Claude / Codex)' }
+      { name: 'mcp', description: 'Start the MCP stdio server (Claude / Codex). The path flags share only part of the vault, on every tool', flags: '--allow-path <p>…  --deny-path <p>…  --read-only  --access read|comment|write' }
     ]
   }
 ]

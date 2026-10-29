@@ -73,6 +73,7 @@ import {
   type DatabaseVaultLayout
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
+import { normalizeSystemFolderPaths, type SystemFolderPaths } from '@shared/system-folder-paths'
 import { setCell } from '@shared/database-records'
 import {
   csvPathForFormDir,
@@ -107,6 +108,11 @@ export type VaultDescription =
       authConfigured: boolean
     }
 
+export interface VaultLayout {
+  primaryNotesLocation: PrimaryNotesLocation
+  systemFolderPaths: SystemFolderPaths
+}
+
 export interface VaultBackend {
   readonly kind: 'local' | 'remote'
   /** How to name this vault in output and errors. */
@@ -116,6 +122,10 @@ export interface VaultBackend {
   readonly root: string
 
   describe(): Promise<VaultDescription>
+  /** Where the system folders live and whether the inbox is the vault root:
+   *  what classifying a vault-relative path needs, for a scoped MCP client
+   *  (ZenNotes/tui#21). */
+  vaultLayout(): Promise<VaultLayout>
   listNotes(): Promise<NoteMeta[]>
   listAssets(): Promise<VaultAssetMeta[]>
   listFolders(): Promise<{ folder: NoteFolder; subpath: string }[]>
@@ -227,6 +237,13 @@ class LocalBackend implements VaultBackend {
     root: this.root,
     primaryNotesLocation: await readPrimaryNotesLocation(this.root)
   })
+  vaultLayout = async (): Promise<VaultLayout> => {
+    const layout = await readDatabaseVaultLayout(this.root)
+    return {
+      primaryNotesLocation: layout.primaryNotesAtRoot ? 'root' : 'inbox',
+      systemFolderPaths: layout.systemFolderPaths ?? {}
+    }
+  }
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
@@ -328,6 +345,13 @@ class RemoteBackend implements VaultBackend {
       vaultName: vault?.name ?? null,
       primaryNotesLocation: settings.primaryNotesLocation === 'root' ? 'root' : 'inbox',
       authConfigured: !!this.client.authToken
+    }
+  }
+  vaultLayout = async (): Promise<VaultLayout> => {
+    const settings = await this.client.getVaultSettings()
+    return {
+      primaryNotesLocation: settings.primaryNotesLocation === 'root' ? 'root' : 'inbox',
+      systemFolderPaths: normalizeSystemFolderPaths(settings.systemFolderPaths)
     }
   }
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()

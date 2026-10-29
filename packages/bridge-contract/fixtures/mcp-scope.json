@@ -1,0 +1,543 @@
+{
+  "schemaVersion": 1,
+  "vaults": {
+    "root": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Projects/Plan.md": "# Plan\n\n- [ ] ship it\n\nSee [[Diary]]. #proj needle\n",
+        "Projects/Sub/Step.md": "# Step\n",
+        "Projects/Sub/More/Further.md": "# Further\n",
+        "Projects/Sub/More/Again.md": "# Again\n",
+        "Projects/Sub/More/Last.md": "# Last\n",
+        "Projects/Clients/Acme.md": "# Acme\n\nclient secret needle #private\n- [ ] invoice acme\n",
+        "Projects/Clients/Acme Two.md": "# Acme Two\n",
+        "Projects/diagram.png": "png",
+        "Areas/Health/Run.md": "# Run\n\nafter [[Plan]]\n",
+        "Areas/Health/Clinic/Visit.md": "# Visit\n",
+        "Areas/Health/Clinic/Notes.md": "# Notes\n",
+        "Areas/Health/Clinic/Bills.md": "# Bills\n",
+        "Areas/Money.md": "# Money\n\nneedle\n",
+        "Journal/Diary.md": "# Diary\n\nprivate needle #private\n\nabout [[Plan]]\n- [ ] call mum\n",
+        "Journal/Many1.md": "needle\nneedle\nneedle\n",
+        "Journal/Many2.md": "needle\nneedle\nneedle\n",
+        "Journal/Sub/Deep.md": "# Deep\n",
+        "Journal/Sub/Deeper/Bottom.md": "# Bottom\n",
+        "Journal/Sub/Deeper/Bottom2.md": "# Bottom2\n",
+        "archive/Projects/Old.md": "# Old\n",
+        "trash/Projects/Thrown.md": "# Thrown\n",
+        "attachements/pic.png": "png"
+      },
+      "symlinks": {
+        "Projects/inner": "../Journal",
+        "Projects/link": "../../outside"
+      },
+      "outside": {
+        "secret.md": "# Secret\n\nneedle outside the vault\n"
+      }
+    },
+    "accents": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"root\"}",
+        "Café/Menu.md": "# Menu\n\ncroissant\n",
+        "Cafeteria/Lunch.md": "# Lunch\n",
+        "Notes/Ideas.md": "# Ideas\n"
+      }
+    },
+    "remapped": {
+      "files": {
+        ".zennotes/vault.json": "{\"primaryNotesLocation\":\"inbox\",\"systemFolderPaths\":{\"inbox\":\"01 Inbox\",\"archive\":\"99 Archive\"}}",
+        "01 Inbox/Projects/A.md": "# A\n",
+        "01 Inbox/Private/B.md": "# B\n",
+        "99 Archive/Projects/Old.md": "# Old\n",
+        "99 Archive/Private/Gone.md": "# Gone\n"
+      }
+    }
+  },
+  "flagCases": [
+    {
+      "id": "entries-are-cleaned-and-read-only-wins",
+      "flags": { "access": "write", "readOnly": true, "allow": ["/Projects/", "Areas\\Health", "Projects"] },
+      "scope": { "access": "read", "allow": ["Projects", "Areas/Health"], "deny": [] }
+    },
+    {
+      "id": "access-spellings",
+      "flags": { "access": " Edit ", "deny": ["Journal"] },
+      "scope": { "access": "write", "allow": [], "deny": ["Journal"] }
+    },
+    {
+      "id": "comment-access",
+      "flags": { "access": "comment" },
+      "scope": { "access": "comment", "allow": [], "deny": [] }
+    },
+    {
+      "id": "hidden-entry",
+      "flags": { "allow": [".zennotes"] },
+      "error": "--allow-path \".zennotes\" names a hidden folder, which an assistant never sees"
+    },
+    {
+      "id": "hidden-segment-in-deny",
+      "flags": { "deny": ["a/.hidden/b"] },
+      "error": "--deny-path \"a/.hidden/b\" names a hidden folder, which an assistant never sees"
+    },
+    {
+      "id": "traversal",
+      "flags": { "allow": ["Projects/../Journal"] },
+      "error": "--allow-path \"Projects/../Journal\": . and .. are not allowed; name a folder or note inside the vault"
+    },
+    {
+      "id": "dot-slash",
+      "flags": { "allow": ["./"] },
+      "error": "--allow-path \"./\": . and .. are not allowed; name a folder or note inside the vault"
+    },
+    {
+      "id": "empty-entry",
+      "flags": { "allow": [""] },
+      "error": "--allow-path \"\" is empty; name a folder or note inside the vault"
+    },
+    {
+      "id": "slash-only-entry",
+      "flags": { "deny": ["/"] },
+      "error": "--deny-path \"/\" is empty; name a folder or note inside the vault"
+    },
+    {
+      "id": "nul-in-entry",
+      "flags": { "allow": ["Projects\u0000x"] },
+      "error": "--allow-path \"Projects\\x00x\" is not a valid path"
+    },
+    {
+      "id": "unknown-access",
+      "flags": { "access": "admin" },
+      "error": "--access must be read, comment or write, not \"admin\""
+    }
+  ],
+  "cases": [
+    {
+      "id": "listings-show-only-what-is-shared",
+      "vault": "root",
+      "flags": { "access": "write", "allow": ["/projects", "Areas/Health"], "deny": ["Projects/Clients"] },
+      "tools": { "count": 33, "absent": ["empty_trash"] },
+      "calls": [
+        {
+          "tool": "list_notes",
+          "args": {},
+          "expect": {
+            "paths": [
+              "Areas/Health/Clinic/Bills.md",
+              "Areas/Health/Clinic/Notes.md",
+              "Areas/Health/Clinic/Visit.md",
+              "Areas/Health/Run.md",
+              "Projects/Plan.md",
+              "Projects/Sub/More/Again.md",
+              "Projects/Sub/More/Further.md",
+              "Projects/Sub/More/Last.md",
+              "Projects/Sub/Step.md"
+            ]
+          }
+        },
+        { "tool": "list_notes", "args": { "folder": "trash" }, "expect": { "paths": [] } },
+        {
+          "tool": "list_folders",
+          "args": {},
+          "expect": {
+            "folders": [
+              "inbox:Areas",
+              "inbox:Areas/Health",
+              "inbox:Areas/Health/Clinic",
+              "inbox:Projects",
+              "inbox:Projects/Sub",
+              "inbox:Projects/Sub/More"
+            ]
+          }
+        },
+        { "tool": "list_tags", "args": {}, "expect": { "contains": ["proj"], "excludes": ["private"] } },
+        { "tool": "list_tasks", "args": {}, "expect": { "contains": ["ship it"], "excludes": ["invoice", "mum"] } },
+        { "tool": "list_assets", "args": {}, "expect": { "excludes": ["attachements", "pic.png"] } },
+        { "tool": "backlinks", "args": { "path": "Projects/Plan.md" }, "expect": { "paths": ["Areas/Health/Run.md"] } },
+        { "tool": "search_by_tag", "args": { "tag": "private" }, "expect": { "paths": [] } },
+        { "tool": "search_by_title", "args": { "query": "diary" }, "expect": { "paths": [] } },
+        { "tool": "search_by_title", "args": { "query": "plan" }, "expect": { "paths": ["Projects/Plan.md"] } },
+        { "tool": "search_text", "args": { "query": "needle", "limit": 1 }, "expect": { "paths": ["Projects/Plan.md"] } },
+        { "tool": "search_text", "args": { "query": "needle" }, "expect": { "paths": ["Projects/Plan.md"] } },
+        { "tool": "search_text", "args": { "query": "outside the vault" }, "expect": { "paths": [] } }
+      ]
+    },
+    {
+      "id": "a-hidden-note-answers-like-a-missing-one",
+      "vault": "root",
+      "flags": { "access": "write", "allow": ["/projects", "Areas/Health"], "deny": ["Projects/Clients"] },
+      "calls": [
+        { "tool": "read_note", "args": { "path": "Journal/Diary.md" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "read_note", "args": { "path": "journal/DIARY.md" }, "expect": { "error": "Note not found: journal/DIARY.md" } },
+        { "tool": "read_note", "args": { "path": "Projects/inner/Diary.md" }, "expect": { "error": "Note not found: Projects/inner/Diary.md" } },
+        { "tool": "read_note", "args": { "path": "Projects/link/secret.md" }, "expect": { "error": "Note not found: Projects/link/secret.md" } },
+        { "tool": "read_note", "args": { "path": "Projects/Clients/Acme.md" }, "expect": { "error": "Note not found: Projects/Clients/Acme.md" } },
+        { "tool": "read_note", "args": { "path": "projects/clients/ACME.md" }, "expect": { "error": "Note not found: projects/clients/ACME.md" } },
+        { "tool": "read_note", "args": { "path": ".zennotes/vault.json" }, "expect": { "error": "Note not found: .zennotes/vault.json" } },
+        { "tool": "read_note", "args": { "path": "Projects/../Journal/Diary.md" }, "expect": { "error": "Note not found: Projects/../Journal/Diary.md" } },
+        { "tool": "read_note", "args": { "path": "Journal/Missing.md" }, "expect": { "error": "Note not found: Journal/Missing.md" } },
+        { "tool": "read_note", "args": { "path": "Areas/Money.md" }, "expect": { "error": "Note not found: Areas/Money.md" } },
+        { "tool": "read_note", "args": { "path": "archive/Projects/Old.md" }, "expect": { "error": "Note not found: archive/Projects/Old.md" } },
+        { "tool": "read_note", "args": { "path": "attachements/pic.png" }, "expect": { "error": "Note not found: attachements/pic.png" } },
+        { "tool": "read_note", "args": { "path": "Projects/diagram.png" }, "expect": { "error": "Note not found: Projects/diagram.png" } },
+        { "tool": "read_note", "args": { "path": "projects/plan.md" }, "expect": { "match": { "path": "Projects/Plan.md" } } },
+        { "tool": "list_comments", "args": { "path": "Journal/Diary.md" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "backlinks", "args": { "path": "Journal/Diary.md" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "toggle_task", "args": { "id": "Journal/Diary.md#0" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "append_to_note", "args": { "path": "Journal/Diary.md", "text": "x" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "write_note", "args": { "path": "Projects/inner/Diary.md", "body": "gone" }, "expect": { "error": "Note not found: Projects/inner/Diary.md" } },
+        { "tool": "add_comment", "args": { "path": "Journal/Diary.md", "body": "x" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "move_to_trash", "args": { "path": "Projects/Clients/Acme.md" }, "expect": { "error": "Note not found: Projects/Clients/Acme.md" } },
+        { "tool": "delete_note", "args": { "path": "Journal/Diary.md", "confirm": true }, "expect": { "error": "Note not found: Journal/Diary.md" } }
+      ],
+      "disk": {
+        "equals": {
+          "Journal/Diary.md": "# Diary\n\nprivate needle #private\n\nabout [[Plan]]\n- [ ] call mum\n",
+          "Projects/Clients/Acme.md": "# Acme\n\nclient secret needle #private\n- [ ] invoice acme\n"
+        }
+      }
+    },
+    {
+      "id": "writes-stay-inside-the-scope",
+      "vault": "root",
+      "flags": { "access": "write", "allow": ["/projects", "Areas/Health"], "deny": ["Projects/Clients"] },
+      "calls": [
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "projects/New", "title": "Idea" }, "expect": { "match": { "path": "Projects/New/Idea.md" } } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Journal", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Areas", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": ".zennotes", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Attachements", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "archive", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/Clients", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "projects/clients/Deeper", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/../Journal", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/Books.base", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_note", "args": { "folder": "archive", "subpath": "Projects", "title": "Nope" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "create_folder", "args": { "folder": "inbox", "subpath": "Journal/Planted" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "move_note", "args": { "path": "Projects/Plan.md", "targetFolder": "inbox", "targetSubpath": "Journal" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "move_note", "args": { "path": "Projects/Sub/Step.md", "targetFolder": "archive", "targetSubpath": "Projects" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "rename_note", "args": { "path": "Projects/Plan.md", "newTitle": "Plan B" }, "expect": { "match": { "path": "Projects/Plan B.md" } } },
+        { "tool": "rename_note", "args": { "path": "Projects/Clients/Acme Two.md", "newTitle": "Acme" }, "expect": { "error": "Note not found: Projects/Clients/Acme Two.md" } },
+        { "tool": "delete_folder", "args": { "folder": "inbox", "subpath": "Projects", "confirm": true }, "expect": { "error": "This assistant cannot delete that folder." } },
+        { "tool": "delete_folder", "args": { "folder": "inbox", "subpath": "Journal", "confirm": true }, "expect": { "error": "Folder not found: Journal" } },
+        { "tool": "delete_folder", "args": { "folder": "inbox", "subpath": "attachements", "confirm": true }, "expect": { "error": "Folder not found: attachements" } },
+        { "tool": "delete_folder", "args": { "folder": "inbox", "subpath": "Projects/inner", "confirm": true }, "expect": { "error": "Folder not found: Projects/inner" } },
+        { "tool": "rename_folder", "args": { "folder": "inbox", "oldSubpath": "Projects", "newSubpath": "Work" }, "expect": { "error": "This assistant cannot rename that folder." } },
+        { "tool": "rename_folder", "args": { "folder": "inbox", "oldSubpath": "Areas/Health", "newSubpath": "Health" }, "expect": { "error": "This assistant can create and move notes only inside: Projects, Areas/Health." } },
+        { "tool": "rename_folder", "args": { "folder": "inbox", "oldSubpath": "projects/sub", "newSubpath": "Projects/Steps" }, "expect": { "ok": true } },
+        { "tool": "move_to_trash", "args": { "path": "Projects/Steps/Step.md" }, "expect": { "match": { "path": "trash/Projects/Steps/Step.md", "folder": "trash" } } },
+        { "tool": "read_note", "args": { "path": "trash/Projects/Steps/Step.md" }, "expect": { "error": "Note not found: trash/Projects/Steps/Step.md" } },
+        { "tool": "restore_from_trash", "args": { "path": "trash/Projects/Steps/Step.md" }, "expect": { "error": "Note not found: trash/Projects/Steps/Step.md" } }
+      ],
+      "disk": {
+        "exists": [
+          "Projects/New/Idea.md",
+          "Projects/Plan B.md",
+          "Projects/Steps/More/Last.md",
+          "trash/Projects/Steps/Step.md",
+          "Journal/Diary.md",
+          "Projects/Clients/Acme.md",
+          "Projects/Clients/Acme Two.md",
+          "attachements/pic.png"
+        ],
+        "absent": ["Projects/Plan.md", "Projects/Sub", "Journal/Planted", "Journal/Nope.md", "Nope.md"],
+        "equals": {
+          "Journal/Diary.md": "# Diary\n\nprivate needle #private\n\nabout [[Plan]]\n- [ ] call mum\n"
+        }
+      }
+    },
+    {
+      "id": "nothing-is-created-through-a-link",
+      "vault": "root",
+      "flags": { "access": "write", "allow": ["Projects"] },
+      "calls": [
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/inner", "title": "ThroughLink" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/link", "title": "Out" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/Plan.md", "title": "Under" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "create_folder", "args": { "folder": "inbox", "subpath": "Projects/inner/Made" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "move_note", "args": { "path": "Projects/Sub/Step.md", "targetFolder": "inbox", "targetSubpath": "Projects/inner" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "rename_folder", "args": { "folder": "inbox", "oldSubpath": "Projects/Sub", "newSubpath": "Projects/inner/Sub" }, "expect": { "error": "This assistant can create and move notes only inside: Projects." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects/Fresh/Deeper", "title": "New" }, "expect": { "match": { "path": "Projects/Fresh/Deeper/New.md" } } }
+      ],
+      "disk": {
+        "exists": ["Projects/Sub/Step.md", "Projects/Fresh/Deeper/New.md"],
+        "absent": ["Journal/ThroughLink.md", "Journal/Made", "Journal/Step.md", "Journal/Sub/Step.md", "Projects/Plan.md/Under.md"]
+      }
+    },
+    {
+      "id": "read-access-lists-only-read-tools",
+      "vault": "root",
+      "flags": { "readOnly": true },
+      "tools": {
+        "exactly": [
+          "backlinks",
+          "list_assets",
+          "list_comments",
+          "list_folders",
+          "list_notes",
+          "list_tags",
+          "list_tasks",
+          "read_note",
+          "search_by_tag",
+          "search_by_title",
+          "search_text",
+          "vault_info"
+        ],
+        "annotations": {
+          "read_note": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
+          "vault_info": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false }
+        }
+      },
+      "calls": [
+        { "tool": "write_note", "args": { "path": "Projects/Plan.md", "body": "gone" }, "expect": { "notOffered": true } },
+        { "tool": "add_comment", "args": { "path": "Projects/Plan.md", "body": "x" }, "expect": { "notOffered": true } },
+        { "tool": "read_note", "args": { "path": "Journal/Diary.md" }, "expect": { "match": { "path": "Journal/Diary.md" } } }
+      ],
+      "disk": {
+        "equals": { "Projects/Plan.md": "# Plan\n\n- [ ] ship it\n\nSee [[Diary]]. #proj needle\n" },
+        "absent": [".zennotes/comments"]
+      }
+    },
+    {
+      "id": "comment-access-adds-the-comment-tools",
+      "vault": "root",
+      "flags": { "access": "comment", "allow": ["Projects"] },
+      "tools": {
+        "exactly": [
+          "add_comment",
+          "backlinks",
+          "list_assets",
+          "list_comments",
+          "list_folders",
+          "list_notes",
+          "list_tags",
+          "list_tasks",
+          "read_note",
+          "reply_to_comment",
+          "resolve_comment",
+          "search_by_tag",
+          "search_by_title",
+          "search_text",
+          "vault_info"
+        ],
+        "annotations": {
+          "add_comment": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false }
+        }
+      },
+      "calls": [
+        { "tool": "add_comment", "args": { "path": "projects/plan.md", "body": "Looks good", "anchor_text": "ship it" }, "expect": { "match": { "body": "Looks good", "anchorText": "ship it" } } },
+        { "tool": "list_comments", "args": { "path": "Projects/Plan.md" }, "expect": { "contains": ["Looks good"] } },
+        { "tool": "add_comment", "args": { "path": "Journal/Diary.md", "body": "x" }, "expect": { "error": "Note not found: Journal/Diary.md" } },
+        { "tool": "toggle_task", "args": { "id": "Projects/Plan.md#0" }, "expect": { "notOffered": true } }
+      ],
+      "disk": {
+        "equals": { "Projects/Plan.md": "# Plan\n\n- [ ] ship it\n\nSee [[Diary]]. #proj needle\n" }
+      }
+    },
+    {
+      "id": "full-access-lists-every-tool-with-annotations",
+      "vault": "root",
+      "flags": { "access": "write" },
+      "tools": {
+        "count": 34,
+        "include": ["empty_trash", "delete_folder"],
+        "annotations": {
+          "list_notes": { "readOnlyHint": true, "idempotentHint": false, "openWorldHint": false },
+          "write_note": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "replace_in_note": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "delete_note": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "delete_folder": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "empty_trash": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+          "append_to_note": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+          "move_to_trash": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false },
+          "create_note": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false }
+        }
+      },
+      "calls": [
+        { "tool": "vault_info", "args": {}, "expect": { "contains": ["$VAULT"], "absentKeys": ["access"] } }
+      ]
+    },
+    {
+      "id": "deny-only-keeps-the-rest-of-the-vault",
+      "vault": "root",
+      "flags": { "deny": ["Journal"] },
+      "tools": { "count": 33, "absent": ["empty_trash"] },
+      "calls": [
+        {
+          "tool": "list_notes",
+          "args": {},
+          "expect": {
+            "paths": [
+              "Areas/Health/Clinic/Bills.md",
+              "Areas/Health/Clinic/Notes.md",
+              "Areas/Health/Clinic/Visit.md",
+              "Areas/Health/Run.md",
+              "Areas/Money.md",
+              "Projects/Clients/Acme Two.md",
+              "Projects/Clients/Acme.md",
+              "Projects/Plan.md",
+              "Projects/Sub/More/Again.md",
+              "Projects/Sub/More/Further.md",
+              "Projects/Sub/More/Last.md",
+              "Projects/Sub/Step.md",
+              "archive/Projects/Old.md"
+            ]
+          }
+        },
+        { "tool": "list_assets", "args": {}, "expect": { "contains": ["attachements/pic.png"] } },
+        { "tool": "backlinks", "args": { "path": "Projects/Plan.md" }, "expect": { "paths": ["Areas/Health/Run.md"] } },
+        { "tool": "create_note", "args": { "folder": "inbox", "title": "Top" }, "expect": { "match": { "path": "Top.md" } } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "journal", "title": "Nope" }, "expect": { "error": "This assistant cannot put notes there." } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Journal/Sub", "title": "Nope" }, "expect": { "error": "This assistant cannot put notes there." } },
+        { "tool": "restore_from_trash", "args": { "path": "trash/Projects/Thrown.md" }, "expect": { "match": { "path": "Projects/Thrown.md", "folder": "inbox" } } },
+        { "tool": "delete_folder", "args": { "folder": "inbox", "subpath": "Areas/Health/Clinic", "confirm": true }, "expect": { "ok": true } },
+        { "tool": "empty_trash", "args": { "confirm": true }, "expect": { "notOffered": true } }
+      ],
+      "disk": {
+        "exists": ["Top.md", "Projects/Thrown.md", "Journal/Diary.md", "Journal/Sub/Deep.md"],
+        "absent": ["Areas/Health/Clinic", "Journal/Nope.md", "Journal/Sub/Nope.md"]
+      }
+    },
+    {
+      "id": "an-allowed-note-shows-its-folders-by-name-only",
+      "vault": "root",
+      "flags": { "readOnly": true, "allow": ["areas/money.md"] },
+      "calls": [
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["Areas/Money.md"] } },
+        { "tool": "list_folders", "args": {}, "expect": { "folders": ["inbox:Areas"] } },
+        { "tool": "read_note", "args": { "path": "Areas/Health/Run.md" }, "expect": { "error": "Note not found: Areas/Health/Run.md" } },
+        { "tool": "search_text", "args": { "query": "needle" }, "expect": { "paths": ["Areas/Money.md"] } },
+        {
+          "tool": "vault_info",
+          "args": {},
+          "expect": { "match": { "access": { "level": "read", "partial": true, "allow": ["Areas/Money.md"], "missingAllow": [] } } }
+        }
+      ]
+    },
+    {
+      "id": "vault-info-names-no-absolute-paths-or-deny-entries",
+      "vault": "root",
+      "flags": { "access": "read", "allow": ["projects", "Areas/Gone"], "deny": ["Projects/Clients"] },
+      "calls": [
+        {
+          "tool": "vault_info",
+          "args": {},
+          "expect": {
+            "match": {
+              "kind": "local",
+              "primaryNotesLocation": "root",
+              "topFolders": ["inbox", "quick", "archive", "trash"],
+              "access": { "level": "read", "partial": true, "allow": ["Areas/Gone", "Projects"], "missingAllow": ["Areas/Gone"] }
+            },
+            "absentKeys": ["vaultRoot", "inboxAbsolutePath", "vaultPath"],
+            "excludes": ["$VAULT", "Clients", "Journal", "blocked"]
+          }
+        },
+        { "tool": "read_note", "args": { "path": "Journal/Diary.md" }, "expect": { "error": "Note not found: Journal/Diary.md", "excludes": ["$VAULT"] } }
+      ]
+    },
+    {
+      "id": "a-stale-deny-entry-shares-nothing",
+      "vault": "root",
+      "flags": { "access": "read", "deny": ["Diary Folder"] },
+      "calls": [
+        {
+          "tool": "list_notes",
+          "args": {},
+          "expect": {
+            "error": "This assistant's scope hides a folder or note that does not exist in this vault (renamed or deleted outside ZenNotes, or it belongs to another vault), so nothing is shared until the MCP client's --deny-path entries are fixed."
+          }
+        },
+        {
+          "tool": "read_note",
+          "args": { "path": "Projects/Plan.md" },
+          "expect": {
+            "error": "This assistant's scope hides a folder or note that does not exist in this vault (renamed or deleted outside ZenNotes, or it belongs to another vault), so nothing is shared until the MCP client's --deny-path entries are fixed."
+          }
+        },
+        {
+          "tool": "vault_info",
+          "args": {},
+          "expect": {
+            "match": {
+              "subfolders": [],
+              "access": {
+                "level": "read",
+                "partial": true,
+                "allow": [],
+                "missingAllow": [],
+                "blocked": "This assistant's scope hides a folder or note that does not exist in this vault (renamed or deleted outside ZenNotes, or it belongs to another vault), so nothing is shared until the MCP client's --deny-path entries are fixed."
+              }
+            },
+            "excludes": ["Diary Folder"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "deny-matches-across-case-and-accents",
+      "vault": "accents",
+      "flags": { "access": "read", "deny": ["cafe"] },
+      "calls": [
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["Cafeteria/Lunch.md", "Notes/Ideas.md"] } },
+        { "tool": "list_folders", "args": {}, "expect": { "folders": ["inbox:Cafeteria", "inbox:Notes"] } },
+        { "tool": "read_note", "args": { "path": "Café/Menu.md" }, "expect": { "error": "Note not found: Café/Menu.md" } },
+        { "tool": "read_note", "args": { "path": "CAFÉ/menu.md" }, "expect": { "error": "Note not found: CAFÉ/menu.md" } },
+        { "tool": "search_text", "args": { "query": "croissant" }, "expect": { "paths": [] } }
+      ]
+    },
+    {
+      "id": "deny-matches-a-decomposed-spelling",
+      "vault": "accents",
+      "flags": { "access": "read", "deny": ["CAFÉ"] },
+      "calls": [
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["Cafeteria/Lunch.md", "Notes/Ideas.md"] } }
+      ]
+    },
+    {
+      "id": "allow-takes-the-vault-spelling",
+      "vault": "accents",
+      "flags": { "access": "read", "allow": ["cafe"] },
+      "calls": [
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["Café/Menu.md"] } },
+        { "tool": "read_note", "args": { "path": "cafe/menu.md" }, "expect": { "match": { "path": "Café/Menu.md" } } },
+        { "tool": "read_note", "args": { "path": "Cafeteria/Lunch.md" }, "expect": { "error": "Note not found: Cafeteria/Lunch.md" } },
+        { "tool": "vault_info", "args": {}, "expect": { "match": { "access": { "allow": ["Café"], "missingAllow": [] } } } }
+      ]
+    },
+    {
+      "id": "remapped-system-folders-need-no-translation",
+      "vault": "remapped",
+      "flags": { "access": "write", "allow": ["01 Inbox/Projects", "99 Archive/Projects"] },
+      "calls": [
+        { "tool": "list_notes", "args": { "folder": "archive" }, "expect": { "paths": ["99 Archive/Projects/Old.md"] } },
+        { "tool": "list_notes", "args": {}, "expect": { "paths": ["01 Inbox/Projects/A.md", "99 Archive/Projects/Old.md"] } },
+        { "tool": "list_folders", "args": {}, "expect": { "folders": ["archive:Projects", "inbox:Projects"] } },
+        { "tool": "read_note", "args": { "path": "01 Inbox/Private/B.md" }, "expect": { "error": "Note not found: 01 Inbox/Private/B.md" } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Projects", "title": "C" }, "expect": { "match": { "path": "01 Inbox/Projects/C.md" } } },
+        { "tool": "create_note", "args": { "folder": "inbox", "subpath": "Private", "title": "D" }, "expect": { "error": "This assistant can create and move notes only inside: 01 Inbox/Projects, 99 Archive/Projects." } },
+        { "tool": "archive_note", "args": { "path": "01 Inbox/Projects/A.md" }, "expect": { "match": { "path": "99 Archive/Projects/A.md", "folder": "archive" } } },
+        { "tool": "unarchive_note", "args": { "path": "99 Archive/Projects/A.md" }, "expect": { "match": { "path": "01 Inbox/Projects/A.md", "folder": "inbox" } } },
+        { "tool": "unarchive_note", "args": { "path": "99 Archive/Private/Gone.md" }, "expect": { "error": "Note not found: 99 Archive/Private/Gone.md" } }
+      ],
+      "disk": {
+        "exists": ["01 Inbox/Projects/A.md", "01 Inbox/Projects/C.md", "99 Archive/Private/Gone.md"],
+        "absent": ["01 Inbox/Private/D.md", "99 Archive/Projects/A.md"]
+      }
+    },
+    {
+      "id": "archiving-is-an-exit-from-the-scope",
+      "vault": "remapped",
+      "flags": { "access": "write", "allow": ["01 Inbox/Projects"] },
+      "calls": [
+        { "tool": "archive_note", "args": { "path": "01 Inbox/Projects/A.md" }, "expect": { "ok": true } },
+        { "tool": "read_note", "args": { "path": "99 Archive/Projects/A.md" }, "expect": { "error": "Note not found: 99 Archive/Projects/A.md" } },
+        { "tool": "unarchive_note", "args": { "path": "99 Archive/Projects/A.md" }, "expect": { "error": "Note not found: 99 Archive/Projects/A.md" } }
+      ],
+      "disk": {
+        "exists": ["99 Archive/Projects/A.md"],
+        "absent": ["01 Inbox/Projects/A.md"]
+      }
+    }
+  ]
+}

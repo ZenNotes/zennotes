@@ -1089,7 +1089,7 @@ async function uniqueTitle(dir: string, base: string): Promise<string> {
   }
 }
 
-function sanitizeTitle(raw: string): string {
+export function sanitizeTitle(raw: string): string {
   // Filenames must be safe on all 3 OSes. Strip path separators, null,
   // and common reserved characters.
   return raw

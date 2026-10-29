@@ -28,6 +28,7 @@ export const VALUELESS_FLAGS: ReadonlySet<string> = new Set([
   'meta',
   'new-window',
   'page',
+  'read-only',
   'reopen',
   'unchecked',
   'yes'

@@ -30,6 +30,16 @@ import {
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
+import {
+  isMcpScopeActive,
+  isMcpScopeRestricted,
+  isMcpToolOffered,
+  MCP_SCOPE_VAULT_INFO_NOTE,
+  mcpScopeInstructions,
+  mcpToolAnnotations,
+  type McpScope
+} from '@shared/mcp-scope'
+import { ScopedBackend, scopeBackend, scrubVaultRoot } from './scoped-backend.js'
 
 interface ToolContext {
   /** Set on the vault_info call that moved the session to a new vault: the
@@ -139,7 +149,13 @@ const TOOLS: ToolDef[] = [
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, backend, context) => {
-      const [description, folders] = await Promise.all([backend.describe(), backend.listFolders()])
+      const scoped = backend instanceof ScopedBackend ? backend : null
+      const [description, folders] = await Promise.all([
+        backend.describe(),
+        // A scope that shares nothing still answers vault_info, with the
+        // reason under access.blocked.
+        scoped ? backend.listFolders().catch(() => []) : backend.listFolders()
+      ])
       const primaryNotesLocation = description.primaryNotesLocation
       const isRootMode = primaryNotesLocation === 'root'
       const switchNote = context?.previous
@@ -150,6 +166,24 @@ const TOOLS: ToolDef[] = [
         (isRootMode
           ? 'This vault uses ROOT mode: notes for the conceptual `inbox` folder live directly at the vault root (e.g. `MyNote.md`), not under `inbox/`. The folders quick/, archive/, trash/ are real subdirectories at the root.'
           : 'This vault uses INBOX mode: notes for the conceptual `inbox` folder live under `inbox/` (e.g. `inbox/MyNote.md`).')
+      if (scoped) {
+        // An assistant with scoped access gets no absolute paths: it has no
+        // use for them, and they name the user's home folder.
+        return {
+          kind: description.kind,
+          ...(description.kind === 'remote'
+            ? { server: description.baseUrl, serverName: description.name || null }
+            : {}),
+          primaryNotesLocation,
+          topFolders: ['inbox', 'quick', 'archive', 'trash'],
+          subfolders: folders,
+          access: await scoped.accessInfo(),
+          notes:
+            switchNote +
+            pathNotes +
+            (isMcpScopeRestricted(scoped.scope) ? MCP_SCOPE_VAULT_INFO_NOTE : '')
+        }
+      }
       if (description.kind === 'remote') {
         // The workspace the desktop app has open is a server (#688). Every
         // tool reads and writes through its HTTP API; the only thing this
@@ -956,17 +990,21 @@ const TOOLS: ToolDef[] = [
 
 /* ---------- Server plumbing ------------------------------------------ */
 
-/** Run one tool by name. The seam the tests use; the stdio server below goes
- *  through the same handlers. */
+/** Run one tool by name, under a scope when one is given, as the stdio
+ *  server runs it: a tool the scope does not offer is unknown, and the rest
+ *  see the vault through the scope. The seam the tests use; the stdio server
+ *  below goes through the same handlers. */
 export async function callTool(
   name: string,
   args: Record<string, unknown>,
-  backend: VaultBackend
+  backend: VaultBackend,
+  scope: McpScope | null = null
 ): Promise<unknown> {
   const tool = TOOLS.find((t) => t.schema.name === name)
-  if (!tool) throw new Error(`Unknown tool: ${name}`)
-  return await runRecordingAgentEdit(name, args, backend, defaultCommentAuthor(), () =>
-    tool.handler(args, backend)
+  if (!tool || !isMcpToolOffered(name, scope)) throw new Error(`Unknown tool: ${name}`)
+  const seen = scopeBackend(backend, scope)
+  return await runRecordingAgentEdit(name, args, seen, defaultCommentAuthor(), () =>
+    tool.handler(args, seen)
   )
 }
 
@@ -978,11 +1016,17 @@ export function listToolNames(): string[] {
  * A server that turns the request away is the one failure an agent cannot
  * fix by retrying: the desktop app keeps its token in the OS secret store,
  * where this process cannot read it, so say how to give it one. `target` is
- * the vault the call ran against, null when none resolved. The Go `zn mcp`
+ * the vault the call ran against, null when none resolved. A client with
+ * scoped access never sees the vault's absolute location. The Go `zn mcp`
  * (ZenNotes/tui, internal/mcp/server.go) words it the same way.
  */
-export function describeToolError(err: unknown, target: VaultTarget | null = null): string {
-  const message = err instanceof Error ? err.message : String(err)
+export function describeToolError(
+  err: unknown,
+  target: VaultTarget | null = null,
+  backend: VaultBackend | null = null
+): string {
+  let message = err instanceof Error ? err.message : String(err)
+  if (backend instanceof ScopedBackend) message = scrubVaultRoot(message, backend.root)
   if (err instanceof RemoteRequestError && (err.status === 401 || err.status === 403)) {
     const server = target?.kind === 'remote' ? target : null
     // The environment outranks a saved token, so a stale one there keeps
@@ -1116,6 +1160,13 @@ export interface McpServerOptions {
    * has open (#688), which is also the default here.
    */
   resolveTarget?: () => Promise<VaultTarget>
+  /**
+   * What clients may see and change (ZenNotes/tui#21), from the server's own
+   * launch flags (`--allow-path`, `--deny-path`, `--read-only`, `--access`),
+   * never from a tool call. Null is full access. It applies to whichever
+   * vault the session follows: entries are vault-relative.
+   */
+  scope?: McpScope | null
   /** Defaults to stdio, the only transport the clients speak. Tests bind an
    *  in-memory pair instead. */
   transport?: Transport
@@ -1141,7 +1192,8 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     )
   })
 
-  const instructions = await resolveInstructions()
+  const scope = isMcpScopeActive(options.scope) ? options.scope : null
+  const instructions = (await resolveInstructions()) + (scope ? mcpScopeInstructions(scope) : '')
   const server = new Server(
     { name: 'zennotes', version: '0.1.0' },
     {
@@ -1154,35 +1206,44 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     connectedClientName = server.getClientVersion()?.name ?? null
   }
 
+  // A tool the scope does not offer is not listed, so the model never plans
+  // around it, and a call to it is an unknown tool. Every tool says whether
+  // it only reads or can destroy, scoped or not.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: TOOLS.map((t) => t.schema)
+    tools: TOOLS.filter((t) => isMcpToolOffered(t.schema.name, scope)).map((t) => ({
+      ...t.schema,
+      annotations: mcpToolAnnotations(t.schema.name)
+    }))
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params
     const tool = TOOLS.find((t) => t.schema.name === name)
-    if (!tool) {
+    if (!tool || !isMcpToolOffered(name, scope)) {
       return {
         content: [{ type: 'text', text: `Unknown tool: ${name}` }],
         isError: true
       }
     }
     let target: VaultTarget | null = null
+    let backend: VaultBackend | null = null
     try {
       const resolved = await vaults.backendFor(name === 'vault_info')
-      const { backend, previous } = resolved
+      const { previous } = resolved
       target = resolved.target
+      backend = scopeBackend(resolved.backend, scope)
       const toolArgs = (args ?? {}) as Record<string, unknown>
+      const seen = backend
       // An edit to a note is recorded so the user can review it in the app.
-      const result = await runRecordingAgentEdit(name, toolArgs, backend, defaultCommentAuthor(), () =>
-        tool.handler(toolArgs, backend, { previous })
+      const result = await runRecordingAgentEdit(name, toolArgs, seen, defaultCommentAuthor(), () =>
+        tool.handler(toolArgs, seen, { previous })
       )
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
       return {
-        content: [{ type: 'text', text: `Error: ${describeToolError(err, target)}` }],
+        content: [{ type: 'text', text: `Error: ${describeToolError(err, target, backend)}` }],
         isError: true
       }
     }
