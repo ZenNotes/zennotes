@@ -132,11 +132,24 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
       await new Promise((r) => setTimeout(r, 80))
     })
   }
+  /** Wait until the first block row is drawn, then settle. A fixed wait was
+   *  not enough when the gate ran every package's suite at once: the reads
+   *  and their notify timer took longer than 80 ms and the rows were not
+   *  there yet. */
+  const settleBlocks = async (): Promise<void> => {
+    const deadline = Date.now() + 3000
+    while (!document.querySelector('[data-search-block]') && Date.now() < deadline) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10))
+      })
+    }
+    await settle()
+  }
 
   it('lists two blocks under a note, then a row for the rest; a frontmatter-only note is plain', async () => {
     act(() => root.render(createElement(SearchPalette)))
     type('#idea')
-    await settle()
+    await settleBlocks()
     expect(rows()).toEqual([
       'Ideas',
       '  inbox/Ideas.md:3',
@@ -149,7 +162,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
   it('opens a block at its line, highlighted, and closes the palette', async () => {
     act(() => root.render(createElement(SearchPalette)))
     type('#idea')
-    await settle()
+    await settleBlocks()
     await key('ArrowDown')
     await key('Enter')
     await settle()
@@ -167,7 +180,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
   it('opens the Tags view on the query tags from the "+N more" row', async () => {
     act(() => root.render(createElement(SearchPalette)))
     type('#idea')
-    await settle()
+    await settleBlocks()
     for (let i = 0; i < 3; i++) await key('j', { ctrlKey: true })
     await key('Enter')
     expect(openTagViewFor).toHaveBeenCalledWith(['idea'], '')
@@ -176,7 +189,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
   it('leaves Ctrl+D inert on a block row', async () => {
     act(() => root.render(createElement(SearchPalette)))
     type('#idea')
-    await settle()
+    await settleBlocks()
     await key('ArrowDown')
     await key('d', { ctrlKey: true })
     expect(confirmApp).not.toHaveBeenCalled()
@@ -186,7 +199,7 @@ describe('SearchPalette: tagged blocks under a #tag query', () => {
   it('narrows the blocks to the free text and marks the match', async () => {
     act(() => root.render(createElement(SearchPalette)))
     type('#idea plugin')
-    await settle()
+    await settleBlocks()
     expect(rows().filter((r) => r.startsWith('  '))).toEqual(['  inbox/Ideas.md:4'])
     expect(document.querySelector('[data-block-match]')?.textContent).toBe('Plugin')
   })
