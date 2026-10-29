@@ -6,7 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parse } from '../cli/args'
-import type { VaultBackend } from '../cli/backend'
+import { createBackend, type VaultBackend } from '../cli/backend'
 import { resolveTarget, type VaultTarget } from '../cli/vault-target'
 import { RemoteRequestError } from '../main/remote/connection'
 import {
@@ -175,6 +175,88 @@ describe('list_tasks', () => {
     expect(contents(await callTool('list_tasks', { status: 'all' }, tasksBackend))).toContain(
       'Cancelled plan'
     )
+  })
+})
+
+// The ZenNotes/tui#21 probe cases, through the real tools on a root-mode
+// vault, where the inbox is the vault root and the internal dir, the
+// attachments dir and the other buckets are all one subpath away. Mirrors
+// TestMCPToolsStayInsideTheNoteFolders in ZenNotes/tui's internal/mcp.
+describe('tools stay inside the note folders (tui#21 Phase 0)', () => {
+  let base: string
+  let root: string
+
+  beforeEach(async () => {
+    base = await fsp.mkdtemp(path.join(os.tmpdir(), 'zennotes-mcp-tools-safety-'))
+    root = path.join(base, 'vault')
+    vi.stubEnv('ZENNOTES_CONFIG_DIR', path.join(base, 'config'))
+    const files: Record<string, string> = {
+      '.zennotes/vault.json': '{"primaryNotesLocation":"root"}',
+      'Projects/Plan.md': '# Plan\n',
+      'Projects/notes.txt': 'plain text\n',
+      'attachements/img.png': 'PNG',
+      'archive/Old.md': '# Old\n',
+      '../outside/secret.md': '# OUTSIDE SECRET\n'
+    }
+    for (const [rel, body] of Object.entries(files)) {
+      await fsp.mkdir(path.dirname(path.join(root, rel)), { recursive: true })
+      await fsp.writeFile(path.join(root, rel), body)
+    }
+    await fsp.symlink(path.join(base, 'outside'), path.join(root, 'Projects', 'link'))
+  })
+
+  afterEach(async () => {
+    vi.unstubAllEnvs()
+    await fsp.rm(base, { recursive: true, force: true })
+  })
+
+  it('refuses what reaches past them and keeps the vault whole', async () => {
+    const local = createBackend({ kind: 'local', root })
+    const refused = async (name: string, args: Record<string, unknown>, text: string) =>
+      await expect(callTool(name, args, local)).rejects.toThrow(text)
+    await refused(
+      'move_note',
+      { path: '.zennotes/vault.json', targetFolder: 'inbox', targetSubpath: 'Projects' },
+      'Note not in a known folder'
+    )
+    await refused('read_note', { path: 'Projects/vault.json' }, 'Not a Markdown note: Projects/vault.json')
+    await refused(
+      'create_note',
+      { folder: 'inbox', subpath: '.zennotes', title: 'planted' },
+      'Not a note folder: .zennotes'
+    )
+    await refused(
+      'delete_folder',
+      { folder: 'inbox', subpath: 'attachements', confirm: true },
+      'Not a note folder: attachements'
+    )
+    await refused(
+      'delete_folder',
+      { folder: 'inbox', subpath: 'archive', confirm: true },
+      'Not a note folder: archive'
+    )
+    await refused(
+      'delete_folder',
+      { folder: 'inbox', subpath: 'x/..', confirm: true },
+      'Cannot delete the top-level folder'
+    )
+    await refused(
+      'rename_folder',
+      { folder: 'inbox', oldSubpath: '.zennotes', newSubpath: 'Projects/internals' },
+      'Not a note folder: .zennotes'
+    )
+    await refused('delete_note', { path: '.zennotes/vault.json', confirm: true }, 'Note not in a known folder')
+    await refused('archive_note', { path: '.zennotes/vault.json' }, 'Note not in a known folder')
+    await refused('read_note', { path: 'Projects/link/secret.md' }, 'Path escapes vault')
+    await refused('read_note', { path: 'Projects/notes.txt' }, 'Not a Markdown note: Projects/notes.txt')
+
+    for (const rel of ['.zennotes/vault.json', 'Projects/Plan.md', 'attachements/img.png', 'archive/Old.md']) {
+      await expect(fsp.stat(path.join(root, rel))).resolves.toBeTruthy()
+    }
+    await expect(fsp.stat(path.join(root, '.zennotes', 'planted.md'))).rejects.toThrow(/ENOENT/)
+    expect(await callTool('read_note', { path: 'Projects/Plan.md' }, local)).toMatchObject({
+      body: '# Plan\n'
+    })
   })
 })
 

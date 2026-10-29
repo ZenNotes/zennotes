@@ -2,6 +2,7 @@ import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadat
 import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
 import { agentEditFolderPath, removeAgentEditRecord } from '../main/agent-edit-files'
 import { fileIdentity, isSameFile } from '../main/same-file'
+import { atomicWriteTarget, renameWithRetry } from '../main/atomic-write'
 import { readSavedServerToken as readZnSavedServerToken } from '../main/remote/zn-credentials'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
@@ -25,7 +26,8 @@ import { inlineTaskField, noteTasksMode, type NoteTasksMode } from '@shared/task
 import {
   isPathExcludedFromTasks,
   normalizeTasksExcludedFolders,
-  normalizeTasksIncludedFolders
+  normalizeTasksIncludedFolders,
+  rewriteTasksFoldersForRename
 } from '@shared/tasks-excluded-folders'
 import {
   DEFAULT_TYPST_PREAMBLE_FOLDER,
@@ -614,27 +616,125 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/')
 }
 
-function resolveSafe(root: string, rel: string): string {
-  const abs = path.resolve(root, rel)
+/**
+ * Resolve a vault-relative path under `root`, refusing anything that lands
+ * outside it: through `..`, or through a symbolic link on the way whose target
+ * is outside. Components that do not exist yet are left alone (they cannot be
+ * links until they are created). This used to be lexical only, so read_note
+ * through `Projects/link -> /elsewhere` returned a file from outside the
+ * vault, which zn's SafeJoin (internal/vault/paths.go in ZenNotes/tui) has
+ * always refused; the walk below mirrors it.
+ */
+async function resolveSafe(root: string, rel: string): Promise<string> {
   const rootAbs = path.resolve(root)
+  const abs = path.resolve(rootAbs, rel)
   if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) {
     throw new Error(`Path escapes vault: ${rel}`)
+  }
+  if (abs === rootAbs) return abs
+  let rootReal: string
+  try {
+    rootReal = await fs.realpath(rootAbs)
+  } catch {
+    return abs
+  }
+  let walk = rootAbs
+  for (const part of path.relative(rootAbs, abs).split(path.sep)) {
+    walk = path.join(walk, part)
+    let info
+    try {
+      info = await fs.lstat(walk)
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return abs
+      throw err
+    }
+    if (!info.isSymbolicLink()) continue
+    const target = await fs.realpath(walk)
+    const back = path.relative(rootReal, target)
+    if (back === '..' || back.startsWith(`..${path.sep}`) || path.isAbsolute(back)) {
+      throw new Error(`Path escapes vault: ${rel}`)
+    }
+    walk = target
   }
   return abs
 }
 
-/**
- * Resolve a note an edit is about to write, and refuse anything outside the
- * note folders BEFORE a byte lands. The edits used to write first and check
- * after, so `write_note` on `.zennotes/...` created the file and only then
- * reported an error: an assistant could plant comments, creation dates or
- * agent edit records, the files that say what a note used to be.
- */
-async function noteForWrite(root: string, rel: string): Promise<{ abs: string; folder: NoteFolder }> {
-  const abs = resolveSafe(root, rel)
+/** Whether a top-level name is one the root walk hides: the internal dir, an
+ *  attachments dir or another bucket's directory. A different spelling still
+ *  is one when it names the same directory on disk, as a case variant does on
+ *  macOS and Windows. Mirrors isHiddenTopName in ZenNotes/tui. */
+async function isHiddenTopName(
+  root: string,
+  name: string,
+  paths: SystemFolderPathsMap
+): Promise<boolean> {
+  const hidden = hiddenRootNamesWith(paths)
+  if (hidden.has(name)) return true
+  const variants = [...hidden].filter((h) => h.toLowerCase() === name.toLowerCase())
+  if (variants.length === 0) return false
+  const identity = (p: string) => fs.lstat(p, { bigint: true }).catch(() => null)
+  const self = await identity(path.join(root, name))
+  if (!self) return false
+  for (const variant of variants) {
+    const other = await identity(path.join(root, variant))
+    if (other && isSameFile(self, other)) return true
+  }
+  return false
+}
+
+/** The bucket a note (`isDir` false) or folder (`isDir` true) at `abs`
+ *  belongs to as the listings see it, or null. They never descend into a dot
+ *  directory at any depth, nor show the internal dir, an attachments dir or
+ *  another bucket's directory as part of the inbox, so neither does this. */
+async function classifyPath(root: string, abs: string, isDir: boolean): Promise<NoteFolder | null> {
+  const rel = toPosix(path.relative(root, abs))
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null
+  const segments = rel.split('/')
+  const dirs = isDir ? segments : segments.slice(0, -1)
+  if (dirs.some((segment) => segment.startsWith('.'))) return null
   const folder = await folderOf(root, abs)
+  if (folder !== 'inbox') return folder
+  return (await isHiddenTopName(root, segments[0], await readSystemFolderPaths(root)))
+    ? null
+    : folder
+}
+
+/**
+ * Resolve a note a tool reads, edits, moves or deletes, and refuse anything
+ * outside the note folders BEFORE it is touched. The edits used to write first
+ * and check after, so `write_note` on `.zennotes/...` created the file and
+ * only then reported an error; the moves and delete_note never checked, so
+ * move_note carried `.zennotes/vault.json` into a note folder for read_note to
+ * read, and archive_note, move_to_trash and delete_note took it away.
+ */
+async function resolveNote(root: string, rel: string): Promise<{ abs: string; folder: NoteFolder }> {
+  const abs = await resolveSafe(root, rel)
+  const folder = await classifyPath(root, abs, false)
   if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return { abs, folder }
+}
+
+/**
+ * The directory a create, move, rename or delete names by bucket and subpath.
+ * It must be a folder the listings show in that bucket: a subpath through a
+ * dot directory, or one that reaches the internal dir, an attachments dir or
+ * another bucket (in root mode the inbox IS the vault root, so all of them sit
+ * one level down) is refused. A subpath that resolves to nothing, `x/..`
+ * included, is the bucket root itself, which callers that need a subfolder
+ * refuse: delete_folder on `x/..` once removed the whole vault in root mode.
+ * Mirrors bucketDir in ZenNotes/tui.
+ */
+async function bucketDir(root: string, folder: NoteFolder, subpath: string): Promise<string> {
+  const base = path.resolve(await folderRoot(root, folder))
+  const clean = subpath.replace(/^\/+|\/+$/g, '')
+  if (!clean) return base
+  const abs = await resolveSafe(base, clean)
+  if (abs === base) return base
+  if ((await classifyPath(root, abs, true)) !== folder) {
+    throw new Error(`Not a note folder: ${clean}`)
+  }
+  return abs
 }
 
 async function folderOf(root: string, abs: string): Promise<NoteFolder | null> {
@@ -919,16 +1019,17 @@ export async function listAssets(root: string): Promise<
 /* ---------- Read / write / create ------------------------------------ */
 
 export async function readNote(root: string, rel: string): Promise<NoteContent> {
-  const abs = resolveSafe(root, rel)
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  const { abs, folder } = await resolveNote(root, rel)
+  // A note is a Markdown file. Anything else in a note folder (a root-mode
+  // vault that is also a code checkout holds plenty) is not one to read.
+  if (path.extname(abs).toLowerCase() !== '.md') throw new Error(`Not a Markdown note: ${rel}`)
   const body = await fs.readFile(abs, 'utf8')
   const meta = await readMeta(root, abs, folder)
   return { ...meta, body }
 }
 
 export async function writeNote(root: string, rel: string, body: string): Promise<NoteMeta> {
-  const { abs, folder } = await noteForWrite(root, rel)
+  const { abs, folder } = await resolveNote(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, body, 'utf8')
@@ -941,7 +1042,7 @@ export async function writeNote(root: string, rel: string, body: string): Promis
  *  Absence must be null and every other failure must throw: the database
  *  composition reads null as "no schema yet" and infers one over it. */
 export async function readVaultFileTextOrNull(root: string, rel: string): Promise<string | null> {
-  const abs = resolveSafe(root, rel)
+  const abs = await resolveSafe(root, rel)
   try {
     return await fs.readFile(abs, 'utf8')
   } catch (err) {
@@ -953,7 +1054,7 @@ export async function readVaultFileTextOrNull(root: string, rel: string): Promis
 
 /** Write any vault file's text, creating parent directories. */
 export async function writeVaultFileText(root: string, rel: string, text: string): Promise<void> {
-  const abs = resolveSafe(root, rel)
+  const abs = await resolveSafe(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, text, 'utf8')
@@ -1007,11 +1108,7 @@ export async function createNote(
 ): Promise<NoteMeta> {
   if (folder === 'trash') throw new Error('Refusing to create a note directly in trash/')
   const base = sanitizeTitle(title ?? 'Untitled')
-  const clean = subpath.replace(/^\/+|\/+$/g, '')
-  const folderAbs = await folderRoot(root, folder)
-  const dir = clean
-    ? resolveSafe(folderAbs, clean)
-    : folderAbs
+  const dir = await bucketDir(root, folder, subpath)
   await fs.mkdir(dir, { recursive: true })
   const finalTitle = await uniqueTitle(dir, base)
   const abs = path.join(dir, `${finalTitle}.md`)
@@ -1024,9 +1121,7 @@ export async function createNote(
 }
 
 export async function renameNote(root: string, rel: string, nextTitle: string): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  const { abs, folder } = await resolveNote(root, rel)
   const dir = path.dirname(abs)
   const trimmed = sanitizeTitle(nextTitle)
   const target = path.join(dir, `${trimmed}.md`)
@@ -1094,11 +1189,9 @@ async function moveBetweenFolders(
   rel: string,
   target: NoteFolder
 ): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
+  const { abs } = await resolveNote(root, rel)
   const filename = path.basename(abs)
-  const subpath = await folderSubpathOf(root, abs)
-  const targetRoot = await folderRoot(root, target)
-  const destDir = subpath ? resolveSafe(targetRoot, subpath) : targetRoot
+  const destDir = await bucketDir(root, target, await folderSubpathOf(root, abs))
   await fs.mkdir(destDir, { recursive: true })
   const baseTitle = path.basename(filename, path.extname(filename))
   const finalTitle = await uniqueTitle(destDir, baseTitle)
@@ -1120,16 +1213,10 @@ export async function moveNote(
   targetFolder: NoteFolder,
   targetSubpath: string
 ): Promise<NoteMeta> {
-  const oldAbs = resolveSafe(root, oldRel)
+  const { abs: oldAbs, folder } = await resolveNote(root, oldRel)
   const filename = path.basename(oldAbs)
-  const cleanSub = targetSubpath.replace(/^\/+|\/+$/g, '')
-  const folderAbs = await folderRoot(root, targetFolder)
-  const destDir = cleanSub ? resolveSafe(folderAbs, cleanSub) : folderAbs
-  if (path.dirname(oldAbs) === destDir) {
-    const folder = await folderOf(root, oldAbs)
-    if (!folder) throw new Error(`Note not in a known folder: ${oldRel}`)
-    return await readMeta(root, oldAbs, folder)
-  }
+  const destDir = await bucketDir(root, targetFolder, targetSubpath)
+  if (path.dirname(oldAbs) === destDir) return await readMeta(root, oldAbs, folder)
   await fs.mkdir(destDir, { recursive: true })
   const ext = path.extname(filename)
   const baseTitle = path.basename(filename, ext)
@@ -1140,9 +1227,7 @@ export async function moveNote(
 }
 
 export async function duplicateNote(root: string, rel: string): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  const { abs, folder } = await resolveNote(root, rel)
   const dir = path.dirname(abs)
   const ext = path.extname(abs)
   const baseTitle = path.basename(abs, ext)
@@ -1155,7 +1240,7 @@ export async function duplicateNote(root: string, rel: string): Promise<NoteMeta
 }
 
 export async function deleteNote(root: string, rel: string): Promise<void> {
-  const abs = resolveSafe(root, rel)
+  const { abs } = await resolveNote(root, rel)
   const notePath = toPosix(path.relative(root, abs))
   await fs.rm(abs, { force: true })
   // A note's discussion goes with it, as on the desktop: left behind, it would
@@ -1171,7 +1256,7 @@ export async function emptyTrash(root: string): Promise<void> {
     const entries = await fs.readdir(trashDir)
     await Promise.all(entries.map((e) => fs.rm(path.join(trashDir, e), { recursive: true, force: true })))
     const trashRel = toPosix(path.relative(root, trashDir))
-    await fs.rm(resolveSafe(noteCommentsRoot(root), trashRel), { recursive: true, force: true })
+    await fs.rm(await resolveSafe(noteCommentsRoot(root), trashRel), { recursive: true, force: true })
     await removeNoteCreation(root, trashRel, true)
     await removeAgentEditRecord(root, trashRel, true)
   } catch {
@@ -1184,11 +1269,101 @@ export async function createFolder(
   topFolder: NoteFolder,
   subpath: string
 ): Promise<void> {
-  const clean = subpath.replace(/^\/+|\/+$/g, '')
-  if (!clean) throw new Error('Folder name is required')
-  const folderAbs = await folderRoot(root, topFolder)
-  const abs = resolveSafe(folderAbs, clean)
+  const abs = await bucketDir(root, topFolder, subpath)
+  if (abs === path.resolve(await folderRoot(root, topFolder))) {
+    throw new Error('Folder name is required')
+  }
   await fs.mkdir(abs, { recursive: true })
+}
+
+/** Repoint a `<bucket>:<subpath>` keyed map (the folder icons and colors) at
+ *  a renamed folder and everything inside it, or null when nothing moves.
+ *  Mirrors rewriteFolderIconsForRename in main/vault.ts; an entry that moves
+ *  wins over a stale one already at its new key. */
+function rewriteFolderKeyedMap(
+  map: Record<string, unknown>,
+  folder: NoteFolder,
+  oldSub: string,
+  newSub: string
+): Record<string, unknown> | null {
+  const exact = `${folder}:${oldSub}`
+  const kept: Record<string, unknown> = {}
+  const moved: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(map)) {
+    if (key === exact || key.startsWith(`${exact}/`)) {
+      moved[`${folder}:${newSub}${key.slice(exact.length)}`] = value
+    } else {
+      kept[key] = value
+    }
+  }
+  return Object.keys(moved).length > 0 ? { ...kept, ...moved } : null
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+
+/**
+ * Keep vault.json's path-keyed settings naming the same folders after a
+ * rename or move, as desktop main, the server and zn do: the Tasks folder
+ * lists, which hold vault-relative paths (a renamed Task folder left behind
+ * would empty Tasks, #962), and the folder icons and colors, keyed by bucket
+ * and subpath. Every other key is written back as read, and vault.json is
+ * written only when an entry moves.
+ */
+async function rewriteSettingsForFolderRename(
+  root: string,
+  folder: NoteFolder,
+  oldSub: string,
+  newSub: string,
+  oldRel: string,
+  newRel: string
+): Promise<void> {
+  const settingsPath = path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE)
+  let raw: unknown
+  try {
+    raw = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
+  } catch {
+    return
+  }
+  if (!isRecord(raw)) return
+  let changed = false
+  const tasks = raw['tasks']
+  if (isRecord(tasks)) {
+    const lists = {
+      ...tasks,
+      ...('excludedFolders' in tasks
+        ? { excludedFolders: normalizeTasksExcludedFolders(tasks['excludedFolders']) }
+        : {}),
+      ...('includedFolders' in tasks
+        ? { includedFolders: normalizeTasksIncludedFolders(tasks['includedFolders']) }
+        : {})
+    }
+    const inside = (list: string[] | undefined): boolean =>
+      (list ?? []).some((entry) => entry === oldRel || entry.startsWith(`${oldRel}/`))
+    if (inside(lists.excludedFolders) || inside(lists.includedFolders)) {
+      raw['tasks'] = rewriteTasksFoldersForRename(lists, oldRel, newRel)
+      changed = true
+    }
+  }
+  for (const key of ['folderIcons', 'folderColors']) {
+    const map = raw[key]
+    const next = isRecord(map) ? rewriteFolderKeyedMap(map, folder, oldSub, newSub) : null
+    if (next) {
+      raw[key] = next
+      changed = true
+    }
+  }
+  if (!changed) return
+  // Through a temporary file, so the app never reads a half-written vault.json.
+  const target = await atomicWriteTarget(settingsPath)
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`
+  await fs.writeFile(tmp, JSON.stringify(raw, null, 2), { encoding: 'utf8', flag: 'wx' })
+  try {
+    await renameWithRetry(tmp, target)
+  } catch (err) {
+    await fs.rm(tmp, { force: true })
+    throw err
+  }
 }
 
 export async function renameFolder(
@@ -1200,26 +1375,46 @@ export async function renameFolder(
   const oldClean = oldSubpath.replace(/^\/+|\/+$/g, '')
   const newClean = newSubpath.replace(/^\/+|\/+$/g, '')
   if (!oldClean || !newClean) throw new Error('Both old and new folder paths are required')
-  const folderAbs = await folderRoot(root, topFolder)
-  const oldAbs = resolveSafe(folderAbs, oldClean)
-  const newAbs = resolveSafe(folderAbs, newClean)
+  // Both ends are note folders of this bucket and neither is its root: the
+  // internal dir, an attachments dir or another bucket must not be moved into
+  // notes, nor a note folder into them.
+  const base = path.resolve(await folderRoot(root, topFolder))
+  const oldAbs = await bucketDir(root, topFolder, oldClean)
+  const newAbs = await bucketDir(root, topFolder, newClean)
+  if (oldAbs === base || newAbs === base) {
+    throw new Error('Both old and new folder paths are required')
+  }
   if (newAbs === oldAbs) return newClean
   if ((newAbs + path.sep).startsWith(oldAbs + path.sep)) {
     throw new Error('Cannot move a folder into itself')
   }
+  // A missing folder is an error, as it is in the app and in zn, not a rename
+  // of nothing that still rewrites vault.json.
+  await fs.stat(oldAbs)
   const oldRel = toPosix(path.relative(root, oldAbs))
   const newRel = toPosix(path.relative(root, newAbs))
   // The folder's comments, creation dates and agent edit records move as one
-  // with it, the way the desktop's renameFolderTrees does; a failure puts all
-  // of them back.
+  // with it, the way the desktop's renameFolderTrees does, and so do the
+  // vault.json settings that name it; a failure puts all of them back.
   await relocateFolderTrees(
     [
       [oldAbs, newAbs],
-      [resolveSafe(noteCommentsRoot(root), oldRel), resolveSafe(noteCommentsRoot(root), newRel)],
+      [
+        await resolveSafe(noteCommentsRoot(root), oldRel),
+        await resolveSafe(noteCommentsRoot(root), newRel)
+      ],
       [await noteMetadataPath(root, oldRel, true), await noteMetadataPath(root, newRel, true)],
       [agentEditFolderPath(root, oldRel), agentEditFolderPath(root, newRel)]
     ],
-    async () => {}
+    () =>
+      rewriteSettingsForFolderRename(
+        root,
+        topFolder,
+        toPosix(path.relative(base, oldAbs)),
+        toPosix(path.relative(base, newAbs)),
+        oldRel,
+        newRel
+      )
   )
   return newClean
 }
@@ -1229,13 +1424,15 @@ export async function deleteFolder(
   topFolder: NoteFolder,
   subpath: string
 ): Promise<void> {
-  const clean = subpath.replace(/^\/+|\/+$/g, '')
-  if (!clean) throw new Error('Cannot delete the top-level folder')
-  const folderAbs = await folderRoot(root, topFolder)
-  const abs = resolveSafe(folderAbs, clean)
+  // `x/..` resolves to the bucket root, which in root mode is the whole vault:
+  // checked on the resolved directory, not the string.
+  const abs = await bucketDir(root, topFolder, subpath)
+  if (abs === path.resolve(await folderRoot(root, topFolder))) {
+    throw new Error('Cannot delete the top-level folder')
+  }
   const rel = toPosix(path.relative(root, abs))
   await fs.rm(abs, { recursive: true, force: true })
-  await fs.rm(resolveSafe(noteCommentsRoot(root), rel), { recursive: true, force: true })
+  await fs.rm(await resolveSafe(noteCommentsRoot(root), rel), { recursive: true, force: true })
   await removeNoteCreation(root, rel, true)
   await removeAgentEditRecord(root, rel, true)
 }
@@ -1752,10 +1949,8 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
 
   // File task: metadata lives in frontmatter, not a `- [ ]` checkbox line.
   if (indexStr === 'task') {
-    const abs = resolveSafe(root, rel)
+    const { abs, folder } = await resolveNote(root, rel)
     const body = await fs.readFile(abs, 'utf8')
-    const folder = await folderOf(root, abs)
-    if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
     const ctx = {
       path: toPosix(path.relative(root, abs)),
       title: path.basename(abs, path.extname(abs)),
@@ -1772,14 +1967,14 @@ export async function toggleTask(root: string, taskId: string): Promise<VaultTas
   }
 
   const targetIndex = parseTaskIndex(taskId, indexStr)
-  const abs = resolveSafe(root, rel)
+  // Classified before the write, like the other edits: checked after, a task
+  // line in a `.zennotes` file (a template) was toggled before the refusal.
+  const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   const newBody = toggleTaskInBody(body, targetIndex)
   if (newBody == null) return null
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, newBody, 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   const parsed = parseTasksFromBody(
     newBody,
     {
@@ -1903,7 +2098,7 @@ export function appendToBody(body: string, text: string): string {
 }
 
 export async function appendToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
-  const { abs, folder } = await noteForWrite(root, rel)
+  const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, appendToBody(body, text), 'utf8')
@@ -1920,7 +2115,7 @@ export function prependToBody(body: string, text: string): string {
 }
 
 export async function prependToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
-  const { abs, folder } = await noteForWrite(root, rel)
+  const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, prependToBody(body, text), 'utf8')
@@ -1961,7 +2156,7 @@ export async function replaceInNote(
   replace: string,
   occurrence: 'first' | 'all' = 'first'
 ): Promise<{ meta: NoteMeta; replacements: number }> {
-  const { abs, folder } = await noteForWrite(root, rel)
+  const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   const { body: next, replacements } = replaceInBody(body, find, replace, occurrence)
   if (replacements === 0) return { meta: await readMeta(root, abs, folder), replacements: 0 }
@@ -1976,7 +2171,7 @@ export async function insertAtLine(
   lineNumber: number,
   text: string
 ): Promise<NoteMeta> {
-  const { abs, folder } = await noteForWrite(root, rel)
+  const { abs, folder } = await resolveNote(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, insertAtLineInBody(body, lineNumber, text), 'utf8')
@@ -2019,7 +2214,7 @@ export async function writeNoteComments(
 }
 
 export async function backlinks(root: string, rel: string): Promise<NoteMeta[]> {
-  const abs = resolveSafe(root, rel)
+  const abs = await resolveSafe(root, rel)
   const all = await listNotes(root)
   return backlinksIn(all, toPosix(path.relative(root, abs)))
 }
