@@ -205,9 +205,11 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
   useDatabaseViewCommand(csvPath, isActive, (command) => {
     if (command !== 'pick-selected') return
     if (selected.size === 0) {
-      useToastStore
-        .getState()
-        .addToast('Select rows first: Space or x in the grid, or the row checkboxes.', 'info')
+      // Name x only where Vim mode is on, as every key hint does.
+      const how = useStore.getState().vimMode
+        ? 'Space or x in the grid, or the row checkboxes'
+        : 'the row checkboxes, or Space in the grid'
+      useToastStore.getState().addToast(`Select rows first: ${how}.`, 'info')
       return
     }
     pickSelected()
