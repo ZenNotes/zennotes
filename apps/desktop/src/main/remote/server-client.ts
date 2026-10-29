@@ -27,6 +27,7 @@ import {
   normalizeBaseUrl,
   requestErrorMessage
 } from './connection'
+import { trustSystemCertificates } from '../system-trust'
 
 export interface RemoteServerClientOptions {
   baseUrl: string
@@ -76,6 +77,8 @@ export class RemoteServerClient {
   private readonly onStalePath: ((path: string) => void) | null
 
   constructor(options: RemoteServerClientOptions) {
+    // Every request and the change feed go through Node's TLS (system-trust.ts).
+    trustSystemCertificates()
     this.baseUrl = normalizeBaseUrl(options.baseUrl)
     this.authToken = options.authToken?.trim() || null
     this.onStalePath = options.onStalePath ?? null

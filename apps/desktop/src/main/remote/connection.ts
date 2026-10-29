@@ -10,6 +10,8 @@
  * module instead and stays fetch-only.
  */
 
+import { trustSystemCertificates } from '../system-trust'
+
 export interface RemoteRequestOptions {
   baseUrl: string
   authToken?: string | null
@@ -91,6 +93,7 @@ export async function remoteJsonRequest<T>(
     headers.set('Content-Type', 'application/json')
   }
 
+  trustSystemCertificates()
   let response: Response
   try {
     response = await fetch(`${options.baseUrl}${path}`, {

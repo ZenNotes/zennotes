@@ -346,6 +346,7 @@ import {
   resolveMarkdownOpenTarget,
 } from "./file-open";
 import { isStandaloneLink, resolveStandaloneLink } from "./standalone-links";
+import { trustSystemCertificates } from "./system-trust";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nodeRequire = createRequire(import.meta.url);
@@ -2053,6 +2054,9 @@ async function createWindow(
     );
     if (restoredState?.isMaximized) win.maximize();
     win.show();
+    // Cloud, updates and link previews trust the system's certificates too,
+    // read once the window is up rather than on the boot path (#1009).
+    setTimeout(trustSystemCertificates, 2000);
   });
   win.webContents.on("did-start-loading", () => {
     readyWindowIds.delete(win.id);
