@@ -2255,8 +2255,11 @@ function conflictPath(
 /**
  * The refused paths still set aside at `now`: one whose retry window has
  * passed is offered to Cloud again, and one no longer on this device has
- * nothing left to wait for. State written by an older client, or damaged,
- * reads as none. Returns the state's own record when nothing changed.
+ * nothing left to wait for. A refusal stamped later than `now` was taken
+ * while the clock ran ahead; it counts as passed, or setting the clock back
+ * would hold the file for the whole gap as well as its day. State written by
+ * an older client, or damaged, reads as none. Returns the state's own record
+ * when nothing changed.
  */
 function currentRefusedPaths(
   state: CloudSyncState,
@@ -2275,7 +2278,8 @@ function currentRefusedPaths(
       typeof entry.path === 'string' &&
       typeof entry.refused_at === 'number' &&
       typeof entry.detail === 'string'
-    if (valid && present.has(key) && now - entry.refused_at < CLOUD_SYNC_REFUSED_PATH_RETRY_MS) kept[key] = entry
+    const waiting = valid && entry.refused_at <= now && now - entry.refused_at < CLOUD_SYNC_REFUSED_PATH_RETRY_MS
+    if (waiting && present.has(key)) kept[key] = entry
     else changed = true
   }
   return changed ? kept : stored

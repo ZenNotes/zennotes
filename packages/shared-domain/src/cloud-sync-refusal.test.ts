@@ -151,6 +151,21 @@ describe('a path Cloud refuses (#1004)', () => {
     expect(h.states.current()!).not.toHaveProperty('refused_paths')
   })
 
+  it('is offered again when it was set aside while the clock ran ahead', async () => {
+    // A refusal stamped by a clock that was later set back would otherwise
+    // wait out the whole gap before its day even began.
+    const h = harness([text(NOTE), text(RECORD)], {
+      refused_paths: {
+        [RECORD.toLowerCase()]: { path: RECORD, refused_at: Date.now() + 30 * 24 * 60 * 60 * 1000, detail: 'old' }
+      }
+    })
+
+    await h.coordinator.sync()
+
+    expect(h.requests.map(h.paths)).toEqual([[RECORD, NOTE], [NOTE]])
+    expect(h.states.current()!.refused_paths?.[RECORD.toLowerCase()].refused_at).toBe(Date.now())
+  })
+
   it('stops waiting once the file is gone from this device', async () => {
     const h = harness([text(NOTE), text(RECORD)])
     await h.coordinator.sync()
