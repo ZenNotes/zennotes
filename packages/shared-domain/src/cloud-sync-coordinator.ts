@@ -542,8 +542,8 @@ export class CloudSyncCoordinator {
       localItems = await this.repository.scan()
     }
     const refusals = currentRefusedPaths(state, localItems, Date.now())
-    if (refusals !== state.refused_paths) {
-      state = withRefusedPaths(state, refusals)
+    if (refusals.standing !== state.refused_paths) {
+      state = withRefusedPaths(state, refusals.standing)
       await this.states.save(state)
     }
     const pendingPathKeys = new Set([
@@ -567,18 +567,53 @@ export class CloudSyncCoordinator {
     // A path Cloud refused waits out its retry window. Only the write that
     // carries it waits: tracked state is untouched, so a move held back here
     // leaves the item where Cloud has it rather than turning into a delete.
+    // A delete is the half that can lose a note: one renamed and edited
+    // before a sync plans as a delete of the old item plus a new file, and
+    // if the file is refused the delete must wait with it (heldPathRecord).
+    // So deletes go last, after every write of the run has been answered,
+    // and any a held path keeps in Cloud are left out of each request.
     const plan = planCloudSyncMutations(mutationState, mutationItems, this.ids)
-    plan.mutations = plan.mutations.filter(
-      (mutation) => mutation.type === 'delete' || !refusals?.[cloudSyncPathKey(mutation.path)]
+    const runDeletes = new Map<string, string>()
+    const writes: CloudSyncMutation[] = []
+    const deletes: CloudSyncMutation[] = []
+    for (const mutation of plan.mutations) {
+      if (mutation.type !== 'delete') continue
+      runDeletes.set(mutation.item_id, mutationState.items[mutation.item_id].path)
+      deletes.push(mutation)
+    }
+    const refusedPaths: Record<string, CloudSyncStoredRefusedPath> = { ...state.refused_paths }
+    for (const mutation of plan.mutations) {
+      if (mutation.type === 'delete') continue
+      const key = cloudSyncPathKey(mutation.path)
+      const entry = refusedPaths[key]
+      if (!entry) {
+        writes.push(mutation)
+        continue
+      }
+      refusedPaths[key] = heldPathRecord(mutation, entry, entry.refused_at, entry.detail, mutationState, runDeletes)
+    }
+    const keptItems = new Set(
+      Object.values(refusedPaths).flatMap((entry) => Object.keys(entry.kept_items ?? {}))
     )
+    if (JSON.stringify(refusedPaths) !== JSON.stringify(state.refused_paths ?? {})) {
+      state = withRefusedPaths(state, refusedPaths)
+      await this.states.save(state)
+    }
+    const withoutKeptDeletes = (mutations: CloudSyncMutation[]): CloudSyncMutationRequest => ({
+      mutations: mutations.filter((mutation) => mutation.type !== 'delete' || !keptItems.has(mutation.item_id))
+    })
     const conflicts: CloudSyncConflict[] = []
     const pausedPathsByKey = new Map<string, Set<string>>()
     const acknowledgedSequences = new Set<number>()
     let mutationCursor = state.cursor
     let pushed = 0
+    // Writes a full Cloud answered before this run's deletes made room.
+    const waitingForRoom: CloudSyncUpsertMutation[] = []
+    let deleted = false
 
-    for (const planned of mutationBatches(plan.mutations)) {
-      let batch = planned
+    const batches = mutationBatches([...writes, ...deletes])
+    for (let index = 0; index < batches.length; index += 1) {
+      let batch = withoutKeptDeletes(batches[index].mutations)
       while (batch.mutations.length > 0) {
         let response: CloudSyncMutationResponse
         let refused: Array<CloudSyncUpsertMutation | CloudSyncMoveMutation> = []
@@ -613,8 +648,9 @@ export class CloudSyncCoordinator {
         }))
         conflicts.push(...annotatedConflicts)
         for (const conflict of annotatedConflicts) {
-          if (conflict.code !== 'PATH_CONFLICT') continue
           const mutation = byOperation.get(conflict.operation_id)
+          if (mutation?.type === 'upsert' && waitsForRoom(conflict)) waitingForRoom.push(mutation)
+          if (conflict.code !== 'PATH_CONFLICT') continue
           const paths = [
             conflict.path,
             conflict.current_path,
@@ -631,25 +667,40 @@ export class CloudSyncCoordinator {
         mutationCursor = Math.max(mutationCursor, response.cursor)
         for (const acknowledgement of response.acknowledged) {
           acknowledgedSequences.add(acknowledgement.sequence)
+          if (byOperation.get(acknowledgement.operation_id)?.type === 'delete') deleted = true
         }
         if (refused.length > 0) {
           const now = Date.now()
-          const next = { ...state.refused_paths }
           for (const mutation of refused) {
-            next[cloudSyncPathKey(mutation.path)] = { path: mutation.path, refused_at: now, detail: refusalDetail }
+            const key = cloudSyncPathKey(mutation.path)
+            const entry = heldPathRecord(mutation, refusals.due[key], now, refusalDetail, mutationState, runDeletes)
+            refusedPaths[key] = entry
+            for (const itemId of Object.keys(entry.kept_items ?? {})) keptItems.add(itemId)
           }
-          state = withRefusedPaths(state, next)
+          state = withRefusedPaths(state, refusedPaths)
         }
         await this.states.save(state)
         if (refused.length === 0) break
         const answered = new Set(
           [...response.acknowledged, ...response.conflicts].map((answer) => answer.operation_id)
         )
-        batch = {
-          mutations: batch.mutations.filter(
+        batch = withoutKeptDeletes(
+          batch.mutations.filter(
             (mutation) => !refused.some((item) => item === mutation) && !answered.has(mutation.operation_id)
           )
-        }
+        )
+      }
+      // Cloud counts room one write at a time, in order. Deletes used to go
+      // ahead of new files, so a full Cloud freed the old copy of a renamed
+      // note before counting the new one; sent last, they free it after the
+      // new file was turned away. That file goes once more, under a new
+      // operation id, since Cloud answers a repeated id with its first answer.
+      if (index === batches.length - 1 && deleted && waitingForRoom.length > 0) {
+        const retried = new Set(waitingForRoom.map((mutation) => mutation.operation_id))
+        const again = waitingForRoom.splice(0).map((mutation) => ({ ...mutation, operation_id: this.ids.operationId() }))
+        conflicts.splice(0, conflicts.length, ...conflicts.filter((conflict) => !retried.has(conflict.operation_id)))
+        batches.push(...mutationBatches(again))
+        deleted = false
       }
     }
 
@@ -2253,21 +2304,26 @@ function conflictPath(
 }
 
 /**
- * The refused paths still set aside at `now`: one whose retry window has
- * passed is offered to Cloud again, and one no longer on this device has
- * nothing left to wait for. A refusal stamped later than `now` was taken
- * while the clock ran ahead; it counts as passed, or setting the clock back
- * would hold the file for the whole gap as well as its day. State written by
- * an older client, or damaged, reads as none. Returns the state's own record
- * when nothing changed.
+ * The refused paths still set aside at `now` (`standing`): one whose retry
+ * window has passed is offered to Cloud again (`due`, which keeps its record
+ * for this run, so a second refusal keeps what the first one kept), and one
+ * no longer on this device has nothing left to wait for. A refusal stamped
+ * later than `now` was taken while the clock ran ahead; it counts as passed,
+ * or setting the clock back would hold the file for the whole gap as well as
+ * its day. State written by an older client, or damaged, reads as none.
+ * `standing` is the state's own record when nothing changed.
  */
 function currentRefusedPaths(
   state: CloudSyncState,
   localItems: readonly CloudSyncLocalItem[],
   now: number
-): Record<string, CloudSyncStoredRefusedPath> | undefined {
+): {
+  standing: Record<string, CloudSyncStoredRefusedPath> | undefined
+  due: Record<string, CloudSyncStoredRefusedPath>
+} {
   const stored = state.refused_paths
-  if (stored === undefined) return undefined
+  const due: Record<string, CloudSyncStoredRefusedPath> = {}
+  if (stored === undefined) return { standing: undefined, due }
   const present = new Set(localItems.map((item) => cloudSyncPathKey(item.path)))
   const kept: Record<string, CloudSyncStoredRefusedPath> = {}
   let changed = typeof stored !== 'object' || stored === null || Array.isArray(stored)
@@ -2277,12 +2333,79 @@ function currentRefusedPaths(
       typeof entry === 'object' &&
       typeof entry.path === 'string' &&
       typeof entry.refused_at === 'number' &&
-      typeof entry.detail === 'string'
-    const waiting = valid && entry.refused_at <= now && now - entry.refused_at < CLOUD_SYNC_REFUSED_PATH_RETRY_MS
-    if (waiting && present.has(key)) kept[key] = entry
-    else changed = true
+      typeof entry.detail === 'string' &&
+      (entry.sha256 === undefined || typeof entry.sha256 === 'string') &&
+      (entry.kept_items === undefined || isStringRecord(entry.kept_items))
+    if (!valid || !present.has(key)) {
+      changed = true
+      continue
+    }
+    if (entry.refused_at <= now && now - entry.refused_at < CLOUD_SYNC_REFUSED_PATH_RETRY_MS) {
+      kept[key] = entry
+    } else {
+      due[key] = entry
+      changed = true
+    }
   }
-  return changed ? kept : stored
+  return { standing: changed ? kept : stored, due }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((item) => typeof item === 'string')
+  )
+}
+
+/**
+ * The record for `write`'s path once it is held: refused by Cloud now, or
+ * still set aside from an earlier run (`prior` is the path's last record).
+ *
+ * A held path keeps notes in Cloud, so their deletes wait with it. A move,
+ * or an upload of a note Cloud has, keeps that note. A new file keeps every
+ * note deleted in the same run: a note renamed and edited before one sync
+ * plans as exactly that, a delete and a new file, and with the old bytes gone
+ * from disk nothing says which delete is its other half. A rule that guessed
+ * and missed would delete the note in Cloud and on every other device, so
+ * this one does not guess; a delete that had nothing to do with it waits
+ * too, which costs a delay, never a note. A held file whose content has not
+ * changed since keeps what it kept. One whose content has changed may now
+ * be another note renamed onto the path, so it also keeps that run's deletes.
+ */
+function heldPathRecord(
+  write: CloudSyncUpsertMutation | CloudSyncMoveMutation,
+  prior: CloudSyncStoredRefusedPath | undefined,
+  refusedAt: number,
+  detail: string,
+  state: CloudSyncState,
+  runDeletes: ReadonlyMap<string, string>
+): CloudSyncStoredRefusedPath {
+  const sha256 = write.type === 'upsert' ? write.content.sha256 : write.content_metadata?.sha256
+  const kept: Record<string, string> = { ...prior?.kept_items }
+  const tracked = state.items[write.item_id]
+  if (tracked) {
+    kept[write.item_id] = tracked.path
+  } else if (prior?.sha256 === undefined || prior.sha256 !== sha256) {
+    for (const [itemId, path] of runDeletes) kept[itemId] = path
+  }
+  return {
+    path: write.path,
+    refused_at: refusedAt,
+    detail,
+    ...(sha256 === undefined ? {} : { sha256 }),
+    ...(Object.keys(kept).length > 0 ? { kept_items: kept } : {})
+  }
+}
+
+/** A capacity answer that room elsewhere in the vault can clear; a file
+ *  over the per-file limit stays too large whatever else is deleted. */
+function waitsForRoom(conflict: CloudSyncConflict): boolean {
+  return (
+    (conflict.code === 'QUOTA_EXCEEDED' || conflict.code === 'CAPACITY_EXCEEDED') &&
+    conflict.capacity?.dimension !== 'sync_max_file_bytes'
+  )
 }
 
 function withRefusedPaths(

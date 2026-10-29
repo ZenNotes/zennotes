@@ -2524,9 +2524,10 @@ describe('CloudSyncCoordinator: rejected mutations name their file', () => {
       ids()
     ).sync()
 
+    // Deletes go after every other write of the run.
     expect(result.conflicts.map((c) => [c.item_id, c.code, c.path])).toEqual([
-      ['gone', 'ITEM_DELETED', 'inbox/Gone.md'],
-      ['kept', 'REVISION_CONFLICT', 'inbox/Kept.md']
+      ['kept', 'REVISION_CONFLICT', 'inbox/Kept.md'],
+      ['gone', 'ITEM_DELETED', 'inbox/Gone.md']
     ])
   })
 })
@@ -2969,9 +2970,9 @@ describe('CloudSyncCoordinator: a cursor older than the change log (CURSOR_EXPIR
       'Fresh.md': 'fresh'
     })
     expect(server.mutations.flatMap((request) => request.mutations)).toEqual([
-      expect.objectContaining({ type: 'delete', item_id: 'gone', base_revision: 1 }),
       expect.objectContaining({ type: 'upsert', item_id: 'plan', base_revision: 1, path: 'Plan.md', content: realContent('mine') }),
-      expect.objectContaining({ type: 'upsert', base_revision: null, path: 'Fresh.md', content: realContent('fresh') })
+      expect.objectContaining({ type: 'upsert', base_revision: null, path: 'Fresh.md', content: realContent('fresh') }),
+      expect.objectContaining({ type: 'delete', item_id: 'gone', base_revision: 1 })
     ])
     expect(result.localConflicts).toEqual([])
     expect(result.pendingConflicts).toEqual([

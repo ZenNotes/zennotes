@@ -118,7 +118,8 @@ describe('a path Cloud refuses (#1004)', () => {
       [RECORD.toLowerCase()]: {
         path: RECORD,
         refused_at: Date.parse('2026-10-29T12:00:00Z'),
-        detail: `HTTP 422 · VALIDATION_FAILED · ${REFUSED}`
+        detail: `HTTP 422 · VALIDATION_FAILED · ${REFUSED}`,
+        sha256: `hash:${RECORD}`
       }
     })
   })
@@ -227,6 +228,159 @@ describe('a path Cloud refuses (#1004)', () => {
 
     await expect(h.coordinator.sync()).rejects.toMatchObject({ status: 422 })
     expect(h.states.current()!).not.toHaveProperty('refused_paths')
+  })
+})
+
+describe('a note on its way to a path Cloud refuses', () => {
+  const tracked = (id: string, path: string, data: string) => ({
+    item_id: id, path, kind: 'text' as const, revision: 1,
+    sha256: `hash:${data}`, byte_length: data.length, media_type: 'text/markdown'
+  })
+  const moved = '.zennotes/agent-edits/moved.json'
+  const kinds = (request: CloudSyncMutationRequest) =>
+    request.mutations.map((mutation) => (mutation.type === 'delete' ? `delete ${mutation.item_id}` : `${mutation.type} ${mutation.path}`))
+
+  it('stays in Cloud when it is edited after its move was refused', async () => {
+    const h = harness([text(moved, 'body')], { items: { note: tracked('note', NOTE, 'body') } })
+    await h.coordinator.sync()
+    expect(h.requests.map(kinds)).toEqual([[`move ${moved}`]])
+    h.requests.length = 0
+
+    // Edited at the refused path: the plan is now "delete the old item,
+    // upload a new file", and the upload is held.
+    h.local.items = [text(moved, 'body edited')]
+    const result = await h.coordinator.sync()
+
+    expect(h.requests).toEqual([])
+    expect(h.states.current()!.items.note.path).toBe(NOTE)
+    expect(result.refusedPaths.map((row) => row.path)).toEqual([moved])
+  })
+
+  it('stays in Cloud when it is renamed and edited before one sync', async () => {
+    const h = harness([text(moved, 'body edited')], { items: { note: tracked('note', NOTE, 'body') } })
+
+    const result = await h.coordinator.sync()
+
+    // Refused whole; the delete is the other half of the refused file and
+    // is not sent again on its own.
+    expect(h.requests.map(kinds)).toEqual([[`upsert ${moved}`, 'delete note']])
+    expect(h.states.current()!.items.note.path).toBe(NOTE)
+    expect(result.refusedPaths.map((row) => row.path)).toEqual([moved])
+
+    h.requests.length = 0
+    await h.coordinator.sync()
+    expect(h.requests).toEqual([])
+  })
+
+  it('leaves Cloud in the same run that Cloud takes the new path', async () => {
+    const h = harness([text(moved, 'body edited')], { items: { note: tracked('note', NOTE, 'body') } })
+    await h.coordinator.sync()
+    h.cloud.refuses = () => false
+    h.requests.length = 0
+
+    vi.advanceTimersByTime(CLOUD_SYNC_REFUSED_PATH_RETRY_MS)
+    const result = await h.coordinator.sync()
+
+    expect(h.requests.map(kinds)).toEqual([[`upsert ${moved}`, 'delete note']])
+    expect(result.refusedPaths).toEqual([])
+    expect(Object.values(h.states.current()!.items).map((row) => row.path)).toEqual([moved])
+  })
+
+  it('is still held when Cloud refuses its new path again a day later', async () => {
+    const h = harness([text(moved, 'body edited')], { items: { note: tracked('note', NOTE, 'body') } })
+    await h.coordinator.sync()
+    h.requests.length = 0
+
+    vi.advanceTimersByTime(CLOUD_SYNC_REFUSED_PATH_RETRY_MS)
+    await h.coordinator.sync()
+
+    expect(h.requests.map(kinds)).toEqual([[`upsert ${moved}`, 'delete note']])
+    expect(h.states.current()!.items.note.path).toBe(NOTE)
+  })
+
+  it('does not hold a later delete of another note', async () => {
+    const other = 'inbox/Other.md'
+    const h = harness([text(moved, 'body edited'), text(other, 'other')], {
+      items: { note: tracked('note', NOTE, 'body'), other: tracked('other', other, 'other') }
+    })
+    await h.coordinator.sync()
+    h.requests.length = 0
+
+    h.local.items = [text(moved, 'body edited')]
+    await h.coordinator.sync()
+
+    expect(h.requests.map(kinds)).toEqual([['delete other']])
+    expect(Object.keys(h.states.current()!.items)).toEqual(['note'])
+  })
+
+  it('holds a delete that comes with a change to the held file, which may be another note renamed onto it', async () => {
+    const second = 'inbox/Second.md'
+    const h = harness([text(moved, 'record'), text(second, 'second')], {
+      items: { second: tracked('second', second, 'second') }
+    })
+    await h.coordinator.sync()
+    expect(h.states.current()!.refused_paths).toBeDefined()
+    h.requests.length = 0
+
+    // Second.md renamed onto the held path and edited, in one go.
+    h.local.items = [text(moved, 'second edited')]
+    await h.coordinator.sync()
+
+    expect(h.requests).toEqual([])
+    expect(h.states.current()!.items.second.path).toBe(second)
+  })
+
+  it('never lets a delete go ahead of a refused file sent in a later request', async () => {
+    // A binary upload goes in a request of its own; it used to follow the
+    // request that carried the delete.
+    const image = (path: string, data: string): CloudSyncLocalItem => ({
+      path, kind: 'binary',
+      content: { encoding: 'base64', data, sha256: `hash:${data}`, byte_length: data.length, media_type: 'image/png' }
+    })
+    const h = harness([image('Refused/a.png', 'cropped')], {
+      items: {
+        a: { item_id: 'a', path: 'Photos/a.png', kind: 'binary', revision: 1, sha256: 'hash:original', byte_length: 8, media_type: 'image/png' }
+      }
+    })
+    h.cloud.refuses = (path) => path.startsWith('Refused/')
+
+    await h.coordinator.sync()
+
+    expect(h.requests.map(kinds)).toEqual([['upsert Refused/a.png']])
+    expect(h.states.current()!.items.a.path).toBe('Photos/a.png')
+  })
+
+  it('sends a new file again once the deletes sent after it make room in a full Cloud', async () => {
+    const other = 'inbox/Other.md'
+    const h = harness([text('inbox/New.md', 'new')], {
+      items: { other: tracked('other', other, 'other') }
+    })
+    // One file left on the plan: the new file fits only once Other.md is gone.
+    let items = 1
+    h.server.mutate = async (_vaultId, body) => {
+      h.requests.push(structuredClone(body))
+      const response = h.answer({ mutations: [] })
+      for (const mutation of body.mutations) {
+        if (mutation.type === 'delete') items -= 1
+        if (mutation.type === 'upsert' && mutation.base_revision === null && items >= 1) {
+          response.conflicts.push({
+            operation_id: mutation.operation_id, item_id: mutation.item_id, code: 'CAPACITY_EXCEEDED',
+            current_revision: null, current_path: null,
+            capacity: { dimension: 'sync_active_items', used: 1, reserved: 0, limit: 1, projected: 2, can_retry_after_reduction: true }
+          })
+          continue
+        }
+        if (mutation.type === 'upsert' && mutation.base_revision === null) items += 1
+        response.acknowledged.push(...h.answer({ mutations: [mutation] }).acknowledged)
+      }
+      return response
+    }
+
+    const result = await h.coordinator.sync()
+
+    expect(h.requests.map(kinds)).toEqual([['upsert inbox/New.md', 'delete other'], ['upsert inbox/New.md']])
+    expect(result.conflicts).toEqual([])
+    expect(Object.values(h.states.current()!.items).map((row) => row.path)).toEqual(['inbox/New.md'])
   })
 })
 
