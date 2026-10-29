@@ -330,6 +330,31 @@ describe('a note on its way to a path Cloud refuses', () => {
     expect(h.states.current()!.items.second.path).toBe(second)
   })
 
+  it('holds a note moved to a path longer than Cloud takes, without sending it', async () => {
+    const long = `${'Projects/'.repeat(120)}Plan.md`
+    const h = harness([text(long, 'body')], { items: { note: tracked('note', NOTE, 'body') } })
+
+    const first = await h.coordinator.sync()
+
+    expect(h.requests).toEqual([])
+    expect(first.refusedPaths).toEqual([
+      { path: long, detail: 'Not sent: this path has 1,087 characters, and ZenNotes Cloud takes paths of up to 1,024.' }
+    ])
+    expect(h.states.current()!.items.note.path).toBe(NOTE)
+
+    // Edited there, it is still held, and so is the old copy's delete.
+    h.local.items = [text(long, 'body edited')]
+    await h.coordinator.sync()
+    expect(h.requests).toEqual([])
+    expect(h.states.current()!.items.note.path).toBe(NOTE)
+
+    // Renamed to a shorter path, it syncs, and the old copy leaves Cloud.
+    h.local.items = [text('Projects/Plan.md', 'body edited')]
+    await h.coordinator.sync()
+    expect(h.requests.map(kinds)).toEqual([['upsert Projects/Plan.md', 'delete note']])
+    expect(h.states.current()!).not.toHaveProperty('refused_paths')
+  })
+
   it('never lets a delete go ahead of a refused file sent in a later request', async () => {
     // A binary upload goes in a request of its own; it used to follow the
     // request that carried the delete.

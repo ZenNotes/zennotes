@@ -92,6 +92,30 @@ export function shouldSyncVaultPath(path: string): boolean {
   )
 }
 
+/**
+ * The longest path ZenNotes Cloud takes, in characters as its request rules
+ * count them (max:1024 on a mutation's path and on a direct upload's).
+ */
+export const CLOUD_SYNC_MAX_PATH_CHARACTERS = 1024
+
+/**
+ * Whether Cloud takes a path of this length. Cloud counts characters (code
+ * points), so a path outside the BMP may run past 1,024 UTF-16 units.
+ *
+ * This is not part of shouldSyncVaultPath on purpose. A path too long for
+ * Cloud belongs in sync as much as any other, and leaving it out of the scan
+ * would make a note renamed to one look deleted: Cloud and every other device
+ * would lose it. The coordinator holds it the way it holds a path Cloud
+ * refused, without the request Cloud would refuse, and Settings asks for a
+ * shorter path.
+ */
+export function cloudSyncPathFitsCloud(path: string): boolean {
+  return (
+    path.length <= CLOUD_SYNC_MAX_PATH_CHARACTERS ||
+    Array.from(path).length <= CLOUD_SYNC_MAX_PATH_CHARACTERS
+  )
+}
+
 /** The one file under `.zennotes` that carries user-authored vault settings. */
 export const CLOUD_SYNC_VAULT_SETTINGS_PATH = '.zennotes/vault.json'
 

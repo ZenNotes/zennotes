@@ -11,6 +11,7 @@ import {
   CloudIssueError,
   cloudProtocolError,
   cloudSignInExchangeError,
+  cloudSyncRefusedPathRow,
   cloudSyncRefusedPathsLabel,
   cloudSyncRefusedPathsMessage,
   describeCloudError,
@@ -198,11 +199,33 @@ describe('describeCloudError', () => {
     expect(copy.detail).toBe('HTTP 422 · VALIDATION_FAILED · This path is not eligible for vault sync.')
   })
 
-  it('names a refused file that sync set aside, calmly', () => {
-    expect(cloudSyncRefusedPathsMessage(['.zennotes/agent-edits/inbox/Note.md.json'])).toBe(
-      "ZenNotes Cloud didn't accept “Note.md.json”, so it stays on this device while the rest of the vault keeps syncing. Sync offers it to Cloud again once a day. If it keeps happening, copy the details and choose Report an Issue."
+  it('names a refused file that sync set aside, calmly, and says when it is the person\'s to rename', () => {
+    const record = '.zennotes/agent-edits/inbox/Note.md.json'
+    const long = `${'Projects/'.repeat(120)}Plan.md`
+    expect(cloudSyncRefusedPathsMessage([record])).toBe(
+      "ZenNotes Cloud didn't accept “Note.md.json”, a file ZenNotes keeps for itself, so it stays on this device while the rest of the vault keeps syncing. There is nothing to change on your side: sync offers it to Cloud again once a day. If it keeps happening, copy the details and choose Report an Issue."
     )
-    expect(cloudSyncRefusedPathsMessage(['a.json', 'b.json'])).toMatch(/^ZenNotes Cloud didn't accept 2 files, so they stay on this device/)
+    expect(cloudSyncRefusedPathsMessage([long])).toBe(
+      "“Plan.md” stays on this device because its path is longer than the 1,024 characters ZenNotes Cloud takes. Give it a shorter name or move it to a folder nearer the top of the vault, and it syncs under its new path. The rest of the vault keeps syncing."
+    )
+    expect(cloudSyncRefusedPathsMessage(['Inbox/Plan.md'])).toBe(
+      "ZenNotes Cloud didn't accept the name or location of “Plan.md”, so it stays on this device while the rest of the vault keeps syncing. Rename it or move it to another folder, and it syncs under its new name. If it keeps happening, copy the details and choose Report an Issue."
+    )
+    expect(cloudSyncRefusedPathsMessage([record, '.zennotes/comments/a.json'])).toMatch(
+      /^ZenNotes Cloud didn't accept 2 files ZenNotes keeps for itself, so they stay on this device while the rest of the vault keeps syncing\. There is nothing to change on your side/
+    )
+    expect(cloudSyncRefusedPathsMessage([record, 'Inbox/Plan.md'])).toBe(
+      "ZenNotes Cloud didn't accept 2 files, so they stay on this device while the rest of the vault keeps syncing. The list below says what to do with each."
+    )
+    expect(cloudSyncRefusedPathRow(record)).toBe(
+      "A file ZenNotes keeps for itself. Cloud didn't accept it, so it stays on this device, and sync offers it again once a day. There is nothing to change."
+    )
+    expect(cloudSyncRefusedPathRow(long)).toBe(
+      'Its path is longer than the 1,024 characters Cloud takes, so it stays on this device. Give it a shorter name or move it to a folder nearer the top of the vault.'
+    )
+    expect(cloudSyncRefusedPathRow('Inbox/Plan.md')).toBe(
+      "Cloud didn't accept this name or location, so the file stays on this device. Rename it or move it to another folder; Details has Cloud's answer."
+    )
     expect(cloudSyncRefusedPathsLabel(1)).toBe('1 file stays on this device')
     expect(cloudSyncRefusedPathsLabel(3)).toBe('3 files stay on this device')
   })

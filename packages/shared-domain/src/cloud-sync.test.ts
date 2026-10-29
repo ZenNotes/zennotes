@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cloudSyncConflictCopyPath,
   cloudSyncLegacyConflictOriginalPath,
+  cloudSyncPathFitsCloud,
   cloudSyncPathKey,
   isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
@@ -118,6 +119,11 @@ describe('shouldSyncVaultPath', () => {
   // changed here is added or changed there, in the same words, and the other
   // way round. Since 2.80 sync sets a refused path aside instead of stopping,
   // but the file still never reaches Cloud.
+  //
+  // The length rows are this side's only: Cloud caps a path in its request
+  // rules (max:1024 on mutations.*.path and on a direct upload's path), not
+  // in shouldSync, and this client holds such a path itself rather than
+  // leave it out of the scan (cloudSyncPathFitsCloud).
   it.each([
     ['vault settings', '.zennotes/vault.json', true],
     ['comments', '.zennotes/comments/inbox/Note.md.comments.json', true],
@@ -126,9 +132,13 @@ describe('shouldSyncVaultPath', () => {
     ['templates', '.zennotes/templates/Meeting.md', true],
     ['workflows', '.zennotes/workflows/Daily.workflow', true],
     ['an assistant edit that is not json', '.zennotes/agent-edits/inbox/Note.md.tmp', false],
-    ['sync state', '.zennotes/sync/cursor.json', false]
+    ['sync state', '.zennotes/sync/cursor.json', false],
+    ['a path of 1,024 characters', `${'abcdefghi/'.repeat(102)}a.md`, true],
+    ['a path of 1,025 characters', `${'abcdefghi/'.repeat(102)}ab.md`, false],
+    // Cloud counts characters, not UTF-16 units: 2,045 units here.
+    ['a path of 1,024 characters outside the BMP', `${'😀'.repeat(1021)}.md`, true]
   ] as const)('agrees with Cloud about %s', (_name, path, synced) => {
-    expect(shouldSyncVaultPath(path)).toBe(synced)
+    expect(shouldSyncVaultPath(path) && cloudSyncPathFitsCloud(path)).toBe(synced)
   })
 
   it('prunes repository metadata and dependency directories during traversal', () => {

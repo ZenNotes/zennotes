@@ -657,8 +657,10 @@ export interface CloudSyncLocalConflict {
 }
 
 /**
- * A file Cloud refused for its path (#1004). It stays on this device and the
- * rest of the vault keeps syncing; sync offers it to Cloud again once a day.
+ * A file Cloud refused for its path (#1004), or one whose path is longer than
+ * Cloud takes. It stays on this device and the rest of the vault keeps
+ * syncing; sync offers it to Cloud again once a day, and at once under a new
+ * name.
  */
 export interface CloudSyncRefusedPath {
   path: string;

@@ -973,13 +973,13 @@ describe("CloudSettings", () => {
 
     expect(host.textContent).toContain("1 file stays on this device");
     expect(host.textContent).toContain(
-      "ZenNotes Cloud didn't accept “Plan.md.json”, so it stays on this device while the rest of the vault keeps syncing.",
+      "ZenNotes Cloud didn't accept “Plan.md.json”, a file ZenNotes keeps for itself, so it stays on this device while the rest of the vault keeps syncing.",
     );
     const list = host.querySelector('[aria-label="Files that need attention"]');
     const rows = [...list!.querySelectorAll("li")];
     expect(rows).toHaveLength(1);
     expect(rows[0].textContent).toContain(".zennotes/agent-edits/inbox/Plan.md.json");
-    expect(rows[0].textContent).toContain("Sync offers it again once a day.");
+    expect(rows[0].textContent).toContain("sync offers it again once a day. There is nothing to change.");
     // Cloud's own answer sits under the row's Details, not in the sentence.
     expect(rows[0].querySelector("details")?.textContent).toContain(detail);
     // A file under .zennotes is not a note to open.

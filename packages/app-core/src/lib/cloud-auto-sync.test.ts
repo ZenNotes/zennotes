@@ -828,14 +828,19 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
         kind: "refused",
         path: record,
         detail:
-          "ZenNotes Cloud didn't accept this file, so it stays on this device. Sync offers it again once a day.",
+          "A file ZenNotes keeps for itself. Cloud didn't accept it, so it stays on this device, and sync offers it again once a day. There is nothing to change.",
         conflictCopyPath: null,
         technical: detail,
       },
     ]);
     expect(cloudSyncAttentionMessage(summary)).toMatch(
-      /^ZenNotes Cloud didn't accept “Note\.md\.json”, so it stays on this device while the rest of the vault keeps syncing\./,
+      /^ZenNotes Cloud didn't accept “Note\.md\.json”, a file ZenNotes keeps for itself, so it stays on this device while the rest of the vault keeps syncing\./,
     );
+    // A note of the person's is theirs to rename, and its row says how.
+    const note = `${"Projects/".repeat(120)}Plan.md`;
+    const noteRows = cloudSyncAttentionItems({ ...summary, refused_paths: [{ path: note, detail: "" }] });
+    expect(noteRows[0].detail).toMatch(/^Its path is longer than the 1,024 characters Cloud takes/);
+    expect(noteRows[0].technical).toBeNull();
     expect(cloudSyncAttentionLabel(summary)).toBe("1 file stays on this device");
     // Anything else wrong in the same run keeps its own words.
     expect(

@@ -23,7 +23,9 @@ import type {
   CloudSyncUpsertMutation
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
+  CLOUD_SYNC_MAX_PATH_CHARACTERS,
   cloudSyncLegacyConflictOriginalPath,
+  cloudSyncPathFitsCloud,
   cloudSyncPathKey,
   isCloudSyncVaultSettingsPath,
   normalizeCloudSyncPath,
@@ -586,11 +588,16 @@ export class CloudSyncCoordinator {
       if (mutation.type === 'delete') continue
       const key = cloudSyncPathKey(mutation.path)
       const entry = refusedPaths[key]
-      if (!entry) {
+      if (entry) {
+        refusedPaths[key] = heldPathRecord(mutation, entry, entry.refused_at, entry.detail, mutationState, runDeletes)
+      } else if (!cloudSyncPathFitsCloud(mutation.path)) {
+        // Cloud refuses a path this long; it is held here as if Cloud had.
+        refusedPaths[key] = heldPathRecord(
+          mutation, refusals.due[key], Date.now(), cloudSyncPathTooLongDetail(mutation.path), mutationState, runDeletes
+        )
+      } else {
         writes.push(mutation)
-        continue
       }
-      refusedPaths[key] = heldPathRecord(mutation, entry, entry.refused_at, entry.detail, mutationState, runDeletes)
     }
     const keptItems = new Set(
       Object.values(refusedPaths).flatMap((entry) => Object.keys(entry.kept_items ?? {}))
@@ -2397,6 +2404,13 @@ function heldPathRecord(
     ...(sha256 === undefined ? {} : { sha256 }),
     ...(Object.keys(kept).length > 0 ? { kept_items: kept } : {})
   }
+}
+
+/** Details for a path held because it is longer than Cloud takes. */
+function cloudSyncPathTooLongDetail(path: string): string {
+  const count = new Intl.NumberFormat('en-US').format(Array.from(path).length)
+  const limit = new Intl.NumberFormat('en-US').format(CLOUD_SYNC_MAX_PATH_CHARACTERS)
+  return `Not sent: this path has ${count} characters, and ZenNotes Cloud takes paths of up to ${limit}.`
 }
 
 /** A capacity answer that room elsewhere in the vault can clear; a file

@@ -17,7 +17,7 @@ import {
 } from "@zennotes/shared-domain/cloud-auto-sync";
 import { formatCloudBytes } from "@zennotes/shared-domain/cloud-bytes";
 import {
-  CLOUD_SYNC_REFUSED_PATH_ROW,
+  cloudSyncRefusedPathRow,
   cloudSyncRefusedPathsLabel,
   cloudSyncRefusedPathsMessage,
   describeCloudError,
@@ -1327,7 +1327,7 @@ export function cloudSyncAttentionItems(
     items.push({
       kind: "refused",
       path: refused.path,
-      detail: CLOUD_SYNC_REFUSED_PATH_ROW,
+      detail: cloudSyncRefusedPathRow(refused.path),
       conflictCopyPath: null,
       technical: refused.detail || null,
     });

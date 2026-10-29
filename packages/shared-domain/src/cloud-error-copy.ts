@@ -11,6 +11,7 @@
  * stay reachable as `detail` for a support conversation, never as the message.
  */
 import { CLOUD_VAULT_SUPERSEDED_MESSAGE } from './cloud-vault-availability'
+import { CLOUD_SYNC_MAX_PATH_CHARACTERS, cloudSyncPathFitsCloud } from './cloud-sync'
 
 export type CloudErrorKind =
   /** Cloud could not be reached, or took too long: the status row says so. */
@@ -297,16 +298,32 @@ export function describeCloudError(error: unknown, fallback = CLOUD_UNEXPECTED_M
   return { message: raw.text, detail: null, kind: cloudErrorKindOf(raw.text) }
 }
 
+const MAX_PATH = new Intl.NumberFormat('en-US').format(CLOUD_SYNC_MAX_PATH_CHARACTERS)
+
 /**
  * Files Cloud refused for their path, set aside so the rest of the vault
- * syncs (#1004). Nothing failed that the person can fix, and nothing is
- * lost, so the words are calm; the file names come first because a refused
- * file is usually one the app keeps under `.zennotes`, not a note.
+ * syncs (#1004). Nothing is lost, so the words are calm, and they say whose
+ * move it is. A file ZenNotes keeps for itself under `.zennotes` is not the
+ * person's to fix: Cloud learns to take it, and sync offers it again. A note
+ * or attachment of theirs is: a path longer than Cloud takes needs a shorter
+ * one, and any other refusal needs a new name or folder.
  */
 export function cloudSyncRefusedPathsMessage(paths: readonly string[]): string {
-  const subject = paths.length === 1 ? `“${fileName(paths[0])}”` : `${paths.length} files`
-  const stays = paths.length === 1 ? 'it stays' : 'they stay'
-  return `ZenNotes Cloud didn't accept ${subject}, so ${stays} on this device while the rest of the vault keeps syncing. Sync offers ${paths.length === 1 ? 'it' : 'them'} to Cloud again once a day. ${REPORT}`
+  if (paths.length === 1) {
+    const [path] = paths
+    const name = `“${fileName(path)}”`
+    if (isInternalVaultPath(path)) {
+      return `ZenNotes Cloud didn't accept ${name}, a file ZenNotes keeps for itself, so it stays on this device while the rest of the vault keeps syncing. There is nothing to change on your side: sync offers it to Cloud again once a day. ${REPORT}`
+    }
+    if (!cloudSyncPathFitsCloud(path)) {
+      return `${name} stays on this device because its path is longer than the ${MAX_PATH} characters ZenNotes Cloud takes. Give it a shorter name or move it to a folder nearer the top of the vault, and it syncs under its new path. The rest of the vault keeps syncing.`
+    }
+    return `ZenNotes Cloud didn't accept the name or location of ${name}, so it stays on this device while the rest of the vault keeps syncing. Rename it or move it to another folder, and it syncs under its new name. ${REPORT}`
+  }
+  if (paths.every(isInternalVaultPath)) {
+    return `ZenNotes Cloud didn't accept ${paths.length} files ZenNotes keeps for itself, so they stay on this device while the rest of the vault keeps syncing. There is nothing to change on your side: sync offers them to Cloud again once a day. ${REPORT}`
+  }
+  return `ZenNotes Cloud didn't accept ${paths.length} files, so they stay on this device while the rest of the vault keeps syncing. The list below says what to do with each.`
 }
 
 /** The few words for the status row: a phone has no hover for the sentence. */
@@ -315,8 +332,19 @@ export function cloudSyncRefusedPathsLabel(count: number): string {
 }
 
 /** One refused file's row in Settings → Cloud, above its Details. */
-export const CLOUD_SYNC_REFUSED_PATH_ROW =
-  "ZenNotes Cloud didn't accept this file, so it stays on this device. Sync offers it again once a day."
+export function cloudSyncRefusedPathRow(path: string): string {
+  if (isInternalVaultPath(path)) {
+    return "A file ZenNotes keeps for itself. Cloud didn't accept it, so it stays on this device, and sync offers it again once a day. There is nothing to change."
+  }
+  if (!cloudSyncPathFitsCloud(path)) {
+    return `Its path is longer than the ${MAX_PATH} characters Cloud takes, so it stays on this device. Give it a shorter name or move it to a folder nearer the top of the vault.`
+  }
+  return "Cloud didn't accept this name or location, so the file stays on this device. Rename it or move it to another folder; Details has Cloud's answer."
+}
+
+function isInternalVaultPath(path: string): boolean {
+  return path.toLowerCase().startsWith('.zennotes/')
+}
 
 /**
  * A failed sign-in exchange, in sign-in words. Sign-in never retries by itself
