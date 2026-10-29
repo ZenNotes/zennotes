@@ -9,7 +9,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType, SelectOptionsSource } from '@shared/databases'
-import { filterRows, sortRows } from '@shared/database-transforms'
+import { viewRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
   addRow,
@@ -119,13 +119,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
       .filter((f): f is DbField => !!f && !f.hidden && !hidden.has(f.id))
   }, [doc.fields, view.columnOrder, view.hiddenFieldIds, map])
 
-  const rows = useMemo(() => {
-    return sortRows(
-      filterRows(doc.rows, view.filters, map, view.filterConjunction),
-      view.sorts,
-      map
-    )
-  }, [doc.rows, view.filters, view.filterConjunction, view.sorts, map])
+  const rows = useMemo(() => viewRows(doc.rows, view, map), [doc.rows, view, map])
 
   const anySelected = selected.size > 0
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))

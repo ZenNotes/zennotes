@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { DatabaseDoc, DbField, DbView } from '@shared/databases'
 import { EMPTY_GROUP } from '@shared/databases'
-import { boardColumns, filterRows } from '@shared/database-transforms'
+import { boardColumns, viewRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
   setCell,
@@ -39,9 +39,11 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
     doc.fields.find((f) => f.id === view.groupByFieldId && f.type === 'select') ?? selectFields[0]
 
   const map = useMemo(() => fieldsById(doc), [doc])
+  // The same pipeline as the Table (picks, then filters, then sorts), so a
+  // view shows the same records on either surface.
   const visibleRows = useMemo(
-    () => filterRows(doc.rows, view.filters, map, view.filterConjunction),
-    [doc.rows, view.filters, view.filterConjunction, map]
+    () => viewRows(doc.rows, view, map),
+    [doc.rows, view, map]
   )
 
   const titleField = doc.fields.find((f) => f.id !== doc.idFieldId)
