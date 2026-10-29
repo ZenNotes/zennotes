@@ -5,6 +5,29 @@ function cssEscape(value: string): string {
 
 export const ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT = 'zen:open-editor-context-menu'
 
+type MenuKeyEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'metaKey' | 'ctrlKey' | 'altKey'>
+
+/** Shift+F10 or the Context Menu key: the keyboard's right-click. */
+export function isKeyboardContextMenuKey(e: MenuKeyEvent): boolean {
+  if (e.metaKey || e.ctrlKey || e.altKey) return false
+  return e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')
+}
+
+/**
+ * Whether the editor opens its own right-click menu for this key. Off macOS
+ * Chromium turns the key into a contextmenu event at the caret, which the
+ * editor's contextmenu handler answers like a right-click; on macOS it sends
+ * none, so with Vim mode off the keys did nothing in the editor there. With
+ * Vim mode on VimNav decides (the editor's menu over a selection, the tab's
+ * otherwise), on every platform.
+ */
+export function editorOpensKeyboardContextMenu(
+  e: MenuKeyEvent,
+  host: { vimMode: boolean; mac: boolean }
+): boolean {
+  return !host.vimMode && host.mac && isKeyboardContextMenuKey(e)
+}
+
 /**
  * Where a keyboard-opened menu anchors on an element: just inside its left
  * edge, vertically centred, clamped to the viewport so a row at the screen's

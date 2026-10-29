@@ -307,7 +307,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Context menus are part of the keyboard model',
     body:
-      'ZenNotes treats context menus as keyboard-reachable UI, not mouse-only escape hatches. Use the configured context-menu binding on the selected sidebar or note-list row. In the editor, select text and press `m` to open the text menu with commenting first; `Shift+F10` / the system Context Menu key still opens the active tab menu when no text is selected. The command palette also exposes the same high-value tab actions directly.'
+      'ZenNotes treats context menus as keyboard-reachable UI, not mouse-only escape hatches. Use the configured context-menu binding on the selected sidebar or note-list row. In the editor with Vim mode on, select text and press `m` (or `Shift+F10`) to open the text menu with commenting first; `Shift+F10` / the system Context Menu key still opens the active tab menu when no text is selected. With Vim mode off, `Shift+F10` or the Context Menu key opens the editor\'s right-click menu at the cursor, with or without a selection, on macOS as on Windows and Linux. The command palette also exposes the same high-value tab actions directly.'
   },
   {
     title: 'Comments attach to selected text',

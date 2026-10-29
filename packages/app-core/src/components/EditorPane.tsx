@@ -339,7 +339,10 @@ import {
   type PaneModesByPath
 } from '../lib/pane-mode'
 import { resolveCommentAnchor, selectionToCommentAnchor } from '../lib/comments'
-import { ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT } from '../lib/keyboard-context-menu'
+import {
+  ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
+  editorOpensKeyboardContextMenu
+} from '../lib/keyboard-context-menu'
 import {
   calloutRefusalMessage,
   editorCalloutTarget,
@@ -399,6 +402,7 @@ import {
   formatKeyToken,
   getKeymapBinding,
   getKeymapDisplay,
+  isMacPlatform,
   labelWithShortcut,
   type KeymapId,
   type KeymapOverrides
@@ -2578,6 +2582,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             },
             keydown: (event, view) => {
               const state = useStore.getState()
+              if (editorOpensKeyboardContextMenu(event, { vimMode: state.vimMode, mac: isMacPlatform() })) {
+                event.preventDefault()
+                event.stopPropagation()
+                openEditorContextMenu()
+                return true
+              }
               if (
                 event.key === 'm' &&
                 !event.metaKey &&
