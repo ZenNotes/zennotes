@@ -7,6 +7,9 @@ import {
   setCell,
   ensureSelectOption,
   updateView,
+  clearViewPicks,
+  pickedRowCount,
+  viewHasPicks,
   fieldsById,
   formatDate,
   optionLabel,
@@ -17,6 +20,7 @@ import {
 import { isImeComposing } from '../lib/ime'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
+import { DatabasePicksStrip } from './DatabasePicksStrip'
 
 interface Props {
   csvPath: string
@@ -78,6 +82,14 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {viewHasPicks(view) && (
+        // A board has no row selection, so its picks come from a copied
+        // view (or schema.json); here they can only be shown or dropped.
+        <DatabasePicksStrip
+          count={pickedRowCount(doc, view)}
+          onShowAll={() => updateDatabaseSchema(csvPath, clearViewPicks(doc, view.id))}
+        />
+      )}
       <div className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs text-ink-500">
         <span>Group by</span>
         <select

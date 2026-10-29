@@ -5,7 +5,7 @@ import { useStore } from '../store'
 import { isNoteEditingLocked, subscribeNoteEditingLocks } from '../lib/note-lifecycle-lock'
 import {
   addField,
-  addRow,
+  addRowInView,
   addView,
   duplicateView,
   setActiveView,
@@ -311,7 +311,13 @@ export function DatabaseView({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => updateDatabaseRows(csvPath, addRow(doc))}
+                onClick={() => {
+                  // In a view with picks the new row joins them, or it
+                  // would vanish the moment it was made.
+                  const added = addRowInView(doc, activeView.id)
+                  if (added.picksChanged) updateDatabaseSchema(csvPath, added.doc)
+                  else updateDatabaseRows(csvPath, added.doc)
+                }}
               >
                 <PlusIcon className="h-3.5 w-3.5" /> Row
               </Button>

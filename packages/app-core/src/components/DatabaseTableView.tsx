@@ -12,7 +12,7 @@ import type { DatabaseDoc, DbField, DbRow, DbView, FieldType, SelectOptionsSourc
 import { viewRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
-  addRow,
+  addRowInView,
   setCell,
   renameField,
   retypeField,
@@ -21,6 +21,11 @@ import {
   moveColumnToField,
   setColumnHidden,
   isLastVisibleColumn,
+  setViewPicks,
+  clearViewPicks,
+  removeFromViewPicks,
+  viewHasPicks,
+  pickedRowCount,
   ensureSelectOption,
   setFieldOptionsSource,
   updateView,
@@ -33,7 +38,8 @@ import {
   isCheckboxTrue
 } from '../lib/database-cells'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { IconButton } from './ui/Button'
+import { Button, IconButton } from './ui/Button'
+import { DatabasePicksStrip } from './DatabasePicksStrip'
 import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { isImeComposing } from '../lib/ime'
@@ -100,6 +106,10 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     return [...tags].sort().map((value) => ({ value }))
   }, [sourcePrompt])
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Edit picks: every row shows, the picked ones selected, and the selection
+  // bar offers Update picks or Cancel instead of its usual actions.
+  const [editingPicks, setEditingPicks] = useState(false)
+  const hasPicks = viewHasPicks(view)
   // #317: header drag-to-reorder columns. Ref holds the field being dragged;
   // state drives the drop-target indicator.
   const dragFieldRef = useRef<string | null>(null)
@@ -124,7 +134,33 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
       .filter((f): f is DbField => !!f && !f.hidden && !hidden.has(f.id))
   }, [doc.fields, view.columnOrder, view.hiddenFieldIds, map])
 
-  const rows = useMemo(() => viewRows(doc.rows, view, map), [doc.rows, view, map])
+  // While editing picks the view shows every row (no picks, no filters) in
+  // its sort order, so any record can be picked or unpicked.
+  const rows = useMemo(
+    () => viewRows(doc.rows, editingPicks ? { sorts: view.sorts, filters: [] } : view, map),
+    [doc.rows, view, map, editingPicks]
+  )
+
+  // Another view is another set of picks and columns: leave edit mode and
+  // the selection behind when the tab switches, and leave edit mode when the
+  // picks go away from under it (Show All Rows from the palette).
+  useEffect(() => {
+    setEditingPicks(false)
+    setSelected(new Set())
+  }, [view.id])
+  useEffect(() => {
+    if (editingPicks && !hasPicks) setEditingPicks(false)
+  }, [editingPicks, hasPicks])
+  // A row added while editing (the header's + Row included) joins the picks;
+  // check it here too, or Update picks would drop it again.
+  const picksAtEditStart = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!editingPicks) return
+    const fresh = (view.pickedRowIds ?? []).filter((id) => !picksAtEditStart.current.has(id))
+    if (fresh.length === 0) return
+    for (const id of fresh) picksAtEditStart.current.add(id)
+    setSelected((prev) => new Set([...prev, ...fresh]))
+  }, [editingPicks, view.pickedRowIds])
 
   const anySelected = selected.size > 0
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
@@ -139,6 +175,36 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
   const deleteSelected = (): void => {
     void deleteDatabaseRows(csvPath, [...selected])
     setSelected(new Set())
+  }
+
+  // --- picked rows ---------------------------------------------------------
+  /** Make the selected rows this view's picks (or update them while editing). */
+  const pickSelected = (): void => {
+    if (selected.size === 0) return
+    updateDatabaseSchema(csvPath, setViewPicks(doc, view.id, selected))
+    setSelected(new Set())
+    setEditingPicks(false)
+  }
+  const startEditPicks = (): void => {
+    const live = new Set(doc.rows.map((r) => r.id))
+    picksAtEditStart.current = new Set(view.pickedRowIds ?? [])
+    setSelected(new Set((view.pickedRowIds ?? []).filter((id) => live.has(id))))
+    setEditingPicks(true)
+  }
+  const cancelEditPicks = (): void => {
+    setSelected(new Set())
+    setEditingPicks(false)
+  }
+  const showAllRows = (): void => {
+    updateDatabaseSchema(csvPath, clearViewPicks(doc, view.id))
+    cancelEditPicks()
+  }
+  /** Add a row; in a picks view it joins the picks so it does not vanish the
+   *  moment it is made. */
+  const addRowHere = (): void => {
+    const added = addRowInView(doc, view.id)
+    if (added.picksChanged) updateDatabaseSchema(csvPath, added.doc)
+    else updateDatabaseRows(csvPath, added.doc)
   }
 
   // Open a record's page note, then move the cursor into its editor (otherwise
@@ -382,12 +448,16 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
       }
       case 'a': {
         e.preventDefault()
-        updateDatabaseRows(csvPath, addRow(doc))
+        addRowHere()
         setActive((s) => ({ row: rows.length, col: s.col }))
         return
       }
       case 'Escape':
         e.preventDefault()
+        if (editingPicks) {
+          cancelEditPicks()
+          return
+        }
         if (selected.size > 0) {
           setSelected(new Set())
           return
@@ -406,8 +476,23 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
 
   const rowMenuItems = (rowId: string): ContextMenuItem[] => {
     const multi = selected.has(rowId) && selected.size > 1
+    const pickItems: ContextMenuItem[] = []
+    if (!editingPicks && selected.size > 0) {
+      pickItems.push({ label: 'Show only selected rows', onSelect: pickSelected })
+    }
+    if (!editingPicks && hasPicks) {
+      pickItems.push({
+        label: "Remove from this view's picks",
+        onSelect: () => {
+          const ids = multi ? [...selected] : [rowId]
+          updateDatabaseSchema(csvPath, removeFromViewPicks(doc, view.id, ids))
+          if (multi) setSelected(new Set())
+        }
+      })
+    }
     return [
       { label: 'Open page', onSelect: () => openPage(rowId) },
+      ...(pickItems.length > 0 ? ([{ kind: 'separator' }, ...pickItems] as ContextMenuItem[]) : []),
       { kind: 'separator' },
       {
         label: multi ? `Delete ${selected.size} rows` : 'Delete row',
@@ -509,9 +594,43 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         gridRef.current?.focus({ preventScroll: true })
       }}
     >
-      {anySelected && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs">
+      {hasPicks && !editingPicks && (
+        <DatabasePicksStrip
+          count={pickedRowCount(doc, view)}
+          onEdit={startEditPicks}
+          onShowAll={showAllRows}
+        />
+      )}
+      {editingPicks ? (
+        <div
+          data-db-selection-bar
+          className="flex shrink-0 items-center gap-1 border-b border-paper-300/70 bg-accent/5 px-3 py-1 text-xs"
+        >
+          <span className="mr-2 font-medium text-ink-700">
+            Editing picks: {selected.size} selected
+          </span>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={selected.size === 0}
+            title={selected.size === 0 ? 'Select at least one row, or use Show all rows' : undefined}
+            onClick={pickSelected}
+          >
+            Update picks
+          </Button>
+          <Button variant="ghost" size="sm" onClick={cancelEditPicks}>
+            Cancel
+          </Button>
+        </div>
+      ) : anySelected && (
+        <div
+          data-db-selection-bar
+          className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs"
+        >
           <span className="font-medium text-ink-700">{selected.size} selected</span>
+          <Button variant="ghost" size="sm" onClick={pickSelected}>
+            Show only these in this view
+          </Button>
           <button
             type="button"
             onClick={deleteSelected}
@@ -761,7 +880,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
             <td colSpan={columns.length + 1} className="px-2 py-1.5">
               <button
                 type="button"
-                onClick={() => updateDatabaseRows(csvPath, addRow(doc))}
+                onClick={addRowHere}
                 className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-900"
               >
                 <PlusIcon className="h-3.5 w-3.5" /> New row
