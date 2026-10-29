@@ -113,6 +113,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.leaderCalendar", group: "vim", defaultBinding: "c", title: "Leader: toggle calendar" },
   { id: "vim.leaderTimeline", group: "vim", defaultBinding: "n", title: "Leader: toggle timeline" },
   { id: "vim.leaderUnresolvedLinks", group: "vim", defaultBinding: "u", title: "Leader: unresolved links" },
+  { id: "vim.leaderFolderGallery", group: "vim", defaultBinding: "G", title: "Leader: folder gallery" },
   { id: "vim.panePrefix", group: "vim", defaultBinding: "Ctrl+W", title: "Pane command prefix" },
   { id: "vim.paneFocusLeft", group: "vim", defaultBinding: "h", title: "Pane: focus left" },
   { id: "vim.paneFocusDown", group: "vim", defaultBinding: "j", title: "Pane: focus down" },

@@ -81,6 +81,7 @@ export type KeymapId =
   | "vim.leaderCalendar"
   | "vim.leaderTimeline"
   | "vim.leaderUnresolvedLinks"
+  | "vim.leaderFolderGallery"
   | "vim.panePrefix"
   | "vim.paneFocusLeft"
   | "vim.paneFocusDown"
@@ -877,6 +878,20 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the Unresolved Links view: every [[wikilink]] in the vault that points at a note that does not exist yet.",
     defaultBinding: "u",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderFolderGallery",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader: folder gallery",
+    // `G` for Gallery: `g` was the Atlas already, and a capital is a key of
+    // its own after the leader (`<leader>q` and `<leader>Q` differ).
+    description:
+      "Open the Gallery of the current folder: its notes as cards led by their covers. The folder under the sidebar cursor while the sidebar has focus, otherwise the open note's folder.",
+    defaultBinding: "G",
     vimOnly: true,
     maxTokens: 1,
   },
