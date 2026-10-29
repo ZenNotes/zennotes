@@ -141,6 +141,31 @@ export async function requestCreateBrowseNote(
   }
 }
 
+/**
+ * Open a primary-notes directory as a Gallery, the desktop folder menu's
+ * Open as Gallery. An empty directory means its root. A database lists its
+ * record pages in its own grid, so it has no Gallery, as on desktop. The
+ * cards draw vault covers from the file list, which is read lazily: it is
+ * read here first, so a vault switch during that read opens nothing.
+ */
+export async function openBrowseFolderGallery(
+  host: BrowseActionHost,
+  directory = ''
+): Promise<BrowseActionResult> {
+  if (formDirContaining(directory)) return 'unavailable'
+  const context = start(host, directory, true)
+  if (!context) return 'unavailable'
+  const { isCurrent, targetExists } = context
+  try {
+    if (!useStore.getState().assetFilesListed) await useStore.getState().refreshAssets()
+    if (!isCurrent() || !targetExists()) return 'stale'
+    await useStore.getState().openFolderGallery('inbox', directory)
+    return isCurrent() ? 'completed' : 'stale'
+  } finally {
+    pending = false
+  }
+}
+
 /** Prompt for an ordinary folder's leaf name. Database renaming uses its own feature. */
 export async function requestRenameBrowseFolder(
   host: BrowseActionHost,

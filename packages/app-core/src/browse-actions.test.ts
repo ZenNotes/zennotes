@@ -490,6 +490,61 @@ describe('public Browse actions', () => {
     }
   )
 
+  it('opens a folder or the notes root as a Gallery tab through the public entry', async () => {
+    const s = await setup()
+    const browse = await import('./browse')
+    const { galleryTabPath } = await import('./lib/folder-gallery')
+    const { findLeaf } = await import('./lib/pane-layout')
+    const activeTab = () => {
+      const state = s.useStore.getState()
+      return findLeaf(state.paneLayout, state.activePaneId)?.activeTab
+    }
+    expect(await browse.openBrowseFolderGallery(s.host, 'Work/Nested')).toBe('completed')
+    expect(activeTab()).toBe(galleryTabPath('inbox', 'Work/Nested'))
+    expect(s.refreshAssets).toHaveBeenCalled()
+    expect(await browse.openBrowseFolderGallery(s.host)).toBe('completed')
+    expect(activeTab()).toBe(galleryTabPath('inbox', ''))
+  })
+
+  it('has no Gallery for databases, their internals, or missing folders', async () => {
+    const s = await setup()
+    const openFolderGallery = vi.fn(async () => {})
+    s.useStore.setState({ openFolderGallery })
+    for (const directory of ['People.base', 'People.base/pages', 'Missing'])
+      expect(await s.openBrowseFolderGallery(s.host, directory)).toBe('unavailable')
+    expect(openFolderGallery).not.toHaveBeenCalled()
+  })
+
+  it('opens nothing when the context changes while the file list is read', async () => {
+    const s = await setup()
+    const openFolderGallery = vi.fn(async () => {})
+    let current = true
+    s.refreshAssets.mockImplementationOnce(async () => {
+      current = false
+    })
+    s.useStore.setState({ openFolderGallery })
+    expect(await s.openBrowseFolderGallery({ isCurrent: () => current }, 'Work')).toBe('stale')
+    expect(openFolderGallery).not.toHaveBeenCalled()
+    // Read once, the list is not read again.
+    current = true
+    s.useStore.setState({ assetFilesListed: true })
+    s.refreshAssets.mockClear()
+    expect(await s.openBrowseFolderGallery(s.host, 'Work')).toBe('completed')
+    expect(s.refreshAssets).not.toHaveBeenCalled()
+    expect(openFolderGallery).toHaveBeenCalledWith('inbox', 'Work')
+  })
+
+  it('does not open a Gallery behind an open dialog', async () => {
+    const s = await setup()
+    const openFolderGallery = vi.fn(async () => {})
+    s.useStore.setState({ openFolderGallery })
+    const rename = s.requestRenameBrowseFolder(s.host, 'Work')
+    expect(await s.openBrowseFolderGallery(s.host, 'Work')).toBe('unavailable')
+    s.answer(null)
+    expect(await rename).toBe('cancelled')
+    expect(openFolderGallery).not.toHaveBeenCalled()
+  })
+
   it('rejects a host refusal to move and releases the pending action', async () => {
     const s = await setup()
     s.rename.mockRejectedValueOnce(new Error('A folder already exists at "Work/People.base"'))
