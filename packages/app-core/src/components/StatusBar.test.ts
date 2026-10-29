@@ -135,6 +135,34 @@ describe("cloud sync status time", () => {
     host.remove();
   });
 
+  it("reads synced after a run that only set a file aside, and says so on hover (#1004)", () => {
+    useCloudSyncStatusStore.setState({
+      phase: "ready",
+      vaultName: "Notes",
+      lastSyncedAt: Date.now(),
+      error: null,
+      lastSummary: {
+        cursor: 1, pulled: 0, pushed: 2, bootstrap_conflicts: [], local_conflicts: [], conflicts: [],
+        refused_paths: [{ path: ".zennotes/agent-edits/inbox/Note.md.json", detail: "HTTP 422" }],
+      },
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(createElement(StatusBar, { note: null })));
+
+    const status = host.querySelector<HTMLElement>("[data-cloud-sync-status]");
+    expect(status?.textContent).toContain("Synced");
+    expect(status?.className).toContain("text-success");
+    expect(status?.title).toBe(
+      "Notes is connected. 1 file stays on this device: Settings → Cloud lists it. Click to sync now.",
+    );
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
   it("shows conflicted syncs as incomplete and offers a review action", () => {
     useCloudSyncStatusStore.setState({
       phase: "attention",

@@ -20,6 +20,7 @@ import {
   useCloudSyncStatusStore,
 } from "../lib/cloud-auto-sync";
 import { requestSettingsTarget } from "../lib/settings-navigation";
+import { cloudSyncRefusedPathsLabel } from "@zennotes/shared-domain/cloud-error-copy";
 
 /**
  * Footer strip showing quick stats for the active note: backlinks,
@@ -176,6 +177,13 @@ function CloudSyncStatus({
                 : lastSyncedAt === null
                   ? "Cloud ready"
                   : `Synced ${formatRelativeSyncTime(lastSyncedAt, now)}`;
+  // Files Cloud refused leave a synced run synced (#1004); the hover still
+  // says they wait, for anyone who looks.
+  const held = lastSummary?.refused_paths?.length ?? 0;
+  const heldNote =
+    held > 0
+      ? ` ${cloudSyncRefusedPathsLabel(held)}: Settings → Cloud lists ${held === 1 ? "it" : "them"}.`
+      : "";
   const title = removal
     ? cloudVaultRemovalMessage(removal)
     : phase === "disconnected"
@@ -190,7 +198,7 @@ function CloudSyncStatus({
               ? `${error ?? "Sync didn't finish."} Click to retry.`
               : phase === "syncing"
                 ? `Syncing ${vaultName ?? "this vault"}`
-                : `${vaultName ?? "Cloud vault"} is connected. Click to sync now.`;
+                : `${vaultName ?? "Cloud vault"} is connected.${heldNote} Click to sync now.`;
   const statusTone =
     shownPhase === "error"
       ? "text-danger"

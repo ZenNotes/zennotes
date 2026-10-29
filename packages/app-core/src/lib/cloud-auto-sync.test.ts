@@ -39,6 +39,7 @@ import {
   useCloudSyncStatusStore,
 } from "./cloud-auto-sync";
 import { useToastStore } from "./toast";
+import { traySyncStatusFor } from "./tray-runtime";
 
 function setup(
   initialStatus: CloudAccountStatus = {
@@ -845,10 +846,53 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
     ).toBeNull();
 
     clearCloudSyncStatus();
-    await syncCloudVaultWithStatus({ syncCloudVault: async () => summary }, "Notes");
-    expect(useCloudSyncStatusStore.getState().phase).toBe("attention");
-    expect(useCloudSyncStatusStore.getState().error).toBe(cloudSyncAttentionMessage(summary));
+  });
+
+  it("counts a run whose only news is a file set aside as synced, and keeps it in Settings", async () => {
+    const record = ".zennotes/agent-edits/inbox/Note.md.json";
+    const summary: CloudSyncRunSummary = {
+      ...base,
+      pushed: 3,
+      refused_paths: [{ path: record, detail: "HTTP 422 · VALIDATION_FAILED · refused" }],
+    };
     clearCloudSyncStatus();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-29T12:00:00Z"));
+      await syncCloudVaultWithStatus({ syncCloudVault: async () => summary }, "Notes");
+      const first = useCloudSyncStatusStore.getState();
+      expect(first.phase).toBe("ready");
+      expect(first.error).toBeNull();
+      expect(first.lastSyncedAt).toBe(Date.parse("2026-10-29T12:00:00Z"));
+      // Not forced back into a status bar that was turned off, and the tray
+      // stays idle.
+      expect(cloudSyncNeedsUser()).toBe(false);
+      expect(traySyncStatusFor(first)?.state).toBe("idle");
+      // Settings still reads the file from the summary.
+      expect(first.lastSummary?.refused_paths?.map((row) => row.path)).toEqual([record]);
+      expect(cloudSyncAttentionItems(first.lastSummary!).map((item) => item.kind)).toEqual(["refused"]);
+
+      // Every later run that still holds it keeps the clock moving.
+      vi.setSystemTime(new Date("2026-10-29T12:05:00Z"));
+      await syncCloudVaultWithStatus({ syncCloudVault: async () => summary }, "Notes");
+      expect(useCloudSyncStatusStore.getState().lastSyncedAt).toBe(Date.parse("2026-10-29T12:05:00Z"));
+
+      // Anything else in the same run still needs the person.
+      await syncCloudVaultWithStatus(
+        {
+          syncCloudVault: async () => ({
+            ...summary,
+            conflicts: [{ operation_id: "op", item_id: "i", code: "REVISION_CONFLICT", current_revision: 2, current_path: null }],
+          }),
+        },
+        "Notes",
+      );
+      expect(useCloudSyncStatusStore.getState().phase).toBe("attention");
+      expect(cloudSyncNeedsUser()).toBe(true);
+    } finally {
+      clearCloudSyncStatus();
+      vi.useRealTimers();
+    }
   });
 
   it("remembers the last run summary so Review can show it without another sync", async () => {

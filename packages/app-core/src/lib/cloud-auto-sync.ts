@@ -460,8 +460,20 @@ function attentionMessageWithoutSettings(
   summary: CloudSyncRunSummary | null,
 ): string | null {
   if (summary === null) return null;
-  const attention = cloudSyncAttentionMessage(summary);
+  const attention = runAttentionMessage(summary);
   return attention === SETTINGS_ATTENTION_MESSAGE ? null : attention;
+}
+
+/**
+ * What a run leaves on the status: null when nothing in it needs the person.
+ * Files Cloud refused are set aside and offered again on their own (#1004),
+ * so a run whose only news is those has synced everything it could: the
+ * status reads synced, the tray stays idle and a status bar turned off stays
+ * off. Settings → Cloud still lists each file with Cloud's answer, from the
+ * summary (cloudSyncAttentionMessage keeps the sentence for it).
+ */
+function runAttentionMessage(summary: CloudSyncRunSummary): string | null {
+  return cloudSyncAttentionIsRefusedOnly(summary) ? null : cloudSyncAttentionMessage(summary);
 }
 
 /** True while sync waits for an answer about the vault settings. */
@@ -741,7 +753,7 @@ function applyCloudSyncSummary(summary: CloudSyncRunSummary, vaultName?: string 
   // A run that reports nothing new has still not synced the vault settings
   // while the question from an earlier run is open.
   const attention =
-    cloudSyncAttentionMessage(summary) ??
+    runAttentionMessage(summary) ??
     (current.settingsConflict !== null ? SETTINGS_ATTENTION_MESSAGE : null);
   useCloudSyncStatusStore.setState({
     phase: attention === null ? "ready" : "attention",
@@ -1107,12 +1119,9 @@ export function cloudSyncAttentionLabel(
   const capacityConflict = firstCapacityConflict(summary);
   if (!capacityConflict) {
     // A run whose only trouble is a file Cloud refused names that, calmly.
-    const refused = summary.refused_paths ?? [];
-    const onlyRefused =
-      refused.length > 0 &&
-      cloudSyncAttentionMessage(summary) ===
-        cloudSyncRefusedPathsMessage(refused.map((row) => row.path));
-    return onlyRefused ? cloudSyncRefusedPathsLabel(refused.length) : null;
+    return cloudSyncAttentionIsRefusedOnly(summary)
+      ? cloudSyncRefusedPathsLabel(summary.refused_paths?.length ?? 0)
+      : null;
   }
   const dimension = capacityConflict.capacity?.dimension;
   if (dimension === "sync_max_file_bytes" || capacityConflict.code === "FILE_SIZE_LIMIT_EXCEEDED") {
@@ -1122,6 +1131,16 @@ export function cloudSyncAttentionLabel(
   if (dimension === "sync_active_bytes") return "Cloud storage full";
   if (dimension === "sync_active_items") return "Cloud file limit reached";
   return "Cloud capacity reached";
+}
+
+/** True when the only thing a run reports is files Cloud refused. */
+export function cloudSyncAttentionIsRefusedOnly(summary: CloudSyncRunSummary): boolean {
+  const refused = summary.refused_paths ?? [];
+  return (
+    refused.length > 0 &&
+    cloudSyncAttentionMessage(summary) ===
+      cloudSyncRefusedPathsMessage(refused.map((row) => row.path))
+  );
 }
 
 export function cloudSyncAttentionMessage(
