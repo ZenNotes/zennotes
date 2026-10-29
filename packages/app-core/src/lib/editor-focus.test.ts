@@ -26,9 +26,11 @@ vi.mock('@replit/codemirror-vim', () => ({
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import {
+  caretIntoNewNoteBody,
   focusEditorAfterReadOpen,
   focusEditorAfterPaletteClose,
-  focusEditorNormalMode
+  focusEditorNormalMode,
+  newNoteBodyCaret
 } from './editor-focus'
 import { installNoteEditorHost } from './editor-host'
 import { revealedSelectionRanges, sourceRevealExtension } from './cm-source-reveal'
@@ -44,6 +46,7 @@ describe('focusEditorNormalMode', () => {
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       return window.setTimeout(() => callback(performance.now()), 0)
     })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((handle) => window.clearTimeout(handle))
   })
 
   afterEach(() => {
@@ -68,6 +71,26 @@ describe('focusEditorNormalMode', () => {
 
     expect(focus).toHaveBeenCalledTimes(1)
     expect(document.activeElement).toBe(dom)
+  })
+
+  it('hands a just-made note the keyboard on the line under its heading, however it was opened', async () => {
+    const view = new EditorView({ state: EditorState.create({ doc: '# Untitled\n\n' }), parent: document.body })
+    storeState.current.editorViewRef = view as unknown as Record<string, unknown>
+    focusEditorNormalMode()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view.state.selection.main.head).toBe(12)
+    view.dispatch(view.state.replaceSelection('Body'))
+    expect(view.state.doc.toString()).toBe('# Untitled\n\nBody')
+    view.destroy()
+  })
+
+  it('leaves the caret of a note with a body where it was', async () => {
+    const view = new EditorView({ state: EditorState.create({ doc: '# Plan\n\nfirst\n' }), parent: document.body })
+    storeState.current.editorViewRef = view as unknown as Record<string, unknown>
+    focusEditorNormalMode()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view.state.selection.main.head).toBe(0)
+    view.destroy()
   })
 })
 
@@ -161,5 +184,31 @@ describe('search hand-offs', () => {
     focusEditorAfterPaletteClose()
     await vi.advanceTimersByTimeAsync(50)
     expect(view!.hasFocus).toBe(false)
+  })
+})
+
+describe('a new note drops into its body after the name field', () => {
+  it('moves a caret still at the start of a heading-only note to the line under it', () => {
+    expect(newNoteBodyCaret('# Untitled\n\n', 0, true)).toBe(12)
+    expect(newNoteBodyCaret('# Untitled\n', 0, true)).toBe(11)
+  })
+
+  it('leaves a note with more in it, a placed caret or a selection alone', () => {
+    expect(newNoteBodyCaret('# Plan\n\nfirst line\n', 0, true)).toBeNull()
+    expect(newNoteBodyCaret('# Untitled\n\n', 4, true)).toBeNull()
+    expect(newNoteBodyCaret('# Untitled\n\n', 0, false)).toBeNull()
+    expect(newNoteBodyCaret('# Untitled', 0, true)).toBeNull()
+    expect(newNoteBodyCaret('---\ntags: a\n---\n# Untitled\n', 0, true)).toBeNull()
+  })
+
+  it('keeps the caret on the empty line when the rename rewrites the heading afterwards', () => {
+    const view = new EditorView({ state: EditorState.create({ doc: '# Untitled\n\n' }) })
+    storeState.current.editorViewRef = view as unknown as Record<string, unknown>
+    caretIntoNewNoteBody()
+    view.dispatch({ changes: { from: 2, to: 10, insert: 'Caret check' } })
+    view.dispatch(view.state.replaceSelection('Body'))
+    expect(view.state.doc.toString()).toBe('# Caret check\n\nBody')
+    view.destroy()
+    storeState.current.editorViewRef = null
   })
 })

@@ -37,6 +37,7 @@ export function focusEditorNormalMode(
       return
     }
     view.focus()
+    caretIntoNewNoteBody(view)
     if (state.vimMode) {
       const cm = getCM(view)
       if (cm?.state.vim?.insertMode) {
@@ -92,4 +93,33 @@ export function focusEditorAfterReadOpen(
  */
 export function focusEditorAfterPaletteClose(): void {
   if (!hostOpensNotesToRead()) focusEditorNormalMode()
+}
+
+/**
+ * Where the caret goes when a note that holds only its `# Title` heading (one
+ * just made) is handed the keyboard: its editor starts with the caret at the
+ * very start, so the first keys typed went in front of the heading
+ * (`Body# My note`), whether the name field handed off (#214) or a New Note
+ * command focused the editor itself. It goes to the end, on the empty line
+ * under the heading. Null leaves the caret where it is: a note with more in
+ * it, a heading with no line under it, a selection, or a caret already placed.
+ */
+export function newNoteBodyCaret(text: string, head: number, empty: boolean): number | null {
+  if (!empty || head !== 0) return null
+  const headingEnd = text.indexOf('\n')
+  if (headingEnd === -1 || !/^#\s/.test(text.slice(0, headingEnd))) return null
+  if (text.slice(headingEnd).trim() !== '') return null
+  return text.length
+}
+
+/** Drop the caret into a new note's body as the editor takes the keyboard
+ *  (see newNoteBodyCaret). A rename's heading rewrite is a minimal change, so
+ *  a caret at the end stays at the end whichever lands first. */
+export function caretIntoNewNoteBody(
+  view: ReturnType<typeof useStore.getState>['editorViewRef'] = useStore.getState().editorViewRef
+): void {
+  if (!view?.state) return
+  const { main } = view.state.selection
+  const at = newNoteBodyCaret(view.state.doc.toString(), main.head, main.empty)
+  if (at !== null) view.dispatch({ selection: { anchor: at } })
 }
