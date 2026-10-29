@@ -30,6 +30,7 @@ export const PORTABLE_PREF_KEYS = [
   'listIndentGuides',
   'linkPopoverOnHover',
   'renderTablesInLivePreview',
+  'detectCodeLanguages',
   'completedTaskStyle',
   'mathRenderer',
   'typstTagPreambles',

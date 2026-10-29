@@ -164,6 +164,7 @@ const LEADER_SUBGROUP_IDS: ReadonlySet<KeymapId> = new Set<KeymapId>([
   'vim.leaderNoteCover',
   'vim.leaderNoteCoverUnsplash',
   'vim.leaderCalloutType',
+  'vim.leaderCodeLanguage',
   'vim.leaderSearchVaultText'
 ])
 

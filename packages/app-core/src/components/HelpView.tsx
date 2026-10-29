@@ -111,6 +111,12 @@ function resolveShortcutKeys(
         shortcut(overrides, 'vim.leaderCalloutType')
       )
     }
+    if (action === 'Code block language') {
+      return chord(
+        leaderShortcut(overrides, 'vim.leaderNoteActions'),
+        shortcut(overrides, 'vim.leaderCodeLanguage')
+      )
+    }
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
     if (action === 'Review Cloud conflicts') {

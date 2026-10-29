@@ -734,6 +734,8 @@ export function SettingsModal(): JSX.Element {
   const setRenderTablesInLivePreview = useStore(
     (s) => s.setRenderTablesInLivePreview,
   );
+  const detectCodeLanguages = useStore((s) => s.detectCodeLanguages);
+  const setDetectCodeLanguages = useStore((s) => s.setDetectCodeLanguages);
   const completedTaskStyle = useStore((s) => s.completedTaskStyle);
   const setCompletedTaskStyle = useStore((s) => s.setCompletedTaskStyle);
   const showArchivedTasks = useStore((s) => s.showArchivedTasks);
@@ -2341,6 +2343,25 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "detect-code-languages",
+          title: "Detect code block languages",
+          description:
+            "Guess the language of a code block that names none, and highlight it with the guess.",
+          keywords: [
+            "code",
+            "code block",
+            "fence",
+            "language",
+            "syntax",
+            "highlight",
+            "highlighting",
+            "detect",
+            "detection",
+            "guess",
+            "auto",
+          ],
+        },
+        {
           id: "completed-task-style",
           title: "Completed task style",
           description:
@@ -3014,6 +3035,7 @@ export function SettingsModal(): JSX.Element {
           searchIds: [
             "live-preview",
             "render-tables",
+            "detect-code-languages",
             "completed-task-style",
             "math-renderer",
             "math-font-scale",
@@ -3066,6 +3088,13 @@ export function SettingsModal(): JSX.Element {
                     onChange={setRenderTablesInLivePreview}
                   />
                 )}
+                <ToggleRow
+                  label="Detect code block languages"
+                  description="Guess the language of a code block that names none and highlight it, in the editor and the reading view. The guess is labeled “detected” and never written to the note; pick it from the block's language button to keep it."
+                  value={detectCodeLanguages}
+                  settingId="detect-code-languages"
+                  onChange={setDetectCodeLanguages}
+                />
                 <SegmentedRow
                   label="Completed task style"
                   description="How a checked task's text looks in the editor and preview: strike it through, gray it out, or both. The checkbox always shows checked."

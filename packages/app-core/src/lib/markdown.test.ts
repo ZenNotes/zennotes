@@ -2,7 +2,8 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderMarkdown } from './markdown'
-import { setMarkdownMathRenderer } from './markdown-settings'
+import { setMarkdownDetectCodeLanguages, setMarkdownMathRenderer } from './markdown-settings'
+import { DETECTED } from './code-language-detect.samples'
 
 describe('renderMarkdown', () => {
   it('keeps source newlines soft while preserving explicit hard breaks (#656)', () => {
@@ -683,5 +684,42 @@ describe('a lone dash under a line of text (#898)', () => {
     const html = renderMarkdown('Some text\n-\nmore text')
     expect(html.match(/<p[ >]/g)).toHaveLength(2)
     expect(renderMarkdown('> quoted\n> -')).not.toContain('<h2')
+  })
+})
+
+describe('code block language detection in the reading view (#1014)', () => {
+  const python = DETECTED.find(([, label]) => label === 'python')![2]
+  const codeTag = (html: string): string => /<code[^>]*>/.exec(html)?.[0] ?? ''
+
+  afterEach(() => setMarkdownDetectCodeLanguages(true))
+
+  it('colours an unlabeled block in the language the editor guesses', () => {
+    setMarkdownDetectCodeLanguages(true)
+    const html = renderMarkdown('```\n' + python + '\n```')
+    expect(codeTag(html)).toContain('language-python')
+    expect(html).toContain('hljs-keyword')
+  })
+
+  it('leaves an unlabeled block plain with detection off, as the editor does', () => {
+    setMarkdownDetectCodeLanguages(false)
+    const html = renderMarkdown('```\n' + python + '\n```')
+    expect(codeTag(html)).not.toContain('language-')
+    expect(html).not.toContain('hljs-keyword')
+  })
+
+  it('leaves a labeled block to its label either way', () => {
+    for (const on of [true, false]) {
+      setMarkdownDetectCodeLanguages(on)
+      const html = renderMarkdown('```ruby\n' + python + '\n```')
+      expect(codeTag(html)).toContain('language-ruby')
+      expect(codeTag(html)).not.toContain('language-python')
+    }
+  })
+
+  it('does not guess at a block too small to tell, which detect: true used to colour', () => {
+    setMarkdownDetectCodeLanguages(true)
+    const html = renderMarkdown('```\nx = 1\n```')
+    expect(codeTag(html)).not.toContain('language-')
+    expect(html).not.toContain('hljs-')
   })
 })

@@ -45,6 +45,7 @@ import { harperEditorConfig, harperSupported } from './harper-runtime'
 import { reflowParagraph } from './cm-reflow'
 import { convertTableToDatabase } from './table-to-database'
 import { removeCalloutAtCursor, requestCalloutTypeMenu } from './callout-menu'
+import { requestCodeLanguagePicker } from './code-language-request'
 import {
   activeNoteCover,
   coverNotePath,
@@ -1403,6 +1404,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (!view) return
         removeCalloutAtCursor(view)
         if (!hostOpensNotesToRead()) view.focus()
+      }
+    },
+    // The code block language picker (#1014), for the block at the caret: the
+    // same picker the block's label opens. Listed whenever a note is open;
+    // outside a code block it says so.
+    {
+      id: 'editor.code-language',
+      title: 'Set Code Block Language…',
+      category: 'Editor',
+      shortcut: vimOnly(
+        chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderCodeLanguage')
+      ),
+      keywords:
+        'code block fence fenced language syntax highlight highlighting detect detected guess picker typescript python change set',
+      when: hasEditorNote,
+      run: () => {
+        requestCodeLanguagePicker()
       }
     },
     {

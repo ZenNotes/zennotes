@@ -124,6 +124,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "table.to-database", title: "Convert Table to Database…", category: "Editor", keywords: "table database convert csv base grid board rows columns markdown pipe extract" },
   { id: "editor.callout-type", title: "Set Callout Type…", category: "Editor", keywords: "callout admonition alert box turn into convert change type note info tip warning danger error success quote blockquote" },
   { id: "editor.remove-callout", title: "Remove Callout", category: "Editor", keywords: "callout admonition alert unwrap plain text blockquote delete remove" },
+  { id: "editor.code-language", title: "Set Code Block Language…", category: "Editor", keywords: "code block fence fenced language syntax highlight highlighting detect detected guess picker typescript python change set" },
   { id: "editor.copy-link", title: "Copy Link Under Cursor", category: "Editor", keywords: "copy link url email address clipboard gy" },
   { id: "editor.resize-image", title: "Resize Image…", category: "Editor", keywords: "image picture width size resize embed px hint shrink grow" },
   { id: "nav.back", title: "Go Back", category: "Tabs", keywords: "history previous" },

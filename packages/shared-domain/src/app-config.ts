@@ -94,6 +94,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   listIndentGuides: true,
   linkPopoverOnHover: true,
   renderTablesInLivePreview: true,
+  detectCodeLanguages: true,
   completedTaskStyle: 'none',
   mathRenderer: 'katex',
   typstTagPreambles: false,
