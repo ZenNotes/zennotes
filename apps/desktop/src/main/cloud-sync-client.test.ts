@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { CloudSyncUpsertMutation } from '@zennotes/bridge-contract/cloud-sync'
 import { CloudServiceRequestError, createCloudSyncClient } from './cloud-sync-client'
+import { CloudSyncPathRefusedError, cloudSyncPathRefusal } from '@zennotes/shared-domain/cloud-sync-refusal'
 import { rememberCloudSyncUploadSource } from './cloud-sync-upload-source'
 
 vi.mock('node:fs', { spy: true })
@@ -166,6 +167,78 @@ describe('createCloudSyncClient', () => {
         message: 'The markdown field must be present.'
       })
     )
+  })
+
+  it('keeps which fields a 422 refused, so sync can set one path aside (#1004)', async () => {
+    const refused = 'This path is not eligible for vault sync.'
+    const fetchImplementation = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(
+        {
+          error: { code: 'VALIDATION_FAILED', message: 'The request data is invalid.' },
+          errors: { 'mutations.1.path': [refused] }
+        },
+        422
+      )
+    )
+    const client = createCloudSyncClient('https://zennotes.org', 'token', fetchImplementation)
+    const body = {
+      mutations: [
+        { ...upsertMutation(4, 'YWJjZA=='), path: 'inbox/Note.md' },
+        { ...upsertMutation(4, 'YWJjZA=='), operation_id: 'second', path: '.zennotes/agent-edits/inbox/Note.md.json' }
+      ]
+    }
+
+    const error = await client.mutate('vault-1', body).catch((caught: unknown) => caught)
+
+    expect(error).toMatchObject({
+      status: 422,
+      code: 'VALIDATION_FAILED',
+      message: refused,
+      details: { errors: { 'mutations.1.path': [refused] } }
+    })
+    expect(cloudSyncPathRefusal(error, body)?.indices).toEqual([1])
+  })
+
+  it('names a direct upload refused for its path by its place in the batch, with what went before', async () => {
+    const refused = 'This path is not eligible for vault sync.'
+    const bytes = Buffer.alloc(INLINE_UPLOAD_LIMIT_BYTES + 1, 17)
+    const small = { ...upsertMutation(4, 'YWJjZA=='), operation_id: 'small', item_id: 'small-item', path: 'inbox/Note.md' }
+    const large = upsertMutation(bytes.byteLength, bytes.toString('base64'))
+    const after = { ...small, operation_id: 'after', item_id: 'after-item', path: 'inbox/After.md' }
+    const requests: string[] = []
+    const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input)
+      requests.push(url.slice(url.lastIndexOf('/') + 1))
+      if (url.endsWith('/mutations')) {
+        return jsonResponse({
+          acknowledged: [{ operation_id: 'small', item_id: 'small-item', revision: 1, sequence: 7 }],
+          conflicts: [],
+          cursor: 7
+        })
+      }
+      if (url.endsWith('/uploads')) {
+        return jsonResponse(
+          { error: { code: 'VALIDATION_FAILED', message: 'The request data is invalid.' }, errors: { path: [refused] } },
+          422
+        )
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    const client = createCloudSyncClient('https://zennotes.org', 'token', fetchImplementation)
+
+    const error = await client.mutate('vault-1', { mutations: [small, large, after] }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(CloudSyncPathRefusedError)
+    const refusal = (error as CloudSyncPathRefusedError).refusal
+    expect(refusal.indices).toEqual([1])
+    expect(refusal.applied).toEqual({
+      acknowledged: [{ operation_id: 'small', item_id: 'small-item', revision: 1, sequence: 7 }],
+      conflicts: [],
+      cursor: 7
+    })
+    expect(refusal.detail).toBe(`HTTP 422 · VALIDATION_FAILED · ${refused}`)
+    // After.md was never sent; sync sends it again without the refused file.
+    expect(requests).toEqual(['mutations', 'uploads'])
   })
 
   it('lets fetch set the multipart boundary for published-note assets', async () => {

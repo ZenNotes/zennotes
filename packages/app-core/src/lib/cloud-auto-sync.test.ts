@@ -814,6 +814,43 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
     expect(items.map((item) => item.path)).toEqual(["inbox/Old.md", "A file"]);
   });
 
+  it("names a file Cloud refused, calmly, with Cloud's answer under Details (#1004)", async () => {
+    const record = ".zennotes/agent-edits/inbox/Note.md.json";
+    const detail = "HTTP 422 · VALIDATION_FAILED · This path is not eligible for vault sync.";
+    const summary: CloudSyncRunSummary = {
+      ...base,
+      pushed: 3,
+      refused_paths: [{ path: record, detail }],
+    };
+    expect(cloudSyncAttentionItems(summary)).toEqual([
+      {
+        kind: "refused",
+        path: record,
+        detail:
+          "ZenNotes Cloud didn't accept this file, so it stays on this device. Sync offers it again once a day.",
+        conflictCopyPath: null,
+        technical: detail,
+      },
+    ]);
+    expect(cloudSyncAttentionMessage(summary)).toMatch(
+      /^ZenNotes Cloud didn't accept “Note\.md\.json”, so it stays on this device while the rest of the vault keeps syncing\./,
+    );
+    expect(cloudSyncAttentionLabel(summary)).toBe("1 file stays on this device");
+    // Anything else wrong in the same run keeps its own words.
+    expect(
+      cloudSyncAttentionLabel({
+        ...summary,
+        conflicts: [{ operation_id: "op", item_id: "i", code: "REVISION_CONFLICT", current_revision: 2, current_path: null }],
+      }),
+    ).toBeNull();
+
+    clearCloudSyncStatus();
+    await syncCloudVaultWithStatus({ syncCloudVault: async () => summary }, "Notes");
+    expect(useCloudSyncStatusStore.getState().phase).toBe("attention");
+    expect(useCloudSyncStatusStore.getState().error).toBe(cloudSyncAttentionMessage(summary));
+    clearCloudSyncStatus();
+  });
+
   it("remembers the last run summary so Review can show it without another sync", async () => {
     clearCloudSyncStatus();
     const summary: CloudSyncRunSummary = {

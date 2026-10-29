@@ -317,7 +317,8 @@ export class CloudSyncHostService {
         bootstrap_conflicts: result.bootstrapConflicts,
         local_conflicts: result.localConflicts,
         pending_conflicts: result.pendingConflicts,
-        legacy_conflict_copies: result.legacyConflictCopies
+        legacy_conflict_copies: result.legacyConflictCopies,
+        refused_paths: result.refusedPaths
       }
     } catch (error) {
       // Another device moved this vault into an encrypted one. The link has

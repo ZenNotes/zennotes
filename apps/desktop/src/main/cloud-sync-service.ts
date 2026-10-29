@@ -662,7 +662,8 @@ export class DesktopCloudSyncService {
         bootstrap_conflicts: result.bootstrapConflicts,
         local_conflicts: result.localConflicts,
         pending_conflicts: result.pendingConflicts,
-        legacy_conflict_copies: result.legacyConflictCopies
+        legacy_conflict_copies: result.legacyConflictCopies,
+        refused_paths: result.refusedPaths
       }
     } catch (error) {
       if (isCloudVaultSuperseded(error) && await this.retireMissingLink(localRoot, link)) {

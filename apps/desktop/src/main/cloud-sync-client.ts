@@ -13,6 +13,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
 import { cloudProtocolError } from '@zennotes/shared-domain/cloud-error-copy'
+import {
+  CloudSyncPathRefusedError,
+  cloudSyncPathRefusal,
+  isCloudSyncUploadPathRefused
+} from '@zennotes/shared-domain/cloud-sync-refusal'
 import type { CloudVaultCipher, CloudVaultCipherSource } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import type {
   CloudPublishUploadTarget,
@@ -133,27 +138,48 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
 
     const responses: CloudSyncMutationResponse[] = []
     let inlineMutations: CloudSyncMutation[] = []
+    let inlineIndices: number[] = []
+    // The batch goes out as several requests, so a path Cloud refuses in one
+    // of them comes back after the earlier ones were applied. The refusal
+    // names positions in the batch this was given and carries what was
+    // applied, so sync commits that and resends only what went unanswered.
+    const refused = (error: unknown, indices: number[]): never => {
+      const refusal = indices.length === 1 && isCloudSyncUploadPathRefused(error)
+        ? cloudSyncPathRefusal(withMutationField(error, 0), { mutations: [body.mutations[indices[0]]] })
+        : cloudSyncPathRefusal(error, { mutations: indices.map((index) => body.mutations[index]) })
+      if (!refusal) throw error
+      throw new CloudSyncPathRefusedError(
+        { ...refusal, indices: refusal.indices.map((index) => indices[index]), applied: merged(responses) },
+        error
+      )
+    }
     const flushInline = async (): Promise<void> => {
       if (inlineMutations.length === 0) return
-      responses.push(await super.mutate(vaultId, { mutations: inlineMutations }))
+      try {
+        responses.push(await super.mutate(vaultId, { mutations: inlineMutations }))
+      } catch (error) {
+        refused(error, inlineIndices)
+      }
       inlineMutations = []
+      inlineIndices = []
     }
 
-    for (const mutation of body.mutations) {
+    for (const [index, mutation] of body.mutations.entries()) {
       if (direct(mutation)) {
         await flushInline()
-        responses.push(await this.directUpload(vaultId, mutation))
+        try {
+          responses.push(await this.directUpload(vaultId, mutation))
+        } catch (error) {
+          refused(error, [index])
+        }
       } else {
         inlineMutations.push(mutation)
+        inlineIndices.push(index)
       }
     }
     await flushInline()
 
-    return {
-      acknowledged: responses.flatMap((response) => response.acknowledged),
-      conflicts: responses.flatMap((response) => response.conflicts),
-      cursor: Math.max(0, ...responses.map((response) => response.cursor))
-    }
+    return merged(responses)
   }
 
   private async directUpload(
@@ -414,6 +440,16 @@ function asErrorPayload(payload: unknown): {
         })
       : response
   const validationMessage = firstValidationMessage(response.errors)
+  const details =
+    candidate.details && typeof candidate.details === 'object' && !Array.isArray(candidate.details)
+      ? (candidate.details as Record<string, unknown>)
+      : null
+  // Which field a 422 refused is only in the answer's `errors` keys
+  // (`mutations.3.path`); sync needs it to set one refused path aside (#1004).
+  const errors =
+    response.errors && typeof response.errors === 'object' && !Array.isArray(response.errors)
+      ? response.errors
+      : null
 
   return {
     ...(typeof candidate.code === 'string' ? { code: candidate.code } : {}),
@@ -422,12 +458,27 @@ function asErrorPayload(payload: unknown): {
       : typeof candidate.message === 'string'
         ? { message: candidate.message }
         : {}),
-    ...(candidate.details &&
-    typeof candidate.details === 'object' &&
-    !Array.isArray(candidate.details)
-      ? { details: candidate.details as Record<string, unknown> }
-      : {})
+    ...(details || errors ? { details: { ...details, ...(errors ? { errors } : {}) } } : {})
   }
+}
+
+function merged(responses: CloudSyncMutationResponse[]): CloudSyncMutationResponse {
+  return {
+    acknowledged: responses.flatMap((response) => response.acknowledged),
+    conflicts: responses.flatMap((response) => response.conflicts),
+    cursor: Math.max(0, ...responses.map((response) => response.cursor))
+  }
+}
+
+/** A direct upload's refusal names its own request's `path`; as one
+ *  mutation of a batch it is that mutation's path. */
+function withMutationField(error: unknown, index: number): unknown {
+  if (!(error instanceof CloudServiceRequestError)) return error
+  const errors = error.details?.errors as Record<string, unknown> | undefined
+  return new CloudServiceRequestError(error.message, error.status, error.code, {
+    ...error.details,
+    errors: { [`mutations.${index}.path`]: errors?.path ?? [] }
+  }, error.headers)
 }
 
 function usesDirectUpload(mutation: CloudSyncMutation, encrypted: boolean): mutation is CloudSyncUpsertMutation {

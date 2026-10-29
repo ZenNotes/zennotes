@@ -72,6 +72,19 @@ export interface CloudSyncState {
   items: Record<string, CloudSyncTrackedItem>
   /** Optional for backward compatibility with state written before v2.44. */
   pending_conflicts?: Record<string, CloudSyncStoredConflict>
+  /** Paths Cloud refused, by path key, set aside so the rest of the vault
+   *  syncs (#1004). Absent in state written before v2.80. */
+  refused_paths?: Record<string, CloudSyncStoredRefusedPath>
+}
+
+/** A path Cloud would not take. Sync offers it again once the retry window
+ *  has passed, since Cloud may have learned to take it. */
+export interface CloudSyncStoredRefusedPath {
+  path: string
+  /** When Cloud last refused it, in milliseconds since the epoch. */
+  refused_at: number
+  /** Cloud's answer, for Details. */
+  detail: string
 }
 
 export interface CloudSyncIdSource {

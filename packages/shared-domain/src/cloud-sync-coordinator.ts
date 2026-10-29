@@ -17,6 +17,7 @@ import type {
   CloudSyncPendingConflict,
   CloudSyncPendingConflictDetails,
   CloudSyncPendingConflictResolution,
+  CloudSyncRefusedPath,
   CloudSyncRevisionResponse
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
@@ -35,10 +36,12 @@ import {
   type CloudSyncLocalItem,
   type CloudSyncState,
   type CloudSyncStoredConflict,
+  type CloudSyncStoredRefusedPath,
   type CloudSyncTrackedItem
 } from './cloud-sync-engine'
 import { mergeCloudSyncText, resolveCloudSyncMerge } from './cloud-sync-merge'
 import { CloudIssueError, cloudProtocolError } from './cloud-error-copy'
+import { CLOUD_SYNC_REFUSED_PATH_RETRY_MS, cloudSyncPathRefusal } from './cloud-sync-refusal'
 import {
   validateCloudSyncContentReference, validateCloudSyncDownloadInstruction,
   cloudSyncStagedHandle, releaseCloudSyncStagedFile, throwIfCloudSyncCancelled,
@@ -173,6 +176,8 @@ export interface CloudSyncRunResult {
   localConflicts: CloudSyncLocalConflict[]
   pendingConflicts: CloudSyncPendingConflict[]
   legacyConflictCopies: Array<{ path: string; original_path: string }>
+  /** Files Cloud refused for their path, still set aside after this run. */
+  refusedPaths: CloudSyncRefusedPath[]
 }
 
 /**
@@ -501,7 +506,8 @@ export class CloudSyncCoordinator {
         bootstrapConflicts: bootstrap.conflicts,
         localConflicts: bootstrap.localConflicts,
         pendingConflicts: pendingConflictSummaries(bootstrap.state),
-        legacyConflictCopies: []
+        legacyConflictCopies: [],
+        refusedPaths: refusedPathSummaries(bootstrap.state)
       }
     }
 
@@ -533,6 +539,11 @@ export class CloudSyncCoordinator {
       // Plan from the merged bytes, never from the scan preceding the write.
       localItems = await this.repository.scan()
     }
+    const refusals = currentRefusedPaths(state, localItems, Date.now())
+    if (refusals !== state.refused_paths) {
+      state = withRefusedPaths(state, refusals)
+      await this.states.save(state)
+    }
     const pendingPathKeys = new Set([
       ...repositoryPendingPaths.map(cloudSyncPathKey),
       ...pendingConflictPaths(state).map(cloudSyncPathKey)
@@ -551,51 +562,92 @@ export class CloudSyncCoordinator {
     const mutationItems = localItems.filter(
       (item) => !pendingPathKeys.has(cloudSyncPathKey(item.path))
     )
+    // A path Cloud refused waits out its retry window. Only the write that
+    // carries it waits: tracked state is untouched, so a move held back here
+    // leaves the item where Cloud has it rather than turning into a delete.
     const plan = planCloudSyncMutations(mutationState, mutationItems, this.ids)
+    plan.mutations = plan.mutations.filter(
+      (mutation) => mutation.type === 'delete' || !refusals?.[cloudSyncPathKey(mutation.path)]
+    )
     const conflicts: CloudSyncConflict[] = []
     const pausedPathsByKey = new Map<string, Set<string>>()
     const acknowledgedSequences = new Set<number>()
     let mutationCursor = state.cursor
     let pushed = 0
 
-    for (const batch of mutationBatches(plan.mutations)) {
-      const response = await this.remote.mutate(this.vaultId, batch)
-      const before = state
-      const resolution = resolveCloudSyncMutations(state, batch, response)
-      state = resolution.state
-      pushed += response.acknowledged.length
-      // The server names rejected operations by id; the file they were about
-      // is only known here. Attach it so the user can be told which file
-      // needs attention instead of how many.
-      const byOperation = new Map(
-        batch.mutations.map((mutation) => [mutation.operation_id, mutation])
-      )
-      const annotatedConflicts = resolution.conflicts.map((conflict) => ({
-        ...conflict,
-        path: conflictPath(conflict, byOperation.get(conflict.operation_id), before)
-      }))
-      conflicts.push(...annotatedConflicts)
-      for (const conflict of annotatedConflicts) {
-        if (conflict.code !== 'PATH_CONFLICT') continue
-        const mutation = byOperation.get(conflict.operation_id)
-        const paths = [
-          conflict.path,
-          conflict.current_path,
-          mutation ? before.items[mutation.item_id]?.path : null
-        ].filter((path): path is string => Boolean(path))
-        for (const keyPath of [conflict.path, conflict.current_path]) {
-          if (!keyPath) continue
-          const key = cloudSyncPathKey(keyPath)
-          const values = pausedPathsByKey.get(key) ?? new Set<string>()
-          paths.forEach((path) => values.add(path))
-          pausedPathsByKey.set(key, values)
+    for (const planned of mutationBatches(plan.mutations)) {
+      let batch = planned
+      while (batch.mutations.length > 0) {
+        let response: CloudSyncMutationResponse
+        let refused: CloudSyncMutation[] = []
+        let refusalDetail = ''
+        try {
+          response = await this.remote.mutate(this.vaultId, batch)
+        } catch (error) {
+          // One path Cloud will not take used to fail the run before anything
+          // was saved, so every later run failed on it too (#1004). The rest
+          // of the batch goes again without it.
+          const refusal = cloudSyncPathRefusal(error, batch)
+          if (!refusal) throw error
+          response = refusal.applied
+          refused = refusal.indices.map((index) => batch.mutations[index])
+          refusalDetail = refusal.detail
+        }
+        const before = state
+        const resolution = resolveCloudSyncMutations(state, batch, response)
+        state = resolution.state
+        pushed += response.acknowledged.length
+        // The server names rejected operations by id; the file they were about
+        // is only known here. Attach it so the user can be told which file
+        // needs attention instead of how many.
+        const byOperation = new Map(
+          batch.mutations.map((mutation) => [mutation.operation_id, mutation])
+        )
+        const annotatedConflicts = resolution.conflicts.map((conflict) => ({
+          ...conflict,
+          path: conflictPath(conflict, byOperation.get(conflict.operation_id), before)
+        }))
+        conflicts.push(...annotatedConflicts)
+        for (const conflict of annotatedConflicts) {
+          if (conflict.code !== 'PATH_CONFLICT') continue
+          const mutation = byOperation.get(conflict.operation_id)
+          const paths = [
+            conflict.path,
+            conflict.current_path,
+            mutation ? before.items[mutation.item_id]?.path : null
+          ].filter((path): path is string => Boolean(path))
+          for (const keyPath of [conflict.path, conflict.current_path]) {
+            if (!keyPath) continue
+            const key = cloudSyncPathKey(keyPath)
+            const values = pausedPathsByKey.get(key) ?? new Set<string>()
+            paths.forEach((path) => values.add(path))
+            pausedPathsByKey.set(key, values)
+          }
+        }
+        mutationCursor = Math.max(mutationCursor, response.cursor)
+        for (const acknowledgement of response.acknowledged) {
+          acknowledgedSequences.add(acknowledgement.sequence)
+        }
+        if (refused.length > 0) {
+          const now = Date.now()
+          const next = { ...state.refused_paths }
+          for (const mutation of refused) {
+            if (mutation.type === 'delete') continue
+            next[cloudSyncPathKey(mutation.path)] = { path: mutation.path, refused_at: now, detail: refusalDetail }
+          }
+          state = withRefusedPaths(state, next)
+        }
+        await this.states.save(state)
+        if (refused.length === 0) break
+        const answered = new Set(
+          [...response.acknowledged, ...response.conflicts].map((answer) => answer.operation_id)
+        )
+        batch = {
+          mutations: batch.mutations.filter(
+            (mutation) => !refused.includes(mutation) && !answered.has(mutation.operation_id)
+          )
         }
       }
-      mutationCursor = Math.max(mutationCursor, response.cursor)
-      for (const acknowledgement of response.acknowledged) {
-        acknowledgedSequences.add(acknowledgement.sequence)
-      }
-      await this.states.save(state)
     }
 
     if (mutationCursor > state.cursor) {
@@ -625,7 +677,8 @@ export class CloudSyncCoordinator {
       legacyConflictCopies: localItems.flatMap((item) => {
         const original = cloudSyncLegacyConflictOriginalPath(item.path)
         return original ? [{ path: item.path, original_path: original }] : []
-      })
+      }),
+      refusedPaths: refusedPathSummaries(state)
     }
   }
 
@@ -2194,6 +2247,51 @@ function conflictPath(
 ): string | null {
   if (mutation && mutation.type !== 'delete') return mutation.path
   return state.items[conflict.item_id]?.path ?? conflict.current_path ?? null
+}
+
+/**
+ * The refused paths still set aside at `now`: one whose retry window has
+ * passed is offered to Cloud again, and one no longer on this device has
+ * nothing left to wait for. State written by an older client, or damaged,
+ * reads as none. Returns the state's own record when nothing changed.
+ */
+function currentRefusedPaths(
+  state: CloudSyncState,
+  localItems: readonly CloudSyncLocalItem[],
+  now: number
+): Record<string, CloudSyncStoredRefusedPath> | undefined {
+  const stored = state.refused_paths
+  if (stored === undefined) return undefined
+  const present = new Set(localItems.map((item) => cloudSyncPathKey(item.path)))
+  const kept: Record<string, CloudSyncStoredRefusedPath> = {}
+  let changed = typeof stored !== 'object' || stored === null || Array.isArray(stored)
+  for (const [key, entry] of changed ? [] : Object.entries(stored)) {
+    const valid =
+      entry !== null &&
+      typeof entry === 'object' &&
+      typeof entry.path === 'string' &&
+      typeof entry.refused_at === 'number' &&
+      typeof entry.detail === 'string'
+    if (valid && present.has(key) && now - entry.refused_at < CLOUD_SYNC_REFUSED_PATH_RETRY_MS) kept[key] = entry
+    else changed = true
+  }
+  return changed ? kept : stored
+}
+
+function withRefusedPaths(
+  state: CloudSyncState,
+  refused: Record<string, CloudSyncStoredRefusedPath> | undefined
+): CloudSyncState {
+  const next = { ...state }
+  if (refused && Object.keys(refused).length > 0) next.refused_paths = refused
+  else delete next.refused_paths
+  return next
+}
+
+function refusedPathSummaries(state: CloudSyncState): CloudSyncRefusedPath[] {
+  return Object.values(state.refused_paths ?? {})
+    .map(({ path, detail }) => ({ path, detail }))
+    .sort((left, right) => left.path.localeCompare(right.path))
 }
 
 function mutationBatches(mutations: CloudSyncMutation[]): CloudSyncMutationRequest[] {

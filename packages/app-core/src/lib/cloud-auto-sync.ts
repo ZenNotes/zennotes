@@ -17,6 +17,9 @@ import {
 } from "@zennotes/shared-domain/cloud-auto-sync";
 import { formatCloudBytes } from "@zennotes/shared-domain/cloud-bytes";
 import {
+  CLOUD_SYNC_REFUSED_PATH_ROW,
+  cloudSyncRefusedPathsLabel,
+  cloudSyncRefusedPathsMessage,
   describeCloudError,
   type CloudErrorCopy,
   type CloudErrorKind,
@@ -1093,16 +1096,24 @@ export function oversizedFileConflicts(summary: CloudSyncRunSummary): CloudSyncC
 
 /**
  * The few words the status row and the Settings heading give a run that could
- * not finish because of a Cloud limit. A phone has no hover to show the
- * sentence behind "Sync incomplete", so the limit names itself. Null when the
- * run stopped for any other reason.
+ * not finish because of a Cloud limit, or whose only trouble is a file Cloud
+ * refused. A phone has no hover to show the sentence behind "Sync incomplete",
+ * so the reason names itself. Null when the run stopped for any other reason.
  */
 export function cloudSyncAttentionLabel(
   summary: CloudSyncRunSummary | null,
 ): string | null {
   if (!summary) return null;
   const capacityConflict = firstCapacityConflict(summary);
-  if (!capacityConflict) return null;
+  if (!capacityConflict) {
+    // A run whose only trouble is a file Cloud refused names that, calmly.
+    const refused = summary.refused_paths ?? [];
+    const onlyRefused =
+      refused.length > 0 &&
+      cloudSyncAttentionMessage(summary) ===
+        cloudSyncRefusedPathsMessage(refused.map((row) => row.path));
+    return onlyRefused ? cloudSyncRefusedPathsLabel(refused.length) : null;
+  }
   const dimension = capacityConflict.capacity?.dimension;
   if (dimension === "sync_max_file_bytes" || capacityConflict.code === "FILE_SIZE_LIMIT_EXCEEDED") {
     const count = Math.max(1, oversizedFileConflicts(summary).length);
@@ -1156,6 +1167,8 @@ export function cloudSyncAttentionMessage(
     const count = summary.conflicts.length;
     return `${count} ${count === 1 ? "change" : "changes"} didn't sync. The list below says what happened to each file.`;
   }
+  const refused = summary.refused_paths ?? [];
+  if (refused.length > 0) return cloudSyncRefusedPathsMessage(refused.map((row) => row.path));
 
   return null;
 }
@@ -1174,7 +1187,8 @@ export interface CloudSyncAttentionItem {
     | "kept-local"
     | "settings"
     | "bootstrap"
-    | "rejected";
+    | "rejected"
+    | "refused";
   /** The file on this device the item is about. */
   path: string;
   /** What happened and what to do, in plain words. */
@@ -1288,6 +1302,15 @@ export function cloudSyncAttentionItems(
       detail,
       conflictCopyPath: null,
       technical: known ? null : `${conflict.code} · item ${conflict.item_id}`,
+    });
+  }
+  for (const refused of summary.refused_paths ?? []) {
+    items.push({
+      kind: "refused",
+      path: refused.path,
+      detail: CLOUD_SYNC_REFUSED_PATH_ROW,
+      conflictCopyPath: null,
+      technical: refused.detail || null,
     });
   }
   return items;

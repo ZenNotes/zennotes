@@ -656,6 +656,16 @@ export interface CloudSyncLocalConflict {
   conflict_copy_path: string | null;
 }
 
+/**
+ * A file Cloud refused for its path (#1004). It stays on this device and the
+ * rest of the vault keeps syncing; sync offers it to Cloud again once a day.
+ */
+export interface CloudSyncRefusedPath {
+  path: string;
+  /** Cloud's answer, for Details. */
+  detail: string;
+}
+
 export type CloudSyncPendingConflictKind = "content" | "delete" | "move" | "path";
 
 /** A durable conflict kept in private app storage, never as a vault note. */
@@ -751,6 +761,8 @@ export interface CloudSyncRunSummary {
   pending_conflicts?: CloudSyncPendingConflict[];
   /** Possible copies made by the pre-v2.44 conflict strategy. Never auto-deleted. */
   legacy_conflict_copies?: Array<{ path: string; original_path: string }>;
+  /** Present on clients that set refused paths aside (v2.80 and later). */
+  refused_paths?: CloudSyncRefusedPath[];
 }
 /** Desktop-wide sync handshake. Drafts must be durable before a run starts. */
 export type CloudSyncWindowEvent =

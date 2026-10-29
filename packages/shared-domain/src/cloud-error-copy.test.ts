@@ -11,6 +11,8 @@ import {
   CloudIssueError,
   cloudProtocolError,
   cloudSignInExchangeError,
+  cloudSyncRefusedPathsLabel,
+  cloudSyncRefusedPathsMessage,
   describeCloudError,
   encodeCloudErrorMessage
 } from './cloud-error-copy'
@@ -186,6 +188,23 @@ describe('describeCloudError', () => {
     expect(describeCloudError(
       serviceError('The name field must not be greater than 255 characters.', 422, 'VALIDATION_FAILED')
     ).message).toBe('Use a Cloud vault name of 255 characters or fewer.')
+  })
+
+  it('words a refused path a client could not set aside, and keeps Cloud\'s answer for Details', () => {
+    const copy = describeCloudError(
+      serviceError('This path is not eligible for vault sync.', 422, 'VALIDATION_FAILED')
+    )
+    expect(copy.message).toMatch(/^ZenNotes Cloud didn't accept the name or location of a file in this vault, so this sync stopped\. Update ZenNotes/)
+    expect(copy.detail).toBe('HTTP 422 · VALIDATION_FAILED · This path is not eligible for vault sync.')
+  })
+
+  it('names a refused file that sync set aside, calmly', () => {
+    expect(cloudSyncRefusedPathsMessage(['.zennotes/agent-edits/inbox/Note.md.json'])).toBe(
+      "ZenNotes Cloud didn't accept “Note.md.json”, so it stays on this device while the rest of the vault keeps syncing. Sync offers it to Cloud again once a day. If it keeps happening, copy the details and choose Report an Issue."
+    )
+    expect(cloudSyncRefusedPathsMessage(['a.json', 'b.json'])).toMatch(/^ZenNotes Cloud didn't accept 2 files, so they stay on this device/)
+    expect(cloudSyncRefusedPathsLabel(1)).toBe('1 file stays on this device')
+    expect(cloudSyncRefusedPathsLabel(3)).toBe('3 files stay on this device')
   })
 
   it('words internal checks and keeps their text for support', () => {

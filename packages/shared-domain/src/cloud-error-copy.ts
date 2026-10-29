@@ -98,6 +98,10 @@ const UPLOAD_UNEXPECTED =
   'ZenNotes Cloud gave an unexpected answer while a file was uploading, so ZenNotes stopped to keep your data safe. Sync will try again.'
 const UPLOAD_BROKEN =
   "A large file didn't arrive in ZenNotes Cloud in one piece. It is safe on this device, and sync will upload it again."
+// A client that can tell which file it was sets that file aside instead
+// (cloudSyncRefusedPathsMessage), so this is for one that cannot.
+const PATH_REFUSED =
+  `ZenNotes Cloud didn't accept the name or location of a file in this vault, so this sync stopped. Update ZenNotes, then choose Sync now. ${REPORT}`
 const DOWNLOAD_INCOMPLETE =
   "A file from ZenNotes Cloud didn't finish downloading. Nothing on this device was changed. Sync will try again."
 const REMOTE_CHANGED =
@@ -273,6 +277,8 @@ export function describeCloudError(error: unknown, fallback = CLOUD_UNEXPECTED_M
     return { message: raw.text || fallback, detail: null, kind: 'other' }
   }
 
+  if (raw.name === 'CloudSyncPathRefusedError') return worded(PATH_REFUSED)
+
   if (raw.name === 'CloudSyncLocalEditConflictError' && raw.path) {
     return worded(
       `Sync stopped because “${fileName(raw.path)}” is a folder on this device but a file in Cloud. Rename one of them, then choose Sync now.`
@@ -290,6 +296,27 @@ export function describeCloudError(error: unknown, fallback = CLOUD_UNEXPECTED_M
   // Everything else was thrown with a sentence meant for people.
   return { message: raw.text, detail: null, kind: cloudErrorKindOf(raw.text) }
 }
+
+/**
+ * Files Cloud refused for their path, set aside so the rest of the vault
+ * syncs (#1004). Nothing failed that the person can fix, and nothing is
+ * lost, so the words are calm; the file names come first because a refused
+ * file is usually one the app keeps under `.zennotes`, not a note.
+ */
+export function cloudSyncRefusedPathsMessage(paths: readonly string[]): string {
+  const subject = paths.length === 1 ? `“${fileName(paths[0])}”` : `${paths.length} files`
+  const stays = paths.length === 1 ? 'it stays' : 'they stay'
+  return `ZenNotes Cloud didn't accept ${subject}, so ${stays} on this device while the rest of the vault keeps syncing. Sync offers ${paths.length === 1 ? 'it' : 'them'} to Cloud again once a day. ${REPORT}`
+}
+
+/** The few words for the status row: a phone has no hover for the sentence. */
+export function cloudSyncRefusedPathsLabel(count: number): string {
+  return `${count} ${count === 1 ? 'file stays' : 'files stay'} on this device`
+}
+
+/** One refused file's row in Settings → Cloud, above its Details. */
+export const CLOUD_SYNC_REFUSED_PATH_ROW =
+  "ZenNotes Cloud didn't accept this file, so it stays on this device. Sync offers it again once a day."
 
 /**
  * A failed sign-in exchange, in sign-in words. Sign-in never retries by itself
@@ -381,6 +408,7 @@ function serviceMessage(raw: RawCloudError): { message: string; kind: CloudError
     case 'RESOURCE_BUSY':
       return other(RESOURCE_BUSY)
     case 'VALIDATION_FAILED':
+      if (/not eligible for vault sync/i.test(raw.text)) return other(PATH_REFUSED)
       if (/^The name field must not be greater than/i.test(raw.text)) return other(VAULT_NAME_TOO_LONG)
       if (/^The name field is required/i.test(raw.text)) return other(CLOUD_VAULT_NAME_REQUIRED_MESSAGE)
       return other(CLOUD_UNEXPECTED_ANSWER_MESSAGE)

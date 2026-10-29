@@ -110,6 +110,27 @@ describe('shouldSyncVaultPath', () => {
     expect(shouldSyncVaultPath(path)).toBe(false)
   })
 
+  // A SYNCED COPY of Cloud's list. The website repo's
+  // tests/Feature/Api/SyncApiTest.php ("the server accepts every internal path
+  // the desktop client uploads") holds the same dataset for
+  // VaultPathService::shouldSync. A path this client uploads and Cloud
+  // refuses once failed every sync of that vault (#1004), so a row added or
+  // changed here is added or changed there, in the same words, and the other
+  // way round. Since 2.80 sync sets a refused path aside instead of stopping,
+  // but the file still never reaches Cloud.
+  it.each([
+    ['vault settings', '.zennotes/vault.json', true],
+    ['comments', '.zennotes/comments/inbox/Note.md.comments.json', true],
+    ['assistant edit record', '.zennotes/agent-edits/inbox/Note.md.json', true],
+    ['creation metadata', '.zennotes/note-metadata/inbox/Note.md.metadata.json', true],
+    ['templates', '.zennotes/templates/Meeting.md', true],
+    ['workflows', '.zennotes/workflows/Daily.workflow', true],
+    ['an assistant edit that is not json', '.zennotes/agent-edits/inbox/Note.md.tmp', false],
+    ['sync state', '.zennotes/sync/cursor.json', false]
+  ] as const)('agrees with Cloud about %s', (_name, path, synced) => {
+    expect(shouldSyncVaultPath(path)).toBe(synced)
+  })
+
   it('prunes repository metadata and dependency directories during traversal', () => {
     expect(shouldTraverseCloudSyncDirectory('notes')).toBe(true)
     expect(shouldTraverseCloudSyncDirectory('.zennotes/templates')).toBe(true)
