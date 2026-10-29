@@ -467,7 +467,10 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
       case 'delete': {
         // The selected rows, else the one at the cursor, and only after the
         // confirm: unlike dd, these keys work with Vim mode off and sit next
-        // to text editing. A cancelled confirm keeps the selection.
+        // to text editing. A cancelled confirm keeps the selection. Never
+        // behind a menu or a dialog, and never while editing picks, where the
+        // selection is the view's picks and not rows to delete.
+        if (editingPicks || isOverlayOrDialogOpen()) return
         const c = cell()
         const ids = selected.size > 0 ? [...selected] : c ? [c.row.id] : []
         if (ids.length === 0) return
