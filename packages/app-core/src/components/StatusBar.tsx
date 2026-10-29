@@ -177,8 +177,8 @@ function CloudSyncStatus({
                 : lastSyncedAt === null
                   ? "Cloud ready"
                   : `Synced ${formatRelativeSyncTime(lastSyncedAt, now)}`;
-  // Files Cloud refused leave a synced run synced (#1004); the hover still
-  // says they wait, for anyone who looks.
+  // Files ZenNotes keeps for itself that Cloud refused leave a synced run
+  // synced (#1004); the hover still says they wait, for anyone who looks.
   const held = lastSummary?.refused_paths?.length ?? 0;
   const heldNote =
     held > 0

@@ -900,6 +900,56 @@ describe("cloudSyncAttentionItems (Discord: name the file, not the count)", () =
     }
   });
 
+  it("still needs the person while a note of theirs is held, until they rename it", async () => {
+    const record = ".zennotes/agent-edits/inbox/Note.md.json";
+    const note = `${"Projects/".repeat(120)}Plan.md`;
+    const own: CloudSyncRunSummary = {
+      ...base,
+      pushed: 3,
+      refused_paths: [{ path: note, detail: "" }],
+    };
+    clearCloudSyncStatus();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-29T12:00:00Z"));
+      await syncCloudVaultWithStatus({ syncCloudVault: async () => ({ ...base, pushed: 1 }) }, "Notes");
+      vi.setSystemTime(new Date("2026-10-29T12:05:00Z"));
+      await syncCloudVaultWithStatus({ syncCloudVault: async () => own }, "Notes");
+      const held = useCloudSyncStatusStore.getState();
+      expect(held.phase).toBe("attention");
+      expect(held.error).toBe(cloudSyncAttentionMessage(own));
+      // Only the person can fix it, so a status bar turned off comes back and
+      // the tray says so; the words stay calm.
+      expect(cloudSyncNeedsUser()).toBe(true);
+      expect(traySyncStatusFor(held)?.state).not.toBe("idle");
+      expect(cloudSyncAttentionLabel(own)).toBe("1 file stays on this device");
+      // The last time everything synced, not this run.
+      expect(held.lastSyncedAt).toBe(Date.parse("2026-10-29T12:00:00Z"));
+
+      // Held beside a file ZenNotes keeps for itself, the note still counts.
+      await syncCloudVaultWithStatus(
+        {
+          syncCloudVault: async () => ({
+            ...own,
+            refused_paths: [{ path: record, detail: "" }, { path: note, detail: "" }],
+          }),
+        },
+        "Notes",
+      );
+      expect(useCloudSyncStatusStore.getState().phase).toBe("attention");
+
+      // Renamed and synced: back to synced.
+      vi.setSystemTime(new Date("2026-10-29T12:10:00Z"));
+      await syncCloudVaultWithStatus({ syncCloudVault: async () => ({ ...base, pushed: 1 }) }, "Notes");
+      expect(useCloudSyncStatusStore.getState().phase).toBe("ready");
+      expect(useCloudSyncStatusStore.getState().lastSyncedAt).toBe(Date.parse("2026-10-29T12:10:00Z"));
+      expect(cloudSyncNeedsUser()).toBe(false);
+    } finally {
+      clearCloudSyncStatus();
+      vi.useRealTimers();
+    }
+  });
+
   it("remembers the last run summary so Review can show it without another sync", async () => {
     clearCloudSyncStatus();
     const summary: CloudSyncRunSummary = {

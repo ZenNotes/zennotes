@@ -163,6 +163,31 @@ describe("cloud sync status time", () => {
     host.remove();
   });
 
+  it("names a held note of the person's own in the status row until it is renamed", () => {
+    useCloudSyncStatusStore.setState({
+      phase: "attention",
+      vaultName: "Notes",
+      lastSyncedAt: Date.now(),
+      error: "Plan.md stays on this device because its path is too long.",
+      lastSummary: {
+        cursor: 1, pulled: 0, pushed: 2, bootstrap_conflicts: [], local_conflicts: [], conflicts: [],
+        refused_paths: [{ path: `${"Projects/".repeat(120)}Plan.md`, detail: "" }],
+      },
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(createElement(StatusBar, { note: null })));
+
+    const status = host.querySelector<HTMLElement>("[data-cloud-sync-status]");
+    expect(status?.textContent).toContain("1 file stays on this device");
+    expect(status?.className).not.toContain("text-success");
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
   it("shows conflicted syncs as incomplete and offers a review action", () => {
     useCloudSyncStatusStore.setState({
       phase: "attention",

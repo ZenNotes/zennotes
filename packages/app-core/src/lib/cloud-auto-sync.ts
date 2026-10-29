@@ -21,6 +21,7 @@ import {
   cloudSyncRefusedPathsLabel,
   cloudSyncRefusedPathsMessage,
   describeCloudError,
+  isInternalVaultPath,
   type CloudErrorCopy,
   type CloudErrorKind,
 } from "@zennotes/shared-domain/cloud-error-copy";
@@ -466,14 +467,20 @@ function attentionMessageWithoutSettings(
 
 /**
  * What a run leaves on the status: null when nothing in it needs the person.
- * Files Cloud refused are set aside and offered again on their own (#1004),
- * so a run whose only news is those has synced everything it could: the
- * status reads synced, the tray stays idle and a status bar turned off stays
- * off. Settings → Cloud still lists each file with Cloud's answer, from the
- * summary (cloudSyncAttentionMessage keeps the sentence for it).
+ * A file ZenNotes keeps for itself that Cloud refused is set aside and
+ * offered again on its own (#1004), so a run whose only news is such files
+ * has synced everything it could: the status reads synced, the tray stays
+ * idle and a status bar turned off stays off. Settings → Cloud still lists
+ * each file with Cloud's answer, from the summary. A note or attachment of
+ * the person's is different: it waits until they rename or move it, so it
+ * keeps the status on attention, in the calm words cloudSyncAttentionLabel
+ * gives it, until a run no longer holds it.
  */
 function runAttentionMessage(summary: CloudSyncRunSummary): string | null {
-  return cloudSyncAttentionIsRefusedOnly(summary) ? null : cloudSyncAttentionMessage(summary);
+  const quiet =
+    cloudSyncAttentionIsRefusedOnly(summary) &&
+    (summary.refused_paths ?? []).every((row) => isInternalVaultPath(row.path));
+  return quiet ? null : cloudSyncAttentionMessage(summary);
 }
 
 /** True while sync waits for an answer about the vault settings. */

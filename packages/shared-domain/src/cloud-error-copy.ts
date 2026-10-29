@@ -342,7 +342,8 @@ export function cloudSyncRefusedPathRow(path: string): string {
   return "Cloud didn't accept this name or location, so the file stays on this device. Rename it or move it to another folder; Details has Cloud's answer."
 }
 
-function isInternalVaultPath(path: string): boolean {
+/** A file ZenNotes keeps for itself under `.zennotes`, never the person's to rename. */
+export function isInternalVaultPath(path: string): boolean {
   return path.toLowerCase().startsWith('.zennotes/')
 }
 
