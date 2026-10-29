@@ -7,6 +7,7 @@ import {
   addField,
   addRow,
   addView,
+  duplicateView,
   setActiveView,
   removeView,
   renameView,
@@ -55,6 +56,7 @@ export function DatabaseView({
   const vimMode = useStore((s) => s.vimMode)
   const [databaseMenu, setDatabaseMenu] = useState<{ x: number; y: number } | null>(null)
   const [viewMenu, setViewMenu] = useState<{ viewId: string; x: number; y: number } | null>(null)
+  const [addViewMenu, setAddViewMenu] = useState<{ x: number; y: number } | null>(null)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [rawMode, setRawMode] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
@@ -128,8 +130,25 @@ export function DatabaseView({
   const shownColumnCount = activeView.type === 'table' ? visibleColumnIds(doc, activeView).length : 0
   const someColumnsHidden = shownColumnCount < columnCount
 
+  // A new table view opens the Columns popover at once, so a 44-column
+  // database becomes a 5-column view in one go.
+  const createView = (type: 'table' | 'board'): void => {
+    const next = addView(doc, type)
+    updateDatabaseSchema(csvPath, next)
+    if (type === 'table') openColumnsFor(next.activeViewId)
+  }
+  const copyView = (viewId: string): void => updateDatabaseSchema(csvPath, duplicateView(doc, viewId))
+
+  const addViewMenuItems: ContextMenuItem[] = [
+    { label: 'New table view', icon: <TableIcon className="h-3.5 w-3.5" />, onSelect: () => createView('table') },
+    { label: 'New board view', icon: <KanbanIcon className="h-3.5 w-3.5" />, onSelect: () => createView('board') },
+    { kind: 'separator' },
+    { label: 'Duplicate this view', onSelect: () => copyView(activeView.id) }
+  ]
+
   const viewMenuItems = (viewId: string): ContextMenuItem[] => [
     { label: 'Rename view', onSelect: () => setRenamingView(viewId) },
+    { label: 'Duplicate view', onSelect: () => copyView(viewId) },
     {
       label: 'Delete view',
       danger: true,
@@ -223,8 +242,13 @@ export function DatabaseView({
           })}
           <IconButton
             size="sm"
-            title="Add board view"
-            onClick={() => updateDatabaseSchema(csvPath, addView(doc, 'board'))}
+            title="Add a view"
+            aria-label="Add a view"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setAddViewMenu({ x: rect.left, y: rect.bottom + 4 })
+            }}
           >
             <PlusIcon className="h-3.5 w-3.5" />
           </IconButton>
@@ -360,6 +384,15 @@ export function DatabaseView({
             }
           ]}
           onClose={() => setDatabaseMenu(null)}
+        />
+      )}
+
+      {addViewMenu && (
+        <ContextMenu
+          x={addViewMenu.x}
+          y={addViewMenu.y}
+          items={addViewMenuItems}
+          onClose={() => setAddViewMenu(null)}
         />
       )}
 
