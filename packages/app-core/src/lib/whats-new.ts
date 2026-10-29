@@ -63,6 +63,10 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
         body: 'Open as Gallery on a folder shows its notes as cards by their covers, a letter for a note without one. Sort them, include subfolders, filter by title. Open Folder Gallery in the palette, :gallery, or Space G in Vim mode.'
       },
       {
+        title: 'Callouts and code languages from a menu',
+        body: 'Right-click lines to turn them into a callout, or a callout to change its type. A code block’s label now picks its language, and a block without one shows a detected language until you choose it.'
+      },
+      {
         title: 'Database views that show just what you need',
         body: 'Each table view keeps its own columns: the Columns button hides the rest of a wide CSV. The + makes new table views and copies, and Show only these in this view keeps the rows you selected.'
       }
