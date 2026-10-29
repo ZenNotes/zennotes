@@ -329,6 +329,20 @@ import {
 } from '../lib/pane-mode'
 import { resolveCommentAnchor, selectionToCommentAnchor } from '../lib/comments'
 import { ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT } from '../lib/keyboard-context-menu'
+import {
+  calloutRefusalMessage,
+  editorCalloutTarget,
+  removeCalloutIn,
+  setCalloutType,
+  ZEN_OPEN_CALLOUT_MENU_EVENT,
+  type CalloutRange
+} from '../lib/callout-menu'
+import {
+  calloutMenuEntries,
+  calloutTypeChoices,
+  type CalloutTarget
+} from '../lib/callout-transform'
+import { useToastStore } from '../lib/toast'
 import { armMiddleClickPasteGuard } from '../lib/middle-click-paste-guard'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
@@ -938,6 +952,25 @@ function getEditorContextMenuPosition(view: EditorView): { x: number; y: number 
 }
 
 /**
+ * What a right-click's callout items act on (#1016): the selection, when the
+ * click landed inside it, or else the block under the pointer, so a click on
+ * a rendered callout in Live Preview means that callout wherever the caret
+ * is. A menu opened from the keyboard has no pointer and takes the selection.
+ */
+function calloutRangeForMenu(
+  view: EditorView,
+  selection: CalloutRange,
+  pointer: { x: number; y: number } | null
+): CalloutRange {
+  if (!pointer) return selection
+  const pos = view.posAtCoords(pointer, false)
+  if (selection.from < selection.to && pos >= selection.from && pos <= selection.to) {
+    return { from: selection.from, to: selection.to }
+  }
+  return { from: pos, to: pos }
+}
+
+/**
  * Follow a link target extracted from the editor (Cmd/Ctrl-click): an external
  * URL opens in the browser; a Markdown link to another note or a `[[wikilink]]`
  * navigates, scrolling to its `#heading` when present. Returns false when the
@@ -1174,7 +1207,23 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     /** The outside link under the pointer (or the caret, when opened from the
      *  keyboard), so the menu can offer to open or copy it. */
     link: CopyableLink | null
+    /** What the callout items act on (#1016): the block or callout under the
+     *  pointer, or the selection the click landed in. */
+    calloutRange: CalloutRange
+    callout: CalloutTarget
   } | null>(null)
+  // The callout type menu (#1016), opened from the editor menu, the palette
+  // or `Space l a` at the same spot. `current` is the type it checks.
+  const [calloutMenu, setCalloutMenu] = useState<{
+    x: number
+    y: number
+    range: CalloutRange
+    current: string | null
+  } | null>(null)
+  // The selection when a right-button press began. A right-click on Mac
+  // selects the word under the pointer before the menu opens, so the
+  // selection the menu sees is not the one the user made.
+  const rightPressRef = useRef<{ from: number; to: number; at: number } | null>(null)
   const [editorHydration, setEditorHydration] = useState<EditorHydrationState | null>(null)
   const [assetDropActive, setAssetDropActive] = useState(false)
   const [imageDropIndicatorTop, setImageDropIndicatorTop] = useState<number | null>(null)
@@ -1297,6 +1346,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!view || !viewPathRef.current) return false
     const pos = getEditorContextMenuPosition(view)
     const sel = view.state.selection.main
+    const calloutRange = { from: sel.from, to: sel.to }
     setActivePane(paneId)
     setFocusedPanel('editor')
     setSelectionCommentAction(null)
@@ -1306,10 +1356,36 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       hasSelection: !sel.empty,
       selFrom: sel.from,
       selTo: sel.to,
-      link: copyableLinkAt(view, sel.head)
+      link: copyableLinkAt(view, sel.head),
+      calloutRange,
+      callout: editorCalloutTarget(view, calloutRange)
     })
     view.focus()
     return true
+  }, [paneId, setActivePane, setFocusedPanel])
+
+  /** Open the callout type menu at the caret (the palette and `Space l a`),
+   *  or say why the caret's block cannot be a callout. */
+  const openCalloutMenuAtCaret = useCallback((): void => {
+    const view = viewRef.current
+    if (!view || !viewPathRef.current) return
+    const sel = view.state.selection.main
+    const range = { from: sel.from, to: sel.to }
+    const target = editorCalloutTarget(view, range)
+    if (target.kind === 'refused') {
+      useToastStore.getState().addToast(calloutRefusalMessage(target.reason), 'info')
+      return
+    }
+    const pos = getEditorContextMenuPosition(view)
+    setActivePane(paneId)
+    setFocusedPanel('editor')
+    setSelectionCommentAction(null)
+    setCalloutMenu({
+      x: pos.x,
+      y: pos.y,
+      range,
+      current: target.kind === 'callout' ? target.callout.type : null
+    })
   }, [paneId, setActivePane, setFocusedPanel])
 
   const rememberCurrentTabScroll = useCallback((path = viewPathRef.current): void => {
@@ -1602,6 +1678,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener(ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT, handler)
     return () => window.removeEventListener(ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT, handler)
   }, [isActive, openEditorContextMenu])
+
+  useEffect(() => {
+    if (!isActive) return
+    window.addEventListener(ZEN_OPEN_CALLOUT_MENU_EVENT, openCalloutMenuAtCaret)
+    return () => window.removeEventListener(ZEN_OPEN_CALLOUT_MENU_EVENT, openCalloutMenuAtCaret)
+  }, [isActive, openCalloutMenuAtCaret])
 
   // `zen:set-pane-mode` — active-pane-only route for command palette and
   // vim ex commands that switch the current note between Edit / Split /
@@ -4698,6 +4780,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       : 'flex flex-1 flex-col'
                   ].join(' ')}
                   style={{ display: showEditor ? 'flex' : 'none' }}
+                  onMouseDown={(e) => {
+                    const view = viewRef.current
+                    if (!view) return
+                    const sel = view.state.selection.main
+                    rightPressRef.current =
+                      e.button === 2 ? { from: sel.from, to: sel.to, at: Date.now() } : null
+                  }}
                   onContextMenu={(e) => {
                     // Native browser context menu in Electron is threadbare
                     // (no Copy/Cut/Paste unless dev tools are open), so we
@@ -4707,6 +4796,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     e.preventDefault()
                     view.focus()
                     const sel = view.state.selection.main
+                    const press = rightPressRef.current
+                    rightPressRef.current = null
+                    const recentPress = press && Date.now() - press.at < 5000 ? press : null
+                    const calloutRange = calloutRangeForMenu(
+                      view,
+                      recentPress ?? { from: sel.from, to: sel.to },
+                      recentPress || e.button === 2 ? { x: e.clientX, y: e.clientY } : null
+                    )
                     setSelectionCommentAction(null)
                     setEditorMenu({
                       x: e.clientX,
@@ -4714,7 +4811,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                       hasSelection: !sel.empty,
                       selFrom: sel.from,
                       selTo: sel.to,
-                      link: copyableLinkAtPointer(view, e.clientX, e.clientY)
+                      link: copyableLinkAtPointer(view, e.clientX, e.clientY),
+                      calloutRange,
+                      callout: editorCalloutTarget(view, calloutRange)
                     })
                   }}
                   >
@@ -4877,9 +4976,58 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             editorMenu.hasSelection,
             captureCommentDraft,
             { from: editorMenu.selFrom, to: editorMenu.selTo },
-            editorMenu.link
+            editorMenu.link,
+            calloutMenuEntries(editorMenu.callout).map(
+              (entry): ContextMenuItem => ({
+                label: entry.label,
+                disabled: entry.disabled,
+                hint: entry.reason,
+                onSelect: () => {
+                  const view = viewRef.current
+                  if (!view) return
+                  const { calloutRange, callout } = editorMenu
+                  if (entry.action === 'remove') {
+                    removeCalloutIn(view, calloutRange)
+                    view.focus()
+                    return
+                  }
+                  setCalloutMenu({
+                    x: editorMenu.x,
+                    y: editorMenu.y,
+                    range: calloutRange,
+                    current: callout.kind === 'callout' ? callout.callout.type : null
+                  })
+                }
+              })
+            )
           )}
           onClose={() => setEditorMenu(null)}
+        />
+      )}
+      {calloutMenu && (
+        <ContextMenu
+          x={calloutMenu.x}
+          y={calloutMenu.y}
+          title="Callout type"
+          items={calloutTypeChoices(calloutMenu.current).map(
+            (choice): ContextMenuItem => ({
+              label: choice.label,
+              icon: (
+                <span aria-hidden className="w-5 text-center">
+                  {choice.icon}
+                </span>
+              ),
+              checked: choice.checked,
+              keywords: choice.keywords,
+              onSelect: () => {
+                const view = viewRef.current
+                if (!view) return
+                setCalloutType(view, calloutMenu.range, choice.type)
+                view.focus()
+              }
+            })
+          )}
+          onClose={() => setCalloutMenu(null)}
         />
       )}
     </section>
@@ -4989,7 +5137,9 @@ function buildEditorContextItems(
   // Selection snapshotted when the menu opened, applied by the highlight actions
   // so they don't depend on the live selection surviving the menu. (#416)
   selRange: { from: number; to: number },
-  link: CopyableLink | null
+  link: CopyableLink | null,
+  // Turn into callout, or Change type and Remove inside one (#1016).
+  calloutItems: ContextMenuItem[]
 ): ContextMenuItem[] {
   if (!view) return []
 
@@ -5073,6 +5223,7 @@ function buildEditorContextItems(
     { label: 'Copy', hint: formatKeyToken('Mod+C'), disabled: !hasSelection, onSelect: copy },
     { label: 'Paste', hint: formatKeyToken('Mod+V'), onSelect: paste },
     { kind: 'separator' },
+    ...(calloutItems.length > 0 ? [...calloutItems, { kind: 'separator' as const }] : []),
     {
       label: 'Select All',
       hint: formatKeyToken('Mod+A'),
