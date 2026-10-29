@@ -306,6 +306,18 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     }
   }, [isActive, csvPath, focusedPanel])
 
+  /** After a delete from the keyboard (dd, Delete, Backspace): drop rows that
+   *  went from the selection, and give the grid the keyboard back. The view
+   *  is inert while rows are deleted, which drops the grid's focus to the
+   *  body, and the next key would otherwise go nowhere. */
+  const afterRowsDeleted = (): void => {
+    const live = new Set(useStore.getState().databases[csvPath]?.rows.map((row) => row.id))
+    setSelected((prev) => new Set([...prev].filter((id) => live.has(id))))
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body) gridRef.current?.focus({ preventScroll: true })
+    })
+  }
+
   const onGridKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (editing) return // the cell's own input owns keys while editing
     // A focused text field inside the grid — the column-name editor, or any
@@ -387,7 +399,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         }
         dPending.current = false
         const c = cell()
-        if (c) void deleteDatabaseRows(csvPath, [c.row.id])
+        if (c) void deleteDatabaseRows(csvPath, [c.row.id]).then(afterRowsDeleted)
         return
       }
       case 'edit': {
@@ -475,15 +487,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         const ids = selected.size > 0 ? [...selected] : c ? [c.row.id] : []
         if (ids.length === 0) return
         e.preventDefault()
-        void deleteDatabaseRows(csvPath, ids, { confirm: true }).then(() => {
-          const live = new Set(useStore.getState().databases[csvPath]?.rows.map((row) => row.id))
-          setSelected((prev) => new Set([...prev].filter((id) => live.has(id))))
-          // The view is inert while rows are deleted, which drops the grid's
-          // focus to the body; the keys that deleted them keep working after.
-          requestAnimationFrame(() => {
-            if (document.activeElement === document.body) gridRef.current?.focus({ preventScroll: true })
-          })
-        })
+        void deleteDatabaseRows(csvPath, ids, { confirm: true }).then(afterRowsDeleted)
         return
       }
       case 'escape':

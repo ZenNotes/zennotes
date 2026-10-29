@@ -104,3 +104,20 @@ describe('the database grid, Delete and Backspace', () => {
     expect(deleteDatabaseRows).not.toHaveBeenCalled()
   })
 })
+
+describe('the database grid, dd with Vim mode on', () => {
+  it('hands the keyboard back to the grid once the row is gone', async () => {
+    useStore.setState({ vimMode: true })
+    // The view is inert while rows are deleted, which drops focus to <body>.
+    deleteDatabaseRows.mockImplementation(async () => {
+      ;(document.activeElement as HTMLElement | null)?.blur()
+    })
+    const grid = await render(database())
+
+    await press(grid, 'd')
+    await press(grid, 'd')
+
+    expect(deleteDatabaseRows).toHaveBeenCalledWith(CSV, ['a'])
+    await vi.waitFor(() => expect(document.activeElement).toBe(grid))
+  })
+})
