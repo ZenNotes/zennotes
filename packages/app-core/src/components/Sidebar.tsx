@@ -43,6 +43,7 @@ import {
   CheckSquareIcon,
   CloseIcon,
   DatabaseIcon,
+  GalleryIcon,
   DocumentIcon,
   ExcalidrawIcon,
   ExpandAllIcon,
@@ -503,6 +504,7 @@ export function Sidebar(): JSX.Element {
   const openHelpView = useStore((s) => s.openHelpView);
   const helpViewActive = useStore(isHelpViewActive);
   const openArchiveView = useStore((s) => s.openArchiveView);
+  const openFolderGallery = useStore((s) => s.openFolderGallery);
   const archiveViewActive = useStore(isArchiveViewActive);
   const openTrashView = useStore((s) => s.openTrashView);
   const trashViewActive = useStore(isTrashViewActive);
@@ -1969,6 +1971,17 @@ export function Sidebar(): JSX.Element {
         },
       });
     }
+    // The folder's notes as cards, led by their covers. A database's record
+    // pages have its own grid, so a `.base` folder has no Gallery.
+    if (!isFormDirName(subpath.split("/").slice(-1)[0])) {
+      items.push({
+        label: "Open as Gallery",
+        icon: <GalleryIcon />,
+        onSelect: async () => {
+          await openFolderGallery(folder, subpath);
+        },
+      });
+    }
     // Quick Notes is a flat folder — no nested subfolders allowed.
     if (folder !== "quick") {
       items.push({
@@ -2177,6 +2190,7 @@ export function Sidebar(): JSX.Element {
     openTemplatePaletteForFolder,
     openArchiveView,
     openQuickNotesView,
+    openFolderGallery,
     createFolderAction,
     renameFolderAction,
     deleteFolderAction,

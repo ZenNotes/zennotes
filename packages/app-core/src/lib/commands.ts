@@ -25,6 +25,7 @@ import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './
 import { focusPaneInDirection } from './pane-nav'
 import { focusSidebarPanel } from './sidebar-focus'
 import { runSidebarNotePlan, sidebarCommandPlan } from './sidebar-note-actions'
+import { openContextGallery } from './folder-gallery-open'
 import { findLeaf } from './pane-layout'
 import { getTabStepTarget, stepActiveTab } from './buffer-navigation'
 import { requestPaneMode } from './pane-mode'
@@ -1631,6 +1632,17 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         'unresolved links missing broken dangling wikilinks notes to write later create orphan dead',
       when: () => !isUnresolvedLinksViewActive(getState()),
       run: () => getState().openUnresolvedLinksView()
+    },
+    {
+      id: 'view.folder-gallery',
+      title: 'Open Folder Gallery',
+      category: 'View',
+      shortcut: leaderShortcut('vim.leaderFolderGallery'),
+      keywords:
+        'gallery folder covers cards grid thumbnails banner images pictures board notes browse',
+      // The folder under the sidebar cursor while the sidebar has focus,
+      // otherwise the open note's folder (lib/folder-gallery-open.ts).
+      run: () => openContextGallery()
     },
     {
       id: 'view.tags',

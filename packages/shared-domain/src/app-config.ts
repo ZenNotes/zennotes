@@ -172,6 +172,8 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   kanbanCardSort: 'manual',
   tasksListOrder: 'note',
   timelineRange: 'two-weeks',
+  gallerySort: 'updated',
+  galleryIncludeSubfolders: false,
   kanbanFolderRoot: '',
   kanbanColumnTitles: {},
   kanbanStatuses: [],

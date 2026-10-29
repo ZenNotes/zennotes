@@ -83,6 +83,12 @@ import {
 import { isInsideCode } from '../lib/cm-wikilink-render'
 import { isUnresolvedLinksTabPath } from '@shared/unresolved-links'
 import { UnresolvedLinksView } from './UnresolvedLinksView'
+import { GalleryView } from './GalleryView'
+import {
+  galleryFolderFromTabPath,
+  galleryFolderName,
+  isGalleryTabPath
+} from '../lib/folder-gallery'
 import { setHoveredLink } from '../lib/hovered-link'
 import {
   setYankToClipboardEnabled,
@@ -274,6 +280,7 @@ import {
   CloseIcon,
   PaperclipIcon,
   LinkIcon,
+  GalleryIcon,
   DocumentIcon,
   FileDownIcon,
   FeedbackIcon,
@@ -3400,6 +3407,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           isTrash: false,
           isAssetsView: false,
           isUnresolvedLinks: false,
+          isGallery: false,
           isAsset: false,
           isDiagram: false,
           isDatabase: false
@@ -3474,6 +3482,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             isUnresolvedLinks: true
           }
         }
+        if (isGalleryTabPath(path)) {
+          const gallery = galleryFolderFromTabPath(path)
+          return {
+            ...base,
+            title: gallery ? galleryFolderName(gallery, folderLabels) : 'Gallery',
+            isGallery: true
+          }
+        }
         if (isAssetTabPath(path)) {
           const assetPath = assetPathFromTab(path)
           return {
@@ -3504,7 +3520,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
       })
     },
-    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.quick, folderLabels.archive, folderLabels.trash, folderLabels.tasks]
+    [tabs, pinnedTabs, previewTab, content, notes, folderLabels.inbox, folderLabels.quick, folderLabels.archive, folderLabels.trash, folderLabels.tasks]
   )
 
   const tabMenuItems = useMemo<ContextMenuItem[]>(() => {
@@ -3573,6 +3589,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isArchiveTabPath(path) ||
       isTrashTabPath(path) ||
       isUnresolvedLinksTabPath(path) ||
+      isGalleryTabPath(path) ||
       isAssetTabPath(path) ||
       isDiagramTabPath(path) ||
       isDatabaseTabPath(path)
@@ -3682,6 +3699,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       isTrash: boolean
       isAssetsView: boolean
       isUnresolvedLinks: boolean
+      isGallery: boolean
       isAsset: boolean
       isDiagram: boolean
     }) => {
@@ -3696,6 +3714,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         tab.isTrash ||
         tab.isAssetsView ||
         tab.isUnresolvedLinks ||
+        tab.isGallery ||
         tab.isAsset ||
         tab.isDiagram
       return (
@@ -3872,6 +3891,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               )}
               {tab.isUnresolvedLinks && (
                 <LinkIcon width={13} height={13} className="shrink-0 text-accent" />
+              )}
+              {tab.isGallery && (
+                <GalleryIcon width={13} height={13} className="shrink-0 text-accent" />
               )}
               {tab.isAsset && (
                 <DocumentIcon width={13} height={13} className="shrink-0 text-accent" />
@@ -4600,6 +4622,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <AssetsView />
           ) : isUnresolvedLinksTabPath(activeTab) ? (
             <UnresolvedLinksView />
+          ) : activeTab && isGalleryTabPath(activeTab) ? (
+            <GalleryView key={activeTab} tabPath={activeTab} isActive={isActive} />
           ) : activeTab && isAssetTabPath(activeTab) ? (
             isDatabaseCsvPath(assetPathFromTab(activeTab) ?? '') ? (
               <DatabaseView

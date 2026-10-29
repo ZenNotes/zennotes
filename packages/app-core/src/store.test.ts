@@ -6,7 +6,7 @@ import { TAGS_TAB_PATH } from '@shared/tags'
 import { WORKFLOWS_TAB_PATH } from '@shared/workflows-view'
 import { databaseTabPath, type DatabaseDoc } from '@shared/databases'
 import { assetTabPath } from './lib/asset-tabs'
-import { findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
+import { allLeaves, findLeaf, type PaneLayout, type PaneLeaf } from './lib/pane-layout'
 import { NO_VALUE_COLUMN_ID } from './components/TasksKanban'
 
 function makeTask(content: string, taskIndex = 0): VaultTask {
@@ -1959,6 +1959,48 @@ describe('timeline panel state (#1007)', () => {
     expect(useStore.getState().panelWidths.timeline).toBe(640)
     const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
     expect(saved.panelWidths.timeline).toBe(640)
+  })
+})
+
+describe('folder Gallery', () => {
+  it('sorts by last edit and stays in its folder by default, and round-trips both choices', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().gallerySort).toBe('updated')
+    expect(useStore.getState().galleryIncludeSubfolders).toBe(false)
+
+    useStore.getState().setGallerySort('title')
+    useStore.getState().setGalleryIncludeSubfolders(true)
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.gallerySort).toBe('title')
+    expect(saved.galleryIncludeSubfolders).toBe(true)
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().gallerySort).toBe('title')
+    expect(reloaded.useStore.getState().galleryIncludeSubfolders).toBe(true)
+  })
+
+  it('reads an unknown stored sort as the default', async () => {
+    installZen()
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ gallerySort: 'size' }))
+    vi.resetModules()
+    const { useStore } = await import('./store')
+    expect(useStore.getState().gallerySort).toBe('updated')
+  })
+
+  it('opens a folder as a tab in the active pane, one tab per folder', async () => {
+    installZen()
+    const { useStore, isGalleryViewActive } = await loadStore()
+    const { galleryTabPath } = await import('./lib/folder-gallery')
+    await useStore.getState().openFolderGallery('inbox', 'Recipes')
+    expect(isGalleryViewActive(useStore.getState())).toBe(true)
+    expect(useStore.getState().focusedPanel).toBe('editor')
+    await useStore.getState().openFolderGallery('inbox', 'Recipes')
+    await useStore.getState().openFolderGallery('archive', '')
+    const tabs = allLeaves(useStore.getState().paneLayout).flatMap((leaf) => leaf.tabs)
+    expect(tabs.filter((tab) => tab === galleryTabPath('inbox', 'Recipes'))).toHaveLength(1)
+    expect(tabs).toContain(galleryTabPath('archive', ''))
   })
 })
 

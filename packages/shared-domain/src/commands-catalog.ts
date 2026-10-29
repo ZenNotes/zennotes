@@ -146,6 +146,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "view.workflows", title: "Open Workflows", category: "View", keywords: "workflow automation pipeline graph canvas nodes run dry" },
   { id: "view.atlas", title: "Open Atlas", category: "View", keywords: "atlas map graph vault visualize notes links regions sky 3d" },
   { id: "view.unresolved-links", title: "Open Unresolved Links", category: "View", keywords: "unresolved links missing broken dangling wikilinks notes to write later create orphan dead" },
+  { id: "view.folder-gallery", title: "Open Folder Gallery", category: "View", keywords: "gallery folder covers cards grid thumbnails banner images pictures board notes browse" },
   { id: "view.tags", title: "Open Tags", category: "View", keywords: "tags browse filter vault" },
   { id: "view.toggle.sidebar", title: "Toggle Sidebar", category: "View" },
   { id: "view.toggle.connections", title: "Toggle Connections Panel", category: "View" },

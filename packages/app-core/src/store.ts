@@ -270,6 +270,13 @@ import {
   normalizeTimelineRange,
   type TimelineRange
 } from './lib/timeline-rail'
+import {
+  galleryTabPath,
+  isGalleryTabPath,
+  normalizeGallerySort,
+  rewriteGalleryTabPath,
+  type GallerySort
+} from './lib/folder-gallery'
 import { normalizeApplicationSchemes } from '@shared/application-links'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
@@ -810,6 +817,12 @@ interface Prefs {
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches. (#1007) */
   timelineRange: TimelineRange
+  /** The Gallery's card order: last edited, newest, or by title. Portable
+   *  (`gallery_sort` under [view]). */
+  gallerySort: GallerySort
+  /** Whether a Gallery shows the notes in its folder's subfolders too.
+   *  Portable (`gallery_include_subfolders` under [view]). */
+  galleryIncludeSubfolders: boolean
   /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
   kanbanColumnTitles: Record<string, string>
   /** Manual Kanban column arrangement per board. Keyed by groupBy → ordered
@@ -1250,6 +1263,8 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanCardSort: 'manual',
   tasksListOrder: 'note',
   timelineRange: DEFAULT_TIMELINE_RANGE,
+  gallerySort: 'updated',
+  galleryIncludeSubfolders: false,
   kanbanColumnTitles: {},
   kanbanColumnOrder: {},
   kanbanCardOrder: {},
@@ -1629,6 +1644,11 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
     timelineRange: normalizeTimelineRange(p.timelineRange),
+    gallerySort: normalizeGallerySort(p.gallerySort),
+    galleryIncludeSubfolders:
+      typeof p.galleryIncludeSubfolders === 'boolean'
+        ? p.galleryIncludeSubfolders
+        : DEFAULT_PREFS.galleryIncludeSubfolders,
     kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles),
     kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanCardOrder: normalizeKanbanCardOrder(p.kanbanCardOrder),
@@ -1944,12 +1964,18 @@ function isDatabaseSurfaceTabPath(path: string | null | undefined): path is stri
  * database surfaces — so opening a row's record page and pressing Ctrl+O jumps
  * back to the grid — and the Tasks and Tags views, which are destinations the
  * user navigates to on purpose and expects the jumplist to return to (#633).
+ * A folder's Gallery is one too: open a note from it, and Ctrl+O comes back.
  * Other virtual tabs (plain assets, help, trash…) stay excluded.
  */
 function isJumpHistoryTabPath(path: string | null | undefined): path is string {
   if (!path) return false
   if (!isWorkspaceVirtualTabPath(path)) return true
-  return isDatabaseSurfaceTabPath(path) || isTasksTabPath(path) || isTagsTabPath(path)
+  return (
+    isDatabaseSurfaceTabPath(path) ||
+    isTasksTabPath(path) ||
+    isTagsTabPath(path) ||
+    isGalleryTabPath(path)
+  )
 }
 
 function captureNoteJumpLocation(state: {
@@ -2591,6 +2617,8 @@ function collectPrefs(s: {
   kanbanCardSort: KanbanCardSort
   tasksListOrder: TasksListOrder
   timelineRange: TimelineRange
+  gallerySort: GallerySort
+  galleryIncludeSubfolders: boolean
   kanbanColumnTitles: Record<string, string>
   kanbanColumnOrder: Record<string, string[]>
   kanbanCardOrder: Record<string, string[]>
@@ -2709,6 +2737,8 @@ function collectPrefs(s: {
     kanbanCardSort: s.kanbanCardSort,
     tasksListOrder: s.tasksListOrder,
     timelineRange: s.timelineRange,
+    gallerySort: s.gallerySort,
+    galleryIncludeSubfolders: s.galleryIncludeSubfolders,
     kanbanColumnTitles: s.kanbanColumnTitles,
     kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanCardOrder: s.kanbanCardOrder,
@@ -3056,6 +3086,15 @@ export function isUnresolvedLinksViewActive(state: {
   return leaf?.activeTab === UNRESOLVED_LINKS_TAB_PATH
 }
 
+/** True when the active pane's active tab is a folder's Gallery. */
+export function isGalleryViewActive(state: {
+  paneLayout: PaneLayout
+  activePaneId: string
+}): boolean {
+  const leaf = findLeaf(state.paneLayout, state.activePaneId)
+  return isGalleryTabPath(leaf?.activeTab)
+}
+
 /** True when the active pane's active tab is the built-in Assets view. */
 export function isAssetsViewActive(state: {
   paneLayout: PaneLayout
@@ -3386,6 +3425,10 @@ interface Store {
   /** How far ahead the Timeline panel reaches: two weeks, a month, or every
    *  dated task. Portable (`timeline_range` under [view]). (#1007) */
   timelineRange: TimelineRange
+  /** The Gallery's card order, shared by every Gallery tab. Portable. */
+  gallerySort: GallerySort
+  /** Whether a Gallery reaches into its folder's subfolders. Portable. */
+  galleryIncludeSubfolders: boolean
   /** The Timeline panel's filter, in the Tasks filter syntax. Session state:
    *  shared by every pane's Timeline, cleared on restart. (#1007) */
   timelineFilter: string
@@ -3549,6 +3592,9 @@ interface Store {
   openWorkflowsView: () => Promise<void>
   /** Open the Atlas map as a tab in the active pane. */
   openAtlasView: () => Promise<void>
+  /** Open a folder's Gallery (its notes as cards, led by their covers) as a
+   *  tab in the active pane. */
+  openFolderGallery: (folder: NoteFolder, subpath: string) => Promise<void>
   /** Close the Tags tab in every pane and clear the selection. */
   closeTagView: () => void
   /** Open the built-in Help tab in the active pane. */
@@ -3661,6 +3707,8 @@ interface Store {
   setTasksListOrder: (order: TasksListOrder) => void
   setTimelineRange: (range: TimelineRange) => void
   setTimelineFilter: (query: string) => void
+  setGallerySort: (sort: GallerySort) => void
+  setGalleryIncludeSubfolders: (include: boolean) => void
   setKanbanColumnTitle: (
     group: KanbanGroupBy,
     columnId: string,
@@ -4712,6 +4760,8 @@ function rewriteFolderWorkspace(
         : nextPrefix + path.slice(prefix.length)
       : path
   const rewrite = (path: string): string | null => {
+    // A Gallery tab follows its folder, and closes with it.
+    if (isGalleryTabPath(path)) return rewriteGalleryTabPath(path, rewriteFile, s.vaultSettings)
     const csv = csvPathFromDatabaseTab(path)
     const asset = isAssetTabPath(path) ? assetPathFromTab(path) : null
     const mapped = rewriteFile(csv ?? asset ?? path)
@@ -6239,6 +6289,8 @@ export const useStore = create<Store>((set, get) => {
   tasksListOrder: loadPrefs().tasksListOrder,
   timelineRange: loadPrefs().timelineRange,
   timelineFilter: '',
+  gallerySort: loadPrefs().gallerySort,
+  galleryIncludeSubfolders: loadPrefs().galleryIncludeSubfolders,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanCardOrder: loadPrefs().kanbanCardOrder,
@@ -6562,6 +6614,15 @@ export const useStore = create<Store>((set, get) => {
     // asset list; it is read lazily and may not be there yet.
     if (!get().assetFilesListed) await get().refreshAssets()
     await get().openNoteInPane(get().activePaneId, UNRESOLVED_LINKS_TAB_PATH)
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    set({ focusedPanel: 'editor' })
+  },
+
+  openFolderGallery: async (folder, subpath) => {
+    // A card draws a vault cover from the vault's file list, which is read
+    // lazily and may not be there yet.
+    if (!get().assetFilesListed) await get().refreshAssets()
+    await get().openNoteInPane(get().activePaneId, galleryTabPath(folder, subpath))
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },
@@ -7746,6 +7807,14 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
   },
   setTimelineFilter: (query) => set({ timelineFilter: query }),
+  setGallerySort: (sort) => {
+    set({ gallerySort: normalizeGallerySort(sort) })
+    savePrefs(collectPrefs(get()))
+  },
+  setGalleryIncludeSubfolders: (include) => {
+    set({ galleryIncludeSubfolders: include })
+    savePrefs(collectPrefs(get()))
+  },
   setKanbanColumnTitle: (group, columnId, title) => {
     const key = `${group}:${columnId}`
     const normalized = typeof title === 'string' ? normalizeKanbanColumnTitle(title) : null

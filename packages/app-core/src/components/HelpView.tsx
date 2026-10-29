@@ -104,6 +104,7 @@ function resolveShortcutKeys(
     if (action === 'Note outline') return leaderShortcut(overrides, 'vim.leaderNoteOutline')
     if (action === 'Toggle timeline') return leaderShortcut(overrides, 'vim.leaderTimeline')
     if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
+    if (action === 'Folder gallery') return leaderShortcut(overrides, 'vim.leaderFolderGallery')
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
     if (action === 'Review Cloud conflicts') {
@@ -140,6 +141,22 @@ function resolveShortcutKeys(
     if (action === 'Toggle folder') return shortcut(overrides, 'nav.toggleFolder')
     if (action === 'Search notes') return shortcut(overrides, 'nav.filter')
     if (action === 'Open context menu') return shortcut(overrides, 'nav.contextMenu')
+  }
+
+  if (sectionId === 'gallery-view') {
+    if (action === 'Move across the grid') {
+      return alternatives([
+        shortcut(overrides, 'nav.moveLeft'),
+        shortcut(overrides, 'nav.moveDown'),
+        shortcut(overrides, 'nav.moveUp'),
+        shortcut(overrides, 'nav.moveRight')
+      ])
+    }
+    if (action === 'First or last card') {
+      return alternatives([shortcut(overrides, 'nav.jumpTop'), shortcut(overrides, 'nav.jumpBottom')])
+    }
+    if (action === 'Open the note') return alternatives(['Enter', shortcut(overrides, 'nav.openResult')])
+    if (action === 'Filter by title') return shortcut(overrides, 'nav.filter')
   }
 
   if (sectionId === 'preview-and-connections') {

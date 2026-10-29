@@ -135,6 +135,8 @@ describe('TOML serialization', () => {
       kanbanCardSort: 'due',
       tasksListOrder: 'priority',
       timelineRange: 'month',
+      gallerySort: 'title',
+      galleryIncludeSubfolders: true,
       kanbanFolderRoot: 'Projects',
       externalApplicationSchemes: ['zotero', 'obsidian'],
       ignoredKeys: ['KanaMode', 'F24']
@@ -176,6 +178,11 @@ describe('TOML serialization', () => {
     // The Timeline panel's reach travels as [view].timeline_range (#1007).
     expect(text).toMatch(/\[view\][^[]*timeline_range = "month"/)
     expect(round.timelineRange).toBe('month')
+    // A folder Gallery's order and reach travel under [view] too.
+    expect(text).toMatch(/\[view\][^[]*gallery_sort = "title"/)
+    expect(text).toMatch(/\[view\][^[]*gallery_include_subfolders = true/)
+    expect(round.gallerySort).toBe('title')
+    expect(round.galleryIncludeSubfolders).toBe(true)
     expect(round.kanbanFolderRoot).toBe('Projects')
     expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
     expect(round.externalApplicationSchemes).toEqual(['zotero', 'obsidian'])

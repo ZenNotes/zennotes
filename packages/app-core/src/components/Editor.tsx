@@ -109,6 +109,7 @@ import { promptImageWidth, setImageWidthFromInput } from "../lib/image-resize";
 import { copyLinkAtCursor } from "../lib/link-copy";
 import { followLinkTarget } from "../lib/follow-link";
 import { openLinkPopoverAtCursor } from "../lib/link-popover-open";
+import { openGalleryFromArgument } from "../lib/folder-gallery-open";
 
 let vimCommandsRegistered = false;
 let syncedVimBindings: Partial<Record<KeymapId, string[]>> = {};
@@ -740,6 +741,16 @@ function registerVimCommands(): void {
   Vim.defineEx("unresolved", "unres", () => {
     void useStore.getState().openUnresolvedLinksView();
   });
+  // `:gallery` (`:gal`) opens this note's folder as a Gallery; `:gallery
+  // Projects/Website` names the folder (a vault path, a folder in the notes
+  // area, or a system folder such as `archive`).
+  Vim.defineEx(
+    "gallery",
+    "gal",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      void openGalleryFromArgument(params?.argString ?? "");
+    },
+  );
 
   // Quick-add a whole-note task file. `:newtask` (or `:task`) prompts for a
   // title and creates it at the configured tasks location; `:newtask <folder>`

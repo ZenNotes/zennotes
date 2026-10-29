@@ -446,6 +446,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'timeline_range',
     comment: 'two-weeks | month | all: how far ahead the Timeline panel reaches; overdue tasks always show'
   },
+  gallerySort: {
+    section: 'view',
+    tomlKey: 'gallery_sort',
+    comment: 'updated | created | title: the order of a folder Gallery\'s cards (newest first for the dates)'
+  },
+  galleryIncludeSubfolders: {
+    section: 'view',
+    tomlKey: 'gallery_include_subfolders',
+    comment: 'a folder Gallery also shows the notes in its subfolders'
+  },
   kanbanFolderRoot: {
     section: 'view',
     tomlKey: 'kanban_folder_root',

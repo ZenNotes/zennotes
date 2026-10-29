@@ -9,10 +9,14 @@ import type { NoteCoverCreditLine } from '@shared/unsplash'
  */
 export function NoteCoverCredit({
   line,
-  persistent
+  persistent,
+  compact = false
 }: {
   line: NoteCoverCreditLine
   persistent: boolean
+  /** A small frame (a Gallery card): tighter to the corner, and as wide as
+   *  the frame at most. */
+  compact?: boolean
 }): JSX.Element {
   const link = (label: string, href: string | null): JSX.Element =>
     href ? (
@@ -27,7 +31,10 @@ export function NoteCoverCredit({
       data-note-cover-credit=""
       className={[
         // The cover's buttons' own surface, so the corner reads as one set of chrome.
-        'zen-note-cover-credit absolute bottom-3 left-3 max-w-md truncate rounded-md bg-paper-50/90 px-2 py-1 text-2xs text-ink-600',
+        'zen-note-cover-credit absolute truncate bg-paper-50/90 text-2xs text-ink-600',
+        compact
+          ? 'bottom-1.5 left-1.5 right-1.5 rounded px-1.5 py-0.5'
+          : 'bottom-3 left-3 max-w-md rounded-md px-2 py-1',
         persistent ? '' : 'opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100'
       ].join(' ')}
     >

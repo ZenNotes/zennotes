@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { completionStatus } from '@codemirror/autocomplete'
 import {
   isAtlasViewActive,
+  isGalleryViewActive,
   isTagsViewActive,
   isTasksViewActive,
   isUnresolvedLinksViewActive,
   useStore
 } from '../store'
+import { openContextGallery } from '../lib/folder-gallery-open'
 import { HintOverlay } from './HintOverlay'
 import { WhichKeyOverlay, type WhichKeyItem } from './WhichKeyOverlay'
 import {
@@ -402,6 +404,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderUnresolvedLinks'),
         label: 'Unresolved links',
         detail: 'Every link to a note that does not exist yet, with the lines that link to it.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderFolderGallery'),
+        label: 'Folder gallery',
+        detail: 'This folder’s notes as cards, led by their covers.'
       },
       ...(canSwitchVaults
         ? [
@@ -1017,11 +1024,12 @@ export function VimNav(): JSX.Element | null {
       ) {
         return
       }
-      // The Unresolved Links view stands where the editor would, so it holds
-      // the keyboard whenever the editor panel does, through its own
-      // capture handler. The leader still reaches the logic below.
+      // The Unresolved Links view and a folder's Gallery stand where the
+      // editor would, so they hold the keyboard whenever the editor panel
+      // does, through their own capture handlers. The leader still reaches
+      // the logic below.
       if (
-        isUnresolvedLinksViewActive(state) &&
+        (isUnresolvedLinksViewActive(state) || isGalleryViewActive(state)) &&
         (state.focusedPanel == null || state.focusedPanel === 'editor') &&
         !leaderPending.current &&
         sequenceTokenFromEvent(e) !== leaderToken
@@ -1123,6 +1131,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           void state.openUnresolvedLinksView()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderFolderGallery')) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          void openContextGallery()
           return
         }
         if (canSwitchVaults && matchesSequenceToken(e, overrides, 'vim.leaderSwitchVault')) {
