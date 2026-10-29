@@ -1,5 +1,5 @@
 import path from 'node:path'
-import chokidar, { FSWatcher } from 'chokidar'
+import chokidar, { type FSWatcher } from 'chokidar'
 import type { NoteFolder, VaultChangeEvent, VaultChangeKind, VaultSettings } from '@shared/ipc'
 import { databaseCsvPathFor } from '@shared/databases'
 import { AGENT_EDITS_DIR, AGENT_EDITS_SUFFIX } from '@shared/agent-edits'
@@ -104,12 +104,14 @@ export class VaultWatcher {
   }
 
   start(root: string, onEvent: (ev: VaultChangeEvent) => void): void {
-    this.stop()
+    void this.stop()
     this.root = root
     this.settings = null
     this.pending = []
     this.refreshSettings(root)
-    this.watcher = chokidar.watch(root, {
+    // Chokidar 6 uses native recursive watching on macOS and Windows, avoiding
+    // a file handle for every note and asset in a large vault.
+    const watcher = chokidar.watch(root, {
       ignoreInitial: true,
       persistent: true,
       ignored: (p: string) => {
@@ -127,6 +129,7 @@ export class VaultWatcher {
         pollInterval: 40
       }
     })
+    this.watcher = watcher
 
     const handler = (kind: VaultChangeKind) => (absPath: string) => {
       const base = path.basename(absPath)
@@ -218,7 +221,12 @@ export class VaultWatcher {
       })
     }
 
-    this.watcher
+    watcher
+      .on('error', (error) => {
+        if (this.watcher !== watcher) return
+        console.error('Vault watcher failed; live updates have stopped', error)
+        void this.stop()
+      })
       .on('add', handler('add'))
       .on('change', handler('change'))
       .on('unlink', handler('unlink'))
@@ -226,15 +234,18 @@ export class VaultWatcher {
       .on('unlinkDir', dirHandler('unlink'))
   }
 
-  stop(): void {
-    if (this.watcher) {
-      void this.watcher.close()
-      this.watcher = null
-      this.root = null
-      // Anything still waiting on the first load belongs to the vault we just
-      // stopped watching; nobody wants it now.
-      this.pending = null
-      this.settings = null
+  async stop(): Promise<void> {
+    const watcher = this.watcher
+    this.watcher = null
+    this.root = null
+    // Anything still waiting on the first load belongs to the vault we just
+    // stopped watching; nobody wants it now.
+    this.pending = null
+    this.settings = null
+    try {
+      await watcher?.close()
+    } catch (error) {
+      console.error('Failed to close vault watcher', error)
     }
   }
 }
