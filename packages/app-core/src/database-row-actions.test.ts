@@ -151,6 +151,47 @@ describe('database row lifecycle', () => {
     expect(s.files.has(TWO)).toBe(false)
     expect(flushed).toBe(true)
   })
+  it('asks before a plain row goes when the caller asks for a confirm, and a Cancel keeps it', async () => {
+    const s = await setup()
+    const plain = { ...s.doc, pages: {}, pageHasContent: {} }
+    s.useStore.setState({ databases: { [CSV]: plain } })
+    const cancelled = s.useStore.getState().deleteDatabaseRows(CSV, ['one'], { confirm: true })
+    const request = s.prompts.getConfirmRequest()!
+    expect(request.options).toMatchObject({ title: 'Delete this row?', description: 'This cannot be undone.', confirmLabel: 'Delete row', danger: true })
+    s.prompts.settleConfirmRequest(request, false)
+    await cancelled
+    expect(s.useStore.getState().databases[CSV].rows.map(row => row.id)).toEqual(['one', 'two'])
+    expect(s.bridge.writeDatabaseSchema).not.toHaveBeenCalled()
+
+    const confirmed = s.useStore.getState().deleteDatabaseRows(CSV, ['one', 'two'], { confirm: true })
+    expect(s.prompts.getConfirmRequest()!.options.title).toBe('Delete 2 rows?')
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, true)
+    await confirmed
+    expect(s.disk().rows).toEqual([])
+    // Without the option a plain row still goes at once (dd, the menus).
+    s.useStore.setState({ databases: { [CSV]: plain } })
+    const direct = s.useStore.getState().deleteDatabaseRows(CSV, ['one'])
+    expect(s.prompts.getConfirmRequest()).toBeNull()
+    await direct
+    expect(s.disk().rows.map(row => row.id)).toEqual(['two'])
+  })
+  it('asks about the rows first, then what happens to their notes', async () => {
+    const s = await setup()
+    const declined = s.useStore.getState().deleteDatabaseRows(CSV, ['one', 'two'], { confirm: true })
+    expect(s.prompts.getConfirmRequest()!.options.description).toBe('This cannot be undone. You choose what happens to the linked page notes next.')
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, false)
+    await declined
+    expect(s.prompts.getConfirmRequest()).toBeNull()
+    expect(s.bridge.writeDatabaseSchema).not.toHaveBeenCalled()
+
+    const pending = s.useStore.getState().deleteDatabaseRows(CSV, ['one', 'two'], { confirm: true })
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, true)
+    await vi.waitFor(() => expect(s.prompts.getConfirmRequest()?.options.title).toBe('Delete 2 rows and their notes?'))
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, false)
+    await pending
+    expect(s.disk().rows).toEqual([])
+    expect(s.bridge.moveToTrash).not.toHaveBeenCalled()
+  })
   it('does not replace the first row confirmation when deletion is dispatched twice', async () => {
     const s = await setup()
     const first = s.useStore.getState().deleteDatabaseRows(CSV, ['one'])

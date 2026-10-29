@@ -9,7 +9,10 @@
  * the field on the header, Space selects the row (or toggles a checkbox
  * cell), Escape clears and leaves, and Shift+F10 or the Context Menu key
  * opens the row's menu (the column's on the header), as in the sidebar and
- * the note list. A chord (Ctrl, Alt or Cmd held) is never the grid's.
+ * the note list. Delete and Backspace delete the selected rows, or the row
+ * at the cursor, in either mode, and always ask first: a row has no undo,
+ * and the keys sit beside text editing. A chord (Ctrl, Alt or Cmd held) is
+ * never the grid's.
  *
  * One function, so the gating can be tested apart from the component.
  */
@@ -33,6 +36,7 @@ export type DatabaseGridKeyAction =
   | 'columns'
   | 'menu'
   | 'add-row'
+  | 'delete'
   | 'escape'
 
 export interface GridKey {
@@ -52,7 +56,9 @@ const UNIVERSAL = new Map<string, DatabaseGridKeyAction>(Object.entries({
   Enter: 'edit',
   ' ': 'space',
   Escape: 'escape',
-  ContextMenu: 'menu'
+  ContextMenu: 'menu',
+  Delete: 'delete',
+  Backspace: 'delete'
 }) as Array<[string, DatabaseGridKeyAction]>)
 
 /** The grid's Vim keys: answered only with Vim mode on. */

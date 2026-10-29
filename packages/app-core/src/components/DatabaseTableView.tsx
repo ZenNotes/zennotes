@@ -464,6 +464,25 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         setActive((s) => ({ row: rows.length, col: s.col }))
         return
       }
+      case 'delete': {
+        // The selected rows, else the one at the cursor, and only after the
+        // confirm: unlike dd, these keys work with Vim mode off and sit next
+        // to text editing. A cancelled confirm keeps the selection.
+        const c = cell()
+        const ids = selected.size > 0 ? [...selected] : c ? [c.row.id] : []
+        if (ids.length === 0) return
+        e.preventDefault()
+        void deleteDatabaseRows(csvPath, ids, { confirm: true }).then(() => {
+          const live = new Set(useStore.getState().databases[csvPath]?.rows.map((row) => row.id))
+          setSelected((prev) => new Set([...prev].filter((id) => live.has(id))))
+          // The view is inert while rows are deleted, which drops the grid's
+          // focus to the body; the keys that deleted them keep working after.
+          requestAnimationFrame(() => {
+            if (document.activeElement === document.body) gridRef.current?.focus({ preventScroll: true })
+          })
+        })
+        return
+      }
       case 'escape':
         e.preventDefault()
         if (editingPicks) {

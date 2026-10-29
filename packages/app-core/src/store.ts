@@ -3646,7 +3646,10 @@ interface Store {
    *  row write only touches the CSV, so a stale UUID would otherwise linger in
    *  schema.json). When a deleted row has a linked page note, prompt whether to
    *  trash the note too or keep it as a standalone note. (#391) */
-  deleteDatabaseRows: (csvPath: string, rowIds: string[]) => Promise<void>
+  /** `confirm` asks before any row goes, plain ones included; a row has no
+   *  undo, so a key press passes it. Rows with a linked page are asked about
+   *  their notes either way. */
+  deleteDatabaseRows: (csvPath: string, rowIds: string[], options?: { confirm?: boolean }) => Promise<void>
   /** Optimistically replace a database's schema/views and debounce-persist sidecar + CSV. */
   updateDatabaseSchema: (csvPath: string, next: DatabaseDoc) => void
   /** Re-read a database from disk after an external change (skips our own write echoes). */
@@ -6863,7 +6866,7 @@ export const useStore = create<Store>((set, get) => {
     scheduleDatabaseWrite(csvPath, 'rows', () => get().databases[csvPath])
     remirrorOpenRecordPages(csvPath, get)
   },
-  deleteDatabaseRows: async (csvPath, rowIds) => {
+  deleteDatabaseRows: async (csvPath, rowIds, options) => {
     if (workspaceWritesBlocked()) return
     const doc = get().databases[csvPath]
     const vault = get().vault
@@ -6875,6 +6878,21 @@ export const useStore = create<Store>((set, get) => {
     const mappings = new Map(ids.map((id) => [id, doc.pages?.[id]]))
     const attached = [...mappings.values()].filter((path): path is string => !!path)
     let trashNotes = false
+    if (options?.confirm) {
+      const one = ids.length === 1
+      pendingRowConfirmation = true
+      try {
+        const confirmed = await confirmApp({
+          title: one ? 'Delete this row?' : `Delete ${ids.length} rows?`,
+          description: attached.length > 0
+            ? 'This cannot be undone. You choose what happens to the linked page notes next.'
+            : 'This cannot be undone.',
+          confirmLabel: one ? 'Delete row' : `Delete ${ids.length} rows`,
+          danger: true
+        })
+        if (!confirmed) return
+      } finally { pendingRowConfirmation = false }
+    }
     if (attached.length > 0) {
       const many = attached.length > 1
       pendingRowConfirmation = true

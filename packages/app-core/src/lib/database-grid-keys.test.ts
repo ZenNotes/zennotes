@@ -24,7 +24,8 @@ const VIM_KEYS: Array<[string, string]> = [
   ['a', 'add-row']
 ]
 
-// What stays with Vim mode off: the arrows, Enter, Space, Escape, the menu keys.
+// What stays with Vim mode off: the arrows, Enter, Space, Escape, the menu
+// keys, and Delete / Backspace (whose deletion always asks first).
 const UNIVERSAL_KEYS: Array<[{ key: string; shiftKey?: boolean }, string]> = [
   [{ key: 'ArrowDown' }, 'down'],
   [{ key: 'ArrowUp' }, 'up'],
@@ -34,7 +35,9 @@ const UNIVERSAL_KEYS: Array<[{ key: string; shiftKey?: boolean }, string]> = [
   [{ key: ' ' }, 'space'],
   [{ key: 'Escape' }, 'escape'],
   [{ key: 'ContextMenu' }, 'menu'],
-  [{ key: 'F10', shiftKey: true }, 'menu']
+  [{ key: 'F10', shiftKey: true }, 'menu'],
+  [{ key: 'Delete' }, 'delete'],
+  [{ key: 'Backspace' }, 'delete']
 ]
 
 describe('databaseGridKeyAction: the grid keys and Vim mode', () => {
@@ -54,7 +57,7 @@ describe('databaseGridKeyAction: the grid keys and Vim mode', () => {
     }
   })
 
-  it('keeps the arrows, Enter, Space, Escape and the menu keys in both modes', () => {
+  it('keeps the arrows, Enter, Space, Escape, the menu keys and Delete in both modes', () => {
     for (const vim of [true, false]) {
       for (const [event, action] of UNIVERSAL_KEYS) {
         expect(databaseGridKeyAction(event, vim), `${event.key} vim=${vim}`).toBe(action)
@@ -68,13 +71,6 @@ describe('databaseGridKeyAction: the grid keys and Vim mode', () => {
       expect(databaseGridKeyAction({ key: 'j', ctrlKey: true }, vim)).toBeNull()
       expect(databaseGridKeyAction({ key: 'ArrowDown', metaKey: true }, vim)).toBeNull()
       expect(databaseGridKeyAction({ key: 'Enter', altKey: true }, vim)).toBeNull()
-    }
-  })
-
-  it('does not take Delete or Backspace (row deletion has no confirm of its own)', () => {
-    for (const vim of [true, false]) {
-      expect(databaseGridKeyAction({ key: 'Delete' }, vim)).toBeNull()
-      expect(databaseGridKeyAction({ key: 'Backspace' }, vim)).toBeNull()
     }
   })
 
