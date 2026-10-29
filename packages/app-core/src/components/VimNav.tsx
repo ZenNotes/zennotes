@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { completionStatus } from '@codemirror/autocomplete'
 import {
   isAtlasViewActive,
+  isGalleryViewActive,
   isTagsViewActive,
   isTasksViewActive,
   isUnresolvedLinksViewActive,
@@ -1017,11 +1018,12 @@ export function VimNav(): JSX.Element | null {
       ) {
         return
       }
-      // The Unresolved Links view stands where the editor would, so it holds
-      // the keyboard whenever the editor panel does, through its own
-      // capture handler. The leader still reaches the logic below.
+      // The Unresolved Links view and a folder's Gallery stand where the
+      // editor would, so they hold the keyboard whenever the editor panel
+      // does, through their own capture handlers. The leader still reaches
+      // the logic below.
       if (
-        isUnresolvedLinksViewActive(state) &&
+        (isUnresolvedLinksViewActive(state) || isGalleryViewActive(state)) &&
         (state.focusedPanel == null || state.focusedPanel === 'editor') &&
         !leaderPending.current &&
         sequenceTokenFromEvent(e) !== leaderToken

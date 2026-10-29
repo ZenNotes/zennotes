@@ -178,6 +178,24 @@ describe('folder mutation state', () => {
     }
   )
 
+  it.each([false, true])(
+    'moves a Gallery tab with its renamed folder and closes it with a deleted one, root mode %s',
+    async (root) => {
+      const s = await setup(root)
+      const { galleryTabPath } = await import('./lib/folder-gallery')
+      const leaf = s.useStore.getState().paneLayout
+      if (leaf.kind !== 'leaf') throw new Error('expected one pane')
+      const tabs = [...leaf.tabs, galleryTabPath('inbox', 'Work'), galleryTabPath('inbox', 'Other')]
+      s.useStore.setState({ paneLayout: { ...leaf, tabs } })
+      await s.useStore.getState().renameFolder('inbox', 'Work', 'Renamed')
+      expect(s.tabs()).toContain(galleryTabPath('inbox', 'Renamed'))
+      expect(s.tabs()).not.toContain(galleryTabPath('inbox', 'Work'))
+      await s.useStore.getState().deleteFolder('inbox', 'Renamed')
+      expect(s.tabs()).not.toContain(galleryTabPath('inbox', 'Renamed'))
+      expect(s.tabs()).toContain(galleryTabPath('inbox', 'Other'))
+    }
+  )
+
   it.each(['createFolder', 'renameFolder', 'deleteFolder'] as const)(
     'ignores a %s response after a vault switch',
     async (action) => {

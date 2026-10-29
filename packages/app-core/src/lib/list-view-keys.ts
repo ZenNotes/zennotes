@@ -1,7 +1,7 @@
 /**
  * How the list views (Archive, Trash, Quick Notes, Tags, Tasks, Unresolved
- * links, Workflows, the Timeline) read a key against their own actions'
- * bindings.
+ * links, the Gallery, Workflows, the Timeline) read a key against their own
+ * actions' bindings.
  *
  * Each of them used to open with `if (e.metaKey || e.ctrlKey || e.altKey)
  * return`, so the app's chords went past them untouched. That also threw

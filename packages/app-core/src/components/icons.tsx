@@ -182,6 +182,16 @@ export const ImageIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** A folder's Gallery: its notes as cards. */
+export const GalleryIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+    <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+    <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+    <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+  </I>
+)
+
 export const PaperclipIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />

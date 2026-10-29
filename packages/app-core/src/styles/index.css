@@ -1580,9 +1580,10 @@ textarea,
 }
 /* A cover's credit shows with its buttons, on hover or focus. A screen that
    cannot hover (a phone, a tablet) shows it all the time, or it would never
-   show at all. */
+   show at all. A Gallery card's thumbnail follows the same rule. */
 @media (hover: none) {
-  .zen-note-cover .zen-note-cover-credit {
+  .zen-note-cover .zen-note-cover-credit,
+  .zen-gallery-cover .zen-note-cover-credit {
     opacity: 1;
   }
 }

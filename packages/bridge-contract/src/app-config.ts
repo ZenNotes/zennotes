@@ -106,6 +106,8 @@ export const PORTABLE_PREF_KEYS = [
   'kanbanCardSort',
   'tasksListOrder',
   'timelineRange',
+  'gallerySort',
+  'galleryIncludeSubfolders',
   'kanbanFolderRoot',
   'kanbanColumnTitles',
   'kanbanStatuses',
