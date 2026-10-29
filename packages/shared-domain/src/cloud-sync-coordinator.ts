@@ -11,6 +11,7 @@ import type {
   CloudSyncLocalConflict,
   CloudSyncManifestItem,
   CloudSyncManifestResponse,
+  CloudSyncMoveMutation,
   CloudSyncMutation,
   CloudSyncMutationRequest,
   CloudSyncMutationResponse,
@@ -18,7 +19,8 @@ import type {
   CloudSyncPendingConflictDetails,
   CloudSyncPendingConflictResolution,
   CloudSyncRefusedPath,
-  CloudSyncRevisionResponse
+  CloudSyncRevisionResponse,
+  CloudSyncUpsertMutation
 } from '@zennotes/bridge-contract/cloud-sync'
 import {
   cloudSyncLegacyConflictOriginalPath,
@@ -579,7 +581,7 @@ export class CloudSyncCoordinator {
       let batch = planned
       while (batch.mutations.length > 0) {
         let response: CloudSyncMutationResponse
-        let refused: CloudSyncMutation[] = []
+        let refused: Array<CloudSyncUpsertMutation | CloudSyncMoveMutation> = []
         let refusalDetail = ''
         try {
           response = await this.remote.mutate(this.vaultId, batch)
@@ -590,7 +592,9 @@ export class CloudSyncCoordinator {
           const refusal = cloudSyncPathRefusal(error, batch)
           if (!refusal) throw error
           response = refusal.applied
-          refused = refusal.indices.map((index) => batch.mutations[index])
+          // A refusal names only upsert and move positions; anything else
+          // stopped the run above.
+          refused = refusal.indices.map((index) => batch.mutations[index] as CloudSyncUpsertMutation | CloudSyncMoveMutation)
           refusalDetail = refusal.detail
         }
         const before = state
@@ -632,7 +636,6 @@ export class CloudSyncCoordinator {
           const now = Date.now()
           const next = { ...state.refused_paths }
           for (const mutation of refused) {
-            if (mutation.type === 'delete') continue
             next[cloudSyncPathKey(mutation.path)] = { path: mutation.path, refused_at: now, detail: refusalDetail }
           }
           state = withRefusedPaths(state, next)
@@ -644,7 +647,7 @@ export class CloudSyncCoordinator {
         )
         batch = {
           mutations: batch.mutations.filter(
-            (mutation) => !refused.includes(mutation) && !answered.has(mutation.operation_id)
+            (mutation) => !refused.some((item) => item === mutation) && !answered.has(mutation.operation_id)
           )
         }
       }
