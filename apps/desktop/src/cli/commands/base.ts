@@ -12,7 +12,7 @@
  */
 
 import {
-  addRow,
+  addRowInView,
   composePageBody,
   ensureSelectOption,
   recordTitle,
@@ -239,12 +239,16 @@ export async function cmdBaseAdd(vault: VaultBackend, args: ParsedArgs): Promise
   const body = bodyFlag === '-' ? (await readStdin()).trim() || null : bodyFlag ?? null
   const wantPage = body != null || getBool(args, 'page')
 
-  let doc = await ops.openDatabase(csvPath)
-  doc = addRow(doc)
-  const row = doc.rows[doc.rows.length - 1]
-  const applied = applyAssignments(doc, row.id, assignments)
-  doc = applied.doc
-  let schemaChanged = applied.schemaChanged
+  // As + Row does in the grid: when the view the database opens on shows
+  // picked rows, the new row joins them, or it would be missing from that
+  // view the next time the database is opened. Other views keep their picks.
+  const opened = await ops.openDatabase(csvPath)
+  const added = addRowInView(opened, opened.activeViewId)
+  const pickedIn = added.picksChanged ? opened.views.find((v) => v.id === opened.activeViewId)?.name ?? null : null
+  const row = added.doc.rows.find((r) => r.id === added.rowId)!
+  const applied = applyAssignments(added.doc, row.id, assignments)
+  let doc = applied.doc
+  let schemaChanged = applied.schemaChanged || added.picksChanged
 
   let pagePath: string | null = null
   if (wantPage) {
@@ -259,10 +263,15 @@ export async function cmdBaseAdd(vault: VaultBackend, args: ParsedArgs): Promise
 
   const finalRow = doc.rows.find((r) => r.id === row.id)!
   if (getBool(args, 'json')) {
-    emitJson({ ok: true, ...rowView({ ...doc, pages: pagePath ? { [row.id]: pagePath } : doc.pages }, finalRow) })
+    emitJson({
+      ok: true,
+      ...rowView({ ...doc, pages: pagePath ? { [row.id]: pagePath } : doc.pages }, finalRow),
+      ...(pickedIn !== null ? { pickedInView: pickedIn } : {})
+    })
     return
   }
   emitOk(`Added ${recordTitle(doc, finalRow)} (${row.id})`)
+  if (pickedIn !== null) emitLine(`  added to the picked rows of the ${pickedIn} view`)
   if (pagePath) emitLine(`  page: ${pagePath}`)
 }
 

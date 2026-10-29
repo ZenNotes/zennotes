@@ -159,6 +159,31 @@ export function addRow(doc: DatabaseDoc): DatabaseDoc {
   return { ...doc, rows: [...doc.rows, row] }
 }
 
+/**
+ * Add an empty row while `viewId` is the view being looked at. In a view with
+ * picks the new row joins them, or it would vanish the moment it was made;
+ * `picksChanged` then tells the caller the schema changed too (rows-only
+ * writes leave schema.json alone). The grid passes the view on screen, and
+ * `zn base add` the database's active view.
+ */
+export function addRowInView(
+  doc: DatabaseDoc,
+  viewId: string
+): { doc: DatabaseDoc; rowId: string; picksChanged: boolean } {
+  const next = addRow(doc)
+  const rowId = next.rows[next.rows.length - 1].id
+  const picked = doc.views.find((v) => v.id === viewId)?.pickedRowIds
+  if (!picked) return { doc: next, rowId, picksChanged: false }
+  return {
+    doc: {
+      ...next,
+      views: next.views.map((v) => (v.id === viewId ? { ...v, pickedRowIds: [...picked, rowId] } : v))
+    },
+    rowId,
+    picksChanged: true
+  }
+}
+
 export function deleteRow(doc: DatabaseDoc, rowId: string): DatabaseDoc {
   return { ...doc, rows: doc.rows.filter((r) => r.id !== rowId) }
 }

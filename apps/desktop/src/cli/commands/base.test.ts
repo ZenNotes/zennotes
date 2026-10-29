@@ -141,6 +141,67 @@ describe('zn base', () => {
     expect(page).toContain('Summary of the retro.')
   })
 
+  it('adds the row to the picks of the view the database opens on, and nowhere else', async () => {
+    const dir = path.join(root, 'inbox', 'Reading.base')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(path.join(dir, 'data.csv'), 'id,Title\nr1,Dune\nr2,Emma\n')
+    const views = (picks: Record<string, string[] | undefined>) =>
+      Object.entries(picks).map(([id, pickedRowIds]) => ({
+        id,
+        name: id === 'shelf' ? 'Shelf' : id === 'all' ? 'All' : 'Later',
+        type: 'table',
+        filters: [],
+        sorts: [],
+        ...(pickedRowIds ? { pickedRowIds } : {})
+      }))
+    const writeSchema = (activeViewId: string) =>
+      fsp.writeFile(
+        path.join(dir, 'schema.json'),
+        JSON.stringify({
+          version: 1,
+          idFieldId: 'f_id',
+          fields: [
+            { id: 'f_id', name: 'id', type: 'text', hidden: true },
+            { id: 'f_title', name: 'Title', type: 'text' }
+          ],
+          views: views({ shelf: ['r1'], all: undefined, later: ['r2'] }),
+          activeViewId
+        })
+      )
+    const readViews = async () =>
+      (JSON.parse(await fsp.readFile(path.join(dir, 'schema.json'), 'utf8')) as {
+        views: Array<{ id: string; pickedRowIds?: string[] }>
+      }).views
+
+    // The database opens on Shelf, which shows only Dune: the new row joins it.
+    await writeSchema('shelf')
+    await cmdBaseAdd(backend(), makeArgs(['Reading'], [['set', 'Title=Ulysses'], ['json', 'true']]))
+    const added = lastJson()
+    expect(added.pickedInView).toBe('Shelf')
+    const after = await readViews()
+    expect(after.find((v) => v.id === 'shelf')?.pickedRowIds).toEqual(['r1', added.id])
+    // A view with picks the user is not looking at keeps them.
+    expect(after.find((v) => v.id === 'later')?.pickedRowIds).toEqual(['r2'])
+    expect(after.find((v) => v.id === 'all')).not.toHaveProperty('pickedRowIds')
+
+    // Opening on a view of every row, the add changes no view's picks.
+    await writeSchema('all')
+    out = []
+    await cmdBaseAdd(backend(), makeArgs(['Reading'], [['set', 'Title=Middlemarch']]))
+    expect(out.join('')).not.toContain('picked rows')
+    const plain = await readViews()
+    expect(plain.find((v) => v.id === 'shelf')?.pickedRowIds).toEqual(['r1'])
+    expect(plain.find((v) => v.id === 'later')?.pickedRowIds).toEqual(['r2'])
+    const csv = await fsp.readFile(path.join(dir, 'data.csv'), 'utf8')
+    expect(csv).toContain('Middlemarch')
+
+    // The text output says where the row went.
+    await writeSchema('later')
+    out = []
+    await cmdBaseAdd(backend(), makeArgs(['Reading'], [['set', 'Title=Persuasion']]))
+    expect(out.join('')).toContain('added to the picked rows of the Later view')
+  })
+
   it('creates a database and rejects unknown fields helpfully', async () => {
     await cmdBaseCreate(backend(), makeArgs(['Logbook'], [['json', 'true']]))
     const created = lastJson()

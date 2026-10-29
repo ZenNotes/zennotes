@@ -161,7 +161,7 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
       { name: 'base create <title>', description: 'Create an empty database', flags: '--folder <f/sub>  --json' },
       { name: 'base rows <base>', description: 'List a database’s rows (title or path picks the base)', flags: '--json' },
       { name: 'base get <base> <row>', description: 'One row by id or title value', flags: '--json' },
-      { name: 'base add <base>', description: 'Add a row; --body (or --body - for stdin) also creates its record page', flags: '--set Field=Value …  --body <text|->  --page  --json' },
+      { name: 'base add <base>', description: 'Add a row; --body (or --body - for stdin) also creates its record page. When the view the database opens on shows picked rows, the row joins them', flags: '--set Field=Value …  --body <text|->  --page  --json' },
       { name: 'base set <base> <row>', description: 'Set fields; select options mint, the page re-mirrors', flags: '--set Field=Value …  --json' }
     ]
   },
