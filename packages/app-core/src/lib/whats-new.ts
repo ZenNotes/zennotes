@@ -57,6 +57,14 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
       {
         title: 'Unsplash covers with your own key',
         body: 'Add your Unsplash Access Key in Settings to search millions of photos for a note’s cover. Searches go straight from your computer to Unsplash, and the photo is credited to its photographer.'
+      },
+      {
+        title: 'A folder as a Gallery',
+        body: 'Open as Gallery on a folder shows its notes as cards by their covers, a letter for a note without one. Sort them, include subfolders, filter by title. Open Folder Gallery in the palette, :gallery, or Space G in Vim mode.'
+      },
+      {
+        title: 'Database views that show just what you need',
+        body: 'Each table view keeps its own columns: the Columns button hides the rest of a wide CSV. The + makes new table views and copies, and Show only these in this view keeps the rows you selected.'
       }
     ]
   },
