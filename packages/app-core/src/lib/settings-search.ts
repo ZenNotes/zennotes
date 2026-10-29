@@ -86,6 +86,20 @@ function settingResult<TCategory extends SettingsSearchCategory>(
 }
 
 /**
+ * The sub-tab of a category that holds a setting result's control, or null
+ * for a category result, a category without sub-tabs, or a control on none
+ * of them. Search opens that sub-tab before it jumps to the control, and the
+ * result names it (`data-settings-result-tab`) so a host that hides a
+ * sub-tab can hide the results that would open it.
+ */
+export function settingsResultSubTab(
+  result: SettingsSearchResult<SettingsSearchCategory & { subTabs?: readonly { id: string; searchIds?: readonly string[] }[] }>
+): string | null {
+  if (result.type !== 'setting') return null
+  return result.category.subTabs?.find((tab) => tab.searchIds?.includes(result.targetId))?.id ?? null
+}
+
+/**
  * Categories in the order the navigation shows them, which groups them by
  * section and so differs from the order they are defined in. The results
  * list is built from this, and Ctrl+J/K (and the arrows) walk that list even

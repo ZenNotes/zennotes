@@ -308,6 +308,24 @@ describe("SettingsModal date note directories", () => {
     expect(mocks.state.setShowStatusBar).toHaveBeenCalledWith(false);
   });
 
+  it("names the sub-tab a search result opens, so a phone can hide the ones it hides", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, "vault name"));
+    const results = [...host.querySelectorAll<HTMLButtonElement>("aside nav button[data-settings-result-category]")];
+    const vaultName = results.find((button) => button.textContent?.includes("Vault name"));
+    expect(vaultName?.dataset.settingsResultCategory).toBe("vault");
+    expect(vaultName?.dataset.settingsResultTab).toBe("location");
+    // The sub-tab's own button carries the same id.
+    await act(async () => vaultName!.click());
+    expect(host.querySelector('[role="tab"][data-settings-tab="location"]')).toBeTruthy();
+    // A setting in a category without sub-tabs names none.
+    await act(async () => changeInput(search, "hyprland"));
+    const titleBar = host.querySelector<HTMLButtonElement>("aside nav button[data-settings-result-category]");
+    expect(titleBar).toBeTruthy();
+    expect(titleBar!.hasAttribute("data-settings-result-tab")).toBe(false);
+  });
+
   it("finds the new-file location rows by the words people search for", async () => {
     await act(async () => root.render(createElement(SettingsModal)));
     const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;

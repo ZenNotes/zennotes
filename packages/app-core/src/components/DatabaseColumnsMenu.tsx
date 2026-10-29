@@ -16,6 +16,7 @@ import {
   showAllColumns,
   viewColumnFields
 } from '../lib/database-cells'
+import { hostOpensNotesToRead } from '../lib/editor-host'
 import { useStore } from '../store'
 import { Button } from './ui/Button'
 import { SearchIcon } from './icons'
@@ -85,10 +86,12 @@ export function DatabaseColumnsMenu({
   }, [onClose, ignoreRef])
 
   // Vim mode starts on the list, where j / k work; otherwise the find field
-  // takes the typing, since letters are never shortcuts with Vim off.
+  // takes the typing, since letters are never shortcuts with Vim off. A host
+  // that opens notes to read (a phone) leaves the field alone: there its
+  // focus is the soft keyboard over the menu, and a tap still raises it.
   useEffect(() => {
     if (vimMode) focusItem(0)
-    else findRef.current?.focus()
+    else if (!hostOpensNotesToRead()) findRef.current?.focus()
     // Once, on open: a later Vim toggle should not yank focus around.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

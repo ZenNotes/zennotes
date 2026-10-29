@@ -355,6 +355,22 @@ command (a toggle, a view, a theme), and closing any of those palettes or the
 template or drawing palette without a pick, leaves the focus where it was.
 Absent, false or throwing, the editor takes the focus as on desktop.
 
+The same answer keeps the keyboard down in the places core hands the editor
+the focus as a desktop habit rather than for typing: a card picked in a folder
+Gallery opens its note to be read, a pick in the Callout type menu and Remove
+callout leave the caret in the note without focusing it, the database Columns
+menu opens without focusing its find field (a tap into the field still does),
+and closing the sidebar while it held the keyboard does not focus the editor.
+The focus heal, which refocuses the editor when the app comes back to the
+front, runs on such a host only when the editor held the focus as the app was
+left: someone typing gets the keyboard back, someone reading does not, and a
+fresh page counts as reading.
+
+Settings search results carry `data-settings-result-category` (the section)
+and, for a setting on a sub-tab, `data-settings-result-tab` (the sub-tab's id,
+which the sub-tab's own button carries as `data-settings-tab`), so a host that
+hides a section or a sub-tab can hide the results that would open it.
+
 Live preview reveals a line's Markdown source (a heading's `#`, `**`, `[[ ]]`)
 only on lines the user is editing: once an editor has taken the focus since its
 note opened. A note opened to be read renders every line, the caret's too, with

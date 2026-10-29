@@ -145,6 +145,7 @@ import type { NoteTemplate } from "@bridge-contract/templates";
 import {
   getSettingsSearchResults,
   inNavigationOrder,
+  settingsResultSubTab,
   type SettingsSearchCategory,
 } from "../lib/settings-search";
 import { useAppUpdateState } from "../lib/app-update-state";
@@ -6183,9 +6184,7 @@ export function SettingsModal(): JSX.Element {
     if (result.type === "setting") {
       // If the target lives on a sub-tab, open that sub-tab first
       // so the element is mounted before we scroll to it.
-      const subTabId = result.category.subTabs?.find(
-        (tab) => tab.searchIds?.includes(result.targetId),
-      )?.id;
+      const subTabId = settingsResultSubTab(result);
       if (subTabId) {
         setActiveSubTabByCategory((prev) => ({
           ...prev,
@@ -6219,9 +6218,7 @@ export function SettingsModal(): JSX.Element {
   useEffect(() => {
     if (visibleSearchResult?.type !== "setting" || !visibleCategory?.subTabs)
       return;
-    const subTabId = visibleCategory.subTabs.find((tab) =>
-      tab.searchIds?.includes(visibleSearchResult.targetId),
-    )?.id;
+    const subTabId = settingsResultSubTab(visibleSearchResult);
     if (!subTabId) return;
     const categoryId = visibleCategory.id;
     setActiveSubTabByCategory((prev) =>
@@ -6382,9 +6379,11 @@ export function SettingsModal(): JSX.Element {
                         ref={selected ? selectedResultRef : undefined}
                         type="button"
                         // The phone shells hide whole sections (MCP, CLI,
-                        // and Keymap on a phone); this lets them hide the
-                        // search results that would open one.
+                        // and Keymap on a phone) and some sub-tabs; these
+                        // let them hide the search results that would open
+                        // one.
                         data-settings-result-category={result.category.id}
+                        data-settings-result-tab={settingsResultSubTab(result) ?? undefined}
                         onClick={() => openSearchResult(result)}
                         className={[
                           "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
@@ -7132,6 +7131,9 @@ function CategorySubTabs({
               key={tab.id}
               type="button"
               role="tab"
+              // The id a search result names (data-settings-result-tab), so a
+              // host that hides this sub-tab can hide its results too.
+              data-settings-tab={tab.id}
               aria-selected={selected}
               onClick={() => onSelect(tab.id)}
               className={[

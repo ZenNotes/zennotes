@@ -28,7 +28,7 @@ import {
 } from '../lib/folder-gallery'
 import { galleryCoverCache, runLimited } from '../lib/gallery-covers'
 import { resolveLocalAsset } from '../lib/local-assets'
-import { focusEditorNormalMode } from '../lib/editor-focus'
+import { focusEditorAfterReadOpen } from '../lib/editor-focus'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { advanceSequence, getKeymapBinding, type KeymapId } from '../lib/keymaps'
 import {
@@ -375,7 +375,9 @@ export function GalleryView({ tabPath, isActive }: { tabPath: string; isActive: 
         filter
       })
       await selectNote(note.path)
-      focusEditorNormalMode()
+      // A card opens its note to be read, like a search pick: desktop hands
+      // the editor the keyboard, a phone keeps its keyboard down.
+      focusEditorAfterReadOpen()
     },
     [filter, items, selectNote, tabPath]
   )

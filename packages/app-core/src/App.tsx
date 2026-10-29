@@ -49,6 +49,8 @@ import {
   focusEditorAfterReadOpen,
   focusEditorNormalMode
 } from './lib/editor-focus'
+import { hostOpensNotesToRead } from './lib/editor-host'
+import { createFocusHealGate } from './lib/focus-heal'
 import { isAppOverlayOpen, isOverlayOrDialogOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
@@ -462,8 +464,10 @@ function App(): JSX.Element {
   useEffect(() => {
     const wasOpen = prevSidebarOpenRef.current
     prevSidebarOpenRef.current = sidebarOpen
+    // A host that opens notes to read (a phone) keeps its keyboard down: the
+    // sidebar closing is no sign the user is about to type.
     if (wasOpen && !sidebarOpen && useStore.getState().focusedPanel === 'sidebar') {
-      focusEditorNormalMode({ attempts: 10, delayMs: 24 })
+      focusEditorAfterReadOpen({ attempts: 10, delayMs: 24 })
     }
   }, [sidebarOpen])
 
@@ -1164,9 +1168,20 @@ function App(): JSX.Element {
   // is re-established. When the window regains focus (or becomes visible again)
   // and the editor was the active surface with no overlay open, re-grab it so
   // the user doesn't have to open Settings + Escape to recover. Pairs with the
-  // main-process `backgroundThrottling: false`. (#350)
+  // main-process `backgroundThrottling: false`. (#350) A host that opens notes
+  // to read heals only for someone who was typing as the app was left
+  // (lib/focus-heal.ts), or every return raised its keyboard over a note
+  // being read.
   useEffect(() => {
+    const gate = createFocusHealGate()
+    const editorFocused = (): boolean => {
+      const view = useStore.getState().editorViewRef
+      const active = document.activeElement
+      return !!view && !!active && (active === view.dom || view.dom.contains(active))
+    }
+    const leave = (): void => gate.left(editorFocused())
     const heal = (): void => {
+      if (!gate.returned(hostOpensNotesToRead())) return
       const state = useStore.getState()
       if (state.focusedPanel !== 'editor') return
       if (
@@ -1192,11 +1207,16 @@ function App(): JSX.Element {
     }
     const onVisibility = (): void => {
       if (document.visibilityState === 'visible') heal()
+      else if (document.visibilityState === 'hidden') leave()
     }
     window.addEventListener('focus', heal)
+    window.addEventListener('blur', leave)
+    window.addEventListener('pagehide', leave)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.removeEventListener('focus', heal)
+      window.removeEventListener('blur', leave)
+      window.removeEventListener('pagehide', leave)
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])

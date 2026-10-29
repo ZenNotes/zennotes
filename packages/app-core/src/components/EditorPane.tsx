@@ -5117,7 +5117,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   const { calloutRange, callout } = editorMenu
                   if (entry.action === 'remove') {
                     removeCalloutIn(view, calloutRange)
-                    view.focus()
+                    // A phone that opened the note to read keeps its keyboard down.
+                    if (!hostOpensNotesToRead()) view.focus()
                     return
                   }
                   setCalloutMenu({
@@ -5152,7 +5153,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 const view = viewRef.current
                 if (!view) return
                 setCalloutType(view, calloutMenu.range, choice.type)
-                view.focus()
+                // A phone that opened the note to read keeps its keyboard down.
+                if (!hostOpensNotesToRead()) view.focus()
               }
             })
           )}
