@@ -409,7 +409,9 @@ export function CommandPalette(): JSX.Element {
     setTheme({ id: theme.id, family: theme.family, mode: theme.mode })
     committedRef.current = true
     setOpen(false)
-    focusEditorNormalMode()
+    // A theme is a `stay` landing (lib/command-landing.ts): on a phone the
+    // keyboard stays down over the note being read.
+    focusEditorAfterPaletteClose()
   }
 
   const runPickedWorkflow = (entry: WorkflowIndexEntry): void => {

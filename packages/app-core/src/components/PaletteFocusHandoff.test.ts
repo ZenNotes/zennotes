@@ -140,6 +140,15 @@ describe('palette hand-offs', () => {
     expect(focusEditorAfterReadOpen).not.toHaveBeenCalled()
   })
 
+  it('a theme picked from Themes hands back like a close, so a phone keeps its keyboard down', async () => {
+    useStore.setState({ commandPaletteOpen: true, commandPaletteInitialMode: 'theme' })
+    render(CommandPalette)
+    await key('Enter')
+    expect(useStore.getState().commandPaletteOpen).toBe(false)
+    expect(focusEditorAfterPaletteClose).toHaveBeenCalledTimes(1)
+    expect(focusEditorNormalMode).not.toHaveBeenCalled()
+  })
+
   it('the template palette closes through the palette close hand-off', async () => {
     useStore.setState({ templatePaletteOpen: true })
     render(TemplatePalette)
