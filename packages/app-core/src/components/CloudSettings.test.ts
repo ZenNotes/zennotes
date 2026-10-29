@@ -938,6 +938,54 @@ describe("CloudSettings", () => {
     expect(host.textContent).not.toContain("conflicts need review");
   });
 
+  it("says calmly which file Cloud refused, with Cloud's answer under Details (#1004)", async () => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.listCloudVaults.mockResolvedValue([]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    const detail = "HTTP 422 · VALIDATION_FAILED · This path is not eligible for vault sync.";
+    mocks.syncCloudVault.mockResolvedValue({
+      cursor: 7,
+      pulled: 0,
+      pushed: 12,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+      refused_paths: [{ path: ".zennotes/agent-edits/inbox/Plan.md.json", detail }],
+    });
+    await act(async () =>
+      root.render(
+        createElement(CloudSettings, {
+          localVaultAvailable: true,
+          localVaultName: "Notes",
+        }),
+      ),
+    );
+    const sync = [...host.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Sync now",
+    );
+    await act(async () => sync!.click());
+
+    expect(host.textContent).toContain("1 file stays on this device");
+    expect(host.textContent).toContain(
+      "ZenNotes Cloud didn't accept “Plan.md.json”, so it stays on this device while the rest of the vault keeps syncing.",
+    );
+    const list = host.querySelector('[aria-label="Files that need attention"]');
+    const rows = [...list!.querySelectorAll("li")];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain(".zennotes/agent-edits/inbox/Plan.md.json");
+    expect(rows[0].textContent).toContain("Sync offers it again once a day.");
+    // Cloud's own answer sits under the row's Details, not in the sentence.
+    expect(rows[0].querySelector("details")?.textContent).toContain(detail);
+    // A file under .zennotes is not a note to open.
+    expect([...rows[0].querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Open");
+  });
+
   it("lists each file that needs attention with a reason and an Open action", async () => {
     mocks.getCloudAccountStatus.mockResolvedValue(connected);
     mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
