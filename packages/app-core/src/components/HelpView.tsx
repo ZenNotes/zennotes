@@ -105,6 +105,12 @@ function resolveShortcutKeys(
     if (action === 'Toggle timeline') return leaderShortcut(overrides, 'vim.leaderTimeline')
     if (action === 'Unresolved links') return leaderShortcut(overrides, 'vim.leaderUnresolvedLinks')
     if (action === 'Folder gallery') return leaderShortcut(overrides, 'vim.leaderFolderGallery')
+    if (action === 'Callout type') {
+      return chord(
+        leaderShortcut(overrides, 'vim.leaderNoteActions'),
+        shortcut(overrides, 'vim.leaderCalloutType')
+      )
+    }
     if (action === 'Switch vault') return leaderShortcut(overrides, 'vim.leaderSwitchVault')
     if (action === 'Open workflows') return leaderShortcut(overrides, 'vim.leaderWorkflows')
     if (action === 'Review Cloud conflicts') {
