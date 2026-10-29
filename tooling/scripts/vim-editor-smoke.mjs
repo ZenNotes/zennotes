@@ -29,6 +29,9 @@ const repoRoot = resolve(scriptDir, '..', '..')
 const requireDesktop = createRequire(resolve(repoRoot, 'apps/desktop/package.json'))
 const electronPath = requireDesktop('electron')
 const desktopOutMain = resolve(repoRoot, 'apps/desktop/out/main/index.js')
+// Keeps the test window from taking the keyboard: stray keys from the machine
+// were the cause of the counted-motion failures on busy runs (see the file).
+const inactiveWindowPreload = resolve(scriptDir, 'test-window-inactive.cjs')
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const skipBuild = process.env.ZEN_VIM_EDITOR_SKIP_BUILD === '1'
 const notePath = 'inbox/Vim Motion Runtime.md'
@@ -432,7 +435,10 @@ async function main() {
       ...process.env,
       ELECTRON_DISABLE_SECURITY_WARNINGS: '1',
       ZENNOTES_USER_DATA_PATH: userDataRoot,
-      ZENNOTES_CONFIG_DIR: configRoot
+      ZENNOTES_CONFIG_DIR: configRoot,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(inactiveWindowPreload)}`]
+        .filter(Boolean)
+        .join(' ')
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -450,7 +456,9 @@ async function main() {
     if (ok) console.log(`  PASS  ${name}`)
     else {
       failures.push(name)
-      console.error(`  FAIL  ${name}${detail ? `: ${detail}` : ''}`)
+      // stdout, in order with the passes: a gate that keeps only stdout, or
+      // its tail, used to lose the one line that said what went wrong.
+      console.log(`  FAIL  ${name}${detail ? `: ${detail}` : ''}`)
     }
   }
 
@@ -463,6 +471,9 @@ async function main() {
       }
     })
     await Promise.all([client.send('Page.enable'), client.send('Runtime.enable')])
+    // The window is shown inactive (test-window-inactive.cjs) and never holds
+    // OS focus; the editor's focus rules still need a focused page.
+    await client.send('Emulation.setFocusEmulationEnabled', { enabled: true })
 
     console.log('\nVim editor motion smoke test\n')
     const noteReady = await until(
