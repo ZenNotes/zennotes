@@ -118,6 +118,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'render_tables',
     comment: 'render tables as widgets in live preview; off keeps them as plain text'
   },
+  detectCodeLanguages: {
+    section: 'editor',
+    tomlKey: 'detect_code_languages',
+    comment: 'guess the language of a code block that names none, and highlight it; never written to the note'
+  },
   syncTitleHeadingOnRename: {
     section: 'editor',
     tomlKey: 'sync_title_heading_on_rename',

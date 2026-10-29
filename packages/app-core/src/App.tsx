@@ -52,6 +52,7 @@ import {
 import { isAppOverlayOpen, isOverlayOrDialogOpen } from './lib/overlay-open'
 import { installMarkdownFileDropHandler } from './lib/markdown-file-drop'
 import {
+  setMarkdownDetectCodeLanguages,
   setMarkdownLooseMathDelimiters,
   setMarkdownMathRenderer
 } from './lib/markdown-settings'
@@ -383,6 +384,7 @@ function App(): JSX.Element {
   const completedTaskStyle = useStore((s) => s.completedTaskStyle)
   const mathRenderer = useStore((s) => s.mathRenderer)
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters)
+  const detectCodeLanguages = useStore((s) => s.detectCodeLanguages)
   const lineNumberPosition = useStore((s) => s.lineNumberPosition)
   const interfaceFont = useStore((s) => s.interfaceFont)
   const textFont = useStore((s) => s.textFont)
@@ -699,6 +701,10 @@ function App(): JSX.Element {
   useEffect(() => {
     setMarkdownLooseMathDelimiters(looseMathDelimiters)
   }, [looseMathDelimiters])
+
+  useEffect(() => {
+    setMarkdownDetectCodeLanguages(detectCodeLanguages)
+  }, [detectCodeLanguages])
 
   // The app now always runs fully opaque.
   useEffect(() => {

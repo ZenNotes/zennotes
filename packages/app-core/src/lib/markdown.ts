@@ -28,10 +28,12 @@ import {
   PREVIEW_TOKEN_CLASS
 } from './custom-code-languages'
 import {
+  markdownDetectCodeLanguages,
   markdownLooseMathDelimiters,
   markdownMathRenderer,
   markdownSettingsRevision
 } from './markdown-settings'
+import { detectCodeLanguage } from './code-language-detect'
 import { numberLatexEquationEnvironments } from './latex-equation-numbering'
 
 /**
@@ -787,6 +789,38 @@ function rehypeMathDiagrams() {
   }
 }
 
+function hastText(node: HastElement['children'][number]): string {
+  if (node.type === 'text') return node.value
+  if (node.type === 'element') return node.children.map(hastText).join('')
+  return ''
+}
+
+/**
+ * Name the language of a code block that names none (#1014), with the guess
+ * Edit mode makes, so the reading view colours the blocks the editor labels
+ * "detected", in the same language. rehype-highlight's own `detect` stays
+ * off: it takes highlight.js' best score however low, so a two-word block was
+ * coloured as whatever language scored a point. With "Detect code block
+ * languages" off, an unlabeled block is plain here as it is in the editor.
+ */
+function rehypeDetectCodeLanguages() {
+  return (tree: HastRoot): void => {
+    if (!markdownDetectCodeLanguages()) return
+    visit(tree, 'element', (node, _index, parent) => {
+      if (node.tagName !== 'code' || parent?.type !== 'element' || parent.tagName !== 'pre') return
+      const classNames = (node.properties?.className as string[] | undefined) ?? []
+      const labeled = classNames.some(
+        (name) =>
+          name.startsWith('language-') || name.startsWith('lang-') || name === 'no-highlight' || name === 'nohighlight'
+      )
+      if (labeled) return
+      const guess = detectCodeLanguage(node.children.map(hastText).join(''))
+      if (!guess) return
+      node.properties = { ...node.properties, className: [...classNames, `language-${guess.tag}`] }
+    })
+  }
+}
+
 /** Highlight unknown fenced tags through the user-installed TextMate registry. */
 function rehypeCustomCodeLanguages() {
   return (tree: HastRoot): void => {
@@ -1069,7 +1103,8 @@ function createProcessor(mathRenderer: 'katex' | 'typst') {
     .use(rehypeTableColWidths)
     .use(rehypeMermaid)
     .use(rehypeMathDiagrams)
-    .use(rehypeHighlight, { detect: true, ignoreMissing: true })
+    .use(rehypeDetectCodeLanguages)
+    .use(rehypeHighlight, { detect: false, ignoreMissing: true })
     // After rehype-highlight so a user-installed TextMate grammar wins over
     // highlight.js' guess for a fence tag it does not actually know.
     .use(rehypeCustomCodeLanguages)

@@ -6,6 +6,7 @@ import type { NoteMeta } from "@shared/ipc";
 import { renderMarkdown } from "../lib/markdown";
 import { substituteLiveTokens } from "../lib/live-template-tokens";
 import {
+  setMarkdownDetectCodeLanguages,
   setMarkdownLooseMathDelimiters,
   setMarkdownMathRenderer,
 } from "../lib/markdown-settings";
@@ -196,6 +197,7 @@ export const Preview = memo(function Preview({
   const ref = useRef<HTMLDivElement | null>(null);
   const mathRenderer = useStore((s) => s.mathRenderer);
   const looseMathDelimiters = useStore((s) => s.looseMathDelimiters);
+  const detectCodeLanguages = useStore((s) => s.detectCodeLanguages);
   const vault = useStore((s) => s.vault);
   const notes = useStore((s) => s.notes);
   const folders = useStore((s) => s.folders);
@@ -346,6 +348,7 @@ export const Preview = memo(function Preview({
     // takes effect on the very next render without an effect-ordering race.
     setMarkdownMathRenderer(mathRenderer);
     setMarkdownLooseMathDelimiters(looseMathDelimiters);
+    setMarkdownDetectCodeLanguages(detectCodeLanguages);
     return renderMarkdown(
       substituteLiveTokens(expandedForCurrent ?? markdown, noteUpdatedAt),
     );
@@ -357,6 +360,7 @@ export const Preview = memo(function Preview({
     noteUpdatedAt,
     mathRenderer,
     looseMathDelimiters,
+    detectCodeLanguages,
     customCodeLanguagesRevision,
   ]);
   const assetFilesKey = useMemo(

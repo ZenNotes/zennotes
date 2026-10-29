@@ -1,9 +1,9 @@
 /**
- * The two render settings the preview pipeline reads, kept in their own module
+ * The render settings the preview pipeline reads, kept in their own module
  * so setting them does not drag the renderer in.
  *
- * `App.tsx` pushes the `mathRenderer` and `looseMathDelimiters` prefs down on
- * every change. When those setters lived in `lib/markdown`, that one import made
+ * `App.tsx` pushes the `mathRenderer`, `looseMathDelimiters` and
+ * `detectCodeLanguages` prefs down on every change. When those setters lived in `lib/markdown`, that one import made
  * the whole remark/rehype/highlight stack a static dependency of the app entry
  * chunk, so every launch fetched and evaluated `vendor-markdown` before the user
  * had opened a note. This module is a few bytes of state; `lib/markdown` reads
@@ -18,6 +18,7 @@ export type MarkdownMathRenderer = 'katex' | 'typst'
 
 let mathRenderer: MarkdownMathRenderer = 'katex'
 let looseMathDelimiters = false
+let detectCodeLanguages = true
 let revision = 0
 
 /** Point the preview pipeline at KaTeX or Typst. Default KaTeX keeps existing
@@ -35,6 +36,14 @@ export function setMarkdownLooseMathDelimiters(next: boolean): void {
   revision += 1
 }
 
+/** Guess the language of a code block that names none (#1014). Off, an
+ *  unlabeled block renders plain, as it does in the editor. */
+export function setMarkdownDetectCodeLanguages(next: boolean): void {
+  if (next === detectCodeLanguages) return
+  detectCodeLanguages = next
+  revision += 1
+}
+
 export function markdownMathRenderer(): MarkdownMathRenderer {
   return mathRenderer
 }
@@ -43,7 +52,11 @@ export function markdownLooseMathDelimiters(): boolean {
   return looseMathDelimiters
 }
 
-/** Increments whenever either setting effectively changes. Part of the
+export function markdownDetectCodeLanguages(): boolean {
+  return detectCodeLanguages
+}
+
+/** Increments whenever a setting effectively changes. Part of the
  *  `renderMarkdown` cache key. */
 export function markdownSettingsRevision(): number {
   return revision
