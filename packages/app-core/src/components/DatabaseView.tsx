@@ -1,23 +1,37 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { csvPathFromDatabaseTab, formDirFromCsvPath } from '@shared/databases'
 import { serializeRows } from '@shared/database-csv'
 import { useStore } from '../store'
 import { isNoteEditingLocked, subscribeNoteEditingLocks } from '../lib/note-lifecycle-lock'
 import {
   addField,
-  addRow,
+  addRowInView,
   addView,
+  clearViewPicks,
+  duplicateView,
   setActiveView,
   removeView,
-  renameView
+  renameView,
+  viewColumnFields,
+  visibleColumnIds
 } from '../lib/database-cells'
 import { isImeComposing } from '../lib/ime'
+import { useDatabaseViewCommand } from '../lib/database-view-commands'
 import { DatabaseTableView } from './DatabaseTableView'
 import { DatabaseBoardView } from './DatabaseBoardView'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { DatabaseFilterMenu } from './DatabaseFilterMenu'
+import { DatabaseColumnsMenu } from './DatabaseColumnsMenu'
 import { Button, IconButton } from './ui/Button'
-import { DatabaseIcon, TableIcon, KanbanIcon, PlusIcon, FilterIcon, MoreIcon } from './icons'
+import {
+  DatabaseIcon,
+  TableIcon,
+  KanbanIcon,
+  PlusIcon,
+  FilterIcon,
+  MoreIcon,
+  ColumnsIcon
+} from './icons'
 
 /**
  * Host for a CSV database tab: loads the database, renders the header
@@ -44,11 +58,20 @@ export function DatabaseView({
   const vimMode = useStore((s) => s.vimMode)
   const [databaseMenu, setDatabaseMenu] = useState<{ x: number; y: number } | null>(null)
   const [viewMenu, setViewMenu] = useState<{ viewId: string; x: number; y: number } | null>(null)
+  const [addViewMenu, setAddViewMenu] = useState<{ x: number; y: number } | null>(null)
   const [renamingView, setRenamingView] = useState<string | null>(null)
   const [rawMode, setRawMode] = useState(false)
   const [editingTitle, setEditingTitle] = useState(false)
   const [filterAnchor, setFilterAnchor] = useState<DOMRect | null>(null)
   const filterBtnRef = useRef<HTMLButtonElement>(null)
+  const [columnsAnchor, setColumnsAnchor] = useState<DOMRect | null>(null)
+  const columnsBtnRef = useRef<HTMLButtonElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  // A request to open the Columns popover for a view, carried out once that
+  // view is on screen with its Columns button drawn (the `c` key, the
+  // palette, and a just-made table view all come through here).
+  const pendingColumnsFor = useRef<string | null>(null)
+  const [columnsRequest, setColumnsRequest] = useState(0)
   // Only `.base` databases rename by title (a legacy loose `.csv` doesn't).
   const canRenameTitle = !!csvPath && !!formDirFromCsvPath(csvPath)
 
@@ -56,6 +79,55 @@ export function DatabaseView({
   useEffect(() => {
     if (csvPath && !doc && !loading && !transitioning) void loadDatabase(csvPath)
   }, [csvPath, doc, loading, loadDatabase, transitioning])
+
+  const activeViewId = doc ? (doc.views.find((v) => v.id === doc.activeViewId) ?? doc.views[0])?.id : undefined
+  const activeViewType = doc?.views.find((v) => v.id === activeViewId)?.type
+  // Each view has its own columns, so switching views closes the popover;
+  // a request waiting for the new view opens it again right after.
+  useEffect(() => {
+    setColumnsAnchor(null)
+  }, [activeViewId])
+  useEffect(() => {
+    if (!pendingColumnsFor.current || pendingColumnsFor.current !== activeViewId) return
+    if (activeViewType !== 'table' || rawMode) return
+    pendingColumnsFor.current = null
+    const rect = columnsBtnRef.current?.getBoundingClientRect()
+    if (rect) setColumnsAnchor(rect)
+  }, [columnsRequest, activeViewId, activeViewType, rawMode])
+
+  const openColumnsFor = useCallback((viewId: string): void => {
+    pendingColumnsFor.current = viewId
+    setRawMode(false)
+    setColumnsRequest((n) => n + 1)
+  }, [])
+
+  // Palette commands for this database's views (Show Only Selected Rows is
+  // the Table's: the selection lives there).
+  useDatabaseViewCommand(csvPath, isActive, (command) => {
+    if (!csvPath || !doc || !activeViewId) return
+    if (command === 'columns') {
+      if (activeViewType === 'table') openColumnsFor(activeViewId)
+    } else if (command === 'new-table-view') {
+      const next = addView(doc, 'table')
+      updateDatabaseSchema(csvPath, next)
+      openColumnsFor(next.activeViewId)
+    } else if (command === 'duplicate-view') {
+      updateDatabaseSchema(csvPath, duplicateView(doc, activeViewId))
+    } else if (command === 'show-all-rows') {
+      updateDatabaseSchema(csvPath, clearViewPicks(doc, activeViewId))
+    }
+  })
+
+  // Back to the grid when the popover closes with nothing else focused (its
+  // focused row unmounts with it); a click elsewhere keeps what it focused.
+  const closeColumns = useCallback((): void => {
+    setColumnsAnchor(null)
+    requestAnimationFrame(() => {
+      const a = document.activeElement
+      if (a && a !== document.body) return
+      rootRef.current?.querySelector<HTMLElement>('[data-zen-db-grid]')?.focus({ preventScroll: true })
+    })
+  }, [])
 
   if (!csvPath) {
     return (
@@ -73,9 +145,29 @@ export function DatabaseView({
   }
 
   const activeView = doc.views.find((v) => v.id === doc.activeViewId) ?? doc.views[0]
+  const columnCount = activeView.type === 'table' ? viewColumnFields(doc, activeView).length : 0
+  const shownColumnCount = activeView.type === 'table' ? visibleColumnIds(doc, activeView).length : 0
+  const someColumnsHidden = shownColumnCount < columnCount
+
+  // A new table view opens the Columns popover at once, so a 44-column
+  // database becomes a 5-column view in one go.
+  const createView = (type: 'table' | 'board'): void => {
+    const next = addView(doc, type)
+    updateDatabaseSchema(csvPath, next)
+    if (type === 'table') openColumnsFor(next.activeViewId)
+  }
+  const copyView = (viewId: string): void => updateDatabaseSchema(csvPath, duplicateView(doc, viewId))
+
+  const addViewMenuItems: ContextMenuItem[] = [
+    { label: 'New table view', icon: <TableIcon className="h-3.5 w-3.5" />, onSelect: () => createView('table') },
+    { label: 'New board view', icon: <KanbanIcon className="h-3.5 w-3.5" />, onSelect: () => createView('board') },
+    { kind: 'separator' },
+    { label: 'Duplicate this view', onSelect: () => copyView(activeView.id) }
+  ]
 
   const viewMenuItems = (viewId: string): ContextMenuItem[] => [
     { label: 'Rename view', onSelect: () => setRenamingView(viewId) },
+    { label: 'Duplicate view', onSelect: () => copyView(viewId) },
     {
       label: 'Delete view',
       danger: true,
@@ -85,7 +177,7 @@ export function DatabaseView({
   ]
 
   return (
-    <div {...((deletingRows || locked) ? { inert: '' } : {})} aria-busy={deletingRows || locked} className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
+    <div ref={rootRef} {...((deletingRows || locked) ? { inert: '' } : {})} aria-busy={deletingRows || locked} className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900">
       <header className="glass-header flex h-12 shrink-0 items-center gap-2 px-4">
         <DatabaseIcon className="h-4 w-4 shrink-0 text-ink-500" />
         {editingTitle && canRenameTitle ? (
@@ -169,8 +261,13 @@ export function DatabaseView({
           })}
           <IconButton
             size="sm"
-            title="Add board view"
-            onClick={() => updateDatabaseSchema(csvPath, addView(doc, 'board'))}
+            title="Add a view"
+            aria-label="Add a view"
+            aria-haspopup="menu"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              setAddViewMenu({ x: rect.left, y: rect.bottom + 4 })
+            }}
           >
             <PlusIcon className="h-3.5 w-3.5" />
           </IconButton>
@@ -205,6 +302,24 @@ export function DatabaseView({
                 <FilterIcon className="h-3.5 w-3.5" /> Filter
                 {(activeView.filters?.length ?? 0) > 0 ? ` (${activeView.filters.length})` : ''}
               </Button>
+              {activeView.type === 'table' && (
+                <Button
+                  ref={columnsBtnRef}
+                  variant={columnsAnchor || someColumnsHidden ? 'secondary' : 'ghost'}
+                  size="sm"
+                  title={vimMode ? 'Choose the columns this view shows (c)' : 'Choose the columns this view shows'}
+                  aria-haspopup="dialog"
+                  aria-expanded={!!columnsAnchor}
+                  onClick={(e) => {
+                    // Read the rect during dispatch, as the Filter button does.
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setColumnsAnchor((prev) => (prev ? null : rect))
+                  }}
+                >
+                  <ColumnsIcon className="h-3.5 w-3.5" /> Columns
+                  {someColumnsHidden ? ` ${shownColumnCount} of ${columnCount}` : ''}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -215,7 +330,13 @@ export function DatabaseView({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => updateDatabaseRows(csvPath, addRow(doc))}
+                onClick={() => {
+                  // In a view with picks the new row joins them, or it
+                  // would vanish the moment it was made.
+                  const added = addRowInView(doc, activeView.id)
+                  if (added.picksChanged) updateDatabaseSchema(csvPath, added.doc)
+                  else updateDatabaseRows(csvPath, added.doc)
+                }}
               >
                 <PlusIcon className="h-3.5 w-3.5" /> Row
               </Button>
@@ -241,7 +362,13 @@ export function DatabaseView({
             {serializeRows(doc.rows, doc.fields)}
           </pre>
         ) : activeView.type === 'table' ? (
-          <DatabaseTableView csvPath={csvPath} doc={doc} view={activeView} isActive={isActive} />
+          <DatabaseTableView
+            csvPath={csvPath}
+            doc={doc}
+            view={activeView}
+            isActive={isActive}
+            onOpenColumns={() => openColumnsFor(activeView.id)}
+          />
         ) : (
           <DatabaseBoardView csvPath={csvPath} doc={doc} view={activeView} />
         )}
@@ -258,6 +385,17 @@ export function DatabaseView({
         />
       )}
 
+      {columnsAnchor && !rawMode && activeView.type === 'table' && (
+        <DatabaseColumnsMenu
+          csvPath={csvPath}
+          doc={doc}
+          view={activeView}
+          anchor={columnsAnchor}
+          ignoreRef={columnsBtnRef}
+          onClose={closeColumns}
+        />
+      )}
+
       {databaseMenu && (
         <ContextMenu
           x={databaseMenu.x}
@@ -271,6 +409,15 @@ export function DatabaseView({
             }
           ]}
           onClose={() => setDatabaseMenu(null)}
+        />
+      )}
+
+      {addViewMenu && (
+        <ContextMenu
+          x={addViewMenu.x}
+          y={addViewMenu.y}
+          items={addViewMenuItems}
+          onClose={() => setAddViewMenu(null)}
         />
       )}
 

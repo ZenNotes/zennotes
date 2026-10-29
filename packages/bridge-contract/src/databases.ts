@@ -94,9 +94,21 @@ export interface DbView {
    *  any). Optional so existing views keep their AND behavior. (#394) */
   filterConjunction?: FilterConjunction
   sorts: SortRule[]
+  /**
+   * Picked rows: when present, the view shows only the rows whose id is
+   * listed, and its `filters` and `sorts` then apply to those. Absent = every
+   * row (an empty list shows none, which the UI reports as "0 picked rows").
+   * Ids naming rows that no longer exist are ignored rather than pruned, so a
+   * deleted row never costs a schema write. Applies to Table and Board views
+   * alike. Older builds ignore the field and show every row, and round-trip
+   * it untouched.
+   */
+  pickedRowIds?: string[]
   // --- table ---
   /** Ordered fieldIds (display order). */
   columnOrder?: string[]
+  /** Fields this table view leaves out. Each saved view keeps its own list;
+   *  the UI never lets the last visible column go. */
   hiddenFieldIds?: string[]
   columnWidths?: Record<string, number>
   // --- board ---

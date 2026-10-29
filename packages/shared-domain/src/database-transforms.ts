@@ -2,7 +2,7 @@
  * Pure, type-aware filter / sort / group transforms over database rows.
  * Reused by both the Table view (filter + sort) and the Board view (group-by).
  */
-import type { DbField, DbRow, FilterConjunction, FilterRule, SortRule } from './databases'
+import type { DbField, DbRow, DbView, FilterConjunction, FilterRule, SortRule } from './databases'
 import { EMPTY_GROUP } from './databases'
 
 const MULTISELECT_SEP = ', '
@@ -150,6 +150,39 @@ export function sortRows(
     return a.index - b.index // stable tie-break
   })
   return decorated.map((d) => d.row)
+}
+
+// ---------------------------------------------------------------------------
+// Picked rows + the whole view pipeline
+// ---------------------------------------------------------------------------
+
+/**
+ * The rows a view's picks keep, in the database's own row order (never the
+ * order the ids were picked in, so a sort is the only thing that reorders).
+ * No picks = every row. Ids naming rows that no longer exist simply match
+ * nothing.
+ */
+export function pickRows(rows: DbRow[], pickedRowIds: string[] | undefined): DbRow[] {
+  if (!pickedRowIds) return rows
+  const picked = new Set(pickedRowIds)
+  return rows.filter((row) => picked.has(row.id))
+}
+
+/**
+ * The rows a saved view shows, in the order it shows them: picks first, then
+ * the view's filters, then its sorts. Both the Table and the Board compute
+ * their rows here, so a view means the same rows on either surface.
+ */
+export function viewRows(
+  rows: DbRow[],
+  view: Pick<DbView, 'pickedRowIds' | 'filters' | 'filterConjunction' | 'sorts'>,
+  fieldsById: Map<string, DbField>
+): DbRow[] {
+  return sortRows(
+    filterRows(pickRows(rows, view.pickedRowIds), view.filters, fieldsById, view.filterConjunction),
+    view.sorts,
+    fieldsById
+  )
 }
 
 // ---------------------------------------------------------------------------

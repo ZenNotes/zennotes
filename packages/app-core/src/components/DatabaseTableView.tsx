@@ -9,16 +9,23 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType, SelectOptionsSource } from '@shared/databases'
-import { filterRows, sortRows } from '@shared/database-transforms'
+import { viewRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
-  addRow,
+  addRowInView,
   setCell,
   renameField,
   retypeField,
   deleteField,
   moveColumn,
   moveColumnToField,
+  setColumnHidden,
+  isLastVisibleColumn,
+  setViewPicks,
+  clearViewPicks,
+  removeFromViewPicks,
+  viewHasPicks,
+  pickedRowCount,
   ensureSelectOption,
   setFieldOptionsSource,
   updateView,
@@ -31,11 +38,16 @@ import {
   isCheckboxTrue
 } from '../lib/database-cells'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
-import { IconButton } from './ui/Button'
+import { Button, IconButton } from './ui/Button'
+import { DatabasePicksStrip } from './DatabasePicksStrip'
 import { MoreIcon, TrashIcon, PlusIcon, DocumentIcon, DocumentTextIcon, ArrowUpRightIcon } from './icons'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { isImeComposing } from '../lib/ime'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
+import { databaseGridKeyAction } from '../lib/database-grid-keys'
+import { useDatabaseViewCommand } from '../lib/database-view-commands'
+import { useToastStore } from '../lib/toast'
 import { resolveWikilinkTarget } from '../lib/wikilinks'
 import { followLinkTarget } from '../lib/follow-link'
 import { NoteSuggestRows, stepSuggestIndex, useNoteSuggestions } from './DatabaseNoteSuggest'
@@ -58,9 +70,11 @@ interface Props {
   view: DbView
   /** True when this grid is the active pane's content — drives auto-focus. */
   isActive: boolean
+  /** Open the header's Columns popover for this view. */
+  onOpenColumns?: () => void
 }
 
-export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.Element {
+export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns }: Props): JSX.Element {
   const updateDatabaseRows = useStore((s) => s.updateDatabaseRows)
   const updateDatabaseSchema = useStore((s) => s.updateDatabaseSchema)
   const deleteDatabaseRows = useStore((s) => s.deleteDatabaseRows)
@@ -68,6 +82,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   const renameRecordPage = useStore((s) => s.renameRecordPage)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const vimMode = useStore((s) => s.vimMode)
 
   const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
 
@@ -95,6 +110,10 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     return [...tags].sort().map((value) => ({ value }))
   }, [sourcePrompt])
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Edit picks: every row shows, the picked ones selected, and the selection
+  // bar offers Update picks or Cancel instead of its usual actions.
+  const [editingPicks, setEditingPicks] = useState(false)
+  const hasPicks = viewHasPicks(view)
   // #317: header drag-to-reorder columns. Ref holds the field being dragged;
   // state drives the drop-target indicator.
   const dragFieldRef = useRef<string | null>(null)
@@ -119,13 +138,33 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
       .filter((f): f is DbField => !!f && !f.hidden && !hidden.has(f.id))
   }, [doc.fields, view.columnOrder, view.hiddenFieldIds, map])
 
-  const rows = useMemo(() => {
-    return sortRows(
-      filterRows(doc.rows, view.filters, map, view.filterConjunction),
-      view.sorts,
-      map
-    )
-  }, [doc.rows, view.filters, view.filterConjunction, view.sorts, map])
+  // While editing picks the view shows every row (no picks, no filters) in
+  // its sort order, so any record can be picked or unpicked.
+  const rows = useMemo(
+    () => viewRows(doc.rows, editingPicks ? { sorts: view.sorts, filters: [] } : view, map),
+    [doc.rows, view, map, editingPicks]
+  )
+
+  // Another view is another set of picks and columns: leave edit mode and
+  // the selection behind when the tab switches, and leave edit mode when the
+  // picks go away from under it (Show All Rows from the palette).
+  useEffect(() => {
+    setEditingPicks(false)
+    setSelected(new Set())
+  }, [view.id])
+  useEffect(() => {
+    if (editingPicks && !hasPicks) setEditingPicks(false)
+  }, [editingPicks, hasPicks])
+  // A row added while editing (the header's + Row included) joins the picks;
+  // check it here too, or Update picks would drop it again.
+  const picksAtEditStart = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!editingPicks) return
+    const fresh = (view.pickedRowIds ?? []).filter((id) => !picksAtEditStart.current.has(id))
+    if (fresh.length === 0) return
+    for (const id of fresh) picksAtEditStart.current.add(id)
+    setSelected((prev) => new Set([...prev, ...fresh]))
+  }, [editingPicks, view.pickedRowIds])
 
   const anySelected = selected.size > 0
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id))
@@ -140,6 +179,50 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
   const deleteSelected = (): void => {
     void deleteDatabaseRows(csvPath, [...selected])
     setSelected(new Set())
+  }
+
+  // --- picked rows ---------------------------------------------------------
+  /** Make the selected rows this view's picks (or update them while editing). */
+  const pickSelected = (): void => {
+    if (selected.size === 0) return
+    updateDatabaseSchema(csvPath, setViewPicks(doc, view.id, selected))
+    setSelected(new Set())
+    setEditingPicks(false)
+  }
+  const startEditPicks = (): void => {
+    const live = new Set(doc.rows.map((r) => r.id))
+    picksAtEditStart.current = new Set(view.pickedRowIds ?? [])
+    setSelected(new Set((view.pickedRowIds ?? []).filter((id) => live.has(id))))
+    setEditingPicks(true)
+  }
+  const cancelEditPicks = (): void => {
+    setSelected(new Set())
+    setEditingPicks(false)
+  }
+  const showAllRows = (): void => {
+    updateDatabaseSchema(csvPath, clearViewPicks(doc, view.id))
+    cancelEditPicks()
+  }
+  // Show Only Selected Rows from the palette (or a key bound to it).
+  useDatabaseViewCommand(csvPath, isActive, (command) => {
+    if (command !== 'pick-selected') return
+    if (selected.size === 0) {
+      // Name x only where Vim mode is on, as every key hint does.
+      const how = useStore.getState().vimMode
+        ? 'Space or x in the grid, or the row checkboxes'
+        : 'the row checkboxes, or Space in the grid'
+      useToastStore.getState().addToast(`Select rows first: ${how}.`, 'info')
+      return
+    }
+    pickSelected()
+  })
+
+  /** Add a row; in a picks view it joins the picks so it does not vanish the
+   *  moment it is made. */
+  const addRowHere = (): void => {
+    const added = addRowInView(doc, view.id)
+    if (added.picksChanged) updateDatabaseSchema(csvPath, added.doc)
+    else updateDatabaseRows(csvPath, added.doc)
   }
 
   // Open a record's page note, then move the cursor into its editor (otherwise
@@ -230,7 +313,13 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     // letters (e.g. the "l" in "url"), and let the arrow keys move the caret. (#110)
     const target = e.target as HTMLElement | null
     if (target?.closest('input, textarea') || target?.isContentEditable) return
-    if (e.metaKey || e.ctrlKey || e.altKey) return // leave global shortcuts alone
+    // Which keys answer in which mode lives in databaseGridKeyAction: with
+    // Vim mode off only the arrows, Enter, Space, Escape and the menu keys.
+    const action = databaseGridKeyAction(e, useStore.getState().vimMode)
+    // Reset pending multi-key sequences when a different key arrives.
+    if (gPending.current && action !== 'g') gPending.current = false
+    if (dPending.current && action !== 'd') dPending.current = false
+    if (!action) return
     const lastRow = rows.length - 1
     const lastCol = columns.length - 1
     const clampRow = (n: number): number => Math.max(-1, Math.min(n, lastRow)) // -1 = column-header row
@@ -247,24 +336,16 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     const toggleCheckbox = (row: DbRow, field: DbField): void =>
       commitCell(row.id, field, isCheckboxTrue(row.cells[field.id] ?? '') ? 'false' : 'true')
 
-    // Reset pending multi-key sequences when a different key arrives.
-    if (gPending.current && e.key !== 'g') gPending.current = false
-    if (dPending.current && e.key !== 'd') dPending.current = false
-
-    switch (e.key) {
-      case 'j':
-      case 'ArrowDown':
+    switch (action) {
+      case 'down':
         return move(active.row + 1, active.col)
-      case 'k':
-      case 'ArrowUp':
+      case 'up':
         return move(active.row - 1, active.col)
-      case 'h':
-      case 'ArrowLeft':
+      case 'left':
         return move(active.row, active.col - 1)
-      case 'l':
-      case 'ArrowRight':
+      case 'right':
         return move(active.row, active.col + 1)
-      case 'H': {
+      case 'move-column-left': {
         // #317: move the current column one step left, keeping the cursor on it.
         e.preventDefault()
         const field = columns[active.col]
@@ -274,7 +355,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         }
         return
       }
-      case 'L': {
+      case 'move-column-right': {
         // #317: move the current column one step right, keeping the cursor on it.
         e.preventDefault()
         const field = columns[active.col]
@@ -284,12 +365,11 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         }
         return
       }
-      case '0':
-      case '^':
+      case 'first-column':
         return move(active.row, 0)
-      case '$':
+      case 'last-column':
         return move(active.row, lastCol)
-      case 'G':
+      case 'last-row':
         return move(lastRow, active.col)
       case 'g':
         e.preventDefault()
@@ -310,8 +390,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         if (c) void deleteDatabaseRows(csvPath, [c.row.id])
         return
       }
-      case 'Enter':
-      case 'i': {
+      case 'edit': {
         e.preventDefault()
         if (active.row < 0) {
           // On the column header — rename the field, keyboard-only.
@@ -325,36 +404,44 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         setEditing({ rowId: c.row.id, fieldId: c.field.id })
         return
       }
-      case ' ': {
+      case 'space': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         if (c.field.type === 'checkbox') return toggleCheckbox(c.row, c.field)
         return toggleRow(c.row.id)
       }
-      case 'x': {
+      case 'select': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         return toggleRow(c.row.id)
       }
-      case 'o': {
+      case 'open-page': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         return openPage(c.row.id)
       }
-      case 'O': {
-        // Every record's page at once (o opens one). A new single-key
-        // shortcut, so it stays off with Vim mode off.
-        if (!useStore.getState().vimMode) return
+      case 'columns': {
+        // The Columns popover, to pick the few columns this view shows (the
+        // header's Columns button and the palette's Choose Database Columns
+        // do it with Vim off). Never behind a menu or a dialog.
+        if (isOverlayOrDialogOpen()) return
+        e.preventDefault()
+        onOpenColumns?.()
+        return
+      }
+      case 'create-pages': {
+        // Every record's page at once (o opens one).
         e.preventDefault()
         void useStore.getState().createAllRecordPages(csvPath)
         return
       }
-      case 'm': {
-        // Open the context menu (like the sidebar's `m`), anchored to the
-        // active header or cell. On a header → field menu; on a cell → row menu.
+      case 'menu': {
+        // Open the context menu (m with Vim on, like the sidebar's; Shift+F10
+        // or the Context Menu key in either mode), anchored to the active
+        // header or cell. On a header → field menu; on a cell → row menu.
         e.preventDefault()
         if (active.row < 0) {
           const field = columns[active.col]
@@ -371,14 +458,18 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
           ?.getBoundingClientRect()
         return setRowMenu({ rowId: c.row.id, x: r?.left ?? 0, y: r?.bottom ?? 0 })
       }
-      case 'a': {
+      case 'add-row': {
         e.preventDefault()
-        updateDatabaseRows(csvPath, addRow(doc))
+        addRowHere()
         setActive((s) => ({ row: rows.length, col: s.col }))
         return
       }
-      case 'Escape':
+      case 'escape':
         e.preventDefault()
+        if (editingPicks) {
+          cancelEditPicks()
+          return
+        }
         if (selected.size > 0) {
           setSelected(new Set())
           return
@@ -397,8 +488,23 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
 
   const rowMenuItems = (rowId: string): ContextMenuItem[] => {
     const multi = selected.has(rowId) && selected.size > 1
+    const pickItems: ContextMenuItem[] = []
+    if (!editingPicks && selected.size > 0) {
+      pickItems.push({ label: 'Show only selected rows', onSelect: pickSelected })
+    }
+    if (!editingPicks && hasPicks) {
+      pickItems.push({
+        label: "Remove from this view's picks",
+        onSelect: () => {
+          const ids = multi ? [...selected] : [rowId]
+          updateDatabaseSchema(csvPath, removeFromViewPicks(doc, view.id, ids))
+          if (multi) setSelected(new Set())
+        }
+      })
+    }
     return [
       { label: 'Open page', onSelect: () => openPage(rowId) },
+      ...(pickItems.length > 0 ? ([{ kind: 'separator' }, ...pickItems] as ContextMenuItem[]) : []),
       { kind: 'separator' },
       {
         label: multi ? `Delete ${selected.size} rows` : 'Delete row',
@@ -409,6 +515,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     ]
   }
 
+  // Key hints name the grid's letters only where they work: in Vim mode.
   const fieldMenuItems = (field: DbField): ContextMenuItem[] => [
     { label: 'Sort ascending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'asc' }] })) },
     { label: 'Sort descending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'desc' }] })) },
@@ -416,15 +523,27 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
     { kind: 'separator' },
     {
       label: 'Move left',
-      hint: 'H',
+      hint: vimMode ? 'H' : undefined,
       disabled: columns[0]?.id === field.id,
       onSelect: () => updateDatabaseSchema(csvPath, moveColumn(doc, view.id, field.id, 'left'))
     },
     {
       label: 'Move right',
-      hint: 'L',
+      hint: vimMode ? 'L' : undefined,
       disabled: columns[columns.length - 1]?.id === field.id,
       onSelect: () => updateDatabaseSchema(csvPath, moveColumn(doc, view.id, field.id, 'right'))
+    },
+    {
+      // In this view only: another saved view keeps its own columns.
+      label: 'Hide column',
+      disabled: isLastVisibleColumn(doc, view, field.id),
+      onSelect: () => updateDatabaseSchema(csvPath, setColumnHidden(doc, view.id, field.id, true))
+    },
+    {
+      label: 'Choose columns…',
+      hint: vimMode ? 'c' : undefined,
+      disabled: !onOpenColumns,
+      onSelect: () => onOpenColumns?.()
     },
     { kind: 'separator' },
     { label: 'Rename field', onSelect: () => setRenamingField(field.id) },
@@ -488,9 +607,43 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
         gridRef.current?.focus({ preventScroll: true })
       }}
     >
-      {anySelected && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs">
+      {hasPicks && !editingPicks && (
+        <DatabasePicksStrip
+          count={pickedRowCount(doc, view)}
+          onEdit={startEditPicks}
+          onShowAll={showAllRows}
+        />
+      )}
+      {editingPicks ? (
+        <div
+          data-db-selection-bar
+          className="flex shrink-0 items-center gap-1 border-b border-paper-300/70 bg-accent/5 px-3 py-1 text-xs"
+        >
+          <span className="mr-2 font-medium text-ink-700">
+            Editing picks: {selected.size} selected
+          </span>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={selected.size === 0}
+            title={selected.size === 0 ? 'Select at least one row, or use Show all rows' : undefined}
+            onClick={pickSelected}
+          >
+            Update picks
+          </Button>
+          <Button variant="ghost" size="sm" onClick={cancelEditPicks}>
+            Cancel
+          </Button>
+        </div>
+      ) : anySelected && (
+        <div
+          data-db-selection-bar
+          className="flex shrink-0 items-center gap-3 border-b border-paper-300/70 bg-paper-100 px-3 py-1.5 text-xs"
+        >
           <span className="font-medium text-ink-700">{selected.size} selected</span>
+          <Button variant="ghost" size="sm" onClick={pickSelected}>
+            Show only these in this view
+          </Button>
           <button
             type="button"
             onClick={deleteSelected}
@@ -740,7 +893,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive }: Props): JSX.
             <td colSpan={columns.length + 1} className="px-2 py-1.5">
               <button
                 type="button"
-                onClick={() => updateDatabaseRows(csvPath, addRow(doc))}
+                onClick={addRowHere}
                 className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-500 hover:bg-paper-200 hover:text-ink-900"
               >
                 <PlusIcon className="h-3.5 w-3.5" /> New row

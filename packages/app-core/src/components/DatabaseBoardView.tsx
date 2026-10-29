@@ -1,12 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { DatabaseDoc, DbField, DbView } from '@shared/databases'
 import { EMPTY_GROUP } from '@shared/databases'
-import { boardColumns, filterRows } from '@shared/database-transforms'
+import { boardColumns, viewRows } from '@shared/database-transforms'
 import { useStore } from '../store'
 import {
   setCell,
   ensureSelectOption,
   updateView,
+  clearViewPicks,
+  pickedRowCount,
+  viewHasPicks,
   fieldsById,
   formatDate,
   optionLabel,
@@ -17,6 +20,7 @@ import {
 import { isImeComposing } from '../lib/ime'
 import { PlusIcon, ArrowUpRightIcon } from './icons'
 import { IconButton } from './ui/Button'
+import { DatabasePicksStrip } from './DatabasePicksStrip'
 
 interface Props {
   csvPath: string
@@ -39,9 +43,11 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
     doc.fields.find((f) => f.id === view.groupByFieldId && f.type === 'select') ?? selectFields[0]
 
   const map = useMemo(() => fieldsById(doc), [doc])
+  // The same pipeline as the Table (picks, then filters, then sorts), so a
+  // view shows the same records on either surface.
   const visibleRows = useMemo(
-    () => filterRows(doc.rows, view.filters, map, view.filterConjunction),
-    [doc.rows, view.filters, view.filterConjunction, map]
+    () => viewRows(doc.rows, view, map),
+    [doc.rows, view, map]
   )
 
   const titleField = doc.fields.find((f) => f.id !== doc.idFieldId)
@@ -76,6 +82,14 @@ export function DatabaseBoardView({ csvPath, doc, view }: Props): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {viewHasPicks(view) && (
+        // A board has no row selection, so its picks come from a copied
+        // view (or schema.json); here they can only be shown or dropped.
+        <DatabasePicksStrip
+          count={pickedRowCount(doc, view)}
+          onShowAll={() => updateDatabaseSchema(csvPath, clearViewPicks(doc, view.id))}
+        />
+      )}
       <div className="flex shrink-0 items-center gap-2 px-4 py-2 text-xs text-ink-500">
         <span>Group by</span>
         <select
