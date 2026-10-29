@@ -103,6 +103,7 @@ export const KEYMAP_CATALOG: KeymapCatalogEntry[] = [
   { id: "vim.leaderTableToDatabase", group: "vim", defaultBinding: "d", title: "Leader note action: convert table to database" },
   { id: "vim.leaderNoteCover", group: "vim", defaultBinding: "c", title: "Leader note action: cover image" },
   { id: "vim.leaderNoteCoverUnsplash", group: "vim", defaultBinding: "u", title: "Leader note action: cover from Unsplash" },
+  { id: "vim.leaderCalloutType", group: "vim", defaultBinding: "a", title: "Leader note action: callout type" },
   { id: "vim.leaderQuickCapture", group: "vim", defaultBinding: "q", title: "Leader: open quick capture" },
   { id: "vim.leaderHideToTray", group: "vim", defaultBinding: "b", title: "Leader: hide window to tray" },
   { id: "vim.leaderTemplatePicker", group: "vim", defaultBinding: "t", title: "Leader: new from template" },

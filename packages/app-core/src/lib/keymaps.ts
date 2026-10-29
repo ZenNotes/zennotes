@@ -71,6 +71,7 @@ export type KeymapId =
   | "vim.leaderTableToDatabase"
   | "vim.leaderNoteCover"
   | "vim.leaderNoteCoverUnsplash"
+  | "vim.leaderCalloutType"
   | "vim.leaderQuickCapture"
   | "vim.leaderHideToTray"
   | "vim.leaderTemplatePicker"
@@ -763,6 +764,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the cover picker on its Unsplash tab, to search free photos for the active note's cover.",
     defaultBinding: "u",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCalloutType",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: callout type",
+    // `c` is the cover; `a` for admonition, and for the alerts GitHub calls them.
+    description:
+      "Open the callout type menu at the cursor: pick a type to turn the paragraph or the selected lines into a callout, or to change the type of the callout the cursor is in.",
+    defaultBinding: "a",
     vimOnly: true,
     maxTokens: 1,
   },

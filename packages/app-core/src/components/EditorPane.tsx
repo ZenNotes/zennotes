@@ -1081,6 +1081,13 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const canGoBack = useStore((s) => s.noteBackstack.length > 0)
   const canGoForward = useStore((s) => s.noteForwardstack.length > 0)
   const tabNavOverrides = useStore((s) => s.keymapOverrides)
+  // `Space l a` beside the callout rows of the right-click menu, in Vim mode
+  // only: with Vim off the chord does nothing, so no row may name it.
+  const calloutChordParts = (
+    ['vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderCalloutType'] as KeymapId[]
+  ).map((id) => getKeymapDisplay(tabNavOverrides, id))
+  const calloutChordHint =
+    vimMode && calloutChordParts.every(Boolean) ? calloutChordParts.join(' ') : undefined
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const cursorBlink = useStore((s) => s.cursorBlink)
@@ -4981,7 +4988,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               (entry): ContextMenuItem => ({
                 label: entry.label,
                 disabled: entry.disabled,
-                hint: entry.reason,
+                hint: entry.reason ?? (entry.action === 'remove' ? undefined : calloutChordHint),
                 onSelect: () => {
                   const view = viewRef.current
                   if (!view) return

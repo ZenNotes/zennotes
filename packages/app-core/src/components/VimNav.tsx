@@ -63,6 +63,7 @@ import {
   trashSidebarCursorRow
 } from '../lib/sidebar-note-actions'
 import { convertTableToDatabase } from '../lib/table-to-database'
+import { requestCalloutTypeMenu } from '../lib/callout-menu'
 import { confirmDeleteComment } from '../lib/confirm-trash'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
@@ -314,6 +315,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderNoteCover'),
         label: 'Cover image',
         detail: 'Add, change or remove the banner image across the top of the note.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalloutType'),
+        label: 'Callout type',
+        detail: 'Turn the paragraph or selected lines into a callout, or change the callout here.'
       },
       ...(unsplashSearchAvailable()
         ? [
@@ -1324,6 +1330,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           openUnsplashCoverPicker()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderCalloutType') && editorNormalMode) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          requestCalloutTypeMenu()
           return
         }
         resetLeader()

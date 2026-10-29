@@ -44,6 +44,7 @@ import {
 import { harperEditorConfig, harperSupported } from './harper-runtime'
 import { reflowParagraph } from './cm-reflow'
 import { convertTableToDatabase } from './table-to-database'
+import { removeCalloutAtCursor, requestCalloutTypeMenu } from './callout-menu'
 import {
   activeNoteCover,
   coverNotePath,
@@ -1372,6 +1373,36 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const view = getState().editorViewRef
         if (!view) return
         await convertTableToDatabase(view)
+      }
+    },
+    // Callouts from the keyboard (#1016): the type menu the right-click
+    // offers, at the caret. Listed whenever a note is open, like the table
+    // conversion above: a caret in code says why instead of hiding the row.
+    {
+      id: 'editor.callout-type',
+      title: 'Set Callout Type…',
+      category: 'Editor',
+      shortcut: vimOnly(
+        chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderCalloutType')
+      ),
+      keywords:
+        'callout admonition alert box turn into convert change type note info tip warning danger error success quote blockquote',
+      when: hasEditorNote,
+      run: () => {
+        requestCalloutTypeMenu()
+      }
+    },
+    {
+      id: 'editor.remove-callout',
+      title: 'Remove Callout',
+      category: 'Editor',
+      keywords: 'callout admonition alert unwrap plain text blockquote delete remove',
+      when: hasEditorNote,
+      run: () => {
+        const view = getState().editorViewRef
+        if (!view) return
+        removeCalloutAtCursor(view)
+        if (!hostOpensNotesToRead()) view.focus()
       }
     },
     {
