@@ -84,6 +84,19 @@ export function focusEditorAfterReadOpen(
 }
 
 /**
+ * Closing the sidebar while it held the keyboard (⌘1, Leader E; #353). The
+ * editor's panel takes the keys on every host: left on the hidden sidebar,
+ * they drove it unseen from a phone's hardware keyboard with Vim on. Desktop
+ * also focuses the editor, as it always has (focusEditorNormalMode claims the
+ * same panel); a host that opens notes to read keeps its keyboard down, since
+ * the sidebar closing is no sign the user is about to type.
+ */
+export function focusEditorAfterSidebarClose(): void {
+  useStore.getState().setFocusedPanel('editor')
+  focusEditorAfterReadOpen({ attempts: 10, delayMs: 24 })
+}
+
+/**
  * Closing a palette without a pick: the searches above, the command palette,
  * the template palette, the drawing palette. Desktop gives the editor the
  * keyboard back, as it always has; a host that opens notes to read leaves the

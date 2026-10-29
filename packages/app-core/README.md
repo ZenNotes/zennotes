@@ -360,7 +360,9 @@ the focus as a desktop habit rather than for typing: a card picked in a folder
 Gallery opens its note to be read, a pick in the Callout type menu and Remove
 callout leave the caret in the note without focusing it, the database Columns
 menu opens without focusing its find field (a tap into the field still does),
-and closing the sidebar while it held the keyboard does not focus the editor.
+and closing the sidebar while it held the keyboard does not focus the editor
+(the editor's panel still takes the keys, so a hardware keyboard does not
+drive the hidden sidebar).
 The focus heal, which refocuses the editor when the app comes back to the
 front, runs on such a host only when the editor held the focus as the app was
 left: someone typing gets the keyboard back, someone reading does not, and a

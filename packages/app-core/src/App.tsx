@@ -47,6 +47,7 @@ import { recordRendererPerf } from './lib/perf'
 import {
   focusEditorAfterPaletteClose,
   focusEditorAfterReadOpen,
+  focusEditorAfterSidebarClose,
   focusEditorNormalMode
 } from './lib/editor-focus'
 import { hostOpensNotesToRead } from './lib/editor-host'
@@ -459,15 +460,15 @@ function App(): JSX.Element {
   // Closing the sidebar while it holds keyboard focus (⌘1, Leader E, etc.) used
   // to strand focus on the now-hidden pane; hand it back to the editor. Only
   // fires on the open→closed transition when the sidebar was the focused panel,
-  // so hiding it mid-edit never steals focus from the editor. (#353)
+  // so hiding it mid-edit never steals focus from the editor. (#353) A host
+  // that opens notes to read (a phone) keeps its keyboard down; the editor's
+  // panel takes the keys there too (focusEditorAfterSidebarClose).
   const prevSidebarOpenRef = useRef(sidebarOpen)
   useEffect(() => {
     const wasOpen = prevSidebarOpenRef.current
     prevSidebarOpenRef.current = sidebarOpen
-    // A host that opens notes to read (a phone) keeps its keyboard down: the
-    // sidebar closing is no sign the user is about to type.
     if (wasOpen && !sidebarOpen && useStore.getState().focusedPanel === 'sidebar') {
-      focusEditorAfterReadOpen({ attempts: 10, delayMs: 24 })
+      focusEditorAfterSidebarClose()
     }
   }, [sidebarOpen])
 

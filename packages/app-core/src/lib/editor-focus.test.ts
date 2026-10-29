@@ -29,6 +29,7 @@ import {
   caretIntoNewNoteBody,
   focusEditorAfterReadOpen,
   focusEditorAfterPaletteClose,
+  focusEditorAfterSidebarClose,
   focusEditorNormalMode,
   newNoteBodyCaret
 } from './editor-focus'
@@ -161,6 +162,23 @@ describe('search hand-offs', () => {
     expect(view!.hasFocus).toBe(false)
     expect(storeState.current.setFocusedPanel).not.toHaveBeenCalled()
     expect(revealedSelectionRanges(view!.state)).toEqual([])
+  })
+
+  it('closing the sidebar that held the keys gives them to the editor, keyboard down on a phone', async () => {
+    host = installNoteEditorHost({ openNotesToRead: () => true })
+    focusEditorAfterSidebarClose()
+    await vi.advanceTimersByTimeAsync(50)
+    // The editor panel owns the keys, so a hardware keyboard's Vim keys no
+    // longer drive the hidden sidebar; the soft keyboard stays down.
+    expect(storeState.current.setFocusedPanel).toHaveBeenCalledWith('editor')
+    expect(view!.hasFocus).toBe(false)
+  })
+
+  it('closing the sidebar that held the keys focuses the editor on desktop, as before', async () => {
+    focusEditorAfterSidebarClose()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view!.hasFocus).toBe(true)
+    expect(storeState.current.setFocusedPanel).toHaveBeenCalledWith('editor')
   })
 
   it('undoes the focus a closing palette handed back to the editor that opened it', async () => {
