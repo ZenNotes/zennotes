@@ -6908,15 +6908,25 @@ export const useStore = create<Store>((set, get) => {
     }
     if (!isCurrent()) return
     const latest = get().databases[csvPath]
-    if (!latest || ids.some((id) => !latest.rows.some(row => row.id === id) || latest.pages?.[id] !== mappings.get(id))) {
+    if (!latest) return
+    // The questions were about these rows and their notes. A linked page
+    // that changed meanwhile, or a row with one that went, makes the answer
+    // about the notes stale. A row without one that went meanwhile (another
+    // window, a sync) is simply already deleted, and the rest still go.
+    const present = ids.filter((id) => latest.rows.some((row) => row.id === id))
+    if (ids.some((id) => latest.pages?.[id] !== mappings.get(id) || (!present.includes(id) && mappings.get(id)))) {
       useToastStore.getState().addToast('The linked pages changed. Review the rows before deleting them.', 'info')
+      return
+    }
+    if (present.length === 0) {
+      useToastStore.getState().addToast(ids.length === 1 ? 'That row was already deleted.' : 'Those rows were already deleted.', 'info')
       return
     }
     if (databaseRowActions.size || folderMutations.size || databaseCreations.size || inFlightNoteWrites.size || inFlightTaskMutations.size || taskMutationQueues.size || [...uncertainFolderMutations.values()].includes(vault)) {
       useToastStore.getState().addToast('Wait for pending file and task changes before deleting rows.', 'info')
       return
     }
-    const removeSet = new Set(ids)
+    const removeSet = new Set(present)
     const nextPages = { ...(latest.pages ?? {}) }
     const nextFlags = { ...(latest.pageHasContent ?? {}) }
     for (const id of ids) {

@@ -175,6 +175,41 @@ describe('database row lifecycle', () => {
     await direct
     expect(s.disk().rows.map(row => row.id)).toEqual(['two'])
   })
+  it('deletes what is left when a plain row went while the confirm was open, without blaming the linked pages', async () => {
+    const s = await setup()
+    const { useToastStore } = await import('./lib/toast')
+    const plain = { ...s.doc, pages: {}, pageHasContent: {} }
+    s.useStore.setState({ databases: { [CSV]: plain } })
+    const pending = s.useStore.getState().deleteDatabaseRows(CSV, ['one', 'two'], { confirm: true })
+    // Row one goes elsewhere (another window, a sync) while the question is open.
+    s.useStore.setState({ databases: { [CSV]: { ...plain, rows: plain.rows.filter((row) => row.id !== 'one') } } })
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, true)
+    await pending
+    expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual([])
+    expect(s.disk().rows).toEqual([])
+
+    // All of them gone: nothing to delete, and it says so.
+    s.useStore.setState({ databases: { [CSV]: plain } })
+    const gone = s.useStore.getState().deleteDatabaseRows(CSV, ['one'], { confirm: true })
+    s.useStore.setState({ databases: { [CSV]: { ...plain, rows: plain.rows.filter((row) => row.id !== 'one') } } })
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, true)
+    await gone
+    expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual(['That row was already deleted.'])
+  })
+  it('still stops when a linked page changed while the confirm was open', async () => {
+    const s = await setup()
+    const { useToastStore } = await import('./lib/toast')
+    const pending = s.useStore.getState().deleteDatabaseRows(CSV, ['one'], { confirm: true })
+    s.useStore.setState({ databases: { [CSV]: { ...s.doc, pages: { ...s.doc.pages, one: 'Projects.base/pages/Other.md' } } } })
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, true)
+    await vi.waitFor(() => expect(s.prompts.getConfirmRequest()).not.toBeNull())
+    s.prompts.settleConfirmRequest(s.prompts.getConfirmRequest()!, false)
+    await pending
+    expect(useToastStore.getState().toasts.map((toast) => toast.message)).toEqual([
+      'The linked pages changed. Review the rows before deleting them.'
+    ])
+    expect(s.bridge.writeDatabaseSchema).not.toHaveBeenCalled()
+  })
   it('asks about the rows first, then what happens to their notes', async () => {
     const s = await setup()
     const declined = s.useStore.getState().deleteDatabaseRows(CSV, ['one', 'two'], { confirm: true })
