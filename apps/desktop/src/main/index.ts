@@ -6508,7 +6508,8 @@ app.on("second-instance", (_event, argv) => {
 });
 
 app.on("window-all-closed", () => {
-  windowVaults.stopAll();
+  // Not awaited, here or before quitting: see `before-quit`.
+  void windowVaults.stopAll();
   stopRemoteWatch();
   if (!isMac()) app.quit();
 });
@@ -6561,7 +6562,12 @@ app.on("before-quit", () => {
   appQuitting = true;
   cloudSyncService?.stop();
   void cloudAuthLoopbackServer?.stop();
-  windowVaults.stopAll();
+  // Not awaited. Closing a watcher lets go of its native handles before
+  // close() returns; the promise only waits out stats and scans already in
+  // flight, which exit throws away anyway. Holding the quit for it would mean
+  // cancelling this quit and calling app.quit() again later, and this is also
+  // the path the updater's quit-and-install takes.
+  void windowVaults.stopAll();
   stopRemoteWatch();
   quickCaptureQuitting = true;
   unregisterQuickCaptureHotkey();

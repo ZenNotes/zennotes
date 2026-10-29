@@ -53,10 +53,18 @@ const MAIN_BUNDLED_MARKDOWN_PACKAGES = [
   'remark-math'
 ]
 
+// The file watchers (vault, config.toml, themes, CSS snippets, code
+// languages), bundled for the same reason. Chokidar 6 is pure ESM with
+// readdirp 5 below it; left external, main would load it from the asar and
+// count on electron-builder putting readdirp where Node looks for it, the bet
+// 2.20.0 lost. Neither has native pieces, so Rollup inlines both.
+const MAIN_BUNDLED_WATCHER_PACKAGES = ['chokidar', 'readdirp']
+
 const MAIN_EXTERNALIZE_EXCLUSIONS = [
   ...INTERNAL_WORKSPACE_PACKAGES,
   ...PACKAGED_CLI_RUNTIME_PACKAGES,
-  ...MAIN_BUNDLED_MARKDOWN_PACKAGES
+  ...MAIN_BUNDLED_MARKDOWN_PACKAGES,
+  ...MAIN_BUNDLED_WATCHER_PACKAGES
 ]
 
 function onigurumaDataUrl(): Plugin {

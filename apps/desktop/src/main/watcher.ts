@@ -13,6 +13,11 @@ const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const TEMPLATES_PREFIX = `${INTERNAL_VAULT_DIR}/templates/`
 const AGENT_EDITS_PREFIX = `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/`
 
+/** The system ran out of watch handles: file descriptors (EMFILE, ENFILE) or,
+ *  on Linux, inotify watches (ENOSPC). Every folder after the first failure
+ *  fails the same way, so the watcher cannot go on reporting the vault. */
+const WATCH_HANDLES_EXHAUSTED = new Set(['EMFILE', 'ENFILE', 'ENOSPC'])
+
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
 }
@@ -103,7 +108,14 @@ export class VaultWatcher {
     else emit()
   }
 
-  start(root: string, onEvent: (ev: VaultChangeEvent) => void): void {
+  /** `onExhausted` runs once if the watcher shuts itself down because the
+   *  system ran out of watch handles. It is stopped by then; nothing restarts
+   *  it on its own. */
+  start(
+    root: string,
+    onEvent: (ev: VaultChangeEvent) => void,
+    onExhausted: () => void = () => {}
+  ): void {
     void this.stop()
     this.root = root
     this.settings = null
@@ -114,6 +126,11 @@ export class VaultWatcher {
     const watcher = chokidar.watch(root, {
       ignoreInitial: true,
       persistent: true,
+      // A folder the app cannot read (`lost+found` at the top of a mounted
+      // drive, a folder another user owns) is one the vault listing skips as
+      // well. Linux watches folder by folder, and without this its EACCES
+      // reached the error handler below as a failure of the whole watcher.
+      ignorePermissionErrors: true,
       ignored: (p: string) => {
         if (this.root && isVaultSettingsPath(this.root, p)) return false
         if (this.root && relativeVaultPath(this.root, p) === INTERNAL_VAULT_DIR) return false
@@ -224,8 +241,19 @@ export class VaultWatcher {
     watcher
       .on('error', (error) => {
         if (this.watcher !== watcher) return
-        console.error('Vault watcher failed; live updates have stopped', error)
-        void this.stop()
+        // Chokidar reports a path it could not watch and goes on watching the
+        // rest, so most errors cost that one path. Running out of handles is
+        // the exception: the flood of failures that follows is what froze the
+        // app on a large vault, so that one closes the watcher and tells the
+        // owner, which decides when to try again.
+        const code = (error as NodeJS.ErrnoException).code
+        if (code && WATCH_HANDLES_EXHAUSTED.has(code)) {
+          console.error('Vault watcher ran out of watch handles; live updates have stopped', error)
+          void this.stop()
+          onExhausted()
+          return
+        }
+        console.error('Vault watcher could not watch a path', error)
       })
       .on('add', handler('add'))
       .on('change', handler('change'))

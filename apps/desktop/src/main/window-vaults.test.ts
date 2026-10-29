@@ -1,22 +1,58 @@
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { VaultChangeEvent } from '@shared/ipc'
-import { WindowVaultRegistry, type VaultWatcherLike } from './window-vaults'
+import {
+  WATCH_RETRY_FIRST_DELAY_MS,
+  WATCH_RETRY_MAX_DELAY_MS,
+  WindowVaultRegistry,
+  type VaultWatcherLike
+} from './window-vaults'
 
 class TestWatcher implements VaultWatcherLike {
   root: string | null = null
   stopped = false
   onEvent: ((ev: VaultChangeEvent) => void) | null = null
+  onExhausted: (() => void) | null = null
 
-  start(root: string, onEvent: (ev: VaultChangeEvent) => void): void {
+  start(root: string, onEvent: (ev: VaultChangeEvent) => void, onExhausted: () => void): void {
     this.root = root
     this.onEvent = onEvent
+    this.onExhausted = onExhausted
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true
   }
+
+  /** What VaultWatcher does when the system runs out of watch handles. */
+  exhaust(): void {
+    this.stopped = true
+    this.onExhausted?.()
+  }
 }
+
+const RESYNC: VaultChangeEvent = { kind: 'change', path: '', folder: 'inbox', scope: 'resync' }
+
+function retryingRegistry() {
+  const watchers: TestWatcher[] = []
+  const sent: Array<{ windowId: number; ev: VaultChangeEvent }> = []
+  const invalidated: Array<{ root: string; ev: VaultChangeEvent }> = []
+  const registry = new WindowVaultRegistry({
+    makeWatcher: () => {
+      const watcher = new TestWatcher()
+      watchers.push(watcher)
+      return watcher
+    },
+    invalidateVault: (root, ev) => invalidated.push({ root, ev }),
+    sendVaultChange: (windowId, ev) => sent.push({ windowId, ev })
+  })
+  return { registry, watchers, sent, invalidated }
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 function change(path: string): VaultChangeEvent {
   return {
@@ -162,5 +198,79 @@ describe('WindowVaultRegistry', () => {
     expect(watchers.every((w) => !w.stopped)).toBe(true)
     // Already named: nothing to report.
     expect(registry.renameLocalVault(docs, 'Acme API docs')).toEqual([])
+  })
+})
+
+describe('WindowVaultRegistry when a watcher runs out of watch handles', () => {
+  it('watches the vault again later and has its windows re-read it', () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { registry, watchers, sent, invalidated } = retryingRegistry()
+    const root = path.resolve('/tmp/zennotes-exhausted')
+    registry.setLocalVault(1, { root, name: 'Big' })
+    registry.setLocalVault(2, { root, name: 'Big' })
+
+    watchers[0].exhaust()
+    // A window opening the vault meanwhile does not start one early.
+    registry.setLocalVault(3, { root, name: 'Big' })
+    vi.advanceTimersByTime(WATCH_RETRY_FIRST_DELAY_MS - 1)
+    expect(watchers).toHaveLength(1)
+    // The vault is still open while nothing watches it.
+    expect(registry.isPathInsideOpenLocalVault(path.join(root, 'a.md'))).toBe(true)
+
+    vi.advanceTimersByTime(1)
+    expect(watchers).toHaveLength(2)
+    expect(watchers[1].root).toBe(root)
+    expect(invalidated).toEqual([{ root, ev: RESYNC }])
+    expect(sent).toEqual([
+      { windowId: 1, ev: RESYNC },
+      { windowId: 2, ev: RESYNC },
+      { windowId: 3, ev: RESYNC }
+    ])
+
+    // The new watcher reports as the first one did.
+    watchers[1].onEvent?.(change('a.md'))
+    expect(sent.slice(3).map((entry) => entry.windowId)).toEqual([1, 2, 3])
+    // A late word from the watcher it replaced changes nothing.
+    watchers[0].onExhausted?.()
+    vi.advanceTimersByTime(WATCH_RETRY_MAX_DELAY_MS)
+    expect(watchers).toHaveLength(2)
+  })
+
+  it('waits longer after each failure, up to a cap', () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { registry, watchers } = retryingRegistry()
+    registry.setLocalVault(1, { root: path.resolve('/tmp/zennotes-backoff'), name: 'Big' })
+
+    const waits: number[] = []
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const before = watchers.length
+      watchers[before - 1].exhaust()
+      let waited = 0
+      while (watchers.length === before) {
+        vi.advanceTimersByTime(1000)
+        waited += 1000
+      }
+      waits.push(waited)
+    }
+    expect(waits).toEqual([30_000, 60_000, 120_000, 240_000, 480_000, 600_000, 600_000])
+  })
+
+  it('gives up the retry when the last window leaves the vault', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { registry, watchers, sent } = retryingRegistry()
+    const root = path.resolve('/tmp/zennotes-gone')
+    registry.setLocalVault(1, { root, name: 'Big' })
+    registry.setLocalVault(2, { root: path.resolve('/tmp/zennotes-other'), name: 'Other' })
+
+    watchers[0].exhaust()
+    registry.clearWindow(1)
+    await registry.stopAll()
+    vi.advanceTimersByTime(WATCH_RETRY_MAX_DELAY_MS)
+    expect(watchers).toHaveLength(2)
+    expect(watchers[1].stopped).toBe(true)
+    expect(sent).toEqual([])
   })
 })

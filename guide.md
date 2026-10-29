@@ -22,7 +22,7 @@ Use this if:
 
 ### Requirements
 
-- Node.js 22+
+- Node.js 22.22 or newer
 - npm
 
 ### Steps
@@ -163,7 +163,7 @@ Use this if you do not want Docker and you are okay running both the frontend an
 
 ### Requirements
 
-- Node.js 22+
+- Node.js 22.22 or newer
 - npm
 - Go, only if you want to run the server from a ZenNotes/znserver checkout instead of the pinned release binary
 

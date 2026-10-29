@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { getActiveResourcesInfo } from 'node:process'
@@ -190,6 +190,82 @@ describe('VaultWatcher large vaults', () => {
       return events.some((event) => event.path === 'Recovered.md')
     }, { interval: 250, timeout: 10_000 }).toBe(true)
   }, 15_000)
+
+  it.each(['EMFILE', 'ENFILE', 'ENOSPC'])(
+    'tells its owner when watch handles run out (%s)',
+    async (code) => {
+      const root = await makeVault()
+      const watch = vi.spyOn(chokidar, 'watch')
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const exhausted = vi.fn()
+      const watcher = new VaultWatcher()
+      watchers.push(watcher)
+      watcher.start(root, () => {}, exhausted)
+      const active = watch.mock.results.find((result) => result.type === 'return')?.value
+      if (!active) throw new Error('Watcher did not start')
+      const closed = vi.spyOn(active, 'close')
+
+      active.emit('error', Object.assign(new Error('Out of handles'), { code }))
+      expect(closed).toHaveBeenCalledOnce()
+      expect(exhausted).toHaveBeenCalledOnce()
+    }
+  )
+
+  it('keeps watching after an error about one path', async () => {
+    const root = await makeVault()
+    const watch = vi.spyOn(chokidar, 'watch')
+    const report = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const exhausted = vi.fn()
+    const events: VaultChangeEvent[] = []
+    const watcher = new VaultWatcher()
+    watchers.push(watcher)
+    watcher.start(root, (event) => events.push(event), exhausted)
+    const active = watch.mock.results.find((result) => result.type === 'return')?.value
+    if (!active) throw new Error('Watcher did not start')
+    const closed = vi.spyOn(active, 'close')
+
+    active.emit('error', Object.assign(new Error('Cannot watch one folder'), { code: 'EINVAL' }))
+    expect(report).toHaveBeenCalledOnce()
+    expect(closed).not.toHaveBeenCalled()
+    expect(exhausted).not.toHaveBeenCalled()
+    await expect.poll(async () => {
+      await writeFile(path.join(root, 'Still.md'), `Updated ${Date.now()}\n`)
+      return events.some((event) => event.path === 'Still.md')
+    }, { interval: 250, timeout: 10_000 }).toBe(true)
+  }, 15_000)
+
+  // Linux watches folder by folder, so an unreadable one is an EACCES the
+  // watcher meets while it walks the vault. macOS and Windows watch the tree
+  // as a whole and never open it; there the test only proves nothing regressed.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'keeps reporting the rest of the vault when one folder cannot be read',
+    async () => {
+      const root = await makeVault()
+      const locked = path.join(root, 'lost+found')
+      await mkdir(path.join(root, 'Open'))
+      await mkdir(locked)
+      await writeFile(path.join(locked, 'Hidden.md'), '# Hidden\n')
+      await chmod(locked, 0o000)
+      const report = vi.spyOn(console, 'error')
+      const exhausted = vi.fn()
+      try {
+        const events: VaultChangeEvent[] = []
+        const watcher = new VaultWatcher()
+        watchers.push(watcher)
+        watcher.start(root, (event) => events.push(event), exhausted)
+        await expect.poll(async () => {
+          await writeFile(path.join(root, 'Open', 'After.md'), `Updated ${Date.now()}\n`)
+          return events.some((event) => event.path === 'Open/After.md')
+        }, { interval: 250, timeout: 10_000 }).toBe(true)
+        expect(report).not.toHaveBeenCalled()
+        expect(exhausted).not.toHaveBeenCalled()
+      } finally {
+        // rm cannot clear a folder it cannot read.
+        await chmod(locked, 0o755)
+      }
+    },
+    15_000
+  )
 })
 
 describe('VaultWatcher custom templates (#723)', () => {

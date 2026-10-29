@@ -4,9 +4,19 @@ import type { VaultChangeEvent, VaultInfo } from '@shared/ipc'
 export type WindowWorkspaceMode = 'local' | 'remote'
 
 export interface VaultWatcherLike {
-  start(root: string, onEvent: (ev: VaultChangeEvent) => void): void
-  stop(): void
+  /** `onExhausted` runs if the watcher stops itself because the system ran
+   *  out of watch handles. */
+  start(root: string, onEvent: (ev: VaultChangeEvent) => void, onExhausted: () => void): void
+  stop(): Promise<void>
 }
+
+/** How long a vault goes unwatched after the system ran out of watch handles
+ *  before the registry tries again, doubling up to the cap on each failure. */
+export const WATCH_RETRY_FIRST_DELAY_MS = 30_000
+export const WATCH_RETRY_MAX_DELAY_MS = 10 * 60_000
+
+/** Whatever changed while a vault went unwatched was never reported. */
+const RESYNC_EVENT: VaultChangeEvent = { kind: 'change', path: '', folder: 'inbox', scope: 'resync' }
 
 interface WindowVaultSession {
   mode: WindowWorkspaceMode
@@ -15,8 +25,12 @@ interface WindowVaultSession {
 
 interface LocalVaultWatch {
   root: string
-  watcher: VaultWatcherLike
+  /** Null while the vault waits for another try after its watcher ran out of
+   *  watch handles. The windows stay attached: the vault is still open. */
+  watcher: VaultWatcherLike | null
   windowIds: Set<number>
+  retryTimer: ReturnType<typeof setTimeout> | null
+  retryDelayMs: number
 }
 
 export interface WindowVaultRegistryOptions {
@@ -46,17 +60,15 @@ export class WindowVaultRegistry {
 
     let registration = this.localVaultWatches.get(root)
     if (!registration) {
-      const watcher = this.options.makeWatcher()
       registration = {
         root,
-        watcher,
-        windowIds: new Set<number>()
+        watcher: null,
+        windowIds: new Set<number>(),
+        retryTimer: null,
+        retryDelayMs: WATCH_RETRY_FIRST_DELAY_MS
       }
-      watcher.start(root, (ev) => {
-        this.options.invalidateVault(root, ev)
-        this.sendLocalVaultChange(root, ev)
-      })
       this.localVaultWatches.set(root, registration)
+      this.watchLocalVault(registration)
     }
     registration.windowIds.add(windowId)
   }
@@ -146,12 +158,63 @@ export class WindowVaultRegistry {
     }
   }
 
-  stopAll(): void {
+  /** Settles once every watcher has closed. */
+  async stopAll(): Promise<void> {
+    const stopping: Promise<void>[] = []
     for (const registration of this.localVaultWatches.values()) {
-      registration.watcher.stop()
+      stopping.push(this.unwatchLocalVault(registration))
     }
     this.localVaultWatches.clear()
     this.sessions.clear()
+    await Promise.all(stopping)
+  }
+
+  private watchLocalVault(registration: LocalVaultWatch): void {
+    const { root } = registration
+    const watcher = this.options.makeWatcher()
+    registration.watcher = watcher
+    watcher.start(
+      root,
+      (ev) => this.emitLocalVaultChange(root, ev),
+      () => this.retryLocalVaultWatch(registration, watcher)
+    )
+  }
+
+  /**
+   * The watcher ran out of watch handles and stopped itself. Starting a new
+   * one at once would hit the same wall, but the wall can move: another app
+   * lets go of its handles, or the user raises the limit. So the vault waits
+   * and tries again, longer each time it fails, and its windows re-read it
+   * once a watcher is back, because nothing was reporting in between.
+   */
+  private retryLocalVaultWatch(registration: LocalVaultWatch, watcher: VaultWatcherLike): void {
+    if (this.localVaultWatches.get(registration.root) !== registration) return
+    if (registration.watcher !== watcher) return
+    registration.watcher = null
+    const delay = registration.retryDelayMs
+    registration.retryDelayMs = Math.min(delay * 2, WATCH_RETRY_MAX_DELAY_MS)
+    console.warn(
+      `Vault watcher for ${registration.root} stopped; trying again in ${Math.round(delay / 1000)} s`
+    )
+    registration.retryTimer = setTimeout(() => {
+      registration.retryTimer = null
+      if (this.localVaultWatches.get(registration.root) !== registration) return
+      this.watchLocalVault(registration)
+      this.emitLocalVaultChange(registration.root, RESYNC_EVENT)
+    }, delay)
+  }
+
+  private unwatchLocalVault(registration: LocalVaultWatch): Promise<void> {
+    if (registration.retryTimer) clearTimeout(registration.retryTimer)
+    registration.retryTimer = null
+    const watcher = registration.watcher
+    registration.watcher = null
+    return watcher ? watcher.stop() : Promise.resolve()
+  }
+
+  private emitLocalVaultChange(root: string, ev: VaultChangeEvent): void {
+    this.options.invalidateVault(root, ev)
+    this.sendLocalVaultChange(root, ev)
   }
 
   private sendLocalVaultChange(root: string, ev: VaultChangeEvent): void {
@@ -167,8 +230,8 @@ export class WindowVaultRegistry {
     if (!registration) return
     registration.windowIds.delete(windowId)
     if (registration.windowIds.size > 0) return
-    registration.watcher.stop()
     this.localVaultWatches.delete(root)
+    void this.unwatchLocalVault(registration)
   }
 }
 
