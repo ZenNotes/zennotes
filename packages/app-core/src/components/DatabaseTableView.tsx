@@ -45,6 +45,7 @@ import { focusEditorNormalMode } from '../lib/editor-focus'
 import { isImeComposing } from '../lib/ime'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
+import { databaseGridKeyAction } from '../lib/database-grid-keys'
 import { useDatabaseViewCommand } from '../lib/database-view-commands'
 import { useToastStore } from '../lib/toast'
 import { resolveWikilinkTarget } from '../lib/wikilinks'
@@ -81,6 +82,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
   const renameRecordPage = useStore((s) => s.renameRecordPage)
   const focusedPanel = useStore((s) => s.focusedPanel)
   const setFocusedPanel = useStore((s) => s.setFocusedPanel)
+  const vimMode = useStore((s) => s.vimMode)
 
   const titleFieldId = doc.fields.find((f) => f.id !== doc.idFieldId)?.id
 
@@ -311,7 +313,13 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     // letters (e.g. the "l" in "url"), and let the arrow keys move the caret. (#110)
     const target = e.target as HTMLElement | null
     if (target?.closest('input, textarea') || target?.isContentEditable) return
-    if (e.metaKey || e.ctrlKey || e.altKey) return // leave global shortcuts alone
+    // Which keys answer in which mode lives in databaseGridKeyAction: with
+    // Vim mode off only the arrows, Enter, Space, Escape and the menu keys.
+    const action = databaseGridKeyAction(e, useStore.getState().vimMode)
+    // Reset pending multi-key sequences when a different key arrives.
+    if (gPending.current && action !== 'g') gPending.current = false
+    if (dPending.current && action !== 'd') dPending.current = false
+    if (!action) return
     const lastRow = rows.length - 1
     const lastCol = columns.length - 1
     const clampRow = (n: number): number => Math.max(-1, Math.min(n, lastRow)) // -1 = column-header row
@@ -328,24 +336,16 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     const toggleCheckbox = (row: DbRow, field: DbField): void =>
       commitCell(row.id, field, isCheckboxTrue(row.cells[field.id] ?? '') ? 'false' : 'true')
 
-    // Reset pending multi-key sequences when a different key arrives.
-    if (gPending.current && e.key !== 'g') gPending.current = false
-    if (dPending.current && e.key !== 'd') dPending.current = false
-
-    switch (e.key) {
-      case 'j':
-      case 'ArrowDown':
+    switch (action) {
+      case 'down':
         return move(active.row + 1, active.col)
-      case 'k':
-      case 'ArrowUp':
+      case 'up':
         return move(active.row - 1, active.col)
-      case 'h':
-      case 'ArrowLeft':
+      case 'left':
         return move(active.row, active.col - 1)
-      case 'l':
-      case 'ArrowRight':
+      case 'right':
         return move(active.row, active.col + 1)
-      case 'H': {
+      case 'move-column-left': {
         // #317: move the current column one step left, keeping the cursor on it.
         e.preventDefault()
         const field = columns[active.col]
@@ -355,7 +355,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         }
         return
       }
-      case 'L': {
+      case 'move-column-right': {
         // #317: move the current column one step right, keeping the cursor on it.
         e.preventDefault()
         const field = columns[active.col]
@@ -365,12 +365,11 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         }
         return
       }
-      case '0':
-      case '^':
+      case 'first-column':
         return move(active.row, 0)
-      case '$':
+      case 'last-column':
         return move(active.row, lastCol)
-      case 'G':
+      case 'last-row':
         return move(lastRow, active.col)
       case 'g':
         e.preventDefault()
@@ -391,8 +390,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         if (c) void deleteDatabaseRows(csvPath, [c.row.id])
         return
       }
-      case 'Enter':
-      case 'i': {
+      case 'edit': {
         e.preventDefault()
         if (active.row < 0) {
           // On the column header — rename the field, keyboard-only.
@@ -406,46 +404,44 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
         setEditing({ rowId: c.row.id, fieldId: c.field.id })
         return
       }
-      case ' ': {
+      case 'space': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         if (c.field.type === 'checkbox') return toggleCheckbox(c.row, c.field)
         return toggleRow(c.row.id)
       }
-      case 'x': {
+      case 'select': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         return toggleRow(c.row.id)
       }
-      case 'o': {
+      case 'open-page': {
         const c = cell()
         if (!c) return
         e.preventDefault()
         return openPage(c.row.id)
       }
-      case 'c': {
-        // The Columns popover, to pick the few columns this view shows. A
-        // single-key shortcut, so it stays off with Vim mode off (the
+      case 'columns': {
+        // The Columns popover, to pick the few columns this view shows (the
         // header's Columns button and the palette's Choose Database Columns
-        // remain), and it never fires behind a menu or a dialog.
-        if (!useStore.getState().vimMode || isOverlayOrDialogOpen()) return
+        // do it with Vim off). Never behind a menu or a dialog.
+        if (isOverlayOrDialogOpen()) return
         e.preventDefault()
         onOpenColumns?.()
         return
       }
-      case 'O': {
-        // Every record's page at once (o opens one). A new single-key
-        // shortcut, so it stays off with Vim mode off.
-        if (!useStore.getState().vimMode) return
+      case 'create-pages': {
+        // Every record's page at once (o opens one).
         e.preventDefault()
         void useStore.getState().createAllRecordPages(csvPath)
         return
       }
-      case 'm': {
-        // Open the context menu (like the sidebar's `m`), anchored to the
-        // active header or cell. On a header → field menu; on a cell → row menu.
+      case 'menu': {
+        // Open the context menu (m with Vim on, like the sidebar's; Shift+F10
+        // or the Context Menu key in either mode), anchored to the active
+        // header or cell. On a header → field menu; on a cell → row menu.
         e.preventDefault()
         if (active.row < 0) {
           const field = columns[active.col]
@@ -462,13 +458,13 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
           ?.getBoundingClientRect()
         return setRowMenu({ rowId: c.row.id, x: r?.left ?? 0, y: r?.bottom ?? 0 })
       }
-      case 'a': {
+      case 'add-row': {
         e.preventDefault()
         addRowHere()
         setActive((s) => ({ row: rows.length, col: s.col }))
         return
       }
-      case 'Escape':
+      case 'escape':
         e.preventDefault()
         if (editingPicks) {
           cancelEditPicks()
@@ -519,6 +515,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     ]
   }
 
+  // Key hints name the grid's letters only where they work: in Vim mode.
   const fieldMenuItems = (field: DbField): ContextMenuItem[] => [
     { label: 'Sort ascending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'asc' }] })) },
     { label: 'Sort descending', onSelect: () => updateDatabaseSchema(csvPath, updateView(doc, view.id, { sorts: [{ fieldId: field.id, direction: 'desc' }] })) },
@@ -526,13 +523,13 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     { kind: 'separator' },
     {
       label: 'Move left',
-      hint: 'H',
+      hint: vimMode ? 'H' : undefined,
       disabled: columns[0]?.id === field.id,
       onSelect: () => updateDatabaseSchema(csvPath, moveColumn(doc, view.id, field.id, 'left'))
     },
     {
       label: 'Move right',
-      hint: 'L',
+      hint: vimMode ? 'L' : undefined,
       disabled: columns[columns.length - 1]?.id === field.id,
       onSelect: () => updateDatabaseSchema(csvPath, moveColumn(doc, view.id, field.id, 'right'))
     },
@@ -544,7 +541,7 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
     },
     {
       label: 'Choose columns…',
-      hint: useStore.getState().vimMode ? 'c' : undefined,
+      hint: vimMode ? 'c' : undefined,
       disabled: !onOpenColumns,
       onSelect: () => onOpenColumns?.()
     },
