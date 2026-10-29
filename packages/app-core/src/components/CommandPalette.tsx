@@ -361,7 +361,9 @@ export function CommandPalette(): JSX.Element {
       // command opened Settings or another palette (search, vault text search,
       // outline, …) so we don't pull focus behind it, and likewise for the Cloud
       // conflict queue, the Cloud settings prompt and the Publish Note dialog,
-      // which claim focus themselves and are tracked outside the store.
+      // which claim focus themselves and are tracked outside the store, and
+      // for a menu the command opened (Set Callout Type…): the menu holds the
+      // keyboard, and the letters typed to filter it would land in the note.
       // On a phone the command decides where the keyboard goes
       // (lib/command-landing.ts): a note that was already there is left to
       // read, a command whose point is typing takes the editor, and anything
@@ -372,7 +374,8 @@ export function CommandPalette(): JSX.Element {
           { ...latest, focusedPanel: landedPanel },
           useCloudSyncStatusStore.getState().conflictReviewOpen ||
             useCloudSyncStatusStore.getState().settingsConflictPromptOpen ||
-            getPublishNoteRequest() !== null
+            getPublishNoteRequest() !== null ||
+            document.querySelector('[data-ctx-menu]') !== null
         )
       ) {
         if (landing === 'read') focusEditorAfterReadOpen()

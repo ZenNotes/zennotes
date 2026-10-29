@@ -163,6 +163,7 @@ const LEADER_SUBGROUP_IDS: ReadonlySet<KeymapId> = new Set<KeymapId>([
   'vim.leaderTableToDatabase',
   'vim.leaderNoteCover',
   'vim.leaderNoteCoverUnsplash',
+  'vim.leaderCalloutType',
   'vim.leaderSearchVaultText'
 ])
 

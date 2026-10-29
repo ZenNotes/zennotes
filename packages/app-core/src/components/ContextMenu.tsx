@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useStore } from '../store'
+import { CheckIcon } from './icons'
 
 export interface ContextMenuItem {
   kind?: 'item' | 'separator'
@@ -11,6 +13,11 @@ export interface ContextMenuItem {
   /** Displayed in muted red (used for destructive actions). */
   danger?: boolean
   disabled?: boolean
+  /** The choice in force, of a set the menu picks from: drawn with a check,
+   *  and where the cursor starts. */
+  checked?: boolean
+  /** More words the filter finds the item by (aliases), besides its label. */
+  keywords?: string[]
   onSelect?: () => void | Promise<void>
 }
 
@@ -18,6 +25,8 @@ interface Props {
   x: number
   y: number
   items: ContextMenuItem[]
+  /** A heading above the items, for a menu that picks one of a set. */
+  title?: string
   onClose: () => void
 }
 
@@ -28,16 +37,18 @@ interface Props {
  *
  * Supports type-to-filter: any printable character typed while the menu
  * is open narrows the visible items by case-insensitive substring match
- * on their label. A small header bar appears showing the current query
+ * on their label. With Vim mode on, j and k move instead; with it off they
+ * are letters like any other, and only the arrows, Enter and Escape act. A small header bar appears showing the current query
  * so the user knows they're filtering. Backspace deletes a character,
  * Escape clears the query (one level) before closing the menu.
  */
-export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
+export function ContextMenu({ x, y, items, title, onClose }: Props): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   const [activeIdx, setActiveIdx] = useState<number>(0)
   const [query, setQuery] = useState('')
+  const vimMode = useStore((s) => s.vimMode)
 
   // Build the filtered list. Each entry knows its original index so
   // reorder / filter doesn't lose the onSelect wiring.
@@ -51,7 +62,9 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
         // specific item once the list has been shuffled.
         if (item.kind === 'separator') continue
         const label = item.label?.toLowerCase() ?? ''
-        if (!label.includes(q)) continue
+        if (!label.includes(q) && !item.keywords?.some((k) => k.toLowerCase().includes(q))) {
+          continue
+        }
       }
       out.push({ item, originalIdx: i })
     }
@@ -62,12 +75,14 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
   // doesn't send us to a separator / hidden row.
   const [visibleActive, setVisibleActive] = useState(0)
   useEffect(() => {
-    // Snap to the first enabled row whenever filtering changes the set.
-    const firstEnabled = visible.findIndex(
-      (v) => v.item.kind !== 'separator' && !v.item.disabled
-    )
-    setVisibleActive(firstEnabled >= 0 ? firstEnabled : 0)
-  }, [visible])
+    // Snap to the first enabled row whenever filtering changes the set; with
+    // no filter, a menu that picks one of a set starts on the current one.
+    const enabled = (v: { item: ContextMenuItem }): boolean =>
+      v.item.kind !== 'separator' && !v.item.disabled
+    const checked = query ? -1 : visible.findIndex((v) => enabled(v) && v.item.checked)
+    const firstEnabled = visible.findIndex(enabled)
+    setVisibleActive(checked >= 0 ? checked : firstEnabled >= 0 ? firstEnabled : 0)
+  }, [visible, query])
 
   // Clamp inside the viewport so the menu never spills off-screen.
   useLayoutEffect(() => {
@@ -125,19 +140,14 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
       else onClose()
       return
     }
-    if (
-      e.key === 'ArrowDown' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'j')
-    ) {
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey
+    if (e.key === 'ArrowDown' || (vimMode && plain && e.key === 'j')) {
       e.preventDefault()
       e.stopPropagation()
       setVisibleActive((i) => stepVisible(visible, i, 1))
       return
     }
-    if (
-      e.key === 'ArrowUp' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'k')
-    ) {
+    if (e.key === 'ArrowUp' || (vimMode && plain && e.key === 'k')) {
       e.preventDefault()
       e.stopPropagation()
       setVisibleActive((i) => stepVisible(visible, i, -1))
@@ -186,12 +196,16 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
       ref={ref}
       data-ctx-menu
       role="menu"
+      aria-label={title}
       tabIndex={-1}
       onKeyDown={handleKeyDown}
       className="fixed z-[60] min-w-[220px] overflow-hidden rounded-xl bg-paper-100 p-1 shadow-float ring-1 ring-paper-300"
       style={{ left: pos.left, top: pos.top }}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {title && (
+        <div className="px-2.5 pb-1 pt-1.5 text-xs font-medium text-ink-500">{title}</div>
+      )}
       {query && (
         <div className="mb-1 flex items-center gap-1 rounded-md bg-paper-200/80 px-2 py-1 font-mono text-xs text-ink-700">
           <span className="text-ink-400">filter</span>
@@ -217,6 +231,8 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
           return (
             <button
               key={`${originalIdx}-${item.label}`}
+              role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+              aria-checked={item.checked === undefined ? undefined : item.checked}
               disabled={item.disabled}
               onMouseEnter={() => setVisibleActive(i)}
               onClick={() => {
@@ -250,6 +266,9 @@ export function ContextMenu({ x, y, items, onClose }: Props): JSX.Element {
                 >
                   {item.hint}
                 </span>
+              )}
+              {item.checked && (
+                <CheckIcon width={14} height={14} className="shrink-0 text-ink-600" />
               )}
             </button>
           )
