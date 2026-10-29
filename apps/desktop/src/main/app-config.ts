@@ -1020,7 +1020,12 @@ function startWatching(): void {
       onChangeCb?.({ ...cache })
     })()
   }, WATCH_DEBOUNCE_MS)
-  watcher.on('add', handle).on('change', handle)
+  watcher
+    .on('add', handle)
+    .on('change', handle)
+    // An unreadable config.toml raises EACCES here. With no listener, chokidar's
+    // 'error' rejects inside its own scan instead of reaching this log.
+    .on('error', (error) => console.warn('Failed to watch config.toml', error))
   // Intentionally ignore 'unlink': a deleted config shouldn't wipe the live
   // settings; the next save recreates the file from the in-memory cache.
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
+import { chmod, mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises'
 import { existsSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +10,9 @@ import {
   deleteCustomTheme,
   createCustomTheme,
   customThemeRevealTarget,
-  resolveThemeAssetPath
+  resolveThemeAssetPath,
+  startWatchingCustomThemes,
+  stopWatchingCustomThemes
 } from './custom-themes'
 
 let tmp: string
@@ -123,6 +125,39 @@ describe('custom themes (main)', () => {
     await ensureCustomThemesDir()
     expect(await readFile(join(dir, 'README.md'), 'utf8')).toBe('# my notes\nhello\n')
   })
+})
+
+describe('custom themes watcher', () => {
+  // An unreadable theme folder used to end live theme updates: chokidar's
+  // EACCES had no 'error' listener, and the watcher reported nothing after it.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'keeps reporting theme edits when one theme folder cannot be read',
+    async () => {
+      const dir = await ensureCustomThemesDir()
+      const locked = join(dir, 'locked')
+      await mkdir(locked)
+      await chmod(locked, 0o000)
+      let reports = 0
+      try {
+        startWatchingCustomThemes(() => reports++)
+        await mkdir(join(dir, 'late'))
+        await expect
+          .poll(
+            async () => {
+              await writeFile(join(dir, 'late', 'theme.css'), `:root { --n: ${Date.now()}; }\n`)
+              return reports
+            },
+            { interval: 300, timeout: 10_000 }
+          )
+          .toBeGreaterThan(0)
+      } finally {
+        await stopWatchingCustomThemes()
+        // rm cannot clear a folder it cannot read.
+        await chmod(locked, 0o755)
+      }
+    },
+    15_000
+  )
 })
 
 describe('resolveThemeAssetPath', () => {

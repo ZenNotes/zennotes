@@ -395,6 +395,8 @@ export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => v
   const w = chokidar.watch(dir, {
     ignoreInitial: true,
     depth: 1,
+    // A theme folder the app cannot read costs that folder, not the watcher.
+    ignorePermissionErrors: true,
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
   })
   watcher = w
@@ -403,6 +405,15 @@ export function startWatchingCustomThemes(onChange: (themes: CustomTheme[]) => v
     .on('unlink', fire)
     .on('addDir', fire)
     .on('unlinkDir', fire)
+    // With no listener, chokidar's 'error' rejects inside its own scan and
+    // the watcher stops reporting edits for the rest of the session.
+    .on('error', (error) => console.warn('[zen] the themes watcher could not watch a path:', error))
+}
+
+/** Test/teardown hook: stop the themes watcher. */
+export async function stopWatchingCustomThemes(): Promise<void> {
+  await watcher?.close().catch(() => {})
+  watcher = null
 }
 
 /** What to reveal in the file manager: a theme's `theme.css` when the slug is

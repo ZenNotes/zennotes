@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -13,6 +13,8 @@ import {
   listCustomCodeLanguages,
   SLOW_GRAMMAR_ERROR,
   updateCustomCodeLanguage,
+  startWatchingCustomCodeLanguages,
+  stopWatchingCustomCodeLanguages,
 } from "./custom-code-languages";
 
 const GLEAM_GRAMMAR = JSON.stringify({
@@ -179,6 +181,39 @@ describe("custom code languages (main)", () => {
 
 // These share the process-wide verdict cache on purpose: the second assertion
 // in each pair is that the cache is what makes the later checks instant.
+describe("custom code languages watcher", () => {
+  // An unreadable language folder used to end live updates for every pack:
+  // chokidar's EACCES had no 'error' listener, and the watcher went quiet.
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "keeps reporting pack edits when one language folder cannot be read",
+    async () => {
+      const dir = await ensureCustomCodeLanguagesDir();
+      const locked = join(dir, "locked");
+      await mkdir(locked);
+      await chmod(locked, 0o000);
+      let reports = 0;
+      try {
+        startWatchingCustomCodeLanguages(() => reports++);
+        await mkdir(join(dir, "late"));
+        await expect
+          .poll(
+            async () => {
+              await writeFile(join(dir, "late", "manifest.json"), `{"n":${Date.now()}}\n`);
+              return reports;
+            },
+            { interval: 300, timeout: 10_000 },
+          )
+          .toBeGreaterThan(0);
+      } finally {
+        await stopWatchingCustomCodeLanguages();
+        // rm cannot clear a folder it cannot read.
+        await chmod(locked, 0o755);
+      }
+    },
+    15_000,
+  );
+});
+
 describe("grammar vetting", () => {
   it("kills a grammar that cannot finish the corpus, then remembers the verdict", async () => {
     expect(await isGrammarFastEnough(GLEAM_GRAMMAR, "source.gleam", 4000)).toBe(

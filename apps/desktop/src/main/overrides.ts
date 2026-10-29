@@ -162,10 +162,16 @@ export function startWatchingOverrides(onChange: (overrides: Override[]) => void
   const w = chokidar.watch(dir, {
     ignoreInitial: true,
     depth: 0,
+    ignorePermissionErrors: true,
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 }
   })
   watcher = w
-  w.on('add', fire).on('change', fire).on('unlink', fire)
+  // With no listener, chokidar's 'error' rejects inside its own scan and the
+  // watcher stops reporting edits for the rest of the session.
+  w.on('add', fire)
+    .on('change', fire)
+    .on('unlink', fire)
+    .on('error', (error) => console.warn('[zen] the overrides watcher could not watch a path:', error))
 }
 
 /** Reveal a specific override file when the name is valid and exists, otherwise

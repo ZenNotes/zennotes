@@ -546,6 +546,8 @@ export function startWatchingCustomCodeLanguages(
   watcher = chokidar.watch(getCustomCodeLanguagesDir(), {
     ignoreInitial: true,
     depth: 1,
+    // A pack folder the app cannot read costs that folder, not the watcher.
+    ignorePermissionErrors: true,
     awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
   });
   watcher
@@ -553,5 +555,16 @@ export function startWatchingCustomCodeLanguages(
     .on("change", fire)
     .on("unlink", fire)
     .on("addDir", fire)
-    .on("unlinkDir", fire);
+    .on("unlinkDir", fire)
+    // With no listener, chokidar's 'error' rejects inside its own scan and
+    // the watcher stops reporting edits for the rest of the session.
+    .on("error", (error) =>
+      console.warn("[zen] the language packs watcher could not watch a path:", error),
+    );
+}
+
+/** Test/teardown hook: stop the language packs watcher. */
+export async function stopWatchingCustomCodeLanguages(): Promise<void> {
+  await watcher?.close().catch(() => {});
+  watcher = null;
 }
