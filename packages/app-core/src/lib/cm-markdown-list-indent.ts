@@ -210,15 +210,49 @@ function computeDecorations(view: EditorView): DecorationSet {
   return builder.finish()
 }
 
+/** The text node holding a collapsed caret in this editor, if there is one. */
+function caretTextNode(view: EditorView): Node | null {
+  const selection = view.dom.ownerDocument.getSelection()
+  const node = selection?.isCollapsed ? selection.focusNode : null
+  return node?.nodeType === Node.TEXT_NODE && view.contentDOM.contains(node) ? node : null
+}
+
+/**
+ * Puts Chromium's caret back where the page says it is, after a redraw moved
+ * the text node it was in (#1012).
+ *
+ * The prefix cells give an indent one single-space text node per column. On
+ * an empty task the caret sits after the `- [ ] ` marker's trailing space,
+ * itself a lone space, so when Tab indents that line, CodeMirror's redraw
+ * reuses the caret's node for one of the new indent cells. getSelection()
+ * then reports the line's end, which CodeMirror takes as already right and
+ * leaves alone, but Chromium keeps its own caret in the moved node, and the
+ * next keystroke lands before the marker. CodeMirror's guard for this Chrome
+ * behavior only notices a node that was rewritten or removed, not one moved
+ * intact. Collapsing the selection onto the position it already reports
+ * brings Chromium's caret back to it.
+ */
+function resyncMovedCaret(view: EditorView, before: Node): void {
+  if (view.composing || !view.contentDOM.contains(before)) return
+  const selection = view.dom.ownerDocument.getSelection()
+  if (!selection?.isCollapsed || !selection.focusNode || selection.focusNode === before) return
+  if (!view.contentDOM.contains(selection.focusNode)) return
+  selection.collapse(selection.focusNode, selection.focusOffset)
+}
+
 export const markdownListIndentPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    /** The caret's text node before this update's redraw (see resyncMovedCaret). */
+    caretBefore: Node | null = null
 
     constructor(view: EditorView) {
       this.decorations = computeDecorations(view)
     }
 
     update(update: ViewUpdate): void {
+      // Plugins update before CodeMirror redraws, so the DOM is still the old one.
+      this.caretBefore = update.docChanged ? caretTextNode(update.view) : null
       if (
         update.docChanged ||
         update.viewportChanged ||
@@ -232,6 +266,16 @@ export const markdownListIndentPlugin = ViewPlugin.fromClass(
     }
   },
   {
-    decorations: (plugin) => plugin.decorations
+    decorations: (plugin) => plugin.decorations,
+    // Update listeners run after the redraw and after CodeMirror has placed
+    // the DOM selection.
+    provide: (plugin) =>
+      EditorView.updateListener.of((update) => {
+        const value = update.view.plugin(plugin)
+        const before = value?.caretBefore
+        if (!value || !before) return
+        value.caretBefore = null
+        resyncMovedCaret(update.view, before)
+      })
   }
 )

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
+import { indentMore } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { forceParsing } from '@codemirror/language'
+import { forceParsing, HighlightStyle, indentUnit, syntaxHighlighting } from '@codemirror/language'
 import { Compartment, EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { describe, expect, it } from 'vitest'
+import { tags } from '@lezer/highlight'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   listGuideStyle,
   listIndentPadCh,
@@ -126,5 +128,82 @@ describe('markdownListIndentPlugin', () => {
     expect(lines.map((line) => line.textContent)).toEqual(['- one', '  - two'])
     view.destroy()
     parent.remove()
+  })
+})
+
+describe('the caret after Tab nests an empty task (#1012)', () => {
+  // The editor's own token classes: the redraw that moves the caret's node
+  // depends on the list spans they produce around the marker.
+  const tokens = HighlightStyle.define([
+    { tag: tags.list, class: 'tok-list' },
+    { tag: tags.meta, class: 'tok-meta' },
+    { tag: tags.atom, class: 'tok-atom' }
+  ])
+  let view: EditorView | null = null
+
+  function mountFocused(doc: string): EditorView {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    const parent = document.createElement('div')
+    document.body.append(parent)
+    view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [
+          markdown({ base: markdownLanguage }),
+          syntaxHighlighting(tokens),
+          indentUnit.of('    '),
+          markdownListIndentPlugin
+        ]
+      })
+    })
+    forceParsing(view, doc.length, 5000)
+    view.focus()
+    return view
+  }
+
+  afterEach(() => {
+    view?.destroy()
+    view = null
+    vi.restoreAllMocks()
+    document.body.innerHTML = ''
+  })
+
+  it('sets the DOM caret again where the page reports it, so typing lands after the marker', () => {
+    const editor = mountFocused('- [ ] parent\n- [ ] ')
+    const selection = document.getSelection()!
+    const caretNode = selection.focusNode!
+    expect(caretNode.textContent).toBe(' ')
+    const collapse = vi.spyOn(selection, 'collapse')
+
+    indentMore(editor)
+
+    expect(editor.state.doc.toString()).toBe('- [ ] parent\n    - [ ] ')
+    // The redraw reused the caret's node for an indent cell, and the page now
+    // reports the line's end, which CodeMirror accepts without setting it.
+    expect(caretNode.isConnected).toBe(true)
+    expect((caretNode.parentNode as Element).closest('.cm-list-prefix-cell')).not.toBeNull()
+    expect(selection.focusNode).not.toBe(caretNode)
+    expect(editor.posAtDOM(selection.focusNode!, selection.focusOffset)).toBe(editor.state.doc.length)
+    // So the plugin sets it, on that same reported place.
+    expect(collapse).toHaveBeenCalledTimes(1)
+    expect(collapse).toHaveBeenCalledWith(selection.focusNode, selection.focusOffset)
+  })
+
+  it('leaves the DOM caret alone when an edit keeps it in its node', () => {
+    // A caret on the parent line while a nested task changes below it, the
+    // way most edits leave the caret: no extra selection write per change.
+    const editor = mountFocused('- [ ] parent\n    - [ ] x')
+    editor.dispatch({ selection: { anchor: '- [ ] parent'.length } })
+    const selection = document.getSelection()!
+    const caretNode = selection.focusNode
+    const collapse = vi.spyOn(selection, 'collapse')
+
+    editor.dispatch({ changes: { from: editor.state.doc.length, insert: 'y' }, userEvent: 'input.type' })
+
+    expect(editor.state.doc.toString()).toBe('- [ ] parent\n    - [ ] xy')
+    expect(selection.focusNode).toBe(caretNode)
+    expect(collapse).not.toHaveBeenCalled()
   })
 })
