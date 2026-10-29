@@ -64,6 +64,7 @@ import {
 } from '../lib/sidebar-note-actions'
 import { convertTableToDatabase } from '../lib/table-to-database'
 import { requestCalloutTypeMenu } from '../lib/callout-menu'
+import { requestCodeLanguagePicker } from '../lib/code-language-request'
 import { confirmDeleteComment } from '../lib/confirm-trash'
 import {
   ZEN_OPEN_EDITOR_CONTEXT_MENU_EVENT,
@@ -320,6 +321,11 @@ export function VimNav(): JSX.Element | null {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCalloutType'),
         label: 'Callout type',
         detail: 'Turn the paragraph or selected lines into a callout, or change the callout here.'
+      },
+      {
+        keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCodeLanguage'),
+        label: 'Code block language',
+        detail: 'Pick the language of the code block the cursor is in, or confirm a detected one.'
       },
       ...(unsplashSearchAvailable()
         ? [
@@ -1337,6 +1343,13 @@ export function VimNav(): JSX.Element | null {
           e.stopImmediatePropagation()
           resetLeader()
           requestCalloutTypeMenu()
+          return
+        }
+        if (matchesSequenceToken(e, overrides, 'vim.leaderCodeLanguage') && editorNormalMode) {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+          resetLeader()
+          requestCodeLanguagePicker()
           return
         }
         resetLeader()

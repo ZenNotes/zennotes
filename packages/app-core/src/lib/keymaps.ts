@@ -72,6 +72,7 @@ export type KeymapId =
   | "vim.leaderNoteCover"
   | "vim.leaderNoteCoverUnsplash"
   | "vim.leaderCalloutType"
+  | "vim.leaderCodeLanguage"
   | "vim.leaderQuickCapture"
   | "vim.leaderHideToTray"
   | "vim.leaderTemplatePicker"
@@ -777,6 +778,19 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     description:
       "Open the callout type menu at the cursor: pick a type to turn the paragraph or the selected lines into a callout, or to change the type of the callout the cursor is in.",
     defaultBinding: "a",
+    vimOnly: true,
+    maxTokens: 1,
+  },
+  {
+    id: "vim.leaderCodeLanguage",
+    kind: "sequence",
+    scope: "leader",
+    group: "vim",
+    title: "Leader note action: code block language",
+    // `l` for language: the note group's own key, pressed twice.
+    description:
+      "Open the code block language picker for the code block the cursor is in: pick a language to write after its fence, or Text (plain) to take it away.",
+    defaultBinding: "l",
     vimOnly: true,
     maxTokens: 1,
   },
