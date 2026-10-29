@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useStore } from '../store'
 import { CheckIcon } from './icons'
 
 export interface ContextMenuItem {
@@ -36,7 +37,8 @@ interface Props {
  *
  * Supports type-to-filter: any printable character typed while the menu
  * is open narrows the visible items by case-insensitive substring match
- * on their label. A small header bar appears showing the current query
+ * on their label. With Vim mode on, j and k move instead; with it off they
+ * are letters like any other, and only the arrows, Enter and Escape act. A small header bar appears showing the current query
  * so the user knows they're filtering. Backspace deletes a character,
  * Escape clears the query (one level) before closing the menu.
  */
@@ -46,6 +48,7 @@ export function ContextMenu({ x, y, items, title, onClose }: Props): JSX.Element
   const [pos, setPos] = useState({ left: x, top: y })
   const [activeIdx, setActiveIdx] = useState<number>(0)
   const [query, setQuery] = useState('')
+  const vimMode = useStore((s) => s.vimMode)
 
   // Build the filtered list. Each entry knows its original index so
   // reorder / filter doesn't lose the onSelect wiring.
@@ -137,19 +140,14 @@ export function ContextMenu({ x, y, items, title, onClose }: Props): JSX.Element
       else onClose()
       return
     }
-    if (
-      e.key === 'ArrowDown' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'j')
-    ) {
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey
+    if (e.key === 'ArrowDown' || (vimMode && plain && e.key === 'j')) {
       e.preventDefault()
       e.stopPropagation()
       setVisibleActive((i) => stepVisible(visible, i, 1))
       return
     }
-    if (
-      e.key === 'ArrowUp' ||
-      (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'k')
-    ) {
+    if (e.key === 'ArrowUp' || (vimMode && plain && e.key === 'k')) {
       e.preventDefault()
       e.stopPropagation()
       setVisibleActive((i) => stepVisible(visible, i, -1))
