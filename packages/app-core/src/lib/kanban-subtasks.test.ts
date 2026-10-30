@@ -194,7 +194,11 @@ describe('the card counts what the note’s chip counts (#512, #1028)', () => {
     '- [ ]parent\n  - [x] a',
     '- [x] parent\n  - [ ] leftover',
     '- [ ] a\n    - [ ] four-space child\n        - [ ] eight-space grandchild',
-    '* [ ] star\n  + [x] plus child\n- [ ] dash after star'
+    '* [ ] star\n  + [x] plus child\n- [ ] dash after star',
+    '- [ ] parent\n<span>\n  - [x] a tag alone is text here',
+    '- [ ] parent\n| a | b |\n  - [x] a table row is text here',
+    '1. [ ] parent\n2.\n   - [x] belongs to the empty 2.',
+    '- [ ] parent\n  -      code item\nnot text\n  - [x] top level'
   ]
 
   it.each(corpus.map((body, i) => [i, body] as const))('corpus %i', (_i, body) => {
