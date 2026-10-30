@@ -122,6 +122,11 @@ export interface ZenCapabilities {
   supportsCliInstall: boolean
   /** Custom templates require local-filesystem CRUD; false on web/remote. */
   supportsCustomTemplates: boolean
+  /** The host keeps vault.json's `templates.folder` (#1024) through a
+   *  settings save. The web client says what its server says (2.80 and
+   *  later); a host that leaves it out keeps unknown vault.json keys, as the
+   *  phones do, and shows the setting. Only an explicit false hides it. */
+  supportsTemplateFolder?: boolean
   supportsCustomCodeLanguages?: boolean
   /** Local desktop support, or a web client paired with a server that owns
    *  workflow files and journalled apply/undo. */

@@ -35,6 +35,7 @@ import { isArchiveTabPath } from "@shared/archive";
 import { DENSITY, densityFromTweaks } from "@shared/overrides";
 import { isTrashTabPath } from "@shared/trash";
 import { isQuickNotesTabPath } from "@shared/quick-notes";
+import { resolveTemplateFolder } from "@shared/template-folder";
 import {
   ArchiveIcon,
   ArrowUpRightIcon,
@@ -524,6 +525,7 @@ export function Sidebar(): JSX.Element {
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const toggleTasksExcludedFolder = useStore((s) => s.toggleTasksExcludedFolder);
   const toggleTasksIncludedFolder = useStore((s) => s.toggleTasksIncludedFolder);
+  const setTemplateFolder = useStore((s) => s.setTemplateFolder);
   const createDatabase = useStore((s) => s.createDatabase);
   const createNoteInChosenFolder = useStore((s) => s.createNoteInChosenFolder);
   const openTemplatePaletteForFolder = useStore((s) => s.openTemplatePaletteForFolder);
@@ -2120,6 +2122,22 @@ export function Sidebar(): JSX.Element {
           await toggleTasksExcludedFolder(tasksExcludeRelDir);
         },
       });
+      // The template folder (#1024): its notes become templates in the
+      // picker and leave Tasks and search. Also in Settings, Templates. Only
+      // a folder inside an area: a whole Inbox or Archive of templates is
+      // never what was meant, and a folder in the Trash is never offered.
+      if (!isTop && folder !== "trash") {
+        const templateFolder =
+          resolveTemplateFolder(vaultSettings) === tasksExcludeRelDir;
+        items.push({
+          label: templateFolder
+            ? "Stop Using as Template Folder"
+            : "Use as Template Folder",
+          onSelect: async () => {
+            await setTemplateFolder(templateFolder ? null : tasksExcludeRelDir);
+          },
+        });
+      }
     }
 
     if (!isTop) {
@@ -2209,6 +2227,7 @@ export function Sidebar(): JSX.Element {
     toggleFavorite,
     toggleTasksExcludedFolder,
     toggleTasksIncludedFolder,
+    setTemplateFolder,
     bulkSelectionMenuItems,
     selectedSidebarKeys,
   ]);

@@ -4,8 +4,60 @@ import {
   normalizeTasksExcludedFolder,
   normalizeTasksExcludedFolders,
   normalizeTasksIncludedFolders,
-  rewriteTasksFoldersForRename
+  rewriteTasksFoldersForRename,
+  tasksFolderListsForSettings
 } from './tasks-excluded-folders'
+
+// #1024: a template folder holds placeholders, not work. Its `- [ ]` lines are
+// left out of Tasks on every runtime, which every scanner gets by reading its
+// lists through this one helper.
+describe('tasksFolderListsForSettings (#1024)', () => {
+  it('reads both Tasks folder lists off vault settings', () => {
+    expect(
+      tasksFolderListsForSettings({
+        tasks: { excludedFolders: ['inbox/Books', '../x'], includedFolders: ['Projects'] }
+      })
+    ).toEqual({ excluded: ['inbox/Books'], included: ['Projects'] })
+    expect(tasksFolderListsForSettings({})).toEqual({ excluded: [], included: [] })
+    expect(tasksFolderListsForSettings(null)).toEqual({ excluded: [], included: [] })
+  })
+
+  it('leaves the template folder out of Tasks', () => {
+    const lists = tasksFolderListsForSettings({
+      tasks: { excludedFolders: ['inbox/Books'] },
+      templates: { folder: 'Templates' }
+    })
+    expect(lists).toEqual({ excluded: ['inbox/Books', 'Templates'], included: [] })
+    expect(isPathExcludedFromTasks('Templates/Meeting.md', lists.excluded, lists.included)).toBe(true)
+    expect(isPathExcludedFromTasks('Templates/Work/1on1.md', lists.excluded, lists.included)).toBe(
+      true
+    )
+    expect(isPathExcludedFromTasks('Notes/Meeting.md', lists.excluded, lists.included)).toBe(false)
+  })
+
+  it('keeps the template folder out even inside a Task folder', () => {
+    const lists = tasksFolderListsForSettings({
+      tasks: { includedFolders: ['Work'] },
+      templates: { folder: 'Work/Templates' }
+    })
+    expect(isPathExcludedFromTasks('Work/Plan.md', lists.excluded, lists.included)).toBe(false)
+    expect(isPathExcludedFromTasks('Work/Templates/Plan.md', lists.excluded, lists.included)).toBe(
+      true
+    )
+  })
+
+  it('does not list the folder twice, and ignores an unusable one', () => {
+    expect(
+      tasksFolderListsForSettings({
+        tasks: { excludedFolders: ['Templates'] },
+        templates: { folder: 'Templates/' }
+      }).excluded
+    ).toEqual(['Templates'])
+    expect(
+      tasksFolderListsForSettings({ templates: { folder: '.zennotes/templates' } }).excluded
+    ).toEqual([])
+  })
+})
 
 describe('normalizeTasksExcludedFolder (#458)', () => {
   it('cleans slashes and whitespace', () => {

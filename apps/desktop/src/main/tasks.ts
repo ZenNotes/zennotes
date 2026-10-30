@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { NoteFolder, NoteMeta } from '@shared/ipc'
 import { parseTaskFile, parseTasksFromBody, type VaultTask } from '@shared/tasks'
-import { isPathExcludedFromTasks } from '@shared/tasks-excluded-folders'
+import { isPathExcludedFromTasks, tasksFolderListsForSettings } from '@shared/tasks-excluded-folders'
 import { folderForRelativePath, getVaultSettings, listNotes } from './vault'
 
 /** Emit a note's file-task (if its frontmatter tags it `#task`) plus every
@@ -43,13 +43,11 @@ async function readOne(
 /** Walk the whole vault and parse every task out of every live (non-trash)
  *  note. Parallelized with `Promise.all` so a 500-note vault is IO-bound,
  *  not sequentially latent. Folders on the vault's `tasks.excludedFolders`
- *  list (#458), and every folder outside its Task folders once
- *  `tasks.includedFolders` names any (#962), are skipped before any file is
- *  read. */
+ *  list (#458), every folder outside its Task folders once
+ *  `tasks.includedFolders` names any (#962), and the template folder, whose
+ *  checkboxes are placeholders (#1024), are skipped before any file is read. */
 export async function scanAllTasks(root: string): Promise<VaultTask[]> {
-  const tasksSettings = (await getVaultSettings(root)).tasks
-  const excluded = tasksSettings?.excludedFolders ?? []
-  const included = tasksSettings?.includedFolders ?? []
+  const { excluded, included } = tasksFolderListsForSettings(await getVaultSettings(root))
   const metas = (await listNotes(root)).filter(
     (m) => includesFolder(m.folder) && !isPathExcludedFromTasks(m.path, excluded, included)
   )
@@ -76,15 +74,10 @@ export async function scanTasksForPath(
   const settings = await getVaultSettings(root)
   const folder = folderForRelativePath(posix, settings)
   if (!folder || !LIVE_FOLDERS.has(folder)) return []
-  // Same folder lists the full scan applies (#458, #962), or a single-note
-  // rescan would resurrect a left-out folder's tasks on every edit.
-  if (
-    isPathExcludedFromTasks(
-      posix,
-      settings.tasks?.excludedFolders ?? [],
-      settings.tasks?.includedFolders ?? []
-    )
-  ) {
+  // Same folder lists the full scan applies (#458, #962, #1024), or a
+  // single-note rescan would resurrect a left-out folder's tasks on every edit.
+  const { excluded, included } = tasksFolderListsForSettings(settings)
+  if (isPathExcludedFromTasks(posix, excluded, included)) {
     return []
   }
 

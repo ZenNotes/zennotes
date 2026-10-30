@@ -872,6 +872,21 @@ describe('normalizeVaultSettings drawings/databases location (#362)', () => {
   })
 })
 
+describe('normalizeVaultSettings template folder (#1024)', () => {
+  it('keeps a valid folder and leaves the key out otherwise', () => {
+    const set = normalizeVaultSettings({
+      templates: { folder: ' /Templates/ ' }
+    } as unknown as VaultSettings)
+    expect(set.templates).toEqual({ folder: 'Templates' })
+    expect(normalizeVaultSettings(null).templates).toBeUndefined()
+    for (const templates of [{ folder: '' }, { folder: '../x' }, { folder: '.zennotes' }, 'x']) {
+      const n = normalizeVaultSettings({ templates } as unknown as VaultSettings)
+      expect(n.templates).toBeUndefined()
+      expect('templates' in n).toBe(false)
+    }
+  })
+})
+
 describe('isCalendarToggleAvailable (#413)', () => {
   const daily = { dailyNotes: { enabled: true } } as unknown as VaultSettings
   const weekly = { weeklyNotes: { enabled: true } } as unknown as VaultSettings

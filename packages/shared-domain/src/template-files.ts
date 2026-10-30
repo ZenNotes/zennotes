@@ -3,7 +3,12 @@
 // caller share one frontmatter implementation. The main process only does file
 // I/O and never parses, so this is the single source of truth for the format.
 import type { NoteFolder } from '@zennotes/bridge-contract/ipc'
-import type { NoteTemplate, TemplateCategory } from '@zennotes/bridge-contract/templates'
+import type {
+  NoteTemplate,
+  TemplateCategory,
+  TemplateSource
+} from '@zennotes/bridge-contract/templates'
+import { templateFolderEntryKey } from './template-folder'
 
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
@@ -85,12 +90,98 @@ export function parseCustomTemplate(raw: string, sourcePath: string): NoteTempla
   }
 }
 
+/** The frontmatter keys a `.zennotes/templates` file uses to describe itself
+ *  (`builtinId` included: composeTemplateFile writes it for an edited copy of
+ *  a built-in). */
+const TEMPLATE_HEADER_KEYS = new Set([
+  'name',
+  'description',
+  'category',
+  'titleTemplate',
+  'targetFolder',
+  'targetSubpath',
+  'builtinId'
+])
+
+/**
+ * Parse a note in the vault's template folder (#1024) into a NoteTemplate.
+ * Never throws.
+ *
+ * A plain note is the Obsidian shape: the whole file is the template, named
+ * after the file, and a frontmatter of its own (`tags:`, `created: {{date}}`)
+ * belongs to the notes it makes, so it stays in the body. A file whose
+ * frontmatter holds nothing but the keys a `.zennotes/templates` file uses
+ * (`name`, `description`, `category`, `titleTemplate`, `targetFolder`,
+ * `targetSubpath`) is read the way that folder reads it instead, so a
+ * template moved from `.zennotes/templates` into the folder keeps its name and
+ * settings and does not paste them into every new note. One key of any other
+ * kind makes the whole frontmatter note content.
+ *
+ * A template-folder note never shadows a built-in, even with a `builtinId`:
+ * the edited copy of a built-in lives in `.zennotes/templates`, where Reset
+ * can find it. The id is the note's path inside the folder (`folder:Work/
+ * Standup`), which survives renaming the folder itself.
+ */
+export function parseFolderTemplate(
+  raw: string,
+  sourcePath: string,
+  folder: string
+): NoteTemplate {
+  const stem = filenameStem(sourcePath)
+  const key = templateFolderEntryKey(sourcePath, folder) ?? stem
+  const base = {
+    id: `folder:${key}`,
+    builtin: false,
+    source: 'folder' as const,
+    sourcePath
+  }
+  const fence = FRONTMATTER_RE.exec(raw)
+  const { data, body } = parseFrontmatter(raw)
+  const keys = Object.keys(data)
+  const isHeader = !!fence && keys.length > 0 && keys.every((k) => TEMPLATE_HEADER_KEYS.has(k))
+  if (!isHeader) {
+    return { ...base, name: stem, description: '', category: 'Custom', body: raw }
+  }
+  return {
+    ...base,
+    name: data.name?.trim() || stem,
+    description: data.description?.trim() ?? '',
+    category: normalizeCategory(data.category),
+    body,
+    titleTemplate: data.titleTemplate?.trim() || undefined,
+    targetFolder: normalizeTargetFolder(data.targetFolder),
+    targetSubpath: data.targetSubpath?.trim() || undefined
+  }
+}
+
+/** Where a template comes from; templates parsed before 2.80 carry no
+ *  `source`, and their `builtin` flag decides. */
+export function templateSource(template: NoteTemplate): TemplateSource {
+  return template.source ?? (template.builtin ? 'builtin' : 'custom')
+}
+
+/**
+ * The short label the template picker and Settings show beside a template, so
+ * two templates of one name can be told apart (#1024): the category for a
+ * built-in or a `.zennotes/templates` file, as before, and for a note in the
+ * template folder, the folder it sits in (`Templates`, `Templates/Work`).
+ */
+export function templateSourceLabel(template: NoteTemplate): string {
+  if (templateSource(template) !== 'folder' || !template.sourcePath) return template.category
+  const end = template.sourcePath.lastIndexOf('/')
+  return end === -1 ? template.category : template.sourcePath.slice(0, end)
+}
+
 const CATEGORY_ORDER: TemplateCategory[] = ['Engineering', 'Personal', 'Custom']
+const SOURCE_ORDER: TemplateSource[] = ['builtin', 'custom', 'folder']
 
 /**
  * Combine built-in and custom templates into one display list, grouped by
  * category (Engineering → Personal → Custom), built-ins before custom within a
- * group, then alphabetical by name.
+ * group, then alphabetical by name. Two templates of one name both stay
+ * (#1024): a built-in first, then a `.zennotes/templates` file, then a note in
+ * the template folder, so adding a template folder never changes which
+ * template an existing `:template NAME` picks.
  */
 export function mergeTemplates(
   builtins: NoteTemplate[],
@@ -110,7 +201,12 @@ export function mergeTemplates(
   return [...effectiveBuiltins, ...custom].sort((a, b) => {
     if (a.category !== b.category) return rank(a.category) - rank(b.category)
     if (isPrimary(a) !== isPrimary(b)) return isPrimary(a) ? -1 : 1
-    return a.name.localeCompare(b.name)
+    const byName = a.name.localeCompare(b.name)
+    if (byName !== 0) return byName
+    return (
+      SOURCE_ORDER.indexOf(templateSource(a)) - SOURCE_ORDER.indexOf(templateSource(b)) ||
+      (a.sourcePath ?? '').localeCompare(b.sourcePath ?? '')
+    )
   })
 }
 

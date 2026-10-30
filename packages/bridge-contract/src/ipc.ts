@@ -655,6 +655,17 @@ export interface VaultSettings {
    */
   typstPreambles?: { folder?: string }
   /**
+   * The template folder (#1024). `folder` is a vault-relative directory path
+   * exactly as it exists on disk (the Tasks folder lists' shape), such as
+   * `Templates`. Every note inside it, at any depth, is a template in the
+   * picker, beside the built-ins and `.zennotes/templates/`, and is left out
+   * of Tasks and of search. Absent means no template folder. Normalized by
+   * `normalizeTemplateFolderSettings` in shared-domain; a self-hosted server
+   * keeps it from 2.80 (`supportsTemplateFolder`). An object rather than a
+   * bare string so later template settings land beside it.
+   */
+  templates?: { folder?: string }
+  /**
    * Harper grammar checker data that belongs to the vault: the words added to
    * its dictionary and the context hashes of ignored suggestions (digit
    * strings; see shared-domain harper-settings). Absent means nothing yet.
@@ -995,6 +1006,11 @@ export interface ServerCapabilities {
    *  keeps Default shares location hidden and the Share sheet says Quick
    *  Notes for a vault on such a server. */
   supportsSharesLocation?: boolean
+  /** vault.json's `templates.folder` survives the server's settings round
+   *  trip, and the server leaves that folder out of its task scan and text
+   *  search. Absent before 2.80, whose settings save drops it, so Settings
+   *  keeps the Template folder row hidden for a vault on such a server. */
+  supportsTemplateFolder?: boolean
 }
 
 export interface ServerSessionStatus {

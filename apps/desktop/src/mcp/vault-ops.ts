@@ -27,8 +27,13 @@ import {
   isPathExcludedFromTasks,
   normalizeTasksExcludedFolders,
   normalizeTasksIncludedFolders,
-  rewriteTasksFoldersForRename
+  rewriteTasksFoldersForRename,
+  tasksFolderListsForSettings
 } from '@shared/tasks-excluded-folders'
+import {
+  normalizeTemplateFolderSettings,
+  rewriteTemplateFolderForRename
+} from '@shared/template-folder'
 import {
   DEFAULT_TYPST_PREAMBLE_FOLDER,
   isTypstPreamblePath,
@@ -1306,9 +1311,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * Keep vault.json's path-keyed settings naming the same folders after a
  * rename or move, as desktop main, the server and zn do: the Tasks folder
  * lists, which hold vault-relative paths (a renamed Task folder left behind
- * would empty Tasks, #962), and the folder icons and colors, keyed by bucket
- * and subpath. Every other key is written back as read, and vault.json is
- * written only when an entry moves.
+ * would empty Tasks, #962), the template folder, another such path (#1024),
+ * and the folder icons and colors, keyed by bucket and subpath. Every other
+ * key is written back as read, and vault.json is written only when an entry
+ * moves.
  */
 async function rewriteSettingsForFolderRename(
   root: string,
@@ -1344,6 +1350,13 @@ async function rewriteSettingsForFolderRename(
       raw['tasks'] = rewriteTasksFoldersForRename(lists, oldRel, newRel)
       changed = true
     }
+  }
+  // The template folder (#1024) is an on-disk path too.
+  const templates = normalizeTemplateFolderSettings(raw['templates'])
+  const movedTemplates = rewriteTemplateFolderForRename(templates, oldRel, newRel)
+  if (movedTemplates && movedTemplates !== templates) {
+    raw['templates'] = movedTemplates
+    changed = true
   }
   for (const key of ['folderIcons', 'folderColors']) {
     const map = raw[key]
@@ -1881,27 +1894,21 @@ async function readTypstPreambleFolder(root: string): Promise<string> {
 }
 
 /** The vault's Tasks folder lists, `tasks.excludedFolders` (#458) and the
- *  Task folders in `tasks.includedFolders` (#962), read straight off
- *  vault.json like readSystemFolderPaths above; validation comes from the
- *  shared normalizers, so the rules cannot drift from the other runtimes. */
+ *  Task folders in `tasks.includedFolders` (#962), with the template folder
+ *  (#1024) left out as well, read straight off vault.json like
+ *  readSystemFolderPaths above; the rules come from the shared helper, so
+ *  they cannot drift from the other runtimes. */
 async function readTasksFolderLists(
   root: string
 ): Promise<{ excluded: string[]; included: string[] }> {
-  const none = { excluded: [], included: [] }
   const settingsPath = path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE)
-  let raw: Record<string, unknown>
+  let raw: unknown
   try {
-    raw = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>
+    raw = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
   } catch {
-    return none
+    return { excluded: [], included: [] }
   }
-  const tasks = raw['tasks']
-  if (!tasks || typeof tasks !== 'object') return none
-  const lists = tasks as { excludedFolders?: unknown; includedFolders?: unknown }
-  return {
-    excluded: normalizeTasksExcludedFolders(lists.excludedFolders),
-    included: normalizeTasksIncludedFolders(lists.includedFolders)
-  }
+  return tasksFolderListsForSettings(isRecord(raw) ? raw : null)
 }
 
 export async function scanAllTasks(

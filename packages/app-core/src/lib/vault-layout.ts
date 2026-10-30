@@ -30,6 +30,7 @@ import {
   normalizeTasksIncludedFolders
 } from '@shared/tasks-excluded-folders'
 import { normalizeTypstPreambleSettings } from '@shared/typst-preamble-folder'
+import { normalizeTemplateFolderSettings } from '@shared/template-folder'
 import { normalizeHarperVaultState } from '@shared/harper-settings'
 import { normalizeShareLocation } from '@shared/share-location'
 import { normalizeVaultDisplayName } from '@shared/vault-display-name'
@@ -625,6 +626,7 @@ export function normalizeVaultSettings(
     settings?.tasks?.includedFolders
   )
   const normalizedTypstPreambles = normalizeTypstPreambleSettings(settings?.typstPreambles)
+  const normalizedTemplates = normalizeTemplateFolderSettings(settings?.templates)
   const normalizedHarper = normalizeHarperVaultState(settings?.harper)
   const displayName = normalizeVaultDisplayName(settings?.displayName)
   const primaryNotesLocation =
@@ -707,6 +709,7 @@ export function normalizeVaultSettings(
         }
       : {}),
     ...(normalizedTypstPreambles ? { typstPreambles: normalizedTypstPreambles } : {}),
+    ...(normalizedTemplates ? { templates: normalizedTemplates } : {}),
     ...(normalizedHarper ? { harper: normalizedHarper } : {}),
     ...(displayName ? { displayName } : {})
   }

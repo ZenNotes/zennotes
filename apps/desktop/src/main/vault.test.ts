@@ -217,6 +217,65 @@ describe('file-location settings round-trip (#446)', () => {
   })
 })
 
+// #1024: the template folder is a vault setting. It survives a save, it
+// follows its folder through a rename, and its notes stay out of text search.
+describe('template folder (#1024)', () => {
+  async function rootVault(prefix: string): Promise<string> {
+    const root = await makeTempDir(prefix)
+    await ensureVaultLayout(root)
+    const settings = await getVaultSettings(root)
+    await setVaultSettings(root, { ...settings, primaryNotesLocation: 'root' })
+    return root
+  }
+
+  it('keeps the folder through set/get, cleaned, and drops an unusable one', async () => {
+    const root = await rootVault('zennotes-template-folder-settings-')
+    const base = await getVaultSettings(root)
+    expect(base.templates).toBeUndefined()
+
+    const returned = await setVaultSettings(root, { ...base, templates: { folder: ' /Templates/ ' } })
+    expect(returned.templates).toEqual({ folder: 'Templates' })
+    invalidateVaultSettingsCache(root)
+    expect((await getVaultSettings(root)).templates).toEqual({ folder: 'Templates' })
+    const onDisk = JSON.parse(await readFile(path.join(root, '.zennotes', 'vault.json'), 'utf8'))
+    expect(onDisk.templates).toEqual({ folder: 'Templates' })
+
+    await setVaultSettings(root, { ...base, templates: { folder: '../outside' } })
+    invalidateVaultSettingsCache(root)
+    expect((await getVaultSettings(root)).templates).toBeUndefined()
+  })
+
+  it('follows the folder when it is renamed', async () => {
+    const root = await rootVault('zennotes-template-folder-rename-')
+    await mkdir(path.join(root, 'Templates'), { recursive: true })
+    await writeFile(path.join(root, 'Templates', 'Meeting.md'), '# {{title}}\n', 'utf8')
+    const settings = await getVaultSettings(root)
+    await setVaultSettings(root, { ...settings, templates: { folder: 'Templates' } })
+
+    await renameFolder(root, 'inbox', 'Templates', 'Blueprints')
+
+    expect((await getVaultSettings(root)).templates).toEqual({ folder: 'Blueprints' })
+  })
+
+  it('leaves template notes out of text search, with every backend', async () => {
+    const root = await rootVault('zennotes-template-folder-search-')
+    await mkdir(path.join(root, 'Templates'), { recursive: true })
+    await mkdir(path.join(root, 'Notes'), { recursive: true })
+    // A word the seeded Welcome note cannot fuzzy-match.
+    await writeFile(path.join(root, 'Templates', 'Meeting.md'), '## zqxagenda item\n', 'utf8')
+    await writeFile(path.join(root, 'Notes', 'Sync.md'), '## zqxagenda item\n', 'utf8')
+    const settings = await getVaultSettings(root)
+    const paths = async (backend: 'builtin' | 'auto'): Promise<string[]> =>
+      (await searchVaultText(root, 'zqxagenda', backend)).map((m) => m.path).sort()
+
+    expect(await paths('builtin')).toEqual(['Notes/Sync.md', 'Templates/Meeting.md'])
+
+    await setVaultSettings(root, { ...settings, templates: { folder: 'Templates' } })
+    expect(await paths('builtin')).toEqual(['Notes/Sync.md'])
+    expect(await paths('auto')).toEqual(['Notes/Sync.md'])
+  })
+})
+
 describe('remapped system folders (#398)', () => {
   it('creates the REMAPPED inbox on save, not a literal inbox/', async () => {
     const root = await makeTempDir('zennotes-vault-remap-mkdir-')

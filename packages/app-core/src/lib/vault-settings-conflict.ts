@@ -32,6 +32,7 @@ export const VAULT_SETTINGS_SECTION_LABELS: Record<VaultSettingsSection, string>
   systemFolderPaths: "Built-in folder locations",
   tasks: "Tasks",
   typstPreambles: "Typst preambles",
+  templates: "Template folder",
   harper: "Harper dictionary",
 };
 

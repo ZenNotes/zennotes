@@ -3158,6 +3158,177 @@ describe('custom templates on the change feed (#723)', () => {
   })
 })
 
+// #1024: the vault's template folder. Its notes are templates, read through
+// the same note bridge every runtime has (desktop, server, web, phones), and
+// they are placeholders rather than work: no Tasks, no search hits.
+describe('template folder (#1024)', () => {
+  const MEETING = 'Templates/Meeting.md'
+  const MEETING_BODY = '# {{title}}\n\n- [ ] agenda item\n'
+  const noteAt = (path: string, body: string, updatedAt = 1) => ({
+    ...makeNote(body, path),
+    updatedAt
+  })
+  const taskIn = (path: string, content: string): VaultTask => ({
+    ...makeTask(content),
+    id: `${path}#0`,
+    sourcePath: path
+  })
+
+  function installVault(files: Record<string, string>, settings: object = {}) {
+    const disk = new Map(Object.entries(files))
+    const stamps = new Map<string, number>()
+    const listNotes = vi.fn(async () =>
+      [...disk.entries()].map(([path, body]) => noteAt(path, body, stamps.get(path) ?? 1))
+    )
+    const readNote = vi.fn(async (path: string) => {
+      const body = disk.get(path)
+      if (body === undefined) throw missing(path)
+      return noteAt(path, body, stamps.get(path) ?? 1)
+    })
+    let vaultSettings: object = { templates: { folder: 'Templates' }, ...settings }
+    const getVaultSettings = vi.fn(async () => vaultSettings)
+    const setVaultSettings = vi.fn(async (next: object) => {
+      vaultSettings = next
+      return next
+    })
+    installZen({
+      listNotes,
+      readNote,
+      getVaultSettings,
+      setVaultSettings,
+      listTemplates: vi.fn().mockResolvedValue([
+        { sourcePath: '.zennotes/templates/meeting.md', raw: '---\nname: Meeting\n---\nstored\n' }
+      ])
+    })
+    return {
+      disk,
+      readNote,
+      setVaultSettings,
+      edit(path: string, body: string) {
+        disk.set(path, body)
+        stamps.set(path, (stamps.get(path) ?? 1) + 1)
+      }
+    }
+  }
+
+  async function openVault(settings: object = {}) {
+    const { useStore } = await loadStore()
+    const { normalizeVaultSettings } = await import('./lib/vault-layout')
+    useStore.setState({
+      vaultSettings: normalizeVaultSettings({
+        ...(await window.zen.getVaultSettings()),
+        ...settings
+      } as never)
+    })
+    await useStore.getState().loadCustomTemplates()
+    await useStore.getState().refreshNotes()
+    await useStore.getState().loadFolderTemplates()
+    return useStore
+  }
+
+  it('lists the notes in the folder as templates, after the .zennotes/templates ones', async () => {
+    installVault({ [MEETING]: MEETING_BODY, 'Templates/Work/Retro.md': '## Went well\n', 'Notes/Plan.md': '# Plan\n' })
+    const useStore = await openVault()
+
+    expect(useStore.getState().customTemplates.map((t) => [t.id, t.source ?? 'custom'])).toEqual([
+      ['custom:meeting', 'custom'],
+      ['folder:Meeting', 'folder'],
+      ['folder:Work/Retro', 'folder']
+    ])
+    expect(useStore.getState().customTemplates.find((t) => t.id === 'folder:Meeting')?.body).toBe(
+      MEETING_BODY
+    )
+  })
+
+  it('creates a note whose body is the template, variables filled in', async () => {
+    installVault({ [MEETING]: MEETING_BODY })
+    const createNote = vi.fn(async () => noteAt('Weekly sync.md', ''))
+    const writeNote = vi.fn(async () => noteAt('Weekly sync.md', ''))
+    Object.assign(window.zen, { createNote, writeNote })
+    const useStore = await openVault()
+    const template = useStore.getState().customTemplates.find((t) => t.id === 'folder:Meeting')!
+
+    await useStore.getState().createFromTemplate(template, {
+      folder: 'inbox',
+      subpath: '',
+      title: 'Weekly sync'
+    })
+
+    expect(writeNote).toHaveBeenCalledWith('Weekly sync.md', '# Weekly sync\n\n- [ ] agenda item\n')
+  })
+
+  it('picks up an edit to the template note without a restart', async () => {
+    const vault = installVault({ [MEETING]: MEETING_BODY })
+    const useStore = await openVault()
+
+    vault.edit(MEETING, '# {{title}}\n\nedited\n')
+    await useStore.getState().applyChange({ kind: 'change', path: MEETING, folder: 'inbox' })
+    await flushAsyncWork()
+
+    expect(useStore.getState().customTemplates.find((t) => t.id === 'folder:Meeting')?.body).toBe(
+      '# {{title}}\n\nedited\n'
+    )
+  })
+
+  it('reads an unchanged template note once, not on every refresh', async () => {
+    const vault = installVault({ [MEETING]: MEETING_BODY, 'Notes/Plan.md': '# Plan\n' })
+    const useStore = await openVault()
+    const reads = vault.readNote.mock.calls.filter(([p]) => p === MEETING).length
+
+    await useStore.getState().refreshNotes()
+    await useStore.getState().loadFolderTemplates()
+
+    expect(vault.readNote.mock.calls.filter(([p]) => p === MEETING).length).toBe(reads)
+  })
+
+  it('keeps the template placeholders out of Tasks, from any host', async () => {
+    // A server or phone that does not know the setting still hands these over.
+    installVault({ [MEETING]: MEETING_BODY })
+    const useStore = await openVault()
+    const scanTasks = vi
+      .fn()
+      .mockResolvedValue([taskIn(MEETING, 'agenda item'), taskIn('Notes/Plan.md', 'real work')])
+    const scanTasksForPath = vi.fn().mockResolvedValue([taskIn(MEETING, 'agenda item')])
+    Object.assign(window.zen, { scanTasks, scanTasksForPath })
+
+    await useStore.getState().refreshTasks()
+    expect(useStore.getState().vaultTasks.map((t) => t.content)).toEqual(['real work'])
+
+    await useStore.getState().rescanTasksForPath(MEETING)
+    expect(useStore.getState().vaultTasks.map((t) => t.content)).toEqual(['real work'])
+  })
+
+  it('drops the folder templates and lets their tasks back when the setting is cleared', async () => {
+    const vault = installVault({ [MEETING]: MEETING_BODY })
+    const useStore = await openVault()
+    const scanTasks = vi.fn().mockResolvedValue([taskIn(MEETING, 'agenda item')])
+    Object.assign(window.zen, { scanTasks })
+
+    await useStore.getState().setTemplateFolder(null)
+
+    expect(vault.setVaultSettings).toHaveBeenCalled()
+    expect(useStore.getState().vaultSettings.templates).toBeUndefined()
+    expect(useStore.getState().customTemplates.map((t) => t.id)).toEqual(['custom:meeting'])
+    expect(useStore.getState().vaultTasks.map((t) => t.content)).toEqual(['agenda item'])
+  })
+
+  it('sets the folder from Settings and lists its notes straight away', async () => {
+    const vault = installVault({ [MEETING]: MEETING_BODY }, { templates: undefined })
+    const useStore = await openVault({ templates: undefined })
+    expect(useStore.getState().customTemplates.map((t) => t.id)).toEqual(['custom:meeting'])
+
+    await useStore.getState().setTemplateFolder(' Templates/ ')
+
+    expect(vault.setVaultSettings.mock.calls.at(-1)?.[0]).toMatchObject({
+      templates: { folder: 'Templates' }
+    })
+    expect(useStore.getState().customTemplates.map((t) => t.id)).toEqual([
+      'custom:meeting',
+      'folder:Meeting'
+    ])
+  })
+})
+
 describe('remote workspace capabilities after boot (#723)', () => {
   it('re-reads the workspace info once getCurrentVault has connected the server', async () => {
     const base = {

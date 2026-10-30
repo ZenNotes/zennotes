@@ -137,6 +137,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   // and is gated to a follow-up.
   supportsCliInstall: process.platform === 'darwin' || process.platform === 'linux',
   supportsCustomTemplates: true,
+  supportsTemplateFolder: true,
   supportsCustomCodeLanguages: true,
   supportsWorkflows: true,
   supportsUndoFile: true,

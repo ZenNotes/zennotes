@@ -6,13 +6,24 @@ import type { NoteFolder } from './ipc.js'
 export type TemplateCategory = 'Engineering' | 'Personal' | 'Custom'
 
 /**
- * A note template — either a built-in (shipped as a code constant) or a custom
- * one authored by the user and stored as a `.md` file under
- * `.zennotes/templates/`. The `body` has had any frontmatter stripped; it may
- * still contain `{{...}}` substitution tokens.
+ * Where a template comes from: shipped with the app (`builtin`), a file in
+ * `.zennotes/templates/` (`custom`), or a note in the vault's template folder
+ * (`folder`, #1024).
+ */
+export type TemplateSource = 'builtin' | 'custom' | 'folder'
+
+/**
+ * A note template: a built-in (shipped as a code constant), a custom one
+ * authored by the user and stored as a `.md` file under `.zennotes/templates/`,
+ * or a note in the vault's template folder (#1024). A custom template's `body`
+ * has had its frontmatter stripped; a template-folder note keeps a frontmatter
+ * of its own, for the new note to carry. Either may still contain `{{...}}`
+ * substitution tokens.
  */
 export interface NoteTemplate {
-  /** `builtin.adr` for built-ins, `custom:<slug>` for user templates. */
+  /** `builtin.adr` for built-ins, `custom:<slug>` for user templates,
+   *  `folder:<path inside the template folder, no extension>` for notes in
+   *  the template folder. */
   id: string
   /** Display name. */
   name: string
@@ -27,7 +38,11 @@ export interface NoteTemplate {
   /** Default subpath within the target folder. */
   targetSubpath?: string
   builtin: boolean
-  /** Custom templates only: vault-relative path to the source `.md`. */
+  /** Where the template lives. Absent means the `builtin` flag decides
+   *  (`builtin` or `custom`); read it through `templateSource`. */
+  source?: TemplateSource
+  /** Custom and template-folder templates: vault-relative path to the
+   *  source `.md`. */
   sourcePath?: string
   /**
    * When a custom template is an edited copy of a built-in, this is the
