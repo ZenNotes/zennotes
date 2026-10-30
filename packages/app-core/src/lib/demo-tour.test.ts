@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { describe, expect, it } from 'vitest'
 import { DEMO_TOUR_ASSETS, DEMO_TOUR_NOTES } from '@shared/demo-tour-data'
 import {
@@ -7,6 +9,7 @@ import {
   isDemoTourStartPath
 } from '@shared/demo-tour'
 import { formDirFromCsvPath, formTitleFromCsvPath } from '@shared/databases'
+import { renderMarkdown } from './markdown'
 import { extractWikilinkTargets, resolveWikilinkTarget } from './wikilinks'
 
 // Built from its code point so this file never contains the character itself.
@@ -57,6 +60,29 @@ describe('demo tour vault', () => {
       expect(file.path).not.toContain(LONG_DASH)
       expect(file.body).not.toContain(LONG_DASH)
     }
+  })
+})
+
+describe('the numbered tour on the start note', () => {
+  const start = DEMO_TOUR_NOTES.find((note) => note.path === DEMO_TOUR_START_PATH)!.body
+  const items = start.split('\n').filter((line) => /^ *\d+\. /.test(line))
+
+  // " 9. " above "10. " keeps every item's text in one column.
+  it('pads the shorter numbers so the text lines up', () => {
+    const width = String(items.length).length
+    expect(items.length).toBeGreaterThan(9)
+    expect(items.map((line) => /^ *\d+\. /.exec(line)![0])).toEqual(
+      items.map((_, index) => `${String(index + 1).padStart(width)}. `)
+    )
+  })
+
+  it('stays one list counting from 1 in Preview', () => {
+    const html = renderMarkdown(start)
+    const list = html.slice(html.indexOf('<ol'), html.indexOf('</ol>'))
+    expect(html.match(/<ol[ >]/g)).toHaveLength(1)
+    expect(list).not.toMatch(/^<ol[^>]* start=/)
+    expect(list.match(/<li[ >]/g)).toHaveLength(items.length)
+    expect(list).not.toContain('<p')
   })
 })
 
