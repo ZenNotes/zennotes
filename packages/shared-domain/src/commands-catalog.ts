@@ -171,6 +171,7 @@ export const COMMAND_CATALOG: CommandCatalogEntry[] = [
   { id: "view.line-numbers.absolute", title: "Line Numbers: Absolute", category: "View" },
   { id: "view.line-numbers.relative", title: "Line Numbers: Relative", category: "View" },
   { id: "view.kanban-card-sort", title: "Kanban: Toggle Card Order", category: "View", keywords: "tasks board sort due date deadline order cards columns manual" },
+  { id: "view.hide-empty-tasks", title: "Tasks: Toggle Empty Tasks", category: "View", keywords: "tasks empty blank placeholder template daily note kanban board list calendar hide show" },
   { id: "view.tasks-list-order", title: "Tasks: Toggle List Order", category: "View", keywords: "tasks list sort priority high order note line" },
   { id: "editor.vim.toggle", title: "Toggle Vim Mode", category: "Editor" },
   { id: "editor.completed-task.none", title: "Completed Tasks: No Style", category: "Editor" },

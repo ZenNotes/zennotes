@@ -747,6 +747,8 @@ export function SettingsModal(): JSX.Element {
   const showArchivedTasks = useStore((s) => s.showArchivedTasks);
   const kanbanCardSort = useStore((s) => s.kanbanCardSort);
   const setKanbanCardSort = useStore((s) => s.setKanbanCardSort);
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks);
+  const setHideEmptyTasks = useStore((s) => s.setHideEmptyTasks);
   const tasksListOrder = useStore((s) => s.tasksListOrder);
   const setTasksListOrder = useStore((s) => s.setTasksListOrder);
   const setShowArchivedTasks = useStore((s) => s.setShowArchivedTasks);
@@ -3701,6 +3703,21 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "hide-empty-tasks",
+          title: "Hide empty tasks",
+          description: "Leave blank checkboxes out of the Tasks views.",
+          keywords: [
+            "empty",
+            "empty task",
+            "blank",
+            "placeholder",
+            "template",
+            "daily note",
+            "kanban",
+            "hide",
+          ],
+        },
+        {
           id: "show-archived-tasks",
           title: "Show tasks from archived notes",
           description:
@@ -3793,6 +3810,15 @@ export function SettingsModal(): JSX.Element {
                 { value: "priority", label: "Priority" },
               ]}
               onChange={(next) => setTasksListOrder(next)}
+            />
+          </Section>
+          <Section title="Empty tasks">
+            <ToggleRow
+              label="Hide empty tasks"
+              description="Leave blank checkboxes out of the Tasks views."
+              value={hideEmptyTasks}
+              settingId="hide-empty-tasks"
+              onChange={setHideEmptyTasks}
             />
           </Section>
           <Section

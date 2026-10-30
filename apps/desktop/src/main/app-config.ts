@@ -441,6 +441,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'kanban_card_sort',
     comment: 'manual | due: cards in a Kanban column keep the order you drag them into, or follow their due dates'
   },
+  hideEmptyTasks: {
+    section: 'view',
+    tomlKey: 'hide_empty_tasks',
+    comment: 'leave blank checkboxes out of the Tasks list, calendar and board'
+  },
   tasksListOrder: {
     section: 'view',
     tomlKey: 'tasks_list_order',
@@ -503,9 +508,9 @@ const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
   }
 }
 
-/** A map-valued portable pref rendered as its own TOML table of string→string,
- *  always emitted (even when empty) with a header comment + example so users
- *  can discover the format. */
+/** A map-valued portable pref rendered as its own TOML table of string→string
+ *  (string→number for the WIP limits), always emitted (even when empty) with a
+ *  header comment + example so users can discover the format. */
 interface MapTableField {
   table: string
   /** Lines of `#` comment shown above the table header. */
@@ -533,6 +538,11 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
     table: 'kanban_column_titles',
     comment: ['Kanban column title overrides, keyed by "<groupBy>:<columnId>".'],
     example: '"status:todo" = "To Do"'
+  },
+  kanbanWipLimits: {
+    table: 'kanban_wip_limits',
+    comment: ['Kanban WIP limits (1 to 999), keyed by "<groupBy>:<columnId>".'],
+    example: '"status:in-progress" = 3'
   },
   enabledOverrides: {
     table: 'overrides',
@@ -694,7 +704,11 @@ export function serializeConfig(portable: AppConfigPortable): string {
     const value = portable[key]
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>)) {
-        if (typeof entryValue === 'string') {
+        // Strings for most tables; [kanban_wip_limits] holds plain numbers.
+        if (
+          typeof entryValue === 'string' ||
+          (typeof entryValue === 'number' && Number.isFinite(entryValue))
+        ) {
           lines.push(`${tomlKey(entryKey)} = ${tomlValue(entryValue)}`)
         }
       }

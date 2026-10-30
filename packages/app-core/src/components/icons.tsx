@@ -362,6 +362,42 @@ export const PinIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** View options: the Tasks views' View menu. */
+export const SlidersIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M4 6h10" />
+    <path d="M18 6h2" />
+    <circle cx="16" cy="6" r="2" />
+    <path d="M4 12h4" />
+    <path d="M12 12h8" />
+    <circle cx="10" cy="12" r="2" />
+    <path d="M4 18h12" />
+    <path d="M20 18h0" />
+    <circle cx="18" cy="18" r="2" />
+  </I>
+)
+
+/** Keyboard shortcuts: the Tasks views' Keys button. */
+export const KeyboardIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <rect x="2.5" y="6" width="19" height="12" rx="2" />
+    <path d="M6.5 10h.01" />
+    <path d="M10 10h.01" />
+    <path d="M13.5 10h.01" />
+    <path d="M17 10h.01" />
+    <path d="M8 14h8" />
+  </I>
+)
+
+/** A warning: a Kanban column holding more cards than its WIP limit. */
+export const AlertTriangleIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9v4" />
+    <path d="M12 17h.01" />
+  </I>
+)
+
 export const ZapIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />

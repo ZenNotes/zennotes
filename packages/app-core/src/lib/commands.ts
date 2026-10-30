@@ -1893,6 +1893,16 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     run: () => getState().setKanbanCardSort(getState().kanbanCardSort === 'due' ? 'manual' : 'due')
   })
 
+  // Empty tasks (#1026), from any note: the list, calendar and board follow it.
+  cmds.push({
+    id: 'view.hide-empty-tasks',
+    bindTitle: 'Tasks: Toggle Empty Tasks',
+    title: getState().hideEmptyTasks ? 'Tasks: Show Empty Tasks' : 'Tasks: Hide Empty Tasks',
+    category: 'View',
+    keywords: 'tasks empty blank placeholder template daily note kanban board list calendar hide show',
+    run: () => getState().setHideEmptyTasks(!getState().hideEmptyTasks)
+  })
+
   // The Tasks list's order (#989), from any note: the next list opened uses it.
   cmds.push({
     id: 'view.tasks-list-order',

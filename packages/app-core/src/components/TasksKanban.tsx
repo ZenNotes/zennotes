@@ -21,10 +21,13 @@ import { dropMutationsFor } from '../lib/task-column-mutations'
  *             toggle in place.
  *
  * Vim navigation:
- *   h/l — move between columns
- *   j/k — move between cards within the active column
- *   Enter — open the card's source note
- *   Space / x — toggle the checkbox on the focused card
+ *   h/l: move between columns
+ *   j/k: move between cards within the active column; k above the first
+ *        card reaches the column's header (the arrows too, in either mode)
+ *   Enter: open the card's source note; on a header, rename the column
+ *   Space / x: toggle the checkbox on the focused card
+ *   W: set the focused column's WIP limit (#1025)
+ *   m, or Shift+F10 in either mode: the card's or the header's menu
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -39,6 +42,7 @@ import { promptApp } from '../lib/prompt-requests'
 import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import {
+  MAX_KANBAN_WIP_LIMIT,
   normalizeKanbanFolderRoot,
   useStore,
   type KanbanCardSort,
@@ -46,10 +50,14 @@ import {
   type TaskMutation
 } from '../store'
 import { filterTasks, type NoteTagsByPath } from '../lib/tasks-filter'
+import { isEmptyTask } from '../lib/empty-tasks'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
+import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-context-menu'
+import { listViewBindingMatches } from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
-import { ArrowUpRightIcon, PencilIcon } from './icons'
+import { AlertTriangleIcon, ArrowUpRightIcon, PencilIcon } from './icons'
+import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
@@ -73,6 +81,16 @@ interface Props {
   today: Date
   onOpenTask: (task: VaultTask) => void
   onToggleTask: (task: VaultTask) => void
+  /** Filled while the board is mounted, for the Tasks ex line's `:wip`. */
+  controlRef?: React.MutableRefObject<KanbanControl | null>
+}
+
+/** What the Tasks view's ex line asks of the board, which alone knows the
+ *  column under its cursor. */
+export interface KanbanControl {
+  /** Set or clear the focused column's WIP limit (#1025). Returns that
+   *  column's label, or null on a board with no columns. */
+  setFocusedColumnWipLimit: (limit: number | null) => string | null
 }
 
 // Sentinel column id for the "No status" bucket on the custom-status board.
@@ -577,6 +595,89 @@ export function arrangeColumns(columns: Column[], order: string[]): Column[] {
   return [...sorted, ...noValue]
 }
 
+/** A column showing only `visible` of its cards, its overdue badge counting
+ *  only those. The filter (#583) and the empty-task hiding (#1026) both
+ *  narrow cards this way and never drop a column. */
+function withVisibleCards(column: Column, visible: VaultTask[], today: Date): Column {
+  if (visible.length === column.tasks.length) return column
+  let badge = column.badge
+  if (badge?.kind === 'overdue') {
+    const value = visible.filter((t) => isTaskOverdue(t, today)).length
+    badge = value > 0 ? { kind: 'overdue', value } : undefined
+  }
+  return { ...column, tasks: visible, badge }
+}
+
+/** Leave the empty cards (a template's bare `- [ ]`) off the board, and count
+ *  them so the toolbar can say they are hidden rather than lost (#1026). An
+ *  overdue placeholder in yesterday's daily note stops counting as overdue
+ *  with it. The same columns come back when nothing was empty. */
+export function hideEmptyCards(
+  columns: Column[],
+  today: Date
+): { columns: Column[]; hidden: number } {
+  let hidden = 0
+  const next = columns.map((column) => {
+    const shown = withVisibleCards(
+      column,
+      column.tasks.filter((task) => !isEmptyTask(task)),
+      today
+    )
+    hidden += column.tasks.length - shown.tasks.length
+    return shown
+  })
+  return { columns: hidden === 0 ? columns : next, hidden }
+}
+
+/** How many cards each column holds against its WIP limit (#1025). Counted
+ *  on the board before the filter narrows it: a limit is about the work in
+ *  the column, not about what a query shows of it. A placeholder the board
+ *  hides is not work either, so it stops counting while hidden. */
+export function columnWipLoads(fullColumns: Column[], hideEmpty: boolean): Map<string, number> {
+  return new Map(
+    fullColumns.map((column) => [
+      column.id,
+      hideEmpty ? column.tasks.filter((task) => !isEmptyTask(task)).length : column.tasks.length
+    ])
+  )
+}
+
+export interface WipState {
+  load: number
+  limit: number
+  /** More cards than the limit. At the limit is full, not over. */
+  over: boolean
+}
+
+export function wipState(load: number, limit: number | undefined): WipState | null {
+  if (limit === undefined) return null
+  return { load, limit, over: load > limit }
+}
+
+/** A typed WIP limit: a whole number from 1 to the cap, or nothing for no
+ *  limit. `0` is refused rather than read as "clear": a column that should
+ *  hold nothing is not something to guess at. */
+export function parseWipLimitInput(
+  raw: string
+): { ok: true; limit: number | null } | { ok: false; error: string } {
+  const text = raw.trim()
+  if (!text) return { ok: true, limit: null }
+  const value = /^\d+$/.test(text) ? Number(text) : Number.NaN
+  if (!Number.isInteger(value) || value < 1 || value > MAX_KANBAN_WIP_LIMIT) {
+    return { ok: false, error: `A whole number, 1 to ${MAX_KANBAN_WIP_LIMIT}.` }
+  }
+  return { ok: true, limit: value }
+}
+
+/** The card j/k or the arrows move the cursor to. Above the first card sits
+ *  the column's header (-1), where Enter renames the column and Shift+F10
+ *  opens its menu, the way the database grid's header row works (#1025). An
+ *  empty column keeps the cursor on its header. */
+export function kanbanCardStep(cardIdx: number, delta: -1 | 1, cardCount: number): number {
+  if (cardCount === 0) return -1
+  return Math.max(-1, Math.min(cardCount - 1, cardIdx + delta))
+}
+
 /** How long an armed `g` waits for a tab-sequence completion before the
  *  group-by cycle fires. Matches VimNav's own gt/gT pending window. */
 export const GROUP_BY_PENDING_MS = 500
@@ -680,10 +781,14 @@ export function TasksKanban({
   noteTags,
   today,
   onOpenTask,
-  onToggleTask
+  onToggleTask,
+  controlRef
 }: Props): JSX.Element {
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const cardSort = useStore((s) => s.kanbanCardSort)
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
+  const kanbanWipLimits = useStore((s) => s.kanbanWipLimits)
+  const setKanbanWipLimit = useStore((s) => s.setKanbanWipLimit)
   const setCardSort = useStore((s) => s.setKanbanCardSort)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
@@ -748,6 +853,7 @@ export function TasksKanban({
   const dropIndicatorFrameRef = useRef<number | null>(null)
   const dropIndicatorRectRef = useRef<{ x: number; y: number; width: number } | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
+  const headerRef = useRef<HTMLDivElement | null>(null)
   const dragOverColumnRef = useRef<string | null>(null)
   const dragOverElementRef = useRef<HTMLElement | null>(null)
   const suppressCardClickUntilRef = useRef(0)
@@ -855,20 +961,24 @@ export function TasksKanban({
   // cards are filtered out), and the unfiltered columns stay the source of
   // truth for card-order persistence so a focused board can't prune hidden
   // cards out of a hand-made arrangement. (#583)
+  // Empty cards leave the board the same way (#1026): off the visible
+  // columns only, so a hand-made arrangement that places one keeps it for
+  // when they are shown again, and counted for the toolbar.
   const filterQuery = (filter ?? '').trim()
-  const columns = useMemo(() => {
-    if (!filterQuery) return fullColumns
-    return fullColumns.map((column) => {
-      const visible = filterTasks(column.tasks, filterQuery, noteTags)
-      if (visible.length === column.tasks.length) return column
-      let badge = column.badge
-      if (badge?.kind === 'overdue') {
-        const value = visible.filter((t) => isTaskOverdue(t, today)).length
-        badge = value > 0 ? { kind: 'overdue', value } : undefined
-      }
-      return { ...column, tasks: visible, badge }
-    })
-  }, [fullColumns, filterQuery, noteTags, today])
+  const { columns, hiddenEmpty } = useMemo(() => {
+    const narrowed = filterQuery
+      ? fullColumns.map((column) =>
+          withVisibleCards(column, filterTasks(column.tasks, filterQuery, noteTags), today)
+        )
+      : fullColumns
+    if (!hideEmptyTasks) return { columns: narrowed, hiddenEmpty: 0 }
+    const hidden = hideEmptyCards(narrowed, today)
+    return { columns: hidden.columns, hiddenEmpty: hidden.hidden }
+  }, [fullColumns, filterQuery, hideEmptyTasks, noteTags, today])
+  const wipLoads = useMemo(
+    () => columnWipLoads(fullColumns, hideEmptyTasks),
+    [fullColumns, hideEmptyTasks]
+  )
   columnsRef.current = columns
   fullColumnsRef.current = fullColumns
 
@@ -945,6 +1055,75 @@ export function TasksKanban({
     setEditingColumnId(null)
     setEditingTitle('')
   }, [])
+
+  // ---- WIP limits (#1025): the column menu, `W`, and `:wip` --------------
+  const promptWipLimit = useCallback(
+    async (column: Column): Promise<void> => {
+      const current = useStore.getState().kanbanWipLimits[columnOrderKey(groupBy, column.id)]
+      const answer = await promptApp({
+        title: `WIP limit: ${column.label}`,
+        description: 'Most cards before it turns red. Empty for none.',
+        initialValue: current ? String(current) : '',
+        placeholder: '3',
+        okLabel: 'Set',
+        allowEmptySubmit: true,
+        plainInput: true,
+        validate: (value) => {
+          const parsed = parseWipLimitInput(value)
+          return parsed.ok ? null : parsed.error
+        }
+      })
+      if (answer === null) return
+      const parsed = parseWipLimitInput(answer)
+      if (parsed.ok) setKanbanWipLimit(groupBy, column.id, parsed.limit)
+    },
+    [groupBy, setKanbanWipLimit]
+  )
+
+  const openColumnMenu = useCallback(
+    (column: Column, x: number, y: number): void => {
+      const limit = useStore.getState().kanbanWipLimits[columnOrderKey(groupBy, column.id)]
+      const items: ContextMenuItem[] = [
+        { label: 'Rename column…', hint: 'Enter', onSelect: () => beginColumnRename(column) },
+        {
+          label: limit ? 'Change WIP limit…' : 'Set WIP limit…',
+          hint: vimMode ? 'W' : undefined,
+          keywords: ['wip', 'limit', 'cap', 'maximum', 'work in progress'],
+          onSelect: () => void promptWipLimit(column)
+        }
+      ]
+      if (limit) {
+        items.push({
+          label: 'Clear WIP limit',
+          keywords: ['wip', 'limit', 'remove'],
+          onSelect: () => setKanbanWipLimit(groupBy, column.id, null)
+        })
+      }
+      setMenu({ x, y, items })
+    },
+    [beginColumnRename, groupBy, promptWipLimit, setKanbanWipLimit, vimMode]
+  )
+
+  // The ex line's `:wip` acts on the column under the cursor, which only the
+  // board knows; the latest cursor is read when the command runs.
+  const colIdxRef = useRef(colIdx)
+  colIdxRef.current = colIdx
+  useEffect(() => {
+    if (!controlRef) return
+    const control: KanbanControl = {
+      setFocusedColumnWipLimit: (limit) => {
+        const cols = columnsRef.current
+        const column = cols[Math.min(colIdxRef.current, cols.length - 1)]
+        if (!column) return null
+        setKanbanWipLimit(useStore.getState().kanbanGroupBy, column.id, limit)
+        return column.label
+      }
+    }
+    controlRef.current = control
+    return () => {
+      if (controlRef.current === control) controlRef.current = null
+    }
+  }, [controlRef, setKanbanWipLimit])
 
   // ---- Column reordering: drag a header, or Shift+`<` / Shift+`>` ----------
   // A click that started a header drag must not also fire the rename button.
@@ -1650,6 +1829,44 @@ export function TasksKanban({
     ? Math.min(cardIdx, Math.max(0, focusedColumn.tasks.length - 1))
     : 0
   const focusedTask = focusedColumn?.tasks[safeCardIdx]
+  // No card under the cursor: k above the first card, or an empty column.
+  // The header is what Enter and the menu keys act on then (#1025).
+  const headerFocused = !!focusedColumn && !focusedTask
+
+  // Shift+F10, the Context Menu key, or `m` in Vim mode: the right-click menu
+  // of what the cursor is on, a card's task menu or its column's header menu.
+  // A header that holds DOM focus (Tab reached its title) speaks for itself.
+  const openKeyboardMenu = useCallback((): void => {
+    const active = document.activeElement as HTMLElement | null
+    const focusedHeader = active?.closest<HTMLElement>('[data-kanban-column-header]')
+    const domColumnId = focusedHeader
+      ?.closest<HTMLElement>('[data-kanban-column-id]')
+      ?.dataset.kanbanColumnId
+    const domColIdx = domColumnId
+      ? columnsRef.current.findIndex((column) => column.id === domColumnId)
+      : -1
+    // A header's menu opens below it, so its count stays in view.
+    const belowHeader = (el: HTMLElement): { x: number; y: number } => {
+      const rect = el.getBoundingClientRect()
+      return { x: rect.left + 12, y: rect.bottom + 2 }
+    }
+    if (focusedHeader && domColIdx >= 0) {
+      setColIdx(domColIdx)
+      setCardIdx(-1)
+      const { x, y } = belowHeader(focusedHeader)
+      openColumnMenu(columnsRef.current[domColIdx], x, y)
+      return
+    }
+    if (focusedTask && cardRef.current) {
+      const { x, y } = keyboardMenuPosition(cardRef.current.getBoundingClientRect())
+      setMenu({ x, y, items: buildTaskMenuItems(focusedTask, { today, showKeyHints: vimMode }) })
+      return
+    }
+    if (focusedColumn && headerRef.current) {
+      const { x, y } = belowHeader(headerRef.current)
+      openColumnMenu(focusedColumn, x, y)
+    }
+  }, [focusedColumn, focusedTask, openColumnMenu, today, vimMode])
 
   // Switching the order keeps the cursor on its card, wherever the new order
   // puts it: the rebuild is flushed first, the way a move is. (#889)
@@ -1670,8 +1887,9 @@ export function TasksKanban({
   )
 
   useEffect(() => {
-    cardRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [safeColIdx, safeCardIdx, focusedTask?.id])
+    if (headerFocused) headerRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    else cardRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [headerFocused, safeColIdx, safeCardIdx, focusedTask?.id])
 
   useEffect(() => clearDropTarget, [clearDropTarget])
 
@@ -1704,6 +1922,8 @@ export function TasksKanban({
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
+      // A toolbar button reached with Tab takes its own keys.
+      if (tasksToolbarOwnsKey(e)) return
 
       // A deferred group-by cycle is waiting on the gt/gT window (#573).
       // Resolved before the modifier guard so a chord also drops the prefix.
@@ -1718,6 +1938,17 @@ export function TasksKanban({
       }
 
       if (e.metaKey || e.ctrlKey || e.altKey) return
+      // The menu keys work in either mode (Shift+F10 and the Context Menu
+      // key are not letters); `m` is Vim's, as in the sidebar and the lists.
+      if (
+        isKeyboardContextMenuKey(e) ||
+        listViewBindingMatches(e, useStore.getState().keymapOverrides, 'nav.contextMenu', vimMode)
+      ) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        openKeyboardMenu()
+        return
+      }
       // With Vim off the single-character keys stay with the page, the rule
       // every list in the app follows: arrows, Enter, Space and Escape are
       // universal, the letters (and < > H L) are Vim's. The board kept them
@@ -1747,17 +1978,19 @@ export function TasksKanban({
             cycleGroupBy()
           }, GROUP_BY_PENDING_MS)
           return
+        // Across the headers the cursor stays on the headers, so a row of
+        // columns can be walked for their menus (#1025).
         case 'h':
         case 'ArrowLeft':
           consume()
           setColIdx((i) => Math.max(0, i - 1))
-          setCardIdx(0)
+          setCardIdx(safeCardIdx < 0 ? -1 : 0)
           return
         case 'l':
         case 'ArrowRight':
           consume()
           setColIdx((i) => Math.min(columns.length - 1, i + 1))
-          setCardIdx(0)
+          setCardIdx(safeCardIdx < 0 ? -1 : 0)
           return
         case 'H':
           if (dndEnabled && focusedTask) {
@@ -1786,19 +2019,28 @@ export function TasksKanban({
         case 'j':
         case 'ArrowDown':
           consume()
-          setCardIdx((i) =>
-            focusedColumn ? Math.min(focusedColumn.tasks.length - 1, i + 1) : 0
-          )
+          setCardIdx(kanbanCardStep(safeCardIdx, 1, focusedColumn?.tasks.length ?? 0))
           return
         case 'k':
         case 'ArrowUp':
           consume()
-          setCardIdx((i) => Math.max(0, i - 1))
+          setCardIdx(kanbanCardStep(safeCardIdx, -1, focusedColumn?.tasks.length ?? 0))
           return
         case 'Enter':
           if (focusedTask) {
             consume()
             onOpenTask(focusedTask)
+          } else if (focusedColumn) {
+            // On a header, Enter renames the column, as a click on its title does.
+            consume()
+            beginColumnRename(focusedColumn)
+          }
+          return
+        // The focused column's WIP limit (#1025), card or header alike.
+        case 'W':
+          if (vimMode && focusedColumn) {
+            consume()
+            void promptWipLimit(focusedColumn)
           }
           return
         case ' ':
@@ -1838,6 +2080,7 @@ export function TasksKanban({
     window.addEventListener('keydown', handler, true)
     return () => window.removeEventListener('keydown', handler, true)
   }, [
+    beginColumnRename,
     chooseCardSort,
     clearGroupByPending,
     columns.length,
@@ -1849,13 +2092,21 @@ export function TasksKanban({
     moveFocusedColumn,
     onOpenTask,
     onToggleTask,
+    openKeyboardMenu,
+    promptWipLimit,
+    safeCardIdx,
     vimMode
   ])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
-        <div className="flex items-center gap-1 text-xs text-current/60">
+      {/* Group by, Order and the View menu; the keys sit behind Keys. On a
+          narrow pane each group wraps whole, never a label inside it. */}
+      <div
+        data-tasks-toolbar
+        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-paper-300/45 px-3 py-2 text-xs text-current/60"
+      >
+        <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <span>Group by</span>
           <select
             value={groupBy}
@@ -1883,7 +2134,9 @@ export function TasksKanban({
               {kanbanFolderRoot ? `inside ${kanbanFolderRoot}` : 'each note’s folder'}
             </button>
           )}
-          <span className="ml-2">Order</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+          <span>Order</span>
           <select
             data-kanban-card-sort
             value={cardSort}
@@ -1899,14 +2152,9 @@ export function TasksKanban({
             <option value="due">Due date</option>
           </select>
         </div>
-        <div className="text-xs text-current/40">
-          {vimMode
-            ? dndEnabled
-              ? 'Drag or Shift+H·L move card · drag header or </> reorder columns · h/l · j/k · g group-by · s order · x · Enter · right-click actions'
-              : 'Drag header or </> reorder columns · h/l column · j/k card · g group-by · s order · x · Enter · right-click actions'
-            : dndEnabled
-              ? 'Drag to move a card · drag a header to reorder columns · ←/→ · ↑/↓ · Space · Enter · right-click actions'
-              : 'Drag a header to reorder columns · ←/→ column · ↑/↓ card · Space · Enter · right-click actions'}
+        <TasksViewOptions hidden={hiddenEmpty} />
+        <div className="ml-auto shrink-0">
+          <TasksKeysButton view="kanban" dndEnabled={dndEnabled} />
         </div>
       </div>
 
@@ -1938,21 +2186,45 @@ export function TasksKanban({
             fieldKey && isMovableColumn && kanbanColumnTitles[columnOrderKey(groupBy, column.id)]
               ? column.id
               : null
+          // A limit counts the column's whole load, not the filtered view of
+          // it; with no limit the count stays what the column shows.
+          const wip = wipState(
+            wipLoads.get(column.id) ?? column.tasks.length,
+            kanbanWipLimits[columnOrderKey(groupBy, column.id)]
+          )
+          const isHeaderFocused = isColumnFocused && headerFocused
           return (
             <div
               key={column.id}
               data-kanban-column-id={column.id}
+              data-wip-over={wip?.over ? '' : undefined}
               className={[
-                'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border bg-paper-100/60 transition-opacity',
-                isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60',
+                'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border transition-opacity',
+                wip?.over
+                  ? `bg-danger/5 ${isColumnFocused ? 'border-danger' : 'border-danger/60'}`
+                  : `bg-paper-100/60 ${isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60'}`,
                 isColumnDragging ? 'opacity-40' : '',
                 isColumnDropTarget ? 'ring-2 ring-accent/70' : ''
               ].join(' ')}
             >
               <div
+                ref={isHeaderFocused ? headerRef : undefined}
+                data-kanban-column-header
+                data-focused={isHeaderFocused ? '' : undefined}
                 onPointerDown={(e) => beginColumnDrag(column.id, e)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  // The cursor moves onto the header first, so the menu and
+                  // the keyboard agree on which column is being acted on.
+                  setColIdx(ci)
+                  setCardIdx(-1)
+                  openColumnMenu(column, e.clientX, e.clientY)
+                }}
                 className={[
-                  'flex shrink-0 select-none items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2',
+                  'flex shrink-0 select-none items-center justify-between gap-2 rounded-t-lg border-b px-3 py-2',
+                  wip?.over ? 'border-danger/35' : 'border-paper-300/45',
+                  isHeaderFocused ? 'ring-1 ring-inset ring-accent/60' : '',
                   isMovableColumn && editingColumnId !== column.id
                     ? 'cursor-grab active:cursor-grabbing'
                     : ''
@@ -2020,7 +2292,26 @@ export function TasksKanban({
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-current/50">
-                  <span>{column.tasks.length}</span>
+                  {wip ? (
+                    <span
+                      data-kanban-wip
+                      title={
+                        `WIP limit ${wip.limit}` +
+                        (wip.over ? `, ${wip.load - wip.limit} over` : '') +
+                        (wip.load !== column.tasks.length ? ` (${column.tasks.length} shown)` : '')
+                      }
+                      className={
+                        wip.over
+                          ? 'flex items-center gap-1 rounded bg-danger/15 px-1.5 py-0.5 text-2xs font-medium text-danger'
+                          : ''
+                      }
+                    >
+                      {wip.over && <AlertTriangleIcon width={12} height={12} aria-hidden="true" />}
+                      {wip.load} / {wip.limit}
+                    </span>
+                  ) : (
+                    <span>{column.tasks.length}</span>
+                  )}
                   {column.badge?.kind === 'overdue' && column.badge.value > 0 && (
                     <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">
                       {column.badge.value} overdue

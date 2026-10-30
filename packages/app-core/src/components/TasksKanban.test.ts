@@ -19,7 +19,12 @@ import {
   folderColumns,
   noteLocationOf,
   orderCards,
-  FOLDER_OTHER_LABEL
+  FOLDER_OTHER_LABEL,
+  columnWipLoads,
+  hideEmptyCards,
+  kanbanCardStep,
+  parseWipLimitInput,
+  wipState
 } from './TasksKanban'
 
 function col(id: string): Column {
@@ -626,5 +631,102 @@ describe('card order by due date (#889)', () => {
     const out = orderCards('field:status', built, 'due', new Map())
     expect(texts(out, 0)).toEqual(['Soon', 'Late', 'Someday'])
     expect(texts(built, 0)).toEqual(['Someday', 'Late', 'Soon'])
+  })
+})
+
+describe('empty tasks stay off the board (#1026)', () => {
+  // Yesterday's daily note left its template placeholders behind: overdue,
+  // empty, and in the Today column beside the real work.
+  const placeholder = (taskIndex: number): VaultTask =>
+    card({ content: '', taskIndex, sourcePath: 'Daily/2026-08-24.md', due: '2026-08-24' })
+  const real = card({
+    content: 'Call the bank',
+    taskIndex: 3,
+    sourcePath: 'Daily/2026-08-24.md',
+    due: '2026-08-24'
+  })
+  const built = (): Column[] =>
+    statusColumns(
+      [placeholder(0), placeholder(1), real, card({ content: '  ', taskIndex: 4 })],
+      TODAY
+    )
+
+  it('leaves empty cards off every column and counts them', () => {
+    const { columns: shown, hidden } = hideEmptyCards(built(), TODAY)
+    expect(hidden).toBe(3)
+    expect(columnIds(shown, 'today')).toEqual(['Call the bank'])
+    expect(columnIds(shown, 'undated')).toEqual([])
+  })
+
+  it('keeps every column, even one the hiding emptied', () => {
+    const board = built()
+    expect(hideEmptyCards(board, TODAY).columns.map((c) => c.id)).toEqual(board.map((c) => c.id))
+  })
+
+  it('stops counting a hidden placeholder as overdue', () => {
+    const board = built()
+    expect(board.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 3 })
+    const { columns: shown } = hideEmptyCards(board, TODAY)
+    expect(shown.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 1 })
+  })
+
+  it('hands back the same columns when nothing is empty', () => {
+    const board = statusColumns([real], TODAY)
+    const result = hideEmptyCards(board, TODAY)
+    expect(result.hidden).toBe(0)
+    expect(result.columns[0]).toBe(board[0])
+  })
+})
+
+describe('WIP limits (#1025)', () => {
+  it('reads a limit as a whole number from 1 to 999, and empty as no limit', () => {
+    expect(parseWipLimitInput('3')).toEqual({ ok: true, limit: 3 })
+    expect(parseWipLimitInput(' 12 ')).toEqual({ ok: true, limit: 12 })
+    expect(parseWipLimitInput('999')).toEqual({ ok: true, limit: 999 })
+    expect(parseWipLimitInput('')).toEqual({ ok: true, limit: null })
+    expect(parseWipLimitInput('   ')).toEqual({ ok: true, limit: null })
+    for (const bad of ['0', '-1', '2.5', 'three', '1000', '3 cards']) {
+      expect(parseWipLimitInput(bad).ok, bad).toBe(false)
+    }
+  })
+
+  it('is over only past the limit, not at it', () => {
+    expect(wipState(4, undefined)).toBeNull()
+    expect(wipState(2, 3)).toEqual({ load: 2, limit: 3, over: false })
+    expect(wipState(3, 3)).toEqual({ load: 3, limit: 3, over: false })
+    expect(wipState(4, 3)).toEqual({ load: 4, limit: 3, over: true })
+  })
+
+  it('counts every card a column holds, whatever the filter narrows it to', () => {
+    // The loads come from the board before the filter, so a column holding
+    // four cards reads 4 / 3 even while the filter shows one of them.
+    const full = [
+      colWith('in-progress', [
+        card({ content: 'a' }),
+        card({ content: 'b', taskIndex: 1 }),
+        card({ content: '', taskIndex: 2 })
+      ])
+    ]
+    expect(columnWipLoads(full, false).get('in-progress')).toBe(3)
+    // A placeholder the board hides is not work in progress either.
+    expect(columnWipLoads(full, true).get('in-progress')).toBe(2)
+  })
+})
+
+describe('the cursor climbs onto the column header (#1025)', () => {
+  it('goes from the first card up to the header, and stays there', () => {
+    expect(kanbanCardStep(0, -1, 3)).toBe(-1)
+    expect(kanbanCardStep(-1, -1, 3)).toBe(-1)
+    expect(kanbanCardStep(2, -1, 3)).toBe(1)
+  })
+
+  it('comes back down to the first card, and stops at the last', () => {
+    expect(kanbanCardStep(-1, 1, 3)).toBe(0)
+    expect(kanbanCardStep(2, 1, 3)).toBe(2)
+  })
+
+  it('keeps an empty column on its header', () => {
+    expect(kanbanCardStep(-1, 1, 0)).toBe(-1)
+    expect(kanbanCardStep(0, -1, 0)).toBe(-1)
   })
 })

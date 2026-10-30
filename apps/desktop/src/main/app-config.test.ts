@@ -133,6 +133,8 @@ describe('TOML serialization', () => {
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
       kanbanCardSort: 'due',
+      hideEmptyTasks: false,
+      kanbanWipLimits: { 'status:in-progress': 3, 'field:status:review': 2 },
       tasksListOrder: 'priority',
       timelineRange: 'month',
       gallerySort: 'title',
@@ -173,6 +175,12 @@ describe('TOML serialization', () => {
     expect(round.kanbanGroupBy).toBe('folder')
     expect(text).toContain('kanban_card_sort = "due"')
     expect(round.kanbanCardSort).toBe('due')
+    // #1026 and #1025: the empty-task switch and the WIP limits travel too,
+    // the limits as plain numbers a person can edit.
+    expect(text).toContain('hide_empty_tasks = false')
+    expect(round.hideEmptyTasks).toBe(false)
+    expect(text).toMatch(/\[kanban_wip_limits\]\n"status:in-progress" = 3\n"field:status:review" = 2/)
+    expect(round.kanbanWipLimits).toEqual({ 'status:in-progress': 3, 'field:status:review': 2 })
     expect(text).toContain('tasks_list_order = "priority"')
     expect(round.tasksListOrder).toBe('priority')
     // The Timeline panel's reach travels as [view].timeline_range (#1007).

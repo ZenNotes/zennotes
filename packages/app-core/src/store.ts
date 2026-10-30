@@ -858,6 +858,14 @@ interface Prefs {
    *  they were dragged into (due date until then), `due` always sorts them by
    *  due date and leaves that arrangement untouched for later. (#889) */
   kanbanCardSort: KanbanCardSort
+  /** Leave tasks with no text (a template's bare `- [ ]`) off the Tasks
+   *  list, calendar and Kanban board. On by default; portable as
+   *  `hide_empty_tasks` under [view]. (#1026) */
+  hideEmptyTasks: boolean
+  /** Kanban WIP limits: the most cards a column should hold, keyed by
+   *  `${groupBy}:${columnId}` like the column titles. Portable as the
+   *  `[kanban_wip_limits]` table. (#1025) */
+  kanbanWipLimits: Record<string, number>
   /** Tasks list groups in their notes' line order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches. (#1007) */
@@ -962,20 +970,54 @@ const FIELD_COLUMN_TITLE_KEY_RE = /^field:[a-z][a-z0-9_-]*:(?:__none__|[\p{L}\d]
 // Folder columns are keyed by the note directory (#730): any printable path.
 const FOLDER_COLUMN_TITLE_KEY_RE = /^folder:(?:__none__|[^\u0000-\u001f]{1,256})$/u
 
+/** A `<groupBy>:<columnId>` key some board can build: what titles, card
+ *  orders and WIP limits are stored under. */
+function isKanbanColumnKey(key: string): boolean {
+  const isStatic =
+    STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
+    STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
+  return isStatic || FIELD_COLUMN_TITLE_KEY_RE.test(key) || FOLDER_COLUMN_TITLE_KEY_RE.test(key)
+}
+
 function normalizeKanbanColumnTitles(raw: unknown): Record<string, string> {
   if (!raw || typeof raw !== 'object') return {}
 
   const out: Record<string, string> = {}
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof value !== 'string') continue
-    const isStatic =
-      STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
-      STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
-    const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField && !isFolder) continue
+    if (!isKanbanColumnKey(key)) continue
     const normalized = normalizeKanbanColumnTitle(value)
     if (normalized) out[key] = normalized
+  }
+  return out
+}
+
+/** The largest WIP limit a column takes; TasksKanban's parseWipLimitInput
+ *  holds typed limits to the same bound. */
+export const MAX_KANBAN_WIP_LIMIT = 999
+const MAX_KANBAN_WIP_LIMIT_COLUMNS = 256
+
+function normalizeKanbanWipLimit(raw: unknown): number | null {
+  // A hand-edited config.toml can quote the number; anything that is not a
+  // whole number from 1 to the cap means no limit, never a guessed one.
+  const value =
+    typeof raw === 'number' ? raw : typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN
+  return Number.isInteger(value) && value >= 1 && value <= MAX_KANBAN_WIP_LIMIT ? value : null
+}
+
+// WIP limits per column (#1025): `{ "<groupBy>:<columnId>": <limit> }`, the
+// column-title key grammar with a whole-number value.
+export function normalizeKanbanWipLimits(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, number> = {}
+  let columns = 0
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!isKanbanColumnKey(key)) continue
+    const limit = normalizeKanbanWipLimit(value)
+    if (limit === null) continue
+    out[key] = limit
+    columns += 1
+    if (columns >= MAX_KANBAN_WIP_LIMIT_COLUMNS) break
   }
   return out
 }
@@ -1023,12 +1065,7 @@ export function normalizeKanbanCardOrder(raw: unknown): Record<string, string[]>
   let columns = 0
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
     if (!Array.isArray(value)) continue
-    const isStatic =
-      STATIC_COLUMN_TITLE_KEY_RE.test(key) &&
-      STATIC_KANBAN_GROUP_BYS.some((group) => key.startsWith(`${group}:`))
-    const isField = FIELD_COLUMN_TITLE_KEY_RE.test(key)
-    const isFolder = FOLDER_COLUMN_TITLE_KEY_RE.test(key)
-    if (!isStatic && !isField && !isFolder) continue
+    if (!isKanbanColumnKey(key)) continue
     const cards: string[] = []
     const seen = new Set<string>()
     for (const entry of value) {
@@ -1307,6 +1344,8 @@ export const DEFAULT_PREFS: Prefs = {
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
+  hideEmptyTasks: true,
+  kanbanWipLimits: {},
   tasksListOrder: 'note',
   timelineRange: DEFAULT_TIMELINE_RANGE,
   gallerySort: 'updated',
@@ -1692,6 +1731,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.showArchivedTasks,
     kanbanGroupBy: normalizeKanbanGroupBy(p.kanbanGroupBy),
     kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
+    hideEmptyTasks:
+      typeof p.hideEmptyTasks === 'boolean' ? p.hideEmptyTasks : DEFAULT_PREFS.hideEmptyTasks,
+    kanbanWipLimits: normalizeKanbanWipLimits(p.kanbanWipLimits),
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
     timelineRange: normalizeTimelineRange(p.timelineRange),
     gallerySort: normalizeGallerySort(p.gallerySort),
@@ -2666,6 +2708,8 @@ function collectPrefs(s: {
   showArchivedTasks: boolean
   kanbanGroupBy: KanbanGroupBy
   kanbanCardSort: KanbanCardSort
+  hideEmptyTasks: boolean
+  kanbanWipLimits: Record<string, number>
   tasksListOrder: TasksListOrder
   timelineRange: TimelineRange
   gallerySort: GallerySort
@@ -2787,6 +2831,8 @@ function collectPrefs(s: {
     showArchivedTasks: s.showArchivedTasks,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanCardSort: s.kanbanCardSort,
+    hideEmptyTasks: s.hideEmptyTasks,
+    kanbanWipLimits: s.kanbanWipLimits,
     tasksListOrder: s.tasksListOrder,
     timelineRange: s.timelineRange,
     gallerySort: s.gallerySort,
@@ -3479,6 +3525,10 @@ interface Store {
   kanbanGroupBy: KanbanGroupBy
   /** Cards in each Kanban column by hand-placed order or by due date. (#889) */
   kanbanCardSort: KanbanCardSort
+  /** Tasks with no text stay off the Tasks list, calendar and board. (#1026) */
+  hideEmptyTasks: boolean
+  /** Per-column Kanban WIP limits, keyed `${groupBy}:${columnId}`. (#1025) */
+  kanbanWipLimits: Record<string, number>
   /** Tasks list groups in note order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches: two weeks, a month, or every
@@ -3766,6 +3816,9 @@ interface Store {
   confirmArchiveNotes: (paths: string[]) => Promise<boolean>
   setKanbanGroupBy: (group: KanbanGroupBy) => void
   setKanbanCardSort: (sort: KanbanCardSort) => void
+  setHideEmptyTasks: (hide: boolean) => void
+  /** Set one column's WIP limit, or clear it with null. (#1025) */
+  setKanbanWipLimit: (group: KanbanGroupBy, columnId: string, limit: number | null) => void
   setTasksListOrder: (order: TasksListOrder) => void
   setTimelineRange: (range: TimelineRange) => void
   setTimelineFilter: (query: string) => void
@@ -6371,6 +6424,8 @@ export const useStore = create<Store>((set, get) => {
   showArchivedTasks: loadPrefs().showArchivedTasks,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanCardSort: loadPrefs().kanbanCardSort,
+  hideEmptyTasks: loadPrefs().hideEmptyTasks,
+  kanbanWipLimits: loadPrefs().kanbanWipLimits,
   tasksListOrder: loadPrefs().tasksListOrder,
   timelineRange: loadPrefs().timelineRange,
   timelineFilter: '',
@@ -7911,6 +7966,21 @@ export const useStore = create<Store>((set, get) => {
   },
   setKanbanCardSort: (sort) => {
     set({ kanbanCardSort: sort })
+    savePrefs(collectPrefs(get()))
+  },
+  setHideEmptyTasks: (hide) => {
+    set({ hideEmptyTasks: hide })
+    savePrefs(collectPrefs(get()))
+  },
+  // Global and portable like the column titles, deliberately not a per-vault
+  // view override: that would need the Go server's vault.json mirror to learn
+  // it (the reasoning #889 gave for the card order).
+  setKanbanWipLimit: (group, columnId, limit) => {
+    const key = `${group}:${columnId}`
+    const next = { ...get().kanbanWipLimits }
+    if (limit === null) delete next[key]
+    else next[key] = limit
+    set({ kanbanWipLimits: normalizeKanbanWipLimits(next) })
     savePrefs(collectPrefs(get()))
   },
   setTasksListOrder: (order) => {
