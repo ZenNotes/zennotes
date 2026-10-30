@@ -279,6 +279,69 @@ export function setTaskStatusAtIndex(
   return setTaskFieldAtIndex(markdown, taskIndex, 'status', status)
 }
 
+// The task parser's own tag token (INLINE_TAG_RE in tasks.ts): `#` after the
+// start or whitespace, so `[[Note#Part]]` and `x.com/#frag` are not tags.
+const TAG_TOKEN_RE = /(^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu
+const TAG_NAME_RE = /^[\p{L}\d][\p{L}\d/_-]*$/u
+
+/**
+ * Make `tag` the first `#tag` of `text`, the tag a Kanban tag lane files a
+ * card under (#1027). The current first tag is replaced where it stands and a
+ * later copy of `tag` goes, so the card lands in the lane it was dropped on
+ * and keeps its other tags; a line without tags gets `tag` at its end. `null`
+ * strips every tag, which is what the No tag lane means. Tags compare without
+ * case, as the parser lower-cases them. A name the parser would not read back
+ * leaves the text alone.
+ */
+export function setFirstTag(text: string, tag: string | null): string {
+  if (tag !== null && !TAG_NAME_RE.test(tag)) return text
+  const tokens: { at: number; end: number; name: string }[] = []
+  for (const match of text.matchAll(TAG_TOKEN_RE)) {
+    const at = (match.index ?? 0) + match[1].length
+    tokens.push({ at, end: at + 1 + match[2].length, name: match[2].toLowerCase() })
+  }
+  if (tag === null) {
+    if (tokens.length === 0) return text
+    return text.replace(TAG_TOKEN_RE, '$1').replace(/\s{2,}/g, ' ').replace(/\s+$/u, '')
+  }
+  const wanted = tag.toLowerCase()
+  if (tokens.length === 0) return `${text.replace(/\s+$/u, '')} #${tag}`
+  if (tokens[0].name === wanted) return text
+  // Right to left, so earlier offsets stay valid while later copies go.
+  let next = text
+  for (let i = tokens.length - 1; i >= 1; i -= 1) {
+    if (tokens[i].name === wanted) next = next.slice(0, tokens[i].at) + next.slice(tokens[i].end)
+  }
+  next = `${next.slice(0, tokens[0].at)}#${tag}${next.slice(tokens[0].end)}`
+  return next.replace(/\s{2,}/g, ' ').replace(/\s+$/u, '')
+}
+
+/** {@link setFirstTag} on a parsed (lower-cased, de-duplicated) tag list, for
+ *  the optimistic copy of a task whose line is being retagged. */
+export function withFirstTag(tags: readonly string[], tag: string | null): string[] {
+  if (tag === null) return []
+  const wanted = tag.toLowerCase()
+  if (tags.length === 0) return [wanted]
+  if (tags[0] === wanted) return [...tags]
+  return [wanted, ...tags.slice(1).filter((name) => name !== wanted)]
+}
+
+/** {@link setFirstTag} on the task line at `taskIndex`: the text after its
+ *  checkbox, every other token kept. (#1027) */
+export function setTaskTagAtIndex(
+  markdown: string,
+  taskIndex: number,
+  tag: string | null
+): string {
+  return editTaskAtIndex(markdown, taskIndex, (match) => {
+    const prefix = match[1]
+    const checkChar = match[2]
+    const tailWithBracket = match[3]
+    if (!tailWithBracket.startsWith(']')) return null
+    return `${prefix}${checkChar}]${setFirstTag(tailWithBracket.slice(1), tag)}`
+  })
+}
+
 /** Replace everything after the checkbox on the task line at `taskIndex` with
  *  `text` (verbatim — the caller owns any `due:`/`!priority` tokens). Used by
  *  inline task editing. */
