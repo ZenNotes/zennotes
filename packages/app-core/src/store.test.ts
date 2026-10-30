@@ -2162,6 +2162,62 @@ describe('hideEmptyTasks (#1026)', () => {
   })
 })
 
+describe('kanbanWipLimits (#1025)', () => {
+  it('keeps a limit per board and column, through a restart', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().kanbanWipLimits).toEqual({})
+
+    useStore.getState().setKanbanWipLimit('status', 'in-progress', 3)
+    useStore.getState().setKanbanWipLimit('field:status', 'review', 2)
+    expect(useStore.getState().kanbanWipLimits).toEqual({
+      'status:in-progress': 3,
+      'field:status:review': 2
+    })
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.kanbanWipLimits).toEqual({ 'status:in-progress': 3, 'field:status:review': 2 })
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().kanbanWipLimits['status:in-progress']).toBe(3)
+  })
+
+  it('clears a limit with null', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    useStore.getState().setKanbanWipLimit('status', 'in-progress', 3)
+    useStore.getState().setKanbanWipLimit('status', 'in-progress', null)
+    expect(useStore.getState().kanbanWipLimits).toEqual({})
+  })
+
+  it('drops limits a hand-edited config.toml cannot mean', async () => {
+    installZen()
+    vi.resetModules()
+    localStorage.clear()
+    localStorage.setItem(
+      'zen:prefs:v2',
+      JSON.stringify({
+        kanbanWipLimits: {
+          'status:in-progress': 3,
+          'status:waiting': '4',
+          'priority:high': 0,
+          'priority:med': -2,
+          'priority:low': 2.5,
+          'status:done': 1000,
+          'folder:Projects/alpha': 5,
+          bogus: 3
+        }
+      })
+    )
+    const { useStore } = await import('./store')
+    expect(useStore.getState().kanbanWipLimits).toEqual({
+      'status:in-progress': 3,
+      'status:waiting': 4,
+      'folder:Projects/alpha': 5
+    })
+  })
+})
+
 describe('kanbanCardSort (#889)', () => {
   it('defaults to the manual order and round-trips due-date ordering', async () => {
     installZen()

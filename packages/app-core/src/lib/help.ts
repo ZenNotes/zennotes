@@ -385,9 +385,14 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'A bare `- [ ]`, like the ones a daily-note template leaves, is an empty task, and the Tasks list, calendar, and board leave it out. A quiet “3 hidden” beside the **View** button says how many; click it to show them. A task with any text always shows, even just `due:2026-11-02`. Turn it off in the View menu (`v`, then Hide empty tasks), with `E` in Vim mode, or in Settings → Tasks. Config key: `hide_empty_tasks` under `[view]`.'
   },
   {
+    title: 'WIP limits on Kanban columns',
+    body:
+      'A WIP limit caps how many cards a column should hold. Right-click a column header and choose **Set WIP limit…**. The header then reads `2 / 3`; past the limit the column turns red, as in `4 / 3`. From the keyboard, `↑` on a column’s first card reaches its header, where `Shift+F10` opens the menu and `Enter` renames the column. In Vim mode, `W` sets the focused column’s limit, `:wip 3` does too, and a bare `:wip` clears it. Limits are kept per board and column, in config.toml’s `[kanban_wip_limits]` table, such as `"status:in-progress" = 3`. The count ignores the filter and the hidden empty tasks.'
+  },
+  {
     title: 'Keys for the Tasks views',
     body:
-      'Each Tasks view has a **Keys** button at the right of its toolbar (`?` in Vim mode) that lists its keys. With Vim mode off it shows only the keys that work then: the arrows, Enter, Space, and Tab.'
+      'Each Tasks view has a **Keys** button at the right of its toolbar (`?` in Vim mode) that lists its keys. With Vim mode off it shows only the keys that work then: the arrows, Enter, Space, Tab, and Shift+F10.'
   },
   {
     title: 'Filter the Tasks views to one project',
@@ -804,6 +809,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'E', action: 'Show or hide empty tasks', detail: 'Tasks view: show or hide bare `- [ ]` tasks in the list, calendar, and board.' },
       { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks).' },
       { keys: '?', action: 'Keys', detail: 'Tasks view: list the current view’s keys. Esc closes it.' },
+      { keys: 'W', action: 'Set a WIP limit', detail: 'Tasks board only: set the focused column’s WIP limit. Same as `:wip <limit>`.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
       { keys: 'Esc', action: 'Clear the filter', detail: 'Clears an active filter. These views are tabs, so Esc no longer closes them. Close with :q or the ✕ in the tab header.' }
     ]
@@ -931,6 +937,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':order due | manual | priority | note',
     summary: 'Order Kanban cards by due date or by hand, or the list by priority',
     detail: 'In the Tasks view, `:order due` sorts the cards in every Kanban column by due date, earliest first and cards without one last; `:order manual` brings back the order you dragged them into, which ordering by date never overwrites. On the board or the calendar, bare `:order` switches between the two, like `s` on the board in Vim mode. Same as `kanban_card_sort` under `[view]` in config.toml. In the list, `:order priority` puts high priority first inside each group and `:order note` brings back the notes’ line order; bare `:order` there switches between the two, like `s`. Same as `tasks_list_order` under `[view]`.'
+  },
+  {
+    command: ':wip <limit>',
+    summary: 'Set the focused Kanban column’s WIP limit',
+    detail: 'On the board, `:wip 3` caps the focused column at three cards; past that it turns red. A bare `:wip` clears it. Same as Set WIP limit… in the column menu, or `W`.'
   },
   {
     command: ':delfilter <name>',

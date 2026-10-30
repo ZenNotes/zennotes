@@ -6,7 +6,7 @@ import { computeTasksRender, filterTasks, isOverdue, noteTagsByPath } from '../l
 import { forwardTaskWithPicker } from '../lib/forward-task'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
-import { TasksKanban } from './TasksKanban'
+import { TasksKanban, parseWipLimitInput, type KanbanControl } from './TasksKanban'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { isEmptyTask, withoutEmptyTasks } from '../lib/empty-tasks'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
@@ -132,6 +132,8 @@ export function TasksView(): JSX.Element {
     () => filterTasks(shownTasks, filter, noteTags),
     [shownTasks, filter, noteTags]
   )
+  // The board's handle for `:wip`, which needs the column under its cursor.
+  const kanbanControlRef = useRef<KanbanControl | null>(null)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
   const listOrder = useStore((s) => s.tasksListOrder)
@@ -545,6 +547,24 @@ export function TasksView(): JSX.Element {
         store.setKanbanCardSort(next)
         setViewMode('kanban')
         toast(next === 'due' ? 'Kanban cards ordered by due date' : 'Kanban cards in your own order')
+        return
+      }
+      // `:wip 3` caps the focused Kanban column at three cards; bare `:wip`
+      // clears its limit, like the column menu's Clear WIP limit. (#1025)
+      if (head === 'wip') {
+        const control = kanbanControlRef.current
+        if (viewMode !== 'kanban' || !control) {
+          toast(':wip works on the board')
+          return
+        }
+        const parsed = parseWipLimitInput(arg)
+        if (!parsed.ok) {
+          toast('Usage: :wip 1-999, or :wip to clear')
+          return
+        }
+        const label = control.setFocusedColumnWipLimit(parsed.limit)
+        if (label === null) return
+        toast(parsed.limit === null ? `${label}: no WIP limit` : `${label}: WIP limit ${parsed.limit}`)
         return
       }
       if (head === 'delfilter' || head === 'df') {
@@ -1159,6 +1179,7 @@ export function TasksView(): JSX.Element {
           today={today}
           onOpenTask={(task) => void openTaskAt(task)}
           onToggleTask={(task) => void toggleTaskFromList(task)}
+          controlRef={kanbanControlRef}
         />
       )}
 

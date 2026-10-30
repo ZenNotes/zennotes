@@ -389,6 +389,15 @@ export const KeyboardIcon = (p: IconProps): JSX.Element => (
   </I>
 )
 
+/** A warning: a Kanban column holding more cards than its WIP limit. */
+export const AlertTriangleIcon = (p: IconProps): JSX.Element => (
+  <I {...p}>
+    <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    <path d="M12 9v4" />
+    <path d="M12 17h.01" />
+  </I>
+)
+
 export const ZapIcon = (p: IconProps): JSX.Element => (
   <I {...p}>
     <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />

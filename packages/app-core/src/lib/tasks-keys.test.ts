@@ -27,9 +27,9 @@ describe('the Tasks keys cheat sheet', () => {
     })
   }
 
-  it('lists the board keys with Vim mode on', () => {
+  it('lists the board keys with Vim mode on, the WIP limit among them', () => {
     const keys = keysOf(tasksKeySheet('kanban', { vimMode: true, dndEnabled: true, listOrder: 'note' }))
-    for (const key of ['h / l', 'j / k', 'x', 'Enter', 'Shift+H / L', '< / >', 'g', 's', 'v', 'E', '?']) {
+    for (const key of ['h / l', 'j / k', 'x', 'Enter', 'Shift+H / L', 'm', '< / >', 'W', 'g', 's', 'v', 'E', '?']) {
       expect(keys).toContain(key)
     }
   })

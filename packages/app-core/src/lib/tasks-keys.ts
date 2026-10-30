@@ -82,14 +82,22 @@ function kanbanGroups({ vimMode, dndEnabled }: TasksKeySheetOptions): TasksKeySh
           title: 'Move',
           rows: [
             { keys: '← / →', label: 'columns' },
-            { keys: '↑ / ↓', label: 'cards' }
+            { keys: '↑ / ↓', label: 'cards, header' }
           ]
         },
         {
           title: 'Cards',
           rows: [
             { keys: 'Space', label: 'toggle' },
-            { keys: 'Enter', label: 'open' }
+            { keys: 'Enter', label: 'open' },
+            { keys: 'Shift+F10', label: 'menu' }
+          ]
+        },
+        {
+          title: 'Columns',
+          rows: [
+            { keys: 'Enter', label: 'rename (header)' },
+            { keys: 'Shift+F10', label: 'header menu' }
           ]
         }
       ],
@@ -102,21 +110,29 @@ function kanbanGroups({ vimMode, dndEnabled }: TasksKeySheetOptions): TasksKeySh
         title: 'Move',
         rows: [
           { keys: 'h / l', label: 'columns' },
-          { keys: 'j / k', label: 'cards' }
+          { keys: 'j / k', label: 'cards, header' }
         ]
       },
       {
         title: 'Cards',
-        // The card's states (i start, c cancel, @ due date) are in its
-        // right-click menu, each with its key. Subtasks get a group of their
-        // own (SUBTASK_GROUP), right after this one.
+        // The card's states (i start, c cancel, @ due date) are in the menu
+        // `m` opens, each with its key. Subtasks get a group of their own
+        // (SUBTASK_GROUP), right after this one.
         rows: [
           { keys: 'x', label: 'toggle' },
           { keys: 'Enter', label: 'open' },
-          ...(dndEnabled ? [{ keys: 'Shift+H / L', label: 'move' }] : [])
+          ...(dndEnabled ? [{ keys: 'Shift+H / L', label: 'move' }] : []),
+          { keys: 'm', label: 'menu' }
         ]
       },
-      { title: 'Columns', rows: [{ keys: '< / >', label: 'reorder' }] },
+      {
+        title: 'Columns',
+        rows: [
+          { keys: '< / >', label: 'reorder' },
+          { keys: 'W', label: 'WIP limit' },
+          { keys: 'Enter', label: 'rename (header)' }
+        ]
+      },
       { title: 'Board', rows: [{ keys: 'g', label: 'group by' }, ...viewRows('order')] }
     ],
     mouse
