@@ -8,7 +8,7 @@ import { MCP_TOOL_ACCESS, mcpScopeInstructions, newMcpScope } from '@shared/mcp-
 import { parse } from '../cli/args'
 import { createBackend, type VaultBackend } from '../cli/backend'
 import { mcpScopeFromArgs } from '../cli/commands/mcp'
-import { ScopedBackend } from './scoped-backend'
+import { ScopedBackend, scrubVaultRoot } from './scoped-backend'
 import { callTool, describeToolError, listToolNames, runMcpServer } from './server'
 
 // What the shared fixture (bridge-contract/fixtures/mcp-scope.json, run by
@@ -128,6 +128,20 @@ describe('a local scoped client', () => {
     expect(scoped).not.toContain(root)
     expect(scoped).toContain('Projects/Plan.md')
     expect(describeToolError(failure, null, local)).toContain(root)
+  })
+
+  // PR #1019's Windows runs: the error named `Projects\Plan.md` once the root
+  // was gone, not the vault path the tools report.
+  it('names a Windows path the way the tools do, with forward slashes', () => {
+    const winRoot = 'C:\\Users\\ada\\Notes'
+    const failure = `EACCES: permission denied, open '${winRoot}\\Projects\\Plan.md'`
+    expect(scrubVaultRoot(failure, winRoot, '\\')).toBe(
+      "EACCES: permission denied, open 'Projects/Plan.md'"
+    )
+    expect(scrubVaultRoot(`cannot read ${winRoot}`, winRoot, '\\')).toBe('cannot read the vault')
+    expect(scrubVaultRoot(`a '${winRoot}\\A\\B.md' and '${winRoot}\\C.md'`, winRoot, '\\')).toBe(
+      "a 'A/B.md' and 'C.md'"
+    )
   })
 })
 

@@ -640,7 +640,21 @@ export function scopeBackend(backend: VaultBackend, scope: McpScope | null | und
  * Keeps the vault's absolute location out of a scoped client's errors: an
  * MCP-only client has no use for it, and it names the user's home folder.
  */
-export function scrubVaultRoot(message: string, root: string): string {
+export function scrubVaultRoot(message: string, root: string, sep: string = path.sep): string {
   if (!root) return message
-  return message.split(root + path.sep).join('').split(root).join('the vault')
+  // What follows the root is a vault path, written the way the tools report
+  // one: forward slashes on every platform, so a Windows error names
+  // `Projects/Plan.md`, not `Projects\Plan.md`. It runs to the next quote or
+  // the end of the line, as Node's fs errors quote the path they name.
+  const prefix = root + sep
+  let out = ''
+  let rest = message
+  for (let at = rest.indexOf(prefix); at >= 0; at = rest.indexOf(prefix)) {
+    out += rest.slice(0, at)
+    rest = rest.slice(at + prefix.length)
+    const end = rest.search(/['"\n]|$/)
+    out += sep === '/' ? rest.slice(0, end) : rest.slice(0, end).split(sep).join('/')
+    rest = rest.slice(end)
+  }
+  return (out + rest).split(root).join('the vault')
 }
