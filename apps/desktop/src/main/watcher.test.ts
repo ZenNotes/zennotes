@@ -41,9 +41,19 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
 /** Wait for `events` to be non-empty, or give up. */
+// macOS watches the vault through FSEvents since chokidar 6 (#999), and the
+// stream can report makeVault's own `99 - Archive` folder, made a moment before
+// start(), as an add after it (PR #1019's macOS run). That event is the
+// fixture's, not what a test is waiting for.
+const isSetupEcho = (event: VaultChangeEvent): boolean =>
+  event.scope === 'folder' && event.path === '99 - Archive'
+const testEvents = (events: VaultChangeEvent[]): VaultChangeEvent[] =>
+  events.filter((event) => !isSetupEcho(event))
+
 async function waitForEvent(events: VaultChangeEvent[]): Promise<VaultChangeEvent | null> {
   for (let i = 0; i < 60; i++) {
-    if (events.length > 0) return events[0] as VaultChangeEvent
+    const [first] = testEvents(events)
+    if (first) return first
     await sleep(50)
   }
   return null
@@ -72,7 +82,7 @@ describe('VaultWatcher settings startup window', () => {
       // Long past chokidar's awaitWriteFinish window: without the buffer the
       // event would already have been delivered, classified as `inbox`.
       await sleep(600)
-      expect(events).toEqual([])
+      expect(testEvents(events)).toEqual([])
 
       settings.resolve(settingsWithArchiveRemap())
       const first = await waitForEvent(events)
@@ -116,7 +126,7 @@ describe('VaultWatcher atomic saves', () => {
       const scratch = path.join(root, 'Daily.md.3252272.1787800172047252.tmp')
       await writeFile(scratch, '# Daily\n')
       await sleep(250)
-      expect(events).toEqual([])
+      expect(testEvents(events)).toEqual([])
 
       await rename(scratch, path.join(root, 'Daily.md'))
       const completed = await waitForEvent(events)
@@ -294,7 +304,7 @@ describe('VaultWatcher custom templates (#723)', () => {
       await writeFile(path.join(dir, '.draft.md'), 'hidden')
       await writeFile(path.join(dir, 'notes.txt'), 'text')
       await sleep(600)
-      expect(events).toEqual([])
+      expect(testEvents(events)).toEqual([])
     },
     15_000
   )
