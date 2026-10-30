@@ -105,6 +105,12 @@ import {
   normalizeTypstPreambleSettings,
   resolveTypstPreambleFolder
 } from '@shared/typst-preamble-folder'
+import {
+  isPathInTemplateFolder,
+  normalizeTemplateFolderSettings,
+  resolveTemplateFolder,
+  rewriteTemplateFolderForRename
+} from '@shared/template-folder'
 import { normalizeHarperVaultState } from '@shared/harper-settings'
 
 const CONFIG_FILE = 'zennotes.config.json'
@@ -925,6 +931,7 @@ function cloneVaultSettings(settings: VaultSettings): VaultSettings {
         }
       : {}),
     ...(settings.typstPreambles ? { typstPreambles: { ...settings.typstPreambles } } : {}),
+    ...(settings.templates ? { templates: { ...settings.templates } } : {}),
     ...(settings.harper
       ? {
           harper: {
@@ -1178,6 +1185,7 @@ function normalizeVaultSettings(
     systemFolderPaths?: unknown
     tasks?: unknown
     typstPreambles?: unknown
+    templates?: unknown
     harper?: unknown
   }
   const folderIcons: Record<string, FolderIconId> = {}
@@ -1240,6 +1248,9 @@ function normalizeVaultSettings(
     systemFolderPaths: normalizeSystemFolderPaths(candidate.systemFolderPaths),
     tasks: normalizeTasksSettings(candidate.tasks),
     typstPreambles: normalizeTypstPreambleSettings(candidate.typstPreambles),
+    // The template folder (#1024): undefined unless a usable path is set, so
+    // JSON.stringify leaves the key out of an untouched vault.json.
+    templates: normalizeTemplateFolderSettings(candidate.templates),
     harper: normalizeHarperVaultState(candidate.harper)
   }
 }
@@ -3183,12 +3194,20 @@ export async function searchVaultText(
   const paths = normalizeVaultTextSearchToolPaths(rawPaths)
   const capabilities = await searchVaultTextCapabilities(paths)
   const backend = resolveSearchBackend(preferredBackend, capabilities)
+  // Template notes (#1024) are placeholders nobody is searching for. They are
+  // dropped before ranking, after the cache, so the cached candidates stay
+  // valid when the setting moves and the limit is spent on real notes.
+  const templateFolder = resolveTemplateFolder(await getVaultSettings(root))
+  const searchable = (candidates: VaultTextSearchCandidate[]): VaultTextSearchCandidate[] =>
+    templateFolder
+      ? candidates.filter((candidate) => !isPathInTemplateFolder(candidate.path, templateFolder))
+      : candidates
 
   if (backend === 'builtin') {
     const candidates = await getCachedVaultTextSearchCandidates(root, 'builtin', paths, () =>
       collectBuiltinSearchCandidates(root)
     )
-    const ranked = rankSearchCandidates(trimmed, candidates, limit)
+    const ranked = rankSearchCandidates(trimmed, searchable(candidates), limit)
     return await hydrateSearchOffsets(root, trimmed, ranked)
   }
 
@@ -3198,7 +3217,7 @@ export async function searchVaultText(
     )
     const ranked = rankSearchCandidates(
       trimmed,
-      candidates,
+      searchable(candidates),
       limit
     )
     return await hydrateSearchOffsets(root, trimmed, ranked)
@@ -3211,7 +3230,7 @@ export async function searchVaultText(
     : await getCachedVaultTextSearchCandidates(root, 'builtin', paths, () =>
         collectBuiltinSearchCandidates(root)
       )
-  const ranked = await runFzfSearch(trimmed, candidates, limit, paths)
+  const ranked = await runFzfSearch(trimmed, searchable(candidates), limit, paths)
   return await hydrateSearchOffsets(root, trimmed, ranked)
 }
 
@@ -4166,7 +4185,9 @@ export async function renameFolder(
     folderIcons: rewriteFolderIconsForRename(settings.folderIcons, topFolder, oldClean, newClean),
     folderColors: rewriteFolderColorsForRename(settings.folderColors, topFolder, oldClean, newClean),
     // The Tasks folder lists name on-disk paths, so they follow the folder too.
-    tasks: rewriteTasksFoldersForRename(settings.tasks, oldRel, newRel)
+    tasks: rewriteTasksFoldersForRename(settings.tasks, oldRel, newRel),
+    // So does the template folder (#1024).
+    templates: rewriteTemplateFolderForRename(settings.templates, oldRel, newRel)
   }
   await renameFolderTrees(root, oldRel, newRel, () => setVaultSettings(root, nextSettings))
   return newClean

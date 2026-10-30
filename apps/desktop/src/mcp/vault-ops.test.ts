@@ -391,3 +391,35 @@ describe('mcp tasks honor the Task folders (#962)', () => {
     expect(all.some((p) => p.includes('Rename'))).toBe(true)
   })
 })
+
+// #1024: an assistant's list_tasks agrees with the app that a template's
+// `- [ ]` lines are placeholders, not work.
+describe('mcp tasks leave the template folder out (#1024)', () => {
+  async function seed(settings: Record<string, unknown>): Promise<void> {
+    await mkdir(path.join(root, 'Templates'), { recursive: true })
+    await mkdir(path.join(root, 'Tasks'), { recursive: true })
+    await writeFile(path.join(root, 'Templates', 'Meeting.md'), '# {{title}}\n\n- [ ] agenda item\n')
+    await writeFile(path.join(root, 'Tasks', 'Today.md'), '# Today\n\n- [ ] ship it\n')
+    await mkdir(path.join(root, '.zennotes'), { recursive: true })
+    await writeFile(path.join(root, '.zennotes', 'vault.json'), JSON.stringify(settings))
+  }
+  const sources = (tasks: { sourcePath: string }[]): string[] =>
+    [...new Set(tasks.map((t) => t.sourcePath))].sort()
+
+  it('skips the template folder, next to the Task folders', async () => {
+    await seed({ templates: { folder: 'Templates' } })
+    const listed = sources(await scanAllTasks(root))
+    expect(listed).toContain('Tasks/Today.md')
+    expect(listed).not.toContain('Templates/Meeting.md')
+
+    await seed({ templates: { folder: 'Templates' }, tasks: { includedFolders: ['Tasks'] } })
+    expect(sources(await scanAllTasks(root))).toEqual(['Tasks/Today.md'])
+  })
+
+  it('lists them with includeExcluded, which scans every note', async () => {
+    await seed({ templates: { folder: 'Templates' } })
+    expect(sources(await scanAllTasks(root, { includeExcluded: true }))).toContain(
+      'Templates/Meeting.md'
+    )
+  })
+})

@@ -735,7 +735,7 @@ const TOOLS: ToolDef[] = [
           includeExcluded: {
             type: 'boolean',
             description:
-              'Also scan notes opted out of Tasks (frontmatter `tasks: false` / `tasks: note`), folders on the vault\'s excluded list, and notes outside its Task folders. Default false: excluded tasks are invisible.'
+              'Also scan notes opted out of Tasks (frontmatter `tasks: false` / `tasks: note`), folders on the vault\'s excluded list, its template folder, and notes outside its Task folders. Default false: excluded tasks are invisible.'
           }
         }
       }

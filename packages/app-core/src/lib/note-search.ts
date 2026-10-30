@@ -144,17 +144,37 @@ function insertTopMatch<T extends { score: number }>(
   if (next.score > matches[lowestIndex].score) matches[lowestIndex] = next
 }
 
+/**
+ * Whether a query reaches into the template folder (#1024). Template notes are
+ * placeholders nobody is searching for, so they stay out of the results until
+ * the query starts with the folder's path and a slash (`Templates/meet`),
+ * which is how a template is found to be edited.
+ */
+function queryNamesTemplateFolder(freeText: string, folder: string): boolean {
+  return freeText.toLowerCase().startsWith(`${folder.toLowerCase()}/`)
+}
+
 export function searchNoteIndex(
   entries: NoteSearchEntry[],
   query: string,
   options: {
     limit: number
     defaultOrder?: NoteSearchDefaultOrder
+    /** The vault's template folder (#1024); its notes are left out unless
+     *  the query names it. */
+    templateFolder?: string | null
   }
 ): NoteMeta[] {
   const { freeText, tagTokens } = parseNoteSearchQuery(query)
   const limit = Math.max(0, options.limit)
   if (limit === 0) return []
+  const hidden =
+    options.templateFolder && !queryNamesTemplateFolder(freeText, options.templateFolder)
+      ? `${options.templateFolder}/`
+      : null
+  if (hidden) {
+    entries = entries.filter((entry) => !entry.path.startsWith(hidden))
+  }
 
   if (!freeText) {
     const live = entries.filter(

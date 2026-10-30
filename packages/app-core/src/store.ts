@@ -25,6 +25,12 @@ import {
   normalizeTasksIncludedFolder,
   rewriteTasksFoldersForRename
 } from '@shared/tasks-excluded-folders'
+import {
+  isPathInTemplateFolder,
+  normalizeTemplateFolder,
+  resolveTemplateFolder,
+  rewriteTemplateFolderForRename
+} from '@shared/template-folder'
 import { toggleTasksFolder } from './lib/tasks-folder-lists'
 import { cloudSyncPathKey } from '@zennotes/shared-domain/cloud-sync'
 import { useCloudSyncStatusStore } from './lib/cloud-auto-sync'
@@ -201,6 +207,7 @@ import {
   findTemplate,
   mergeTemplates,
   parseCustomTemplate,
+  parseFolderTemplate,
   slugifyTemplateName
 } from '@shared/template-files'
 import { buildWorkflowIndex } from './lib/workflow-index'
@@ -509,6 +516,40 @@ function resolveTemplate(
   id: string | undefined
 ): NoteTemplate | undefined {
   return findTemplate(mergeTemplates(BUILTIN_TEMPLATES, customTemplates), id)
+}
+
+/** Template-folder notes as parsed (#1024), keyed by vault root and path, with
+ *  the listing stamp each was read at. Every note listing re-checks the folder
+ *  and most listings follow an edit somewhere else, so a note whose stamp has
+ *  not moved is not read again. */
+const folderTemplateCache = new Map<string, { stamp: string; template: NoteTemplate }>()
+let folderTemplateLoad = 0
+
+/** A template-folder template with its body as it reads right now; any other
+ *  template as it is. Creating from a template reads the note once more, so a
+ *  new note never starts from a copy the listing has not caught up with. */
+async function withCurrentFolderTemplateBody(template: NoteTemplate): Promise<NoteTemplate> {
+  if (template.source !== 'folder' || !template.sourcePath) return template
+  const state = useStore.getState()
+  const folder = resolveTemplateFolder(state.vaultSettings)
+  if (!folder || !isPathInTemplateFolder(template.sourcePath, folder)) return template
+  try {
+    const raw =
+      state.noteContents[template.sourcePath]?.body ??
+      (await window.zen.readNote(template.sourcePath)).body
+    return parseFolderTemplate(raw, template.sourcePath, folder)
+  } catch {
+    return template
+  }
+}
+
+/** The tasks a host handed over, less those from the template folder (#1024).
+ *  A template's `- [ ]` lines are placeholders, and a server or phone that
+ *  does not know the setting yet still sends them. */
+function withoutTemplateFolderTasks(tasks: VaultTask[], settings: VaultSettings): VaultTask[] {
+  const folder = resolveTemplateFolder(settings)
+  if (!folder) return tasks
+  return tasks.filter((task) => !isPathInTemplateFolder(task.sourcePath, folder))
 }
 
 function isDeletedAssetRecord(value: unknown): value is DeletedAsset {
@@ -3185,8 +3226,14 @@ interface Store {
   /** When set, the template picker creates in this folder (set by right-click);
    *  null means prompt the user for a destination. */
   templatePaletteTarget: { folder: NoteFolder; subpath: string } | null
-  /** Custom templates loaded from `.zennotes/templates/` (built-ins are constants). */
+  /** Every template the user has (built-ins are constants): the files in
+   *  `.zennotes/templates/` first, then the notes in the vault's template
+   *  folder (#1024). What every picker merges with the built-ins. */
   customTemplates: NoteTemplate[]
+  /** The `.zennotes/templates/` half of `customTemplates`. */
+  storedTemplates: NoteTemplate[]
+  /** The template-folder half of `customTemplates` (#1024). */
+  folderTemplates: NoteTemplate[]
   /**
    * The vault's workflows, summarized for surfaces outside the workflows view.
    * The command palette builds its Run entries from this synchronously, which
@@ -4044,6 +4091,16 @@ interface Store {
   insertTemplateIntoActiveNote: (template: NoteTemplate) => void
   /** Reload custom templates from disk (called on vault open and after CRUD). */
   loadCustomTemplates: () => Promise<void>
+  /** Re-read the notes in the vault's template folder (#1024) as templates.
+   *  Runs after every note listing; a note whose listing stamp has not moved
+   *  is not read again. */
+  loadFolderTemplates: () => Promise<void>
+  /**
+   * Point the vault at a template folder (#1024), a vault-relative path such
+   * as `Templates`, or clear it with null. Saved to vault.json; the picker,
+   * Tasks and search follow at once.
+   */
+  setTemplateFolder: (folder: string | null) => Promise<void>
   /** Reload the workflow index (called with the vault indexes and after workflow CRUD). */
   loadWorkflowIndex: () => Promise<void>
   saveCustomTemplate: (input: {
@@ -5436,6 +5493,12 @@ export const useStore = create<Store>((set, get) => {
             s.vaultSettings.tasks,
             oldPrefix.replace(/\/$/, ''),
             newPrefix.replace(/\/$/, '')
+          ),
+          // So did the template folder (#1024), an on-disk path as well.
+          templates: rewriteTemplateFolderForRename(
+            s.vaultSettings.templates,
+            oldPrefix.replace(/\/$/, ''),
+            newPrefix.replace(/\/$/, '')
           )
         }
       }))
@@ -6186,6 +6249,8 @@ export const useStore = create<Store>((set, get) => {
   templatePaletteMode: 'create',
   templatePaletteTarget: null,
   customTemplates: [],
+  storedTemplates: [],
+  folderTemplates: [],
   workflowIndex: [],
   query: '',
   initialized: false,
@@ -7289,7 +7354,10 @@ export const useStore = create<Store>((set, get) => {
     try {
       const tasks = await window.zen.scanTasks()
       if (!isCurrent() || revision !== taskIndexRevision) return
-      set({ vaultTasks: tasks, tasksLoading: false })
+      set({
+        vaultTasks: withoutTemplateFolderTasks(tasks, get().vaultSettings),
+        tasksLoading: false
+      })
     } catch (err) {
       console.error('scanTasks failed', err)
       if (!isCurrent() || revision !== taskIndexRevision) return
@@ -7305,7 +7373,9 @@ export const useStore = create<Store>((set, get) => {
       const fresh = await window.zen.scanTasksForPath(relPath)
       if (!isCurrent() || folderMutationBlocks(relPath) || version !== folderReadVersion(relPath)) return
       set((s) => ({
-        vaultTasks: s.vaultTasks.filter((t) => t.sourcePath !== relPath).concat(fresh)
+        vaultTasks: s.vaultTasks
+          .filter((t) => t.sourcePath !== relPath)
+          .concat(withoutTemplateFolderTasks(fresh, s.vaultSettings))
       }))
     } catch (err) {
       console.error('scanTasksForPath failed', err)
@@ -8171,6 +8241,10 @@ export const useStore = create<Store>((set, get) => {
       // The note list is where preamble notes are discovered, so keep them in
       // step with it (no-op unless the setting is on). (#486)
       if (get().typstTagPreambles) void get().refreshTypstPreambles()
+      // Template-folder notes too (#1024): a note added, removed or edited in
+      // the folder, here or on another device, reaches the picker this way.
+      // Unchanged notes are not read again.
+      void get().loadFolderTemplates()
     } catch (err) {
       console.error('refresh failed', err)
     }
@@ -8369,6 +8443,9 @@ export const useStore = create<Store>((set, get) => {
         // So do agent edit records (scope 'agent-edits').
         get().refreshAgentEdits()
       ])
+      // The listing and the settings landed in either order; read the
+      // template folder (#1024) against both.
+      await get().loadFolderTemplates()
       const stateAfter = get()
       const openTabs = [...new Set(allLeaves(stateAfter.paneLayout).flatMap((leaf) => leaf.tabs))]
       // Databases and comment threads have their own feed scopes ('database',
@@ -8488,6 +8565,7 @@ export const useStore = create<Store>((set, get) => {
             .getVaultSettings()
             .then((settings) => {
               const normalized = normalizeVaultSettings(settings)
+              const templateFolderBefore = resolveTemplateFolder(get().vaultSettings)
               // Re-overlay view overrides if vault.json changed externally — only
               // in per-vault scope. (#292)
               set({
@@ -8499,6 +8577,12 @@ export const useStore = create<Store>((set, get) => {
               const nameBefore = get().vault?.name
               applyVaultNameFromSettings(normalized)
               if (get().vault?.name !== nameBefore) void get().refreshLocalVaults()
+              // A template folder set on another device or by hand (#1024)
+              // changes the picker and which checkboxes count as tasks.
+              if (resolveTemplateFolder(normalized) !== templateFolderBefore) {
+                void get().loadFolderTemplates()
+                if (tasksSurfaceVisible(get())) void get().refreshTasks()
+              }
             })
             .catch((err) => {
               console.error('refresh vault settings failed', err)
@@ -8700,6 +8784,12 @@ export const useStore = create<Store>((set, get) => {
             ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
           }
         })
+        // A template edited in the editor (#1024) reaches the picker with the
+        // save, without waiting for the watcher's echo: the listing stamp just
+        // moved, so the folder load reads this note again.
+        if (isPathInTemplateFolder(path, resolveTemplateFolder(get().vaultSettings))) {
+          void get().loadFolderTemplates()
+        }
         // This app saved the note, which is what the workflow event triggers
         // listen for. A tag the note did not carry before is its own event.
         emitNoteEvent('note-saved', path)
@@ -10459,13 +10549,81 @@ export const useStore = create<Store>((set, get) => {
   },
 
   loadCustomTemplates: async () => {
+    let stored: NoteTemplate[] = []
     try {
       const files = await window.zen.listTemplates()
-      set({ customTemplates: files.map((f) => parseCustomTemplate(f.raw, f.sourcePath)) })
+      stored = files.map((f) => parseCustomTemplate(f.raw, f.sourcePath))
     } catch (err) {
       console.error('loadCustomTemplates failed', err)
-      set({ customTemplates: [] })
     }
+    set((s) => ({ storedTemplates: stored, customTemplates: [...stored, ...s.folderTemplates] }))
+  },
+
+  loadFolderTemplates: async () => {
+    // The template folder's notes are ordinary notes (#1024): they arrive with
+    // the note listing and are read through readNote, which every host has, so
+    // a self-hosted server, the web client and the phones need nothing of
+    // their own to show them.
+    const load = ++folderTemplateLoad
+    const state = get()
+    const root = state.vault?.root ?? ''
+    const folder = resolveTemplateFolder(state.vaultSettings)
+    const candidates = folder
+      ? state.notes.filter(
+          (note) =>
+            note.folder !== 'trash' &&
+            /\.md$/i.test(note.path) &&
+            // An Obsidian drawing is a `.excalidraw.md` file, not a template.
+            !isObsidianExcalidrawPath(note.path) &&
+            isPathInTemplateFolder(note.path, folder)
+        )
+      : []
+    const present = new Set<string>()
+    const read = await Promise.all(
+      candidates.map(async (note): Promise<NoteTemplate | null> => {
+        const key = `${root}\0${note.path}`
+        const stamp = `${folder}\0${note.updatedAt}\0${note.size}`
+        present.add(key)
+        const cached = folderTemplateCache.get(key)
+        if (cached && cached.stamp === stamp) return cached.template
+        try {
+          const { body } = await window.zen.readNote(note.path)
+          const template = parseFolderTemplate(body, note.path, folder!)
+          folderTemplateCache.set(key, { stamp, template })
+          return template
+        } catch (err) {
+          console.error('template folder read failed', note.path, err)
+          return null
+        }
+      })
+    )
+    if (load !== folderTemplateLoad) return // a newer listing is loading them
+    for (const key of folderTemplateCache.keys()) {
+      if (!present.has(key)) folderTemplateCache.delete(key)
+    }
+    const loaded = read
+      .filter((t): t is NoteTemplate => t !== null)
+      .sort((a, b) => (a.sourcePath ?? '').localeCompare(b.sourcePath ?? ''))
+    const previous = get().folderTemplates
+    if (loaded.length === previous.length && loaded.every((t, i) => t === previous[i])) return
+    set((s) => ({ folderTemplates: loaded, customTemplates: [...s.storedTemplates, ...loaded] }))
+  },
+
+  setTemplateFolder: async (folder) => {
+    const settings = get().vaultSettings
+    const cleaned = folder === null ? null : normalizeTemplateFolder(folder)
+    if (folder !== null && !cleaned) return
+    if (cleaned === resolveTemplateFolder(settings)) return
+    const { templates: _previous, ...rest } = settings
+    void _previous
+    // setVaultSettings re-lists the notes, which re-reads the folder.
+    const saved = await get().setVaultSettings(
+      cleaned ? { ...rest, templates: { folder: cleaned } } : rest
+    )
+    if (!saved) return
+    await get().loadFolderTemplates()
+    // The old folder's checkboxes come back to Tasks, the new one's leave.
+    await get().refreshTasks()
   },
 
   loadWorkflowIndex: async () => {
@@ -10534,7 +10692,8 @@ export const useStore = create<Store>((set, get) => {
         title = entered.trim()
       }
       if (!title) title = template.name
-      const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
+      const current = await withCurrentFolderTemplateBody(template)
+      const { body, cursorOffset } = renderTemplate(current.body, { title, now: opts?.date })
       const meta = await window.zen.createNote(folder, title, subpath)
       rememberEditModeForCreatedNote(meta.path)
       // In the list at once, as createAndOpen does: the listing below is

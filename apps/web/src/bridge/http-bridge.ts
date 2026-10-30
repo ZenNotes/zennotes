@@ -103,6 +103,7 @@ const WEB_CAPABILITIES: ZenCapabilities = {
   supportsCloudSync: false,
   supportsCliInstall: false,
   supportsCustomTemplates: false,
+  supportsTemplateFolder: false,
   supportsCustomCodeLanguages: false,
   supportsWorkflows: false
 }
@@ -1514,7 +1515,10 @@ export const httpBridge: ZenBridge = {
   getCapabilities: (): ZenCapabilities => ({
     ...WEB_CAPABILITIES,
     supportsWorkflows: lastServerCapabilities?.supportsWorkflows === true,
-    supportsCustomTemplates: lastServerCapabilities?.supportsCustomTemplates === true
+    supportsCustomTemplates: lastServerCapabilities?.supportsCustomTemplates === true,
+    // The server keeps vault.json's template folder from 2.80 (#1024); an
+    // older one drops it on every settings save, so Settings hides the row.
+    supportsTemplateFolder: lastServerCapabilities?.supportsTemplateFolder === true
   }),
   getAppInfo: (): ZenAppInfo => WEB_APP_INFO,
   platform,

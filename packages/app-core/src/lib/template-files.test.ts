@@ -4,9 +4,12 @@ import {
   findTemplate,
   mergeTemplates,
   parseCustomTemplate,
+  parseFolderTemplate,
   parseFrontmatter,
   slugifyTemplateName,
-  templateSettingId
+  templateSettingId,
+  templateSource,
+  templateSourceLabel
 } from '@shared/template-files'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
 import type { NoteTemplate } from '@bridge-contract/templates'
@@ -188,6 +191,104 @@ describe('findTemplate', () => {
     expect(templateSettingId(BUILTIN_TEMPLATES[0])).toBe(BUILTIN_TEMPLATES[0].id)
     const afterReset = mergeTemplates(BUILTIN_TEMPLATES, [])
     expect(findTemplate(afterReset, templateSettingId(edited))?.id).toBe('builtin.daily')
+  })
+})
+
+// #1024: a note in the vault's template folder is a template. A plain note is
+// the Obsidian shape (the whole file is the template, named after the file);
+// a file headed the `.zennotes/templates` way is read the way that folder
+// reads it, so moving a template between the two keeps it working.
+describe('parseFolderTemplate (#1024)', () => {
+  it('reads a plain note as a template named after its file', () => {
+    const raw = '# {{title}}\n\n## Agenda\n\n- [ ] {{cursor}}\n'
+    const t = parseFolderTemplate(raw, 'Templates/Meeting.md', 'Templates')
+    expect(t).toMatchObject({
+      id: 'folder:Meeting',
+      name: 'Meeting',
+      description: '',
+      category: 'Custom',
+      body: raw,
+      builtin: false,
+      source: 'folder',
+      sourcePath: 'Templates/Meeting.md'
+    })
+    expect(t.builtinId).toBeUndefined()
+    expect(t.titleTemplate).toBeUndefined()
+  })
+
+  it("keeps a note's own frontmatter in the body, for the new note to carry", () => {
+    const raw = '---\ntags: meeting\ncreated: {{date}}\n---\n# {{title}}\n'
+    const t = parseFolderTemplate(raw, 'Templates/Meeting.md', 'Templates')
+    expect(t.body).toBe(raw)
+    expect(t.name).toBe('Meeting')
+    expect(t.category).toBe('Custom')
+  })
+
+  it('reads a .zennotes/templates header as template settings, not note content', () => {
+    const raw =
+      '---\nname: Standup\ndescription: Daily sync\ncategory: Engineering\ntitleTemplate: "{{date:YYYY-MM-DD}} Standup"\ntargetSubpath: Meetings\n---\n## Yesterday\n'
+    const t = parseFolderTemplate(raw, 'Templates/Work/standup.md', 'Templates')
+    expect(t).toMatchObject({
+      id: 'folder:Work/standup',
+      name: 'Standup',
+      description: 'Daily sync',
+      category: 'Engineering',
+      titleTemplate: '{{date:YYYY-MM-DD}} Standup',
+      targetSubpath: 'Meetings',
+      body: '## Yesterday\n',
+      source: 'folder'
+    })
+  })
+
+  it('never lets a template-folder note shadow a built-in', () => {
+    const raw = '---\nname: Daily Note\ncategory: Personal\nbuiltinId: builtin.daily\n---\nbody\n'
+    const t = parseFolderTemplate(raw, 'Templates/Daily Note.md', 'Templates')
+    expect(t.builtinId).toBeUndefined()
+    expect(t.body).toBe('body\n')
+    const merged = mergeTemplates(BUILTIN_TEMPLATES, [t])
+    expect(merged.filter((m) => m.name === 'Daily Note').map((m) => m.id)).toEqual([
+      'builtin.daily',
+      'folder:Daily Note'
+    ])
+  })
+
+  it('treats a frontmatter with any key of its own as note content', () => {
+    const raw = '---\nname: Standup\naliases: sync\n---\nbody\n'
+    expect(parseFolderTemplate(raw, 'Templates/standup.md', 'Templates').body).toBe(raw)
+  })
+})
+
+describe('template sources (#1024)', () => {
+  const stored = parseCustomTemplate(
+    '---\nname: Meeting\n---\nstored\n',
+    '.zennotes/templates/meeting.md'
+  )
+  const fromFolder = parseFolderTemplate('folder\n', 'Templates/Meeting.md', 'Templates')
+  const nested = parseFolderTemplate('nested\n', 'Templates/Work/Retro.md', 'Templates')
+
+  it('says where each template comes from', () => {
+    expect(templateSource(BUILTIN_TEMPLATES[0])).toBe('builtin')
+    expect(templateSource(stored)).toBe('custom')
+    expect(templateSource(fromFolder)).toBe('folder')
+  })
+
+  it('labels a template-folder entry with the folder it sits in', () => {
+    expect(templateSourceLabel(fromFolder)).toBe('Templates')
+    expect(templateSourceLabel(nested)).toBe('Templates/Work')
+    expect(templateSourceLabel(stored)).toBe('Custom')
+    expect(templateSourceLabel(BUILTIN_TEMPLATES[0])).toBe(BUILTIN_TEMPLATES[0].category)
+  })
+
+  it('keeps both sides of a name clash, the .zennotes/templates file first', () => {
+    // Either order in, same order out: the clash is settled by source, not by
+    // whichever list happened to load first.
+    for (const custom of [
+      [stored, fromFolder],
+      [fromFolder, stored]
+    ]) {
+      const merged = mergeTemplates([], custom)
+      expect(merged.map((t) => t.id)).toEqual(['custom:meeting', 'folder:Meeting'])
+    }
   })
 })
 

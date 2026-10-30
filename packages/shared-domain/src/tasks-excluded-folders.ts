@@ -9,6 +9,8 @@
 // internal/vault/settings.go: change them together and keep the rules
 // byte-compatible.
 
+import { resolveTemplateFolder } from './template-folder'
+
 /** Validate one excluded-folder entry: forward slashes, no empty or dot
  *  segments, no traversal. Returns the cleaned path or null when invalid. */
 export function normalizeTasksExcludedFolder(value: unknown): string | null {
@@ -58,6 +60,29 @@ export function isPathExcludedFromTasks(
 ): boolean {
   if (included.length > 0 && !isInsideAnyFolder(relPath, included)) return true
   return isInsideAnyFolder(relPath, excluded)
+}
+
+/**
+ * The folder lists every Tasks scanner applies, read off vault settings (raw
+ * or normalized): the excluded folders and the Task folders, validated, with
+ * the template folder (#1024) added to the excluded ones. A template's
+ * `- [ ]` lines are placeholders for the note it will make, never work, so the
+ * template folder is left out even inside a Task folder. Callers that scan
+ * past the lists on request (MCP's `includeExcluded`) skip this helper and so
+ * reach the template folder as well.
+ */
+export function tasksFolderListsForSettings(
+  settings: { tasks?: unknown; templates?: unknown } | null | undefined
+): { excluded: string[]; included: string[] } {
+  const tasks =
+    settings?.tasks && typeof settings.tasks === 'object'
+      ? (settings.tasks as { excludedFolders?: unknown; includedFolders?: unknown })
+      : undefined
+  const excluded = normalizeTasksExcludedFolders(tasks?.excludedFolders)
+  const included = normalizeTasksIncludedFolders(tasks?.includedFolders)
+  const templateFolder = resolveTemplateFolder(settings)
+  if (templateFolder && !excluded.includes(templateFolder)) excluded.push(templateFolder)
+  return { excluded, included }
 }
 
 function isInsideAnyFolder(relPath: string, folders: readonly string[]): boolean {

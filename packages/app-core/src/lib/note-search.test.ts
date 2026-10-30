@@ -28,6 +28,35 @@ function note(
   }
 }
 
+// #1024: notes in the template folder are placeholders, not notes anyone is
+// looking for, so Search notes leaves them out until the query names the folder.
+describe('note search and the template folder', () => {
+  const entries = buildNoteSearchIndex([
+    note('Templates/Meeting.md', 'Meeting', { excerpt: 'Agenda' }),
+    note('Templates/Work/Standup.md', 'Standup'),
+    note('Notes/Meeting with Ana.md', 'Meeting with Ana', { excerpt: 'Agenda' }),
+    note('Templates Old/Meeting.md', 'Meeting old')
+  ])
+  const titles = (query: string, templateFolder: string | null = 'Templates'): string[] =>
+    searchNoteIndex(entries, query, { limit: 10, templateFolder }).map((n) => n.title).sort()
+
+  it('leaves template notes out of matches and of the empty-query list', () => {
+    expect(titles('meeting')).toEqual(['Meeting old', 'Meeting with Ana'])
+    expect(titles('agenda')).toEqual(['Meeting with Ana'])
+    expect(titles('')).toEqual(['Meeting old', 'Meeting with Ana'])
+  })
+
+  it('finds them again when the query starts with the folder path', () => {
+    expect(titles('templates/')).toEqual(['Meeting', 'Standup'])
+    expect(titles('Templates/meet')).toEqual(['Meeting'])
+    expect(titles('Templates/Work/st')).toEqual(['Standup'])
+  })
+
+  it('shows everything when the vault has no template folder', () => {
+    expect(titles('meeting', null)).toEqual(['Meeting', 'Meeting old', 'Meeting with Ana'])
+  })
+})
+
 describe('note search', () => {
   it('parses free text and inline tag filters', () => {
     expect(parseNoteSearchQuery('#ops migration #prod')).toEqual({

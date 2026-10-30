@@ -218,8 +218,8 @@ starts it expanded; use \`-\` for long blocks a reader opens on demand.
 - Task ids from list_tasks (\`path#index\`) are stable, so pass
   them to toggle_task.
 - list_tasks omits notes opted out of Tasks (frontmatter
-  \`tasks: false\`/\`note\`, excluded folders, and notes outside
-  the vault's Task folders when it has any). Pass
+  \`tasks: false\`/\`note\`, excluded folders, the template folder,
+  and notes outside the vault's Task folders when it has any). Pass
   includeExcluded: true only when the user asks for everything.
 
 ## Comments: reviewing a note together

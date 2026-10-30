@@ -36,6 +36,16 @@ const mocks = vi.hoisted(() => {
       calendarShowWeekNumbers: true,
       calendarWeekStart: "monday",
       customTemplates: [],
+      // The template folder picker (#1024) lists the vault's folders.
+      folders: [
+        { folder: "inbox", subpath: "", siblingOrder: 0 },
+        { folder: "inbox", subpath: "Templates", siblingOrder: 1 },
+        { folder: "inbox", subpath: "Templates/Work", siblingOrder: 2 },
+        { folder: "archive", subpath: "Old", siblingOrder: 0 },
+        { folder: "trash", subpath: "Gone", siblingOrder: 0 },
+      ],
+      folderTemplates: [],
+      setTemplateFolder: vi.fn(),
       externalApplicationSchemes: [],
       setExternalApplicationSchemes: vi.fn(),
       darkSidebar: false,
@@ -392,6 +402,57 @@ describe("SettingsModal date note directories", () => {
     expect(await sharesRowFound()).toBe(false);
     mocks.state.remoteWorkspaceInfo = serverWith({ supportsSharesLocation: true });
     expect(await sharesRowFound()).toBe(true);
+  });
+
+  it("finds the template folder and picks it from the vault's folders (#1024)", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+    await act(async () => changeInput(search, "template folder"));
+    const result = [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].find(
+      (button) => button.textContent?.includes("Template folder"),
+    );
+    expect(result).toBeTruthy();
+    await act(async () => result!.click());
+    const row = host.querySelector('[data-settings-search-id="templates-folder"]');
+    expect(row?.textContent).toContain("stay out of Tasks");
+    const picker = row!.querySelector<HTMLButtonElement>("[data-template-folder-picker]")!;
+    expect(picker.textContent).toContain("None");
+    await act(async () => picker.click());
+    // Folders inside an area, by their path on disk: never an area itself,
+    // never the Trash.
+    const options = [...document.querySelectorAll<HTMLButtonElement>("[data-template-folder-option]")];
+    expect(options.map((o) => o.dataset.templateFolderOption)).toEqual([
+      "",
+      "archive/Old",
+      "inbox/Templates",
+      "inbox/Templates/Work",
+    ]);
+    await act(async () => options[2].click());
+    expect(mocks.state.setTemplateFolder).toHaveBeenCalledWith("inbox/Templates");
+  });
+
+  it("offers the template folder on a server vault only when the server keeps it", async () => {
+    mocks.state.workspaceMode = "remote";
+    const serverWith = (capabilities: Record<string, unknown>) => ({
+      mode: "remote",
+      baseUrl: "http://localhost:7878",
+      authConfigured: true,
+      capabilities,
+      profileId: null,
+      bootError: null,
+    });
+    const rowFound = async () => {
+      await act(async () => root.render(createElement(SettingsModal)));
+      const search = host.querySelector<HTMLInputElement>('input[placeholder="Search settings…"]')!;
+      await act(async () => changeInput(search, "template folder"));
+      return [...host.querySelectorAll<HTMLButtonElement>("aside nav button")].some(
+        (button) => button.textContent?.includes("Template folder"),
+      );
+    };
+    mocks.state.remoteWorkspaceInfo = serverWith({ supportsCustomTemplates: true });
+    expect(await rowFound()).toBe(false);
+    mocks.state.remoteWorkspaceInfo = serverWith({ supportsTemplateFolder: true });
+    expect(await rowFound()).toBe(true);
   });
 
   it("names the Unsplash key in the Covers section only where the key row exists", async () => {

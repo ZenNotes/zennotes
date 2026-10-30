@@ -112,6 +112,7 @@ describe('diffVaultSettings', () => {
       systemFolderPaths: true,
       tasks: true,
       typstPreambles: true,
+      templates: true,
       harper: true
     }
     expect([...VAULT_SETTINGS_SECTIONS].sort()).toEqual(Object.keys(declared).sort())

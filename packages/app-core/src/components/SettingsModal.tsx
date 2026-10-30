@@ -132,6 +132,7 @@ import {
   normalizeMonthlyNoteTitlePattern,
   normalizeMonthlyNotesDirectory,
   specificFolderDestination,
+  vaultRelativeFolderPath,
 } from "../lib/vault-layout";
 import { BUILTIN_TEMPLATES } from "@shared/builtin-templates";
 import {
@@ -139,7 +140,10 @@ import {
   findTemplate,
   mergeTemplates,
   templateSettingId,
+  templateSource,
+  templateSourceLabel,
 } from "@shared/template-files";
+import { resolveTemplateFolder } from "@shared/template-folder";
 import { TemplateEditorModal } from "./TemplateEditorModal";
 import type { NoteTemplate } from "@bridge-contract/templates";
 import {
@@ -691,6 +695,7 @@ export function SettingsModal(): JSX.Element {
   const supportsCloudSync = !!zenBridge.getCapabilities().supportsCloudSync;
   const setSettingsOpen = useStore((s) => s.setSettingsOpen);
   const openHelpView = useStore((s) => s.openHelpView);
+  const selectNote = useStore((s) => s.selectNote);
   const vimMode = useStore((s) => s.vimMode);
   const setVimMode = useStore((s) => s.setVimMode);
   const vimInsertEscape = useStore((s) => s.vimInsertEscape);
@@ -887,6 +892,20 @@ export function SettingsModal(): JSX.Element {
     workspaceMode === "remote"
       ? remoteWorkspaceInfo?.capabilities?.supportsCustomTemplates === true
       : zenBridge.getCapabilities().supportsCustomTemplates === true;
+  // The template folder lives in vault.json (#1024). A self-hosted server
+  // keeps it from 2.80 and an older one drops it on every settings save, so
+  // the row stays hidden there; the web client asks its server the same way.
+  const supportsTemplateFolder =
+    workspaceMode === "remote"
+      ? remoteWorkspaceInfo?.capabilities?.supportsTemplateFolder === true
+      : zenBridge.getCapabilities().supportsTemplateFolder !== false;
+  // A template-folder template is an ordinary note: it is edited in the
+  // editor, not in the template editor, which writes to .zennotes/templates.
+  const openTemplateNote = (template: NoteTemplate): void => {
+    if (!template.sourcePath) return;
+    setSettingsOpen(false);
+    void selectNote(template.sourcePath);
+  };
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
   // Undo history between launches needs somewhere machine-local that is not
@@ -5746,8 +5765,24 @@ export function SettingsModal(): JSX.Element {
         "custom",
         "scaffold",
         "boilerplate",
+        "folder",
+        "obsidian",
       ],
       searchItems: [
+        {
+          id: "templates-folder",
+          title: "Template folder",
+          description: "Notes in a folder become templates.",
+          keywords: [
+            "template folder",
+            "templates folder",
+            "folder",
+            "obsidian",
+            "notes as templates",
+            "placeholder",
+          ],
+          available: supportsTemplateFolder,
+        },
         {
           id: "templates-list",
           title: "Template library",
@@ -5764,6 +5799,11 @@ export function SettingsModal(): JSX.Element {
       ],
       content: (
         <div className="space-y-6">
+          {supportsTemplateFolder && (
+            <Section title="Template folder">
+              <TemplateFolderRow settingId="templates-folder" />
+            </Section>
+          )}
           <Section
             title="Templates"
             description="Pick any of these from the template picker (`Space t`, `:template`). Built-in templates are read-only; your custom ones can be edited or deleted."
@@ -5828,6 +5868,7 @@ export function SettingsModal(): JSX.Element {
             {allTemplates.map((template) => (
               <div
                 key={template.id}
+                data-template-source={templateSource(template)}
                 className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-3"
               >
                 <div className="min-w-0 flex-1 basis-56">
@@ -5835,47 +5876,69 @@ export function SettingsModal(): JSX.Element {
                     {template.name}
                   </div>
                   <div className="mt-0.5 truncate text-xs text-ink-500">
-                    {template.category}
+                    {templateSource(template) === "folder"
+                      ? template.sourcePath
+                      : template.category}
                     {template.description ? ` · ${template.description}` : ""}
                   </div>
                 </div>
                 <div className="flex max-w-full flex-wrap items-center gap-2">
-                  {template.builtin && (
-                    <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
-                      Built-in
-                    </span>
-                  )}
-                  {!template.builtin && template.builtinId && (
-                    <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
-                      Customized
-                    </span>
-                  )}
-                  {template.builtin ? (
-                    supportsCustomTemplates && (
+                  {templateSource(template) === "folder" ? (
+                    <>
+                      <span
+                        className="max-w-xs truncate rounded-md bg-paper-200 px-2 py-1 text-xs text-ink-500"
+                        title="Template folder"
+                      >
+                        {templateSourceLabel(template)}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => editBuiltinTemplate(template)}
+                        onClick={() => openTemplateNote(template)}
                         className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
                       >
-                        Edit
+                        Open
                       </button>
-                    )
+                    </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => void openTemplateEditor(template)}
-                        className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void removeTemplate(template)}
-                        className="rounded-lg border border-red-500/30 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-[rgb(var(--z-red))] hover:bg-red-500/10"
-                      >
-                        {template.builtinId ? "Reset" : "Delete"}
-                      </button>
+                      {template.builtin && (
+                        <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
+                          Built-in
+                        </span>
+                      )}
+                      {!template.builtin && template.builtinId && (
+                        <span className="rounded-md bg-paper-200 px-2 py-1 text-xs uppercase tracking-wide text-ink-400">
+                          Customized
+                        </span>
+                      )}
+                      {template.builtin ? (
+                        supportsCustomTemplates && (
+                          <button
+                            type="button"
+                            onClick={() => editBuiltinTemplate(template)}
+                            className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
+                          >
+                            Edit
+                          </button>
+                        )
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void openTemplateEditor(template)}
+                            className="rounded-lg border border-paper-300/70 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-ink-800 hover:bg-paper-200"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void removeTemplate(template)}
+                            className="rounded-lg border border-red-500/30 bg-paper-100/80 px-3 py-1.5 text-xs font-medium text-[rgb(var(--z-red))] hover:bg-red-500/10"
+                          >
+                            {template.builtinId ? "Reset" : "Delete"}
+                          </button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
@@ -7710,7 +7773,7 @@ function TemplateSelectRow({
   const triggerLabel = missing
     ? "[Missing template]"
     : selected
-      ? `${selected.category} · ${selected.name}`
+      ? `${templateSourceLabel(selected)} · ${selected.name}`
       : "None (blank note)";
 
   // Custom dropdown (not a native <select>): native popups don't reliably
@@ -7879,7 +7942,7 @@ function TemplateSelectRow({
               {items.map((tpl, idx) => {
                 const isSelected = tpl ? tpl === selected : !value && !missing;
                 const text = tpl
-                  ? `${tpl.category} · ${tpl.name}`
+                  ? `${templateSourceLabel(tpl)} · ${tpl.name}`
                   : "None (blank note)";
                 return (
                   <button
@@ -7900,6 +7963,244 @@ function TemplateSelectRow({
                     ].join(" ")}
                   >
                     <span className="truncate">{text}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+const NO_TEMPLATE_FOLDER = "\0none";
+
+/**
+ * Settings editor for the vault's template folder (#1024): a picker over the
+ * vault's folders (by their path on disk, which is what vault.json stores),
+ * plus None. The sidebar folder menu ("Use as Template Folder", `m` in Vim
+ * mode) is the other way in. Saved to vault.json, so it travels with the vault
+ * and every runtime agrees on which notes are templates.
+ */
+function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
+  const vaultSettings = useStore((s) => s.vaultSettings);
+  const folders = useStore((s) => s.folders);
+  const folderTemplates = useStore((s) => s.folderTemplates);
+  const setTemplateFolder = useStore((s) => s.setTemplateFolder);
+  const current = resolveTemplateFolder(vaultSettings);
+
+  // Every folder inside an area, as its path on disk. The areas themselves
+  // (a whole Inbox or Archive of templates) and the Trash are not offered.
+  const paths = useMemo(() => {
+    const seen = new Set<string>();
+    for (const entry of folders) {
+      if (entry.folder === "trash" || !entry.subpath) continue;
+      const rel = vaultRelativeFolderPath(entry.folder, entry.subpath, vaultSettings);
+      if (rel) seen.add(rel);
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b));
+  }, [folders, vaultSettings]);
+  const missing = !!current && !paths.includes(current);
+  const items = useMemo(
+    () => [
+      NO_TEMPLATE_FOLDER,
+      ...(missing && current ? [current] : []),
+      ...paths,
+    ],
+    [paths, missing, current],
+  );
+  const labelFor = (item: string): string =>
+    item === NO_TEMPLATE_FOLDER
+      ? "None"
+      : item === current && missing
+        ? `${item} (missing)`
+        : item;
+
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(0);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [rect, setRect] = useState<DropdownRect | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const at = items.indexOf(current ?? NO_TEMPLATE_FOLDER);
+    setActiveIdx(at >= 0 ? at : 0);
+  }, [open, items, current]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent): void => {
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (
+        document.getElementById("zen-template-folder-portal")?.contains(target)
+      )
+        return;
+      setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = (): void => {
+      const el = buttonRef.current;
+      if (!el) return;
+      setRect(dropdownRectForElement(el, { estHeight: items.length * 32 + 8 }));
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, items.length]);
+
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    listRef.current
+      .querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx, open]);
+
+  const commit = (item: string): void => {
+    setOpen(false);
+    buttonRef.current?.focus();
+    void setTemplateFolder(item === NO_TEMPLATE_FOLDER ? null : item);
+  };
+
+  const onTriggerKeyDown = (
+    e: React.KeyboardEvent<HTMLButtonElement>,
+  ): void => {
+    if (!open) {
+      if (
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "Enter" ||
+        e.key === " "
+      ) {
+        e.preventDefault();
+        setOpen(true);
+      }
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(items.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const picked = items[activeIdx];
+      if (picked !== undefined) commit(picked);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      // Close the list only; Escape reaching Settings would close it too.
+      e.stopPropagation();
+      setOpen(false);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setActiveIdx(0);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      setActiveIdx(items.length - 1);
+    }
+  };
+
+  const count = folderTemplates.length;
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3 px-5 py-4"
+      {...settingsSearchTargetProps(settingId)}
+    >
+      <div className="min-w-0 flex-1 basis-56">
+        <div className="text-sm font-medium text-ink-900">Template folder</div>
+        <div className="mt-1 text-xs leading-5 text-ink-500">
+          Notes in this folder become templates. They stay out of Tasks and
+          search.
+        </div>
+        {current && (
+          <div className="mt-1 text-xs leading-5 text-ink-500" data-template-folder-count={count}>
+            {missing ? "Folder not found." : count === 1 ? "1 template" : `${count} templates`}
+          </div>
+        )}
+      </div>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Template folder"
+        data-template-folder-picker=""
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={onTriggerKeyDown}
+        className="flex w-[23rem] max-w-full shrink-0 items-center justify-between gap-2 rounded-xl border border-paper-300/70 bg-paper-100/80 px-3 py-2 text-left text-sm text-ink-900 outline-none transition-colors hover:bg-paper-200 focus:border-accent/45"
+      >
+        <span className={`truncate ${current ? "" : "text-ink-500"}`}>
+          {current ? labelFor(current) : "None"}
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="shrink-0 text-ink-500"
+          aria-hidden="true"
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+
+      {open &&
+        rect &&
+        createPortal(
+          <div
+            id="zen-template-folder-portal"
+            role="listbox"
+            aria-label="Template folder"
+            className="fixed z-popover flex flex-col overflow-hidden rounded-xl border border-paper-300 bg-paper-100 shadow-float"
+            style={{
+              left: rect.left,
+              top: rect.top,
+              bottom: rect.bottom,
+              width: rect.width,
+              maxHeight: rect.maxHeight,
+            }}
+          >
+            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+              {items.map((item, idx) => {
+                const isSelected = item === (current ?? NO_TEMPLATE_FOLDER);
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    data-idx={idx}
+                    data-template-folder-option={
+                      item === NO_TEMPLATE_FOLDER ? "" : item
+                    }
+                    onClick={() => commit(item)}
+                    onMouseMove={() => setActiveIdx(idx)}
+                    className={[
+                      "flex w-full items-center px-3 py-1.5 text-left text-sm",
+                      activeIdx === idx
+                        ? "bg-paper-200 text-ink-900"
+                        : isSelected
+                          ? "text-ink-900"
+                          : "text-ink-700",
+                    ].join(" ")}
+                  >
+                    <span className="truncate">{labelFor(item)}</span>
                   </button>
                 );
               })}

@@ -1,7 +1,8 @@
 /**
  * Space-t / :template / :tmpl → a searchable list of every note template
- * (built-in + custom). Styled to match BufferPalette/SearchPalette so the
- * template picker feels like the same overlay with a different source.
+ * (built-in, custom, and the notes in the vault's template folder, #1024).
+ * Styled to match BufferPalette/SearchPalette so the template picker feels
+ * like the same overlay with a different source.
  *
  * Selecting an entry creates a new note from that template, substituting
  * variables and placing the caret at the template's `{{cursor}}` marker.
@@ -13,9 +14,10 @@ import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
 import { isImeComposing } from '../lib/ime'
 import { focusEditorAfterPaletteClose } from '../lib/editor-focus'
 import { BUILTIN_TEMPLATES } from '@shared/builtin-templates'
-import { mergeTemplates } from '@shared/template-files'
+import { mergeTemplates, templateSource, templateSourceLabel } from '@shared/template-files'
 import type { NoteTemplate } from '@bridge-contract/templates'
 import { Modal } from './ui/Modal'
+import { FolderGlyphIcon } from './FolderIcons'
 
 export function TemplatePalette(): JSX.Element {
   const setOpen = useStore((s) => s.setTemplatePaletteOpen)
@@ -39,7 +41,10 @@ export function TemplatePalette(): JSX.Element {
       rankItems(templates, query, [
         { get: (t) => t.name, weight: 1 },
         { get: (t) => t.description, weight: 0.8 },
-        { get: (t) => t.category, weight: 0.5 }
+        { get: (t) => t.category, weight: 0.5 },
+        // A template-folder note's folder (#1024), so `Templates` or `Work`
+        // narrows the list to that folder's templates.
+        { get: (t) => (templateSource(t) === 'folder' ? templateSourceLabel(t) : ''), weight: 0.5 }
       ]),
     [templates, query]
   )
@@ -109,28 +114,47 @@ export function TemplatePalette(): JSX.Element {
           {results.length === 0 ? (
             <div className="px-4 py-6 text-center text-sm text-ink-400">No matching templates.</div>
           ) : (
-            results.map((template, i) => (
-              <button
-                key={template.id}
-                data-tmpl-idx={i}
-                onClick={() => choose(template)}
-                onMouseMove={() => setActive(i)}
-                className={[
-                  'flex w-full min-w-0 items-center gap-3 px-4 py-2 text-left',
-                  i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
-                ].join(' ')}
-              >
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm font-medium text-ink-900">{template.name}</span>
-                  {template.description && (
-                    <span className="truncate text-xs text-ink-400">{template.description}</span>
+            results.map((template, i) => {
+              // Where the template lives, so two of one name can be told apart
+              // (#1024): the category for a built-in or a custom one, the
+              // folder for a note in the template folder.
+              const source = templateSource(template)
+              return (
+                <button
+                  key={template.id}
+                  data-tmpl-idx={i}
+                  data-tmpl-source={source}
+                  onClick={() => choose(template)}
+                  onMouseMove={() => setActive(i)}
+                  className={[
+                    'flex w-full min-w-0 items-center gap-3 px-4 py-2 text-left',
+                    i === active ? 'bg-paper-200' : 'hover:bg-paper-200/70'
+                  ].join(' ')}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium text-ink-900">{template.name}</span>
+                    {template.description && (
+                      <span className="truncate text-xs text-ink-400">{template.description}</span>
+                    )}
+                  </span>
+                  {source === 'folder' ? (
+                    <span
+                      className="flex min-w-0 max-w-xs shrink items-center gap-1 text-xs text-ink-400"
+                      title={template.sourcePath}
+                    >
+                      <span className="inline-flex shrink-0 scale-75" aria-hidden="true">
+                        <FolderGlyphIcon />
+                      </span>
+                      <span className="truncate">{templateSourceLabel(template)}</span>
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
+                      {template.category}
+                    </span>
                   )}
-                </span>
-                <span className="shrink-0 text-xs uppercase tracking-wide text-ink-400">
-                  {template.category}
-                </span>
-              </button>
-            ))
+                </button>
+              )
+            })
           )}
         </div>
         <div className="flex items-center justify-end gap-4 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">

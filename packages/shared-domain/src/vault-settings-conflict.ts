@@ -38,6 +38,7 @@ const SECTIONS: Record<VaultSettingsSection, true> = {
   systemFolderPaths: true,
   tasks: true,
   typstPreambles: true,
+  templates: true,
   harper: true
 }
 
