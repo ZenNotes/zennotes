@@ -8132,15 +8132,21 @@ export const useStore = create<Store>((set, get) => {
         if (pinnedRefPath) referenced.add(pinnedRefPath)
         // The link popover edits a cached note no pane may have open.
         for (const held of linkPopoverHeldPaths(s)) referenced.add(held)
+        // A buffer with an edit not yet on disk stays until its save lands,
+        // open or not: the rollover and the task lists edit notes no pane
+        // shows, and a listing that landed between such an edit and its
+        // debounced save used to drop the edit unwritten.
+        const unsaved = (path: string): boolean =>
+          s.noteDirty[path] === true || pathSaveTimers.has(path) || pathSaveQueues.has(path)
         const contents: Record<string, NoteContent> = {}
         const dirty: Record<string, boolean> = {}
         for (const [path, content] of Object.entries(s.noteContents)) {
-          if (!referenced.has(path)) continue
+          if (!referenced.has(path) && !unsaved(path)) continue
           const latestMeta = noteMetaByPath.get(path)
           contents[path] = latestMeta ? { ...content, ...latestMeta } : content
         }
         for (const [path, isDirty] of Object.entries(s.noteDirty)) {
-          if (referenced.has(path)) dirty[path] = isDirty
+          if (referenced.has(path) || unsaved(path)) dirty[path] = isDirty
         }
         const next = {
           notes:

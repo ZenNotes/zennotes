@@ -588,6 +588,61 @@ describe('daily note from a template, with rollover (yeminn, Discord 2026-10-29)
   })
 })
 
+describe('an edit to a note cached but open in no pane', () => {
+  // The rollover trims a past daily note through its cached buffer when there
+  // is one, and the save runs PATH_SAVE_DEBOUNCE_MS later. A note listing that
+  // landed first dropped every buffer no pane shows, unsaved edits included,
+  // so the save found nothing to write and the task stayed in yesterday's note
+  // as well as today's (seen with a busy main, yeminn, Discord 2026-10-29).
+  // A listing carries metadata only, never a body.
+  const listed = (body: string, path: string) => {
+    const { body: _body, ...meta } = makeNote(body, path)
+    return meta
+  }
+
+  it('is still saved when a note listing lands before its save', async () => {
+    const path = 'inbox/Daily Notes/2026-10-29.md'
+    const writeNote = vi.fn(async (target: string, body: string) => makeNote(body, target))
+    installZen({
+      listNotes: vi.fn(async () => [listed('# 2026-10-29\n\n- [ ] Call the bank\n', path)]),
+      writeNote
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: [makeNote('# 2026-10-29\n\n- [ ] Call the bank\n', path)],
+      noteContents: { [path]: makeNote('# 2026-10-29\n\n- [ ] Call the bank\n', path) }
+    })
+
+    await onFakeClock(1000, async () => {
+      useStore.getState().updateNoteBody(path, '# 2026-10-29\n\n')
+      await useStore.getState().refreshNotes()
+    })
+
+    expect(writeNote).toHaveBeenCalledWith(path, '# 2026-10-29\n\n')
+  })
+
+  it('is let go once saved, by the next listing', async () => {
+    const path = 'inbox/Daily Notes/2026-10-29.md'
+    installZen({
+      listNotes: vi.fn(async () => [listed('# 2026-10-29\n\n', path)]),
+      writeNote: vi.fn(async (target: string, body: string) => makeNote(body, target))
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: [makeNote('# 2026-10-29\n\n- [ ] Call the bank\n', path)],
+      noteContents: { [path]: makeNote('# 2026-10-29\n\n- [ ] Call the bank\n', path) }
+    })
+
+    await onFakeClock(1000, async () => {
+      useStore.getState().updateNoteBody(path, '# 2026-10-29\n\n')
+    })
+    await useStore.getState().refreshNotes()
+
+    expect(useStore.getState().noteDirty[path]).toBeUndefined()
+    expect(useStore.getState().noteContents[path]).toBeUndefined()
+  })
+})
+
 describe('weekly note patterns', () => {
   it('creates weekly notes using the configured directory and title patterns', async () => {
     const created = {
