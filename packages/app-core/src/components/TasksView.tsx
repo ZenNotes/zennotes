@@ -707,6 +707,12 @@ export function TasksView(): JSX.Element {
       // While the Vim hint overlay is open it owns the keyboard; don't let
       // task navigation (or Esc closing the view) steal its keys. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
+      // A task the calendar picked up (`m`) holds every key until Enter places
+      // it or Esc puts it back, and the calendar's handler takes them all. This
+      // one runs first whenever the calendar re-registered after it, which it
+      // does on every pick-up, so it yields: Esc used to clear the filter and
+      // leave the task held, and `a` opened New task mid-move.
+      if (rootRef.current?.querySelector('[data-tasks-calendar-moving]')) return
       // The Tasks tab can stay "active" while pane navigation (Ctrl+W h/j/k/l)
       // moves keyboard focus to another panel. Once focusedPanel is no longer
       // 'tasks', release the keys so the target panel (e.g. the sidebar) gets

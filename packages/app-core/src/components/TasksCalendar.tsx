@@ -626,7 +626,11 @@ export function TasksCalendar({
   }, [selectedIso, activeIdx])
 
   return (
-    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
+    <div
+      ref={rootRef}
+      data-tasks-calendar-moving={grabbedTask ? 'true' : undefined}
+      className="flex min-h-0 flex-1 flex-col"
+    >
       <div
         data-tasks-toolbar
         className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 whitespace-nowrap px-3 pt-3"
