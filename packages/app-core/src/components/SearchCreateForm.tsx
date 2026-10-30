@@ -8,6 +8,7 @@ import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { resolveTypstPreambleFolder } from '../lib/typst-preamble'
 import { countVaultTags } from '../lib/tags'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import {
   addTag,
   buildDestinationChoices,
@@ -105,9 +106,10 @@ export function SearchCreateForm({
       countVaultTags(
         notes,
         activeNote ? { path: activeNote.path, body: activeNote.body } : null,
-        resolveTypstPreambleFolder(vaultSettings?.typstPreambles?.folder)
+        resolveTypstPreambleFolder(vaultSettings?.typstPreambles?.folder),
+        resolveTemplateFolder(vaultSettings)
       ),
-    [notes, activeNote, vaultSettings?.typstPreambles?.folder]
+    [notes, activeNote, vaultSettings]
   )
 
   const nameCheck = checkNoteName(name)

@@ -31,7 +31,9 @@ import {
   tasksFolderListsForSettings
 } from '@shared/tasks-excluded-folders'
 import {
+  isPathInTemplateFolder,
   normalizeTemplateFolderSettings,
+  resolveTemplateFolder,
   rewriteTemplateFolderForRename
 } from '@shared/template-folder'
 import {
@@ -1471,6 +1473,9 @@ export async function searchText(
   if (!trimmed) return []
   const needle = trimmed.toLowerCase()
   const hiddenRootNames = hiddenRootNamesWith(await readSystemFolderPaths(root))
+  // Template notes (#1024) are placeholders nobody is searching for: skipped
+  // in the walk, before the limit, as the app and the server skip them.
+  const templateFolder = await readTemplateFolder(root)
   const out: VaultTextSearchMatch[] = []
   const walk = async (
     folder: NoteFolder,
@@ -1493,17 +1498,19 @@ export async function searchText(
         if (isPrimaryRoot && dirAbs === topAbs && hiddenRootNames.has(entry.name)) {
           continue
         }
+        if (isPathInTemplateFolder(toPosix(path.relative(root, full)), templateFolder)) continue
         await walk(folder, full, topAbs, isPrimaryRoot)
         continue
       }
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.md')) continue
+      const rel = toPosix(path.relative(root, full))
+      if (isPathInTemplateFolder(rel, templateFolder)) continue
       let body = ''
       try {
         body = await fs.readFile(full, 'utf8')
       } catch {
         continue
       }
-      const rel = toPosix(path.relative(root, full))
       const title = path.basename(full, path.extname(full))
       const lines = body.split('\n')
       for (let i = 0; i < lines.length && out.length < limit; i++) {
@@ -1891,6 +1898,19 @@ async function readTypstPreambleFolder(root: string): Promise<string> {
   const preambles = raw['typstPreambles']
   if (!preambles || typeof preambles !== 'object') return DEFAULT_TYPST_PREAMBLE_FOLDER
   return resolveTypstPreambleFolder((preambles as { folder?: unknown }).folder)
+}
+
+/** The vault's template folder (#1024), read straight off vault.json like the
+ *  readers around it, or null when it has none. Its notes are placeholders:
+ *  text search and the tag tools leave them out, as the app does. */
+export async function readTemplateFolder(root: string): Promise<string | null> {
+  const settingsPath = path.join(root, INTERNAL_VAULT_DIR, VAULT_SETTINGS_FILE)
+  try {
+    const raw: unknown = JSON.parse(await fs.readFile(settingsPath, 'utf8'))
+    return resolveTemplateFolder(isRecord(raw) ? raw : null)
+  } catch {
+    return null
+  }
 }
 
 /** The vault's Tasks folder lists, `tasks.excludedFolders` (#458) and the

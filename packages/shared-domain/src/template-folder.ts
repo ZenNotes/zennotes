@@ -11,7 +11,9 @@
 //     lines are not work and never feed Tasks (every scanner adds the folder
 //     to its excluded list through `tasksFolderListsForSettings`);
 //   - nobody searching their notes is looking for one, so search leaves them
-//     out (Search notes brings them back once the query names the folder);
+//     out (Search notes brings them back once the query names the folder),
+//     and their tags are not the vault's: the tag surfaces skip them too
+//     (`outsideTemplateFolder`);
 //   - they stay ordinary notes otherwise: they sync, they show in the sidebar,
 //     and they are edited in the editor like any other note.
 //
@@ -78,6 +80,23 @@ export function isPathInTemplateFolder(
 ): boolean {
   if (!folder) return false
   return relPath === folder || relPath.startsWith(folder + '/')
+}
+
+/**
+ * The notes outside the template folder: what the vault's tag surfaces count
+ * and search by tag (the tag list, the Tags view, tag completion, a database
+ * field's tag options, MCP `list_tags` and `search_by_tag`, `zn tag`). A
+ * template's tags are the note it will make, not the vault's, so they never
+ * show as the vault's own. Title search and plain listings keep the folder,
+ * and so does renaming a tag, which rewrites it inside templates too so they
+ * stay in step. The same list comes back when the vault has no folder.
+ */
+export function outsideTemplateFolder<T extends { path: string }>(
+  notes: readonly T[],
+  folder: string | null | undefined
+): readonly T[] {
+  if (!folder) return notes
+  return notes.filter((note) => !isPathInTemplateFolder(note.path, folder))
 }
 
 /** What names a note inside the template folder: its path below the folder

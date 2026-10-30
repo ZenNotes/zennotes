@@ -39,6 +39,7 @@ import {
   mcpToolAnnotations,
   type McpScope
 } from '@shared/mcp-scope'
+import { outsideTemplateFolder } from '@shared/template-folder'
 import { ScopedBackend, scopeBackend, scrubVaultRoot } from './scoped-backend.js'
 
 interface ToolContext {
@@ -240,7 +241,11 @@ const TOOLS: ToolDef[] = [
             description:
               'POSIX subpath under the folder (e.g. "Work/Meetings"). Requires folder to be set.'
           },
-          tag: { type: 'string', description: 'Only return notes that contain this #tag.' },
+          tag: {
+            type: 'string',
+            description:
+              'Only return notes that contain this #tag. Notes in the vault’s template folder are left out.'
+          },
           wikilinkTo: {
             type: 'string',
             description: 'Only return notes that link to a note with this title.'
@@ -270,7 +275,12 @@ const TOOLS: ToolDef[] = [
         const prefix = `${folder ?? ''}/${sub.replace(/^\/+|\/+$/g, '')}/`
         notes = notes.filter((n) => n.path.startsWith(prefix))
       }
-      if (tag) notes = notes.filter((n) => n.tags.map((t) => t.toLowerCase()).includes(tag))
+      if (tag) {
+        // A tag finds no template (#1024): its tags are the note it will make.
+        notes = outsideTemplateFolder(notes, await backend.templateFolder()).filter((n) =>
+          n.tags.map((t) => t.toLowerCase()).includes(tag)
+        )
+      }
       if (wikilinkTo) {
         notes = notes.filter((n) =>
           n.wikilinks.some((w) => w.toLowerCase() === wikilinkTo)
@@ -598,7 +608,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'search_text',
       description:
-        'Full-text search across live notes (inbox/quick/archive). Returns line-level matches with path, line number, and preview. Cheap first step when the user says "find" or "where did I write".',
+        'Full-text search across live notes (inbox/quick/archive), leaving out the vault’s template folder. Returns line-level matches with path, line number, and preview. Cheap first step when the user says "find" or "where did I write".',
       inputSchema: {
         type: 'object',
         properties: {
@@ -642,7 +652,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'search_by_tag',
       description:
-        'Find notes carrying a specific inline #tag. Tags are case-insensitive; pass the name with or without the leading #.',
+        'Find notes carrying a specific inline #tag. Tags are case-insensitive; pass the name with or without the leading #. Notes in the vault’s template folder are left out.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -655,7 +665,7 @@ const TOOLS: ToolDef[] = [
     handler: async (args, backend) => {
       const raw = requireString(args, 'tag').replace(/^#/, '').toLowerCase()
       const limit = optionalNumber(args, 'limit') ?? 200
-      const all = await backend.listNotes()
+      const all = outsideTemplateFolder(await backend.listNotes(), await backend.templateFolder())
       return all
         .filter(
           (n) => n.folder !== 'trash' && n.tags.map((t) => t.toLowerCase()).includes(raw)
@@ -668,11 +678,11 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_tags',
       description:
-        'Enumerate every #tag used in the vault (excluding trash) with the count of notes carrying it.',
+        'Enumerate every #tag used in the vault (excluding trash and the template folder) with the count of notes carrying it.',
       inputSchema: { type: 'object', properties: {} }
     },
     handler: async (_args, backend) => {
-      const all = await backend.listNotes()
+      const all = outsideTemplateFolder(await backend.listNotes(), await backend.templateFolder())
       const counts = new Map<string, number>()
       for (const n of all) {
         if (n.folder === 'trash') continue

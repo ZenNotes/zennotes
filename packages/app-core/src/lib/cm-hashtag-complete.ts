@@ -15,6 +15,7 @@ import type { EditorView } from '@codemirror/view'
 import { useStore } from '../store'
 import { countVaultTags, rankTagCompletions } from './tags'
 import { resolveTypstPreambleFolder } from './typst-preamble'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { isTagSkippedContext } from './cm-hashtags'
 import { isInsideFrontmatter } from './cm-frontmatter'
 
@@ -51,7 +52,8 @@ export function collectTagCounts(): Map<string, number> {
     state.vaultSettings?.typstPreambles?.folder
   )
   const active = activePath && activeBody != null ? { path: activePath, body: activeBody } : null
-  return countVaultTags(state.notes, active, preambleFolder)
+  // A tag only a template carries is not offered (#1024).
+  return countVaultTags(state.notes, active, preambleFolder, resolveTemplateFolder(state.vaultSettings))
 }
 
 export function hashtagSource(context: CompletionContext): CompletionResult | null {

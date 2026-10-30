@@ -1,5 +1,6 @@
 import { noteTagsForCount } from './lib/tags'
 import { resolveTypstPreambleFolder } from './lib/typst-preamble'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { useSyncExternalStore } from 'react'
 import type {
   NoteFolder,
@@ -202,15 +203,17 @@ export interface TagPresenceSnapshot {
   readonly vaultRoot: string | null
   readonly hasTags: boolean
 }
-let tagNotes: unknown, tagActive: unknown, tagFolder: string | undefined
+let tagNotes: unknown, tagActive: unknown, tagFolder: string | undefined, tagTemplates: string | null | undefined
 let tagPresence: TagPresenceSnapshot | undefined
-/** Tag presence includes the live editor and excludes Typst preambles. */
+/** Tag presence includes the live editor and excludes Typst preambles and the
+ *  template folder (#1024). */
 export function getTagPresenceSnapshot(): TagPresenceSnapshot {
   const state = useStore.getState()
   const folder = resolveTypstPreambleFolder(state.vaultSettings.typstPreambles?.folder)
-  if (tagNotes === state.notes && tagActive === state.activeNote && tagFolder === folder && tagPresence?.vaultRoot === (state.vault?.root ?? null)) return tagPresence!
-  tagNotes = state.notes; tagActive = state.activeNote; tagFolder = folder
-  const hasTags = state.notes.some(note => note.folder !== 'trash' && noteTagsForCount(note, state.activeNote, folder).length > 0)
+  const templates = resolveTemplateFolder(state.vaultSettings)
+  if (tagNotes === state.notes && tagActive === state.activeNote && tagFolder === folder && tagTemplates === templates && tagPresence?.vaultRoot === (state.vault?.root ?? null)) return tagPresence!
+  tagNotes = state.notes; tagActive = state.activeNote; tagFolder = folder; tagTemplates = templates
+  const hasTags = state.notes.some(note => note.folder !== 'trash' && noteTagsForCount(note, state.activeNote, folder, templates).length > 0)
   const vaultRoot = state.vault?.root ?? null
   if (!tagPresence || tagPresence.vaultRoot !== vaultRoot || tagPresence.hasTags !== hasTags)
     tagPresence = Object.freeze({ vaultRoot, hasTags })

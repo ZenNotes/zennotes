@@ -413,6 +413,7 @@ export class ScopedBackend implements VaultBackend {
 
   describe = (): Promise<VaultDescription> => this.inner.describe()
   vaultLayout = (): Promise<VaultLayout> => this.inner.vaultLayout()
+  templateFolder = (): Promise<string | null> => this.inner.templateFolder()
 
   listNotes = async (): Promise<NoteMeta[]> => [...(await this.load()).notes]
 

@@ -42,6 +42,7 @@ import {
   readNote,
   readNoteComments,
   readPrimaryNotesLocation,
+  readTemplateFolder,
   readVaultFileTextOrNull,
   renameFolder,
   renameNote,
@@ -74,6 +75,7 @@ import {
 } from '@shared/database-ops'
 import { createAbsenceAwareReader } from '@shared/remote-absence'
 import { normalizeSystemFolderPaths, type SystemFolderPaths } from '@shared/system-folder-paths'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { setCell } from '@shared/database-records'
 import {
   csvPathForFormDir,
@@ -126,6 +128,9 @@ export interface VaultBackend {
    *  what classifying a vault-relative path needs, for a scoped MCP client
    *  (ZenNotes/tui#21). */
   vaultLayout(): Promise<VaultLayout>
+  /** The vault's template folder (#1024) as its settings name it, or null:
+   *  the tag tools and commands leave its notes out, as the app does. */
+  templateFolder(): Promise<string | null>
   listNotes(): Promise<NoteMeta[]>
   listAssets(): Promise<VaultAssetMeta[]>
   listFolders(): Promise<{ folder: NoteFolder; subpath: string }[]>
@@ -244,6 +249,7 @@ class LocalBackend implements VaultBackend {
       systemFolderPaths: layout.systemFolderPaths ?? {}
     }
   }
+  templateFolder = (): Promise<string | null> => readTemplateFolder(this.root)
   listNotes = (): Promise<NoteMeta[]> => listNotes(this.root)
   listAssets = (): Promise<VaultAssetMeta[]> => listAssets(this.root)
   listFolders = (): Promise<{ folder: NoteFolder; subpath: string }[]> => listFolders(this.root)
@@ -354,6 +360,8 @@ class RemoteBackend implements VaultBackend {
       systemFolderPaths: normalizeSystemFolderPaths(settings.systemFolderPaths)
     }
   }
+  templateFolder = async (): Promise<string | null> =>
+    resolveTemplateFolder(await this.client.getVaultSettings())
   listNotes = (): Promise<NoteMeta[]> => this.client.listNotes()
   listAssets = async (): Promise<VaultAssetMeta[]> =>
     (await this.client.listAssets()).map((asset) => ({

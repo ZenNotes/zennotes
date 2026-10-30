@@ -5,6 +5,7 @@
  * for the renderer's existing callers.
  */
 import { extractTags } from '@shared/tag-scan'
+import { isPathInTemplateFolder } from '@shared/template-folder'
 import { isTypstPreamblePath } from '@shared/typst-preamble-folder'
 
 export { extractTags }
@@ -34,37 +35,67 @@ export function matchesSelectedTags(
  * `#let vec(x) = …` and the `#var` references in formulas are variables rather
  * than tags (#562). The indexers already drop them, and this keeps the live
  * path from putting them back the moment the user opens one.
+ *
+ * Notes in the template folder contribute nothing either (#1024): their tags
+ * are the note a template will make, not the vault's, so the tag list, the
+ * Tags view and tag completion leave them out, as search does. Their index
+ * entries keep the tags (renaming a tag still reaches inside templates).
  */
 export function noteTagsForCount(
   note: { path: string; tags: readonly string[] },
   active: { path: string; body: string } | null | undefined,
-  preambleFolder: string
+  preambleFolder: string,
+  templateFolder: string | null
 ): readonly string[] {
   if (isTypstPreamblePath(note.path, preambleFolder)) return EMPTY_TAGS
+  if (isPathInTemplateFolder(note.path, templateFolder)) return EMPTY_TAGS
   return active && active.path === note.path ? extractTags(active.body) : note.tags
 }
 
 const EMPTY_TAGS: readonly string[] = []
 
 /**
- * Unique tags across the vault (trash excluded), counted by how many notes use
- * them. The active note is read live from its buffer so a tag just typed in the
- * same note is offered too. One aggregation for the editor's `#` completion,
- * the frontmatter `tags:` completion and the New note form in search.
+ * Unique tags across the vault (trash and the template folder excluded),
+ * counted by how many notes use them. The active note is read live from its
+ * buffer so a tag just typed in the same note is offered too. One aggregation
+ * for the editor's `#` completion, the frontmatter `tags:` completion and the
+ * New note form in search.
  */
 export function countVaultTags(
   notes: readonly { path: string; folder: string; tags: readonly string[] }[],
   active: { path: string; body: string } | null | undefined,
-  preambleFolder: string
+  preambleFolder: string,
+  templateFolder: string | null
 ): Map<string, number> {
   const counter = new Map<string, number>()
   for (const note of notes) {
     if (note.folder === 'trash') continue
-    for (const t of noteTagsForCount(note, active, preambleFolder)) {
+    for (const t of noteTagsForCount(note, active, preambleFolder, templateFolder)) {
       counter.set(t, (counter.get(t) ?? 0) + 1)
     }
   }
   return counter
+}
+
+/**
+ * The sidebar's tag list, sorted by tag: every live note's indexed tags, with
+ * `live` (the edited note's tags, parsed from its unsaved buffer) in place of
+ * that note's, and nothing from the template folder (#1024). Typst preambles
+ * need no check here: their index entries carry no tags, and the sidebar never
+ * parses a live preamble.
+ */
+export function countListedTags(
+  notes: readonly { path: string; folder: string; tags: readonly string[] }[],
+  live: { path: string; tags: readonly string[] } | null,
+  templateFolder: string | null
+): [string, number][] {
+  const counter = new Map<string, number>()
+  for (const note of notes) {
+    if (note.folder === 'trash' || isPathInTemplateFolder(note.path, templateFolder)) continue
+    const list = live && live.path === note.path ? live.tags : note.tags
+    for (const t of list) counter.set(t, (counter.get(t) ?? 0) + 1)
+  }
+  return [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]))
 }
 
 export interface RankedTag {

@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { VaultSettings } from '@shared/ipc'
 import type { SelectOptionsSource } from '@shared/databases'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { useStore } from '../store'
 import {
   linkCandidates,
@@ -29,7 +30,7 @@ export function useNoteSuggestions(
   return useMemo(() => {
     if (!opts.enabled) return []
     return linkCandidates(query, {
-      notes: notesMatchingSource(notes, opts.source),
+      notes: notesMatchingSource(notes, opts.source, resolveTemplateFolder(vaultSettings)),
       vaultSettings: vaultSettings as VaultSettings | null,
       activePath,
       limit: opts.limit ?? 8

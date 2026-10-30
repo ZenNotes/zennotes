@@ -62,10 +62,12 @@ export class CliRemoteClient {
     return this.get<RemoteVaultInfo | null>('/api/vault')
   }
 
-  /** The layout facts database path composition needs (#556). */
+  /** The layout facts database path composition needs (#556), and the
+   *  template folder the tag tools leave out (#1024). */
   getVaultSettings(): Promise<{
     primaryNotesLocation?: string
     systemFolderPaths?: Record<string, string> | null
+    templates?: unknown
   }> {
     return this.get('/api/vault/settings')
   }

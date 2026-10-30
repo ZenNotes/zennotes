@@ -178,6 +178,63 @@ describe('list_tasks', () => {
   })
 })
 
+// #1024: a template folder's notes are placeholders. The tag tools and text
+// search leave them out as the app's tag list and search do; title search and
+// a plain listing still reach them, which is how a template is found to edit.
+describe('the template folder in the tag and search tools (#1024)', () => {
+  let dir: string
+  let vault: VaultBackend
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'zen-mcp-templates-'))
+    await fsp.mkdir(path.join(dir, 'Templates', 'Work'), { recursive: true })
+    await fsp.mkdir(path.join(dir, '.zennotes'), { recursive: true })
+    await fsp.writeFile(
+      path.join(dir, '.zennotes', 'vault.json'),
+      JSON.stringify({ primaryNotesLocation: 'root', templates: { folder: 'Templates' } })
+    )
+    await fsp.writeFile(path.join(dir, 'Standup.md'), '# Standup\n\nagenda #meeting\n')
+    await fsp.writeFile(
+      path.join(dir, 'Templates', 'Meeting.md'),
+      '# Meeting\n\nagenda #meeting #agenda-only\n'
+    )
+    await fsp.writeFile(path.join(dir, 'Templates', 'Work', 'Retro.md'), '# Retro\n\n#retro\n')
+    vault = createBackend({ kind: 'local', root: dir })
+  })
+
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  const paths = (rows: unknown): string[] =>
+    (rows as Array<{ path: string }>).map((row) => row.path).sort()
+
+  it('list_tags counts no tag a template carries', async () => {
+    expect(await callTool('list_tags', {}, vault)).toEqual([{ tag: 'meeting', count: 1 }])
+  })
+
+  it('search_by_tag and a tag-filtered list_notes return no template', async () => {
+    expect(paths(await callTool('search_by_tag', { tag: '#meeting' }, vault))).toEqual(['Standup.md'])
+    expect(paths(await callTool('search_by_tag', { tag: 'agenda-only' }, vault))).toEqual([])
+    expect(paths(await callTool('list_notes', { tag: 'meeting' }, vault))).toEqual(['Standup.md'])
+  })
+
+  it('search_text returns no template', async () => {
+    expect(paths(await callTool('search_text', { query: 'agenda' }, vault))).toEqual(['Standup.md'])
+  })
+
+  it('a plain list_notes and search_by_title still reach the templates', async () => {
+    expect(paths(await callTool('list_notes', {}, vault))).toEqual([
+      'Standup.md',
+      'Templates/Meeting.md',
+      'Templates/Work/Retro.md'
+    ])
+    expect(paths(await callTool('search_by_title', { query: 'meeting' }, vault))).toEqual([
+      'Templates/Meeting.md'
+    ])
+  })
+})
+
 // The ZenNotes/tui#21 probe cases, through the real tools on a root-mode
 // vault, where the inbox is the vault root and the internal dir, the
 // attachments dir and the other buckets are all one subpath away. Mirrors

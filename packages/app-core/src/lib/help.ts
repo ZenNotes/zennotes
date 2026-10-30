@@ -119,7 +119,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Keep templates in a folder of your vault',
     body:
-      'Pick a folder under Settings → Templates → Template folder, or choose “Use as Template Folder” from a folder’s menu in the sidebar (`m` in Vim mode). Every note in it, subfolders included, is a template in the picker, marked with its folder. The whole note is the template, named after its file, and its own frontmatter is copied into each new note. A frontmatter with only custom-template keys (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) is read as the template’s settings instead. A custom template with the same name shows too, listed first. The folder’s checkboxes stay out of Tasks and its notes out of search; start a Search Notes query with the folder’s path (`Templates/`) to find one. Saved in the vault; a self-hosted server keeps it from 2.80.'
+      'Pick a folder under Settings → Templates → Template folder, or choose “Use as Template Folder” from a folder’s menu in the sidebar (`m` in Vim mode). Every note in it, subfolders included, is a template in the picker, marked with its folder. The whole note is the template, named after its file, and its own frontmatter is copied into each new note. A frontmatter with only custom-template keys (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) is read as the template’s settings instead. A custom template with the same name shows too, listed first. The folder’s checkboxes stay out of Tasks, its tags out of the tag list, the Tags view and `#` completion, and its notes out of search, a `#tag` search included; start a Search Notes query with the folder’s path (`Templates/`) to find one. Saved in the vault; a self-hosted server keeps it from 2.80.'
   },
   {
     title: 'Draw diagrams with Excalidraw',
@@ -1392,7 +1392,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
   {
     title: 'Templates',
     items: [
-      { label: 'Template folder', detail: 'Notes in this folder are templates, kept out of Tasks and search. Saved in the vault.' },
+      { label: 'Template folder', detail: 'Notes in this folder are templates, kept out of Tasks, Tags and search. Saved in the vault.' },
       { label: 'Template library', detail: 'Browse every template, built-in and custom. Built-ins cover engineering (ADR, RFC, Bug Report, Postmortem, Meeting Notes, 1:1) and personal use (Daily Note, Weekly Review, Reading Notes, Journal, Project Kickoff, To-do).' },
       { label: 'Create a custom template', detail: 'Author a new template as markdown with optional frontmatter (`name`, `description`, `category`, `titleTemplate`, `targetFolder`, `targetSubpath`) and variables like `{{title}}`, `{{date}}`, `{{date:FORMAT}}`, `{{time}}`, `{{week}}`, `{{cursor}}`, and the live `{{modified_date}}` / `{{modified_time}}` / `{{modified_datetime}}` (rendered from the note’s last-saved time rather than substituted). It is saved as a `.md` file in `.zennotes/templates/`.' },
       { label: 'Edit or reset built-ins', detail: 'Press Edit on a built-in to fork an editable copy that shadows the original everywhere; Reset removes the copy and restores the built-in. Custom templates can be edited or deleted directly.' },

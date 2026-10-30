@@ -55,6 +55,17 @@ describe('note search and the template folder', () => {
   it('shows everything when the vault has no template folder', () => {
     expect(titles('meeting', null)).toEqual(['Meeting', 'Meeting old', 'Meeting with Ana'])
   })
+
+  it('finds no template by tag, unless the query starts with the folder path', () => {
+    const tagged = buildNoteSearchIndex([
+      note('Templates/Meeting.md', 'Meeting', { tags: ['meeting'] }),
+      note('Notes/Standup.md', 'Standup', { tags: ['meeting'] })
+    ])
+    const byTag = (query: string): string[] =>
+      searchNoteIndex(tagged, query, { limit: 10, templateFolder: 'Templates' }).map((n) => n.title)
+    expect(byTag('#meeting')).toEqual(['Standup'])
+    expect(byTag('Templates/ #meeting')).toEqual(['Meeting'])
+  })
 })
 
 describe('note search', () => {

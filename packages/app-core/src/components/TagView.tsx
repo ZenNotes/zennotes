@@ -11,6 +11,7 @@ import {
   type TagViewRow
 } from '../lib/tag-view-rows'
 import { resolveTypstPreambleFolder } from '../lib/typst-preamble'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { TagIcon, CloseIcon, DocumentIcon } from './icons'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { TaggedBlockText } from './TaggedBlockText'
@@ -64,6 +65,8 @@ export function TagView(): JSX.Element {
   const preambleFolder = useStore((s) =>
     resolveTypstPreambleFolder(s.vaultSettings?.typstPreambles?.folder)
   )
+  // Template notes give the Tags view nothing (#1024), as they give search.
+  const templateFolder = useStore((s) => resolveTemplateFolder(s.vaultSettings))
   const selectedTags = useStore((s) => s.selectedTags)
   const tagMatchMode = useStore((s) => s.tagMatchMode)
   const setTagMatchMode = useStore((s) => s.setTagMatchMode)
@@ -112,12 +115,12 @@ export function TagView(): JSX.Element {
     const counter = new Map<string, number>()
     for (const note of notes) {
       if (note.folder === 'trash') continue
-      for (const t of noteTagsForCount(note, activeNote, preambleFolder)) {
+      for (const t of noteTagsForCount(note, activeNote, preambleFolder, templateFolder)) {
         counter.set(t, (counter.get(t) ?? 0) + 1)
       }
     }
     return [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [notes, activeNote, preambleFolder])
+  }, [notes, activeNote, preambleFolder, templateFolder])
 
   // Nested-tag tree (#439). Shares the collapsed-node set with the sidebar so
   // expand/collapse stays in sync across both surfaces.
@@ -137,11 +140,11 @@ export function TagView(): JSX.Element {
     return notes
       .filter((n) => {
         if (n.folder === 'trash') return false
-        const tags = noteTagsForCount(n, activeNote, preambleFolder)
+        const tags = noteTagsForCount(n, activeNote, preambleFolder, templateFolder)
         return matchesSelectedTags(tags, selectedTags, tagMatchMode)
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [notes, activeNote, selectedTags, tagMatchMode, preambleFolder])
+  }, [notes, activeNote, selectedTags, tagMatchMode, preambleFolder, templateFolder])
 
   // Block-level results (#837): the blocks inside each matching note that
   // carry a selected tag, read on demand for the listed notes only.

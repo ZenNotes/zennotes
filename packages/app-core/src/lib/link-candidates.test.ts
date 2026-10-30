@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import type { FolderEntry, NoteFolder, NoteMeta } from '@shared/ipc'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
-import { linkCandidates, noteLinkTarget, noteSubtitle, notesMatchingSource } from './link-candidates'
+import {
+  linkCandidates,
+  noteLinkTarget,
+  noteSubtitle,
+  notesMatchingSource,
+  tagSourceSuggestions
+} from './link-candidates'
 
 const makeNote = (path: string, title: string, folder: NoteFolder = 'inbox'): NoteMeta =>
   ({
@@ -127,6 +133,36 @@ describe('notesMatchingSource (#500)', () => {
 
   it('scopes to a tag case-insensitively', () => {
     expect(notesMatchingSource(notes, { kind: 'tag', tag: 'person' }).map((n) => n.title)).toEqual(['Jane'])
+  })
+})
+
+describe('a field whose options come from a tag leaves template notes out (#1024)', () => {
+  const notes = [
+    makeNote('inbox/people/Jane.md', 'Jane'),
+    makeNote('inbox/Templates/Person.md', 'Person'),
+    makeNote('inbox/Templates/Only.md', 'Only')
+  ]
+  notes[0].tags.push('person')
+  notes[1].tags.push('person', 'Template-Only')
+  notes[2].tags.push('template-only')
+
+  it('offers no template as an option for its tag', () => {
+    expect(
+      notesMatchingSource(notes, { kind: 'tag', tag: 'person' }, 'inbox/Templates').map((n) => n.title)
+    ).toEqual(['Jane'])
+  })
+
+  it('still offers the folder itself when the field names it', () => {
+    expect(
+      notesMatchingSource(notes, { kind: 'folder', path: 'inbox/Templates' }, 'inbox/Templates').map(
+        (n) => n.title
+      )
+    ).toEqual(['Person', 'Only'])
+  })
+
+  it('suggests no tag that only template notes carry when the tag is picked', () => {
+    expect(tagSourceSuggestions(notes, 'inbox/Templates')).toEqual(['person'])
+    expect(tagSourceSuggestions(notes, null)).toEqual(['person', 'template-only'])
   })
 })
 
