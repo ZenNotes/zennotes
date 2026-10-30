@@ -64,7 +64,7 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
       },
       {
         title: 'Share part of a vault with an assistant',
-        body: 'Launch MCP with --allow-path, --deny-path or --read-only and it sees only what you share. The bundled zn is 0.13.0.'
+        body: 'Launch MCP with --allow-path, --deny-path or --read-only and it sees only what you share. The bundled zn is 0.13.1.'
       },
       {
         title: 'Cloud keeps syncing past a file it refuses',
