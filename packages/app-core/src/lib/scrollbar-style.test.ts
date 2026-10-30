@@ -22,6 +22,13 @@ describe('scrollbar styles', () => {
     expect(withOpacity.map((rule) => rule.selector)).toEqual([])
   })
 
+  it('paints the corner where two scrollbars meet transparent, not Chromium white', () => {
+    // A view that scrolls both ways (the Kanban board with lanes, a wide
+    // database grid) once drew a white 10px square there in every dark theme.
+    const corner = scrollbarRules().find((rule) => rule.selector === '::-webkit-scrollbar-corner')
+    expect(corner?.body).toMatch(/background:\s*transparent/)
+  })
+
   it('tints the sidebar thumb with its text colour at 30%, and 50% under the pointer (#451)', () => {
     const rules = scrollbarRules()
     const thumb = rules.find((rule) => rule.selector === '.zn-sidebar-scroll::-webkit-scrollbar-thumb')

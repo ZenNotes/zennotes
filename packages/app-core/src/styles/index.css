@@ -1459,6 +1459,12 @@ textarea,
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+/* Once ::-webkit-scrollbar is styled, Chromium paints the corner where a
+   view's two scrollbars meet solid white unless it is styled too: a white
+   square on the lanes board and wide database grids in every dark theme. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar);
   border-radius: 999px;
