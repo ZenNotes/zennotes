@@ -1,14 +1,16 @@
 /**
  * `zn tag list` and `zn tag find` — enumerate and discover #tags
- * across live notes (excluding trash).
+ * across live notes (excluding trash and the vault's template folder, whose
+ * tags are the notes its templates will make, #1024).
  */
 
+import { outsideTemplateFolder } from '@shared/template-folder'
 import type { VaultBackend } from '../backend.js'
 import { getBool, getNumber, getString, type ParsedArgs } from '../args.js'
 import { emitJson, emitLine, pad } from '../format.js'
 
 export async function cmdTagList(vault: VaultBackend, args: ParsedArgs): Promise<void> {
-  const all = await vault.listNotes()
+  const all = outsideTemplateFolder(await vault.listNotes(), await vault.templateFolder())
   const counts = new Map<string, number>()
   for (const n of all) {
     if (n.folder === 'trash') continue
@@ -38,7 +40,7 @@ export async function cmdTagFind(vault: VaultBackend, args: ParsedArgs): Promise
   const tag = (getString(args, 'tag') ?? args.positionals[0])?.replace(/^#/, '').toLowerCase()
   if (!tag) throw new Error('zn tag find requires a tag name (e.g. `zn tag find idea`).')
   const limit = getNumber(args, 'limit') ?? 200
-  const all = await vault.listNotes()
+  const all = outsideTemplateFolder(await vault.listNotes(), await vault.templateFolder())
   const matches = all
     .filter(
       (n) => n.folder !== 'trash' && n.tags.map((x) => x.toLowerCase()).includes(tag)

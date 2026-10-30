@@ -29,6 +29,8 @@ interface FakeVault {
   requests: { method: string; url: string; auth: string | null }[]
   /** Set to a status code to make the next request fail. */
   failWith: number | null
+  /** What `/api/vault/settings` answers; a fixed root-mode vault when unset. */
+  settings?: Record<string, unknown>
 }
 
 let server: Server
@@ -192,7 +194,7 @@ beforeAll(async () => {
       case 'GET /api/vault':
         return send({ root: '/srv/notes', name: 'notes' })
       case 'GET /api/vault/settings':
-        return send({ primaryNotesLocation: 'root', systemFolderPaths: null })
+        return send(vault.settings ?? { primaryNotesLocation: 'root', systemFolderPaths: null })
       case 'GET /api/assets':
         return send([
           { path: 'assets/pic.png', name: 'pic.png', kind: 'image', siblingOrder: 0, size: 4, updatedAt: 9 }
@@ -430,6 +432,14 @@ describe('RemoteBackend: what the MCP needs beyond the CLI (#688)', () => {
       authConfigured: true
     })
     expect(await remote(null).describe()).toMatchObject({ authConfigured: false })
+  })
+
+  it('reads the template folder from the server vault settings (#1024)', async () => {
+    expect(await remote().templateFolder()).toBeNull()
+    vault.settings = { primaryNotesLocation: 'root', templates: { folder: ' Templates/ ' } }
+    expect(await remote().templateFolder()).toBe('Templates')
+    vault.settings = { primaryNotesLocation: 'root', templates: { folder: '.zennotes' } }
+    expect(await remote().templateFolder()).toBeNull()
   })
 
   it('lists assets in the local shape', async () => {

@@ -141,6 +141,9 @@ export function TasksView(): JSX.Element {
   const setTasksListOrder = useStore((s) => s.setTasksListOrder)
   const viewMode = useStore((s) => s.tasksViewMode)
   const setViewMode = useStore((s) => s.setTasksViewMode)
+  // With daily notes on, the calendar's `a` adds a task to the selected day
+  // (its key sheet's "add to day"), so New task leaves `a` to it there.
+  const calendarAddsToDay = viewMode === 'calendar' && vaultSettings.dailyNotes.enabled
   // Only the Tasks panel in the *active* pane should listen for j/k/etc.
   // Splits can show Tasks in multiple panes simultaneously; without this
   // gate every keypress would fire once per mounted panel.
@@ -707,6 +710,12 @@ export function TasksView(): JSX.Element {
       // While the Vim hint overlay is open it owns the keyboard; don't let
       // task navigation (or Esc closing the view) steal its keys. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
+      // A task the calendar picked up (`m`) holds every key until Enter places
+      // it or Esc puts it back, and the calendar's handler takes them all. This
+      // one runs first whenever the calendar re-registered after it, which it
+      // does on every pick-up, so it yields: Esc used to clear the filter and
+      // leave the task held, and `a` opened New task mid-move.
+      if (rootRef.current?.querySelector('[data-tasks-calendar-moving]')) return
       // The Tasks tab can stay "active" while pane navigation (Ctrl+W h/j/k/l)
       // moves keyboard focus to another panel. Once focusedPanel is no longer
       // 'tasks', release the keys so the target panel (e.g. the sidebar) gets
@@ -771,8 +780,11 @@ export function TasksView(): JSX.Element {
 
       // Quick-add a new task file. View-independent (works in list/calendar/
       // kanban). A single-key shortcut, so it's gated on Vim mode like the rest;
-      // with Vim off, the header "+ New task" button is the way in.
-      if (vimMode && key === 'a') {
+      // with Vim off, the header "+ New task" button is the way in. Not on a
+      // calendar that adds to its day: this handler runs first whenever the
+      // calendar registered after it (every day it moves to), and took `a`
+      // for New task there, while a fresh open left it to the calendar.
+      if (vimMode && key === 'a' && !calendarAddsToDay) {
         consume()
         void newTaskFile()
         return
@@ -935,6 +947,7 @@ export function TasksView(): JSX.Element {
     setFilter,
     viewMode,
     setViewMode,
+    calendarAddsToDay,
     newTaskFile,
     pickSavedFilter,
     listOrder,
@@ -1021,7 +1034,7 @@ export function TasksView(): JSX.Element {
             type="button"
             onClick={() => void newTaskFile()}
             className="shrink-0 rounded-md border border-accent/45 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20"
-            title={vimMode ? 'New task (a)' : 'New task'}
+            title={vimMode && !calendarAddsToDay ? 'New task (a)' : 'New task'}
           >
             + New task
           </button>

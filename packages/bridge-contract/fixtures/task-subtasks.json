@@ -65,6 +65,120 @@
       ]
     },
     {
+      "id": "a line at the margin that only continues the item's text keeps the item open",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\nwraps onto a second line\n  - [x] child\n  - [ ] another child\n- [ ] next\n  - [ ] its child\nwraps under the child\n  - [x] sibling of the child\n    - [ ] grandchild\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4", "parentId": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#6", "parentId": "inbox/Plan.md#5" }
+      ]
+    },
+    {
+      "id": "lines that cannot start a block continue the text: a number, an empty marker, a lone tag, an underline",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] a\n2) is still a's text\n  - [ ] child of a\n- [ ] b\n1.\n  - [ ] child of b\n- [ ] c\n#tag at the margin\n  - [ ] child of c\n- [ ] d\n===\n  - [ ] child of d\n- [ ] e\n  -\nunder the empty marker\n  - [ ] child of e\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#4" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#4" },
+        { "id": "inbox/Plan.md#6" },
+        { "id": "inbox/Plan.md#7", "parentId": "inbox/Plan.md#6" },
+        { "id": "inbox/Plan.md#8" },
+        { "id": "inbox/Plan.md#9", "parentId": "inbox/Plan.md#8" }
+      ]
+    },
+    {
+      "id": "a blank line, a heading, a rule, a fence or HTML at the margin ends the item",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] a\n\nnot a's text\n  - [ ] after a blank\n- [ ] b\n# Heading\n  - [ ] after a heading\n- [ ] c\n***\n  - [ ] after a rule\n- [ ] d\n~~~\nexample\n~~~\n  - [ ] after a fence\n- [ ] e\n<!-- note -->\n  - [ ] after a comment\n- [ ] f\n1. one\n   - [ ] in the numbered list\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4" },
+        { "id": "inbox/Plan.md#5" },
+        { "id": "inbox/Plan.md#6" },
+        { "id": "inbox/Plan.md#7" },
+        { "id": "inbox/Plan.md#8" },
+        { "id": "inbox/Plan.md#9" },
+        { "id": "inbox/Plan.md#10" },
+        { "id": "inbox/Plan.md#11" }
+      ]
+    },
+    {
+      "id": "an underline inside the item, or a heading or code as its first line, leaves no text to continue",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] a\n  ===\nnot a's text\n  - [ ] after the underline\n- [ ] b\n  - # heading item\nnot b's text\n  - [ ] after the heading item\n- [ ] c\n  -      code item\nnot c's text\n  - [ ] after the code item\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4" },
+        { "id": "inbox/Plan.md#5" }
+      ]
+    },
+    {
+      "id": "four columns past the item is its text, or code after a blank line, never a subtask",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n      - [ ] deep, part of the text\n  - [x] real\n- [ ] other\n\n      - [ ] code, not a list\n  - [ ] real too\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#3" }
+      ]
+    },
+    {
+      "id": "a quoted item's text continues lazily, with or without its marker",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "> - [ ] parent\n> wraps in the quote\n>   - [x] child\n> - [ ] second\nwraps without a marker\n>   - [ ] its child\n>   - [ ] another\nlazy under the child\n>   - [x] sibling\n- [ ] outside\n  > - [ ] quoted in the item\n> new quote, not lazy\n  - [ ] not a child of outside\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#4", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#6" },
+        { "id": "inbox/Plan.md#7" },
+        { "id": "inbox/Plan.md#8" }
+      ]
+    },
+    {
+      "id": "an empty marker's content starts right after it",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n  -\n   - [ ] under the empty marker\n\n1.\n  > - [ ] quoted inside the empty item\n>   - [ ] a new quote\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3" }
+      ]
+    },
+    {
+      "id": "a lone > inside a quote is a blank line, and one opening a quote starts text",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "> - [ ] a\n>\n>   - [ ] child after a quoted blank line\n\n>\n10. [ ] the new quote's text\n    - [ ] more text, not a subtask\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3" }
+      ]
+    },
+    {
       "id": "a fenced example inside the item neither counts nor ends it",
       "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
       "body": "- [ ] parent\n  - [x] a\n\n  ~~~\n  - [x] example\n  ~~~\n\n  - [ ] b\n",

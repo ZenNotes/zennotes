@@ -1,5 +1,62 @@
 import { describe, expect, it } from 'vitest'
-import { buildTagTree, extractTags, flattenTagTree, matchesSelectedTags } from './tags'
+import {
+  buildTagTree,
+  countListedTags,
+  countVaultTags,
+  extractTags,
+  flattenTagTree,
+  matchesSelectedTags,
+  noteTagsForCount
+} from './tags'
+
+describe('template notes give the tag surfaces nothing (#1024)', () => {
+  const notes = [
+    { path: 'Notes.md', folder: 'inbox', tags: ['meeting'] },
+    { path: 'Templates/Meeting.md', folder: 'inbox', tags: ['meeting', 'agenda'] },
+    { path: 'Templates/Work/Retro.md', folder: 'inbox', tags: ['retro'] },
+    { path: 'Templates Old/Kept.md', folder: 'inbox', tags: ['kept'] },
+    { path: 'Gone.md', folder: 'trash', tags: ['gone'] }
+  ]
+
+  it('counts no tag a note in the template folder carries', () => {
+    expect([...countVaultTags(notes, null, 'typst', 'Templates')]).toEqual([
+      ['meeting', 1],
+      ['kept', 1]
+    ])
+  })
+
+  it('reads an open template as nothing, even while it is being edited', () => {
+    const active = { path: 'Templates/Meeting.md', body: '#fresh' }
+    expect(noteTagsForCount(notes[1], active, 'typst', 'Templates')).toEqual([])
+    expect(noteTagsForCount(notes[0], active, 'typst', 'Templates')).toEqual(['meeting'])
+  })
+
+  it('counts every live note when the vault has no template folder', () => {
+    expect([...countVaultTags(notes, null, 'typst', null)].map(([tag]) => tag)).toEqual([
+      'meeting',
+      'agenda',
+      'retro',
+      'kept'
+    ])
+  })
+
+  it('gives the sidebar list the same counts, with its live tags for the edited note', () => {
+    expect(countListedTags(notes, null, 'Templates')).toEqual([
+      ['kept', 1],
+      ['meeting', 1]
+    ])
+    const live = { path: 'Notes.md', tags: ['meeting', 'standup'] }
+    expect(countListedTags(notes, live, 'Templates')).toEqual([
+      ['kept', 1],
+      ['meeting', 1],
+      ['standup', 1]
+    ])
+    expect(countListedTags(notes, { path: 'Templates/Meeting.md', tags: ['fresh'] }, 'Templates')).toEqual([
+      ['kept', 1],
+      ['meeting', 1]
+    ])
+  })
+})
 
 describe('extractTags — code fences are never scanned for tags (#293)', () => {
   it('ignores #tags inside a top-level fenced code block', () => {

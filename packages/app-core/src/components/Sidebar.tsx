@@ -26,7 +26,7 @@ import {
 import { Button } from "./ui/Button";
 import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from "../lib/move-note";
 import { assetMoveTargetDir, buildMoveAssetPrompt } from "../lib/move-asset";
-import { buildTagTree, extractTags, flattenTagTree } from "../lib/tags";
+import { buildTagTree, countListedTags, extractTags, flattenTagTree } from "../lib/tags";
 import { isTypstPreamblePath, resolveTypstPreambleFolder } from "../lib/typst-preamble";
 import { focusEditorNormalMode } from "../lib/editor-focus";
 import type { AssetMeta, FolderColorId, FolderEntry, FolderIconId, NoteFolder, NoteMeta } from "@shared/ipc";
@@ -1655,24 +1655,20 @@ export function Sidebar(): JSX.Element {
   // Aggregate hashtags across non-trash notes. The active note's live
   // body is parsed only while it has unsaved edits; clean notes use the
   // indexed tags from note metadata and never reparse large bodies on open.
+  // Notes in the template folder count for nothing (#1024).
+  const templateFolder = useMemo(
+    () => resolveTemplateFolder(vaultSettings),
+    [vaultSettings],
+  );
   const tags = useMemo(() => {
     const startedAt = performance.now();
-    const counter = new Map<string, number>();
-    const liveActivePath = activeBodyTagSnapshot?.path ?? null;
-    const liveActiveTags = activeBodyTagSnapshot?.tags ?? null;
-    for (const n of notes) {
-      if (n.folder === "trash") continue;
-      const list =
-        liveActivePath === n.path && liveActiveTags ? liveActiveTags : n.tags;
-      for (const t of list) counter.set(t, (counter.get(t) ?? 0) + 1);
-    }
-    const next = [...counter.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const next = countListedTags(notes, activeBodyTagSnapshot, templateFolder);
     recordRendererPerf("sidebar.tags", performance.now() - startedAt, {
       notes: notes.length,
       tags: next.length,
     });
     return next;
-  }, [activeBodyTagSnapshot, notes]);
+  }, [activeBodyTagSnapshot, notes, templateFolder]);
 
   // Nested-tag tree (#439): group the flat `[tag, count]` list on `/` and flatten
   // back to the rows visible given the collapsed set. Falls back to nothing when

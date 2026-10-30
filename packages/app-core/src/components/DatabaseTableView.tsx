@@ -10,7 +10,9 @@ import {
 import { createPortal } from 'react-dom'
 import type { DatabaseDoc, DbField, DbRow, DbView, FieldType, SelectOptionsSource } from '@shared/databases'
 import { viewRows } from '@shared/database-transforms'
+import { resolveTemplateFolder } from '@shared/template-folder'
 import { useStore } from '../store'
+import { tagSourceSuggestions } from '../lib/link-candidates'
 import {
   addRowInView,
   setCell,
@@ -106,8 +108,8 @@ export function DatabaseTableView({ csvPath, doc, view, isActive, onOpenColumns 
       )
       return [...dirs].sort().map((value) => ({ value }))
     }
-    const tags = new Set(notes.flatMap((n) => n.tags.map((t) => t.toLowerCase())))
-    return [...tags].sort().map((value) => ({ value }))
+    const templateFolder = resolveTemplateFolder(useStore.getState().vaultSettings)
+    return tagSourceSuggestions(notes, templateFolder).map((value) => ({ value }))
   }, [sourcePrompt])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Edit picks: every row shows, the picked ones selected, and the selection

@@ -8,16 +8,20 @@
 import type { AssetMeta, NoteMeta, VaultSettings } from '@shared/ipc'
 import type { FolderEntry } from '@shared/ipc'
 import type { SelectOptionsSource } from '@shared/databases'
+import { isPathInTemplateFolder, outsideTemplateFolder } from '@shared/template-folder'
 import { isPrimaryNotesAtRoot, noteFolderLabel } from './vault-layout'
 import { listDatabaseLinkTargets, type DatabaseLinkTarget } from './database-links'
 
 /**
  * Scope the note pool by a select field's options source (#500): every note,
  * a folder subtree (vault-relative path prefix), or a #tag (case-insensitive).
+ * A tag never offers a note in the template folder (#1024): its tags are the
+ * note a template will make. A folder source naming that folder still does.
  */
 export function notesMatchingSource(
   notes: NoteMeta[],
-  source: SelectOptionsSource | null | undefined
+  source: SelectOptionsSource | null | undefined,
+  templateFolder: string | null = null
 ): NoteMeta[] {
   if (!source || source.kind === 'notes') return notes
   if (source.kind === 'folder') {
@@ -25,7 +29,23 @@ export function notesMatchingSource(
     return notes.filter((n) => n.path.startsWith(prefix))
   }
   const tag = source.tag.toLowerCase()
-  return notes.filter((n) => n.tags.some((t) => t.toLowerCase() === tag))
+  return notes.filter(
+    (n) =>
+      !isPathInTemplateFolder(n.path, templateFolder) &&
+      n.tags.some((t) => t.toLowerCase() === tag)
+  )
+}
+
+/** The tags Options from tag suggests, lowercased and sorted: every note's,
+ *  except the template folder's (#1024). */
+export function tagSourceSuggestions(
+  notes: readonly NoteMeta[],
+  templateFolder: string | null
+): string[] {
+  const tags = new Set(
+    outsideTemplateFolder(notes, templateFolder).flatMap((n) => n.tags.map((t) => t.toLowerCase()))
+  )
+  return [...tags].sort()
 }
 
 function normalize(value: string): string {

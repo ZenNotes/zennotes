@@ -38,8 +38,13 @@ const storeState = vi.hoisted(() => ({
 storeState.notes = [
   meta('inbox/A.md', 'inbox', ['project', 'idea', 'work/deep']),
   meta('inbox/B.md', 'inbox', ['project', 'projectplan', 'todo']),
-  meta('trash/Old.md', 'trash', ['project', 'projecttrash'])
+  meta('trash/Old.md', 'trash', ['project', 'projecttrash']),
+  // A template's tags are the note it will make, not the vault's (#1024).
+  meta('inbox/Templates/Plan.md', 'inbox', ['project', 'projecttemplate'])
 ]
+;(storeState as { vaultSettings?: unknown }).vaultSettings = {
+  templates: { folder: 'inbox/Templates' }
+}
 
 vi.mock('../store', () => {
   const useStore = Object.assign(() => null, { getState: () => storeState })
@@ -54,7 +59,8 @@ function result(doc: string) {
 describe('hashtagSource (#410 — hashtag autocomplete)', () => {
   it('suggests previously used tags when typing #<query>', () => {
     const r = result('#pro')
-    // project (count 2) ranks above projectplan (count 1); trash is excluded.
+    // project (count 2) ranks above projectplan (count 1); trash and the
+    // template folder are excluded.
     expect(r?.options.map((o) => o.label)).toEqual(['project', 'projectplan'])
   })
 

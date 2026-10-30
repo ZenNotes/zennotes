@@ -8185,8 +8185,8 @@ function TemplateFolderRow({ settingId }: { settingId?: string }): JSX.Element {
       <div className="min-w-0 flex-1 basis-56">
         <div className="text-sm font-medium text-ink-900">Template folder</div>
         <div className="mt-1 text-xs leading-5 text-ink-500">
-          Notes in this folder become templates. They stay out of Tasks and
-          search.
+          Notes in this folder become templates. They stay out of Tasks, Tags
+          and search.
         </div>
         {current && (
           <div className="mt-1 text-xs leading-5 text-ink-500" data-template-folder-count={count}>

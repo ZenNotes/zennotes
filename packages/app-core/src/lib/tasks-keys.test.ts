@@ -27,6 +27,14 @@ describe('the Tasks keys cheat sheet', () => {
     })
   }
 
+  it('names the calendar’s `a` only where there is a day to add to (daily notes on)', () => {
+    const calendar = (dayAdd: boolean) =>
+      keysOf(tasksKeySheet('calendar', { vimMode: true, dndEnabled: true, listOrder: 'note', dayAdd }))
+    expect(calendar(true)).toContain('a')
+    // Without daily notes `a` is New task, named by its button's tooltip.
+    expect(calendar(false)).not.toContain('a')
+  })
+
   it('lists the board keys with Vim mode on, the WIP limit among them', () => {
     const keys = keysOf(tasksKeySheet('kanban', { vimMode: true, dndEnabled: true, listOrder: 'note' }))
     for (const key of ['h / l', 'j / k', 'x', 'Enter', 'Shift+H / L', 'm', '< / >', 'W', 'g', 's', 'v', 'E', '?']) {

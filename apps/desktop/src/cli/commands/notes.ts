@@ -4,6 +4,7 @@
  * round-trip, works whether the desktop app is open or closed.
  */
 
+import { outsideTemplateFolder } from '@shared/template-folder'
 import type { NoteFolder, NoteMeta } from '../../mcp/vault-ops.js'
 import type { VaultBackend } from '../backend.js'
 import {
@@ -37,7 +38,8 @@ export async function cmdList(vault: VaultBackend, args: ParsedArgs): Promise<vo
     ? notes.filter((n) => n.folder === folder)
     : notes.filter((n) => n.folder !== 'trash')
   if (tag) {
-    notes = notes.filter((n) =>
+    // A tag finds no template (#1024): its tags are the note it will make.
+    notes = outsideTemplateFolder(notes, await vault.templateFolder()).filter((n) =>
       n.tags.map((t) => t.toLowerCase()).includes(tag.replace(/^#/, ''))
     )
   }

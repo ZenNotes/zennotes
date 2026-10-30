@@ -3,6 +3,7 @@ import {
   isPathInTemplateFolder,
   normalizeTemplateFolder,
   normalizeTemplateFolderSettings,
+  outsideTemplateFolder,
   resolveTemplateFolder,
   rewriteTemplateFolderForRename,
   templateFolderEntryKey
@@ -128,5 +129,26 @@ describe('rewriteTemplateFolderForRename', () => {
     )
     expect(rewriteTemplateFolderForRename(undefined, 'Templates', 'X')).toBeUndefined()
     expect(rewriteTemplateFolderForRename(settings, 'Templates', 'Templates')).toBe(settings)
+  })
+})
+
+describe('outsideTemplateFolder: what the tag surfaces count (#1024)', () => {
+  const notes = [
+    { path: 'Notes.md' },
+    { path: 'Templates/Meeting.md' },
+    { path: 'Templates/Work/Retro.md' },
+    { path: 'Templates Old/Kept.md' }
+  ]
+
+  it('leaves the template folder out, subfolders included, and nothing else', () => {
+    expect(outsideTemplateFolder(notes, 'Templates').map((n) => n.path)).toEqual([
+      'Notes.md',
+      'Templates Old/Kept.md'
+    ])
+  })
+
+  it('hands back the same list when the vault has no template folder', () => {
+    expect(outsideTemplateFolder(notes, null)).toBe(notes)
+    expect(outsideTemplateFolder(notes, undefined)).toBe(notes)
   })
 })

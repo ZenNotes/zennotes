@@ -8,6 +8,7 @@ import {
   insertAtLineInBody,
   listNotes,
   readPrimaryNotesLocation,
+  readTemplateFolder,
   renameNote,
   replaceInBody,
   scanAllTasks,
@@ -421,5 +422,52 @@ describe('mcp tasks leave the template folder out (#1024)', () => {
     expect(sources(await scanAllTasks(root, { includeExcluded: true }))).toContain(
       'Templates/Meeting.md'
     )
+  })
+})
+
+// #1024: text search on a local vault (MCP search_text, `zn search`) leaves
+// template notes out as the app's Search Text in Vault and the server do, and
+// before the limit, so the matches it returns are real notes.
+describe('mcp text search leaves the template folder out (#1024)', () => {
+  async function seed(settings: Record<string, unknown> | null): Promise<void> {
+    for (const dir of ['Templates', 'Templates/Work', 'Templates Old']) {
+      await mkdir(path.join(root, dir), { recursive: true })
+    }
+    await writeFile(path.join(root, 'Templates', 'Meeting.md'), '# Meeting\n\nagenda for {{title}}\n')
+    await writeFile(path.join(root, 'Templates', 'Work', 'Retro.md'), '# Retro\n\nagenda: what went well\n')
+    await writeFile(path.join(root, 'Templates Old', 'Kept.md'), '# Kept\n\nan old agenda\n')
+    await writeFile(path.join(root, 'Standup.md'), '# Standup\n\ntoday’s agenda\n')
+    await rm(path.join(root, '.zennotes'), { recursive: true, force: true })
+    if (settings) {
+      await mkdir(path.join(root, '.zennotes'), { recursive: true })
+      await writeFile(path.join(root, '.zennotes', 'vault.json'), JSON.stringify(settings))
+    }
+  }
+  const paths = (matches: { path: string }[]): string[] => matches.map((m) => m.path).sort()
+
+  it('finds no template, subfolders included', async () => {
+    await seed({ templates: { folder: 'Templates' } })
+    expect(paths(await searchText(root, 'agenda'))).toEqual(['Standup.md', 'Templates Old/Kept.md'])
+    expect(await readTemplateFolder(root)).toBe('Templates')
+  })
+
+  it('spends the limit on real notes', async () => {
+    await seed({ templates: { folder: 'Templates' } })
+    for (const limit of [1, 2]) {
+      const found = paths(await searchText(root, 'agenda', limit))
+      expect(found).toHaveLength(limit)
+      expect(found.every((p) => !p.startsWith('Templates/'))).toBe(true)
+    }
+  })
+
+  it('finds them all when the vault has no template folder', async () => {
+    await seed(null)
+    expect(await readTemplateFolder(root)).toBeNull()
+    expect(paths(await searchText(root, 'agenda'))).toEqual([
+      'Standup.md',
+      'Templates Old/Kept.md',
+      'Templates/Meeting.md',
+      'Templates/Work/Retro.md'
+    ])
   })
 })
