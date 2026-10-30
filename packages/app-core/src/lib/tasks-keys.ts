@@ -43,6 +43,9 @@ export interface TasksKeySheetOptions {
   lanes?: boolean
   /** A card can move to another lane (every lane field but Folder). */
   laneMoves?: boolean
+  /** The calendar adds a task to the selected day (daily notes on): its `a`.
+   *  Without it `a` is New task, which its button's tooltip names. */
+  dayAdd?: boolean
 }
 
 /** The board's Subtasks group, shown once `subtasks` is on. Tab and Esc are
@@ -215,7 +218,7 @@ function listSheet({ vimMode, listOrder }: TasksKeySheetOptions): TasksKeySheet 
   }
 }
 
-function calendarSheet({ vimMode }: TasksKeySheetOptions): TasksKeySheet {
+function calendarSheet({ vimMode, dayAdd }: TasksKeySheetOptions): TasksKeySheet {
   const mouse = 'Drag to another day · right-click for actions'
   if (!vimMode) {
     return {
@@ -269,7 +272,7 @@ function calendarSheet({ vimMode }: TasksKeySheetOptions): TasksKeySheet {
           { keys: '< / >', label: 'due ±1 day' },
           { keys: 'T', label: 'due today' },
           { keys: '@', label: 'due date' },
-          { keys: 'a', label: 'add to day' }
+          ...(dayAdd ? [{ keys: 'a', label: 'add to day' }] : [])
         ]
       },
       { title: 'Calendar', rows: viewRows(null) }

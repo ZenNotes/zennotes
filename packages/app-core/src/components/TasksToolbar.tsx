@@ -188,6 +188,7 @@ export function TasksKeysButton({
 }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const listOrder = useStore((s) => s.tasksListOrder)
+  const dayAdd = useStore((s) => s.vaultSettings.dailyNotes.enabled)
   const buttonRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
@@ -233,7 +234,7 @@ export function TasksKeysButton({
     }
   }, [anchor, close])
 
-  const sheet = tasksKeySheet(view, { vimMode, dndEnabled, listOrder, subtasks, lanes, laneMoves })
+  const sheet = tasksKeySheet(view, { vimMode, dndEnabled, listOrder, subtasks, lanes, laneMoves, dayAdd })
 
   return (
     <>
