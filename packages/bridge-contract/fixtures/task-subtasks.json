@@ -122,6 +122,16 @@
       ]
     },
     {
+      "id": "a line blank to JavaScript keeps the item open, and only that",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n\ufeff\n  - [ ] after a BOM-only line\n\n\u0085\n  - [ ] after a NEL-only line\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" }
+      ]
+    },
+    {
       "id": "windows line endings nest the same",
       "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
       "body": "- [ ] parent\r\n  - [ ] child\r\n",
