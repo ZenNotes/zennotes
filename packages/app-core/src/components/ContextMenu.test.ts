@@ -312,6 +312,38 @@ describe('ContextMenu with a find field (#1014)', () => {
     expect(rows()).toEqual(['Java', 'JavaScript', 'JSON'])
   })
 
+  // The menu takes the keyboard again on the frame after it opens (#850). A `/`
+  // that landed before that frame lost the field to it: a CI runner pressed it
+  // inside the first frame.
+  it('leaves the field its focus when / lands before the menu’s next frame', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    useStore.setState({ vimMode: true })
+    await render()
+    await act(async () => keydown(menuEl(), '/'))
+    expect(document.activeElement).toBe(field())
+    await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+    expect(document.activeElement).toBe(field())
+  })
+
+  it('still takes the keyboard back on its next frame when focus left the menu (#850)', async () => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    const elsewhere = document.createElement('button')
+    document.body.append(elsewhere)
+    try {
+      useStore.setState({ vimMode: true })
+      await render()
+      elsewhere.focus()
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(document.activeElement).toBe(menuEl())
+    } finally {
+      elsewhere.remove()
+    }
+  })
+
   it('opens on the list on a touch screen, so no keyboard covers it', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(pointer: coarse)' }))
     await render()

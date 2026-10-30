@@ -140,7 +140,9 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
   // Take the keyboard as the menu mounts, so a key pressed before the next
   // frame cannot reach whatever held focus (the calendar panel, after a
   // keyboard drop), and again on that frame in case the event that opened the
-  // menu moves focus after mount (#850). Closing hands focus back.
+  // menu moves focus after mount (#850). That frame only takes focus back from
+  // outside: a `/` pressed before it has already moved to the find field.
+  // Closing hands focus back.
   //
   // A menu with a find field gives it the keyboard when letters are text,
   // that is with Vim off; with Vim on the list keeps it, where j and k move
@@ -151,6 +153,7 @@ export function ContextMenu({ x, y, items, title, findPlaceholder, anchorTop, on
       findPlaceholder && !useStore.getState().vimMode && !coarsePointer() ? findRef.current : ref.current
     target()?.focus({ preventScroll: true })
     const id = requestAnimationFrame(() => {
+      if (ref.current?.contains(document.activeElement)) return
       target()?.focus({ preventScroll: true })
     })
     return () => {
