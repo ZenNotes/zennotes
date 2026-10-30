@@ -502,6 +502,92 @@ describe('daily task rollover', () => {
   })
 })
 
+describe('daily note from a template, with rollover (yeminn, Discord 2026-10-29)', () => {
+  // Opening today's note from a template created it, then started the rollover.
+  // The template path left the new note out of the note list until its own
+  // listing landed, and that listing is dropped when a newer one started in the
+  // meantime: the watcher's echo of the very same write does exactly that while
+  // a Cloud run keeps main busy. The rollover then found no note for today,
+  // created one, got "<today> 2.md" and moved the tasks there, while the editor
+  // showed the empty "<today>.md".
+  it('rolls the tasks into the note it opened when a newer listing overtakes the template\'s', async () => {
+    const iso = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')].join('-')
+    const now = new Date()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const sourcePath = `inbox/Daily Notes/${iso(yesterday)}.md`
+    const targetPath = `inbox/Daily Notes/${iso(now)}.md`
+    const files = new Map([[sourcePath, `# ${iso(yesterday)}\n\n- [ ] Call the bank\n`]])
+    const notes = () => [...files].map(([path, body]) => makeNote(body, path))
+    const createNote = vi.fn(async (_folder: string, title: string, subpath: string) => {
+      // Main picks the next free name when the file is already there.
+      let path = `inbox/${subpath}/${title}.md`
+      for (let n = 2; files.has(path); n++) path = `inbox/${subpath}/${title} ${n}.md`
+      files.set(path, `# ${title}\n`)
+      return makeNote(files.get(path)!, path)
+    })
+    // The first listing after the create is overtaken by a newer one (the
+    // watcher's echo), which lands only after the rollover has looked.
+    let release!: () => void
+    const echoLanded = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let listings = 0
+    const { useStore } = await loadStore()
+    installZen({
+      createNote,
+      listNotes: vi.fn(async () => {
+        listings += 1
+        if (listings === 1) {
+          const echo = useStore.getState().refreshNotes()
+          void echo
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          return notes()
+        }
+        if (listings === 2) {
+          await echoLanded
+          return notes()
+        }
+        return notes()
+      }),
+      listFolders: vi.fn(async () => []),
+      hasAssetsDir: vi.fn(async () => false),
+      readNote: vi.fn(async (path: string) => makeNote(files.get(path)!, path)),
+      writeNote: vi.fn(async (path: string, body: string) => {
+        files.set(path, body)
+        return makeNote(body, path)
+      })
+    })
+    useStore.setState({
+      notes: notes(),
+      customTemplates: [{
+        id: 'custom:daily', name: 'Daily', description: '', category: 'Custom', builtin: false,
+        body: '# {{title}}\n\n## Tasks\n\n'
+      }],
+      vaultSettings: {
+        ...useStore.getState().vaultSettings,
+        dailyNotes: {
+          enabled: true, directory: 'Daily Notes', templateId: 'custom:daily', rolloverUnfinishedTasks: true
+        }
+      }
+    })
+
+    try {
+      await useStore.getState().openDailyNoteForDate(now)
+      await vi.waitFor(() => expect(files.get(sourcePath)).not.toContain('Call the bank'))
+    } finally {
+      release()
+    }
+
+    expect(createNote).toHaveBeenCalledOnce()
+    expect([...files.keys()].sort()).toEqual([sourcePath, targetPath].sort())
+    const today = useStore.getState().noteContents[targetPath]?.body ?? files.get(targetPath)
+    expect(today).toContain('- [ ] Call the bank')
+    expect(useStore.getState().selectedPath).toBe(targetPath)
+  })
+})
+
 describe('weekly note patterns', () => {
   it('creates weekly notes using the configured directory and title patterns', async () => {
     const created = {

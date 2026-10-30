@@ -4055,10 +4055,11 @@ interface Store {
   /** Create + open a note from a template, substituting variables and placing
    *  the caret at `{{cursor}}`. Falls back to a title prompt when the template
    *  has no titleTemplate and no explicit title is supplied. */
+  /** Resolves to the note it made, or null when cancelled or it failed. */
   createFromTemplate: (
     template: NoteTemplate,
     opts?: { folder?: NoteFolder; subpath?: string; title?: string; date?: Date }
-  ) => Promise<void>
+  ) => Promise<NoteMeta | null>
   saveActiveNoteAsTemplate: () => Promise<void>
   saveActiveNoteAs: (newName: string) => Promise<void>
   setWordWrap: (on: boolean) => void
@@ -4092,6 +4093,8 @@ interface Store {
   rolloverUnfinishedTasksIntoToday: (opts?: {
     force?: boolean
     open?: boolean
+    /** Today's daily note when the caller has just opened or made it. */
+    today?: NoteMeta
   }) => Promise<number>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
@@ -10145,13 +10148,14 @@ export const useStore = create<Store>((set, get) => {
     if (!settings.dailyNotes.enabled) return
     const { title, subpath } = dailyNoteLocationForDate(date, settings)
     const existing = findDailyNoteForDate(state.notes, settings, date)
+    let opened: NoteMeta | null = existing ?? null
     if (existing) {
       set({ view: { kind: 'folder', folder: 'inbox', subpath } })
       await get().selectNote(existing.path)
     } else {
       const template = resolveTemplate(state.customTemplates, settings.dailyNotes.templateId)
       if (template) {
-        await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
+        opened = await get().createFromTemplate(template, { folder: 'inbox', subpath, title, date })
       } else {
         await get().createAndOpen('inbox', subpath, { title })
       }
@@ -10164,9 +10168,12 @@ export const useStore = create<Store>((set, get) => {
     requestEditorFocus({ read: !!existing && options?.readIfExisting === true })
     // Opening *today's* note rolls unfinished tasks forward from past daily
     // notes (Obsidian-style) when enabled. Fire-and-forget so the note shows
-    // right away; the rollover appends into the now-open buffer.
+    // right away; the rollover appends into the now-open buffer. It is handed
+    // the note just opened or made rather than looking it up: the note list
+    // can trail a note made a moment ago, and a rollover that found no note
+    // for today made a second one ("<today> 2.md") and filled that instead.
     if (noteTitleForDate(date) === noteTitleForDate(new Date())) {
-      void get().rolloverUnfinishedTasksIntoToday()
+      void get().rolloverUnfinishedTasksIntoToday(opened ? { today: opened } : undefined)
     }
   },
 
@@ -10186,6 +10193,10 @@ export const useStore = create<Store>((set, get) => {
     try {
       const meta = await window.zen.createNote('inbox', title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      // In the list at once, as createAndOpen does: the listing below is
+      // dropped when a newer one starts first (the watcher's echo of this very
+      // write does), and a second call meanwhile must find today's note.
+      set((s) => ({ notes: s.notes.some((n) => n.path === meta.path) ? s.notes : [...s.notes, meta] }))
       if (body) await window.zen.writeNote(meta.path, body)
       emitNoteEvent('note-created', meta.path)
       await get().refreshNotes()
@@ -10248,7 +10259,7 @@ export const useStore = create<Store>((set, get) => {
     const todayIso = noteTitleForDate(today)
     const vaultRoot = get().vault?.root ?? ''
     if (!force && !settings.dailyNotes.rolloverUnfinishedTasks) return 0
-    const todayNote = await get().ensureDailyNoteForDate(today)
+    const todayNote = opts?.today ?? (await get().ensureDailyNoteForDate(today))
     if (!todayNote) return 0
     if (opts?.open) {
       const { subpath } = dailyNoteLocationForDate(today, settings)
@@ -10475,7 +10486,7 @@ export const useStore = create<Store>((set, get) => {
     await get().loadCustomTemplates()
   },
 
-  createFromTemplate: trackNoteWrite(undefined, async (template, opts) => {
+  createFromTemplate: trackNoteWrite(null, async (template, opts) => {
     try {
       // 1. Destination. An explicit folder (e.g. right-click on a folder) is
       // used directly; otherwise prompt, defaulting to the vault root so the
@@ -10496,7 +10507,7 @@ export const useStore = create<Store>((set, get) => {
         const entered = await promptApp(
           buildTemplateDestinationPrompt(template.name, initialPath, state.folders)
         )
-        if (entered == null) return // cancelled
+        if (entered == null) return null // cancelled
         const dest = parseTemplateDestination(entered)
         folder = dest.folder
         subpath = dest.subpath
@@ -10513,13 +10524,17 @@ export const useStore = create<Store>((set, get) => {
           initialValue: template.name,
           okLabel: 'Create'
         })
-        if (entered == null) return // cancelled
+        if (entered == null) return null // cancelled
         title = entered.trim()
       }
       if (!title) title = template.name
       const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
       const meta = await window.zen.createNote(folder, title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      // In the list at once, as createAndOpen does: the listing below is
+      // dropped when a newer one starts first, which the watcher's echo of
+      // this very write does while main is busy (a Cloud run hashing the vault).
+      set((s) => ({ notes: s.notes.some((n) => n.path === meta.path) ? s.notes : [...s.notes, meta] }))
       emitNoteEvent('note-created', meta.path)
       // Write the rendered body before opening so the editor never flashes the
       // default `# Title` scaffold (mirrors importDroppedMarkdownFiles).
@@ -10536,8 +10551,10 @@ export const useStore = create<Store>((set, get) => {
       // command palette, a folder menu — where focus would otherwise stay on
       // the picker/prompt that just closed. (#436, mirrors the daily-note flow)
       requestEditorFocus()
+      return get().notes.find((n) => n.path === meta.path) ?? meta
     } catch (err) {
       console.error('createFromTemplate failed', err)
+      return null
     }
   }),
 
