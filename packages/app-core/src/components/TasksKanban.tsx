@@ -46,10 +46,12 @@ import {
   type TaskMutation
 } from '../store'
 import { filterTasks, type NoteTagsByPath } from '../lib/tasks-filter'
+import { isEmptyTask } from '../lib/empty-tasks'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
+import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { TaskStateBox } from './TaskStateBox'
@@ -577,6 +579,40 @@ export function arrangeColumns(columns: Column[], order: string[]): Column[] {
   return [...sorted, ...noValue]
 }
 
+/** A column showing only `visible` of its cards, its overdue badge counting
+ *  only those. The filter (#583) and the empty-task hiding (#1026) both
+ *  narrow cards this way and never drop a column. */
+function withVisibleCards(column: Column, visible: VaultTask[], today: Date): Column {
+  if (visible.length === column.tasks.length) return column
+  let badge = column.badge
+  if (badge?.kind === 'overdue') {
+    const value = visible.filter((t) => isTaskOverdue(t, today)).length
+    badge = value > 0 ? { kind: 'overdue', value } : undefined
+  }
+  return { ...column, tasks: visible, badge }
+}
+
+/** Leave the empty cards (a template's bare `- [ ]`) off the board, and count
+ *  them so the toolbar can say they are hidden rather than lost (#1026). An
+ *  overdue placeholder in yesterday's daily note stops counting as overdue
+ *  with it. The same columns come back when nothing was empty. */
+export function hideEmptyCards(
+  columns: Column[],
+  today: Date
+): { columns: Column[]; hidden: number } {
+  let hidden = 0
+  const next = columns.map((column) => {
+    const shown = withVisibleCards(
+      column,
+      column.tasks.filter((task) => !isEmptyTask(task)),
+      today
+    )
+    hidden += column.tasks.length - shown.tasks.length
+    return shown
+  })
+  return { columns: hidden === 0 ? columns : next, hidden }
+}
+
 /** How long an armed `g` waits for a tab-sequence completion before the
  *  group-by cycle fires. Matches VimNav's own gt/gT pending window. */
 export const GROUP_BY_PENDING_MS = 500
@@ -684,6 +720,7 @@ export function TasksKanban({
 }: Props): JSX.Element {
   const groupBy = useStore((s) => s.kanbanGroupBy)
   const cardSort = useStore((s) => s.kanbanCardSort)
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const setCardSort = useStore((s) => s.setKanbanCardSort)
   const setGroupBy = useStore((s) => s.setKanbanGroupBy)
   const kanbanColumnTitles = useStore((s) => s.kanbanColumnTitles)
@@ -855,20 +892,20 @@ export function TasksKanban({
   // cards are filtered out), and the unfiltered columns stay the source of
   // truth for card-order persistence so a focused board can't prune hidden
   // cards out of a hand-made arrangement. (#583)
+  // Empty cards leave the board the same way (#1026): off the visible
+  // columns only, so a hand-made arrangement that places one keeps it for
+  // when they are shown again, and counted for the toolbar.
   const filterQuery = (filter ?? '').trim()
-  const columns = useMemo(() => {
-    if (!filterQuery) return fullColumns
-    return fullColumns.map((column) => {
-      const visible = filterTasks(column.tasks, filterQuery, noteTags)
-      if (visible.length === column.tasks.length) return column
-      let badge = column.badge
-      if (badge?.kind === 'overdue') {
-        const value = visible.filter((t) => isTaskOverdue(t, today)).length
-        badge = value > 0 ? { kind: 'overdue', value } : undefined
-      }
-      return { ...column, tasks: visible, badge }
-    })
-  }, [fullColumns, filterQuery, noteTags, today])
+  const { columns, hiddenEmpty } = useMemo(() => {
+    const narrowed = filterQuery
+      ? fullColumns.map((column) =>
+          withVisibleCards(column, filterTasks(column.tasks, filterQuery, noteTags), today)
+        )
+      : fullColumns
+    if (!hideEmptyTasks) return { columns: narrowed, hiddenEmpty: 0 }
+    const hidden = hideEmptyCards(narrowed, today)
+    return { columns: hidden.columns, hiddenEmpty: hidden.hidden }
+  }, [fullColumns, filterQuery, hideEmptyTasks, noteTags, today])
   columnsRef.current = columns
   fullColumnsRef.current = fullColumns
 
@@ -1704,6 +1741,8 @@ export function TasksKanban({
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
+      // A toolbar button reached with Tab takes its own keys.
+      if (tasksToolbarOwnsKey(e)) return
 
       // A deferred group-by cycle is waiting on the gt/gT window (#573).
       // Resolved before the modifier guard so a chord also drops the prefix.
@@ -1854,8 +1893,13 @@ export function TasksKanban({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-paper-300/45 px-3 py-2">
-        <div className="flex items-center gap-1 text-xs text-current/60">
+      {/* Group by, Order and the View menu; the keys sit behind Keys. On a
+          narrow pane each group wraps whole, never a label inside it. */}
+      <div
+        data-tasks-toolbar
+        className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-paper-300/45 px-3 py-2 text-xs text-current/60"
+      >
+        <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
           <span>Group by</span>
           <select
             value={groupBy}
@@ -1883,7 +1927,9 @@ export function TasksKanban({
               {kanbanFolderRoot ? `inside ${kanbanFolderRoot}` : 'each note’s folder'}
             </button>
           )}
-          <span className="ml-2">Order</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+          <span>Order</span>
           <select
             data-kanban-card-sort
             value={cardSort}
@@ -1899,14 +1945,9 @@ export function TasksKanban({
             <option value="due">Due date</option>
           </select>
         </div>
-        <div className="text-xs text-current/40">
-          {vimMode
-            ? dndEnabled
-              ? 'Drag or Shift+H·L move card · drag header or </> reorder columns · h/l · j/k · g group-by · s order · x · Enter · right-click actions'
-              : 'Drag header or </> reorder columns · h/l column · j/k card · g group-by · s order · x · Enter · right-click actions'
-            : dndEnabled
-              ? 'Drag to move a card · drag a header to reorder columns · ←/→ · ↑/↓ · Space · Enter · right-click actions'
-              : 'Drag a header to reorder columns · ←/→ column · ↑/↓ card · Space · Enter · right-click actions'}
+        <TasksViewOptions hidden={hiddenEmpty} />
+        <div className="ml-auto shrink-0">
+          <TasksKeysButton view="kanban" dndEnabled={dndEnabled} />
         </div>
       </div>
 

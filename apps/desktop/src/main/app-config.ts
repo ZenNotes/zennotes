@@ -441,6 +441,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'kanban_card_sort',
     comment: 'manual | due: cards in a Kanban column keep the order you drag them into, or follow their due dates'
   },
+  hideEmptyTasks: {
+    section: 'view',
+    tomlKey: 'hide_empty_tasks',
+    comment: 'leave blank checkboxes out of the Tasks list, calendar and board'
+  },
   tasksListOrder: {
     section: 'view',
     tomlKey: 'tasks_list_order',

@@ -52,6 +52,7 @@ const mocks = vi.hoisted(() => {
       interfaceFont: null,
       // The Tasks pane: "due date" finds its Kanban card order row first.
       kanbanCardSort: "manual",
+      hideEmptyTasks: true,
       kanbanFolderRoot: "",
       kanbanStatuses: [] as string[],
       keymapOverrides: {} as Record<string, string>,
@@ -571,6 +572,8 @@ describe("SettingsModal date note directories", () => {
       ["due date", "Tasks are due on the note's date", "daily-notes-tasks-due-on-date"],
       ["due date", "Kanban card order", "kanban-card-sort"],
       ["card order", "Kanban card order", "kanban-card-sort"],
+      ["empty task", "Hide empty tasks", "hide-empty-tasks"],
+      ["placeholder", "Hide empty tasks", "hide-empty-tasks"],
       ["rollover", "Roll over unfinished tasks to today", "daily-notes-rollover"],
       ["tutorial", "Guided tutorial", "workflow-tutorial"],
       ["recipe gallery", "Built-in recipes", "workflow-hidden-recipes"],

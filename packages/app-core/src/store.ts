@@ -817,6 +817,10 @@ interface Prefs {
    *  they were dragged into (due date until then), `due` always sorts them by
    *  due date and leaves that arrangement untouched for later. (#889) */
   kanbanCardSort: KanbanCardSort
+  /** Leave tasks with no text (a template's bare `- [ ]`) off the Tasks
+   *  list, calendar and Kanban board. On by default; portable as
+   *  `hide_empty_tasks` under [view]. (#1026) */
+  hideEmptyTasks: boolean
   /** Tasks list groups in their notes' line order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches. (#1007) */
@@ -1266,6 +1270,7 @@ export const DEFAULT_PREFS: Prefs = {
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
   kanbanCardSort: 'manual',
+  hideEmptyTasks: true,
   tasksListOrder: 'note',
   timelineRange: DEFAULT_TIMELINE_RANGE,
   gallerySort: 'updated',
@@ -1651,6 +1656,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         : DEFAULT_PREFS.showArchivedTasks,
     kanbanGroupBy: normalizeKanbanGroupBy(p.kanbanGroupBy),
     kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
+    hideEmptyTasks:
+      typeof p.hideEmptyTasks === 'boolean' ? p.hideEmptyTasks : DEFAULT_PREFS.hideEmptyTasks,
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
     timelineRange: normalizeTimelineRange(p.timelineRange),
     gallerySort: normalizeGallerySort(p.gallerySort),
@@ -2625,6 +2632,7 @@ function collectPrefs(s: {
   showArchivedTasks: boolean
   kanbanGroupBy: KanbanGroupBy
   kanbanCardSort: KanbanCardSort
+  hideEmptyTasks: boolean
   tasksListOrder: TasksListOrder
   timelineRange: TimelineRange
   gallerySort: GallerySort
@@ -2746,6 +2754,7 @@ function collectPrefs(s: {
     showArchivedTasks: s.showArchivedTasks,
     kanbanGroupBy: s.kanbanGroupBy,
     kanbanCardSort: s.kanbanCardSort,
+    hideEmptyTasks: s.hideEmptyTasks,
     tasksListOrder: s.tasksListOrder,
     timelineRange: s.timelineRange,
     gallerySort: s.gallerySort,
@@ -3432,6 +3441,8 @@ interface Store {
   kanbanGroupBy: KanbanGroupBy
   /** Cards in each Kanban column by hand-placed order or by due date. (#889) */
   kanbanCardSort: KanbanCardSort
+  /** Tasks with no text stay off the Tasks list, calendar and board. (#1026) */
+  hideEmptyTasks: boolean
   /** Tasks list groups in note order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches: two weeks, a month, or every
@@ -3719,6 +3730,7 @@ interface Store {
   confirmArchiveNotes: (paths: string[]) => Promise<boolean>
   setKanbanGroupBy: (group: KanbanGroupBy) => void
   setKanbanCardSort: (sort: KanbanCardSort) => void
+  setHideEmptyTasks: (hide: boolean) => void
   setTasksListOrder: (order: TasksListOrder) => void
   setTimelineRange: (range: TimelineRange) => void
   setTimelineFilter: (query: string) => void
@@ -6306,6 +6318,7 @@ export const useStore = create<Store>((set, get) => {
   showArchivedTasks: loadPrefs().showArchivedTasks,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
   kanbanCardSort: loadPrefs().kanbanCardSort,
+  hideEmptyTasks: loadPrefs().hideEmptyTasks,
   tasksListOrder: loadPrefs().tasksListOrder,
   timelineRange: loadPrefs().timelineRange,
   timelineFilter: '',
@@ -7841,6 +7854,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setKanbanCardSort: (sort) => {
     set({ kanbanCardSort: sort })
+    savePrefs(collectPrefs(get()))
+  },
+  setHideEmptyTasks: (hide) => {
+    set({ hideEmptyTasks: hide })
     savePrefs(collectPrefs(get()))
   },
   setTasksListOrder: (order) => {

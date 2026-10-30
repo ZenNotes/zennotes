@@ -28,6 +28,7 @@ import { resolveWeekStartDay } from '../lib/week-start'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
+import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 
 interface Props {
   tasks: VaultTask[]
@@ -43,6 +44,8 @@ interface Props {
   /** Whether daily notes are enabled — gates the quick-add box, which writes
    *  into the selected day's daily note. */
   dailyNotesEnabled: boolean
+  /** Empty tasks left off the calendar, for the View menu's "3 hidden". (#1026) */
+  hiddenEmpty?: number
 }
 
 /** Canonical Sun..Sat labels; rotated to the user's `calendarWeekStart` at
@@ -101,7 +104,8 @@ export function TasksCalendar({
   onRescheduleTask,
   onMoveTask,
   onAddTask,
-  dailyNotesEnabled
+  dailyNotesEnabled,
+  hiddenEmpty = 0
 }: Props): JSX.Element {
   const monthAnchorIso = useStore((s) => s.tasksCalendarMonthAnchor)
   const setMonthAnchor = useStore((s) => s.setTasksCalendarMonthAnchor)
@@ -368,6 +372,8 @@ export function TasksCalendar({
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
+      // A header button reached with Tab takes its own keys.
+      if (tasksToolbarOwnsKey(e)) return
 
       const consume = (): void => {
         e.preventDefault()
@@ -621,7 +627,10 @@ export function TasksCalendar({
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-3">
+      <div
+        data-tasks-toolbar
+        className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1.5 whitespace-nowrap px-3 pt-3"
+      >
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -651,12 +660,19 @@ export function TasksCalendar({
         <div className="text-sm font-semibold text-current/85">
           {formatMonthLabel(monthAnchor)}
         </div>
-        <div className="text-xs text-current/40">
-          {grabbedTask
-            ? `Moving “${grabbedTask.content || 'task'}”: h/j/k/l pick a day · Enter place · Esc cancel`
-            : vimMode
-              ? 'h/j/k/l day · Tab pick · x toggle · e edit · dd del · m move · < > / T due · a add'
-              : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'}
+        {/* The keys sit behind Keys; only the grab mode, a state rather
+            than a hint, still says how to finish what it started. */}
+        <div className="flex items-center gap-3 text-xs text-current/60">
+          {grabbedTask ? (
+            <span className="text-current/40">
+              {`Moving “${grabbedTask.content || 'task'}”: h/j/k/l pick a day · Enter place · Esc cancel`}
+            </span>
+          ) : (
+            <>
+              <TasksViewOptions hidden={hiddenEmpty} />
+              <TasksKeysButton view="calendar" />
+            </>
+          )}
         </div>
       </div>
 

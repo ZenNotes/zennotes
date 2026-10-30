@@ -133,6 +133,7 @@ describe('TOML serialization', () => {
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
       kanbanCardSort: 'due',
+      hideEmptyTasks: false,
       tasksListOrder: 'priority',
       timelineRange: 'month',
       gallerySort: 'title',
@@ -173,6 +174,9 @@ describe('TOML serialization', () => {
     expect(round.kanbanGroupBy).toBe('folder')
     expect(text).toContain('kanban_card_sort = "due"')
     expect(round.kanbanCardSort).toBe('due')
+    // #1026: the empty-task switch travels too.
+    expect(text).toContain('hide_empty_tasks = false')
+    expect(round.hideEmptyTasks).toBe(false)
     expect(text).toContain('tasks_list_order = "priority"')
     expect(round.tasksListOrder).toBe('priority')
     // The Timeline panel's reach travels as [view].timeline_range (#1007).

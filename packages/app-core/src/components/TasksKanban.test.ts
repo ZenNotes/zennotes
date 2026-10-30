@@ -19,7 +19,8 @@ import {
   folderColumns,
   noteLocationOf,
   orderCards,
-  FOLDER_OTHER_LABEL
+  FOLDER_OTHER_LABEL,
+  hideEmptyCards
 } from './TasksKanban'
 
 function col(id: string): Column {
@@ -626,5 +627,49 @@ describe('card order by due date (#889)', () => {
     const out = orderCards('field:status', built, 'due', new Map())
     expect(texts(out, 0)).toEqual(['Soon', 'Late', 'Someday'])
     expect(texts(built, 0)).toEqual(['Someday', 'Late', 'Soon'])
+  })
+})
+
+describe('empty tasks stay off the board (#1026)', () => {
+  // Yesterday's daily note left its template placeholders behind: overdue,
+  // empty, and in the Today column beside the real work.
+  const placeholder = (taskIndex: number): VaultTask =>
+    card({ content: '', taskIndex, sourcePath: 'Daily/2026-08-24.md', due: '2026-08-24' })
+  const real = card({
+    content: 'Call the bank',
+    taskIndex: 3,
+    sourcePath: 'Daily/2026-08-24.md',
+    due: '2026-08-24'
+  })
+  const built = (): Column[] =>
+    statusColumns(
+      [placeholder(0), placeholder(1), real, card({ content: '  ', taskIndex: 4 })],
+      TODAY
+    )
+
+  it('leaves empty cards off every column and counts them', () => {
+    const { columns: shown, hidden } = hideEmptyCards(built(), TODAY)
+    expect(hidden).toBe(3)
+    expect(columnIds(shown, 'today')).toEqual(['Call the bank'])
+    expect(columnIds(shown, 'undated')).toEqual([])
+  })
+
+  it('keeps every column, even one the hiding emptied', () => {
+    const board = built()
+    expect(hideEmptyCards(board, TODAY).columns.map((c) => c.id)).toEqual(board.map((c) => c.id))
+  })
+
+  it('stops counting a hidden placeholder as overdue', () => {
+    const board = built()
+    expect(board.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 3 })
+    const { columns: shown } = hideEmptyCards(board, TODAY)
+    expect(shown.find((c) => c.id === 'today')!.badge).toEqual({ kind: 'overdue', value: 1 })
+  })
+
+  it('hands back the same columns when nothing is empty', () => {
+    const board = statusColumns([real], TODAY)
+    const result = hideEmptyCards(board, TODAY)
+    expect(result.hidden).toBe(0)
+    expect(result.columns[0]).toBe(board[0])
   })
 })

@@ -105,6 +105,7 @@ export const PORTABLE_PREF_KEYS = [
   'showArchivedTasks',
   'kanbanGroupBy',
   'kanbanCardSort',
+  'hideEmptyTasks',
   'tasksListOrder',
   'timelineRange',
   'gallerySort',

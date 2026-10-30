@@ -7,6 +7,8 @@ import { forwardTaskWithPicker } from '../lib/forward-task'
 import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban } from './TasksKanban'
+import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
+import { isEmptyTask, withoutEmptyTasks } from '../lib/empty-tasks'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken, type KeymapId } from '../lib/keymaps'
 import {
@@ -111,9 +113,24 @@ export function TasksView(): JSX.Element {
   // options and card-order persistence must keep seeing every task).
   // A file task also matches the tags written in its note's body (#1008).
   const noteTags = useMemo(() => noteTagsByPath(notes), [notes])
+  // Empty tasks (a template's bare `- [ ]`) leave the list and the calendar
+  // here (#1026). The board gets every task and hides them itself, off its
+  // visible columns only, so its saved card arrangement keeps them.
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
+  const setHideEmptyTasks = useStore((s) => s.setHideEmptyTasks)
+  const shownTasks = useMemo(
+    () => (hideEmptyTasks ? withoutEmptyTasks(tasks).shown : tasks),
+    [tasks, hideEmptyTasks]
+  )
+  // What the list and the calendar left out, under the same filter as what
+  // they show (both list every task, the calendar its undated ones apart).
+  const hiddenEmpty = useMemo(
+    () => (hideEmptyTasks ? filterTasks(tasks.filter(isEmptyTask), filter, noteTags).length : 0),
+    [tasks, hideEmptyTasks, filter, noteTags]
+  )
   const filteredTasks = useMemo(
-    () => filterTasks(tasks, filter, noteTags),
-    [tasks, filter, noteTags]
+    () => filterTasks(shownTasks, filter, noteTags),
+    [shownTasks, filter, noteTags]
   )
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const vimMode = useStore((s) => s.vimMode)
@@ -168,24 +185,24 @@ export function TasksView(): JSX.Element {
   const render = useMemo(() => {
     const linger = lingerRef.current
     if (linger.size === 0) {
-      return computeTasksRender(tasks, filter, today, collapsed, listOrder, noteTags)
+      return computeTasksRender(shownTasks, filter, today, collapsed, listOrder, noteTags)
     }
     // Group lingering tasks by their PRE-toggle checked state so a just-checked
     // task stays in its current group instead of jumping straight to Done.
-    const source = tasks.map((t) => {
+    const source = shownTasks.map((t) => {
       const l = linger.get(t.id)
       return l ? { ...t, checked: l.groupChecked } : t
     })
     const r = computeTasksRender(source, filter, today, collapsed, listOrder, noteTags)
     // Render the real task so the checkbox reflects the actual (new) state while
     // the row lingers in place.
-    const byId = new Map(tasks.map((t) => [t.id, t]))
+    const byId = new Map(shownTasks.map((t) => [t.id, t]))
     const rows = r.rows.map((row) =>
       row.kind === 'task' && row.task ? { ...row, task: byId.get(row.task.id) ?? row.task } : row
     )
     return { ...r, rows }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, filter, today, collapsed, lingerVersion, listOrder, noteTags])
+  }, [shownTasks, filter, today, collapsed, lingerVersion, listOrder, noteTags])
 
   // Index-into-rows map for just the 'task' rows (what the cursor navigates).
   const taskRowIndices = useMemo(() => {
@@ -662,6 +679,8 @@ export function TasksView(): JSX.Element {
         const tag = active.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
       }
+      // A toolbar button reached with Tab takes its own keys.
+      if (tasksToolbarOwnsKey(e)) return
       const overrides = keymapOverrides
       // A chord gets through only as the key of one of this view's actions,
       // and never past a global shortcut (#972, lib/list-view-keys.ts).
@@ -709,6 +728,29 @@ export function TasksView(): JSX.Element {
       if (vimMode && key === 'a') {
         consume()
         void newTaskFile()
+        return
+      }
+
+      // Show or hide the empty tasks (#1026). One setting for all three
+      // sub-views, so the key works in each; Vim-gated like `a`.
+      if (vimMode && key === 'E') {
+        consume()
+        const hide = !useStore.getState().hideEmptyTasks
+        setHideEmptyTasks(hide)
+        toast(hide ? 'Empty tasks hidden' : 'Empty tasks shown')
+        return
+      }
+
+      // The View menu (`v`) and the keys cheat sheet (`?`) of whichever
+      // sub-view is showing; each lives on its toolbar as a button.
+      if (vimMode && (key === 'v' || key === '?')) {
+        const button = rootRef.current?.querySelector<HTMLButtonElement>(
+          key === 'v' ? '[data-tasks-view-options]' : '[data-tasks-keys]'
+        )
+        if (button) {
+          consume()
+          button.click()
+        }
         return
       }
 
@@ -850,12 +892,14 @@ export function TasksView(): JSX.Element {
     pickSavedFilter,
     listOrder,
     setTasksListOrder,
+    setHideEmptyTasks,
     toast
   ])
 
   return (
     <div
       ref={rootRef}
+      data-tasks-view
       className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900"
       // The pane's capture handlers claim focusedPanel 'editor' for any click
       // or focus inside the pane (#477), which disconnects this view's window
@@ -867,15 +911,19 @@ export function TasksView(): JSX.Element {
       onMouseDownCapture={() => setFocusedPanel('tasks')}
       onFocusCapture={() => setFocusedPanel('tasks')}
     >
-      <div className="flex items-center gap-2 border-b border-paper-300/45 px-4 py-3">
-        <CheckSquareIcon width={18} height={18} />
-        <h1 className="text-sm font-semibold">Tasks</h1>
-        <span className="ml-2 rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
-          {filter.trim() ? `${filteredTasks.length} of ${tasks.length}` : `${tasks.length} total`}
+      {/* Nothing here wraps inside itself: on a narrow pane the filter box
+          gives up its width first. */}
+      <div className="flex items-center gap-2 whitespace-nowrap border-b border-paper-300/45 px-4 py-3">
+        <CheckSquareIcon width={18} height={18} className="shrink-0" />
+        <h1 className="shrink-0 text-sm font-semibold">Tasks</h1>
+        <span className="ml-2 shrink-0 whitespace-nowrap rounded bg-paper-300/60 px-1.5 py-0.5 text-xs text-current/60">
+          {filter.trim()
+            ? `${filteredTasks.length} of ${shownTasks.length}`
+            : `${shownTasks.length} total`}
         </span>
         {loading && <span className="text-xs text-current/50">scanning…</span>}
 
-        <div className="ml-2 flex items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
+        <div className="ml-2 flex shrink-0 items-center gap-0.5 rounded-md bg-paper-200/60 p-0.5">
           {VIEW_BUTTONS.map(({ id, label, shortcut, Icon }) => {
             const isActive = viewMode === id
             return (
@@ -898,7 +946,7 @@ export function TasksView(): JSX.Element {
           })}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
           {/* Mounted in every sub-view: the same query narrows the list, the
               calendar, and the Kanban board, so switching views keeps the
               focus you typed. (#583) */}
@@ -920,12 +968,12 @@ export function TasksView(): JSX.Element {
                 e.currentTarget.blur()
               }
             }}
-            className="w-56 rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-1 text-xs outline-none focus:border-paper-400/70"
+            className="w-56 min-w-24 shrink rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-1 text-xs outline-none focus:border-paper-400/70"
           />
           <button
             type="button"
             onClick={() => void newTaskFile()}
-            className="rounded-md border border-accent/45 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20"
+            className="shrink-0 rounded-md border border-accent/45 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/20"
             title={vimMode ? 'New task (a)' : 'New task'}
           >
             + New task
@@ -933,7 +981,7 @@ export function TasksView(): JSX.Element {
           <button
             type="button"
             onClick={() => void refreshTasks()}
-            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
+            className="shrink-0 rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title="Rescan vault"
           >
             Refresh
@@ -941,7 +989,7 @@ export function TasksView(): JSX.Element {
           <button
             type="button"
             onClick={closeTasksView}
-            className="rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
+            className="shrink-0 rounded-md px-2 py-1 text-xs text-current/70 hover:bg-paper-200/80"
             title="Close (:q)"
           >
             Close
@@ -1001,23 +1049,35 @@ export function TasksView(): JSX.Element {
         </div>
       )}
 
+      {/* The list's toolbar, laid out like the board's: Order and the View
+          menu, the keys behind Keys. The calendar carries the same two
+          buttons in its own header row; the board in its toolbar. */}
       {viewMode === 'list' && (
-        <div className="flex items-center justify-end gap-2 border-b border-paper-300/45 px-4 py-1 text-xs text-current/60">
-          <span>Order</span>
-          <select
-            data-tasks-list-order
-            value={listOrder}
-            onChange={(e) => setTasksListOrder(e.target.value as TasksListOrder)}
-            title={
-              listOrder === 'priority'
-                ? `Each group puts high priority first, then medium, low, and none; ties follow the due date. Note order brings back the notes' line order${vimMode ? ' (s)' : ''}.`
-                : `Each group follows its notes' line order, which J/K rearrange. Priority puts high priority first${vimMode ? ' (s)' : ''}.`
-            }
-            className="rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-0.5 text-xs text-current/85 outline-none focus:border-paper-400/70"
-          >
-            <option value="note">Note order</option>
-            <option value="priority">Priority</option>
-          </select>
+        <div
+          data-tasks-toolbar
+          className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-paper-300/45 px-4 py-1.5 text-xs text-current/60"
+        >
+          <div className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+            <span>Order</span>
+            <select
+              data-tasks-list-order
+              value={listOrder}
+              onChange={(e) => setTasksListOrder(e.target.value as TasksListOrder)}
+              title={
+                listOrder === 'priority'
+                  ? `Each group puts high priority first, then medium, low, and none; ties follow the due date. Note order brings back the notes' line order${vimMode ? ' (s)' : ''}.`
+                  : `Each group follows its notes' line order, which J/K rearrange. Priority puts high priority first${vimMode ? ' (s)' : ''}.`
+              }
+              className="rounded-md border border-paper-300/60 bg-paper-200/60 px-2 py-0.5 text-xs text-current/85 outline-none focus:border-paper-400/70"
+            >
+              <option value="note">Note order</option>
+              <option value="priority">Priority</option>
+            </select>
+          </div>
+          <TasksViewOptions hidden={hiddenEmpty} />
+          <div className="ml-auto shrink-0">
+            <TasksKeysButton view="list" />
+          </div>
         </div>
       )}
 
@@ -1087,6 +1147,7 @@ export function TasksView(): JSX.Element {
           onMoveTask={(task, dateIso) => void moveTaskToDate(task, dateIso)}
           onAddTask={(dateIso, text) => addTaskForDate(dateIso, text)}
           dailyNotesEnabled={vaultSettings.dailyNotes.enabled}
+          hiddenEmpty={hiddenEmpty}
         />
       )}
 
@@ -1134,24 +1195,9 @@ export function TasksView(): JSX.Element {
             autoComplete="off"
           />
         </form>
-      ) : (
-        /* Each line names only keys that fire in the current mode. Single
-           keys are Vim's on every surface; arrows, Enter, Space, Tab and the
-           Shift+J/K chord are the universal ones. */
-        <div className="border-t border-paper-300/45 px-4 py-1.5 text-xs text-current/40">
-          {viewMode === 'list'
-            ? vimMode
-              ? `j/k move · ${listOrder === 'note' ? 'J/K reorder · ' : ''}Enter/o open · x toggle · i start · c cancel · @ due date · s order · F saved filters · right-click actions · :q close`
-              : `↑/↓ move · ${listOrder === 'note' ? 'Shift+J/K reorder · ' : ''}Enter open · right-click actions`
-            : viewMode === 'calendar'
-              ? vimMode
-                ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · @ due date · F saved filters · drag to move · right-click actions · :q'
-                : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'
-              : vimMode
-                ? 'h/l column · j/k card · x toggle · i start · c cancel · @ due date · Enter open · s order · F saved filters · right-click actions · :q close'
-                : '←/→ column · ↑/↓ card · Space toggle · Enter open · right-click actions'}
-        </div>
-      )}
+      ) : null}
+      {/* No key-hint line under the views: each view's keys are behind its
+          Keys button (`?` in Vim mode), named for the mode that is on. */}
 
       {menu && (
         <ContextMenu

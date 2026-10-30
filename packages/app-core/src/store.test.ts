@@ -2145,6 +2145,23 @@ describe('folder Gallery', () => {
   })
 })
 
+describe('hideEmptyTasks (#1026)', () => {
+  it('hides empty tasks by default and remembers showing them', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().hideEmptyTasks).toBe(true)
+
+    useStore.getState().setHideEmptyTasks(false)
+    expect(useStore.getState().hideEmptyTasks).toBe(false)
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.hideEmptyTasks).toBe(false)
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().hideEmptyTasks).toBe(false)
+  })
+})
+
 describe('kanbanCardSort (#889)', () => {
   it('defaults to the manual order and round-trips due-date ordering', async () => {
     installZen()
