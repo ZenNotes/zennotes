@@ -2,6 +2,7 @@ import type { TaskPriority, VaultTask } from '@zennotes/bridge-contract/tasks'
 import { parseFrontmatterFields, unquote } from './frontmatter'
 import type { NoteFolder } from './ipc'
 import { FENCE_RE, TASK_LINE_RE } from './tasklists'
+import { createTaskNesting, isMarkdownCheckbox } from './task-nesting'
 
 /**
  * Virtual path used to identify the vault-wide Tasks view as a tab in the
@@ -259,6 +260,10 @@ export function parseTasksFromBody(
   let taskIndex = 0
   let inFence = false
   let fenceMarker: string | null = null
+  const nesting = createTaskNesting()
+  // A task note's checkboxes are its subtasks (see parseTaskFile): the ones
+  // no other checkbox owns hang off the note itself. Read once, on demand.
+  let fileTaskId: string | null | undefined
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -269,6 +274,7 @@ export function parseTasksFromBody(
       if (!inFence) {
         inFence = true
         fenceMarker = marker
+        nesting.visit(line, null)
       } else if (marker === fenceMarker) {
         inFence = false
         fenceMarker = null
@@ -278,7 +284,17 @@ export function parseTasksFromBody(
     if (inFence) continue
 
     const taskMatch = line.match(TASK_LINE_RE)
-    if (!taskMatch) continue
+    if (!taskMatch) {
+      nesting.visit(line, null)
+      continue
+    }
+
+    const id = `${ctx.path}#${taskIndex}`
+    const nestedIn = nesting.visit(line, isMarkdownCheckbox(taskMatch[3]) ? id : null)
+    if (!nestedIn && fileTaskId === undefined) {
+      fileTaskId = parseTaskFile(normalized, ctx, opts) ? `${ctx.path}#task` : null
+    }
+    const parentId = nestedIn ?? fileTaskId ?? undefined
 
     const checkedChar = taskMatch[2]
     const tail = taskMatch[3].replace(/^\]/, '') // drop the closing `]` of the checkbox
@@ -289,8 +305,8 @@ export function parseTasksFromBody(
 
     const tokens = extractTokens(tail)
 
-    tasks.push({
-      id: `${ctx.path}#${taskIndex}`,
+    const task: VaultTask = {
+      id,
       sourcePath: ctx.path,
       noteTitle: ctx.title,
       noteFolder: ctx.folder,
@@ -313,7 +329,10 @@ export function parseTasksFromBody(
           : tokens.fields,
       status: tokens.fields.status ?? defaults.status,
       tags: tokens.tags
-    })
+    }
+    // Set only when there is one, so a top-level record keeps its old shape.
+    if (parentId) task.parentId = parentId
+    tasks.push(task)
 
     taskIndex += 1
   }

@@ -7,6 +7,13 @@ export interface VaultTask {
    *  tasks are added/removed above it in the same file, so this is stable
    *  across plain content edits. */
   id: string
+  /** The id of the task this one is a subtask of (#1028): the checkbox whose
+   *  list item this line's list item sits directly inside, the nesting the
+   *  note's `2/5` chip counts. A checkbox in a task note that no other
+   *  checkbox owns points at the note's file task (`<path>#task`). Absent on
+   *  a top-level task, and from scanners that predate it, so a reader must
+   *  treat a parent it cannot find as no parent. */
+  parentId?: string
   /** Vault-relative POSIX path of the note containing this task. */
   sourcePath: string
   /** File name without extension (for display). */
