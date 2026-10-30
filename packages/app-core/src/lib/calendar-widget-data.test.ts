@@ -119,6 +119,30 @@ describe('getCalendarWidgetData', () => {
     expect(numbered).toMatchObject({ line: 3, toggled: '1. [x] Numbered due:2026-10-28' })
   })
 
+  // The widget draws what the Calendar sheet draws, so a daily-note
+  // template's bare `- [ ]` stays out of it on the same switch (#1026).
+  it('leaves empty tasks out of the marks and the agenda while Hide empty tasks is on', async () => {
+    const today = dailyPath(NOW)
+    const yesterday = dailyPath(new Date(2026, 9, 26))
+    files.set(today, '- [ ]\n- [ ] Call the bank\n')
+    files.set(yesterday, '- [ ]\n')
+    load()
+    useStore.setState({ hideEmptyTasks: true })
+    let data = await getCalendarWidgetData(NOW)
+    expect(data.days['2026-10-27'].openTasks).toBe(1)
+    expect(data.days['2026-10-26'].openTasks).toBe(0)
+    expect(data.agenda['2026-10-27'].total).toBe(1)
+    expect(data.agenda['2026-10-27'].tasks.map((t) => t.content)).toEqual(['Call the bank'])
+    expect(data.agenda['2026-10-26']).toBeUndefined()
+
+    useStore.setState({ hideEmptyTasks: false })
+    data = await getCalendarWidgetData(NOW)
+    expect(data.days['2026-10-27'].openTasks).toBe(2)
+    expect(data.days['2026-10-26'].openTasks).toBe(1)
+    expect(data.agenda['2026-10-27'].total).toBe(2)
+    expect(data.agenda['2026-10-26'].total).toBe(1)
+  })
+
   it('caps a busy day but keeps its total', async () => {
     files.set('inbox/Lots.md', Array.from({ length: 5 }, (_, i) => `- [ ] T${i} due:2026-10-29`).join('\n'))
     load()

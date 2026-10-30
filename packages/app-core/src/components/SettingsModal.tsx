@@ -3724,7 +3724,7 @@ export function SettingsModal(): JSX.Element {
         {
           id: "hide-empty-tasks",
           title: "Hide empty tasks",
-          description: "Leave blank checkboxes out of the Tasks views.",
+          description: "Leave blank checkboxes out of the Tasks views, Calendar, Timeline and home view.",
           keywords: [
             "empty",
             "empty task",
@@ -3853,7 +3853,7 @@ export function SettingsModal(): JSX.Element {
           <Section title="Empty tasks">
             <ToggleRow
               label="Hide empty tasks"
-              description="Leave blank checkboxes out of the Tasks views."
+              description="Leave blank checkboxes out of the Tasks views, Calendar, Timeline and home view."
               value={hideEmptyTasks}
               settingId="hide-empty-tasks"
               onChange={setHideEmptyTasks}

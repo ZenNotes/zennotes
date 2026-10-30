@@ -24,6 +24,7 @@ import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@
 import { useStore } from '../store'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { filterTasks, noteTagsByPath } from '../lib/tasks-filter'
+import { withoutEmptyTasks } from '../lib/empty-tasks'
 import {
   buildTimelineRail,
   timelineDayLabel,
@@ -116,6 +117,7 @@ export function TimelinePanel({
   const vaultTasks = useStore((s) => s.vaultTasks)
   const tasksLoading = useStore((s) => s.tasksLoading)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const vimMode = useStore((s) => s.vimMode)
   const keymapOverrides = useStore((s) => s.keymapOverrides)
   const focusedPanel = useStore((s) => s.focusedPanel)
@@ -134,16 +136,18 @@ export function TimelinePanel({
   const today = useToday()
 
   // The same task list every Tasks surface starts from: archived notes out
-  // unless asked for, and a daily note's undated tasks due on its date,
-  // exactly as the calendar panel infers them.
+  // unless asked for, empty tasks out while Hide empty tasks is on (#1026),
+  // and a daily note's undated tasks due on its date, exactly as the
+  // calendar panel infers them. Dropped before the rail is built, so every
+  // count, late day, quiet stretch and milestone tally leaves them out too.
   const dueByPath = useMemo(
     () => buildDailyNoteDateByPath(notes, vaultSettings),
     [notes, vaultSettings]
   )
-  const tasks = useMemo(
-    () => inferDailyTaskDueDates(filterTasksForDisplay(vaultTasks, showArchivedTasks), dueByPath),
-    [vaultTasks, showArchivedTasks, dueByPath]
-  )
+  const tasks = useMemo(() => {
+    const shown = filterTasksForDisplay(vaultTasks, showArchivedTasks)
+    return inferDailyTaskDueDates(hideEmptyTasks ? withoutEmptyTasks(shown).shown : shown, dueByPath)
+  }, [vaultTasks, showArchivedTasks, hideEmptyTasks, dueByPath])
   // A file task also matches the tags written in its note's body (#1008).
   const noteTags = useMemo(() => noteTagsByPath(notes), [notes])
   const filtered = useMemo(() => filterTasks(tasks, filter, noteTags), [tasks, filter, noteTags])

@@ -45,6 +45,29 @@ describe('public host APIs', () => {
     const today = new Date()
     expect(changes).toContainEqual({ kind: 'set-due', due: `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}` })
   })
+  it("leaves empty tasks out of Today, the phones' Today widget, on the Tasks views' switch (#1026)", async () => {
+    const s = await setup()
+    const iso = (offset: number): string => {
+      const d = new Date(); d.setDate(d.getDate() + offset)
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    }
+    const at = (title: string, content: string, due: string): VaultTask => ({ ...task(), id: `inbox/${title}.md#0`,
+      sourcePath: `inbox/${title}.md`, noteTitle: title, rawText: `- [ ] ${content}`.trimEnd(), content,
+      inProgress: false, tags: [], fields: undefined, due })
+    const vaultTasks = [at('Real', 'Call the bank', iso(0)), at('Late', 'Renew the passport', iso(-2)),
+      at('Blank', '', iso(0)), at('BlankLate', '', iso(-1))]
+    const notes = vaultTasks.map((t) => ({ path: t.sourcePath, title: t.noteTitle, folder: 'inbox' as const,
+      siblingOrder: 0, createdAt: 0, updatedAt: 0, size: 0, tags: [], wikilinks: [], hasAttachments: false,
+      assetEmbeds: [], excerpt: '' }))
+    s.useStore.setState({ notes, vaultTasks, hideEmptyTasks: true })
+    let today = s.tasks.getTodayTasks()
+    expect(today.tasks.map((t) => t.noteTitle).sort()).toEqual(['Late', 'Real'])
+    expect(today.overdueCount).toBe(1)
+    s.useStore.setState({ hideEmptyTasks: false })
+    today = s.tasks.getTodayTasks()
+    expect(today.tasks).toHaveLength(4)
+    expect(today.overdueCount).toBe(2)
+  })
   it('exposes profile display fields without retaining credentials or mutable entries', async () => {
     const s = await setup()
     const profile = { id: 'one', name: 'Private server', baseUrl: 'https://example.test', vaultPath: null,

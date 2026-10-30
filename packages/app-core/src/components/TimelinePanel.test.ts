@@ -174,6 +174,48 @@ describe('TimelinePanel', () => {
     expect(host.querySelector('[data-timeline-count]')?.textContent).toBe('3 open · 1 overdue')
   })
 
+  // A daily-note template's bare `- [ ]` lines (#1026): yesterday's sat on
+  // top as "(empty task) 1d late", today's under Today, and one two days out
+  // split the quiet days and padded the milestone's count.
+  it('leaves empty tasks off the rail and out of every count while Hide empty tasks is on', () => {
+    const empty = (id: string, due?: string): VaultTask =>
+      task(id, { rawText: '- [ ]', content: '', ...(due ? { due } : {}) })
+    useStore.setState({
+      hideEmptyTasks: true,
+      vaultTasks: [
+        ...VAULT,
+        empty('blank-late', isoOffset(-1)),
+        empty('blank-today', isoOffset(0)),
+        empty('blank-soon', isoOffset(2)),
+        empty('blank-undated')
+      ]
+    })
+    const panel = render()
+    expect(rowIds()).toEqual(['late', 'doing', 'today', 'launch'])
+    expect(panel.textContent).not.toContain('(empty task)')
+    expect(panel.querySelector('[data-timeline-count]')?.textContent).toBe('4 open · 1 overdue')
+    expect(panel.querySelectorAll('[data-timeline-late]')).toHaveLength(1)
+    expect(panel.querySelector(`[data-timeline-day="${isoOffset(2)}"]`)).toBeNull()
+    expect([...panel.querySelectorAll('[data-timeline-quiet]')].map((el) => el.textContent)).toEqual([
+      '4 quiet days'
+    ])
+    expect(panel.querySelector('[data-timeline-before]')?.textContent).toBe('· 3 tasks before it')
+    expect(panel.querySelector('[data-timeline-undated]')?.textContent).toBe('1 undated in Tasks')
+
+    // Off, they come back, counted.
+    act(() => useStore.setState({ hideEmptyTasks: false }))
+    expect(rowIds()).toEqual(['late', 'blank-late', 'blank-today', 'doing', 'today', 'blank-soon', 'launch'])
+    expect(panel.querySelector('[data-timeline-count]')?.textContent).toBe('7 open · 2 overdue')
+    expect(panel.querySelector('[data-timeline-task="blank-late"]')?.textContent).toContain('(empty task)')
+    expect(panel.querySelector('[data-timeline-task="blank-late"]')?.textContent).toContain('1d late')
+    expect([...panel.querySelectorAll('[data-timeline-quiet]')].map((el) => el.textContent)).toEqual([
+      '1 quiet day',
+      '2 quiet days'
+    ])
+    expect(panel.querySelector('[data-timeline-before]')?.textContent).toBe('· 6 tasks before it')
+    expect(panel.querySelector('[data-timeline-undated]')?.textContent).toBe('2 undated in Tasks')
+  })
+
   it('leaves the letters alone with Vim off; the arrows, Enter and Escape still work', () => {
     useStore.setState({ vimMode: false })
     const panel = render()

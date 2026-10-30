@@ -33,8 +33,10 @@ import {
   isoDateStr,
   isoWeekStr,
   measureNote,
+  shownOpenTasks,
   type NoteStats,
 } from './calendar-data'
+import { withoutEmptyTasks } from './empty-tasks'
 
 /** A grid mark: the day's (or week's) note and how much is in it. */
 export interface CalendarWidgetMark {
@@ -113,9 +115,9 @@ async function noteStats(note: NoteMeta): Promise<NoteStats | undefined> {
   return measured
 }
 
-function markFor(measured: NoteStats | undefined): CalendarWidgetMark {
+function markFor(measured: NoteStats | undefined, hideEmpty: boolean): CalendarWidgetMark {
   const { count, faint } = dotsFor(measured)
-  return { dots: count, faint, openTasks: measured?.openTasks ?? 0 }
+  return { dots: count, faint, openTasks: shownOpenTasks(measured, hideEmpty) }
 }
 
 function widgetTask(task: VaultTask, dailyPath: string | undefined): CalendarWidgetTask {
@@ -161,20 +163,22 @@ export async function getCalendarWidgetData(
     const iso = isoDateStr(d)
     dayIsos.push(iso)
     const daily = settings.dailyNotes.enabled ? dailyByDate.get(iso) : undefined
-    if (daily) days[iso] = markFor(await noteStats(daily))
+    if (daily) days[iso] = markFor(await noteStats(daily), state.hideEmptyTasks)
     const week = isoWeekStr(d)
     const weekly = settings.weeklyNotes.enabled ? weeklyByWeek.get(week) : undefined
-    if (weekly && !weeks[week]) weeks[week] = markFor(await noteStats(weekly))
+    if (weekly && !weeks[week]) weeks[week] = markFor(await noteStats(weekly), state.hideEmptyTasks)
   }
 
   // The agenda is the panel's: open tasks by due date, with daily-note tasks
-  // inheriting the note's date. Tasks of a note that left the index (trashed,
-  // deleted from the drawer) can linger until the next full scan; skip them.
+  // inheriting the note's date, and empty ones out on the same switch
+  // (#1026). Tasks of a note that left the index (trashed, deleted from the
+  // drawer) can linger until the next full scan; skip them.
   const live = new Set(state.notes.filter((n) => n.folder !== 'trash').map((n) => n.path))
+  const listed = filterTasksForDisplay(state.vaultTasks, state.showArchivedTasks).filter((t) =>
+    live.has(t.sourcePath)
+  )
   const inferred = inferDailyTaskDueDates(
-    filterTasksForDisplay(state.vaultTasks, state.showArchivedTasks).filter((t) =>
-      live.has(t.sourcePath)
-    ),
+    state.hideEmptyTasks ? withoutEmptyTasks(listed).shown : listed,
     buildDailyNoteDateByPath(state.notes, state.vaultSettings)
   )
   const byDay = new Map<string, VaultTask[]>()

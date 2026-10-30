@@ -56,7 +56,7 @@ export const WHATS_NEW: readonly WhatsNewEntry[] = [
       },
       {
         title: 'Quieter Tasks views',
-        body: 'Empty - [ ] placeholders stay out of the list, calendar and board. Options live in one View menu, and Keys lists the shortcuts.'
+        body: 'Empty - [ ] placeholders stay out of the Tasks views, the Calendar and Timeline panels and the home view. Options live in one View menu, and Keys lists the shortcuts.'
       },
       {
         title: 'A template folder',

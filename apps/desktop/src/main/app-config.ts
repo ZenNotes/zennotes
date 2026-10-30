@@ -449,7 +449,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   hideEmptyTasks: {
     section: 'view',
     tomlKey: 'hide_empty_tasks',
-    comment: 'leave blank checkboxes out of the Tasks list, calendar and board'
+    comment: 'leave blank checkboxes out of the Tasks views, the Calendar and Timeline panels and the home view'
   },
   tasksListOrder: {
     section: 'view',

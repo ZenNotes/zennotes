@@ -1914,7 +1914,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     })
   }
 
-  // Empty tasks (#1026), from any note: the list, calendar and board follow it.
+  // Empty tasks (#1026), from any note: the Tasks views, the Calendar and
+  // Timeline panels and Home all follow it.
   cmds.push({
     id: 'view.hide-empty-tasks',
     bindTitle: 'Tasks: Toggle Empty Tasks',

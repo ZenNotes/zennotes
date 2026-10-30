@@ -38,8 +38,10 @@ import {
   isoWeekStr,
   measureNote,
   parseIsoDate,
+  shownOpenTasks,
   type NoteStats,
 } from '../lib/calendar-data'
+import { withoutEmptyTasks } from '../lib/empty-tasks'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
@@ -92,6 +94,7 @@ export function CalendarPanel({
   const storeOpenWeeklyNote = useStore((s) => s.openWeeklyNoteForDate)
   const vaultTasks = useStore((s) => s.vaultTasks)
   const showArchivedTasks = useStore((s) => s.showArchivedTasks)
+  const hideEmptyTasks = useStore((s) => s.hideEmptyTasks)
   const tasksLoading = useStore((s) => s.tasksLoading)
   const refreshTasks = useStore((s) => s.refreshTasks)
   const addTaskForDate = useStore((s) => s.addTaskForDate)
@@ -200,14 +203,16 @@ export function CalendarPanel({
   // Tasks scheduled for the selected day. Tasks written in a daily note inherit
   // that note's date (implicit due) just like the full Tasks calendar, so we run
   // the same inference over the vault-wide index. Load it lazily the first time.
+  // Empty tasks stay out on the Tasks views' switch (#1026), so a day whose
+  // only tasks are a template's bare `- [ ]` reads as a quiet day.
   const dueByPath = useMemo(
     () => buildDailyNoteDateByPath(notes, vaultSettings),
     [notes, vaultSettings]
   )
-  const inferredTasks = useMemo(
-    () => inferDailyTaskDueDates(filterTasksForDisplay(vaultTasks, showArchivedTasks), dueByPath),
-    [vaultTasks, showArchivedTasks, dueByPath]
-  )
+  const inferredTasks = useMemo(() => {
+    const shown = filterTasksForDisplay(vaultTasks, showArchivedTasks)
+    return inferDailyTaskDueDates(hideEmptyTasks ? withoutEmptyTasks(shown).shown : shown, dueByPath)
+  }, [vaultTasks, showArchivedTasks, hideEmptyTasks, dueByPath])
   // The 7 days of the selected day's week (respecting the week-start setting),
   // shown as an agenda under the calendar.
   const weekDays = useMemo(() => {
@@ -841,6 +846,7 @@ export function CalendarPanel({
       <div
         key={task.id}
         ref={opts?.rowRef ?? undefined}
+        data-cal-task={task.id}
         role="button"
         tabIndex={0}
         draggable
@@ -968,7 +974,7 @@ export function CalendarPanel({
             const isActiveWeek = weekIso === activeWeekIso
             const weekMeta = weeklyByWeek.get(weekIso)
             const weekDots = dotsFor(weekMeta ? stats.get(weekMeta.path) : undefined)
-            const weekTasks = weekMeta ? stats.get(weekMeta.path)?.openTasks ?? 0 : 0
+            const weekTasks = weekMeta ? shownOpenTasks(stats.get(weekMeta.path), hideEmptyTasks) : 0
 
             const weekCell = !showWeekNumbers ? null : weeklyEnabled ? (
               <button
@@ -1020,7 +1026,7 @@ export function CalendarPanel({
               const dayMeta = dailyByDate.get(iso)
               const dayStats = dayMeta ? stats.get(dayMeta.path) : undefined
               const dots = dotsFor(dayStats)
-              const openTasks = dayStats?.openTasks ?? 0
+              const openTasks = shownOpenTasks(dayStats, hideEmptyTasks)
 
               return (
                 <button
@@ -1176,6 +1182,7 @@ export function CalendarPanel({
               return (
                 <div
                   key={iso}
+                  data-cal-agenda-day={iso}
                   onDragOver={(e) => {
                     if (!dragTaskRef.current) return
                     e.preventDefault()
@@ -1213,7 +1220,11 @@ export function CalendarPanel({
                         </span>
                       )}
                     </span>
-                    {dayTasks.length > 0 && <span className="text-ink-400">{dayTasks.length}</span>}
+                    {dayTasks.length > 0 && (
+                      <span data-cal-agenda-count className="text-ink-400">
+                        {dayTasks.length}
+                      </span>
+                    )}
                   </button>
                   {dayTasks.length > 0 && (
                     <div className="mt-0.5 space-y-0.5">

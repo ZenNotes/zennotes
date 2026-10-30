@@ -4,6 +4,7 @@ import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NoteMeta } from '@shared/ipc'
+import { parseTasksFromBody } from '@shared/tasks'
 import { useStore } from '../store'
 import { dailyNoteLocationForDate } from '../lib/vault-layout'
 import { CalendarPanel } from './CalendarPanel'
@@ -158,5 +159,106 @@ describe('CalendarPanel: a day on a touch screen', () => {
     const input = host.querySelector('input[placeholder^="Add a task for"]')
     expect(input).not.toBeNull()
     expect(document.activeElement).toBe(input)
+  })
+})
+
+describe('CalendarPanel: empty tasks (#1026)', () => {
+  let host: HTMLDivElement
+  let root: Root
+  let originalState: ReturnType<typeof useStore.getState>
+  const today = new Date()
+  // Another day of today's week (weeks start Monday here), so the agenda
+  // under the grid shows both.
+  const offset = (today.getDay() + 6) % 7
+  const other =
+    offset === 0
+      ? new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
+      : new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset)
+
+  beforeEach(() => {
+    originalState = useStore.getState()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn()
+    })
+    const settings = originalState.vaultSettings
+    useStore.setState({
+      vaultSettings: { ...settings, dailyNotes: { ...settings.dailyNotes, enabled: true } },
+      calendarWeekStart: 'monday'
+    })
+    // A daily-note template's placeholder beside real work today, and a day
+    // that holds only the placeholder.
+    const bodies = new Map([
+      [dailyNote(today), '- [ ]\n- [ ] Call the bank\n'],
+      [dailyNote(other), '- [ ]\n']
+    ])
+    const notes = [...bodies.keys()]
+    useStore.setState({
+      notes,
+      vaultTasks: notes.flatMap((n) =>
+        parseTasksFromBody(bodies.get(n)!, { path: n.path, title: n.title, folder: n.folder })
+      ),
+      noteContents: Object.fromEntries(notes.map((n) => [n.path, { ...n, body: bodies.get(n)! }])),
+      tasksLoading: false,
+      showArchivedTasks: false
+    })
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+    useStore.setState(originalState, true)
+  })
+
+  async function render(): Promise<void> {
+    act(() => root.render(createElement(CalendarPanel, { note: null })))
+    // The grid's open-task marks come from the notes' bodies, read async.
+    await act(async () => {})
+  }
+  const agendaRows = (date: Date): number =>
+    host.querySelectorAll(`[data-cal-agenda-day="${isoDate(date)}"] [data-cal-task]`).length
+  const agendaCount = (date: Date): string | null =>
+    host.querySelector(`[data-cal-agenda-day="${isoDate(date)}"] [data-cal-agenda-count]`)?.textContent ??
+    null
+  const openMark = (date: Date): string | null =>
+    host
+      .querySelector(`[data-cal-day="${isoDate(date)}"] span[title*="open task"]`)
+      ?.getAttribute('title') ?? null
+
+  it('lists and counts only real tasks, and a day of placeholders goes quiet', async () => {
+    useStore.setState({ hideEmptyTasks: true })
+    await render()
+    expect(host.textContent).not.toContain('(empty task)')
+    expect(agendaRows(today)).toBe(1)
+    expect(agendaCount(today)).toBe('1')
+    expect(openMark(today)).toBe('1 open task')
+    expect(agendaRows(other)).toBe(0)
+    expect(agendaCount(other)).toBeNull()
+    expect(openMark(other)).toBeNull()
+  })
+
+  it('shows them again, counted, with the setting off', async () => {
+    useStore.setState({ hideEmptyTasks: false })
+    await render()
+    expect(host.textContent).toContain('(empty task)')
+    expect(agendaRows(today)).toBe(2)
+    expect(agendaCount(today)).toBe('2')
+    expect(openMark(today)).toBe('2 open tasks')
+    expect(agendaRows(other)).toBe(1)
+    expect(agendaCount(other)).toBe('1')
+    expect(openMark(other)).toBe('1 open task')
+  })
+
+  it('follows the switch without reading the notes again', async () => {
+    useStore.setState({ hideEmptyTasks: false })
+    await render()
+    expect(openMark(other)).toBe('1 open task')
+    act(() => useStore.setState({ hideEmptyTasks: true }))
+    expect(openMark(other)).toBeNull()
+    expect(agendaRows(other)).toBe(0)
+    expect(openMark(today)).toBe('1 open task')
   })
 })

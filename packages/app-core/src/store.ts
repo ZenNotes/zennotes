@@ -862,8 +862,8 @@ interface Prefs {
    *  due date and leaves that arrangement untouched for later. (#889) */
   kanbanCardSort: KanbanCardSort
   /** Leave tasks with no text (a template's bare `- [ ]`) off the Tasks
-   *  list, calendar and Kanban board. On by default; portable as
-   *  `hide_empty_tasks` under [view]. (#1026) */
+   *  list, calendar and Kanban board, the Calendar and Timeline panels and
+   *  Home. On by default; portable as `hide_empty_tasks` under [view]. (#1026) */
   hideEmptyTasks: boolean
   /** Kanban WIP limits: the most cards a column should hold, keyed by
    *  `${groupBy}:${columnId}` like the column titles. Portable as the
@@ -3616,7 +3616,8 @@ interface Store {
   kanbanGroupBy: KanbanGroupBy
   /** Cards in each Kanban column by hand-placed order or by due date. (#889) */
   kanbanCardSort: KanbanCardSort
-  /** Tasks with no text stay off the Tasks list, calendar and board. (#1026) */
+  /** Tasks with no text stay off the Tasks views, the Calendar and Timeline
+   *  panels and Home. (#1026) */
   hideEmptyTasks: boolean
   /** Per-column Kanban WIP limits, keyed `${groupBy}:${columnId}`. (#1025) */
   kanbanWipLimits: Record<string, number>

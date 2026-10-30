@@ -9,6 +9,7 @@ import type { NoteMeta } from '@shared/ipc'
 import { isTaskOpen, parseTasksFromBody } from '@shared/tasks'
 import { getISOWeek, getISOWeekYear } from './template-render'
 import { countWords } from './word-count'
+import { withoutEmptyTasks } from './empty-tasks'
 
 export const WORDS_PER_DOT = 80
 export const MAX_DOTS = 3
@@ -18,6 +19,9 @@ export interface NoteStats {
   sig: string
   words: number
   openTasks: number
+  /** How many of `openTasks` are empty, a template's bare `- [ ]` (#1026).
+   *  Counted apart so the Hide empty tasks switch never needs a re-read. */
+  emptyOpenTasks: number
 }
 
 export function addMonths(d: Date, n: number): Date {
@@ -64,10 +68,22 @@ export function measureNote(
   note: Pick<NoteMeta, 'path' | 'title' | 'folder' | 'updatedAt' | 'size'>,
   body: string
 ): NoteStats {
-  const openTasks = parseTasksFromBody(body, {
+  const open = parseTasksFromBody(body, {
     path: note.path,
     title: note.title,
     folder: note.folder,
-  }).filter(isTaskOpen).length
-  return { sig: `${note.updatedAt}:${note.size}`, words: countWords(body), openTasks }
+  }).filter(isTaskOpen)
+  return {
+    sig: `${note.updatedAt}:${note.size}`,
+    words: countWords(body),
+    openTasks: open.length,
+    emptyOpenTasks: withoutEmptyTasks(open).hidden,
+  }
+}
+
+/** The open tasks a day or week marks, less the empty ones while Hide empty
+ *  tasks is on: a day holding only placeholders has no mark. (#1026) */
+export function shownOpenTasks(stats: NoteStats | undefined, hideEmpty: boolean): number {
+  if (!stats) return 0
+  return hideEmpty ? stats.openTasks - stats.emptyOpenTasks : stats.openTasks
 }

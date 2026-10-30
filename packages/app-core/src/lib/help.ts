@@ -392,7 +392,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Empty tasks stay out of the Tasks views',
     body:
-      'A bare `- [ ]`, like the ones a daily-note template leaves, is an empty task, and the Tasks list, calendar, and board leave it out. A quiet “3 hidden” beside the **View** button says how many; click it to show them. A task with any text always shows, even just `due:2026-11-02`. Turn it off in the View menu (`v`, then Hide empty tasks), with `E` in Vim mode, or in Settings → Tasks. Config key: `hide_empty_tasks` under `[view]`.'
+      'A bare `- [ ]`, like the ones a daily-note template leaves, is an empty task, and the Tasks views, the Calendar and Timeline panels, and the home view leave it out. A quiet “3 hidden” beside the **View** button says how many; click it to show them. A task with any text always shows, even just `due:2026-11-02`. Turn it off in the View menu (`v`, then Hide empty tasks), with `E` in Vim mode, or in Settings → Tasks. Config key: `hide_empty_tasks` under `[view]`.'
   },
   {
     title: 'WIP limits on Kanban columns',
@@ -822,7 +822,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'x / d', action: 'Delete forever', detail: 'Trash view only: permanently delete the selected trashed note after confirmation.' },
       { keys: '/', action: 'Filter the view', detail: 'Focus the local filter box for tasks, tag matches, or trashed notes. In Tags, a word from a tagged block narrows the list to that block.' },
       { keys: 'F', action: 'Pick a saved Tasks filter', detail: 'Tasks view: open the list of saved filters and apply one. Save the current query with the Save filter… chip or `:savefilter <name>`.' },
-      { keys: 'E', action: 'Show or hide empty tasks', detail: 'Tasks view: show or hide bare `- [ ]` tasks in the list, calendar, and board.' },
+      { keys: 'E', action: 'Show or hide empty tasks', detail: 'Tasks view: show or hide bare `- [ ]` tasks in the Tasks views, the Calendar and Timeline panels, and the home view.' },
       { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks, and the board\'s Lanes).' },
       { keys: '?', action: 'Keys', detail: 'Tasks view: list the current view’s keys. Esc closes it.' },
       { keys: 'W', action: 'Set a WIP limit', detail: 'Tasks board only: set the focused column’s WIP limit. Same as `:wip <limit>`.' },
@@ -1414,7 +1414,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'Tasks',
     items: [
       { label: 'Show tasks from archived notes', detail: 'Off by default: archiving a note retires its tasks from the Tasks list, calendar, and Kanban. Turn this on to keep them visible everywhere, Archive column included. The raw key is `show_archived_tasks` in `config.toml`.' },
-      { label: 'Hide empty tasks', detail: 'On by default: bare `- [ ]` tasks stay out of the Tasks views. Same as the View menu; config key `hide_empty_tasks`.' },
+      { label: 'Hide empty tasks', detail: 'On by default: bare `- [ ]` tasks stay out of the Tasks views, the Calendar and Timeline panels, and the home view. Same as the View menu; config key `hide_empty_tasks`.' },
       { label: 'Kanban lanes', detail: 'Splits the Kanban board into rows by Priority, Folder, or Tag; an `@field` picked on the board shows here too. Same as Lanes in the View menu; config key `kanban_lanes`.' },
       { label: 'Kanban statuses', detail: 'Define the ordered columns of the custom-status Kanban board here; `kanban_statuses` under `[view]` in `config.toml` is the file-level equivalent.' },
       { label: 'Tasks list order', detail: 'Note order keeps each group of the Tasks list in its notes’ line order, which Shift+J/K and dragging rearrange; Priority puts high priority first, then medium, low, and none, ties by due date. The list’s Order menu sets the same thing, and the raw key is `tasks_list_order` (`note` or `priority`) under `[view]` in `config.toml`.' },
