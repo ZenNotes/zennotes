@@ -2,7 +2,7 @@
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NoteContent } from "@shared/ipc";
 import type { PaneLeaf } from "../lib/pane-layout";
 import type { PaneMode } from "../lib/pane-mode";
