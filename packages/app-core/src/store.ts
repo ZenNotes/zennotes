@@ -124,6 +124,9 @@ import {
   setTaskInProgressAtIndex,
   setTaskPriorityAtIndex,
   setTaskFieldAtIndex,
+  setTaskTagAtIndex,
+  setFirstTag,
+  withFirstTag,
   setTaskTextAtIndex,
   setTaskWaitingAtIndex,
   toggleTaskAtIndex,
@@ -866,6 +869,16 @@ interface Prefs {
    *  `${groupBy}:${columnId}` like the column titles. Portable as the
    *  `[kanban_wip_limits]` table. (#1025) */
   kanbanWipLimits: Record<string, number>
+  /** A second field that splits the Kanban board into horizontal lanes, or
+   *  'none'. Portable as `kanban_lanes` under [view], like the card order: a
+   *  global display choice, not a per-vault override, which the Go server's
+   *  vault.json mirror would have to learn. (#1027) */
+  kanbanLanes: KanbanLaneBy
+  /** Collapsed Kanban lanes, keyed `${groupBy}|${laneBy}` to lane ids.
+   *  Machine-local like the column and card arrangements: folding a lane is
+   *  where you are looking today, not a setting worth a config.toml write on
+   *  every `za`. (#1027) */
+  kanbanCollapsedLanes: Record<string, string[]>
   /** Tasks list groups in their notes' line order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches. (#1007) */
@@ -902,6 +915,10 @@ interface Prefs {
 export type TasksViewMode = 'list' | 'calendar' | 'kanban'
 export type KanbanGroupBy = 'status' | 'priority' | 'folder' | `field:${string}`
 export type KanbanCardSort = 'manual' | 'due'
+/** What splits the Kanban board into horizontal lanes (#1027): a second field
+ *  beside the columns' own, or 'none'. Status is not a lane field: its
+ *  buckets come from dates and states, which is what columns are for. */
+export type KanbanLaneBy = 'none' | 'priority' | 'folder' | 'tag' | `field:${string}`
 /** `note` keeps each Tasks list group in its notes' line order (what J/K
  *  rearrange); `priority` puts high before medium before low. (#989) */
 export type TasksListOrder = 'note' | 'priority'
@@ -916,6 +933,9 @@ export type TaskMutation =
   | { kind: 'set-priority'; priority: TaskLinePriority | null }
   | { kind: 'set-due'; due: string | null }
   | { kind: 'set-field'; key: string; value: string | null }
+  /** Make `tag` the line's first `#tag`, or strip them all with null: the
+   *  Kanban tag lane a card sits in (#1027). */
+  | { kind: 'set-tag'; tag: string | null }
   | { kind: 'set-text'; text: string }
 
 type AssetUndoEntry = { kind: 'delete-asset'; deleted: DeletedAsset; createdAt: number }
@@ -947,6 +967,60 @@ export function isKanbanGroupBy(value: unknown): value is KanbanGroupBy {
 export function normalizeKanbanGroupBy(raw: unknown): KanbanGroupBy {
   if (raw === 'custom') return 'field:status'
   return isKanbanGroupBy(raw) ? raw : 'status'
+}
+
+export function isKanbanLaneBy(value: unknown): value is KanbanLaneBy {
+  return (
+    value === 'none' ||
+    value === 'priority' ||
+    value === 'folder' ||
+    value === 'tag' ||
+    (typeof value === 'string' && FIELD_GROUP_BY_RE.test(value))
+  )
+}
+
+/** A persisted lane field, or 'none' for anything a board cannot split by. */
+export function normalizeKanbanLanes(raw: unknown): KanbanLaneBy {
+  return isKanbanLaneBy(raw) ? raw : 'none'
+}
+
+const MAX_KANBAN_COLLAPSED_LANE_BOARDS = 64
+const MAX_KANBAN_COLLAPSED_LANES = 128
+const MAX_KANBAN_LANE_ID_LENGTH = 256
+
+/** The collapsed-lanes key of one board split by one lane field. */
+export function kanbanCollapsedLanesKey(group: KanbanGroupBy, laneBy: KanbanLaneBy): string {
+  return `${group}|${laneBy}`
+}
+
+// Collapsed lanes (#1027): `{ "<groupBy>|<laneBy>": ["<laneId>", ...] }`. Lane
+// ids are tag names, field values and folder paths, so only their length is
+// checked; a key whose two halves no board can build is dropped, as is a lane
+// field equal to its board's own column field.
+export function normalizeKanbanCollapsedLanes(raw: unknown): Record<string, string[]> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string[]> = {}
+  let boards = 0
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue
+    const bar = key.indexOf('|')
+    if (bar < 0) continue
+    const group = key.slice(0, bar)
+    const laneBy = key.slice(bar + 1)
+    if (!isKanbanGroupBy(group) || !isKanbanLaneBy(laneBy)) continue
+    if (laneBy === 'none' || laneBy === group) continue
+    const ids: string[] = []
+    for (const entry of value) {
+      if (typeof entry !== 'string' || !entry || entry.length > MAX_KANBAN_LANE_ID_LENGTH) continue
+      if (!ids.includes(entry)) ids.push(entry)
+      if (ids.length >= MAX_KANBAN_COLLAPSED_LANES) break
+    }
+    if (ids.length === 0) continue
+    out[key] = ids
+    boards += 1
+    if (boards >= MAX_KANBAN_COLLAPSED_LANE_BOARDS) break
+  }
+  return out
 }
 const MAX_KANBAN_STATUSES = 24
 const MAX_KANBAN_STATUS_ID_LENGTH = 32
@@ -1346,6 +1420,8 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanCardSort: 'manual',
   hideEmptyTasks: true,
   kanbanWipLimits: {},
+  kanbanLanes: 'none',
+  kanbanCollapsedLanes: {},
   tasksListOrder: 'note',
   timelineRange: DEFAULT_TIMELINE_RANGE,
   gallerySort: 'updated',
@@ -1734,6 +1810,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     hideEmptyTasks:
       typeof p.hideEmptyTasks === 'boolean' ? p.hideEmptyTasks : DEFAULT_PREFS.hideEmptyTasks,
     kanbanWipLimits: normalizeKanbanWipLimits(p.kanbanWipLimits),
+    kanbanLanes: normalizeKanbanLanes(p.kanbanLanes),
+    kanbanCollapsedLanes: normalizeKanbanCollapsedLanes(p.kanbanCollapsedLanes),
     tasksListOrder: p.tasksListOrder === 'priority' ? 'priority' : 'note',
     timelineRange: normalizeTimelineRange(p.timelineRange),
     gallerySort: normalizeGallerySort(p.gallerySort),
@@ -2344,6 +2422,11 @@ function applyTaskMutationsToTask(task: VaultTask, mutations: TaskMutation[]): V
         if (m.key === 'status') next = { ...next, status: value }
         break
       }
+      case 'set-tag': {
+        const tags = withFirstTag(next.tags ?? [], m.tag)
+        next = { ...next, tags, content: setFirstTag(next.content, m.tag).trim() }
+        break
+      }
       case 'set-text': {
         const content = m.text.trim()
         if (next.content !== content) next = { ...next, content }
@@ -2382,6 +2465,10 @@ function fileTaskMutationUpdates(
         break
       case 'set-field':
         updates[m.key] = m.value
+        break
+      // A task note's tags are a frontmatter list this writer does not edit;
+      // the board refuses a tag-lane drop for one (laneDropMutationsFor).
+      case 'set-tag':
         break
       case 'set-text':
         updates.title = m.text.trim()
@@ -2710,6 +2797,8 @@ function collectPrefs(s: {
   kanbanCardSort: KanbanCardSort
   hideEmptyTasks: boolean
   kanbanWipLimits: Record<string, number>
+  kanbanLanes: KanbanLaneBy
+  kanbanCollapsedLanes: Record<string, string[]>
   tasksListOrder: TasksListOrder
   timelineRange: TimelineRange
   gallerySort: GallerySort
@@ -2833,6 +2922,8 @@ function collectPrefs(s: {
     kanbanCardSort: s.kanbanCardSort,
     hideEmptyTasks: s.hideEmptyTasks,
     kanbanWipLimits: s.kanbanWipLimits,
+    kanbanLanes: s.kanbanLanes,
+    kanbanCollapsedLanes: s.kanbanCollapsedLanes,
     tasksListOrder: s.tasksListOrder,
     timelineRange: s.timelineRange,
     gallerySort: s.gallerySort,
@@ -3529,6 +3620,10 @@ interface Store {
   hideEmptyTasks: boolean
   /** Per-column Kanban WIP limits, keyed `${groupBy}:${columnId}`. (#1025) */
   kanbanWipLimits: Record<string, number>
+  /** The field that splits the board into lanes, or 'none'. (#1027) */
+  kanbanLanes: KanbanLaneBy
+  /** Collapsed lanes per board and lane field. (#1027) */
+  kanbanCollapsedLanes: Record<string, string[]>
   /** Tasks list groups in note order or by priority. (#989) */
   tasksListOrder: TasksListOrder
   /** How far ahead the Timeline panel reaches: two weeks, a month, or every
@@ -3819,6 +3914,10 @@ interface Store {
   setHideEmptyTasks: (hide: boolean) => void
   /** Set one column's WIP limit, or clear it with null. (#1025) */
   setKanbanWipLimit: (group: KanbanGroupBy, columnId: string, limit: number | null) => void
+  /** Split the board into lanes by a second field, or 'none'. (#1027) */
+  setKanbanLanes: (laneBy: KanbanLaneBy) => void
+  /** The collapsed lanes of one board split by one field; empty clears. (#1027) */
+  setKanbanCollapsedLanes: (group: KanbanGroupBy, laneBy: KanbanLaneBy, laneIds: string[]) => void
   setTasksListOrder: (order: TasksListOrder) => void
   setTimelineRange: (range: TimelineRange) => void
   setTimelineFilter: (query: string) => void
@@ -6426,6 +6525,8 @@ export const useStore = create<Store>((set, get) => {
   kanbanCardSort: loadPrefs().kanbanCardSort,
   hideEmptyTasks: loadPrefs().hideEmptyTasks,
   kanbanWipLimits: loadPrefs().kanbanWipLimits,
+  kanbanLanes: loadPrefs().kanbanLanes,
+  kanbanCollapsedLanes: loadPrefs().kanbanCollapsedLanes,
   tasksListOrder: loadPrefs().tasksListOrder,
   timelineRange: loadPrefs().timelineRange,
   timelineFilter: '',
@@ -7673,6 +7774,9 @@ export const useStore = create<Store>((set, get) => {
               case 'set-field':
                 nextBody = setTaskFieldAtIndex(nextBody, task.taskIndex, m.key, m.value)
                 break
+              case 'set-tag':
+                nextBody = setTaskTagAtIndex(nextBody, task.taskIndex, m.tag)
+                break
               case 'set-text':
                 nextBody = setTaskTextAtIndex(nextBody, task.taskIndex, m.text)
                 break
@@ -7981,6 +8085,16 @@ export const useStore = create<Store>((set, get) => {
     if (limit === null) delete next[key]
     else next[key] = limit
     set({ kanbanWipLimits: normalizeKanbanWipLimits(next) })
+    savePrefs(collectPrefs(get()))
+  },
+  setKanbanLanes: (laneBy) => {
+    set({ kanbanLanes: normalizeKanbanLanes(laneBy) })
+    savePrefs(collectPrefs(get()))
+  },
+  setKanbanCollapsedLanes: (group, laneBy, laneIds) => {
+    const next = { ...get().kanbanCollapsedLanes }
+    next[kanbanCollapsedLanesKey(group, laneBy)] = laneIds
+    set({ kanbanCollapsedLanes: normalizeKanbanCollapsedLanes(next) })
     savePrefs(collectPrefs(get()))
   },
   setTasksListOrder: (order) => {

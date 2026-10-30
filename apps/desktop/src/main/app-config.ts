@@ -441,6 +441,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'kanban_card_sort',
     comment: 'manual | due: cards in a Kanban column keep the order you drag them into, or follow their due dates'
   },
+  kanbanLanes: {
+    section: 'view',
+    tomlKey: 'kanban_lanes',
+    comment: 'none | priority | folder | tag | field:<key>: a second field that splits the Kanban board into lanes'
+  },
   hideEmptyTasks: {
     section: 'view',
     tomlKey: 'hide_empty_tasks',

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useStore } from '../store'
+import { useStore, type KanbanLaneBy } from '../store'
 import { emptyTasksShowLabel } from '../lib/empty-tasks'
 import { isKeyboardContextMenuKey } from '../lib/keyboard-context-menu'
 import { tasksKeySheet, type TasksKeysView } from '../lib/tasks-keys'
-import { ContextMenu } from './ContextMenu'
+import type { LaneOption } from '../lib/kanban-lanes'
+import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { KeyboardIcon, SlidersIcon } from './icons'
 
 /**
@@ -58,13 +59,27 @@ export function tasksToolbarOwnsKey(e: KeyboardEvent): boolean {
   return true
 }
 
+/** The board's lane choice for the View menu (#1027). */
+export interface TasksViewLanes {
+  value: KanbanLaneBy
+  options: readonly LaneOption[]
+  onChange: (next: KanbanLaneBy) => void
+}
+
 /**
  * The View menu (#1026): display options for the Tasks views, today Hide
- * empty tasks; later board options belong in it too, not as more toolbar
+ * empty tasks, and on the board its lanes (#1027, "Lanes: None", "Lanes:
+ * Priority" and on); board options belong in it, not as more toolbar
  * controls. Beside it, only when something is hidden, a quiet "3 hidden"
  * that shows them on a click.
  */
-export function TasksViewOptions({ hidden }: { hidden: number }): JSX.Element {
+export function TasksViewOptions({
+  hidden,
+  lanes
+}: {
+  hidden: number
+  lanes?: TasksViewLanes
+}): JSX.Element {
   const hide = useStore((s) => s.hideEmptyTasks)
   const setHide = useStore((s) => s.setHideEmptyTasks)
   const vimMode = useStore((s) => s.vimMode)
@@ -119,13 +134,29 @@ export function TasksViewOptions({ hidden }: { hidden: number }): JSX.Element {
               hint: vimMode ? 'E' : undefined,
               keywords: ['empty', 'blank', 'placeholder', 'template'],
               onSelect: () => setHide(!hide)
-            }
+            },
+            ...(lanes ? laneMenuItems(lanes) : [])
           ]}
           onClose={() => setMenu(null)}
         />
       )}
     </div>
   )
+}
+
+/** The lane fields as View menu rows, one checked: "Lanes: Priority". */
+function laneMenuItems({ value, options, onChange }: TasksViewLanes): ContextMenuItem[] {
+  return [
+    { kind: 'separator' },
+    ...options.map(
+      (option): ContextMenuItem => ({
+        label: `Lanes: ${option.label}`,
+        checked: option.value === value,
+        keywords: ['lanes', 'swimlanes', 'rows', 'split'],
+        onSelect: () => onChange(option.value)
+      })
+    )
+  ]
 }
 
 const SHEET_TITLES: Record<TasksKeysView, string> = {
@@ -142,12 +173,18 @@ const SHEET_TITLES: Record<TasksKeysView, string> = {
 export function TasksKeysButton({
   view,
   dndEnabled = true,
-  subtasks = false
+  subtasks = false,
+  lanes = false,
+  laneMoves = false
 }: {
   view: TasksKeysView
   dndEnabled?: boolean
   /** The board's Subtasks group (Tab / Shift+Tab); see tasksKeySheet. */
   subtasks?: boolean
+  /** The board's Lanes group, while it has lanes (#1027). */
+  lanes?: boolean
+  /** Cards move between those lanes (Shift+J / K). */
+  laneMoves?: boolean
 }): JSX.Element {
   const vimMode = useStore((s) => s.vimMode)
   const listOrder = useStore((s) => s.tasksListOrder)
@@ -196,7 +233,7 @@ export function TasksKeysButton({
     }
   }, [anchor, close])
 
-  const sheet = tasksKeySheet(view, { vimMode, dndEnabled, listOrder, subtasks })
+  const sheet = tasksKeySheet(view, { vimMode, dndEnabled, listOrder, subtasks, lanes, laneMoves })
 
   return (
     <>

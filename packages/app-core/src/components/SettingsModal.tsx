@@ -182,6 +182,8 @@ import { CloudSettings } from "./CloudSettings";
 import { ErrorDetails } from "./ErrorDetails";
 import { consumeSettingsTarget } from "../lib/settings-navigation";
 import { unsplashKeySupported } from "../lib/unsplash-key";
+import { laneFieldLabel } from "../lib/kanban-lanes";
+import type { KanbanLaneBy } from "../store";
 import { UnsplashKeySetting } from "./UnsplashKeySetting";
 import { normalizeApplicationSchemes } from "@shared/application-links";
 
@@ -747,6 +749,8 @@ export function SettingsModal(): JSX.Element {
   const showArchivedTasks = useStore((s) => s.showArchivedTasks);
   const kanbanCardSort = useStore((s) => s.kanbanCardSort);
   const setKanbanCardSort = useStore((s) => s.setKanbanCardSort);
+  const kanbanLanes = useStore((s) => s.kanbanLanes);
+  const setKanbanLanes = useStore((s) => s.setKanbanLanes);
   const hideEmptyTasks = useStore((s) => s.hideEmptyTasks);
   const setHideEmptyTasks = useStore((s) => s.setHideEmptyTasks);
   const tasksListOrder = useStore((s) => s.tasksListOrder);
@@ -3703,6 +3707,21 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "kanban-lanes",
+          title: "Kanban lanes",
+          description: "Split the board into rows by a second field.",
+          keywords: [
+            "kanban",
+            "lanes",
+            "swimlanes",
+            "rows",
+            "priority",
+            "folder",
+            "tag",
+            "split",
+          ],
+        },
+        {
           id: "hide-empty-tasks",
           title: "Hide empty tasks",
           description: "Leave blank checkboxes out of the Tasks views.",
@@ -3794,6 +3813,25 @@ export function SettingsModal(): JSX.Element {
                 { value: "due", label: "Due date" },
               ]}
               onChange={(next) => setKanbanCardSort(next)}
+            />
+          </Section>
+          <Section title="Lanes">
+            <SegmentedRow<KanbanLaneBy>
+              label="Kanban lanes"
+              description="Split the board into rows by a second field."
+              value={kanbanLanes}
+              settingId="kanban-lanes"
+              options={[
+                { value: "none", label: "None" },
+                { value: "priority", label: "Priority" },
+                { value: "folder", label: "Folder" },
+                { value: "tag", label: "Tag" },
+                // An @field chosen on the board shows here too.
+                ...(kanbanLanes.startsWith("field:")
+                  ? [{ value: kanbanLanes, label: laneFieldLabel(kanbanLanes) }]
+                  : []),
+              ]}
+              onChange={(next) => setKanbanLanes(next)}
             />
           </Section>
           <Section

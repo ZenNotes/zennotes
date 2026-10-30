@@ -2716,6 +2716,74 @@ describe('applyTaskMutation write queue (#503)', () => {
   })
 })
 
+describe('Kanban lanes (#1027)', () => {
+  it('starts with no lanes and keeps the lane field through a restart', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().kanbanLanes).toBe('none')
+
+    useStore.getState().setKanbanLanes('priority')
+    expect(useStore.getState().kanbanLanes).toBe('priority')
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.kanbanLanes).toBe('priority')
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().kanbanLanes).toBe('priority')
+  })
+
+  it('reads a hand-edited lane field it can mean, and none for anything else', async () => {
+    const { normalizeKanbanLanes } = await loadStore()
+    expect(normalizeKanbanLanes('tag')).toBe('tag')
+    expect(normalizeKanbanLanes('field:sprint')).toBe('field:sprint')
+    expect(normalizeKanbanLanes('status')).toBe('none')
+    expect(normalizeKanbanLanes('field:Bad Key')).toBe('none')
+    expect(normalizeKanbanLanes(3)).toBe('none')
+  })
+
+  it('remembers collapsed lanes per board and lane field', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    useStore.getState().setKanbanCollapsedLanes('status', 'priority', ['low', 'none'])
+    useStore.getState().setKanbanCollapsedLanes('field:status', 'tag', ['home'])
+    expect(useStore.getState().kanbanCollapsedLanes).toEqual({
+      'status|priority': ['low', 'none'],
+      'field:status|tag': ['home']
+    })
+    useStore.getState().setKanbanCollapsedLanes('field:status', 'tag', [])
+    expect(useStore.getState().kanbanCollapsedLanes).toEqual({ 'status|priority': ['low', 'none'] })
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().kanbanCollapsedLanes).toEqual({ 'status|priority': ['low', 'none'] })
+  })
+
+  it('drops collapsed-lane entries no board can build', async () => {
+    const { normalizeKanbanCollapsedLanes } = await loadStore()
+    expect(
+      normalizeKanbanCollapsedLanes({
+        'status|priority': ['low', 'low', '', 7],
+        'priority|priority': ['high'],
+        'bogus|tag': ['x'],
+        'status|nope': ['x'],
+        'folder|tag': 'home'
+      })
+    ).toEqual({ 'status|priority': ['low'] })
+  })
+
+  it('writes a tag lane move onto the task line, keeping its other tokens', async () => {
+    let disk = '- [ ] alpha #work due:2026-11-02 !high'
+    const readNote = vi.fn(async () => makeNote(disk))
+    const writeNote = vi.fn(async (_path: string, body: string) => {
+      disk = body
+    })
+    installZen({ readNote, writeNote })
+    const { useStore } = await loadStore()
+    await useStore.getState().applyTaskMutation(makeTask('alpha', 0), { kind: 'set-tag', tag: 'home' })
+    expect(disk).toBe('- [ ] alpha #home due:2026-11-02 !high')
+  })
+})
+
 describe('hidden workflow presets', () => {
   it('normalizes garbage and keeps unknown ids', async () => {
     installZen()

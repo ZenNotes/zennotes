@@ -1,4 +1,9 @@
-import { dropMutationsFor } from '../lib/task-column-mutations'
+import {
+  boardDropMutations,
+  dropMutationsFor,
+  laneDropMutationsFor,
+  type BoardCell
+} from '../lib/task-column-mutations'
 /**
  * Kanban view for the Tasks tab.
  *
@@ -36,6 +41,15 @@ import { dropMutationsFor } from '../lib/task-column-mutations'
  * Subtasks: a task's indented subtasks fold into its card (listed under the
  * title, checkable, with a progress bar) instead of standing as cards of
  * their own; see `lib/kanban-subtasks.ts`.
+ *
+ * Swimlanes (#1027): the View menu (or `S`, or `:lanes`) splits the board
+ * into horizontal lanes by a second field, each lane a row across the same
+ * columns. A drop on another lane writes that lane's field and nothing else
+ * (`boardDropMutations`); folder lanes are read-only. In lane mode j/k walk
+ * the column header, each lane's header and its cell; `{` / `}` hop lane to
+ * lane; Shift+J/K move the card a lane down or up; `za` folds the lane, `zM` /
+ * `zR` fold or open them all; Enter (or Space with Vim off) on a lane header
+ * folds it. WIP limits still count the whole column.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -48,13 +62,16 @@ import {
 import { resolveSystemFolderLabels, type SystemFolderLabels } from '../lib/system-folder-labels'
 import { promptApp } from '../lib/prompt-requests'
 import type { VaultTask } from '@shared/tasks'
+import { setFirstTag, withFirstTag } from '@shared/tasklists'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import {
   MAX_KANBAN_WIP_LIMIT,
+  kanbanCollapsedLanesKey,
   normalizeKanbanFolderRoot,
   useStore,
   type KanbanCardSort,
   type KanbanGroupBy,
+  type KanbanLaneBy,
   type TaskMutation
 } from '../store'
 import type { NoteTagsByPath } from '../lib/tasks-filter'
@@ -68,6 +85,18 @@ import {
   type CardSubtask
 } from '../lib/kanban-subtasks'
 import { rollupLabel, type TaskRollup } from '../lib/task-rollup'
+import {
+  activeLaneBy,
+  clampLaneCursor,
+  laneCursorStep,
+  laneFieldLabel,
+  laneJump,
+  laneOptions,
+  nextLaneBy,
+  type LaneCursor,
+  type LaneShape
+} from '../lib/kanban-lanes'
+import { useToastStore } from '../lib/toast'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-context-menu'
 import { listViewBindingMatches } from '../lib/list-view-keys'
@@ -129,6 +158,26 @@ function columnAccent(id: string): string | null {
 export { dropMutationsFor } from '../lib/task-column-mutations'
 
 const NO_SUBTASKS: readonly CardSubtask[] = []
+const NO_LANE_IDS: readonly string[] = []
+
+/** The dot beside a lane's label: the card chips' priority colours, a field
+ *  value's column accent, none for tags and folders. */
+function laneDotOf(
+  laneBy: KanbanLaneBy,
+  laneId: string
+): { className?: string; color?: string } | null {
+  if (laneBy === 'priority') {
+    if (laneId === 'high') return { className: 'bg-rose-400' }
+    if (laneId === 'med') return { className: 'bg-amber-400' }
+    if (laneId === 'low') return { className: 'bg-sky-400' }
+    return null
+  }
+  if (laneBy.startsWith('field:')) {
+    const color = columnAccent(laneId)
+    return color ? { color } : null
+  }
+  return null
+}
 
 export interface Column {
   id: string
@@ -298,50 +347,80 @@ export function folderColumns(
   showArchived: boolean,
   layout: FolderBoardLayout
 ): Column[] {
-  const labels = resolveSystemFolderLabels(layout.systemFolderLabels)
+  return folderGroups(
+    tasks.filter(
+      (task) => isBoardCard(task) && (task.noteFolder !== 'archive' || showArchived)
+    ),
+    layout
+  )
+}
+
+interface FolderPlace {
+  id: string
+  label: string
+  folder: NoteFolder
+  dir: string
+}
+
+/** The folder group a task's note belongs to, or null for the trailing Other
+ *  folders group (a folder root is set and the note is outside it). */
+function folderPlacement(
+  task: VaultTask,
+  layout: FolderBoardLayout,
+  labels: Record<string, string>
+): FolderPlace | null {
   const root = normalizeKanbanFolderRoot(layout.folderRoot)
+  const location = noteLocationOf(task, layout.systemFolderPaths)
+  const vaultDir = [location.prefix, location.dir].filter(Boolean).join('/')
+  if (!root) {
+    // Each note's own folder: the system folder's root as its label, a
+    // subfolder as its path.
+    const id = vaultDir || resolveFolderPath(location.folder, layout.systemFolderPaths)
+    return {
+      id,
+      label: folderColumnLabel(location.folder, location.dir, labels),
+      folder: location.folder,
+      dir: location.dir
+    }
+  }
+  // A root narrows the board to the primary area: the root's direct
+  // children are the columns, deeper notes roll up to their child, notes
+  // in the root itself get the root's column, and everything else (other
+  // system folders, folders beside the root) shares one trailing column.
+  if (location.folder !== 'inbox') return null
   const rootLower = root.toLowerCase()
+  const dirLower = location.dir.toLowerCase()
+  if (dirLower === rootLower) {
+    const id = [location.prefix, location.dir].filter(Boolean).join('/')
+    return { id, label: location.dir.split('/').pop() ?? location.dir, folder: 'inbox', dir: location.dir }
+  }
+  if (dirLower.startsWith(rootLower + '/')) {
+    const child = location.dir.slice(root.length + 1).split('/')[0]
+    const childDir = `${location.dir.slice(0, root.length)}/${child}`
+    const id = [location.prefix, childDir].filter(Boolean).join('/')
+    return { id, label: child, folder: 'inbox', dir: childDir }
+  }
+  return null
+}
+
+/** Group tasks by their notes' folders, in the folder board's order: system
+ *  folder order first, a folder's root before its subfolders, subfolders
+ *  alphabetically, Other folders last. Every task is placed; which tasks
+ *  belong on a board is the caller's choice (columns leave closed work out,
+ *  folder lanes split whatever the columns hold, #1027). */
+export function folderGroups(tasks: VaultTask[], layout: FolderBoardLayout): Column[] {
+  const labels = resolveSystemFolderLabels(layout.systemFolderLabels)
   const byId = new Map<string, { label: string; folder: NoteFolder; dir: string; tasks: VaultTask[] }>()
   const other: VaultTask[] = []
-  const place = (id: string, label: string, folder: NoteFolder, dir: string, task: VaultTask): void => {
-    const entry = byId.get(id)
-    if (entry) entry.tasks.push(task)
-    else byId.set(id, { label, folder, dir, tasks: [task] })
-  }
   for (const task of tasks) {
-    if (!isBoardCard(task)) continue
-    if (task.noteFolder === 'archive' && !showArchived) continue
-    const location = noteLocationOf(task, layout.systemFolderPaths)
-    const vaultDir = [location.prefix, location.dir].filter(Boolean).join('/')
-    if (!root) {
-      // Each note's own folder: the system folder's root as its label, a
-      // subfolder as its path.
-      const id = vaultDir || resolveFolderPath(location.folder, layout.systemFolderPaths)
-      place(id, folderColumnLabel(location.folder, location.dir, labels), location.folder, location.dir, task)
-      continue
-    }
-    // A root narrows the board to the primary area: the root's direct
-    // children are the columns, deeper notes roll up to their child, notes
-    // in the root itself get the root's column, and everything else (other
-    // system folders, folders beside the root) shares one trailing column.
-    if (location.folder !== 'inbox') {
+    const place = folderPlacement(task, layout, labels)
+    if (!place) {
       other.push(task)
       continue
     }
-    const dirLower = location.dir.toLowerCase()
-    if (dirLower === rootLower) {
-      const id = [location.prefix, location.dir].filter(Boolean).join('/')
-      place(id, location.dir.split('/').pop() ?? location.dir, 'inbox', location.dir, task)
-      continue
-    }
-    if (dirLower.startsWith(rootLower + '/')) {
-      const child = location.dir.slice(root.length + 1).split('/')[0]
-      const childDir = `${location.dir.slice(0, root.length)}/${child}`
-      const id = [location.prefix, childDir].filter(Boolean).join('/')
-      place(id, child, 'inbox', childDir, task)
-      continue
-    }
-    other.push(task)
+    const entry = byId.get(place.id)
+    if (entry) entry.tasks.push(task)
+    else byId.set(place.id, { label: place.label, folder: place.folder, dir: place.dir, tasks: [task] })
   }
 
   const folderRank = (folder: NoteFolder): number => FOLDER_ORDER.indexOf(folder)
@@ -454,6 +533,138 @@ function buildColumns(
   return statusColumns(tasks, today)
 }
 
+/** A swimlane (#1027) before it holds cards: its id is what a drop on it
+ *  writes (a priority, a tag, a field value, a folder), its label what its
+ *  header reads. */
+export interface LaneDef {
+  id: string
+  label: string
+}
+
+/** A swimlane: a row across the board's columns, each cell the column's cards
+ *  that carry the lane's value, in the column's own order. */
+export interface Lane extends LaneDef {
+  columns: Column[]
+  /** Cards in the lane, across every column. */
+  count: number
+}
+
+const PRIORITY_LANES: readonly LaneDef[] = [
+  { id: 'high', label: 'High' },
+  { id: 'med', label: 'Medium' },
+  { id: 'low', label: 'Low' },
+  { id: 'none', label: 'No priority' }
+]
+
+/**
+ * The lanes a board splits into and the lane each card belongs to, ordered
+ * the way the same field orders columns: priority High to No priority, a
+ * field's configured values then the ones found on tasks, folders by the
+ * folder board's order, tags sorted. The No <value> lane comes last. A card
+ * sits in exactly one lane: a tagged card in the lane of its first tag.
+ *
+ * Built from every card on the board, before the filter and the empty-task
+ * hiding narrow it, so a lane stays put while a query hides its cards, as a
+ * column does. Priority lanes and the No tag / No <field> lane always show,
+ * empty or not, since they are where a drop clears or sets the field.
+ */
+export function laneDefsFor(
+  laneBy: KanbanLaneBy,
+  cards: readonly VaultTask[],
+  { statuses, folderLayout }: { statuses: string[]; folderLayout: FolderBoardLayout }
+): { defs: LaneDef[]; laneOf: (task: VaultTask) => string } {
+  if (laneBy === 'priority') {
+    return { defs: [...PRIORITY_LANES], laneOf: (task) => task.priority ?? 'none' }
+  }
+  if (laneBy === 'tag') {
+    const tags = new Set<string>()
+    for (const card of cards) if (card.tags?.[0]) tags.add(card.tags[0])
+    const defs: LaneDef[] = [...tags].sort().map((tag) => ({ id: tag, label: `#${tag}` }))
+    defs.push({ id: NO_VALUE_COLUMN_ID, label: 'No tag' })
+    return { defs, laneOf: (task) => task.tags?.[0] ?? NO_VALUE_COLUMN_ID }
+  }
+  if (laneBy === 'folder') {
+    const defs = folderGroups([...cards], folderLayout).map(({ id, label }) => ({ id, label }))
+    const labels = resolveSystemFolderLabels(folderLayout.systemFolderLabels)
+    return {
+      defs,
+      laneOf: (task) => folderPlacement(task, folderLayout, labels)?.id ?? NO_VALUE_COLUMN_ID
+    }
+  }
+  const fieldKey = laneBy.startsWith('field:') ? laneBy.slice('field:'.length) : null
+  if (!fieldKey) return { defs: [], laneOf: () => NO_VALUE_COLUMN_ID }
+  // The field board's column order (fieldColumns): configured values, then
+  // the ones found on tasks, sorted.
+  const ids: string[] = []
+  for (const id of fieldKey === 'status' ? statuses : []) if (!ids.includes(id)) ids.push(id)
+  const found = new Set<string>()
+  for (const card of cards) {
+    const value = card.fields?.[fieldKey]
+    if (value) found.add(value)
+  }
+  for (const id of [...found].sort()) if (!ids.includes(id)) ids.push(id)
+  const defs: LaneDef[] = ids.map((id) => ({ id, label: prettifyFieldValue(id) }))
+  defs.push({ id: NO_VALUE_COLUMN_ID, label: `No ${fieldKey}` })
+  return { defs, laneOf: (task) => task.fields?.[fieldKey] ?? NO_VALUE_COLUMN_ID }
+}
+
+/**
+ * Split built columns into lanes: every lane a row of the same columns, each
+ * cell the column's cards in that lane, in the column's order. Every card
+ * lands in exactly one lane, so a column's cards across its cells are the
+ * column, and its WIP count (taken on the columns) is the whole column's. A
+ * card whose lane is not among `defs` gets a lane of its own at the end rather
+ * than leave the board.
+ */
+export function splitIntoLanes(
+  columns: readonly Column[],
+  defs: readonly LaneDef[],
+  laneOf: (task: VaultTask) => string
+): Lane[] {
+  const lanes: Lane[] = defs.map((def) => ({
+    ...def,
+    columns: columns.map((column) => ({ ...column, tasks: [] as VaultTask[], badge: undefined })),
+    count: 0
+  }))
+  const byId = new Map(lanes.map((lane, index) => [lane.id, index] as const))
+  columns.forEach((column, ci) => {
+    for (const task of column.tasks) {
+      const id = laneOf(task)
+      let at = byId.get(id)
+      if (at === undefined) {
+        at = lanes.length
+        byId.set(id, at)
+        lanes.push({
+          id,
+          label: id,
+          columns: columns.map((c) => ({ ...c, tasks: [] as VaultTask[], badge: undefined })),
+          count: 0
+        })
+      }
+      lanes[at].columns[ci].tasks.push(task)
+      lanes[at].count += 1
+    }
+  })
+  return lanes
+}
+
+/** The cursor on a card that moved, in lane mode: its lane, its column, its
+ *  place in the cell, wherever the rebuilt board put it (the #492 rule). */
+export function cursorAfterLaneMove(
+  lanes: readonly Lane[],
+  columnId: string,
+  movedKey: string
+): { laneIdx: number; colIdx: number; cardIdx: number } {
+  const colIdx = Math.max(0, lanes[0]?.columns.findIndex((column) => column.id === columnId) ?? 0)
+  for (let laneIdx = 0; laneIdx < lanes.length; laneIdx += 1) {
+    const cardIdx = lanes[laneIdx].columns[colIdx]?.tasks.findIndex(
+      (task) => taskIdentityKey(task) === movedKey
+    )
+    if (cardIdx !== undefined && cardIdx >= 0) return { laneIdx, colIdx, cardIdx }
+  }
+  return { laneIdx: 0, colIdx, cardIdx: 0 }
+}
+
 function sameTaskIdentity(a: VaultTask, b: VaultTask): boolean {
   return a.sourcePath === b.sourcePath && a.taskIndex === b.taskIndex
 }
@@ -541,6 +752,14 @@ export function applyTaskMutationsForBoard(task: VaultTask, mutations: TaskMutat
         if (m.key === 'status') next = { ...next, status: value }
         break
       }
+      // A tag lane (#1027): the first tag, in the text the card shows too.
+      case 'set-tag':
+        next = {
+          ...next,
+          tags: withFirstTag(next.tags ?? [], m.tag),
+          content: setFirstTag(next.content, m.tag).trim()
+        }
+        break
     }
   }
   return next
@@ -705,6 +924,9 @@ export function kanbanCardStep(cardIdx: number, delta: -1 | 1, cardCount: number
   return Math.max(-1, Math.min(cardCount - 1, cardIdx + delta))
 }
 
+/** How long an armed `z` waits for the a / M / R of a lane fold (#1027). */
+export const LANE_FOLD_PENDING_MS = 1000
+
 /** How long an armed `g` waits for a tab-sequence completion before the
  *  group-by cycle fires. Matches VimNav's own gt/gT pending window. */
 export const GROUP_BY_PENDING_MS = 500
@@ -777,6 +999,8 @@ interface ActivePointerDrag {
   task: VaultTask
   pointerId: number
   sourceColumnId: string | null
+  /** The lane the card left, in lane mode (#1027); null without lanes. */
+  sourceLaneId: string | null
   startX: number
   startY: number
   /** Latest pointer position, to re-aim when the board scrolls under a still pointer. */
@@ -787,8 +1011,19 @@ interface ActivePointerDrag {
   width: number
   height: number
   dragging: boolean
-  lastColumnId: string | null
+  /** The column, lane, or cell last hovered: the drop's fallback target. */
+  lastTarget: BoardCell | null
   lastInsertionIndex: number | null
+}
+
+/** What a dragged card is over: a column (or a column header in lane mode),
+ *  a lane header, or a lane's cell, which is both (#1027). */
+interface DropTarget extends BoardCell {
+  element: HTMLElement
+}
+
+function sameBoardCell(a: BoardCell | null, b: BoardCell | null): boolean {
+  return !!a && !!b && a.columnId === b.columnId && a.laneId === b.laneId
 }
 
 interface DragPreview {
@@ -837,8 +1072,19 @@ export function TasksKanban({
   const startTaskFromList = useStore((s) => s.startTaskFromList)
   const cancelTaskFromList = useStore((s) => s.cancelTaskFromList)
   const vimMode = useStore((s) => s.vimMode)
+  const kanbanLanes = useStore((s) => s.kanbanLanes)
+  const setKanbanLanes = useStore((s) => s.setKanbanLanes)
+  const kanbanCollapsedLanes = useStore((s) => s.kanbanCollapsedLanes)
+  const setKanbanCollapsedLanes = useStore((s) => s.setKanbanCollapsedLanes)
+  // Lanes by the columns' own field would put every card on the diagonal, so
+  // that choice shows no lanes, and comes back with another group-by (#1027).
+  const laneBy = activeLaneBy(groupBy, kanbanLanes)
+  const lanesOn = laneBy !== 'none'
   const [colIdx, setColIdx] = useState(0)
   const [cardIdx, setCardIdx] = useState(0)
+  // The lane under the cursor in lane mode; -1 is the column header row, and
+  // there `cardIdx` -1 is a lane's header (lib/kanban-lanes.ts).
+  const [laneIdx, setLaneIdx] = useState(0)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null)
   const [displayTasks, setDisplayTasks] = useState(tasks)
@@ -900,9 +1146,24 @@ export function TasksKanban({
   const dragOverColumnRef = useRef<string | null>(null)
   const dragOverElementRef = useRef<HTMLElement | null>(null)
   const suppressCardClickUntilRef = useRef(0)
+  // The card and the lane cursor as last drawn, for the keyboard moves.
+  const focusedTaskRef = useRef<VaultTask | undefined>(undefined)
+  const laneCursorNowRef = useRef<LaneCursor>({ laneIdx: -1, cardIdx: -1 })
   // #573: a pressed `g` waiting out the gt/gT window before cycling group-by.
   const groupByPendingRef = useRef(false)
   const groupByTimerRef = useRef<number | null>(null)
+  // A pressed `z` waiting for the a / M / R of a lane fold (#1027).
+  const foldPendingRef = useRef(false)
+  const foldTimerRef = useRef<number | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  // The lane header or empty cell under the cursor, in lane mode.
+  const laneCursorElRef = useRef<HTMLElement | null>(null)
+  const setLaneCursorEl = useCallback((el: HTMLElement | null): void => {
+    laneCursorElRef.current = el
+  }, [])
+  const lanesRef = useRef<Lane[]>([])
+  const lanesOnRef = useRef(lanesOn)
+  lanesOnRef.current = lanesOn
   // Edge auto-scroll for both drags (#838): near the board's left or right edge
   // the board scrolls sideways, and a card held near the top or bottom of a
   // long column scrolls that column.
@@ -910,6 +1171,8 @@ export function TasksKanban({
     createDragAutoScroller({
       horizontal: () => boardRef.current,
       vertical: (clientX, clientY) => {
+        // Lanes stack down the board, which scrolls as one; cells do not.
+        if (lanesOnRef.current) return boardRef.current
         const body = (
           document.elementFromPoint(clientX, clientY) as HTMLElement | null
         )?.closest<HTMLElement>('[data-kanban-column-body]')
@@ -1035,6 +1298,34 @@ export function TasksKanban({
   columnsRef.current = columns
   fullColumnsRef.current = fullColumns
 
+  // Swimlanes (#1027): the lanes come from every card on the board, the cells
+  // from the columns as shown, so a filtered or hidden card leaves its cell
+  // and the lanes and their order stay.
+  const laneModel = useMemo(
+    () =>
+      lanesOn
+        ? laneDefsFor(
+            laneBy,
+            fullColumns.flatMap((column) => column.tasks),
+            { statuses: kanbanStatuses, folderLayout }
+          )
+        : null,
+    [folderLayout, fullColumns, kanbanStatuses, laneBy, lanesOn]
+  )
+  const lanes = useMemo(
+    () => (laneModel ? splitIntoLanes(columns, laneModel.defs, laneModel.laneOf) : []),
+    [columns, laneModel]
+  )
+  lanesRef.current = lanes
+  const collapsedLaneIds =
+    kanbanCollapsedLanes[kanbanCollapsedLanesKey(groupBy, laneBy)] ?? NO_LANE_IDS
+  const collapsedLanes = useMemo(() => new Set(collapsedLaneIds), [collapsedLaneIds])
+  const collapsedLanesRef = useRef(collapsedLanes)
+  collapsedLanesRef.current = collapsedLanes
+  const columnsMovable = groupBy !== 'folder'
+  // Folder lanes are read-only like folder columns: moving a note is a move.
+  const lanesMovable = lanesOn && laneBy !== 'folder'
+
   // Group-by options: the three static boards, the default custom-status field,
   // then one option per `@key:` field discovered across the current tasks. This
   // is what makes any inline field a board with zero configuration. (#354)
@@ -1062,7 +1353,23 @@ export function TasksKanban({
     return opts
   }, [tasks, groupBy])
 
-  const dndEnabled = groupBy !== 'folder'
+  // The View menu's lane fields: Priority, Folder, Tag, Custom status once
+  // there are statuses, every `@field` in use, never the column field.
+  const laneFieldOptions = useMemo(() => {
+    const keys = new Set<string>()
+    let status = kanbanStatuses.length > 0
+    for (const t of tasks) {
+      if (!t.fields) continue
+      for (const k of Object.keys(t.fields)) {
+        if (k === 'status') status = true
+        else keys.add(k)
+      }
+    }
+    return laneOptions(groupBy, keys, { customStatus: status, current: laneBy })
+  }, [groupBy, kanbanStatuses.length, laneBy, tasks])
+
+  // A card drags when it can change a column or a lane.
+  const dndEnabled = columnsMovable || lanesMovable
 
   // The folder board's root (#730): a prompt listing the folders that hold
   // tasks, so the choice is one Enter away; an empty answer goes back to
@@ -1312,6 +1619,7 @@ export function TasksKanban({
       setColumnDropTarget(null)
       document.body.style.userSelect = ''
     }
+    // Read here, not in the cleanup: lanes on or off swap the board element.
     const board = boardRef.current
     window.addEventListener('pointermove', handleMove, { passive: false })
     window.addEventListener('pointerup', handleUp, { passive: false })
@@ -1324,7 +1632,7 @@ export function TasksKanban({
       board?.removeEventListener('scroll', handleScroll, { capture: true })
       columnAutoScroll.stop()
     }
-  }, [columnAutoScroll, finishColumnDrag])
+  }, [columnAutoScroll, finishColumnDrag, lanesOn])
 
   useEffect(() => {
     if (!editingColumnId) return
@@ -1418,7 +1726,14 @@ export function TasksKanban({
   )
 
   const placeTaskInColumnOrder = useCallback(
-    (task: VaultTask, targetColumnId: string, targetIndex: number | null) => {
+    (
+      task: VaultTask,
+      targetColumnId: string,
+      targetIndex: number | null,
+      /** The cards the drop index counts: the target column as shown, or in
+       *  lane mode the target cell (#1027). */
+      visibleTargetTasks?: readonly VaultTask[]
+    ) => {
       // Ordered by due date, a card lands in its date slot; writing the board's
       // current (date) order here would overwrite the arrangement Manual
       // brings back. (#889)
@@ -1431,8 +1746,11 @@ export function TasksKanban({
       // column, so filtered-out cards keep their hand-arranged positions
       // instead of being pruned by the persist below. Unfiltered, the two
       // boards are identical and this is the plain bounded insert.
-      const visibleTarget = columnsRef.current.find((column) => column.id === targetColumnId)
-      const visibleKeys = (visibleTarget?.tasks ?? [])
+      const visibleTarget =
+        visibleTargetTasks ??
+        columnsRef.current.find((column) => column.id === targetColumnId)?.tasks ??
+        []
+      const visibleKeys = visibleTarget
         .map((columnTask) => taskIdentityKey(columnTask))
         .filter((key) => key !== movingKey)
       const anchorKey = visibleKeys[targetIndex] ?? null
@@ -1495,10 +1813,11 @@ export function TasksKanban({
       task: VaultTask,
       mutations: TaskMutation[],
       targetColumnId: string | null,
-      targetIndex: number | null
+      targetIndex: number | null,
+      visibleTargetTasks?: readonly VaultTask[]
     ) => {
       if (targetColumnId) {
-        placeTaskInColumnOrder(task, targetColumnId, targetIndex)
+        placeTaskInColumnOrder(task, targetColumnId, targetIndex, visibleTargetTasks)
       }
       if (mutations.length === 0) return
       const overlayTask = applyTaskToBoard(task, mutations)
@@ -1513,7 +1832,7 @@ export function TasksKanban({
   // (absolute). (#354)
   const moveFocusedCardTo = useCallback(
     (toIdx: number): void => {
-      if (!dndEnabled) return
+      if (!columnsMovable) return
       const cols = columnsRef.current
       if (cols.length === 0) return
       const fromIdx = Math.min(colIdx, cols.length - 1)
@@ -1522,7 +1841,10 @@ export function TasksKanban({
         return
       }
       const fromColumn = cols[fromIdx]
-      const task = fromColumn?.tasks[Math.min(cardIdx, fromColumn.tasks.length - 1)]
+      // In lane mode the card is the one in the focused cell (#1027).
+      const task = lanesOnRef.current
+        ? focusedTaskRef.current
+        : fromColumn?.tasks[Math.min(cardIdx, fromColumn.tasks.length - 1)]
       if (!task) {
         return
       }
@@ -1536,11 +1858,47 @@ export function TasksKanban({
       // The board rebuild is flushed synchronously, so columnsRef already holds
       // the post-move columns: read the card's new home out of them instead of
       // assuming it sits at the top of the column we aimed at. (#492)
+      if (lanesOnRef.current) {
+        const next = cursorAfterLaneMove(lanesRef.current, targetColumn.id, movedKey)
+        setLaneIdx(next.laneIdx)
+        setColIdx(next.colIdx)
+        setCardIdx(next.cardIdx)
+        return
+      }
       const next = cursorAfterCardMove(columnsRef.current, targetColumn.id, movedKey)
       setColIdx(next.colIdx)
       setCardIdx(next.cardIdx)
     },
-    [cardIdx, colIdx, dndEnabled, groupBy, moveTaskOnBoard, today]
+    [cardIdx, colIdx, columnsMovable, groupBy, moveTaskOnBoard, today]
+  )
+  // Shift+J/K: the focused card one lane down or up, writing that lane's
+  // field the way a drop on it would (#1027). A collapsed lane opens to take
+  // it, so the cursor can follow the card in.
+  const moveFocusedCardToLane = useCallback(
+    (dir: -1 | 1): void => {
+      if (!lanesMovable) return
+      const task = focusedTaskRef.current
+      const from = laneCursorNowRef.current.laneIdx
+      const target = lanesRef.current[from + dir]
+      const column = columnsRef.current[Math.min(colIdx, columnsRef.current.length - 1)]
+      if (!task || from < 0 || !target || !column) return
+      const mutations = laneDropMutationsFor(laneBy, target.id, task)
+      if (!mutations || mutations.length === 0) return
+      if (collapsedLanesRef.current.has(target.id)) {
+        setKanbanCollapsedLanes(
+          groupBy,
+          laneBy,
+          [...collapsedLanesRef.current].filter((id) => id !== target.id)
+        )
+      }
+      const movedKey = taskIdentityKey(task)
+      moveTaskOnBoard(task, mutations, null, null)
+      const next = cursorAfterLaneMove(lanesRef.current, column.id, movedKey)
+      setLaneIdx(next.laneIdx)
+      setColIdx(next.colIdx)
+      setCardIdx(next.cardIdx)
+    },
+    [colIdx, groupBy, laneBy, lanesMovable, moveTaskOnBoard, setKanbanCollapsedLanes]
   )
   const moveFocusedCard = useCallback(
     (dir: -1 | 1): void => {
@@ -1562,7 +1920,95 @@ export function TasksKanban({
     setGroupBy(next.value)
     setColIdx(0)
     setCardIdx(0)
+    setLaneIdx(0)
   }, [groupByOptions, setGroupBy])
+
+  // ---- Swimlanes (#1027): pick the field, fold lanes --------------------
+  const chooseLanes = useCallback(
+    (next: KanbanLaneBy): void => {
+      setKanbanLanes(next)
+      setLaneIdx(0)
+      setCardIdx(0)
+      setSubFocusId(null)
+    },
+    [setKanbanLanes]
+  )
+  // `S` steps through the lane fields and back to none, saying where it is,
+  // since the choice itself sits in the View menu.
+  const cycleLanes = useCallback((): void => {
+    const next = nextLaneBy(laneFieldOptions, laneBy)
+    chooseLanes(next)
+    useToastStore
+      .getState()
+      .addToast(next === 'none' ? 'Lanes off' : `Lanes: ${laneFieldLabel(next)}`, 'info')
+  }, [chooseLanes, laneBy, laneFieldOptions])
+
+  const setLanesCollapsed = useCallback(
+    (ids: Iterable<string>): void => setKanbanCollapsedLanes(groupBy, laneBy, [...ids]),
+    [groupBy, laneBy, setKanbanCollapsedLanes]
+  )
+  // Folding the lane the cursor is in leaves the cursor on its header, so it
+  // never points into cards that just went away.
+  const toggleLane = useCallback(
+    (laneId: string): void => {
+      const next = new Set(collapsedLanesRef.current)
+      if (next.has(laneId)) {
+        next.delete(laneId)
+      } else {
+        next.add(laneId)
+        const at = lanesRef.current.findIndex((lane) => lane.id === laneId)
+        if (at >= 0 && at === laneCursorNowRef.current.laneIdx) {
+          setLaneIdx(at)
+          setCardIdx(-1)
+          setSubFocusId(null)
+        }
+      }
+      setLanesCollapsed(next)
+    },
+    [setLanesCollapsed]
+  )
+  const setAllLanesCollapsed = useCallback(
+    (collapsed: boolean): void => {
+      if (collapsed) {
+        setLanesCollapsed(lanesRef.current.map((lane) => lane.id))
+        if (laneCursorNowRef.current.laneIdx >= 0) setCardIdx(-1)
+        setSubFocusId(null)
+      } else {
+        setLanesCollapsed([])
+      }
+    },
+    [setLanesCollapsed]
+  )
+  const openLaneMenu = useCallback(
+    (lane: Lane, x: number, y: number): void => {
+      const collapsed = collapsedLanesRef.current.has(lane.id)
+      setMenu({
+        x,
+        y,
+        items: [
+          {
+            label: collapsed ? 'Expand lane' : 'Collapse lane',
+            hint: vimMode ? 'za' : 'Enter',
+            keywords: ['fold', 'unfold', 'hide', 'show'],
+            onSelect: () => toggleLane(lane.id)
+          },
+          {
+            label: 'Collapse all lanes',
+            hint: vimMode ? 'zM' : undefined,
+            keywords: ['fold', 'hide'],
+            onSelect: () => setAllLanesCollapsed(true)
+          },
+          {
+            label: 'Expand all lanes',
+            hint: vimMode ? 'zR' : undefined,
+            keywords: ['unfold', 'show'],
+            onSelect: () => setAllLanesCollapsed(false)
+          }
+        ]
+      })
+    },
+    [setAllLanesCollapsed, toggleLane, vimMode]
+  )
 
   const scheduleDropIndicatorPosition = useCallback((x: number, y: number, width: number) => {
     dropIndicatorRectRef.current = { x, y, width }
@@ -1602,28 +2048,65 @@ export function TasksKanban({
     })
   }, [])
 
-  const columnAtPoint = useCallback((clientX: number, clientY: number) => {
+  // A lane header is a lane alone; anything else with a column id is a
+  // column, or in lane mode a cell, which carries its lane too (#1027).
+  const dropTargetAtPoint = useCallback((clientX: number, clientY: number): DropTarget | null => {
     const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
-    const columnEl = el?.closest<HTMLElement>('[data-kanban-column-id]')
-    if (!columnEl || !boardRef.current?.contains(columnEl)) return null
-    return { id: columnEl.dataset.kanbanColumnId ?? null, element: columnEl }
+    const board = boardRef.current
+    if (!el || !board) return null
+    const laneHeader = el.closest<HTMLElement>('[data-kanban-lane-header]')
+    if (laneHeader && board.contains(laneHeader)) {
+      return { columnId: null, laneId: laneHeader.dataset.kanbanLaneId ?? null, element: laneHeader }
+    }
+    const columnEl = el.closest<HTMLElement>('[data-kanban-column-id]')
+    if (!columnEl || !board.contains(columnEl)) return null
+    return {
+      columnId: columnEl.dataset.kanbanColumnId ?? null,
+      laneId: columnEl.dataset.kanbanLaneId ?? null,
+      element: columnEl
+    }
   }, [])
 
+  /** The cards shown in the cell a drop aims at: the column, or in lane mode
+   *  the column's cell in the lane (a header drop keeps the card's own lane
+   *  or column). */
+  const visibleCellTasks = useCallback(
+    (drag: ActivePointerDrag, target: BoardCell): readonly VaultTask[] => {
+      const columnId = target.columnId ?? drag.sourceColumnId
+      if (!lanesOnRef.current) {
+        return columnsRef.current.find((column) => column.id === columnId)?.tasks ?? []
+      }
+      const laneId = target.laneId ?? drag.sourceLaneId
+      return (
+        lanesRef.current
+          .find((lane) => lane.id === laneId)
+          ?.columns.find((column) => column.id === columnId)?.tasks ?? []
+      )
+    },
+    []
+  )
+
+  const dropMutations = useCallback(
+    (drag: ActivePointerDrag, target: BoardCell): TaskMutation[] | null =>
+      boardDropMutations(
+        groupBy,
+        laneBy,
+        { columnId: drag.sourceColumnId, laneId: drag.sourceLaneId },
+        target,
+        drag.task,
+        today
+      ),
+    [groupBy, laneBy, today]
+  )
+
   const updateDropIndicator = useCallback(
-    (
-      drag: ActivePointerDrag,
-      target: { id: string | null; element: HTMLElement } | null,
-      clientY: number
-    ): number | null => {
-      if (!target?.id) {
+    (drag: ActivePointerDrag, target: DropTarget | null, clientY: number): number | null => {
+      if (!target || (target.columnId === null && target.laneId === null)) {
         hideDropIndicator()
         return null
       }
 
-      const mutations =
-        target.id === drag.sourceColumnId
-          ? []
-          : dropMutationsFor(groupBy, target.id, drag.task, today)
+      const mutations = dropMutations(drag, target)
       if (!mutations) {
         hideDropIndicator()
         return null
@@ -1642,10 +2125,10 @@ export function TasksKanban({
       let boundedIndex: number
       if (useStore.getState().kanbanCardSort === 'due') {
         // Ordered by due date there is no place to choose: within its own
-        // column the card stays put, and in another it lands in its date
+        // cell the card stays put, and in another it lands in its date
         // slot, which the line shows (a Today or Upcoming drop can change the
         // date first). (#889)
-        if (target.id === drag.sourceColumnId) {
+        if (mutations.length === 0) {
           hideDropIndicator()
           return null
         }
@@ -1657,9 +2140,7 @@ export function TasksKanban({
           ...drag.task,
           due: dueMutation ? (dueMutation.due ?? undefined) : drag.task.due
         }
-        const others = (
-          columnsRef.current.find((column) => column.id === target.id)?.tasks ?? []
-        ).filter((task) => task.id !== drag.task.id)
+        const others = visibleCellTasks(drag, target).filter((task) => task.id !== drag.task.id)
         const slot = others.findIndex((task) => compareCardsByDue(landing, task) < 0)
         boundedIndex = slot === -1 ? others.length : slot
       } else {
@@ -1682,68 +2163,84 @@ export function TasksKanban({
       scheduleDropIndicatorPosition(bodyRect.left + 12, y, bodyRect.width - 24)
       return boundedIndex
     },
-    [groupBy, hideDropIndicator, scheduleDropIndicatorPosition, today]
+    [dropMutations, hideDropIndicator, scheduleDropIndicatorPosition, visibleCellTasks]
   )
 
   const finishPointerDrag = useCallback(
     (drag: ActivePointerDrag, releaseX: number, releaseY: number): void => {
       if (!dndEnabled) return
-      // The drop belongs to the column under the RELEASE point. `lastColumnId`
+      // The drop belongs to the column under the RELEASE point. `lastTarget`
       // trails the last delivered pointermove, and a fast flick can release a
       // column past it: the hand says Today, the trailing state says Upcoming,
       // and the "moved to Today" card comes back due tomorrow. Falling back to
       // the last hovered column covers a release the board can't resolve (the
       // gap between columns, the padding above them), where the indicator the
       // user last saw is still the honest target.
-      const releaseTarget = columnAtPoint(releaseX, releaseY)
-      const columnId = releaseTarget?.id ?? drag.lastColumnId
-      if (!columnId) return
-      // The remembered insertion index was computed for the hovered column; a
+      const release = dropTargetAtPoint(releaseX, releaseY)
+      const target: BoardCell | null = release
+        ? { columnId: release.columnId, laneId: release.laneId }
+        : drag.lastTarget
+      if (!target || (target.columnId === null && target.laneId === null)) return
+      // The remembered insertion index was computed for the hovered cell; a
       // release that resolves elsewhere appends instead of importing it.
-      const insertionIndex = columnId === drag.lastColumnId ? drag.lastInsertionIndex : null
-      const mutations =
-        columnId === drag.sourceColumnId
-          ? []
-          : dropMutationsFor(groupBy, columnId, drag.task, today)
+      const insertionIndex = sameBoardCell(target, drag.lastTarget) ? drag.lastInsertionIndex : null
+      const mutations = dropMutations(drag, target)
       if (!mutations) return
+      // A lane header drop keeps the card's column, a column header drop in
+      // lane mode its lane.
+      const columnId = target.columnId ?? drag.sourceColumnId
+      const laneId = target.laneId ?? drag.sourceLaneId
+      if (!columnId) return
+      const cellTasks = visibleCellTasks(drag, target)
       // The cursor lands on the dropped card, the way a click, a right-click
       // and Shift+H/L already put it on theirs. It moves BEFORE the card does:
       // the move flushes the board rebuild synchronously, and a rebuild under
       // the old cursor scrolls the board back to it, a whole board away once
       // an edge auto-scroll carried the card there (#838). The insertion index
-      // is exact for the visible column; a drop without one resolves below.
+      // is exact for the visible cell; a drop without one resolves below.
       const movedKey = taskIdentityKey(drag.task)
       const targetColIdx = columnsRef.current.findIndex((column) => column.id === columnId)
       if (targetColIdx >= 0) {
-        const currentIdx = columnsRef.current[targetColIdx].tasks.findIndex(
-          (task) => taskIdentityKey(task) === movedKey
-        )
+        const currentIdx = cellTasks.findIndex((task) => taskIdentityKey(task) === movedKey)
         setColIdx(targetColIdx)
         setCardIdx(insertionIndex ?? Math.max(0, currentIdx))
+        if (lanesOnRef.current) {
+          setLaneIdx(Math.max(0, lanesRef.current.findIndex((lane) => lane.id === laneId)))
+        }
       }
-      moveTaskOnBoard(drag.task, mutations, columnId, insertionIndex)
+      moveTaskOnBoard(drag.task, mutations, columnId, insertionIndex, cellTasks)
       if (mutations.length > 0) {
         // That flushed rebuild already ran, so the board knows where the card landed.
+        if (lanesOnRef.current) {
+          const next = cursorAfterLaneMove(lanesRef.current, columnId, movedKey)
+          setLaneIdx(next.laneIdx)
+          setColIdx(next.colIdx)
+          setCardIdx(next.cardIdx)
+          return
+        }
         const next = cursorAfterCardMove(columnsRef.current, columnId, movedKey)
         setColIdx(next.colIdx)
         setCardIdx(next.cardIdx)
       }
     },
-    [columnAtPoint, dndEnabled, groupBy, moveTaskOnBoard, today]
+    [dndEnabled, dropMutations, dropTargetAtPoint, moveTaskOnBoard, visibleCellTasks]
   )
 
   const beginPointerDrag = useCallback(
     (task: VaultTask, e: React.PointerEvent<HTMLDivElement>): void => {
       if (!dndEnabled || e.button !== 0) return
       const rect = e.currentTarget.getBoundingClientRect()
-      const sourceColumnId =
-        columnsRef.current.find((column) =>
-          column.tasks.some((candidate) => sameTaskIdentity(candidate, task))
-        )?.id ?? null
+      const holds = (column: Column): boolean =>
+        column.tasks.some((candidate) => sameTaskIdentity(candidate, task))
+      const sourceColumnId = columnsRef.current.find(holds)?.id ?? null
+      const sourceLaneId = lanesOnRef.current
+        ? (lanesRef.current.find((lane) => lane.columns.some(holds))?.id ?? null)
+        : null
       pointerDragRef.current = {
         task,
         pointerId: e.pointerId,
         sourceColumnId,
+        sourceLaneId,
         startX: e.clientX,
         startY: e.clientY,
         pointerX: e.clientX,
@@ -1753,7 +2250,7 @@ export function TasksKanban({
         width: rect.width,
         height: rect.height,
         dragging: false,
-        lastColumnId: null,
+        lastTarget: null,
         lastInsertionIndex: null
       }
     },
@@ -1762,13 +2259,19 @@ export function TasksKanban({
 
   useEffect(() => {
     const aimPointerDrag = (drag: ActivePointerDrag): void => {
-      const target = columnAtPoint(drag.pointerX, drag.pointerY)
-      if (target?.id && dndEnabled) {
-        drag.lastColumnId = target.id
-        markDropTarget(target.id, target.element)
+      const target = dropTargetAtPoint(drag.pointerX, drag.pointerY)
+      if (target && (target.columnId !== null || target.laneId !== null) && dndEnabled) {
+        drag.lastTarget = { columnId: target.columnId, laneId: target.laneId }
+        // A place the card cannot go (a read-only folder lane, a column the
+        // board cannot write) is not lit up as one.
+        if (dropMutations(drag, target)) {
+          markDropTarget(`${target.columnId ?? ''}|${target.laneId ?? ''}`, target.element)
+        } else {
+          clearDropTarget()
+        }
         drag.lastInsertionIndex = updateDropIndicator(drag, target, drag.pointerY)
       } else {
-        drag.lastColumnId = null
+        drag.lastTarget = null
         drag.lastInsertionIndex = null
         clearDropTarget()
         hideDropIndicator()
@@ -1865,10 +2368,12 @@ export function TasksKanban({
     cardAutoScroll,
     clearDragPreview,
     clearDropTarget,
-    columnAtPoint,
     dndEnabled,
+    dropMutations,
+    dropTargetAtPoint,
     finishPointerDrag,
     hideDropIndicator,
+    lanesOn,
     markDropTarget,
     scheduleDragPreviewPosition,
     today,
@@ -1878,10 +2383,33 @@ export function TasksKanban({
   // Clamp focus on column/card if the data shifts under us.
   const safeColIdx = Math.min(colIdx, Math.max(0, columns.length - 1))
   const focusedColumn = columns[safeColIdx]
-  const safeCardIdx = focusedColumn
-    ? Math.min(cardIdx, Math.max(0, focusedColumn.tasks.length - 1))
-    : 0
-  const focusedTask = focusedColumn?.tasks[safeCardIdx]
+  // In lane mode the cursor walks the focused column's lane headers and cells
+  // (#1027); a folded lane or a shrunk cell clamps it like a column does.
+  const laneShapes: LaneShape[] = lanes.map((lane) => ({
+    cards: lane.columns[safeColIdx]?.tasks.length ?? 0,
+    collapsed: collapsedLanes.has(lane.id)
+  }))
+  const laneCursor: LaneCursor | null = lanesOn
+    ? clampLaneCursor({ laneIdx, cardIdx }, laneShapes)
+    : null
+  if (laneCursor) laneCursorNowRef.current = laneCursor
+  const focusedLane = laneCursor && laneCursor.laneIdx >= 0 ? lanes[laneCursor.laneIdx] : null
+  const focusedCell = focusedLane?.columns[safeColIdx] ?? null
+  const safeCardIdx = laneCursor
+    ? laneCursor.cardIdx
+    : focusedColumn
+      ? Math.min(cardIdx, Math.max(0, focusedColumn.tasks.length - 1))
+      : 0
+  const focusedTask = laneCursor
+    ? laneCursor.cardIdx >= 0
+      ? focusedCell?.tasks[laneCursor.cardIdx]
+      : undefined
+    : focusedColumn?.tasks[safeCardIdx]
+  focusedTaskRef.current = focusedTask
+  // The lane's header under the cursor, or its empty cell: where Enter and
+  // the menu keys act on the lane.
+  const laneHeaderFocused = !!focusedLane && laneCursor!.cardIdx < 0
+  const emptyCellFocused = !!focusedLane && laneCursor!.cardIdx >= 0 && !focusedTask
   const focusedSubtasks =
     (focusedTask && folded.subtasksByCard.get(focusedTask.id)) || NO_SUBTASKS
   const focusedSubIdx = subFocusId
@@ -1893,8 +2421,11 @@ export function TasksKanban({
   const actionTask = focusedSubtask ?? focusedTask
 
   // No card under the cursor: k above the first card, or an empty column.
-  // The header is what Enter and the menu keys act on then (#1025).
-  const headerFocused = !!focusedColumn && !focusedTask
+  // The header is what Enter and the menu keys act on then (#1025). In lane
+  // mode the column header is the row above the first lane.
+  const headerFocused = laneCursor
+    ? !!focusedColumn && laneCursor.laneIdx < 0
+    : !!focusedColumn && !focusedTask
 
   // Shift+F10, the Context Menu key, or `m` in Vim mode: the right-click menu
   // of what the cursor is on, a card's task menu or its column's header menu.
@@ -1916,6 +2447,7 @@ export function TasksKanban({
     if (focusedHeader && domColIdx >= 0) {
       setColIdx(domColIdx)
       setCardIdx(-1)
+      if (lanesOnRef.current) setLaneIdx(-1)
       const { x, y } = belowHeader(focusedHeader)
       openColumnMenu(columnsRef.current[domColIdx], x, y)
       return
@@ -1925,11 +2457,17 @@ export function TasksKanban({
       setMenu({ x, y, items: buildTaskMenuItems(actionTask, { today, showKeyHints: vimMode }) })
       return
     }
+    // A lane header or an empty cell: the lane's menu (#1027).
+    if (focusedLane && laneCursorElRef.current) {
+      const { x, y } = belowHeader(laneCursorElRef.current)
+      openLaneMenu(focusedLane, x, y)
+      return
+    }
     if (focusedColumn && headerRef.current) {
       const { x, y } = belowHeader(headerRef.current)
       openColumnMenu(focusedColumn, x, y)
     }
-  }, [actionTask, focusedColumn, openColumnMenu, today, vimMode])
+  }, [actionTask, focusedColumn, focusedLane, openColumnMenu, openLaneMenu, today, vimMode])
 
   // Switching the order keeps the cursor on its card, wherever the new order
   // puts it: the rebuild is flushed first, the way a move is. (#889)
@@ -1938,6 +2476,17 @@ export function TasksKanban({
       if (useStore.getState().kanbanCardSort === next) return
       flushSync(() => setCardSort(next))
       if (!focusedColumn || !focusedTask) return
+      if (lanesOnRef.current) {
+        const cursor = cursorAfterLaneMove(
+          lanesRef.current,
+          focusedColumn.id,
+          taskIdentityKey(focusedTask)
+        )
+        setLaneIdx(cursor.laneIdx)
+        setColIdx(cursor.colIdx)
+        setCardIdx(cursor.cardIdx)
+        return
+      }
       const cursor = cursorAfterCardMove(
         columnsRef.current,
         focusedColumn.id,
@@ -1949,10 +2498,52 @@ export function TasksKanban({
     [focusedColumn, focusedTask, setCardSort]
   )
 
+  const focusedLaneIdx = laneCursor?.laneIdx ?? -1
   useEffect(() => {
     if (headerFocused) headerRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-    else cardRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [headerFocused, safeColIdx, safeCardIdx, focusedTask?.id])
+    else if (laneHeaderFocused) {
+      // A lane header spans the whole board, so scrollIntoView would also
+      // slide the board sideways to its left edge: only scroll up or down,
+      // clear of the sticky column headers.
+      const el = laneCursorElRef.current
+      const board = boardRef.current
+      if (el && board) {
+        const view = board.getBoundingClientRect()
+        const rect = el.getBoundingClientRect()
+        const top =
+          view.top +
+          (board.querySelector('[data-kanban-lane-columns]')?.getBoundingClientRect().height ?? 0)
+        if (rect.top < top) board.scrollTop -= top - rect.top
+        else if (rect.bottom > view.bottom) board.scrollTop += rect.bottom - view.bottom
+      }
+    } else if (emptyCellFocused) {
+      laneCursorElRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    } else cardRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [
+    emptyCellFocused,
+    focusedLaneIdx,
+    headerFocused,
+    laneHeaderFocused,
+    safeColIdx,
+    safeCardIdx,
+    focusedTask?.id
+  ])
+
+  // A lane field change starts the cursor over in the first lane.
+  useEffect(() => {
+    setLaneIdx(0)
+  }, [groupBy, laneBy])
+
+  // A pressed `z` waits this long for the a / M / R of a lane fold.
+  const clearFoldPending = useCallback((): void => {
+    foldPendingRef.current = false
+    rootRef.current?.removeAttribute('data-kanban-key-pending')
+    if (foldTimerRef.current !== null) {
+      window.clearTimeout(foldTimerRef.current)
+      foldTimerRef.current = null
+    }
+  }, [])
+  useEffect(() => clearFoldPending, [clearFoldPending])
 
   useEffect(() => clearDropTarget, [clearDropTarget])
 
@@ -1998,6 +2589,28 @@ export function TasksKanban({
         if (plan === 'repeat-prefix') cycleGroupBy()
         // repeat-prefix re-arms through the `g` case below; an interrupting
         // key just drops the prefix and acts normally.
+      }
+
+      // A `z` waits for the a / M / R of a lane fold (#1027). A bare Shift
+      // (the M of zM) keeps it; any other key drops it, Vim-style, and acts.
+      if (foldPendingRef.current) {
+        if (e.key === 'Shift' || e.key === 'CapsLock') return
+        clearFoldPending()
+        if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+          const fold =
+            e.key === 'a' ? 'toggle' : e.key === 'M' ? 'collapse' : e.key === 'R' ? 'expand' : null
+          if (fold) {
+            e.preventDefault()
+            e.stopImmediatePropagation()
+            const lane = lanesRef.current[laneCursorNowRef.current.laneIdx]
+            if (fold === 'toggle') {
+              if (lane) toggleLane(lane.id)
+            } else {
+              setAllLanesCollapsed(fold === 'collapse')
+            }
+            return
+          }
+        }
       }
 
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -2058,18 +2671,52 @@ export function TasksKanban({
           setSubFocusId(null)
           return
         case 'H':
-          if (dndEnabled && focusedTask) {
+          if (columnsMovable && focusedTask) {
             consume()
             setSubFocusId(null)
             moveFocusedCard(-1)
           }
           return
         case 'L':
-          if (dndEnabled && focusedTask) {
+          if (columnsMovable && focusedTask) {
             consume()
             setSubFocusId(null)
             moveFocusedCard(1)
           }
+          return
+        // Lanes (#1027). Shift+J/K move the card a lane down or up, as
+        // Shift+H/L move it across; `{` / `}` hop lane header to lane header
+        // the way they hop note to note in the Tags view.
+        case 'J':
+        case 'K':
+          if (laneCursor && lanesMovable && focusedTask) {
+            consume()
+            setSubFocusId(null)
+            moveFocusedCardToLane(e.key === 'J' ? 1 : -1)
+          }
+          return
+        case '{':
+        case '}':
+          if (laneCursor) {
+            consume()
+            const next = laneJump(laneCursor, e.key === '}' ? 1 : -1, lanes.length)
+            setLaneIdx(next.laneIdx)
+            setCardIdx(next.cardIdx)
+            setSubFocusId(null)
+          }
+          return
+        case 'z':
+          if (laneCursor) {
+            consume()
+            foldPendingRef.current = true
+            // TasksView's own keys (`a` is New task) stand aside meanwhile.
+            rootRef.current?.setAttribute('data-kanban-key-pending', '')
+            foldTimerRef.current = window.setTimeout(clearFoldPending, LANE_FOLD_PENDING_MS)
+          }
+          return
+        case 'S':
+          consume()
+          cycleLanes()
           return
         case 's':
           consume()
@@ -2085,16 +2732,20 @@ export function TasksKanban({
           return
         case 'j':
         case 'ArrowDown':
-          consume()
-          setCardIdx(kanbanCardStep(safeCardIdx, 1, focusedColumn?.tasks.length ?? 0))
-          setSubFocusId(null)
-          return
         case 'k':
-        case 'ArrowUp':
+        case 'ArrowUp': {
           consume()
-          setCardIdx(kanbanCardStep(safeCardIdx, -1, focusedColumn?.tasks.length ?? 0))
+          const delta = e.key === 'j' || e.key === 'ArrowDown' ? 1 : -1
+          if (laneCursor) {
+            const next = laneCursorStep(laneCursor, delta, laneShapes)
+            setLaneIdx(next.laneIdx)
+            setCardIdx(next.cardIdx)
+          } else {
+            setCardIdx(kanbanCardStep(safeCardIdx, delta, focusedColumn?.tasks.length ?? 0))
+          }
           setSubFocusId(null)
           return
+        }
         // Into the focused card's subtasks and back out (#1028). A card
         // without subtasks leaves Tab to the page, as before.
         case 'Tab':
@@ -2118,6 +2769,10 @@ export function TasksKanban({
           if (actionTask) {
             consume()
             onOpenTask(actionTask)
+          } else if (focusedLane) {
+            // A lane header folds; an empty cell has nothing to open.
+            consume()
+            if (laneHeaderFocused) toggleLane(focusedLane.id)
           } else if (focusedColumn) {
             // On a header, Enter renames the column, as a click on its title does.
             consume()
@@ -2136,6 +2791,9 @@ export function TasksKanban({
           if (actionTask) {
             consume()
             onToggleTask(actionTask)
+          } else if (e.key === ' ' && focusedLane && laneHeaderFocused) {
+            consume()
+            toggleLane(focusedLane.id)
           }
           return
         // Same task states the list and the right-click menu offer, so a card
@@ -2170,12 +2828,23 @@ export function TasksKanban({
   }, [
     beginColumnRename,
     chooseCardSort,
+    clearFoldPending,
     clearGroupByPending,
     columns.length,
+    columnsMovable,
     cycleGroupBy,
+    cycleLanes,
     actionTask,
-    dndEnabled,
     focusedColumn,
+    focusedLane,
+    laneCursor,
+    laneHeaderFocused,
+    laneShapes,
+    lanes.length,
+    lanesMovable,
+    moveFocusedCardToLane,
+    setAllLanesCollapsed,
+    toggleLane,
     focusedSubIdx,
     focusedSubtask,
     focusedSubtasks,
@@ -2190,8 +2859,198 @@ export function TasksKanban({
     vimMode
   ])
 
+  const fieldKey = fieldKeyOf(groupBy)
+  // A limit counts the column's whole load, across every lane and before the
+  // filter; with no limit the count stays what the column shows.
+  const columnWip = (column: Column): WipState | null =>
+    wipState(
+      wipLoads.get(column.id) ?? column.tasks.length,
+      kanbanWipLimits[columnOrderKey(groupBy, column.id)]
+    )
+
+  /** A column's header: its title (renamed in place), its WIP or count, its
+   *  overdue badge. Without lanes it tops its column; with lanes it stands
+   *  alone in the row above them, `alone`. */
+  const renderColumnHeader = (column: Column, ci: number, alone: boolean): JSX.Element => {
+    const isColumnFocused = ci === safeColIdx
+    const accent = fieldKey ? columnAccent(column.id) : null
+    const isMovableColumn = column.id !== NO_VALUE_COLUMN_ID
+    // Reveal the underlying field value when a custom title would otherwise
+    // hide it, so a renamed column can't masquerade as the stored value. (#389)
+    const rawValueHint =
+      fieldKey && isMovableColumn && kanbanColumnTitles[columnOrderKey(groupBy, column.id)]
+        ? column.id
+        : null
+    const wip = columnWip(column)
+    const isHeaderFocused = isColumnFocused && headerFocused
+    return (
+      <div
+        ref={isHeaderFocused ? headerRef : undefined}
+        data-kanban-column-header
+        data-focused={isHeaderFocused ? '' : undefined}
+        onPointerDown={(e) => beginColumnDrag(column.id, e)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          // The cursor moves onto the header first, so the menu and
+          // the keyboard agree on which column is being acted on.
+          setColIdx(ci)
+          setCardIdx(-1)
+          if (lanesOn) setLaneIdx(-1)
+          openColumnMenu(column, e.clientX, e.clientY)
+        }}
+        className={[
+          'flex shrink-0 select-none items-center justify-between gap-2 px-3 py-2',
+          alone ? 'rounded-lg' : 'rounded-t-lg border-b',
+          wip?.over ? 'border-danger/35' : 'border-paper-300/45',
+          isHeaderFocused ? 'ring-1 ring-inset ring-accent/60' : '',
+          isMovableColumn && editingColumnId !== column.id
+            ? 'cursor-grab active:cursor-grabbing'
+            : ''
+        ].join(' ')}
+      >
+        <div className="min-w-0 flex-1">
+          {editingColumnId === column.id ? (
+            <input
+              ref={columnTitleInputRef}
+              value={editingTitle}
+              aria-label={`Rename ${column.label} column`}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onBlur={() => commitColumnRename(column.id)}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                // While composing (IME), let the input own Enter/Arrows. (#183)
+                if (isImeComposing(e)) return
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitColumnRename(column.id)
+                } else if (e.key === 'Escape') {
+                  e.preventDefault()
+                  cancelColumnRename()
+                }
+              }}
+              className="h-6 w-full min-w-0 rounded border border-accent/60 bg-paper-200/80 px-1.5 text-xs font-semibold text-current/90 outline-none ring-1 ring-accent/25"
+            />
+          ) : (
+            <button
+              type="button"
+              aria-label={`Rename ${column.label} column`}
+              title="Rename column"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (shouldSuppressColumnRename()) return
+                beginColumnRename(column)
+              }}
+              className="group/title flex max-w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+            >
+              {accent && (
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: accent }}
+                  aria-hidden="true"
+                />
+              )}
+              <span className="truncate text-xs font-semibold uppercase tracking-wide text-current/70">
+                {column.label}
+              </span>
+              <PencilIcon
+                width={12}
+                height={12}
+                className="shrink-0 text-current/45 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100"
+              />
+            </button>
+          )}
+          {rawValueHint && editingColumnId !== column.id && (
+            <span
+              className="mt-0.5 block truncate font-mono text-2xs lowercase text-current/40"
+              title={`Tasks in this column are tagged @${fieldKey}:${rawValueHint}`}
+            >
+              @{fieldKey}:{rawValueHint}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 text-xs text-current/50">
+          {wip ? (
+            <span
+              data-kanban-wip
+              title={
+                `WIP limit ${wip.limit}` +
+                (wip.over ? `, ${wip.load - wip.limit} over` : '') +
+                (wip.load !== column.tasks.length ? ` (${column.tasks.length} shown)` : '')
+              }
+              className={
+                wip.over
+                  ? 'flex items-center gap-1 rounded bg-danger/15 px-1.5 py-0.5 text-2xs font-medium text-danger'
+                  : ''
+              }
+            >
+              {wip.over && <AlertTriangleIcon width={12} height={12} aria-hidden="true" />}
+              {wip.load} / {wip.limit}
+            </span>
+          ) : (
+            <span>{column.tasks.length}</span>
+          )}
+          {column.badge?.kind === 'overdue' && column.badge.value > 0 && (
+            <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">
+              {column.badge.value} overdue
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  /** One card. `laneIdx` is its lane in lane mode, null without lanes. */
+  const renderCard = (
+    task: VaultTask,
+    ti: number,
+    ci: number,
+    laneIdxOfCard: number | null,
+    isFocused: boolean
+  ): JSX.Element => {
+    const subtasks = folded.subtasksByCard.get(task.id) ?? NO_SUBTASKS
+    const focusCard = (subtaskId: string | null): void => {
+      if (laneIdxOfCard !== null) setLaneIdx(laneIdxOfCard)
+      setColIdx(ci)
+      setCardIdx(ti)
+      setSubFocusId(subtaskId)
+    }
+    return (
+      <TaskCard
+        key={task.id}
+        taskDomId={task.id}
+        task={task}
+        isOverdue={isTaskOverdue(task, today)}
+        isFocused={isFocused}
+        isDragging={draggingId === task.id}
+        draggable={dndEnabled}
+        belowStickyRow={laneIdxOfCard !== null}
+        cardRef={isFocused ? cardRef : null}
+        onClickRow={() => focusCard(null)}
+        onOpen={() => onOpenTask(task)}
+        shouldSuppressClick={shouldSuppressCardClick}
+        onToggle={() => onToggleTask(task)}
+        onPointerDown={(e) => beginPointerDrag(task, e)}
+        onContextMenu={openTaskMenu}
+        toggleKey={vimMode ? 'x' : null}
+        subtasks={subtasks}
+        progress={subtaskProgress(task, subtasks)}
+        subtasksOpen={openSubtaskCards.has(task.id) || (isFocused && focusedSubtask != null)}
+        onToggleSubtasks={() => {
+          focusCard(null)
+          toggleSubtaskList(task.id)
+        }}
+        focusedSubtaskId={isFocused ? (focusedSubtask?.id ?? null) : null}
+        onFocusSubtask={(subtask) => focusCard(subtask.id)}
+        onToggleSubtask={onToggleTask}
+        onOpenSubtask={onOpenTask}
+      />
+    )
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {/* Group by, Order and the View menu; the keys sit behind Keys. On a
           narrow pane each group wraps whole, never a label inside it. */}
       <div
@@ -2244,9 +3103,18 @@ export function TasksKanban({
             <option value="due">Due date</option>
           </select>
         </div>
-        <TasksViewOptions hidden={hiddenEmpty} />
+        <TasksViewOptions
+          hidden={hiddenEmpty}
+          lanes={{ value: laneBy, options: laneFieldOptions, onChange: chooseLanes }}
+        />
         <div className="ml-auto shrink-0">
-          <TasksKeysButton view="kanban" dndEnabled={dndEnabled} subtasks />
+          <TasksKeysButton
+            view="kanban"
+            dndEnabled={columnsMovable}
+            subtasks
+            lanes={lanesOn}
+            laneMoves={lanesMovable}
+          />
         </div>
       </div>
 
@@ -2264,218 +3132,208 @@ export function TasksKanban({
         </div>
       )}
 
-      <div ref={boardRef} className="flex min-h-0 flex-1 gap-2 overflow-x-auto px-3 py-3">
-        {columns.map((column, ci) => {
-          const isColumnFocused = ci === safeColIdx
-          const fieldKey = fieldKeyOf(groupBy)
-          const accent = fieldKey ? columnAccent(column.id) : null
-          const isMovableColumn = column.id !== NO_VALUE_COLUMN_ID
-          const isColumnDragging = draggingColumnId === column.id
-          const isColumnDropTarget = columnDropTarget?.id === column.id
-          // Reveal the underlying field value when a custom title would otherwise
-          // hide it, so a renamed column can't masquerade as the stored value. (#389)
-          const rawValueHint =
-            fieldKey && isMovableColumn && kanbanColumnTitles[columnOrderKey(groupBy, column.id)]
-              ? column.id
-              : null
-          // A limit counts the column's whole load, not the filtered view of
-          // it; with no limit the count stays what the column shows.
-          const wip = wipState(
-            wipLoads.get(column.id) ?? column.tasks.length,
-            kanbanWipLimits[columnOrderKey(groupBy, column.id)]
-          )
-          const isHeaderFocused = isColumnFocused && headerFocused
-          return (
-            <div
-              key={column.id}
-              data-kanban-column-id={column.id}
-              data-wip-over={wip?.over ? '' : undefined}
-              className={[
-                'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border transition-opacity',
-                wip?.over
-                  ? `bg-danger/5 ${isColumnFocused ? 'border-danger' : 'border-danger/60'}`
-                  : `bg-paper-100/60 ${isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60'}`,
-                isColumnDragging ? 'opacity-40' : '',
-                isColumnDropTarget ? 'ring-2 ring-accent/70' : ''
-              ].join(' ')}
-            >
+      {!lanesOn && (
+        <div ref={boardRef} className="flex min-h-0 flex-1 gap-2 overflow-x-auto px-3 py-3">
+          {columns.map((column, ci) => {
+            const isColumnFocused = ci === safeColIdx
+            const wip = columnWip(column)
+            return (
               <div
-                ref={isHeaderFocused ? headerRef : undefined}
-                data-kanban-column-header
-                data-focused={isHeaderFocused ? '' : undefined}
-                onPointerDown={(e) => beginColumnDrag(column.id, e)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  // The cursor moves onto the header first, so the menu and
-                  // the keyboard agree on which column is being acted on.
-                  setColIdx(ci)
-                  setCardIdx(-1)
-                  openColumnMenu(column, e.clientX, e.clientY)
-                }}
+                key={column.id}
+                data-kanban-column-id={column.id}
+                data-wip-over={wip?.over ? '' : undefined}
                 className={[
-                  'flex shrink-0 select-none items-center justify-between gap-2 rounded-t-lg border-b px-3 py-2',
-                  wip?.over ? 'border-danger/35' : 'border-paper-300/45',
-                  isHeaderFocused ? 'ring-1 ring-inset ring-accent/60' : '',
-                  isMovableColumn && editingColumnId !== column.id
-                    ? 'cursor-grab active:cursor-grabbing'
-                    : ''
+                  'task-kanban-column flex w-72 shrink-0 flex-col rounded-lg border transition-opacity',
+                  wip?.over
+                    ? `bg-danger/5 ${isColumnFocused ? 'border-danger' : 'border-danger/60'}`
+                    : `bg-paper-100/60 ${isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60'}`,
+                  draggingColumnId === column.id ? 'opacity-40' : '',
+                  columnDropTarget?.id === column.id ? 'ring-2 ring-accent/70' : ''
                 ].join(' ')}
               >
-                <div className="min-w-0 flex-1">
-                  {editingColumnId === column.id ? (
-                    <input
-                      ref={columnTitleInputRef}
-                      value={editingTitle}
-                      aria-label={`Rename ${column.label} column`}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onBlur={() => commitColumnRename(column.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => {
-                        // While composing (IME), let the input own Enter/Arrows. (#183)
-                        if (isImeComposing(e)) return
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          commitColumnRename(column.id)
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault()
-                          cancelColumnRename()
-                        }
-                      }}
-                      className="h-6 w-full min-w-0 rounded border border-accent/60 bg-paper-200/80 px-1.5 text-xs font-semibold text-current/90 outline-none ring-1 ring-accent/25"
-                    />
+                {renderColumnHeader(column, ci, false)}
+                <div
+                  onClick={() => setColIdx(ci)}
+                  data-kanban-column-body
+                  className="min-h-0 flex-1 overflow-y-auto p-2"
+                >
+                  {column.tasks.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-xs text-current/40">
+                      nothing here
+                    </div>
                   ) : (
+                    <div className="space-y-1.5">
+                      {column.tasks.map((task, ti) =>
+                        renderCard(task, ti, ci, null, isColumnFocused && ti === safeCardIdx)
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Swimlanes (#1027): the column headers stay on top as the board
+          scrolls down, each lane a header row (sticky on the left while it
+          scrolls across) above one cell per column. */}
+      {lanesOn && (
+        <div ref={boardRef} data-kanban-lanes className="min-h-0 flex-1 overflow-auto">
+          <div className="flex min-w-max flex-col px-3 pb-3">
+            <div
+              data-kanban-lane-columns
+              className="sticky top-0 z-10 flex gap-2 bg-paper-100 pb-2 pt-3"
+            >
+              {columns.map((column, ci) => {
+                const isColumnFocused = ci === safeColIdx
+                const wip = columnWip(column)
+                return (
+                  <div
+                    key={column.id}
+                    data-kanban-column-id={column.id}
+                    data-wip-over={wip?.over ? '' : undefined}
+                    className={[
+                      'task-kanban-column w-72 shrink-0 rounded-lg border transition-opacity',
+                      wip?.over
+                        ? `bg-danger/5 ${isColumnFocused ? 'border-danger' : 'border-danger/60'}`
+                        : `bg-paper-100 ${isColumnFocused ? 'border-paper-400/70' : 'border-paper-300/60'}`,
+                      draggingColumnId === column.id ? 'opacity-40' : '',
+                      columnDropTarget?.id === column.id ? 'ring-2 ring-accent/70' : ''
+                    ].join(' ')}
+                  >
+                    {renderColumnHeader(column, ci, true)}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex flex-col gap-2">
+              {lanes.map((lane, li) => {
+                const collapsed = collapsedLanes.has(lane.id)
+                const isLaneHeaderFocused = laneHeaderFocused && focusedLaneIdx === li
+                const dot = laneDotOf(laneBy, lane.id)
+                return (
+                  <section key={lane.id} data-kanban-lane={lane.id} aria-label={`${lane.label} lane`}>
                     <button
                       type="button"
-                      aria-label={`Rename ${column.label} column`}
-                      title="Rename column"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (shouldSuppressColumnRename()) return
-                        beginColumnRename(column)
+                      tabIndex={-1}
+                      ref={isLaneHeaderFocused ? setLaneCursorEl : undefined}
+                      data-kanban-lane-header
+                      data-kanban-lane-id={lane.id}
+                      data-focused={isLaneHeaderFocused ? '' : undefined}
+                      aria-expanded={!collapsed}
+                      title={collapsed ? 'Expand lane' : 'Collapse lane'}
+                      // The board's own cursor follows the click; DOM focus
+                      // stays where the keys are read.
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setLaneIdx(li)
+                        setCardIdx(-1)
+                        setSubFocusId(null)
+                        toggleLane(lane.id)
                       }}
-                      className="group/title flex max-w-full items-center gap-1 rounded-sm text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/60"
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setLaneIdx(li)
+                        setCardIdx(-1)
+                        openLaneMenu(lane, e.clientX, e.clientY)
+                      }}
+                      className={[
+                        'task-kanban-lane-header flex w-full scroll-mt-16 items-center rounded-md border py-1 text-left outline-none transition-colors',
+                        isLaneHeaderFocused
+                          ? 'border-accent/60 bg-paper-200/60'
+                          : 'border-transparent hover:bg-paper-200/50'
+                      ].join(' ')}
                     >
-                      {accent && (
-                        <span
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ backgroundColor: accent }}
+                      <span className="sticky left-3 flex items-center gap-1.5 whitespace-nowrap px-2">
+                        <ChevronRightIcon
+                          width={12}
+                          height={12}
                           aria-hidden="true"
+                          className={[
+                            'shrink-0 text-current/50 transition-transform duration-150',
+                            collapsed ? '' : 'rotate-90'
+                          ].join(' ')}
                         />
-                      )}
-                      <span className="truncate text-xs font-semibold uppercase tracking-wide text-current/70">
-                        {column.label}
+                        {dot && (
+                          <span
+                            className={['h-2 w-2 shrink-0 rounded-full', dot.className ?? ''].join(' ')}
+                            style={dot.color ? { backgroundColor: dot.color } : undefined}
+                            aria-hidden="true"
+                          />
+                        )}
+                        <span className="text-xs font-semibold text-current/80">{lane.label}</span>
+                        <span className="text-2xs tabular-nums text-current/45">{lane.count}</span>
                       </span>
-                      <PencilIcon
-                        width={12}
-                        height={12}
-                        className="shrink-0 text-current/45 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-visible/title:opacity-100"
-                      />
                     </button>
-                  )}
-                  {rawValueHint && editingColumnId !== column.id && (
-                    <span
-                      className="mt-0.5 block truncate font-mono text-2xs lowercase text-current/40"
-                      title={`Tasks in this column are tagged @${fieldKey}:${rawValueHint}`}
-                    >
-                      @{fieldKey}:{rawValueHint}
-                    </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-current/50">
-                  {wip ? (
-                    <span
-                      data-kanban-wip
-                      title={
-                        `WIP limit ${wip.limit}` +
-                        (wip.over ? `, ${wip.load - wip.limit} over` : '') +
-                        (wip.load !== column.tasks.length ? ` (${column.tasks.length} shown)` : '')
-                      }
-                      className={
-                        wip.over
-                          ? 'flex items-center gap-1 rounded bg-danger/15 px-1.5 py-0.5 text-2xs font-medium text-danger'
-                          : ''
-                      }
-                    >
-                      {wip.over && <AlertTriangleIcon width={12} height={12} aria-hidden="true" />}
-                      {wip.load} / {wip.limit}
-                    </span>
-                  ) : (
-                    <span>{column.tasks.length}</span>
-                  )}
-                  {column.badge?.kind === 'overdue' && column.badge.value > 0 && (
-                    <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-2xs font-medium text-rose-300">
-                      {column.badge.value} overdue
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div
-                onClick={() => setColIdx(ci)}
-                data-kanban-column-body
-                className="min-h-0 flex-1 overflow-y-auto p-2"
-              >
-                {column.tasks.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-paper-300/60 px-2 py-3 text-center text-xs text-current/40">
-                    nothing here
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {column.tasks.map((task, ti) => {
-                      const isFocused = isColumnFocused && ti === safeCardIdx
-                      const isDragging = draggingId === task.id
-                      const subtasks = folded.subtasksByCard.get(task.id) ?? NO_SUBTASKS
-                      return (
-                        <TaskCard
-                          key={task.id}
-                          taskDomId={task.id}
-                          task={task}
-                          isOverdue={isTaskOverdue(task, today)}
-                          isFocused={isFocused}
-                          isDragging={isDragging}
-                          draggable={dndEnabled}
-                          cardRef={isFocused ? cardRef : null}
-                          onClickRow={() => {
-                            setColIdx(ci)
-                            setCardIdx(ti)
-                            setSubFocusId(null)
-                          }}
-                          onOpen={() => onOpenTask(task)}
-                          shouldSuppressClick={shouldSuppressCardClick}
-                          onToggle={() => onToggleTask(task)}
-                          onPointerDown={(e) => beginPointerDrag(task, e)}
-                          onContextMenu={openTaskMenu}
-                          toggleKey={vimMode ? 'x' : null}
-                          subtasks={subtasks}
-                          progress={subtaskProgress(task, subtasks)}
-                          subtasksOpen={
-                            openSubtaskCards.has(task.id) || (isFocused && focusedSubtask != null)
-                          }
-                          onToggleSubtasks={() => {
-                            setColIdx(ci)
-                            setCardIdx(ti)
-                            setSubFocusId(null)
-                            toggleSubtaskList(task.id)
-                          }}
-                          focusedSubtaskId={isFocused ? (focusedSubtask?.id ?? null) : null}
-                          onFocusSubtask={(subtask) => {
-                            setColIdx(ci)
-                            setCardIdx(ti)
-                            setSubFocusId(subtask.id)
-                          }}
-                          onToggleSubtask={onToggleTask}
-                          onOpenSubtask={onOpenTask}
-                        />
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+                    {!collapsed && (
+                      <div className="mt-1 flex gap-2">
+                        {lane.columns.map((cell, ci) => {
+                          const isCellFocused = ci === safeColIdx && focusedLaneIdx === li
+                          const isEmptyFocused = isCellFocused && emptyCellFocused
+                          const over = columnWip(columns[ci])?.over
+                          return (
+                            <div
+                              key={cell.id}
+                              data-kanban-column-id={cell.id}
+                              data-kanban-lane-id={lane.id}
+                              data-kanban-lane-cell
+                              className={[
+                                'task-kanban-lane-cell w-72 shrink-0 rounded-lg border transition-opacity',
+                                over
+                                  ? 'border-danger/40 bg-danger/5'
+                                  : `bg-paper-100/60 ${ci === safeColIdx ? 'border-paper-400/50' : 'border-paper-300/50'}`,
+                                draggingColumnId === cell.id ? 'opacity-40' : ''
+                              ].join(' ')}
+                            >
+                              <div
+                                data-kanban-column-body
+                                onClick={() => {
+                                  setLaneIdx(li)
+                                  setColIdx(ci)
+                                  if (cell.tasks.length === 0) setCardIdx(0)
+                                }}
+                                className="p-2"
+                              >
+                                {cell.tasks.length === 0 ? (
+                                  <div
+                                    ref={isEmptyFocused ? setLaneCursorEl : undefined}
+                                    data-kanban-empty-cell
+                                    data-focused={isEmptyFocused ? '' : undefined}
+                                    className={[
+                                      'h-8 scroll-mt-16 rounded-md border',
+                                      isEmptyFocused
+                                        ? 'border-dashed border-accent/60 bg-paper-200/50'
+                                        : 'border-transparent'
+                                    ].join(' ')}
+                                  />
+                                ) : (
+                                  <div className="space-y-1.5">
+                                    {cell.tasks.map((task, ti) =>
+                                      renderCard(
+                                        task,
+                                        ti,
+                                        ci,
+                                        li,
+                                        isCellFocused && laneCursor?.cardIdx === ti
+                                      )
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </section>
+                )
+              })}
             </div>
-          )
-        })}
-      </div>
+          </div>
+        </div>
+      )}
       {!dndEnabled && (
         <div className="shrink-0 border-t border-paper-300/45 px-3 py-1.5 text-xs text-current/40">
           Folder grouping is read-only: move a task across folders by moving its source note in
@@ -2542,6 +3400,9 @@ interface CardProps {
   onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
   /** Right-click actions. Omitted on the drag preview, which is not a real card. */
   onContextMenu?: (e: React.MouseEvent, task: VaultTask) => void
+  /** In lane mode the column headers stay on top of the scrolling board; a
+   *  card scrolled into view stops below them. */
+  belowStickyRow?: boolean
   /** The key the checkbox tooltip names; none with Vim mode off. */
   toggleKey?: string | null
   /** Subtasks folded into this card, in note order (#1028). */
@@ -2746,6 +3607,7 @@ function TaskCard({
   onToggle,
   onPointerDown,
   onContextMenu,
+  belowStickyRow = false,
   toggleKey = null,
   subtasks = NO_SUBTASKS,
   progress = null,
@@ -2761,6 +3623,7 @@ function TaskCard({
       ref={cardRef ?? undefined}
       hidden={isDragging}
       data-kanban-task-id={taskDomId}
+      data-focused={isFocused ? '' : undefined}
       onContextMenu={
         onContextMenu
           ? (e) => {
@@ -2785,6 +3648,7 @@ function TaskCard({
         // stays a touch heavier and turns rose for overdue tasks.
         'group rounded-md border border-l-2 border-paper-300/50 bg-paper-100/85 px-2.5 py-1.5 transition-colors select-none',
         isOverdue ? 'border-l-rose-500/70' : '',
+        belowStickyRow ? 'scroll-mt-16' : '',
         isFocused ? 'ring-1 ring-accent/60' : 'hover:border-paper-300/75 hover:bg-paper-200/60',
         draggable ? 'cursor-grab active:cursor-grabbing' : ''
       ].join(' ')}

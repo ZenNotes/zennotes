@@ -12,7 +12,8 @@ import {
   isTasksViewActive,
   isTrashViewActive,
   isUnresolvedLinksViewActive,
-  useStore
+  useStore,
+  type KanbanLaneBy
 } from '../store'
 import { openLinkPopoverAtCursor } from './link-popover-open'
 import { confirmApp } from './confirm-requests'
@@ -1892,6 +1893,26 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     keywords: 'tasks board sort due date deadline order cards columns manual',
     run: () => getState().setKanbanCardSort(getState().kanbanCardSort === 'due' ? 'manual' : 'due')
   })
+
+  // Kanban lanes (#1027), from any note: the next board opened uses them. The
+  // @field lanes are picked on the board (its View menu, S, :lanes).
+  const laneCommands: [KanbanLaneBy, string][] = [
+    ['priority', 'Kanban: Lanes by Priority'],
+    ['folder', 'Kanban: Lanes by Folder'],
+    ['tag', 'Kanban: Lanes by Tag'],
+    ['none', 'Kanban: Lanes Off']
+  ]
+  for (const [laneBy, title] of laneCommands) {
+    cmds.push({
+      id: `view.kanban-lanes.${laneBy}`,
+      unavailableReason: () => 'The board already shows these lanes',
+      title,
+      category: 'View',
+      keywords: 'tasks board kanban lanes swimlanes rows split priority folder tag',
+      when: () => getState().kanbanLanes !== laneBy,
+      run: () => getState().setKanbanLanes(laneBy)
+    })
+  }
 
   // Empty tasks (#1026), from any note: the list, calendar and board follow it.
   cmds.push({

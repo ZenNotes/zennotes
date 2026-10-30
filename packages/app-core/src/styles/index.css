@@ -65,7 +65,9 @@
   }
 }
 
-.task-kanban-column.is-drop-target {
+.task-kanban-column.is-drop-target,
+.task-kanban-lane-cell.is-drop-target,
+.task-kanban-lane-header.is-drop-target {
   border-color: rgb(var(--z-accent) / 0.62);
   box-shadow: 0 0 0 1px rgb(var(--z-accent) / 0.28);
 }
