@@ -4309,11 +4309,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         {folder === 'trash' ? (
           // A trashed note cannot be trashed again; here the bin icon means the
           // only thing left that it can mean (#712).
-          <IconBtn title="Delete permanently" onClick={() => void deleteActivePermanently()}>
+          <IconBtn
+            title="Delete permanently"
+            onClick={() => void deleteActivePermanently()}
+            tooltipAlign="right"
+          >
             <TrashIcon />
           </IconBtn>
         ) : (
-          <IconBtn title={`Move to ${folderLabels.trash.toLowerCase()}`} onClick={() => void trashActive()}>
+          <IconBtn
+            title={`Move to ${folderLabels.trash.toLowerCase()}`}
+            onClick={() => void trashActive()}
+            tooltipAlign="right"
+          >
             <TrashIcon />
           </IconBtn>
         )}
@@ -5523,9 +5531,10 @@ function IconBtn({
   title: string
   active?: boolean
   disabled?: boolean
-  /** 'left' anchors the tooltip to the button's left edge so it never spills
-   *  off the left of the window (used by the leftmost toolbar buttons). */
-  tooltipAlign?: 'center' | 'left'
+  /** 'left' / 'right' anchor the tooltip to that edge of the button so it
+   *  never spills off that side of the window: the leftmost toolbar buttons
+   *  use 'left', the last one 'right' (#1020). */
+  tooltipAlign?: 'center' | 'left' | 'right'
 }): JSX.Element {
   return (
     <button
@@ -5547,7 +5556,11 @@ function IconBtn({
       <span
         className={[
           'pointer-events-none absolute top-full z-30 mt-1.5 hidden whitespace-nowrap rounded-md border border-paper-300 bg-paper-50 px-2 py-1 text-xs font-medium text-ink-800 shadow-panel group-hover:block group-focus-visible:block',
-          tooltipAlign === 'left' ? 'left-0' : 'left-1/2 -translate-x-1/2'
+          tooltipAlign === 'left'
+            ? 'left-0'
+            : tooltipAlign === 'right'
+              ? 'right-0'
+              : 'left-1/2 -translate-x-1/2'
         ].join(' ')}
       >
         {title}
