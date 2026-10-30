@@ -678,6 +678,10 @@ export function TasksView(): JSX.Element {
       }
 
       if (key === 'Escape') {
+        // On the board, Esc first takes the cursor off a card's subtask and
+        // back to the card (#1028). The board's handler does that; this one
+        // runs first whenever the board re-registered after it, so it yields.
+        if (rootRef.current?.querySelector('[data-kanban-subtask-focused]')) return
         // Tasks is a tab like a note tab — Esc clears an active filter but must
         // never close the tab (other tabs don't close on Esc). Close with :q,
         // the header ✕, or ⌘W. (#151)
