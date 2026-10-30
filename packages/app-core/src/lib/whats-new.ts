@@ -40,6 +40,15 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.80.1',
+    highlights: [
+      {
+        title: 'No white square in dark themes',
+        body: 'Where a view scrolls both ways, like the board with lanes or a wide database, the corner between its scrollbars no longer shows a white square.'
+      }
+    ]
+  },
+  {
     version: '2.80.0',
     highlights: [
       {
