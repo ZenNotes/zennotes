@@ -40,6 +40,12 @@ import {
 import { registerEphemeralRoot, unregisterEphemeralRoot } from './ephemeral-vaults'
 import { readNoteCreatedAt } from './note-creation-metadata'
 
+// Every op here is real disk work, each file journalled and fsynced before
+// the write it covers. A loaded Windows CI runner ran this file at 54 s
+// against its usual 10 to 15 s (PR #1019), and a three-file run passed the
+// 5 s default there; the budget is the disk's, not the code's.
+vi.setConfig({ testTimeout: 30_000 })
+
 /**
  * Paths whose atomic write should fail, so the "the rollback itself failed"
  * branch can be exercised without a real broken disk. Hoisted because
