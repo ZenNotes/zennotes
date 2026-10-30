@@ -207,11 +207,23 @@ describe('shared scoped-access contract: tools on a real vault', () => {
           const object = JSON.parse(text) as Record<string, unknown>
           for (const key of e.absentKeys) expect(object, where).not.toHaveProperty(key)
         }
+        // A tool answering in JSON spells a Windows root with its backslashes
+        // doubled, so `$VAULT` is the root either way: one spelling must show
+        // where the fixture expects it, and neither may leak where it must not.
+        const spellings = (needle: string): string[] =>
+          needle.includes('$VAULT')
+            ? [...new Set([root, JSON.stringify(root).slice(1, -1)])].map((r) =>
+                needle.replace('$VAULT', r)
+              )
+            : [needle]
         for (const needle of e.contains ?? []) {
-          expect(text, where).toContain(needle.replace('$VAULT', root))
+          expect(
+            spellings(needle).some((s) => text.includes(s)),
+            `${where}: contains ${needle}`
+          ).toBe(true)
         }
         for (const needle of e.excludes ?? []) {
-          expect(text, where).not.toContain(needle.replace('$VAULT', root))
+          for (const s of spellings(needle)) expect(text, where).not.toContain(s)
         }
       }
 
