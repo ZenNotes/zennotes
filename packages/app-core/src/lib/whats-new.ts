@@ -40,6 +40,39 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.80.0',
+    highlights: [
+      {
+        title: 'Swimlanes on the board',
+        body: 'Split the Kanban board into rows by priority, folder, tag or any @field, from the View menu. Drag a card to another lane to change that field. S in Vim mode.'
+      },
+      {
+        title: 'Subtasks fold into their card',
+        body: 'A task’s indented subtasks sit inside its Kanban card, with a progress bar. Check them off from the card; Tab steps onto them.'
+      },
+      {
+        title: 'WIP limits',
+        body: 'Give a Kanban column a limit from its menu, or W in Vim mode. Past the limit, the column turns red.'
+      },
+      {
+        title: 'Quieter Tasks views',
+        body: 'Empty - [ ] placeholders stay out of the list, calendar and board. Options live in one View menu, and Keys lists the shortcuts.'
+      },
+      {
+        title: 'A template folder',
+        body: 'Keep templates as notes in a folder of your vault, the way Obsidian does: Settings, Templates. Their checkboxes stay out of Tasks.'
+      },
+      {
+        title: 'Share part of a vault with an assistant',
+        body: 'Launch MCP with --allow-path, --deny-path or --read-only and it sees only what you share. The bundled zn is 0.13.0.'
+      },
+      {
+        title: 'Cloud keeps syncing past a file it refuses',
+        body: 'One file Cloud won’t take stays on this device while the rest syncs, and Settings, Cloud says what to do with it.'
+      }
+    ]
+  },
+  {
     version: '2.79.0',
     highlights: [
       {
