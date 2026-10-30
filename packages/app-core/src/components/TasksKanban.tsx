@@ -504,7 +504,9 @@ function sameBoardPlacement(a: VaultTask, b: VaultTask): boolean {
   )
 }
 
-function applyTaskMutationsForBoard(task: VaultTask, mutations: TaskMutation[]): VaultTask {
+/** A card as it reads once `mutations` land: what the board draws, and
+ *  where its cursor follows the card to, before the note is written. */
+export function applyTaskMutationsForBoard(task: VaultTask, mutations: TaskMutation[]): VaultTask {
   let next = task
   for (const m of mutations) {
     switch (m.kind) {
@@ -513,6 +515,12 @@ function applyTaskMutationsForBoard(task: VaultTask, mutations: TaskMutation[]):
         break
       case 'set-waiting':
         if (next.waiting !== m.waiting) next = { ...next, waiting: m.waiting }
+        break
+      // Without it a card sent to In progress stayed where it was until the
+      // write came back, and the cursor, which follows the card, landed on
+      // another card of In progress instead (#677, the #492 rule).
+      case 'set-in-progress':
+        if (next.inProgress !== m.inProgress) next = { ...next, inProgress: m.inProgress }
         break
       case 'set-priority': {
         const priority = m.priority ?? undefined

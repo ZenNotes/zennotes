@@ -24,7 +24,8 @@ import {
   hideEmptyCards,
   kanbanCardStep,
   parseWipLimitInput,
-  wipState
+  wipState,
+  applyTaskMutationsForBoard
 } from './TasksKanban'
 
 function col(id: string): Column {
@@ -728,5 +729,17 @@ describe('the cursor climbs onto the column header (#1025)', () => {
   it('keeps an empty column on its header', () => {
     expect(kanbanCardStep(-1, 1, 0)).toBe(-1)
     expect(kanbanCardStep(0, -1, 0)).toBe(-1)
+  })
+})
+
+describe('the board moves a card before its note is written (#677)', () => {
+  it('sends a card to In progress at once, so the cursor can follow it there', () => {
+    const before = card({ content: 'draft', taskIndex: 0, id: 'a' })
+    const moved = applyTaskMutationsForBoard(before, dropMutationsFor('status', IN_PROGRESS_COLUMN_ID, before, TODAY)!)
+    expect(moved.inProgress).toBe(true)
+    const columns = statusColumns([moved, card({ content: 'other', taskIndex: 1, inProgress: true, id: 'b' })], TODAY)
+    const at = cursorAfterCardMove(columns, IN_PROGRESS_COLUMN_ID, taskIdentityKey(moved))
+    expect(columns[at.colIdx].id).toBe(IN_PROGRESS_COLUMN_ID)
+    expect(columns[at.colIdx].tasks[at.cardIdx].content).toBe('draft')
   })
 })
