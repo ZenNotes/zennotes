@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/quicklook",
   "private": true,
-  "version": "2.80.0",
+  "version": "2.80.1",
   "type": "module",
   "description": "The macOS Quick Look preview for Markdown files: the page it renders and the Swift extension that serves it",
   "homepage": "https://zennotes.org",
