@@ -29,6 +29,7 @@ if (!dirs.server && !dirs.tui) {
 }
 const fixtures = [
   ['task-roundtrip.json', 'server', 'vault'],
+  ['task-subtasks.json', 'server', 'vault'],
   ['self-hosted-http.json', 'server', 'httpserver'],
   ['mcp-scope.json', 'tui', 'mcp']
 ]

@@ -36,6 +36,18 @@ Its client sends the edited Markdown; the server verifies storage and parsing
 before and after that write. The JSON and SHA-256 provenance are vendored in its
 `testdata` directory so `go test ./...` needs no Node or sibling checkout.
 
+`task-subtasks.json` is which task a task is a subtask of (ZenNotes/zennotes#1028):
+the `parentId` each scanned task carries, read from the note's list structure
+(content columns, plain bullets that own the task under them, glued checkboxes
+that are prose, blockquotes, fences) and pointing a task note's unowned
+checkboxes at its file task. `expectedTasks` is the whole listing for the note,
+file task first, and a task without `parentId` must carry none. The Kanban
+board folds subtasks into their parent's card from these links, and its
+progress bar counts what the note's `2/5` chip counts. TypeScript runs it in
+`shared-domain/src/task-subtasks.test.ts` (and app-core's
+`lib/kanban-subtasks.test.ts` checks the same bodies against the editor's
+chip); the Go server runs it in `internal/vault/task_subtasks_contract_test.go`.
+
 `mcp-scope.json` is scoped MCP access (ZenNotes/tui#21): what an MCP client
 launched with `--allow-path`, `--deny-path`, `--read-only` or `--access` may see
 and change. It seeds real vaults (a root-mode vault with a symbolic link to a

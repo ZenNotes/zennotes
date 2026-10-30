@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "nested checklist: each task names its direct parent",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] Launch\n  - [x] Write copy\n  - [ ] Ship\n    - [ ] Build\n    - [x] Upload\n  - [-] Dropped\n- [ ] Next\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#3", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#4", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#6" }
+      ]
+    },
+    {
+      "id": "a plain bullet owns the task indented under it",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n  - just a note\n    - [x] belongs to the note\n- Groceries\n  - [ ] milk\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2" }
+      ]
+    },
+    {
+      "id": "a one-space sibling is not a child",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n - [x] sibling\n",
+      "expectedTasks": [{ "id": "inbox/Plan.md#0" }, { "id": "inbox/Plan.md#1" }]
+    },
+    {
+      "id": "an ordered marker's wider content column decides nesting",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "10. [ ] parent\n  - [x] separate list\n    - [ ] child of the separate list\n1. [ ] numbered\n   * [x] starred child\n   2) [ ] numbered child\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2", "parentId": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4", "parentId": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#5", "parentId": "inbox/Plan.md#3" }
+      ]
+    },
+    {
+      "id": "blank lines keep a loose list open and a heading closes it",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n\n  - [x] a\n# heading\n  - [x] not a child\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" }
+      ]
+    },
+    {
+      "id": "indented text continues the item and a paragraph at the margin ends it",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n  more about the parent\n  - [ ] child\n\nA paragraph.\n  - [ ] after the paragraph\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" }
+      ]
+    },
+    {
+      "id": "a fenced example inside the item neither counts nor ends it",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n  - [x] a\n\n  ~~~\n  - [x] example\n  ~~~\n\n  - [ ] b\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2", "parentId": "inbox/Plan.md#0" }
+      ]
+    },
+    {
+      "id": "a fence at the margin closes the list",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n```\ncode\n```\n  - [ ] after the fence\n",
+      "expectedTasks": [{ "id": "inbox/Plan.md#0" }, { "id": "inbox/Plan.md#1" }]
+    },
+    {
+      "id": "blockquoted tasks nest among themselves, not with the list around them",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "> - [ ] quoted parent\n>   - [x] quoted child\n- [ ] outside\n  > - [ ] quoted inside outside\n  - [ ] child of outside\n> - [ ] a\n> > - [ ] deeper quote\n>   - [ ] not a child of a\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3" },
+        { "id": "inbox/Plan.md#4", "parentId": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#5" },
+        { "id": "inbox/Plan.md#6" },
+        { "id": "inbox/Plan.md#7" }
+      ]
+    },
+    {
+      "id": "a blank line ends a blockquote",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "> - [ ] first quote\n\n>   - [ ] second quote\n",
+      "expectedTasks": [{ "id": "inbox/Plan.md#0" }, { "id": "inbox/Plan.md#1" }]
+    },
+    {
+      "id": "a glued checkbox is prose: no parent, and it parents nothing",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n  - [x]glued\n    - [ ] under the glued line\n  - [ ] real\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1" },
+        { "id": "inbox/Plan.md#2" },
+        { "id": "inbox/Plan.md#3", "parentId": "inbox/Plan.md#0" }
+      ]
+    },
+    {
+      "id": "a tab indents to the next four-column stop",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n\t- [ ] tab child\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" }
+      ]
+    },
+    {
+      "id": "a line blank to JavaScript keeps the item open, and only that",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\n\ufeff\n  - [ ] after a BOM-only line\n\n\u0085\n  - [ ] after a NEL-only line\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#2" }
+      ]
+    },
+    {
+      "id": "windows line endings nest the same",
+      "note": { "path": "inbox/Plan.md", "title": "Plan", "folder": "inbox" },
+      "body": "- [ ] parent\r\n  - [ ] child\r\n",
+      "expectedTasks": [
+        { "id": "inbox/Plan.md#0" },
+        { "id": "inbox/Plan.md#1", "parentId": "inbox/Plan.md#0" }
+      ]
+    },
+    {
+      "id": "a task note owns every checkbox that is not another checkbox's subtask",
+      "note": { "path": "inbox/Ship it.md", "title": "Ship it", "folder": "inbox" },
+      "body": "---\ntags: [task]\nstatus: open\n---\nNotes about it.\n\n- [ ] step one\n  - [x] step one a\n- plain\n  - [ ] under plain\n- [x] step two\n",
+      "expectedTasks": [
+        { "id": "inbox/Ship it.md#task" },
+        { "id": "inbox/Ship it.md#0", "parentId": "inbox/Ship it.md#task" },
+        { "id": "inbox/Ship it.md#1", "parentId": "inbox/Ship it.md#0" },
+        { "id": "inbox/Ship it.md#2", "parentId": "inbox/Ship it.md#task" },
+        { "id": "inbox/Ship it.md#3", "parentId": "inbox/Ship it.md#task" }
+      ]
+    },
+    {
+      "id": "a note-only task note lists no checkboxes",
+      "note": { "path": "inbox/Ship it.md", "title": "Ship it", "folder": "inbox" },
+      "body": "---\ntags: [task]\ntasks: note\n---\n- [ ] step one\n  - [ ] step one a\n",
+      "expectedTasks": [{ "id": "inbox/Ship it.md#task" }]
+    }
+  ]
+}

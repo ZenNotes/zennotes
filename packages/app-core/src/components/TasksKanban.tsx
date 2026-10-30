@@ -26,8 +26,16 @@ import { dropMutationsFor } from '../lib/task-column-mutations'
  *        card reaches the column's header (the arrows too, in either mode)
  *   Enter: open the card's source note; on a header, rename the column
  *   Space / x: toggle the checkbox on the focused card
+ *   Tab / Shift+Tab: step through the focused card's subtasks (#1028),
+ *        so Space / x / Enter / i / c / @ act on that subtask; Escape or
+ *        any card move returns to the card. Universal, like the calendar's
+ *        Tab through a day, since it is not a letter.
  *   W: set the focused column's WIP limit (#1025)
  *   m, or Shift+F10 in either mode: the card's or the header's menu
+ *
+ * Subtasks: a task's indented subtasks fold into its card (listed under the
+ * title, checkable, with a progress bar) instead of standing as cards of
+ * their own; see `lib/kanban-subtasks.ts`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -49,14 +57,23 @@ import {
   type KanbanGroupBy,
   type TaskMutation
 } from '../store'
-import { filterTasks, type NoteTagsByPath } from '../lib/tasks-filter'
+import type { NoteTagsByPath } from '../lib/tasks-filter'
 import { isEmptyTask } from '../lib/empty-tasks'
+import {
+  cardsMatchingFilter,
+  foldSubtasks,
+  nextSubtaskFocus,
+  progressPercent,
+  subtaskProgress,
+  type CardSubtask
+} from '../lib/kanban-subtasks'
+import { rollupLabel, type TaskRollup } from '../lib/task-rollup'
 import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { isKeyboardContextMenuKey, keyboardMenuPosition } from '../lib/keyboard-context-menu'
 import { listViewBindingMatches } from '../lib/list-view-keys'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems, chooseTaskDueDate } from '../lib/task-context-menu'
-import { AlertTriangleIcon, ArrowUpRightIcon, PencilIcon } from './icons'
+import { AlertTriangleIcon, ArrowUpRightIcon, ChevronRightIcon, PencilIcon } from './icons'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
 import { InlineMarkdown } from '../lib/inline-markdown'
 import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
@@ -110,6 +127,8 @@ function columnAccent(id: string): string | null {
 }
 
 export { dropMutationsFor } from '../lib/task-column-mutations'
+
+const NO_SUBTASKS: readonly CardSubtask[] = []
 
 export interface Column {
   id: string
@@ -823,6 +842,22 @@ export function TasksKanban({
     null
   )
   const [menu, setMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null)
+  // The subtask Tab stepped onto inside the focused card (#1028), by id so a
+  // rescan that rebuilds the records keeps it; null is the card itself.
+  const [subFocusId, setSubFocusId] = useState<string | null>(null)
+  // Cards whose subtask list was opened with a click. Folded by default so a
+  // busy board keeps its cards short: the bar is the at-a-glance part, and a
+  // card's list also shows while Tab has the cursor inside it. Session-only,
+  // like the list's collapsed groups.
+  const [openSubtaskCards, setOpenSubtaskCards] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleSubtaskList = useCallback((cardId: string) => {
+    setOpenSubtaskCards((current) => {
+      const next = new Set(current)
+      if (next.has(cardId)) next.delete(cardId)
+      else next.add(cardId)
+      return next
+    })
+  }, [])
   const latestTasksRef = useRef(tasks)
   const displayTasksRef = useRef(tasks)
   const pendingTaskMovesRef = useRef(new Map<string, VaultTask>())
@@ -912,11 +947,15 @@ export function TasksKanban({
     setDisplayTasks(mergedTasks)
   }, [mergeTasksWithPendingMoves, tasks])
 
+  // Subtasks ride inside their top task's card (#1028); only cards are placed
+  // in columns, so a subtask's own date, priority or field moves nothing.
+  const folded = useMemo(() => foldSubtasks(displayTasks), [displayTasks])
+
   const fullColumns = useMemo(
     () => {
       const built = buildColumns(
         groupBy,
-        displayTasks,
+        folded.cards,
         today,
         kanbanStatuses,
         showArchivedTasks,
@@ -946,7 +985,7 @@ export function TasksKanban({
       cardSort,
       columnOrderVersion,
       groupBy,
-      displayTasks,
+      folded,
       kanbanColumnOrder,
       kanbanColumnTitles,
       kanbanStatuses,
@@ -968,13 +1007,19 @@ export function TasksKanban({
   const { columns, hiddenEmpty } = useMemo(() => {
     const narrowed = filterQuery
       ? fullColumns.map((column) =>
-          withVisibleCards(column, filterTasks(column.tasks, filterQuery, noteTags), today)
+          // A card stays when one of its subtasks matches: that subtask used
+          // to be a card of its own, and the query should still find it.
+          withVisibleCards(
+            column,
+            cardsMatchingFilter(column.tasks, folded.subtasksByCard, filterQuery, noteTags),
+            today
+          )
         )
       : fullColumns
     if (!hideEmptyTasks) return { columns: narrowed, hiddenEmpty: 0 }
     const hidden = hideEmptyCards(narrowed, today)
     return { columns: hidden.columns, hiddenEmpty: hidden.hidden }
-  }, [fullColumns, filterQuery, hideEmptyTasks, noteTags, today])
+  }, [fullColumns, filterQuery, folded.subtasksByCard, hideEmptyTasks, noteTags, today])
   const wipLoads = useMemo(
     () => columnWipLoads(fullColumns, hideEmptyTasks),
     [fullColumns, hideEmptyTasks]
@@ -1829,6 +1874,16 @@ export function TasksKanban({
     ? Math.min(cardIdx, Math.max(0, focusedColumn.tasks.length - 1))
     : 0
   const focusedTask = focusedColumn?.tasks[safeCardIdx]
+  const focusedSubtasks =
+    (focusedTask && folded.subtasksByCard.get(focusedTask.id)) || NO_SUBTASKS
+  const focusedSubIdx = subFocusId
+    ? focusedSubtasks.findIndex((subtask) => subtask.task.id === subFocusId)
+    : -1
+  const focusedSubtask = focusedSubIdx >= 0 ? focusedSubtasks[focusedSubIdx].task : null
+  // What Space / x / Enter / i / c / @ act on: the subtask Tab stepped onto,
+  // else the card. Shift+H/L always move the card.
+  const actionTask = focusedSubtask ?? focusedTask
+
   // No card under the cursor: k above the first card, or an empty column.
   // The header is what Enter and the menu keys act on then (#1025).
   const headerFocused = !!focusedColumn && !focusedTask
@@ -1857,16 +1912,16 @@ export function TasksKanban({
       openColumnMenu(columnsRef.current[domColIdx], x, y)
       return
     }
-    if (focusedTask && cardRef.current) {
+    if (actionTask && cardRef.current) {
       const { x, y } = keyboardMenuPosition(cardRef.current.getBoundingClientRect())
-      setMenu({ x, y, items: buildTaskMenuItems(focusedTask, { today, showKeyHints: vimMode }) })
+      setMenu({ x, y, items: buildTaskMenuItems(actionTask, { today, showKeyHints: vimMode }) })
       return
     }
     if (focusedColumn && headerRef.current) {
       const { x, y } = belowHeader(headerRef.current)
       openColumnMenu(focusedColumn, x, y)
     }
-  }, [focusedColumn, focusedTask, openColumnMenu, today, vimMode])
+  }, [actionTask, focusedColumn, openColumnMenu, today, vimMode])
 
   // Switching the order keeps the cursor on its card, wherever the new order
   // puts it: the rebuild is flushed first, the way a move is. (#889)
@@ -1985,22 +2040,26 @@ export function TasksKanban({
           consume()
           setColIdx((i) => Math.max(0, i - 1))
           setCardIdx(safeCardIdx < 0 ? -1 : 0)
+          setSubFocusId(null)
           return
         case 'l':
         case 'ArrowRight':
           consume()
           setColIdx((i) => Math.min(columns.length - 1, i + 1))
           setCardIdx(safeCardIdx < 0 ? -1 : 0)
+          setSubFocusId(null)
           return
         case 'H':
           if (dndEnabled && focusedTask) {
             consume()
+            setSubFocusId(null)
             moveFocusedCard(-1)
           }
           return
         case 'L':
           if (dndEnabled && focusedTask) {
             consume()
+            setSubFocusId(null)
             moveFocusedCard(1)
           }
           return
@@ -2020,16 +2079,37 @@ export function TasksKanban({
         case 'ArrowDown':
           consume()
           setCardIdx(kanbanCardStep(safeCardIdx, 1, focusedColumn?.tasks.length ?? 0))
+          setSubFocusId(null)
           return
         case 'k':
         case 'ArrowUp':
           consume()
           setCardIdx(kanbanCardStep(safeCardIdx, -1, focusedColumn?.tasks.length ?? 0))
+          setSubFocusId(null)
+          return
+        // Into the focused card's subtasks and back out (#1028). A card
+        // without subtasks leaves Tab to the page, as before.
+        case 'Tab':
+          if (focusedTask && focusedSubtasks.length > 0) {
+            consume()
+            const next = nextSubtaskFocus(
+              focusedSubIdx >= 0 ? focusedSubIdx : null,
+              focusedSubtasks.length,
+              e.shiftKey ? -1 : 1
+            )
+            setSubFocusId(next == null ? null : focusedSubtasks[next].task.id)
+          }
+          return
+        case 'Escape':
+          if (focusedSubtask) {
+            consume()
+            setSubFocusId(null)
+          }
           return
         case 'Enter':
-          if (focusedTask) {
+          if (actionTask) {
             consume()
-            onOpenTask(focusedTask)
+            onOpenTask(actionTask)
           } else if (focusedColumn) {
             // On a header, Enter renames the column, as a click on its title does.
             consume()
@@ -2045,9 +2125,9 @@ export function TasksKanban({
           return
         case ' ':
         case 'x':
-          if (focusedTask) {
+          if (actionTask) {
             consume()
-            onToggleTask(focusedTask)
+            onToggleTask(actionTask)
           }
           return
         // Same task states the list and the right-click menu offer, so a card
@@ -2055,22 +2135,22 @@ export function TasksKanban({
         // shortcuts only exist in Vim mode; the menu hides its key hints in
         // step, so it never advertises a key that would do nothing here.
         case 'i':
-          if (vimMode && focusedTask) {
+          if (vimMode && actionTask) {
             consume()
-            void startTaskFromList(focusedTask)
+            void startTaskFromList(actionTask)
           }
           return
         case 'c':
-          if (vimMode && focusedTask) {
+          if (vimMode && actionTask) {
             consume()
-            void cancelTaskFromList(focusedTask)
+            void cancelTaskFromList(actionTask)
           }
           return
         // Any due date from the calendar `@date` opens (#991).
         case '@':
-          if (vimMode && focusedTask) {
+          if (vimMode && actionTask) {
             consume()
-            void chooseTaskDueDate(focusedTask)
+            void chooseTaskDueDate(actionTask)
           }
           return
         default:
@@ -2085,8 +2165,12 @@ export function TasksKanban({
     clearGroupByPending,
     columns.length,
     cycleGroupBy,
+    actionTask,
     dndEnabled,
     focusedColumn,
+    focusedSubIdx,
+    focusedSubtask,
+    focusedSubtasks,
     focusedTask,
     moveFocusedCard,
     moveFocusedColumn,
@@ -2154,7 +2238,7 @@ export function TasksKanban({
         </div>
         <TasksViewOptions hidden={hiddenEmpty} />
         <div className="ml-auto shrink-0">
-          <TasksKeysButton view="kanban" dndEnabled={dndEnabled} />
+          <TasksKeysButton view="kanban" dndEnabled={dndEnabled} subtasks />
         </div>
       </div>
 
@@ -2333,6 +2417,7 @@ export function TasksKanban({
                     {column.tasks.map((task, ti) => {
                       const isFocused = isColumnFocused && ti === safeCardIdx
                       const isDragging = draggingId === task.id
+                      const subtasks = folded.subtasksByCard.get(task.id) ?? NO_SUBTASKS
                       return (
                         <TaskCard
                           key={task.id}
@@ -2346,6 +2431,7 @@ export function TasksKanban({
                           onClickRow={() => {
                             setColIdx(ci)
                             setCardIdx(ti)
+                            setSubFocusId(null)
                           }}
                           onOpen={() => onOpenTask(task)}
                           shouldSuppressClick={shouldSuppressCardClick}
@@ -2353,6 +2439,25 @@ export function TasksKanban({
                           onPointerDown={(e) => beginPointerDrag(task, e)}
                           onContextMenu={openTaskMenu}
                           toggleKey={vimMode ? 'x' : null}
+                          subtasks={subtasks}
+                          progress={subtaskProgress(task, subtasks)}
+                          subtasksOpen={
+                            openSubtaskCards.has(task.id) || (isFocused && focusedSubtask != null)
+                          }
+                          onToggleSubtasks={() => {
+                            setColIdx(ci)
+                            setCardIdx(ti)
+                            setSubFocusId(null)
+                            toggleSubtaskList(task.id)
+                          }}
+                          focusedSubtaskId={isFocused ? (focusedSubtask?.id ?? null) : null}
+                          onFocusSubtask={(subtask) => {
+                            setColIdx(ci)
+                            setCardIdx(ti)
+                            setSubFocusId(subtask.id)
+                          }}
+                          onToggleSubtask={onToggleTask}
+                          onOpenSubtask={onOpenTask}
                         />
                       )
                     })}
@@ -2392,6 +2497,12 @@ export function TasksKanban({
             shouldSuppressClick={() => true}
             onToggle={() => {}}
             onPointerDown={() => {}}
+            subtasks={folded.subtasksByCard.get(dragPreview.task.id) ?? NO_SUBTASKS}
+            subtasksOpen={openSubtaskCards.has(dragPreview.task.id)}
+            progress={subtaskProgress(
+              dragPreview.task,
+              folded.subtasksByCard.get(dragPreview.task.id) ?? NO_SUBTASKS
+            )}
           />
         </div>
       )}
@@ -2425,6 +2536,185 @@ interface CardProps {
   onContextMenu?: (e: React.MouseEvent, task: VaultTask) => void
   /** The key the checkbox tooltip names; none with Vim mode off. */
   toggleKey?: string | null
+  /** Subtasks folded into this card, in note order (#1028). */
+  subtasks?: readonly CardSubtask[]
+  /** Done over total for the direct subtasks; null hides the bar. */
+  progress?: TaskRollup | null
+  /** Whether the subtask lines show; folded, only the summary row does. */
+  subtasksOpen?: boolean
+  /** Opens or folds the subtask lines (the summary row's click). */
+  onToggleSubtasks?: () => void
+  /** The subtask Tab stepped onto, drawn as the cursor. */
+  focusedSubtaskId?: string | null
+  /** Puts the keyboard cursor on a subtask a click or right-click reached. */
+  onFocusSubtask?: (task: VaultTask) => void
+  onToggleSubtask?: (task: VaultTask) => void
+  /** Opens the note at the subtask's line, where its text is edited. */
+  onOpenSubtask?: (task: VaultTask) => void
+}
+
+/** The card's subtask summary, always shown: a thin bar and `3/5 · 60%` for
+ *  the direct subtasks, worded like the note's own `3/5` chip for hover and
+ *  screen readers (or just the count when none of them counts toward
+ *  progress). It is also the button that opens and folds the lines. */
+function SubtaskSummary({
+  progress,
+  count,
+  open,
+  onToggle
+}: {
+  progress: TaskRollup | null
+  count: number
+  open: boolean
+  onToggle?: () => void
+}): JSX.Element {
+  const percent = progress ? progressPercent(progress) : 0
+  const complete = !!progress && progress.done === progress.total
+  const label = progress
+    ? rollupLabel(progress)
+    : `${count} subtask${count === 1 ? '' : 's'}`
+  return (
+    <button
+      type="button"
+      data-kanban-progress
+      aria-expanded={open}
+      aria-label={label}
+      title={label}
+      // The board's own cursor reaches the lines (Tab); a DOM focus ring left
+      // here by a click would draw a second cursor.
+      tabIndex={-1}
+      draggable={false}
+      onPointerDown={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        onToggle?.()
+      }}
+      className="group/summary mt-1.5 flex w-full items-center gap-2 rounded text-left outline-none"
+    >
+      <span className="flex w-4 shrink-0 justify-center text-current/40 group-hover/summary:text-current/80">
+        <ChevronRightIcon
+          width={12}
+          height={12}
+          className={['transition-transform duration-150', open ? 'rotate-90' : ''].join(' ')}
+        />
+      </span>
+      {progress && (
+        <span
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={progress.total}
+          aria-valuenow={progress.done}
+          className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-paper-300/60"
+        >
+          <span
+            className={[
+              'block h-full rounded-full transition-all duration-200',
+              complete ? 'bg-success' : 'bg-accent'
+            ].join(' ')}
+            style={{ width: `${percent}%` }}
+          />
+        </span>
+      )}
+      <span
+        className={[
+          'shrink-0 text-2xs tabular-nums',
+          complete ? 'text-success' : 'text-current/55'
+        ].join(' ')}
+      >
+        {progress ? `${progress.done}/${progress.total} · ${percent}%` : label}
+      </span>
+    </button>
+  )
+}
+
+interface SubtaskListProps {
+  subtasks: readonly CardSubtask[]
+  focusedSubtaskId: string | null
+  shouldSuppressClick: () => boolean
+  toggleKey: string | null
+  onFocusSubtask?: (task: VaultTask) => void
+  onToggleSubtask?: (task: VaultTask) => void
+  onOpenSubtask?: (task: VaultTask) => void
+  onContextMenu?: (e: React.MouseEvent, task: VaultTask) => void
+}
+
+/** The card's subtasks, deeper ones indented under their own parent. A click
+ *  on the box checks the line in its note; a click on the text opens the note
+ *  at that line. A drag that starts on a line still moves the whole card. */
+function SubtaskList({
+  subtasks,
+  focusedSubtaskId,
+  shouldSuppressClick,
+  toggleKey,
+  onFocusSubtask,
+  onToggleSubtask,
+  onOpenSubtask,
+  onContextMenu
+}: SubtaskListProps): JSX.Element {
+  return (
+    <ul data-kanban-subtasks aria-label="Subtasks" className="mt-1 space-y-px pl-5">
+      {subtasks.map(({ task: subtask, depth }) => {
+        const focused = subtask.id === focusedSubtaskId
+        const closed = subtask.checked || subtask.cancelled
+        return (
+          <li
+            key={subtask.id}
+            data-kanban-subtask-id={subtask.id}
+            data-kanban-subtask-focused={focused ? 'true' : undefined}
+            style={depth > 1 ? { marginLeft: `${depth - 1}rem` } : undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (shouldSuppressClick()) return
+              onFocusSubtask?.(subtask)
+              onOpenSubtask?.(subtask)
+            }}
+            onContextMenu={
+              onContextMenu
+                ? (e) => {
+                    e.stopPropagation()
+                    onFocusSubtask?.(subtask)
+                    onContextMenu(e, subtask)
+                  }
+                : undefined
+            }
+            className={[
+              'flex items-start gap-1.5 rounded px-1 py-0.5 text-xs',
+              focused ? 'bg-paper-200/80 ring-1 ring-accent/50' : 'hover:bg-paper-200/50'
+            ].join(' ')}
+          >
+            <TaskStateBox
+              task={subtask}
+              onToggle={() => {
+                onFocusSubtask?.(subtask)
+                onToggleSubtask?.(subtask)
+              }}
+              idleClassName="border border-paper-400/70 hover:bg-paper-200/80"
+              className="mt-0"
+              stopPointerEvents
+              toggleKey={toggleKey}
+            />
+            <span
+              className={[
+                'min-w-0 flex-1 break-words',
+                closed
+                  ? 'text-current/45 line-through'
+                  : subtask.forwarded
+                    ? 'text-current/45'
+                    : 'text-current/80'
+              ].join(' ')}
+            >
+              {subtask.content ? <InlineMarkdown text={subtask.content} /> : '(empty task)'}
+            </span>
+            {subtask.due && (
+              <span className="shrink-0 text-2xs text-current/45">{formatDue(subtask.due)}</span>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
 function formatDue(iso: string | undefined): string {
@@ -2448,7 +2738,15 @@ function TaskCard({
   onToggle,
   onPointerDown,
   onContextMenu,
-  toggleKey = null
+  toggleKey = null,
+  subtasks = NO_SUBTASKS,
+  progress = null,
+  subtasksOpen = false,
+  onToggleSubtasks,
+  focusedSubtaskId = null,
+  onFocusSubtask,
+  onToggleSubtask,
+  onOpenSubtask
 }: CardProps): JSX.Element {
   return (
     <div
@@ -2535,6 +2833,26 @@ function TaskCard({
           <ArrowUpRightIcon width={12} height={12} />
         </button>
       </div>
+      {subtasks.length > 0 && (
+        <SubtaskSummary
+          progress={progress}
+          count={subtasks.length}
+          open={subtasksOpen}
+          onToggle={onToggleSubtasks}
+        />
+      )}
+      {subtasksOpen && subtasks.length > 0 && (
+        <SubtaskList
+          subtasks={subtasks}
+          focusedSubtaskId={focusedSubtaskId}
+          shouldSuppressClick={shouldSuppressClick}
+          toggleKey={toggleKey}
+          onFocusSubtask={onFocusSubtask}
+          onToggleSubtask={onToggleSubtask}
+          onOpenSubtask={onOpenSubtask}
+          onContextMenu={onContextMenu}
+        />
+      )}
       <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 text-xs text-current/50">
         <span className="max-w-full truncate">{task.noteTitle}</span>
         <CloudTaskConflictIndicator path={task.sourcePath} />
