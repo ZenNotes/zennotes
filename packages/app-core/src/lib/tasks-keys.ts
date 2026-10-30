@@ -39,6 +39,10 @@ export interface TasksKeySheetOptions {
    *  Reserved for the subtasks branch, which binds those keys; off until
    *  then, so the sheet never names a key that does nothing. */
   subtasks?: boolean
+  /** The board is split into swimlanes (#1027): the Lanes group shows. */
+  lanes?: boolean
+  /** A card can move to another lane (every lane field but Folder). */
+  laneMoves?: boolean
 }
 
 /** The board's Subtasks group, shown once `subtasks` is on. Tab and Esc are
@@ -65,14 +69,38 @@ function viewRows(order: string | null): TasksKeyRow[] {
   ]
 }
 
+/** The board's Lanes group (#1027), shown while the board has lanes. `{ }`
+ *  hop lane to lane the way they hop note to note in the Tags view, and
+ *  Shift+J/K move the card down or up a lane as Shift+H/L move it across.
+ *  With Vim mode off the arrows walk the lane headers, and Enter or Space on
+ *  one folds it. */
+function laneGroup({ vimMode, laneMoves }: TasksKeySheetOptions): TasksKeyGroup {
+  if (!vimMode) return { title: 'Lanes', rows: [{ keys: 'Enter / Space', label: 'toggle (header)' }] }
+  return {
+    title: 'Lanes',
+    rows: [
+      { keys: '{ / }', label: 'lanes' },
+      ...(laneMoves ? [{ keys: 'Shift+J / K', label: 'move card' }] : []),
+      { keys: 'za', label: 'toggle lane' },
+      { keys: 'zM / zR', label: 'collapse, expand all' },
+      { keys: 'Enter', label: 'toggle (header)' }
+    ]
+  }
+}
+
 function kanbanSheet(options: TasksKeySheetOptions): TasksKeySheet {
   const sheet = kanbanGroups(options)
   if (options.subtasks) sheet.groups.splice(2, 0, SUBTASK_GROUP)
+  if (options.lanes) {
+    const columns = sheet.groups.findIndex((group) => group.title === 'Columns')
+    sheet.groups.splice(columns, 0, laneGroup(options))
+  }
   return sheet
 }
 
-function kanbanGroups({ vimMode, dndEnabled }: TasksKeySheetOptions): TasksKeySheet {
-  const mouse = dndEnabled
+function kanbanGroups({ vimMode, dndEnabled, lanes, laneMoves }: TasksKeySheetOptions): TasksKeySheet {
+  // A Folder board's cards still drag between priority, tag or field lanes.
+  const mouse = dndEnabled || (lanes && laneMoves)
     ? 'Drag cards and headers · right-click for menus'
     : 'Drag headers · right-click for menus'
   if (!vimMode) {
@@ -133,7 +161,10 @@ function kanbanGroups({ vimMode, dndEnabled }: TasksKeySheetOptions): TasksKeySh
           { keys: 'Enter', label: 'rename (header)' }
         ]
       },
-      { title: 'Board', rows: [{ keys: 'g', label: 'group by' }, ...viewRows('order')] }
+      {
+        title: 'Board',
+        rows: [{ keys: 'g', label: 'group by' }, { keys: 'S', label: 'lanes' }, ...viewRows('order')]
+      }
     ],
     mouse
   }

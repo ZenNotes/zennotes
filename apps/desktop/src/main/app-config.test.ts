@@ -133,6 +133,7 @@ describe('TOML serialization', () => {
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
       kanbanCardSort: 'due',
+      kanbanLanes: 'field:sprint',
       hideEmptyTasks: false,
       kanbanWipLimits: { 'status:in-progress': 3, 'field:status:review': 2 },
       tasksListOrder: 'priority',
@@ -175,6 +176,9 @@ describe('TOML serialization', () => {
     expect(round.kanbanGroupBy).toBe('folder')
     expect(text).toContain('kanban_card_sort = "due"')
     expect(round.kanbanCardSort).toBe('due')
+    // #1027: the lane field travels like the card order.
+    expect(text).toContain('kanban_lanes = "field:sprint"')
+    expect(round.kanbanLanes).toBe('field:sprint')
     // #1026 and #1025: the empty-task switch and the WIP limits travel too,
     // the limits as plain numbers a person can edit.
     expect(text).toContain('hide_empty_tasks = false')

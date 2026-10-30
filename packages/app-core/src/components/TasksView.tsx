@@ -8,6 +8,7 @@ import { TasksRow } from './TasksRow'
 import { TasksCalendar } from './TasksCalendar'
 import { TasksKanban, parseWipLimitInput, type KanbanControl } from './TasksKanban'
 import { TasksKeysButton, TasksViewOptions, tasksToolbarOwnsKey } from './TasksToolbar'
+import { laneFieldLabel, parseLanesArg } from '../lib/kanban-lanes'
 import { isEmptyTask, withoutEmptyTasks } from '../lib/empty-tasks'
 import { CalendarIcon, CheckSquareIcon, KanbanIcon, ListIcon } from './icons'
 import { advanceSequence, getKeymapBinding, matchesSequenceToken, type KeymapId } from '../lib/keymaps'
@@ -567,6 +568,25 @@ export function TasksView(): JSX.Element {
         toast(parsed.limit === null ? `${label}: no WIP limit` : `${label}: WIP limit ${parsed.limit}`)
         return
       }
+      // `:lanes priority` splits the board into lanes by a second field
+      // (priority, folder, tag, or any @field); bare `:lanes` turns them off,
+      // like Lanes: None in the View menu. (#1027)
+      if (head === 'lanes') {
+        const store = useStore.getState()
+        const wanted = parseLanesArg(arg)
+        if (wanted === null) {
+          toast('Usage: :lanes priority | folder | tag | @field, or :lanes to turn off')
+          return
+        }
+        if (wanted !== 'none' && wanted === store.kanbanGroupBy) {
+          toast('The columns already use that field')
+          return
+        }
+        store.setKanbanLanes(wanted)
+        setViewMode('kanban')
+        toast(wanted === 'none' ? 'Lanes off' : `Lanes: ${laneFieldLabel(wanted)}`)
+        return
+      }
       if (head === 'delfilter' || head === 'df') {
         if (!arg) {
           toast('Usage: :delfilter <name>')
@@ -701,6 +721,9 @@ export function TasksView(): JSX.Element {
       }
       // A toolbar button reached with Tab takes its own keys.
       if (tasksToolbarOwnsKey(e)) return
+      // The board holds a `z` for a lane fold (#1027): its a / M / R are the
+      // board's, not New task's `a`, whichever handler runs first.
+      if (rootRef.current?.querySelector('[data-kanban-key-pending]')) return
       const overrides = keymapOverrides
       // A chord gets through only as the key of one of this view's actions,
       // and never past a global shortcut (#972, lib/list-view-keys.ts).

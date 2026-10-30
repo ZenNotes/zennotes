@@ -6,12 +6,15 @@ import {
   takeTaskLineAtIndex,
   setTaskCheckedAtIndex,
   setTaskDueAtIndex,
+  setFirstTag,
   setTaskFieldAtIndex,
   setTaskPriorityAtIndex,
+  setTaskTagAtIndex,
   setTaskStatusAtIndex,
   setTaskTextAtIndex,
   setTaskWaitingAtIndex,
-  toggleTaskAtIndex
+  toggleTaskAtIndex,
+  withFirstTag
 } from '@shared/tasklists'
 
 describe('toggleTaskAtIndex', () => {
@@ -316,6 +319,67 @@ describe('setTaskFieldAtIndex', () => {
   it('is a no-op for an invalid field key', () => {
     const md = '- [ ] a'
     expect(setTaskFieldAtIndex(md, 0, 'Bad Key', 'x')).toBe(md)
+  })
+})
+
+// A Kanban tag lane (#1027) is a card's first #tag: moving the card to
+// another lane makes that lane's tag the first one, in place, and the No tag
+// lane strips them all, so the card always lands in the lane it was dropped on.
+describe('setFirstTag (#1027)', () => {
+  it('replaces the first tag in place and keeps the rest of the line', () => {
+    expect(setFirstTag(' Fix login #work !high', 'home')).toBe(' Fix login #home !high')
+  })
+
+  it('keeps the other tags, and drops a later copy of the new first tag', () => {
+    expect(setFirstTag(' a #work #urgent #home', 'home')).toBe(' a #home #urgent')
+  })
+
+  it('matches the first tag whatever its case', () => {
+    expect(setFirstTag(' a #Work', 'home')).toBe(' a #home')
+  })
+
+  it('appends the tag to a line that has none', () => {
+    expect(setFirstTag(' Call Sam due:2026-11-02', 'calls')).toBe(' Call Sam due:2026-11-02 #calls')
+  })
+
+  it('strips every tag for the No tag lane, and tidies the spaces', () => {
+    expect(setFirstTag(' a #work b #urgent', null)).toBe(' a b')
+  })
+
+  it('reads tags the way the task parser does', () => {
+    // A heading link and a URL fragment are not tags; a nested tag is one tag.
+    expect(setFirstTag(' see [[Note#Part]] x.com/#frag #proj/alpha', 'beta')).toBe(
+      ' see [[Note#Part]] x.com/#frag #beta'
+    )
+    // `#work` is not a prefix match for `#workshop`.
+    expect(setFirstTag(' a #workshop #work', 'work')).toBe(' a #work')
+  })
+
+  it('leaves the text alone when the tag is already first', () => {
+    expect(setFirstTag(' a #home #x', 'home')).toBe(' a #home #x')
+  })
+
+  it('refuses a tag the parser would not read back', () => {
+    expect(setFirstTag(' a #work', 'two words')).toBe(' a #work')
+  })
+})
+
+describe('withFirstTag (#1027)', () => {
+  it('mirrors setFirstTag on a parsed tag list', () => {
+    expect(withFirstTag(['work', 'urgent', 'home'], 'home')).toEqual(['home', 'urgent'])
+    expect(withFirstTag([], 'calls')).toEqual(['calls'])
+    expect(withFirstTag(['work', 'urgent'], null)).toEqual([])
+  })
+})
+
+describe('setTaskTagAtIndex (#1027)', () => {
+  it('retags only the task at the index, after its checkbox', () => {
+    const md = ['- [ ] a #work', '- [/] b #work @sprint:24'].join('\n')
+    expect(setTaskTagAtIndex(md, 1, 'home')).toBe(['- [ ] a #work', '- [/] b #home @sprint:24'].join('\n'))
+  })
+
+  it('clears the tags of a task with null', () => {
+    expect(setTaskTagAtIndex('- [ ] a #work #x', 0, null)).toBe('- [ ] a')
   })
 })
 

@@ -62,6 +62,8 @@ const mocks = vi.hoisted(() => {
       interfaceFont: null,
       // The Tasks pane: "due date" finds its Kanban card order row first.
       kanbanCardSort: "manual",
+      kanbanLanes: "none",
+      setKanbanLanes: vi.fn(),
       hideEmptyTasks: true,
       kanbanFolderRoot: "",
       kanbanStatuses: [] as string[],

@@ -45,6 +45,25 @@ describe('the Tasks keys cheat sheet', () => {
     for (const key of keysOf(off)) expect(key).toMatch(/^(← \/ →|↑ \/ ↓|Enter|Space|Shift\+F10|Tab \/ Shift\+Tab|Esc)$/)
   })
 
+  it('names the lane keys once the board has lanes (#1027)', () => {
+    const on = (laneMoves: boolean) =>
+      tasksKeySheet('kanban', { vimMode: true, dndEnabled: true, listOrder: 'note', subtasks: true, lanes: true, laneMoves })
+    expect(on(true).groups.map((g) => g.title)).toEqual(['Move', 'Cards', 'Subtasks', 'Lanes', 'Columns', 'Board'])
+    for (const key of ['{ / }', 'za', 'zM / zR', 'Shift+J / K', 'S']) expect(keysOf(on(true))).toContain(key)
+    // Folder lanes are read-only: no card move between them.
+    expect(keysOf(on(false))).not.toContain('Shift+J / K')
+    // Without lanes the group stays away, but S still turns them on.
+    const off = tasksKeySheet('kanban', { vimMode: true, dndEnabled: true, listOrder: 'note' })
+    expect(off.groups.map((g) => g.title)).not.toContain('Lanes')
+    expect(keysOf(off)).toContain('S')
+  })
+
+  it('keeps the lane keys to the universal ones with Vim mode off (#1027)', () => {
+    const sheet = tasksKeySheet('kanban', { vimMode: false, dndEnabled: true, listOrder: 'note', lanes: true, laneMoves: true })
+    expect(sheet.groups.map((g) => g.title)).toContain('Lanes')
+    for (const key of keysOf(sheet)) expect(key).toMatch(/^(← \/ →|↑ \/ ↓|Enter|Space|Enter \/ Space|Shift\+F10)$/)
+  })
+
   it('leaves card moves off a board that cannot move cards', () => {
     const sheet = tasksKeySheet('kanban', { vimMode: true, dndEnabled: false, listOrder: 'note' })
     expect(keysOf(sheet)).not.toContain('Shift+H / L')

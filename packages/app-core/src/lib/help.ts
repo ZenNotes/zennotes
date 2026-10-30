@@ -400,6 +400,11 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'A WIP limit caps how many cards a column should hold. Right-click a column header and choose **Set WIP limit…**. The header then reads `2 / 3`; past the limit the column turns red, as in `4 / 3`. From the keyboard, `↑` on a column’s first card reaches its header, where `Shift+F10` opens the menu and `Enter` renames the column. In Vim mode, `W` sets the focused column’s limit, `:wip 3` does too, and a bare `:wip` clears it. Limits are kept per board and column, in config.toml’s `[kanban_wip_limits]` table, such as `"status:in-progress" = 3`. The count ignores the filter and the hidden empty tasks.'
   },
   {
+    title: 'Swimlanes on the Kanban board',
+    body:
+      'Split the board into horizontal lanes by a second field: in the **View** menu (`v` in Vim mode), pick Lanes: Priority, Folder, Tag, or any `@field` you use. Each lane is a row across the same columns, with its own count. Drag a card into another lane to change that field on its task line, the way a column drop changes the column’s: a priority lane writes `!high`, an `@sprint` lane `@sprint:24`, and a tag lane makes its tag the task’s first (a task sits in the lane of its first tag; No tag removes them). Folder lanes are read-only, like folder columns. Click a lane’s header to collapse it; collapsed lanes are kept per board. WIP limits still count the whole column. In Vim mode, `S` steps through the lane fields, `{` / `}` hop between lanes, `Shift+J` / `Shift+K` move the card a lane down or up, `za` collapses or expands a lane, and `zM` / `zR` do all of them. With Vim mode off, the arrows reach each lane’s header, where Enter or Space collapses it. On the ex line, `:lanes tag` (a bare `:lanes` turns them off). Config key: `kanban_lanes` under `[view]`.'
+  },
+  {
     title: 'Keys for the Tasks views',
     body:
       'Each Tasks view has a **Keys** button at the right of its toolbar (`?` in Vim mode) that lists its keys. With Vim mode off it shows only the keys that work then: the arrows, Enter, Space, Tab, and Shift+F10.'
@@ -804,23 +809,25 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'j / k', action: 'Move row cursor', detail: 'Step through task rows, tagged notes and their tagged blocks, or trashed notes.' },
       { keys: 'g g / G', action: 'Jump to top or bottom', detail: 'Move to the first or last visible result.' },
       { keys: 'Enter / o', action: 'Open current result', detail: 'Open the selected task source note, tagged note, or trashed note. On a tagged block, open its note at that line, highlighted.' },
-      { keys: '} / {', action: 'Next or previous note', detail: 'Tags view only: hop to the next note past the current note\'s tagged blocks, or back to the previous note (from a block, to its own note).' },
+      { keys: '} / {', action: 'Next or previous note or lane', detail: 'Tags view: hop to the next note past the current note\'s tagged blocks, or back to the previous note (from a block, to its own note). On a Kanban board with lanes: hop to the next or previous lane\'s header (from a card, to its own lane).' },
       { keys: 'x', action: 'Toggle task', detail: 'Tasks view only: check or uncheck the selected task. A checked task lingers in place for a couple of seconds before it drops into Done, so you can toggle it again to undo. Space also toggles unless Space is your Vim leader key, in which case it starts a leader sequence.' },
       { keys: '>', action: 'Forward task', detail: 'Tasks list only: forward the selected task to another note. Opens a note picker that filters as you type and preselects the first match, so Enter forwards without reaching for an arrow key. The original becomes a forwarded record (`[>]`) linking to the target, and a fresh copy is added there, backlinked home, subtasks and all. Forwarded tasks live under a “Forwarded” group.' },
       { keys: 'i', action: 'Mark task in progress', detail: 'Tasks list only: mark the selected task as started (`- [/]`), or set it back to open. In-progress tasks keep their group and their day on the calendar, so the row keeps its place.' },
       { keys: 'c', action: 'Cancel task', detail: 'Tasks list only: mark the selected task as intentionally abandoned (`- [-]`), or un-cancel it. Cancelled tasks live under a “Cancelled” group, out of Today and Done.' },
       { keys: '@', action: 'Choose due date', detail: 'Tasks list, board, and calendar: give the selected task any due date from the month calendar that typing `@date` opens in a note, the same as Choose a date… in its right-click menu. It starts on the task’s due date (today without one); arrows move, Enter sets the day, or type a date.' },
       { keys: 'Tab / Shift+Tab', action: 'Step through a card’s subtasks', detail: 'Kanban board: step onto a card’s subtasks and back. Space (or x), Enter, i, c and @ act on that subtask; Esc returns to the card. Works with Vim mode on or off.' },
-      { keys: 'K / J', action: 'Move task up / down', detail: 'Tasks list only: reorder the selected task within its group. Works with Vim mode on or off, in Note order (see `s`).' },
+      { keys: 'K / J', action: 'Move task up / down', detail: 'Tasks list: reorder the selected task within its group. Works with Vim mode on or off, in Note order (see `s`). On a Kanban board with lanes, in Vim mode: move the card a lane up or down, writing that lane\'s field.' },
       { keys: 's', action: 'Order the list', detail: 'Tasks list only: switch the order inside each group between the notes’ line order and priority (high, then medium, low, and none, ties by due date). Same as the Order menu above the list, `:order priority` / `:order note`, and `tasks_list_order` under `[view]` in config.toml.' },
       { keys: 'r', action: 'Restore trashed note', detail: 'Trash view only: restore the selected trashed note.' },
       { keys: 'x / d', action: 'Delete forever', detail: 'Trash view only: permanently delete the selected trashed note after confirmation.' },
       { keys: '/', action: 'Filter the view', detail: 'Focus the local filter box for tasks, tag matches, or trashed notes. In Tags, a word from a tagged block narrows the list to that block.' },
       { keys: 'F', action: 'Pick a saved Tasks filter', detail: 'Tasks view: open the list of saved filters and apply one. Save the current query with the Save filter… chip or `:savefilter <name>`.' },
       { keys: 'E', action: 'Show or hide empty tasks', detail: 'Tasks view: show or hide bare `- [ ]` tasks in the list, calendar, and board.' },
-      { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks).' },
+      { keys: 'v', action: 'View menu', detail: 'Tasks view: open the View menu (Hide empty tasks, and the board\'s Lanes).' },
       { keys: '?', action: 'Keys', detail: 'Tasks view: list the current view’s keys. Esc closes it.' },
       { keys: 'W', action: 'Set a WIP limit', detail: 'Tasks board only: set the focused column’s WIP limit. Same as `:wip <limit>`.' },
+      { keys: 'S', action: 'Pick the board\'s lanes', detail: 'Tasks board only: step the lanes through None, Priority, Folder, Tag and your @fields. Same as Lanes in the View menu, or `:lanes <field>`.' },
+      { keys: 'za / zM / zR', action: 'Collapse lanes', detail: 'Tasks board with lanes: `za` collapses or expands the lane under the cursor, `zM` collapses every lane, `zR` expands them all. Enter on a lane\'s header does what `za` does.' },
       { keys: ':', action: 'Open local ex prompt', detail: 'Run the view-specific command line inside Tasks or Tags.' },
       { keys: 'Esc', action: 'Clear the filter', detail: 'Clears an active filter. These views are tabs, so Esc no longer closes them. Close with :q or the ✕ in the tab header.' }
     ]
@@ -953,6 +960,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: ':wip <limit>',
     summary: 'Set the focused Kanban column’s WIP limit',
     detail: 'On the board, `:wip 3` caps the focused column at three cards; past that it turns red. A bare `:wip` clears it. Same as Set WIP limit… in the column menu, or `W`.'
+  },
+  {
+    command: ':lanes <field>',
+    summary: 'Split the Kanban board into lanes',
+    detail: 'On the board, `:lanes priority` splits it into a lane per priority; `folder`, `tag`, `status` (Custom status) and any `@field` work too. A bare `:lanes` turns lanes off. Same as Lanes in the View menu, or `S` to step through them.'
   },
   {
     command: ':delfilter <name>',
@@ -1403,6 +1415,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     items: [
       { label: 'Show tasks from archived notes', detail: 'Off by default: archiving a note retires its tasks from the Tasks list, calendar, and Kanban. Turn this on to keep them visible everywhere, Archive column included. The raw key is `show_archived_tasks` in `config.toml`.' },
       { label: 'Hide empty tasks', detail: 'On by default: bare `- [ ]` tasks stay out of the Tasks views. Same as the View menu; config key `hide_empty_tasks`.' },
+      { label: 'Kanban lanes', detail: 'Splits the Kanban board into rows by Priority, Folder, or Tag; an `@field` picked on the board shows here too. Same as Lanes in the View menu; config key `kanban_lanes`.' },
       { label: 'Kanban statuses', detail: 'Define the ordered columns of the custom-status Kanban board here; `kanban_statuses` under `[view]` in `config.toml` is the file-level equivalent.' },
       { label: 'Tasks list order', detail: 'Note order keeps each group of the Tasks list in its notes’ line order, which Shift+J/K and dragging rearrange; Priority puts high priority first, then medium, low, and none, ties by due date. The list’s Order menu sets the same thing, and the raw key is `tasks_list_order` (`note` or `priority`) under `[view]` in `config.toml`.' },
       { label: 'Kanban card order', detail: 'Manual keeps the cards in the order you drag them into; Due date sorts every Kanban column by due date, cards without one last, and keeps your manual order for when you switch back. The board\'s Order menu sets the same thing, and the raw key is `kanban_card_sort` (`manual` or `due`) under `[view]` in `config.toml`.' }
