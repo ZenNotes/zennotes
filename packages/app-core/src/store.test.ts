@@ -1596,6 +1596,29 @@ describe('note jump history with the Tasks and Tags views (#633)', () => {
     expect(useStore.getState().selectedPath).toBe('inbox/Other.md')
   })
 
+  it('a task opened from the Tasks view leaves Tasks behind it, so Ctrl+O and Back return there', async () => {
+    // openTaskAt opened the note through the raw tab primitive and recorded
+    // no jump, so Ctrl+O (and the phones' Back) skipped Tasks and landed on
+    // the note before it (2.81.0 iPhone walk).
+    installZen({
+      readNote: vi
+        .fn()
+        .mockImplementation(async (path: string) => makeNote('- [ ] Pay rent', path))
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().selectNote('inbox/From.md')
+    await useStore.getState().openTasksView()
+    await useStore.getState().openTaskAt(makeTask('Pay rent'))
+    expect(useStore.getState().selectedPath).toBe('inbox/Note.md')
+    expect(useStore.getState().noteBackstack.map((l) => l.path).at(-1)).toBe(TASKS_TAB_PATH)
+
+    await useStore.getState().jumpToPreviousNote()
+    expect(useStore.getState().selectedPath).toBe(TASKS_TAB_PATH)
+    await useStore.getState().jumpToPreviousNote()
+    expect(useStore.getState().selectedPath).toBe('inbox/From.md')
+  })
+
   it('the Tags view round-trips the same way', async () => {
     installZen({
       readNote: vi

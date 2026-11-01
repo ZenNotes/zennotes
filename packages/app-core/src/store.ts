@@ -7781,7 +7781,10 @@ export const useStore = create<Store>((set, get) => {
 
     // Focus / open the note in the active pane. This replaces the Tasks
     // tab's content area with the note (the Tasks tab itself stays in the
-    // strip, so the user can hop back with a click).
+    // strip, so the user can hop back with a click). `openNoteInPane` keeps
+    // no history, so the jump is recorded here, as openNoteAtOffset does
+    // (#484): Ctrl+O and the phones' Back return to Tasks, not past it.
+    set(noteHistoryAfterJump(get(), task.sourcePath))
     await get().openNoteInPane(state.activePaneId, task.sourcePath)
     if (!isCurrent() || get().selectedPath !== task.sourcePath) return
     // Make sure the folder view is sensible in case the sidebar is visible.
