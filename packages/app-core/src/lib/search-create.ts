@@ -3,6 +3,7 @@ import { formDirContaining } from '@shared/databases'
 import { parseCreateNotePath } from './wikilinks'
 import { noteFolderSubpath } from './vault-layout'
 import { rankTagCompletions, type RankedTag } from './tags'
+import { PICKER_AREAS, areaSubfolders, filterFolderChoices } from './folder-picker'
 
 /**
  * Creating a note from the search palette (#826). The pure half of the flow:
@@ -160,9 +161,6 @@ export interface DestinationChoice {
   destination: NoteDestination
 }
 
-/** Areas the picker offers, in the order they appear. The Trash never does. */
-const PICKER_AREAS: readonly Exclude<NoteFolder, 'trash'>[] = ['inbox', 'quick', 'archive']
-
 /** What each top folder is called on screen. The caller resolves renamed
  *  system folders, and a vault that keeps its notes at the root passes the
  *  vault's name for `inbox`, the way the note list heading does. */
@@ -194,20 +192,10 @@ export function buildDestinationChoices(
   }
   for (const area of PICKER_AREAS) {
     push({ folder: area, subpath: '' })
-    const seen = new Set<string>()
-    const subs = folders
-      .filter((entry) => entry.folder === area && entry.subpath && !formDirContaining(entry.subpath))
-      .filter((entry) => !seen.has(entry.subpath) && seen.add(entry.subpath))
-      .sort((a, b) => {
-        const depth = a.subpath.split('/').length - b.subpath.split('/').length
-        return depth || a.subpath.localeCompare(b.subpath)
-      })
-    for (const entry of subs) push({ folder: area, subpath: entry.subpath })
+    for (const subpath of areaSubfolders(folders, area)) push({ folder: area, subpath })
   }
   return choices
 }
-
-const MAX_DESTINATION_ROWS = 12
 
 /**
  * Narrow the picker to what the Folder field says, ranked the way the other
@@ -218,28 +206,7 @@ export function filterDestinationChoices(
   choices: readonly DestinationChoice[],
   text: string
 ): DestinationChoice[] {
-  const query = text.trim().toLowerCase().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
-  if (!query) return choices.slice(0, MAX_DESTINATION_ROWS)
-  return choices
-    .map((choice, index) => {
-      const value = choice.value.toLowerCase()
-      const label = choice.label.toLowerCase()
-      const rank =
-        value === query
-          ? 0
-          : value.startsWith(query)
-            ? 1
-            : label.startsWith(query)
-              ? 2
-              : value.includes(query) || label.includes(query)
-                ? 3
-                : null
-      return rank === null ? null : { choice, rank, index }
-    })
-    .filter((entry): entry is { choice: DestinationChoice; rank: number; index: number } => !!entry)
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .slice(0, MAX_DESTINATION_ROWS)
-    .map((entry) => entry.choice)
+  return filterFolderChoices(choices, text)
 }
 
 /** The same shape `extractTags` accepts: a letter, then letters, digits, `_`, `-`, `/`. */

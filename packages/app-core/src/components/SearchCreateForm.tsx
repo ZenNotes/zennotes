@@ -4,6 +4,8 @@ import type { NoteMeta } from '@shared/ipc'
 import { useStore } from '../store'
 import { isImeComposing } from '../lib/ime'
 import { isPaletteNextKey, isPalettePreviousKey } from '../lib/palette-nav'
+import { stepPickerIndex } from '../lib/folder-picker'
+import { useFolderPicker } from '../lib/use-folder-picker'
 import { resolveSystemFolderLabels } from '../lib/system-folder-labels'
 import { isPrimaryNotesAtRoot, noteFolderSubpath } from '../lib/vault-layout'
 import { resolveTypstPreambleFolder } from '../lib/typst-preamble'
@@ -14,7 +16,6 @@ import {
   buildDestinationChoices,
   checkNoteName,
   destinationLabel,
-  filterDestinationChoices,
   findNameCollision,
   normalizeTag,
   parseDestinationText,
@@ -75,12 +76,7 @@ export function SearchCreateForm({
   const [tagText, setTagText] = useState('')
   const [focused, setFocused] = useState<Field | null>(null)
   // -1 keeps the typed value; 0..n highlights a row, which Enter then picks.
-  const [folderActive, setFolderActive] = useState(-1)
   const [tagActive, setTagActive] = useState(-1)
-  // The Folder field can arrive prefilled from a typed path. Landing in it
-  // lists every folder (the user came to look, or to change it); the list
-  // narrows only once they type.
-  const [folderTyped, setFolderTyped] = useState(false)
   const nameRef = useRef<HTMLInputElement | null>(null)
   const tagsRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -126,11 +122,11 @@ export function SearchCreateForm({
   const error = nameCheck.error ?? destination.error ?? typedTagError
   const canCreate = !error && !collision?.sameFolder
 
-  const folderRows = useMemo(
-    () =>
-      focused === 'folder' ? filterDestinationChoices(choices, folderTyped ? folderText : '') : [],
-    [choices, focused, folderText, folderTyped]
-  )
+  // The Folder field can arrive prefilled from a typed path. Landing in it
+  // lists every folder (the user came to look, or to change it); the list
+  // narrows only once they type.
+  const folderPicker = useFolderPicker(choices, folderText)
+  const folderRows = focused === 'folder' ? folderPicker.rows : []
   const tagRows = useMemo<TagRow[]>(() => {
     if (focused !== 'tags') return []
     const rows: TagRow[] = rankTagChoices(tagText, tagCounts, tags).map((entry) => ({
@@ -144,7 +140,7 @@ export function SearchCreateForm({
     return rows
   }, [focused, tagCounts, tagText, tags])
 
-  const activeRow = focused === 'folder' ? folderActive : focused === 'tags' ? tagActive : -1
+  const activeRow = focused === 'folder' ? folderPicker.active : focused === 'tags' ? tagActive : -1
   useEffect(() => {
     if (activeRow < 0) return
     listRef.current
@@ -197,7 +193,7 @@ export function SearchCreateForm({
 
   const pickFolder = (value: string): void => {
     setFolderText(value)
-    setFolderActive(-1)
+    folderPicker.setActive(-1)
     tagsRef.current?.focus()
   }
 
@@ -208,21 +204,6 @@ export function SearchCreateForm({
   }
 
   const pickTagRow = (row: TagRow): void => commitTag(row.tag)
-
-  const move = (
-    rows: number,
-    setActive: (update: (prev: number) => number) => void,
-    delta: number
-  ): void => {
-    if (rows === 0) return
-    // Cycle through [typed value (-1), row 0 … n-1] and wrap around.
-    setActive((prev) => {
-      const next = prev + delta
-      if (next < -1) return rows - 1
-      if (next >= rows) return -1
-      return next
-    })
-  }
 
   // Escape and the modified Enters belong to the whole form, whichever field
   // has focus. Stopping propagation keeps the window-level Escape handler
@@ -246,15 +227,10 @@ export function SearchCreateForm({
 
   const onFolderKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>): void => {
     if (isImeComposing(e)) return
-    if (isPaletteNextKey(e)) {
+    if (folderPicker.step(e)) return
+    if (isPlainEnter(e)) {
       e.preventDefault()
-      move(folderRows.length, setFolderActive, 1)
-    } else if (isPalettePreviousKey(e)) {
-      e.preventDefault()
-      move(folderRows.length, setFolderActive, -1)
-    } else if (isPlainEnter(e)) {
-      e.preventDefault()
-      const row = folderActive >= 0 ? folderRows[folderActive] : undefined
+      const row = folderPicker.highlighted
       if (row) pickFolder(row.value)
       else create()
     }
@@ -264,10 +240,10 @@ export function SearchCreateForm({
     if (isImeComposing(e)) return
     if (isPaletteNextKey(e)) {
       e.preventDefault()
-      move(tagRows.length, setTagActive, 1)
+      setTagActive((current) => stepPickerIndex(current, 1, tagRows.length))
     } else if (isPalettePreviousKey(e)) {
       e.preventDefault()
-      move(tagRows.length, setTagActive, -1)
+      setTagActive((current) => stepPickerIndex(current, -1, tagRows.length))
     } else if (isPlainEnter(e)) {
       e.preventDefault()
       const row = tagActive >= 0 ? tagRows[tagActive] : undefined
@@ -331,16 +307,11 @@ export function SearchCreateForm({
             value={folderText}
             onChange={(e) => {
               setFolderText(e.target.value)
-              setFolderTyped(true)
-              // Preselect the first match while typing, so Enter picks it
-              // without an arrow key first; the typed value stays one
-              // ArrowUp away, for a folder that does not exist yet. (#467)
-              setFolderActive(e.target.value.trim() ? 0 : -1)
+              folderPicker.typed(e.target.value)
             }}
             onFocus={() => {
               setFocused('folder')
-              setFolderActive(-1)
-              setFolderTyped(false)
+              folderPicker.reset()
             }}
             onBlur={() => setFocused((f) => (f === 'folder' ? null : f))}
             onKeyDown={onFolderKeyDown}
@@ -470,8 +441,8 @@ export function SearchCreateForm({
                 data-search-form-idx={i}
                 data-search-form-folder={row.value}
                 onClick={() => pickFolder(row.value)}
-                onMouseMove={() => setFolderActive(i)}
-                className={[ROW_CLASS, i === folderActive ? 'bg-paper-200' : 'hover:bg-paper-200/70'].join(
+                onMouseMove={() => folderPicker.setActive(i)}
+                className={[ROW_CLASS, i === folderPicker.active ? 'bg-paper-200' : 'hover:bg-paper-200/70'].join(
                   ' '
                 )}
               >
