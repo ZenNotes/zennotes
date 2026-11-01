@@ -19,7 +19,7 @@ function mount(marked: string): EditorView {
   if (anchor < 0) throw new Error('no caret in doc')
   const view = new EditorView({
     state: EditorState.create({
-      doc: marked.replace('|', ''),
+      doc: marked.slice(0, anchor) + marked.slice(anchor + 1),
       selection: { anchor },
       extensions: [
         noteMarkdown(),
